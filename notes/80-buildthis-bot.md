@@ -72,24 +72,32 @@ that one." No human-in-the-loop; the reply is automatic.
 
 ## Budget & rate caps
 
-Rob's stated ceiling: **don't spend more than ~$10 by accident.** That maps to a
-*global daily* cap — the real wallet protector, since a build only costs money when
-the watcher dispatches one. Layered:
+Rob's stated ceiling: **don't spend more than ~$10 by accident.** Three layers,
+from hardest backstop to finest throttle:
 
-- **Global daily cap in the watcher (KV): 5 builds/UTC-day.** This is the real
-  wallet protector — a build only costs money when the watcher dispatches one, so
-  bounding dispatches bounds spend. 5 builds/day is the number tuned to keep the
-  worst case under ~$10.
-- **Per-build ceiling in the Action: `--max-turns 30` + `timeout-minutes`.**
-  NOTE: the action has **no** USD/token budget flag (verified against its docs);
-  `--max-turns` + the model choice + a hard job timeout are what bound a single
-  build's cost. Cheaper/faster model choice tightens this further.
-- **Per-person: 3 builds/person/day** (watcher KV). One eager mutual can't eat the
-  whole day.
+- **The real backstop — an Anthropic spend cap on a dedicated Workspace.** The
+  Console (Settings → Limits) lets you set a monthly USD spend cap per Workspace;
+  when it's hit, that workspace's API key **stops serving requests until next
+  month.** So: make a Workspace just for the bot, cap its spend, and give the
+  builder Action a key scoped to it. This is enforced by Anthropic — even if the
+  watcher's own caps failed and dispatched infinitely, spend can't exceed the cap.
+  The cap is **monthly**, not daily; pick a modest monthly number (e.g. $20–50) as
+  the true ceiling, and let the daily build-count below do the day-to-day pacing.
+  (Verified against the rate-limits docs — there is no per-request USD flag, but
+  the workspace cap is a genuine hard wall.)
+- **Model choice — Sonnet 5, not Opus.** The builder runs `--model claude-sonnet-5`
+  (~2–3× cheaper input, and much cheaper than Opus). Scaffolding small static
+  sites doesn't need Opus-tier taste, so this directly buys more builds per dollar.
+  Haiku 4.5 is cheaper still if we ever want to push cost down further.
+- **Daily pacing in the watcher (KV): 5 builds/UTC-day, 3/person/day.** A build
+  only costs money when the watcher dispatches one, so bounding dispatches bounds
+  spend day-to-day. Per-build the Action adds `--max-turns 30` + a job
+  `timeout-minutes` so a single runaway build is bounded too.
 
-If ~$10/day ever proves too loose or too tight, retune the daily build count —
-that's the dial that maps most directly to dollars. The caps live in the watcher
-`vars` + the Action `claude_args`, one line each.
+Net: the workspace cap is the wall you can't blow through; the model choice and
+daily count keep normal operation well under it. Retune the daily build-count
+(watcher `vars`) for day-to-day spend; retune the workspace cap (Console) for the
+absolute ceiling.
 
 ## House rules: the brief is third-party text
 
@@ -120,7 +128,9 @@ point is that good work ships the moment it lands.
 - [x] Non-mutuals: **replied to with a tag to `@bisks.net`** so Rob can take it
       manually. No build, but no silence either.
 - [x] Scope: agent's choice — new site OR new path, per the idea.
-- [x] Budget: **$10/day global**, $2 + 30 turns per build, 3/person/day.
+- [x] Budget: **a monthly spend cap on a dedicated Anthropic Workspace** (the hard
+      wall), builder on **Sonnet 5** (cheap), plus **5 builds/day + 3/person/day**
+      in the watcher and `--max-turns 30` per build for day-to-day pacing.
 - [x] Builds **serialized** via a concurrency group.
 - [x] House rules: builder works within `sites/` + `apex/public/`.
 
@@ -132,10 +142,14 @@ point is that good work ships the moment it lands.
    `*.bsky.social` handle) and drop it into `sites/buildthis` config.
 3. Deploy `sites/buildthis` so `/.well-known/atproto-did` is live, then **[rob]**
    set the bot's handle to `buildthis.bisks.net` in the Bluesky app.
-4. **[rob]** Secrets: `ANTHROPIC_API_KEY` + a GitHub PAT (or the default token) for
-   the Action; the bot app-password as a Cloudflare Worker secret AND a GitHub
-   secret (the reply step needs it too); a GitHub token the watcher uses to fire
-   `repository_dispatch`.
-5. Wire the watcher's cron trigger and KV namespace.
+4. **[rob]** In the Anthropic Console: create a **Workspace** for the bot, set a
+   monthly **spend cap** on it (Settings → Limits), and mint an `ANTHROPIC_API_KEY`
+   scoped to that workspace. This is the hard spend wall.
+5. **[rob]** Secrets: that workspace-scoped `ANTHROPIC_API_KEY` + `BOT_IDENTIFIER`
+   + `BOT_APP_PASSWORD` as GitHub Actions secrets (the reply step needs the app
+   password too); the bot app-password + a repo-scoped GitHub token as Cloudflare
+   Worker secrets (the watcher uses the token to fire `repository_dispatch`).
+6. Wire the watcher's cron trigger and KV namespace (`wrangler kv namespace create
+   buildthis-state`, paste the id into `wrangler.toml`).
 
 Details for each land next to the code as it's built.
