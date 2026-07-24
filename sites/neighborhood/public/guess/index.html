@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trigruessr · neighborhood — guess the neighbor — bisks.net</title>
+    <meta
+      name="description"
+      content="Guess which of a handle's mutuals posted a set of three-word phrases. The roster is people you actually recognize. Fewer clues, more points."
+    />
+    <!-- Plain look, copied from trigruessr: black on white, one readable mono,
+         lots of space, one calm accent used only for links + score. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.4rem 0 1.4rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      /* handle searchbar */
+      form.hood { margin: 0 0 1.6rem; }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .hoodbar {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.8rem; color: var(--muted); margin: 0 0 1.4rem;
+      }
+      .hoodbar b { color: var(--ink); font-weight: 600; }
+      .hoodbar button.link {
+        border: none; background: none; color: var(--accent); cursor: pointer;
+        font-family: inherit; font-size: 0.8rem; padding: 0; text-decoration: underline;
+      }
+
+      /* scoreboard */
+      .board {
+        display: flex; gap: 1.4rem; flex-wrap: wrap;
+        border-top: 1px solid var(--faint); border-bottom: 1px solid var(--faint);
+        padding: 0.7rem 0; margin-bottom: 2rem; font-size: 0.8rem;
+      }
+      .board .stat { color: var(--muted); }
+      .board .stat b { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+      .board .stat .score b { color: var(--accent); }
+
+      .stage { min-height: 8rem; }
+
+      /* clue slots */
+      .clues { list-style: none; margin: 0 0 1.6rem; padding: 0; }
+      .clue {
+        display: flex; align-items: baseline; gap: 0.75rem;
+        padding: 0.55rem 0; border-top: 1px solid var(--faint);
+      }
+      .clue:first-child { border-top: none; }
+      .clue .num { color: var(--muted); font-size: 0.75rem; width: 1.2rem; flex: none; }
+      .clue .gram { font-size: 1.15rem; font-weight: 600; word-break: break-word; }
+      .clue.hidden .gram { color: var(--faint); font-weight: 400; letter-spacing: 0.1em; }
+      .clue.reveal { animation: fade 0.25s ease both; }
+      @keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+
+      .prompt { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.9rem; }
+      .prompt b { color: var(--ink); }
+
+      .actions { margin-bottom: 1.6rem; }
+      .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      @media (max-width: 460px) { .choices { grid-template-columns: 1fr; } }
+
+      button {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.6rem 0.8rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+        cursor: pointer; text-align: left; line-height: 1.35;
+      }
+      button:hover:not(:disabled) { background: #f2f2f2; }
+      button:disabled { cursor: default; }
+      button .dn { font-weight: 600; display: block; }
+      button .hn { color: var(--muted); font-size: 0.78rem; }
+
+      button.solid {
+        background: var(--ink); color: var(--bg); text-align: center;
+        font-size: 0.85rem; padding: 0.55rem 0.9rem;
+      }
+      button.solid:hover:not(:disabled) { background: #000; }
+      button.solid:disabled { opacity: 0.3; }
+
+      button.correct { border-color: var(--good); background: #eafaf0; }
+      button.correct .dn, button.correct .hn { color: var(--good); }
+      button.wrong { border-color: var(--bad); background: #fbeceb; opacity: 0.85; }
+      button.wrong .dn, button.wrong .hn { color: var(--bad); }
+      button.dim { opacity: 0.35; }
+
+      .cluebar {
+        display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+        font-size: 0.8rem; color: var(--muted);
+      }
+
+      /* reveal card */
+      .reveal-card {
+        display: flex; gap: 0.9rem; align-items: center;
+        padding: 1rem 0; border-top: 1px solid var(--faint);
+        margin-top: 0.4rem; animation: fade 0.3s ease both;
+      }
+      .reveal-card img {
+        width: 52px; height: 52px; border-radius: 50%; flex: none;
+        background: var(--faint); object-fit: cover;
+      }
+      .reveal-card .meta { min-width: 0; }
+      .reveal-card .verdict { font-weight: 600; margin: 0 0 0.15rem; }
+      .reveal-card .verdict.win { color: var(--good); }
+      .reveal-card .verdict.lose { color: var(--bad); }
+      .reveal-card .name { font-weight: 600; }
+      .reveal-card a { color: var(--accent); text-decoration: none; font-size: 0.82rem; }
+      .reveal-card a:hover { text-decoration: underline; }
+
+      .err { color: var(--bad); }
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>
+          <a href="../">trigruessr</a>
+          <span class="slash">· neighborhood edition</span>
+        </h1>
+      </header>
+      <p class="intro">
+        A mystery account from someone's <b>neighborhood</b> — the mutuals they
+        follow that follow back — revealed only through <b>three-word phrases</b>
+        from its posts. Guess who. First clue is worth <b>5 points</b>; each extra
+        clue you need is worth one less.
+      </p>
+
+      <form class="hood" id="form" autocomplete="off">
+        <div class="searchrow">
+          <input
+            type="text"
+            id="handle"
+            placeholder="a bluesky handle — e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button class="solid" id="load" type="submit" style="flex:none">build</button>
+        </div>
+      </form>
+
+      <div class="stage" id="stage">
+        <p class="prompt">
+          Type a handle above and hit <b>build</b> to play on that account's
+          neighborhood.
+        </p>
+      </div>
+
+      <footer>
+        reads Bluesky's public API in your browser — no login. neighborhood via
+        follows ∩ followers; phrases borrow from
+        <a href="https://trigrams.bisks.net">trigrams</a>. a
+        <a href="../">neighborhood</a> edition of
+        <a href="https://trigruessr.bisks.net">trigruessr</a> ·
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { neighborhood, authorPosts, tokenize, score } from "../lib/hood.js";
+
+      const HARVEST_PAGES = 3; // ~300 recent posts per candidate — plenty of phrases
+      const MIN_CLUES = 3; // a round needs at least this many usable phrases
+      const CLUES = 5; // clues available per round
+      const CHOICES = 6; // multiple-choice options per round (clamped to pool size)
+
+      const form = document.getElementById("form");
+      const input = document.getElementById("handle");
+      const loadBtn = document.getElementById("load");
+      const stage = document.getElementById("stage");
+
+      let hood = null; // { handle, pool, kind, counts }
+      let pool = []; // [{ did, handle, displayName, avatar }]
+      let state = { score: 0, streak: 0, round: 0 };
+      let best = Number(localStorage.getItem("hood.trigruessr.best") || 0);
+      let recent = []; // dids of last few secrets, to avoid immediate repeats
+      let cur = null; // current round
+      let nextP = null; // prefetched next round (a promise)
+      let choiceN = CHOICES;
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      const rnd = (n) => Math.floor(Math.random() * n);
+      function shuffle(a) {
+        const r = a.slice();
+        for (let i = r.length - 1; i > 0; i--) {
+          const j = rnd(i + 1);
+          [r[i], r[j]] = [r[j], r[i]];
+        }
+        return r;
+      }
+      function sample(a, n) {
+        return shuffle(a).slice(0, n);
+      }
+      const overlap = (a, b) => a.filter((x) => b.includes(x)).length;
+
+      // ── neighborhood header + scoreboard ─────────────────────────────────────
+      function hoodBarHtml() {
+        if (!hood) return "";
+        const c = hood.counts;
+        return `<div class="hoodbar">
+          playing <b>@${esc(hood.handle)}</b>'s neighborhood —
+          <b>${c.mutuals}</b> mutual${c.mutuals === 1 ? "" : "s"}${
+            hood.kind !== "mutuals" ? ` (widened to ${c.pool} incl. follows)` : ""
+          } · <button class="link" id="change" type="button">change</button>
+        </div>`;
+      }
+      function boardHtml() {
+        return `<div class="board">
+          <span class="stat score">score <b>${state.score}</b></span>
+          <span class="stat">streak <b>${state.streak}</b></span>
+          <span class="stat">best <b>${best}</b></span>
+          <span class="stat">round <b>${state.round || "–"}</b></span>
+        </div>`;
+      }
+
+      // ── clue harvesting (adapted from trigruessr; source is getAuthorFeed) ─────
+      async function gatherClues(actor) {
+        const nameToks = new Set([
+          ...tokenize(actor.handle.replace(/[._-]/g, " ")),
+          ...tokenize(actor.displayName || ""),
+        ]);
+
+        const texts = await authorPosts(actor.did, { pages: HARVEST_PAGES });
+        const counts = new Map();
+        for (const text of texts) {
+          const t = tokenize(text);
+          for (let i = 0; i + 2 < t.length; i++) {
+            const g = `${t[i]} ${t[i + 1]} ${t[i + 2]}`;
+            counts.set(g, (counts.get(g) || 0) + 1);
+          }
+        }
+
+        const cands = [];
+        for (const [g] of counts) {
+          const toks = g.split(" ");
+          const s = score(toks);
+          if (s < 0) continue; // all-stopword
+          if (toks.some((x) => nameToks.has(x))) continue; // don't leak the name
+          cands.push({ g, toks, s });
+        }
+        cands.sort((a, b) => b.s - a.s);
+
+        let good = cands.filter((c) => c.s >= 4);
+        if (good.length < CLUES + 3) good = cands.filter((c) => c.s >= 2);
+        if (good.length < MIN_CLUES) good = cands;
+
+        const picked = [];
+        for (const c of shuffle(good.slice(0, 30))) {
+          if (picked.length >= CLUES) break;
+          if (picked.some((p) => overlap(p.toks, c.toks) >= 2)) continue;
+          picked.push(c);
+        }
+        for (const c of good) {
+          if (picked.length >= CLUES) break;
+          if (!picked.includes(c)) picked.push(c);
+        }
+        return picked.map((p) => p.g);
+      }
+
+      // Build a playable round: a secret with enough clues + decoys.
+      async function makeRound() {
+        const fresh = pool.filter((p) => !recent.includes(p.did));
+        const order = shuffle(fresh.length >= choiceN ? fresh : pool);
+        for (const secret of order) {
+          let clues;
+          try {
+            clues = await gatherClues(secret);
+          } catch {
+            continue;
+          }
+          if (clues.length < MIN_CLUES) continue;
+
+          const decoys = sample(
+            pool.filter((p) => p.did !== secret.did),
+            choiceN - 1,
+          );
+          return {
+            secret,
+            clues: clues.slice(0, CLUES),
+            choices: shuffle([secret, ...decoys]),
+            shown: 1,
+            over: false,
+          };
+        }
+        return null;
+      }
+
+      // ── render ───────────────────────────────────────────────────────────────
+      function stake(round) {
+        return Math.max(1, CLUES + 1 - round.shown);
+      }
+
+      function render() {
+        if (!cur) {
+          stage.innerHTML =
+            hoodBarHtml() +
+            `<p class="err">Couldn't assemble a round from this neighborhood —
+              not enough accounts with harvestable posts, or Bluesky's API had a
+              moment. <button class="solid" id="retry">try again</button></p>`;
+          wireChange();
+          const r = document.getElementById("retry");
+          if (r) r.onclick = () => startGame();
+          return;
+        }
+
+        const cluesHtml = cur.clues
+          .map((g, i) => {
+            const on = i < cur.shown || cur.over;
+            const gram = on ? esc(g) : "· · ·";
+            return `<li class="clue ${on ? "reveal" : "hidden"}">
+              <span class="num">${i + 1}</span>
+              <span class="gram">${gram}</span>
+            </li>`;
+          })
+          .join("");
+
+        const choicesHtml = cur.choices
+          .map(
+            (c, i) => `<button data-i="${i}">
+              <span class="dn">${esc(c.displayName)}</span>
+              <span class="hn">@${esc(c.handle)}</span>
+            </button>`,
+          )
+          .join("");
+
+        stage.innerHTML =
+          hoodBarHtml() +
+          boardHtml() +
+          `<ul class="clues">${cluesHtml}</ul>
+          <p class="prompt">Which neighbor posts like this? Worth <b>${stake(cur)} pt${stake(cur) === 1 ? "" : "s"}</b> right now.</p>
+          <div class="actions cluebar">
+            <button class="solid" id="more" ${cur.shown >= cur.clues.length ? "disabled" : ""}>
+              reveal another clue (−1 pt)
+            </button>
+            <span>${cur.shown} of ${cur.clues.length} clues shown</span>
+          </div>
+          <div class="choices" id="choices">${choicesHtml}</div>`;
+
+        wireChange();
+        const more = document.getElementById("more");
+        if (more)
+          more.onclick = () => {
+            if (cur.shown < cur.clues.length) {
+              cur.shown++;
+              render();
+            }
+          };
+        document.querySelectorAll("#choices button").forEach((b) => {
+          b.onclick = () => guess(Number(b.dataset.i), b);
+        });
+      }
+
+      function guess(i) {
+        if (cur.over) return;
+        cur.over = true;
+        const picked = cur.choices[i];
+        const won = picked.did === cur.secret.did;
+        const gained = won ? stake(cur) : 0;
+
+        state.round++;
+        if (won) {
+          state.score += gained;
+          state.streak++;
+          if (state.streak > best) {
+            best = state.streak;
+            localStorage.setItem("hood.trigruessr.best", String(best));
+          }
+        } else {
+          state.streak = 0;
+        }
+        recent = [cur.secret.did, ...recent].slice(0, 6);
+
+        document.querySelectorAll("#choices button").forEach((b, j) => {
+          b.disabled = true;
+          const c = cur.choices[j];
+          if (c.did === cur.secret.did) b.className = "correct";
+          else if (j === i) b.className = "wrong";
+          else b.className = "dim";
+        });
+        const more = document.getElementById("more");
+        if (more) more.disabled = true;
+        document.querySelectorAll(".clue").forEach((li, j) => {
+          li.classList.remove("hidden");
+          li.querySelector(".gram").textContent = cur.clues[j];
+        });
+
+        const s = cur.secret;
+        const verdict = won
+          ? `<span class="verdict win">✓ Got it in ${cur.shown} clue${cur.shown === 1 ? "" : "s"} · +${gained}</span>`
+          : `<span class="verdict lose">✗ Nope — it was:</span>`;
+        const card = document.createElement("div");
+        card.className = "reveal-card";
+        card.innerHTML = `
+          ${s.avatar ? `<img src="${esc(s.avatar)}" alt="" />` : `<img alt="" />`}
+          <div class="meta">
+            ${verdict}
+            <div class="name">${esc(s.displayName)}</div>
+            <a href="https://bsky.app/profile/${esc(s.handle)}" target="_blank" rel="noopener">@${esc(s.handle)} on bluesky →</a>
+          </div>`;
+        stage.appendChild(card);
+
+        const next = document.createElement("button");
+        next.className = "solid";
+        next.style.marginTop = "1.4rem";
+        next.textContent = "next neighbor →";
+        next.onclick = advance;
+        stage.appendChild(next);
+      }
+
+      async function advance() {
+        stage.innerHTML = hoodBarHtml() + `<p class="prompt">dealing the next hand…</p>`;
+        wireChange();
+        const p = nextP || makeRound();
+        nextP = null;
+        cur = await p;
+        render();
+        nextP = makeRound(); // prefetch the one after, so "next" stays instant
+      }
+
+      function wireChange() {
+        const c = document.getElementById("change");
+        if (c) c.onclick = openSearch;
+      }
+      function openSearch() {
+        input.focus();
+        input.select();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      // ── boot a neighborhood ────────────────────────────────────────────────────
+      async function startGame() {
+        stage.innerHTML = `<p class="prompt">warming up the neighborhood…</p>`;
+        cur = await makeRound();
+        render();
+        nextP = makeRound();
+      }
+
+      async function loadHood(handle) {
+        loadBtn.disabled = true;
+        input.value = handle;
+        state = { score: 0, streak: 0, round: 0 };
+        recent = [];
+        cur = null;
+        nextP = null;
+        stage.innerHTML = `<p class="prompt" id="step">resolving @${esc(handle.replace(/^@/, ""))}…</p>`;
+        const step = (m) => {
+          const el = document.getElementById("step");
+          if (el) el.textContent = m;
+        };
+        try {
+          hood = await neighborhood(handle, { onStep: step });
+        } catch (e) {
+          stage.innerHTML = `<p class="err">Couldn't build that neighborhood — ${esc(
+            (e && e.message) || "handle didn't resolve",
+          )}. Check the handle and try again.</p>`;
+          loadBtn.disabled = false;
+          return;
+        }
+        pool = hood.pool;
+        choiceN = Math.max(2, Math.min(CHOICES, pool.length));
+        if (pool.length < 2) {
+          stage.innerHTML = `<p class="err">@${esc(hood.handle)}'s neighborhood is
+            too small to play — not enough mutuals with posts. Try a more connected
+            account.</p>`;
+          loadBtn.disabled = false;
+          return;
+        }
+        try {
+          history.replaceState(null, "", "?h=" + encodeURIComponent(hood.handle));
+        } catch {}
+        loadBtn.disabled = false;
+        await startGame();
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const h = input.value.trim();
+        if (h) loadHood(h);
+        else input.focus();
+      });
+
+      // auto-start if a handle came in via ?h=
+      const initial = new URLSearchParams(location.search).get("h");
+      if (initial) loadHood(initial);
+    </script>
+  </body>
+</html>
