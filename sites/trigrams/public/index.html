@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trigrams — bisks.net</title>
+    <meta
+      name="description"
+      content="Unique three-word phrases streaming through Bluesky, one card at a time."
+    />
+    <style>
+      :root {
+        --bg: #f4f6f3;
+        --card: #eaf0ea;
+        --ink: #1a1a1a;
+        --muted: #5a625a;
+        --accent: #2f6b3f;
+        --link: #2b6cb0;
+        --bold: #111;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 620px;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 5rem;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.75rem;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.5rem;
+        margin: 0;
+        letter-spacing: -0.02em;
+      }
+      header h1 a { color: inherit; text-decoration: none; }
+      .status {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.72rem;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #bbb;
+        transition: background 0.3s;
+      }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+      }
+      .intro {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin: 0 0 1.75rem;
+      }
+      .card {
+        background: var(--card);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1rem;
+        animation: pop 0.28s ease;
+      }
+      @keyframes pop {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .card h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.1rem;
+        margin: 0 0 0.5rem;
+        font-weight: 700;
+        line-height: 1.3;
+        word-break: break-word;
+      }
+      .card h2 .tag {
+        font-size: 0.62rem;
+        letter-spacing: 0.09em;
+        color: var(--muted);
+        text-transform: uppercase;
+        margin-left: 0.45rem;
+        font-weight: 400;
+        white-space: nowrap;
+      }
+      .card .body {
+        margin: 0 0 0.7rem;
+        color: var(--muted);
+        word-break: break-word;
+      }
+      .card .body b { color: var(--bold); }
+      .card a.perma {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.8rem;
+        color: var(--link);
+        text-decoration: none;
+      }
+      .card a.perma:hover { text-decoration: underline; }
+      footer {
+        margin-top: 2.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      footer a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">trigrams</a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        A 3-gram is three words in a row. This watches the Bluesky firehose and
+        shows each three-word phrase the first time it scrolls past here — little
+        fingerprints of a specific thought, streaming by live.
+      </p>
+
+      <main id="feed"></main>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- config ----------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_CARDS = 60; // cap the DOM; oldest cards drop off the bottom
+      const MIN_WORD_LEN = 2; // ignore 1-char tokens when forming phrases
+
+      // ---- state -----------------------------------------------------------
+      // We only render a given trigram once per session. `seen` is the dedup set.
+      const seen = new Set();
+      const feed = document.getElementById("feed");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+
+      // ---- text handling ---------------------------------------------------
+      // A "run" is a stretch of words with no punctuation or line break between
+      // them. We only form trigrams *within* a run, so a phrase never spans a
+      // comma, period, or newline — that keeps "OTD 7/24/1952" from becoming the
+      // trigram "otd 24 1952", and matches how the phrases read as real thoughts.
+      //
+      // Runs are split on anything that isn't a letter, number, apostrophe, or
+      // space. Within a run we split on spaces. A token must contain a letter
+      // (drops bare numbers), and a usable run must have real spaces — which
+      // naturally excludes CJK / other scriptio-continua text that arrives as one
+      // giant spaceless token.
+      const hasLetter = (w) => /\p{L}/u.test(w);
+
+      function runsOf(text) {
+        return text
+          .toLowerCase()
+          .replace(/https?:\/\/\S+/g, " ") // drop urls
+          .split(/[^\p{L}\p{N}' ]+/u) // break runs at punctuation / newlines
+          .map((run) =>
+            run.split(/\s+/).filter((w) => w.length >= MIN_WORD_LEN && hasLetter(w)),
+          )
+          .filter((words) => words.length >= 3);
+      }
+
+      function trigramsOf(text) {
+        const out = [];
+        for (const words of runsOf(text)) {
+          for (let i = 0; i + 2 < words.length; i++) {
+            out.push([words[i], words[i + 1], words[i + 2]]);
+          }
+        }
+        return out;
+      }
+
+      // Cheap gate for obviously automated / spammy posts. Not exhaustive — just
+      // trims the loudest bot noise so the feed reads more like human thoughts.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true; // affiliate
+        if (/^digit:\s|in words:/i.test(text)) return true; // number-spelling bots
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true; // hashtag soup
+        return false;
+      }
+
+      // One loud account can otherwise fill the visible feed. Don't show a second
+      // card from the same author within this window.
+      const AUTHOR_COOLDOWN_MS = 30000;
+      const lastShownByAuthor = new Map();
+      function authorOnCooldown(did, now) {
+        const prev = lastShownByAuthor.get(did);
+        return prev != null && now - prev < AUTHOR_COOLDOWN_MS;
+      }
+
+      function escapeHtml(s) {
+        return s.replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      // Bold the first occurrence of the phrase in the original post text,
+      // matching on word boundaries loosely (the phrase words in order).
+      function highlight(text, phraseWords) {
+        const escaped = escapeHtml(text);
+        // Build a lenient regex: word1 <sep> word2 <sep> word3
+        const sep = "[^\\p{L}\\p{N}']+";
+        const pat = phraseWords
+          .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join(sep);
+        try {
+          const re = new RegExp("(" + pat + ")", "iu");
+          return escaped.replace(re, "<b>$1</b>");
+        } catch {
+          return escaped;
+        }
+      }
+
+      // Build the bsky.app permalink from the record's at:// coordinates.
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      function renderCard({ phrase, text, did, rkey }) {
+        const card = document.createElement("article");
+        card.className = "card";
+        const title = escapeHtml(phrase.join(" "));
+        card.innerHTML =
+          `<h2>${title} <span class="tag">3-gram</span></h2>` +
+          `<p class="body">${highlight(text, phrase)}</p>` +
+          `<a class="perma" href="${postUrl(did, rkey)}" target="_blank" rel="noopener">see the one post →</a>`;
+        feed.prepend(card);
+        while (feed.childElementCount > MAX_CARDS) {
+          feed.removeChild(feed.lastElementChild);
+        }
+      }
+
+      // ---- firehose --------------------------------------------------------
+      function handlePost(evt) {
+        // Jetstream commit event for an app.bsky.feed.post create.
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        if (rec.reply) return; // top-level posts read cleaner; skip replies
+        const text = rec.text.trim();
+        if (!text) return;
+        if (looksLikeSpam(text)) return;
+
+        // Author cooldown is checked before we touch `seen`, so a rate-limited
+        // post doesn't silently consume ("burn") its phrases — another account
+        // can still surface the same trigram later.
+        if (authorOnCooldown(evt.did, Date.now())) return;
+
+        for (const tri of trigramsOf(text)) {
+          const key = tri.join(" ");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          // Show the first novel trigram from this post, then move on — one
+          // card per post keeps the feed readable. Stamp the author only now, on
+          // an actual render, so posts that surface nothing don't burn a slot.
+          lastShownByAuthor.set(evt.did, Date.now());
+          renderCard({ phrase: tri, text, did: evt.did, rkey: commit.rkey });
+          return;
+        }
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "live");
+        };
+
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      connect();
+
+      // Pause the socket when the tab is hidden; resume on return.
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+    </script>
+  </body>
+</html>

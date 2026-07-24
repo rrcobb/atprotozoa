@@ -2,9 +2,9 @@
 
 ## What it is
 
-A rebuild of the thing in the inspiration screenshots (`notes/inspiration/`, from
-mino.mobi's `b.` surface): surface **unique three-word phrases (3-grams)** flowing
-through Bluesky, each rendered as a card.
+Inspired by mino.mobi's `b.` surface (`notes/inspiration/`): a live feed of
+**three-word phrases (3-grams)** streaming off the Bluesky firehose, each rendered
+as a card the first time we see it.
 
 Each card:
 - a mono-font **title** = the trigram (e.g. `manifold polymarket integration`),
@@ -12,8 +12,22 @@ Each card:
 - the **source post text**, with the trigram bolded in context.
 - a **"see the one post →"** link to the post on bsky.app.
 
-The conceit: a 3-gram that has appeared in exactly **one** post is a little
-fingerprint of a specific thought. The feed is a stream of these one-off phrases.
+The conceit: watch novel three-word phrases scroll by live — little fingerprints
+of specific thoughts as they're posted.
+
+### Honest scope of "novel" (important)
+
+This is **NOT** mino's global-uniqueness claim. mino's `b.mino.mobi/unique/` takes
+a handle, finds phrases that person used exactly once, then checks each against
+platform-wide search to prove *no one else on Bluesky ever posted it* — a real
+global-uniqueness test. That's a different, heavier tool.
+
+Ours means: **novel to this browser session.** We open the firehose and show each
+3-gram the first time our in-memory set sees it since the page loaded. A phrase we
+card might be one someone posts constantly — we just hadn't seen it yet. That's
+fine and still fun (it reads as a stream of specific, one-off-feeling thoughts),
+but the label on the page must not overclaim. A future version could add a real
+global check (mino-style search, or a server-side rolling index) — see below.
 
 ## Data source
 
