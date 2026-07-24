@@ -47,12 +47,15 @@ jobs:
           git config user.name "buildthis"
           git config user.email "buildthis@bisks.net"
 
-      # The build. We run the Claude Code CLI directly (not the GitHub Action)
-      # because the builder runs on Kimi K3 via Moonshot's Anthropic-compatible
-      # endpoint — the CLI honors ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN /
-      # ANTHROPIC_MODEL, and running it ourselves means those env vars are set
-      # explicitly with no wrapper deciding what to forward. Kimi's prepaid balance
-      # IS the spend cap (see notes/80): the account can't spend past what's loaded.
+      # The build. We run the Claude Code CLI directly (not the GitHub Action) so
+      # the model/endpoint is controlled by plain env vars — makes swapping the
+      # builder's provider a one-line change. Currently Opus on the Anthropic
+      # endpoint (Moonshot/Kimi K3 was the plan, but their signups are capacity-
+      # throttled; to switch back, set ANTHROPIC_BASE_URL=https://api.moonshot.ai/
+      # anthropic, ANTHROPIC_MODEL=kimi-k3, and swap the key for MOONSHOT_API_KEY).
+      #
+      # Spend is bounded by the ANTHROPIC_API_KEY's workspace spend cap (Console →
+      # Settings → Limits — put the bot's key on a capped workspace). See notes/80.
       #
       # The house rules are loaded by telling the agent to read the instructions
       # file FIRST and treat it as binding. The brief (third-party post text) is
@@ -67,9 +70,8 @@ jobs:
       - name: build
         id: build
         env:
-          ANTHROPIC_BASE_URL: https://api.moonshot.ai/anthropic
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
-          ANTHROPIC_MODEL: kimi-k3
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: claude-opus-4-8
           BRIEF: ${{ github.event.client_payload.brief }}
           AUTHOR: ${{ github.event.client_payload.authorHandle }}
         run: |

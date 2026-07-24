@@ -54,15 +54,19 @@ check runs against Rob's DID regardless of which account the mention lands on.
 ### 3. The builder (GitHub Action)
 
 `repository_dispatch` (event type `buildthis`) runs the **Claude Code CLI directly**
-(`claude -p`), not the `claude-code-action`. Why the CLI: the builder runs on
-**Kimi K3** via Moonshot's Anthropic-compatible endpoint, and the CLI honors
-`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` directly — running
-it ourselves means those env vars are set explicitly, with no action wrapper
-deciding what to forward. The agent reads the build prompt
+(`claude -p`), not the `claude-code-action`. Why the CLI: it lets plain env vars
+(`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`) control the model
+and endpoint, with no action wrapper deciding what to forward — so swapping the
+builder's provider is a one-line change. The agent reads the build prompt
 (`.github/buildthis/BUILD_PROMPT.md`), builds a new `sites/<name>/` or a new path on
 an existing site, commits, and pushes to main. `--permission-mode bypassPermissions`
 makes it fully unattended; `--max-turns` bounds a runaway. The existing deploy
 workflow sees the push and ships the changed Worker to its subdomain.
+
+**Model: currently Opus 4.8 on the Anthropic endpoint.** Kimi K3 was the plan (near-
+frontier coding, prepaid = hard cap), but Moonshot's signups are capacity-throttled
+right now, so we're on Opus for the time being. Switching to K3 later is three env
+lines in the workflow (base URL → Moonshot, model → `kimi-k3`, key → `MOONSHOT_API_KEY`).
 
 Builds are **serialized** via a `concurrency` group: two mentions in the same
 minute produce two dispatches, but they run one at a time, so two agents never
@@ -80,26 +84,24 @@ that one." No human-in-the-loop; the reply is automatic.
 Rob's stated ceiling: **don't spend more than ~$10 by accident.** Dollars are the
 *only* ceiling — no build-count or per-person caps.
 
-- **The hard wall — Moonshot is prepaid.** The builder runs on Kimi K3, and
-  Moonshot has no per-key spend-limit setting; instead the account is **prepaid**,
-  so it simply can't spend more than the balance loaded. That balance *is* the cap:
-  load $20 and $20 is the most it can ever cost before you choose to refill. This is
-  a genuine hard ceiling — arguably better than a configurable cap, since it's the
-  account balance, not a setting that can be misconfigured. Keep the balance at
-  whatever accidental-spend number you're comfortable with.
-- **Model — Kimi K3.** Near-frontier coding quality (benchmarks a hair below Fable 5
-  / GPT-5.6, above Sonnet 5) at ~$3/$15 per Mtok, with a steep cache-hit discount
-  ($0.30/Mtok input) that a coding agent hits often. Chosen over Sonnet 5 because
-  it's better output at similar price, and the prepaid model gives us the hard cap
-  anyway. Trade-off accepted: the builder talks to Moonshot's endpoint, not
-  Anthropic's, so the Anthropic-workspace spend cap does not apply — the prepaid
-  balance replaces it.
+- **The hard wall — an Anthropic Workspace spend cap** (while we're on Opus). The
+  Console (Settings → Limits) sets a monthly USD cap per Workspace; when hit, that
+  workspace's key stops serving until next month. Put the bot's `ANTHROPIC_API_KEY`
+  on a dedicated capped workspace and that cap is the wall — enforced by Anthropic,
+  independent of any code. It's monthly, not daily; pick a modest number.
+  - *When K3/Moonshot is available:* the wall becomes the **prepaid Moonshot
+    balance** instead — the account can't spend past what's loaded, which is an
+    even simpler hard ceiling. Swapping to K3 swaps the wall along with it.
+- **Model — Opus 4.8 for now** (Moonshot signups throttled; K3 is the intended
+  target for its near-frontier coding at similar price + prepaid cap). Opus is the
+  most capable option and fine for the toy sites; if spend matters more than taste,
+  Sonnet 5 or Haiku 4.5 are cheaper drop-ins (one env line).
 - **Per-build bound: `--max-turns 30` + a job `timeout-minutes`.** So one runaway
   build can't spin forever. Not a dollar cap, just a stop on a single wedged run.
 
 The watcher dispatches a build for every mutual mention. If total spend ever climbs
-too fast, the dial is the prepaid balance (don't refill) or the model tier — not a
-count.
+too fast, the dial is the workspace cap (or, on K3, the prepaid balance) or a
+cheaper model tier — not a count.
 
 ## House rules: the brief is third-party text
 
@@ -131,13 +133,13 @@ point is that good work ships the moment it lands.
 - [x] Non-mutuals: **replied to with a tag to `@bisks.net`** so Rob can take it
       manually. No build, but no silence either.
 - [x] Scope: agent's choice — new site OR new path, per the idea.
-- [x] Budget: **dollars only** — the **prepaid Moonshot balance** is the sole
-      ceiling (Kimi K3 can't spend past what's loaded). `--max-turns 30` per build
-      as a runaway stop. **No build-count / per-person caps** — the watcher
-      dispatches for every mutual mention.
-- [x] Model: **Kimi K3** — near-frontier coding, prepaid = hard cap. (Reverses the
-      earlier Sonnet-5 pick, which was chosen only to keep the Anthropic spend cap;
-      prepaid gives us the cap regardless, so the better model wins.)
+- [x] Budget: **dollars only** — an Anthropic **Workspace spend cap** is the wall
+      while on Opus (becomes the prepaid Moonshot balance if/when we move to K3).
+      `--max-turns 30` per build as a runaway stop. **No build-count / per-person
+      caps** — the watcher dispatches for every mutual mention.
+- [x] Model: **Opus 4.8 for now** — Moonshot signups are capacity-throttled, so
+      Kimi K3 (the intended target: near-frontier coding, prepaid hard cap) is on
+      hold. Switching to K3 is a one-line env change when signups open.
 - [x] Builds **serialized** via a concurrency group.
 - [x] House rules: builder works within `sites/` + `apex/public/`.
 
@@ -149,14 +151,18 @@ point is that good work ships the moment it lands.
    `*.bsky.social` handle) and drop it into `sites/buildthis` config.
 3. Deploy `sites/buildthis` so `/.well-known/atproto-did` is live, then **[rob]**
    set the bot's handle to `buildthis.bisks.net` in the Bluesky app.
-4. **[rob]** Create a **Moonshot** account, load it with whatever prepaid balance
-   you want as the spend ceiling, and mint a Moonshot API key. That balance is the
-   hard spend wall for builds.
-5. **[rob]** Secrets: `MOONSHOT_API_KEY` + `BOT_IDENTIFIER` + `BOT_APP_PASSWORD` as
-   GitHub Actions secrets (the reply step needs the app password too); the bot
-   app-password + a repo-scoped GitHub token as Cloudflare Worker secrets (the
-   watcher uses the token to fire `repository_dispatch`). — Rob provides the values;
-   Claude runs the `gh secret set` / `wrangler secret put` commands.
-6. KV namespace + repo slug are already wired (`sites/buildthis/wrangler.toml`).
+4. **[rob]** In the Anthropic Console: create a **Workspace** for the bot, set a
+   monthly **spend cap** (Settings → Limits), and mint an `ANTHROPIC_API_KEY` scoped
+   to it. That cap is the hard spend wall while on Opus. (Later, when Moonshot
+   signups open: create a Moonshot account, load a prepaid balance = your ceiling,
+   mint a key, and the wall moves to that balance.)
+5. **[rob]** Secrets — Rob provides the values, Claude runs the `gh secret set` /
+   `wrangler secret put` commands:
+   - GitHub Actions: `ANTHROPIC_API_KEY` (workspace-scoped), `BOT_IDENTIFIER`,
+     `BOT_APP_PASSWORD` (reply step needs the app password).
+   - Cloudflare Worker: `BOT_APP_PASSWORD` + a repo-scoped `GITHUB_TOKEN` (watcher
+     fires `repository_dispatch`).
+6. Bot DID, KV namespace, and repo slug are already wired in
+   `sites/buildthis/wrangler.toml`.
 
 Details for each land next to the code as it's built.
