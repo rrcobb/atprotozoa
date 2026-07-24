@@ -181,3 +181,25 @@ point is that good work ships the moment it lands.
    `sites/buildthis/wrangler.toml`.
 
 Details for each land next to the code as it's built.
+
+## Watching the watcher (logs)
+
+The watcher runs unattended on a 2-min cron, so a failed tick (login error, dispatch
+failure) is invisible unless you look. Three ways to look, live → durable:
+
+- **Live tail** — `pnpm --filter @atprotozoa/buildthis logs` (or from the site dir,
+  `pnpm logs` / `pnpm logs:errors` for error-only). Streams `console.log`/error as
+  they happen; only shows what fires while you're watching. Good for debugging a
+  tick in real time.
+- **Durable logs (dashboard)** — `[observability] enabled = true` is set in
+  `wrangler.toml`, so Cloudflare retains logs (a few days). View at dash → Workers &
+  Pages → `atprotozoa-buildthis` → Logs, with search/filter. This is the "did it
+  error overnight?" answer — no need to be tailing when it happens.
+- **GraphQL Analytics API** (scriptable) — `POST
+  https://api.cloudflare.com/client/v4/graphql`, needs a Cloudflare **API token**
+  (Account Analytics: Read; + Workers Observability read for log bodies) — the
+  wrangler OAuth session is NOT a usable bearer token here, mint a scoped token.
+  Use this for automated error-count checks / alerting from another script.
+
+The watcher already `console.error`s each failure path (createSession,
+listNotifications, dispatch, reply), so those land in all three.
