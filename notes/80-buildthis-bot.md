@@ -89,9 +89,10 @@ PAT (`BUILDER_PAT`, Contents:write) as its token, which pushes as a normal user 
 fires `deploy.yml`. Caught this the first live test — do not "simplify" it back to
 `GITHUB_TOKEN`.
 
-**Model: currently Opus 4.8 on the Anthropic endpoint.** Kimi K3 was the plan (near-
-frontier coding, prepaid = hard cap), but Moonshot's signups are capacity-throttled
-right now, so we're on Opus for the time being. Switching to K3 later is three env
+**Model: currently Opus 5 (`claude-opus-5`) on the Anthropic endpoint.** Same price as
+Opus 4.8 ($5/$25 per MTok), newer and stronger at agentic coding — a one-line bump from
+4.8. Kimi K3 was the original plan (near-frontier coding, prepaid = hard cap), but
+Moonshot's signups are capacity-throttled, so we're on Opus for now. Switching to K3 later is three env
 lines in the workflow (base URL → Moonshot, model → `kimi-k3`, key → `MOONSHOT_API_KEY`).
 
 Builds are **serialized** via a `concurrency` group: two mentions in the same
@@ -118,7 +119,7 @@ Rob's stated ceiling: **don't spend more than ~$10 by accident.** Dollars are th
   - *When K3/Moonshot is available:* the wall becomes the **prepaid Moonshot
     balance** instead — the account can't spend past what's loaded, which is an
     even simpler hard ceiling. Swapping to K3 swaps the wall along with it.
-- **Model — Opus 4.8 for now** (Moonshot signups throttled; K3 is the intended
+- **Model — Opus 5 for now** (Moonshot signups throttled; K3 is the intended
   target for its near-frontier coding at similar price + prepaid cap). Opus is the
   most capable option and fine for the toy sites; if spend matters more than taste,
   Sonnet 5 or Haiku 4.5 are cheaper drop-ins (one env line).
@@ -168,7 +169,7 @@ blast radius is a bad site edit (fixable, and visible in git), not a leaked key.
       while on Opus (becomes the prepaid Moonshot balance if/when we move to K3).
       `--max-turns 30` per build as a runaway stop. **No build-count / per-person
       caps** — the watcher dispatches for every mutual mention.
-- [x] Model: **Opus 4.8 for now** — Moonshot signups are capacity-throttled, so
+- [x] Model: **Opus 5 for now** — Moonshot signups are capacity-throttled, so
       Kimi K3 (the intended target: near-frontier coding, prepaid hard cap) is on
       hold. Switching to K3 is a one-line env change when signups open.
 - [x] Builds **serialized** via a concurrency group.
