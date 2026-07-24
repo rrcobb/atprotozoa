@@ -34,9 +34,19 @@ function cardSvg({ trigram, post, byline }) {
     "ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace";
   const serif = "Georgia, 'Times New Roman', serif";
 
-  // Trigram: big, wrapped.
-  const titleLines = wrap(trigram, 22);
-  const titleSize = titleLines.length > 2 ? 60 : 76;
+  // Trigram: big, wrapped, and SIZED TO FIT. Monospace char width ≈ 0.6·fontSize.
+  // Pick the largest font (capped) whose widest line fits the usable width, then
+  // wrap at that font's char budget. This keeps long words like "contribution"
+  // from clipping the card edge.
+  const usable = W - pad * 2;
+  const CHAR_W = 0.6; // mono advance ÷ font size
+  const longestWord = trigram.split(" ").reduce((m, w) => Math.max(m, w.length), 0);
+  // font so the longest single word fits on one line; also cap so short phrases
+  // aren't absurdly huge.
+  let titleSize = Math.min(80, Math.floor(usable / (longestWord * CHAR_W)));
+  const charsPerLine = Math.max(6, Math.floor(usable / (titleSize * CHAR_W)));
+  const titleLines = wrap(trigram, charsPerLine);
+  if (titleLines.length > 3) titleSize = Math.floor(titleSize * 0.85); // very long → shrink
   const titleLH = titleSize * 1.12;
   const titleY = pad + titleSize;
 
