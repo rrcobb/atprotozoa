@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Idea Rater — #atproideasio, enacted</title>
+    <meta name="description" content="The bot apex asked for: replies to every #atproideasio idea with feasible / underspecified / genius / unhinged, and a rating out of 10." />
+    <style>
+      :root {
+        --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4; --faintbg:#f6f6f6;
+        --accent:#1a5fd0;
+        --feasible:#1f8a4c; --under:#8a6d1f; --genius:#7b1fa2; --unhinged:#c62828; --dark:#111;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code","Roboto Mono",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+        font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+      .wrap { max-width:640px; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
+      a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+      h1 { font-size:1.05rem; font-weight:600; margin:1.25rem 0 0.4rem; }
+      .sub { color:var(--muted); font-size:0.85rem; margin:0 0 1.5rem; max-width:58ch; }
+      .sub b { color:var(--ink); }
+
+      .bar { display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; }
+      .bar select, .bar button { font:inherit; padding:0.45rem 0.7rem; border:1px solid var(--faint);
+        border-radius:8px; background:var(--faintbg); color:var(--ink); cursor:pointer; }
+      .bar .cnt { color:var(--muted); font-size:0.8rem; margin-left:auto; }
+
+      .idea { border:1px solid var(--faint); border-radius:12px; padding:0.95rem 1.05rem;
+        margin-bottom:0.85rem; }
+      .qtext { font-size:0.95rem; margin:0 0 0.7rem; }
+      .qmeta { color:var(--muted); font-size:0.75rem; }
+      .verdict { display:flex; gap:0.6rem; align-items:flex-start; padding-top:0.7rem;
+        margin-top:0.15rem; border-top:1px dashed var(--faint); }
+      .bpfp { width:30px; height:30px; border-radius:50%; flex:none; display:grid;
+        place-items:center; background:#111; color:#fff; font-size:0.9rem; }
+      .vbody { flex:1; }
+      .vline { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+      .tag { font-size:0.72rem; font-weight:600; padding:0.12rem 0.5rem; border-radius:999px;
+        text-transform:uppercase; letter-spacing:0.04em; }
+      .tag.feasible { color:var(--feasible); border:1px solid var(--feasible); }
+      .tag.underspecified { color:var(--under); border:1px solid var(--under); }
+      .tag.genius { color:var(--genius); border:1px solid var(--genius); }
+      .tag.unhinged { color:var(--unhinged); border:1px solid var(--unhinged); }
+      .tag.dark { color:#fff; background:#111; }
+      .score { font-weight:700; font-variant-numeric:tabular-nums; }
+      .score small { color:var(--muted); font-weight:400; }
+      .quip { font-size:0.85rem; color:var(--ink); margin-top:0.35rem; }
+      .botname { font-size:0.75rem; color:var(--muted); margin-bottom:0.1rem; }
+      .note { margin-top:2.25rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← the #atproideasio arcade</a>
+      <h1>⚖️ The Idea Rater</h1>
+      <p class="sub">
+        <b>“a bot that replies to all norvid #atproideasio posts with feasible,
+        underspecified, genius, etc and rates them out of 10.”</b> — apex. So
+        here's the bot, ruling on the whole harvested tag.
+      </p>
+
+      <div class="bar">
+        <label style="font-size:0.78rem;color:var(--muted)">sort</label>
+        <select id="sort">
+          <option value="score-desc">rating: high → low</option>
+          <option value="score-asc">rating: low → high</option>
+          <option value="orig">original order</option>
+        </select>
+        <button id="reroll" title="the bot reconsiders">↻ re-rate</button>
+        <span class="cnt" id="cnt"></span>
+      </div>
+
+      <div id="list"></div>
+
+      <p class="note">
+        The verdicts are computed from each idea's own text (specificity, whether
+        it invokes AI/agents/embeddings, how unhinged the phrasing gets), plus a
+        pinch of deterministic jitter you can re-roll — no live model, no API.
+        It's an affectionate ruling, not a real score. Ideas are the ones
+        harvested from the tag; the built ones link to their toy.
+      </p>
+    </div>
+
+    <script type="module">
+      import { IDEAS, ideaLink } from "../lib/ideas.js";
+
+      const VERDICTS = {
+        feasible: "feasible",
+        underspecified: "underspecified",
+        genius: "genius",
+        unhinged: "unhinged",
+        dark: "dark",
+      };
+
+      // deterministic hash → 0..1
+      function hash(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return ((h >>> 0) % 100000) / 100000;
+      }
+
+      const QUIPS = {
+        feasible: [
+          "could ship this by Friday.",
+          "genuinely buildable. someone do it.",
+          "no notes on the concept, only on your restraint.",
+          "small worker, one weekend. approved.",
+        ],
+        underspecified: [
+          "what does it *do* though.",
+          "needs three more sentences before it's a spec.",
+          "a vibe, not yet a feature.",
+          "define 'somehow' and we'll talk.",
+        ],
+        genius: [
+          "annoyingly good. why doesn't this exist.",
+          "this reframes the whole timeline. 🧠",
+          "I'm mad I didn't think of it.",
+          "put this on the roadmap immediately.",
+        ],
+        unhinged: [
+          "beautiful. terrifying. do not deploy.",
+          "the account-seizure clause is a war crime and I love it.",
+          "this violates at least two ToS. 10 for audacity.",
+          "the owls are coming. hoot.",
+        ],
+        dark: [
+          "we don't talk about this one at parties.",
+          "#darkatproideasio, filed accordingly.",
+          "morally load-bearing. proceed with counsel.",
+          "the surveillance is the feature, apparently.",
+        ],
+      };
+
+      function rate(idea, salt) {
+        const t = idea.text.toLowerCase();
+        const j = hash(idea.rkey + "|" + salt); // jitter 0..1
+        const len = idea.text.length;
+
+        const dark = /\bcontrol of their account\b|harass|threatening|banned|blocking things|psychological profile|mute|block/.test(t);
+        const aiHeavy = /\bai\b|agent|embedding|semantic|vector|llm|score|summar/.test(t);
+        const specific = len > 90;
+
+        let verdict, score;
+        if (dark && (j > 0.35 || /control of their account|harass|threatening/.test(t))) {
+          verdict = /control of their account|harass|threatening|banned/.test(t) ? "unhinged" : "dark";
+          score = 6 + Math.round(j * 4); // audacity points
+        } else if (!specific && len < 55) {
+          verdict = "underspecified";
+          score = 2 + Math.round(j * 4);
+        } else if (aiHeavy && specific && j > 0.4) {
+          verdict = "genius";
+          score = 8 + Math.round(j * 2);
+        } else if (specific) {
+          verdict = j > 0.55 ? "genius" : "feasible";
+          score = 6 + Math.round(j * 3);
+        } else {
+          verdict = j > 0.6 ? "feasible" : "underspecified";
+          score = 4 + Math.round(j * 4);
+        }
+        score = Math.max(1, Math.min(10, score));
+        const quips = QUIPS[verdict];
+        const quip = quips[Math.floor(hash(idea.rkey + "q" + salt) * quips.length)];
+        return { verdict, score, quip };
+      }
+
+      let salt = 0;
+      const list = document.getElementById("list");
+      const sortSel = document.getElementById("sort");
+      document.getElementById("cnt").textContent = IDEAS.length + " ideas rated";
+
+      const shortHandle = (h) => "@" + h.replace(/\.bsky\.social$/, "");
+
+      function render() {
+        const rated = IDEAS.map((idea, i) => ({ idea, i, ...rate(idea, salt) }));
+        const mode = sortSel.value;
+        if (mode === "score-desc") rated.sort((a, b) => b.score - a.score || a.i - b.i);
+        else if (mode === "score-asc") rated.sort((a, b) => a.score - b.score || a.i - b.i);
+
+        list.innerHTML = rated.map(({ idea, verdict, score, quip }) => {
+          const play = idea.enacted
+            ? ` · <a href="${idea.enacted}/">▶ built: ${idea.enacted}</a>`
+            : "";
+          return `
+            <div class="idea">
+              <p class="qtext">${escapeHtml(idea.text)}</p>
+              <div class="qmeta">${shortHandle(idea.handle)} ·
+                <a href="${ideaLink(idea)}" target="_blank" rel="noopener">on bsky</a>${play}</div>
+              <div class="verdict">
+                <div class="bpfp">⚖</div>
+                <div class="vbody">
+                  <div class="botname">@atproideasio-rater</div>
+                  <div class="vline">
+                    <span class="tag ${verdict}">${VERDICTS[verdict]}</span>
+                    <span class="score">${score}<small>/10</small></span>
+                  </div>
+                  <div class="quip">${escapeHtml(quip)}</div>
+                </div>
+              </div>
+            </div>`;
+        }).join("");
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      sortSel.addEventListener("change", render);
+      document.getElementById("reroll").addEventListener("click", () => { salt++; render(); });
+      render();
+    </script>
+  </body>
+</html>

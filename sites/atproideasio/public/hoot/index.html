@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Threatening Owl — #atproideasio, enacted</title>
+    <meta name="description" content="Program a Duolingo-style owl to reply-bomb the mutual who said they'd reply later, in escalating ASCII HOOTs. norvid's idea." />
+    <style>
+      :root {
+        --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4; --faintbg:#f6f6f6;
+        --accent:#1a5fd0; --owl:#58a700; --danger:#c62828;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code","Roboto Mono",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+        font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+      .wrap { max-width:620px; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
+      a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+      h1 { font-size:1.05rem; font-weight:600; margin:1.25rem 0 0.4rem; }
+      .sub { color:var(--muted); font-size:0.85rem; margin:0 0 2rem; max-width:56ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; flex-direction:column; gap:0.9rem; margin-bottom:1.5rem; }
+      label { font-size:0.78rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; }
+      input, select {
+        font:inherit; padding:0.6rem 0.7rem; border:1px solid var(--faint);
+        border-radius:9px; background:var(--faintbg); color:var(--ink); width:100%;
+      }
+      input:focus, select:focus { outline:2px solid var(--accent); outline-offset:-1px; background:#fff; }
+      .field { display:flex; flex-direction:column; gap:0.35rem; }
+      .go {
+        margin-top:0.3rem; padding:0.7rem 1rem; border:0; border-radius:9px;
+        background:var(--owl); color:#fff; font:inherit; font-weight:600; cursor:pointer;
+      }
+      .go:hover { filter:brightness(1.05); }
+
+      .stream { display:flex; flex-direction:column; gap:0.8rem; }
+      .reply {
+        border:1px solid var(--faint); border-left:3px solid var(--owl);
+        border-radius:10px; padding:0.75rem 0.9rem; background:#fff;
+        animation:pop 0.28s ease-out;
+      }
+      .reply.sev3 { border-left-color:#e58f00; }
+      .reply.sev4 { border-left-color:var(--danger); }
+      .reply.sev5 { border-left-color:var(--danger); background:#fff5f5; }
+      @keyframes pop { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
+      .rhead { font-size:0.75rem; color:var(--muted); margin-bottom:0.5rem;
+        display:flex; justify-content:space-between; gap:0.5rem; }
+      .rhead .when { white-space:nowrap; }
+      .owl-art {
+        white-space:pre; font-size:0.7rem; line-height:1.05; color:var(--owl);
+        margin:0 0 0.5rem;
+      }
+      .reply.sev3 .owl-art { color:#e58f00; }
+      .reply.sev4 .owl-art, .reply.sev5 .owl-art { color:var(--danger); }
+      .rtext { font-size:0.92rem; white-space:pre-wrap; }
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      .hint { color:var(--muted); font-size:0.8rem; margin:0 0 1.25rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← the #atproideasio arcade</a>
+      <h1>🦉 The Threatening Owl</h1>
+      <p class="sub">
+        <b>“a duolingo owl you can program to harass the mutuals who said they'd
+        reply to you later… threatening ASCII HOOT drawings as replies until they
+        get back to you.”</b> — norvid. Program the owl below.
+      </p>
+
+      <form id="form">
+        <div class="field">
+          <label for="target">who owes you a reply</label>
+          <input id="target" placeholder="@theirhandle" value="@carbonadoks.com" />
+        </div>
+        <div class="field">
+          <label for="what">what they said they'd get back to you about</label>
+          <input id="what" placeholder="the repo viewer PR" value="the repo viewer" />
+        </div>
+        <div class="field">
+          <label for="days">days overdue (owl patience runs out)</label>
+          <select id="days">
+            <option value="1">1 — just a friendly hoot</option>
+            <option value="3" selected>3 — the owl is noticing</option>
+            <option value="7">7 — the owl is upset</option>
+            <option value="14">14 — the owl has escalated</option>
+            <option value="30">30 — the owl knows where you post</option>
+          </select>
+        </div>
+        <button class="go" type="submit">🦉 Release the owl</button>
+      </form>
+
+      <p class="hint" id="hint">The owl will draft its reply campaign — a hoot per day, escalating.</p>
+      <div class="stream" id="stream"></div>
+
+      <p class="note">
+        Purely a draft generator — it composes the threatening replies, it does
+        not post them anywhere (the owl is, legally, a metaphor). Everything runs
+        in your browser.
+      </p>
+    </div>
+
+    <script>
+      // Five owls of escalating menace.
+      const OWLS = [
+        // sev1 — friendly
+`   ,___,
+   (o,o)
+   /)_)   ~ hoot!
+    " "`,
+        // sev2 — noticing
+`   ,___,
+   (O,O)
+  <(   )>   hoot. hoot?
+    " "`,
+        // sev3 — upset
+`   ,-Ω-,
+  ((O.O))
+  <( === )>   H O O T
+   /|   |\\
+    "   "`,
+        // sev4 — escalated
+`   /\\___/\\
+  ( >   < )
+  ((  ✕  ))    HOOOOT
+  <(=====)>
+   ^^   ^^`,
+        // sev5 — apex predator
+`      /\\_/\\
+   __( O O )__
+  /  ((  ✕  ))  \\   H·O·O·T
+ |    <=====>    |
+  \\__/^^   ^^\\__/
+      knows.your.threads`,
+      ];
+
+      const OPENERS = [
+        (w) => `friendly reminder about ${w} 🦉`,
+        (w) => `still waiting on ${w}. the owl waits too.`,
+        (w) => `it has been a while re: ${w}. HOOT.`,
+        (w) => `${w}. the owl is no longer friendly.`,
+        (w) => `you thought the owl forgot about ${w}. the owl forgets nothing.`,
+      ];
+      const CLOSERS = [
+        "(this message will repeat daily until you reply)",
+        "keep your streak alive: reply.",
+        "the owl has your notification settings.",
+        "the owl is in your other threads now.",
+        "reply, and the hooting stops. that is the deal.",
+      ];
+
+      const form = document.getElementById("form");
+      const stream = document.getElementById("stream");
+      const hint = document.getElementById("hint");
+
+      function sevForDay(day, totalDays) {
+        // ramp from 1..5 across the campaign
+        const frac = totalDays <= 1 ? 1 : (day - 1) / (totalDays - 1);
+        return Math.min(5, 1 + Math.round(frac * 4));
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const target = (document.getElementById("target").value || "@yourmutual").trim();
+        const what = (document.getElementById("what").value || "that thing").trim();
+        const days = parseInt(document.getElementById("days").value, 10);
+
+        stream.innerHTML = "";
+        hint.textContent = `Owl campaign against ${target.startsWith("@") ? target : "@" + target}, re: “${what}” — ${days} day${days > 1 ? "s" : ""} of escalating hoots:`;
+
+        for (let d = 1; d <= days; d++) {
+          const sev = sevForDay(d, days);
+          const owl = OWLS[sev - 1];
+          const opener = OPENERS[sev - 1](what);
+          const closer = CLOSERS[sev - 1];
+          const at = target.startsWith("@") ? target : "@" + target;
+          const div = document.createElement("div");
+          div.className = `reply sev${sev}`;
+          div.innerHTML = `
+            <div class="rhead"><span>replying to ${escapeHtml(at)}</span><span class="when">day ${d} · sev ${sev}/5</span></div>
+            <pre class="owl-art">${escapeHtml(owl)}</pre>
+            <div class="rtext">${escapeHtml(at)} ${escapeHtml(opener)}\n${escapeHtml(closer)}</div>`;
+          stream.appendChild(div);
+        }
+        stream.firstChild?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      // draw an initial campaign
+      form.dispatchEvent(new Event("submit"));
+    </script>
+  </body>
+</html>

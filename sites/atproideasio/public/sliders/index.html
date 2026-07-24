@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>More Sliders — #atproideasio, enacted</title>
+    <meta name="description" content="bsky, but with far too many live sliders. Twist chaos, doomscroll, vibe and emoji and watch a sample feed mutate in real time. norvid's idea." />
+    <style>
+      :root {
+        --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4; --faintbg:#f6f6f6;
+        --accent:#1a5fd0;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code","Roboto Mono",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+        font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+      .top { max-width:960px; margin:0 auto; padding:2.5rem 1.25rem 0.5rem; }
+      a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+      h1 { font-size:1.05rem; font-weight:600; margin:1.25rem 0 0.4rem; }
+      .sub { color:var(--muted); font-size:0.85rem; margin:0 0 1rem; max-width:60ch; }
+      .sub b { color:var(--ink); }
+
+      .layout { max-width:960px; margin:0 auto; display:grid; gap:1.5rem;
+        grid-template-columns:1fr; padding:0 1.25rem 5rem; }
+      @media (min-width:820px) { .layout { grid-template-columns:280px 1fr; align-items:start; } }
+
+      .panel { border:1px solid var(--faint); border-radius:14px; padding:1rem 1.1rem;
+        position:sticky; top:1rem; }
+      .panel h2 { font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em;
+        color:var(--muted); margin:0 0 0.85rem; }
+      .ctrl { margin-bottom:0.85rem; }
+      .ctrl .lbl { display:flex; justify-content:space-between; font-size:0.78rem; margin-bottom:0.2rem; }
+      .ctrl .lbl .v { color:var(--accent); font-variant-numeric:tabular-nums; }
+      input[type=range] { width:100%; accent-color:var(--accent); }
+      .reset { margin-top:0.4rem; width:100%; padding:0.5rem; border:1px solid var(--faint);
+        border-radius:8px; background:var(--faintbg); font:inherit; font-size:0.8rem;
+        cursor:pointer; color:var(--ink); }
+
+      .feedwrap { border:1px solid var(--faint); border-radius:14px; overflow:hidden; }
+      .feedhead { padding:0.7rem 1rem; border-bottom:1px solid var(--faint);
+        font-size:0.82rem; color:var(--muted); display:flex; justify-content:space-between; }
+      .feed { height:min(70vh,620px); overflow-y:auto; scroll-behavior:auto; }
+      .post { padding:0.9rem 1.1rem; border-bottom:1px solid var(--faint); }
+      .phead { display:flex; gap:0.55rem; align-items:center; margin-bottom:0.5rem; }
+      .ppfp { width:34px; height:34px; border-radius:50%; flex:none;
+        display:grid; place-items:center; color:#fff; font-weight:600; font-size:0.9rem;
+        background:linear-gradient(135deg,#1a5fd0,#7db0ff); }
+      .pname { font-weight:600; font-size:0.9rem; }
+      .phandle { color:var(--muted); font-size:0.78rem; }
+      .ptext { font-size:0.98rem; line-height:1.5; }
+      .pacts { color:var(--muted); font-size:0.78rem; margin-top:0.5rem; display:flex; gap:1.5rem; }
+      .note { grid-column:1/-1; color:var(--muted); font-size:0.78rem; line-height:1.7; max-width:60ch; }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <a class="back" href="/">← the #atproideasio arcade</a>
+      <h1>🎛️ More Sliders</h1>
+      <p class="sub">
+        <b>“bsky with more sliders to control things live.”</b> — norvid. Here are
+        the sliders bsky won't give you. Drag them; the feed reacts instantly.
+      </p>
+    </div>
+
+    <div class="layout">
+      <div class="panel">
+        <h2>Live controls</h2>
+        <div id="controls"></div>
+        <button class="reset" id="reset">reset all sliders</button>
+      </div>
+
+      <div>
+        <div class="feedwrap">
+          <div class="feedhead"><span>your feed</span><span id="doomlbl">doomscroll: off</span></div>
+          <div class="feed" id="feed"></div>
+        </div>
+      </div>
+
+      <p class="note">
+        A sample feed, mutated purely client-side by the sliders — no real posts
+        are touched. The "doomscroll" slider auto-scrolls the panel and loops the
+        feed forever, which is the joke.
+      </p>
+    </div>
+
+    <script>
+      const SLIDERS = [
+        { key: "emoji",   label: "Emoji",             max: 100, def: 10 },
+        { key: "caps",    label: "SHOUTING",          max: 100, def: 0 },
+        { key: "bait",    label: "Engagement bait",   max: 100, def: 0 },
+        { key: "vibe",    label: "Vibe (wholesome → unhinged)", max: 100, def: 40 },
+        { key: "verbose", label: "Verbosity",         max: 100, def: 30 },
+        { key: "chaos",   label: "Chaos (layout)",    max: 100, def: 0 },
+        { key: "size",    label: "Font size",         max: 100, def: 30 },
+        { key: "doom",    label: "Doomscroll speed",  max: 100, def: 0 },
+      ];
+
+      const BASE = [
+        { name: "gracekind", handle: "@gracekind.net", text: "Automated youtuber reaction videos for microblogging drama" },
+        { name: "norvid-studies", handle: "@norvid-studies.bsky.social", text: "not exactly sure what I'm looking at but it seems completely insane" },
+        { name: "apex", handle: "@apex.atproto.ceo", text: "r9k but with thresholded embedding vector similarity" },
+        { name: "carbonadoks", handle: "@carbonadoks.com", text: "the easy stuff I just implemented while I was bored at work" },
+        { name: "nequals001", handle: "@nequals001.bsky.social", text: "we need someone's for you feed to be so marvelous it becomes the default for all new users" },
+        { name: "minormobius", handle: "@minormobius.bsky.social", text: "there's a mass of poorly formatted tickets now which I think is a win?" },
+        { name: "buildthis", handle: "@buildthis.bisks.net", text: "built it, give the deploy a minute to go live" },
+        { name: "norvid-studies", handle: "@norvid-studies.bsky.social", text: "now THAT'S an atproideasio" },
+      ];
+
+      const EMOJI = ["🔥","💀","😭","✨","🙏","👇","🧵","😳","📉","🤖","🫡","⚡","🌫️","🎛️"];
+      const BAITS = [
+        "like if you agree", "who else feels this", "reply with your take",
+        "boost this 🧵", "you won't believe what's next 👇", "don't scroll past this",
+        "tag someone who needs to see this",
+      ];
+      const FILLER = [
+        "and honestly", "which, to be clear,", "as I keep saying,",
+        "genuinely think", "(again)", "for the record", "in this economy",
+      ];
+      const UNHINGED = ["!!!", " (screaming)", " — I will not be elaborating", " and that's the tweet", " anyway good morning"];
+
+      const state = {};
+      SLIDERS.forEach((s) => (state[s.key] = s.def));
+
+      // deterministic pseudo-random per (index, salt) so a given slider setting
+      // renders stably, not re-shuffling every frame
+      function rnd(i, salt) {
+        const x = Math.sin((i + 1) * 12.9898 + salt * 78.233) * 43758.5453;
+        return x - Math.floor(x);
+      }
+
+      function transform(post, i) {
+        let t = post.text;
+        const p = (k) => state[k] / 100;
+
+        // verbosity: inject filler clauses
+        if (p("verbose") > 0) {
+          const n = Math.round(p("verbose") * 4);
+          for (let k = 0; k < n; k++) {
+            const words = t.split(" ");
+            const at = 1 + Math.floor(rnd(i, k + 1) * Math.max(1, words.length - 1));
+            words.splice(at, 0, FILLER[Math.floor(rnd(i, k + 9) * FILLER.length)]);
+            t = words.join(" ");
+          }
+        }
+        // vibe: wholesome adds warmth, unhinged adds chaos suffixes
+        if (p("vibe") < 0.4) {
+          if (rnd(i, 3) < (0.4 - p("vibe")) * 2) t = t + " 🥰 sending love";
+        } else if (p("vibe") > 0.6) {
+          const n = Math.round((p("vibe") - 0.6) * 5);
+          for (let k = 0; k < n; k++) t += UNHINGED[Math.floor(rnd(i, k + 4) * UNHINGED.length)];
+        }
+        // bait
+        if (p("bait") > 0 && rnd(i, 7) < p("bait")) {
+          t = t + " — " + BAITS[Math.floor(rnd(i, 8) * BAITS.length)];
+        }
+        // emoji: sprinkle
+        if (p("emoji") > 0) {
+          const n = Math.round(p("emoji") * 8);
+          for (let k = 0; k < n; k++) t += " " + EMOJI[Math.floor(rnd(i, k + 20) * EMOJI.length)];
+        }
+        // caps: uppercase a fraction of words
+        if (p("caps") > 0) {
+          t = t.split(" ").map((w, wi) => rnd(i, wi + 40) < p("caps") ? w.toUpperCase() : w).join(" ");
+        }
+        return t;
+      }
+
+      const feed = document.getElementById("feed");
+      function renderFeed() {
+        const size = 0.85 + (state.size / 100) * 1.1; // rem
+        const chaos = state.chaos / 100;
+        feed.innerHTML = BASE.map((post, i) => {
+          const jitter = chaos ? (rnd(i, 99) - 0.5) * chaos * 8 : 0;
+          const rot = chaos ? (rnd(i, 55) - 0.5) * chaos * 6 : 0;
+          const initial = post.name[0];
+          return `
+            <div class="post" style="transform:translateX(${jitter}px) rotate(${rot}deg)">
+              <div class="phead">
+                <div class="ppfp">${initial}</div>
+                <div><div class="pname">${post.name}</div><div class="phandle">${post.handle}</div></div>
+              </div>
+              <div class="ptext" style="font-size:${size}rem">${escapeHtml(transform(post, i))}</div>
+              <div class="pacts"><span>💬 ${Math.floor(rnd(i,1)*40)}</span><span>🔁 ${Math.floor(rnd(i,2)*120)}</span><span>♡ ${Math.floor(rnd(i,3)*400)}</span></div>
+            </div>`;
+        }).join("");
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      // build controls
+      const controls = document.getElementById("controls");
+      controls.innerHTML = SLIDERS.map((s) => `
+        <div class="ctrl">
+          <div class="lbl"><span>${s.label}</span><span class="v" id="v-${s.key}">${s.def}</span></div>
+          <input type="range" min="0" max="${s.max}" value="${s.def}" data-k="${s.key}" />
+        </div>`).join("");
+      controls.querySelectorAll("input[type=range]").forEach((inp) => {
+        inp.addEventListener("input", () => {
+          const k = inp.dataset.k;
+          state[k] = +inp.value;
+          document.getElementById("v-" + k).textContent = inp.value;
+          if (k !== "doom") renderFeed();
+          updateDoom();
+        });
+      });
+      document.getElementById("reset").addEventListener("click", () => {
+        SLIDERS.forEach((s) => {
+          state[s.key] = s.def;
+          const inp = controls.querySelector(`input[data-k="${s.key}"]`);
+          inp.value = s.def; document.getElementById("v-" + s.key).textContent = s.def;
+        });
+        renderFeed(); updateDoom();
+      });
+
+      // doomscroll loop
+      const doomlbl = document.getElementById("doomlbl");
+      function updateDoom() {
+        doomlbl.textContent = state.doom > 0 ? `doomscroll: ${state.doom}%` : "doomscroll: off";
+      }
+      let last = null;
+      function loop(ts) {
+        if (last == null) last = ts;
+        const dt = ts - last; last = ts;
+        if (state.doom > 0) {
+          feed.scrollTop += (state.doom / 100) * dt * 0.25;
+          if (feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 2) feed.scrollTop = 0;
+        }
+        requestAnimationFrame(loop);
+      }
+
+      renderFeed();
+      updateDoom();
+      requestAnimationFrame(loop);
+    </script>
+  </body>
+</html>

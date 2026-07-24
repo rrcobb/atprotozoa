@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slop AQI — #atproideasio, enacted</title>
+    <meta name="description" content="A live air-quality index for slop. Type a handle; it reads their real Bluesky feed and rates the atmospheric slop, with popup interventions. norvid's idea." />
+    <style>
+      :root {
+        --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4; --faintbg:#f6f6f6;
+        --accent:#1a5fd0;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code","Roboto Mono",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+        font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+      .wrap { max-width:600px; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
+      a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+      h1 { font-size:1.05rem; font-weight:600; margin:1.25rem 0 0.4rem; }
+      .sub { color:var(--muted); font-size:0.85rem; margin:0 0 1.75rem; max-width:56ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.6rem; margin-bottom:1.5rem; }
+      input { flex:1; font:inherit; padding:0.6rem 0.7rem; border:1px solid var(--faint);
+        border-radius:9px; background:var(--faintbg); }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; background:#fff; }
+      .go { padding:0.6rem 1rem; border:0; border-radius:9px; background:var(--accent);
+        color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; }
+      .status.err { color:#c62828; }
+
+      .gauge { text-align:center; padding:1.75rem 1rem 1.5rem; border:1px solid var(--faint);
+        border-radius:16px; margin-bottom:1.25rem; display:none; }
+      .gauge.show { display:block; animation:fade 0.3s ease-out; }
+      @keyframes fade { from { opacity:0 } to { opacity:1 } }
+      .dial { position:relative; width:220px; height:120px; margin:0 auto 0.5rem; }
+      .aqi-num { font-size:3.4rem; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+      .aqi-cat { font-weight:600; margin-top:0.2rem; font-size:1.05rem; }
+      .aqi-for { color:var(--muted); font-size:0.82rem; margin-top:0.35rem; }
+      .bar { height:12px; border-radius:999px; margin:1.1rem 0 0.4rem; overflow:hidden;
+        background:linear-gradient(90deg,#1f8a4c,#d4b106 40%,#e58f00 60%,#c62828 85%,#7b1fa2); }
+      .bar .fill { height:100%; width:0; background:rgba(255,255,255,0.72);
+        margin-left:auto; transition:width 0.8s cubic-bezier(.2,.8,.2,1); }
+      .scale { display:flex; justify-content:space-between; color:var(--muted); font-size:0.68rem; }
+
+      .breakdown { border:1px solid var(--faint); border-radius:12px; padding:0.4rem 1rem;
+        margin-bottom:1.25rem; display:none; }
+      .breakdown.show { display:block; }
+      .brow { display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0;
+        border-bottom:1px solid var(--faint); font-size:0.85rem; }
+      .brow:last-child { border-bottom:0; }
+      .brow .lbl { flex:none; width:11rem; color:var(--ink); }
+      .brow .track { flex:1; height:8px; background:var(--faintbg); border-radius:999px; overflow:hidden; }
+      .brow .track .f { height:100%; background:var(--accent); width:0; transition:width 0.6s; }
+      .brow .val { flex:none; width:2.5rem; text-align:right; color:var(--muted); font-size:0.78rem; }
+
+      .note { margin-top:2.25rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+
+      /* the popup intervention */
+      .popup { position:fixed; right:1rem; bottom:1rem; max-width:320px;
+        border:1px solid var(--faint); border-radius:12px; background:#fff;
+        box-shadow:0 12px 40px -12px rgba(0,0,0,0.35); padding:0.9rem 1rem;
+        transform:translateY(150%); transition:transform 0.4s cubic-bezier(.2,.8,.2,1);
+        z-index:10; }
+      .popup.show { transform:none; }
+      .popup .ptitle { font-weight:600; font-size:0.85rem; margin-bottom:0.3rem; }
+      .popup .pbody { font-size:0.82rem; color:var(--muted); }
+      .popup .pclose { position:absolute; top:0.5rem; right:0.6rem; cursor:pointer;
+        color:var(--muted); background:none; border:0; font:inherit; }
+      .examples { color:var(--muted); font-size:0.8rem; margin-top:0.6rem; }
+      .examples a { cursor:pointer; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← the #atproideasio arcade</a>
+      <h1>🌫️ Slop AQI</h1>
+      <p class="sub">
+        <b>“a slop AQI tracker that monitors your feed… and makes popup
+        recommendations or even starts blocking things for you as things start
+        to get bad again.”</b> — norvid. Point it at any handle; it reads the
+        real feed and reports the atmospheric slop.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. gracekind.net" value="gracekind.net" />
+        <button class="go" id="go" type="submit">Measure</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="norvid-studies.bsky.social">norvid-studies</a> ·
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="buildthis.bisks.net">buildthis</a>
+      </div>
+
+      <div class="gauge" id="gauge">
+        <div class="aqi-num" id="aqiNum">–</div>
+        <div class="aqi-cat" id="aqiCat"></div>
+        <div class="aqi-for" id="aqiFor"></div>
+        <div class="bar"><div class="fill" id="barFill"></div></div>
+        <div class="scale"><span>0 clean</span><span>250</span><span>500 hazardous</span></div>
+      </div>
+
+      <div class="breakdown" id="breakdown"></div>
+
+      <p class="note">
+        Reads only the public timeline (Bluesky's anonymous AppView). "Slop" here
+        is a joke composite of engagement-bait phrasing, emoji &amp; hashtag
+        density, ALL-CAPS, link-dumping and repost ratio across the last ~80
+        posts. It is not a judgment of anyone; it's a smog meter for a bit.
+        Nothing is blocked or posted — the interventions are theatrical.
+      </p>
+    </div>
+
+    <div class="popup" id="popup">
+      <button class="pclose" id="pclose">✕</button>
+      <div class="ptitle" id="ptitle"></div>
+      <div class="pbody" id="pbody"></div>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+
+      const BAIT = [
+        "like if", "repost if", "retweet if", "who else", "am i the only",
+        "unpopular opinion", "hot take", "follow for", "reply with", "drop a",
+        "tag someone", "thread 🧵", "🧵", "read till the end", "you won't believe",
+        "this 👇", "👇", "boost this", "share this", "rt if", "let's go viral",
+        "comment below", "smash that", "don't scroll", "wait for it",
+      ];
+
+      function analyzePost(text, isRepost, embedType) {
+        const t = (text || "").toLowerCase();
+        const emojis = (text.match(/\p{Extended_Pictographic}/gu) || []).length;
+        const hashtags = (text.match(/#\w+/g) || []).length;
+        const exclam = (text.match(/!/g) || []).length;
+        const letters = (text.match(/[A-Za-z]/g) || []).length;
+        const caps = (text.match(/[A-Z]/g) || []).length;
+        const capsRatio = letters > 10 ? caps / letters : 0;
+        const baitHits = BAIT.reduce((n, b) => n + (t.includes(b) ? 1 : 0), 0);
+        const links = (text.match(/https?:\/\//g) || []).length;
+        return {
+          bait: baitHits,
+          emoji: emojis,
+          hashtag: hashtags,
+          caps: capsRatio > 0.5 ? 1 : 0,
+          exclaim: exclam >= 3 ? 1 : 0,
+          links: links + (embedType === "external" ? 1 : 0),
+          repost: isRepost ? 1 : 0,
+        };
+      }
+
+      // Each dimension -> weighted contribution to a 0..500 AQI.
+      const DIMS = [
+        { key: "bait", lbl: "engagement bait", w: 55, per: true },
+        { key: "emoji", lbl: "emoji density", w: 5, per: false, div: 1 },
+        { key: "hashtag", lbl: "hashtag stuffing", w: 14, per: false, div: 1 },
+        { key: "caps", lbl: "ALL-CAPS posts", w: 40, per: true },
+        { key: "exclaim", lbl: "!!! energy", w: 22, per: true },
+        { key: "links", lbl: "link dumping", w: 10, per: false, div: 1 },
+        { key: "repost", lbl: "repost ratio", w: 28, per: true },
+      ];
+
+      function score(posts) {
+        const totals = {};
+        for (const d of DIMS) totals[d.key] = 0;
+        for (const p of posts) for (const d of DIMS) totals[d.key] += p[d.key];
+        const n = posts.length || 1;
+        const parts = DIMS.map((d) => {
+          const avg = totals[d.key] / n; // avg per post
+          // squash avg to 0..1 then weight
+          const norm = 1 - Math.exp(-avg * (d.per ? 3 : 1.2));
+          return { lbl: d.lbl, contrib: norm * d.w, norm };
+        });
+        let aqi = Math.round(parts.reduce((s, p) => s + p.contrib, 0) * (500 / DIMS.reduce((s, d) => s + d.w, 0)));
+        aqi = Math.max(0, Math.min(500, aqi));
+        return { aqi, parts };
+      }
+
+      function category(aqi) {
+        if (aqi <= 50) return { cat: "Good", who: "The air is clean. Breathe easy.", inter: "No action needed. Enjoy the feed." };
+        if (aqi <= 100) return { cat: "Moderate", who: "Acceptable, but sensitive scrollers may notice a haze.", inter: "Consider a glass of water and one (1) touch of grass." };
+        if (aqi <= 150) return { cat: "Unhealthy for Sensitive Groups", who: "Posters prone to reply-guy behavior should limit exposure.", inter: "Muting two (2) keywords is advised." };
+        if (aqi <= 200) return { cat: "Unhealthy", who: "Everyone may begin to experience effects.", inter: "The tracker recommends closing the app for 20 minutes." };
+        if (aqi <= 300) return { cat: "Very Unhealthy", who: "Health alert: the slop is thick.", inter: "Auto-mute engaged (theatrically). Seek a smaller feed." };
+        return { cat: "Hazardous", who: "Emergency conditions. The whole timeline is affected.", inter: "The tracker is (pretend-)blocking things on your behalf. Log off." };
+      }
+
+      async function resolveAndFetch(raw) {
+        let actor = raw.trim().replace(/^@/, "");
+        const r = await fetch(`${API}/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(actor)}&limit=80&filter=posts_and_author_threads`);
+        if (!r.ok) throw new Error(r.status === 400 ? "no such handle" : `feed error (${r.status})`);
+        const data = await r.json();
+        return data.feed || [];
+      }
+
+      async function run(raw) {
+        go.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = "reading the feed…";
+        hidePopup();
+        try {
+          const feed = await resolveAndFetch(raw);
+          if (!feed.length) throw new Error("no posts to measure");
+          const posts = feed.map((item) => {
+            const isRepost = !!item.reason && item.reason.$type === "app.bsky.feed.defs#reasonRepost";
+            const rec = item.post?.record || {};
+            const embedType = item.post?.embed?.$type?.includes("external") ? "external" : "";
+            return analyzePost(rec.text || "", isRepost, embedType);
+          });
+          const { aqi, parts } = score(posts);
+          render(raw, aqi, parts, posts.length);
+          statusEl.textContent = "";
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't measure: " + e.message;
+        } finally {
+          go.disabled = false;
+        }
+      }
+
+      function render(raw, aqi, parts, n) {
+        const g = document.getElementById("gauge");
+        const c = category(aqi);
+        document.getElementById("aqiNum").textContent = aqi;
+        document.getElementById("aqiCat").textContent = c.cat;
+        document.getElementById("aqiFor").textContent =
+          `@${raw.replace(/^@/, "")} · ${n} posts · ${c.who}`;
+        document.getElementById("barFill").style.width = (100 - (aqi / 500) * 100) + "%";
+        g.classList.add("show");
+
+        const bd = document.getElementById("breakdown");
+        const max = Math.max(...parts.map((p) => p.norm), 0.001);
+        bd.innerHTML = parts
+          .slice()
+          .sort((a, b) => b.norm - a.norm)
+          .map((p) => `
+            <div class="brow">
+              <span class="lbl">${p.lbl}</span>
+              <span class="track"><span class="f" style="width:${Math.round((p.norm / max) * 100)}%"></span></span>
+              <span class="val">${Math.round(p.norm * 100)}</span>
+            </div>`).join("");
+        bd.classList.add("show");
+
+        showPopup(c);
+      }
+
+      const popup = document.getElementById("popup");
+      function showPopup(c) {
+        document.getElementById("ptitle").textContent = `⚠ Slop advisory: ${c.cat}`;
+        document.getElementById("pbody").textContent = c.inter;
+        popup.classList.add("show");
+      }
+      function hidePopup() { popup.classList.remove("show"); }
+      document.getElementById("pclose").addEventListener("click", hidePopup);
+
+      form.addEventListener("submit", (e) => { e.preventDefault(); run(handleEl.value); });
+      document.querySelectorAll(".examples a").forEach((a) =>
+        a.addEventListener("click", () => { handleEl.value = a.dataset.h; run(a.dataset.h); }));
+
+      run(handleEl.value);
+    </script>
+  </body>
+</html>
