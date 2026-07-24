@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>simcluster clue — a murder in your mutuals — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. Six of its mutuals become the suspects — one is the killer — the weapons and rooms are popular-but-unique trigrams, and a few more mutuals are rival detectives who hold cards. Suggest, watch who can disprove, fill in your notesheet, and accuse: it was @so-and-so, in the «voronoi foam mobiod», with the «erdos number»."
+    />
+    <!-- House look: black on white, one readable mono, blue accent — plus a
+         manila "case file" tint and a red for the reveal. Copied palette from
+         moot-bingo (copy, don't abstract). -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --paper: #f7f2e7; /* case-file manila */
+        --paperline: #e6dcc4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1040px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 74ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro .ex { color: var(--ink); }
+      .intro .ex .s { color: var(--accent); }
+      .intro .ex .t { background: var(--paper); border: 1px solid var(--paperline);
+        border-radius: 3px; padding: 0 4px; }
+
+      /* handle searchbar */
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      button.go, button.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button.go:hover:not(:disabled), button.btn:hover:not(:disabled) { background: #000; }
+      button.go:disabled, button.btn:disabled { opacity: 0.35; cursor: default; }
+      button.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover:not(:disabled) { background: var(--faintbg); }
+      button.accuse { border-color: var(--bad); background: var(--bg); color: var(--bad); }
+      button.accuse:hover:not(:disabled) { background: #fdeef0; }
+      button.accuse.armed { background: var(--bad); color: #fff; }
+
+      #game { display: none; margin-top: 0.5rem; }
+      #game.on { display: block; }
+
+      /* the case brief */
+      .brief {
+        background: var(--paper); border: 1px solid var(--paperline);
+        border-radius: 6px; padding: 0.9rem 1.1rem; margin-bottom: 1.4rem;
+        font-size: 0.86rem; line-height: 1.65;
+      }
+      .brief .h { font-weight: 700; letter-spacing: 0.03em; }
+      .brief .rivals { color: var(--muted); }
+
+      /* the three pickers */
+      .pickers {
+        display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 1rem;
+        margin-bottom: 0.9rem;
+      }
+      @media (max-width: 780px) { .pickers { grid-template-columns: 1fr; } }
+      .pick h3 {
+        margin: 0 0 0.4rem; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); font-weight: 600;
+      }
+      .pick .opts { display: flex; flex-direction: column; gap: 4px; }
+      .chip {
+        display: flex; align-items: center; gap: 0.5rem; text-align: left;
+        font-family: inherit; font-size: 0.82rem; line-height: 1.25;
+        padding: 0.4rem 0.5rem; border: 1px solid var(--faint);
+        border-radius: 5px; background: var(--bg); color: var(--ink);
+        cursor: pointer; width: 100%;
+      }
+      .chip:hover { border-color: var(--muted); }
+      .chip.sel { border-color: var(--accent); background: #eef3fc; box-shadow: inset 0 0 0 1px var(--accent); }
+      .chip .av {
+        width: 26px; height: 26px; flex: none; border-radius: 50%;
+        background: #ddd center/cover no-repeat; font-size: 0.6rem;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-weight: 700;
+      }
+      .chip .txt { min-width: 0; overflow: hidden; }
+      .chip .dn { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .chip .hn { color: var(--accent); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .chip.tri { font-style: italic; }
+
+      .actions {
+        display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+        margin-bottom: 1.4rem;
+      }
+      .turnpill {
+        margin-left: auto; font-size: 0.8rem; color: var(--muted);
+      }
+      .turnpill b { color: var(--ink); }
+      .turnpill.you b { color: var(--accent); }
+
+      /* board: notesheet + log */
+      .board {
+        display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        gap: 1.6rem; align-items: start;
+      }
+      @media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+
+      .sheet { border: 1px solid var(--ink); border-radius: 6px; overflow: hidden; }
+      .sheet table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+      .sheet caption {
+        text-align: left; padding: 0.55rem 0.7rem; background: var(--paper);
+        border-bottom: 1px solid var(--paperline); font-weight: 700;
+        font-size: 0.8rem;
+      }
+      .sheet caption span { color: var(--muted); font-weight: 400; font-size: 0.72rem; }
+      .sheet th, .sheet td { border: 1px solid var(--faint); padding: 3px 5px; }
+      .sheet thead th {
+        font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.03em;
+        color: var(--muted); font-weight: 600; background: var(--faintbg);
+        text-align: center;
+      }
+      .sheet thead th.cardcol { text-align: left; }
+      .grouprow td {
+        background: var(--faintbg); font-weight: 700; font-size: 0.68rem;
+        text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+      }
+      .cardcell { display: flex; align-items: center; gap: 0.4rem; }
+      .cardcell .av {
+        width: 20px; height: 20px; flex: none; border-radius: 50%;
+        background: #ddd center/cover no-repeat; font-size: 0.5rem;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-weight: 700;
+      }
+      .cardcell .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .cardcell .lab.tri { font-style: italic; }
+      tr.held .cardcell { opacity: 0.5; }
+      tr.solved { background: #fff8e6; }
+      tr.solved .cardcell .lab { font-weight: 700; color: #7a5b00; }
+      td.mk {
+        text-align: center; cursor: pointer; width: 30px; user-select: none;
+        font-weight: 700;
+      }
+      td.mk:hover { background: var(--faintbg); }
+      td.mk.have { color: var(--good); }
+      td.mk.no { color: var(--bad); }
+      td.mk.youcol { background: #f4f8ff; }
+      .sheet .envhdr { color: var(--gold); }
+      td.env { text-align: center; }
+      td.env.on { color: var(--gold); font-weight: 700; }
+
+      .sheetnote { font-size: 0.72rem; color: var(--muted); margin: 0.5rem 0 0; }
+
+      /* log */
+      .logwrap h3 {
+        margin: 0 0 0.5rem; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); font-weight: 600;
+      }
+      .log {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.3rem 0;
+        max-height: 460px; overflow-y: auto; background: var(--bg);
+      }
+      .log .entry {
+        padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--faint);
+        font-size: 0.8rem; line-height: 1.5;
+      }
+      .log .entry:last-child { border-bottom: none; }
+      .log .entry.you { background: #f4f8ff; }
+      .log .entry.big { background: var(--paper); }
+      .log .who { color: var(--accent); }
+      .log .tri { font-style: italic; }
+      .log .none { color: var(--muted); }
+      .log .show { color: var(--good); font-weight: 600; }
+      .log .rd { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+      .hand {
+        margin-top: 1rem; font-size: 0.78rem; color: var(--muted);
+        border-top: 1px solid var(--faint); padding-top: 0.7rem;
+      }
+      .hand b { color: var(--ink); }
+      .hand .tri { font-style: italic; color: var(--ink); }
+
+      .banner {
+        margin: 1.2rem 0; padding: 0.9rem 1.1rem; border-radius: 6px;
+        border: 1px solid var(--gold); background: #fff8e6; color: #7a5b00;
+        font-weight: 700; display: none; line-height: 1.6;
+      }
+      .banner.on { display: block; animation: pop .3s ease-out; }
+      .banner.lose { border-color: var(--bad); background: #fdeef0; color: #8a1220; }
+      .banner .s { color: var(--accent); }
+      .banner .t { font-style: italic; }
+      @keyframes pop { 0% { transform: scale(.96); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>simcluster clue <span class="slash">· a murder in your mutuals</span></h1>
+      <p class="intro">
+        Type a Bluesky handle. Six of its <b>mutuals</b> become the suspects —
+        <b>one of them is the killer</b> — a few more become rival detectives who
+        hold cards, and the weapons and rooms are <b>popular-but-unique
+        trigrams</b>. Suggest a combination, watch who can disprove it, fill in
+        your notesheet, and when you're sure, accuse:
+        <span class="ex">it was <span class="s">@so-and-so</span>, in the
+        <span class="t">voronoi foam mobiod</span>, with the
+        <span class="t">erdos number</span>.</span>
+      </p>
+
+      <form class="finder" id="form" autocomplete="off">
+        <label class="lbl" for="handle">a bluesky handle (you play as this detective)</label>
+        <div class="searchrow">
+          <input
+            type="text"
+            id="handle"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button class="go" id="play" type="submit">open the case</button>
+        </div>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login.</p>
+
+      <section id="game">
+        <div class="brief" id="brief"></div>
+
+        <div class="pickers">
+          <div class="pick">
+            <h3>who (suspect)</h3>
+            <div class="opts" id="pickSuspect"></div>
+          </div>
+          <div class="pick">
+            <h3>room (trigram cluster)</h3>
+            <div class="opts" id="pickRoom"></div>
+          </div>
+          <div class="pick">
+            <h3>weapon (trigram)</h3>
+            <div class="opts" id="pickWeapon"></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="suggest">suggest — gather a clue</button>
+          <button class="btn accuse" id="accuse">accuse — final</button>
+          <button class="btn ghost" id="newcase">new case</button>
+          <span class="turnpill" id="turnpill"></span>
+        </div>
+
+        <div class="banner" id="banner"></div>
+
+        <div class="board">
+          <div class="sheetcol">
+            <div class="sheet">
+              <table id="sheet">
+                <caption>detective's notesheet <span>· click a cell: ✓ has it · ✗ doesn't · blank</span></caption>
+                <thead id="sheetHead"></thead>
+                <tbody id="sheetBody"></tbody>
+              </table>
+            </div>
+            <p class="sheetnote">
+              ✓/✗ deductions are filled in for you when they're certain (your own
+              hand, cards shown to you, and anyone who fails to disprove). Add your
+              own by clicking. A row turns gold when everyone's been ruled out — no
+              one holds it, so it's in the envelope.
+            </p>
+          </div>
+
+          <div class="logwrap">
+            <h3>case log</h3>
+            <div class="log" id="log"></div>
+            <div class="hand" id="hand"></div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        moots are mutuals — the follow-back set, borrowed from
+        <a href="https://moot-bingo.bisks.net">moot bingo</a>. weapons &amp; rooms
+        are curated unique trigrams from
+        <a href="https://trigrams.bisks.net">trigrams</a>. reads Bluesky's public
+        AppView, no login, everything client-side. sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { moots } from "./lib/moots.js";
+      import { TRIGRAMS } from "./lib/trigrams.js";
+
+      // ── DOM ─────────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("handle"), msg = $("msg"),
+        playBtn = $("play"), game = $("game"), brief = $("brief"),
+        pickSuspect = $("pickSuspect"), pickRoom = $("pickRoom"),
+        pickWeapon = $("pickWeapon"), suggestBtn = $("suggest"),
+        accuseBtn = $("accuse"), newcaseBtn = $("newcase"),
+        turnpill = $("turnpill"), banner = $("banner"),
+        sheetHead = $("sheetHead"), sheetBody = $("sheetBody"),
+        logEl = $("log"), handEl = $("hand");
+
+      // ── helpers ─────────────────────────────────────────────────────────
+      function shuffle(a) {
+        const x = a.slice();
+        for (let i = x.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [x[i], x[j]] = [x[j], x[i]];
+        }
+        return x;
+      }
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      const initials = (p) =>
+        (p.displayName || p.handle || "?").replace(/[^\p{L}\p{N}]/gu, "")
+          .slice(0, 2).toUpperCase() || "?";
+      const TINTS = ["#1a5fd0","#1f8a4c","#d81e6a","#e0a400","#8e44ad",
+        "#c0392b","#0f9b9b","#e2711d","#5566dd","#2c8c3c"];
+      function tintFor(did) {
+        let h = 0;
+        for (const c of did || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+      function avEl(p, cls) {
+        const d = document.createElement("div");
+        d.className = "av" + (cls ? " " + cls : "");
+        if (p.avatar) d.style.backgroundImage = `url("${p.avatar}")`;
+        else { d.style.background = tintFor(p.did); d.textContent = initials(p); }
+        return d;
+      }
+
+      // ── game state ──────────────────────────────────────────────────────
+      // Cards: id "s0".."s5" (suspects), "w0".."w5" (weapons), "r0".."r5" (rooms).
+      // A card = { id, type:'suspect'|'weapon'|'room', label, profile? }.
+      // players[0] is YOU; the rest are AI rival detectives (also mutuals).
+      let G = null;
+
+      function cardType(id) { return id[0] === "s" ? "suspect" : id[0] === "w" ? "weapon" : "room"; }
+
+      function buildGame(res) {
+        const pool = shuffle(res.pool);
+        const suspectsP = pool.slice(0, 6);
+        // 2–3 rival detectives from the remaining pool
+        const rivalN = Math.min(3, Math.max(2, pool.length - 6));
+        const rivalsP = pool.slice(6, 6 + rivalN);
+
+        // trigrams → 6 weapons + 6 rooms, distinct
+        const tri = shuffle(TRIGRAMS).slice(0, 12);
+        const rooms = tri.slice(0, 6);
+        const weapons = tri.slice(6, 12);
+
+        const cards = {};
+        const suspects = suspectsP.map((p, i) => {
+          const c = { id: "s" + i, type: "suspect", label: short(p.handle), profile: p };
+          cards[c.id] = c; return c;
+        });
+        const weaponCards = weapons.map((t, i) => {
+          const c = { id: "w" + i, type: "weapon", label: t }; cards[c.id] = c; return c;
+        });
+        const roomCards = rooms.map((t, i) => {
+          const c = { id: "r" + i, type: "room", label: t }; cards[c.id] = c; return c;
+        });
+
+        // solution: one of each
+        const solution = {
+          suspect: suspects[Math.floor(Math.random() * 6)].id,
+          weapon: weaponCards[Math.floor(Math.random() * 6)].id,
+          room: roomCards[Math.floor(Math.random() * 6)].id,
+        };
+        const solSet = new Set([solution.suspect, solution.weapon, solution.room]);
+
+        // players
+        const players = [{ name: "you", profile: res.self, you: true, hand: new Set(), memo: new Map() }];
+        for (const rp of rivalsP)
+          players.push({ name: short(rp.handle), profile: rp, you: false, hand: new Set(), memo: new Map() });
+
+        // deal the 15 non-solution cards round-robin, starting at you
+        const deck = shuffle(
+          [...suspects, ...weaponCards, ...roomCards].filter((c) => !solSet.has(c.id)).map((c) => c.id),
+        );
+        deck.forEach((id, i) => players[i % players.length].hand.add(id));
+
+        // holder[cardId] = player index, or -1 for the envelope (solution)
+        const holder = {};
+        for (const c of Object.values(cards)) holder[c.id] = -1;
+        players.forEach((pl, pi) => pl.hand.forEach((id) => (holder[id] = pi)));
+
+        // notes[cardId][playerIdx] = '' | 'have' | 'no'
+        const notes = {};
+        for (const c of Object.values(cards)) notes[c.id] = players.map(() => "");
+
+        G = {
+          self: res.self, cards, suspects, weapons: weaponCards, rooms: roomCards,
+          players, solution, holder, notes,
+          sel: { suspect: suspects[0].id, room: roomCards[0].id, weapon: weaponCards[0].id },
+          turn: 0, round: 1, over: false, armed: false,
+        };
+
+        // auto-mark your own hand
+        players[0].hand.forEach((id) => setNote(id, 0, "have"));
+      }
+
+      // set a note only if empty (never clobber existing marks — auto facts are safe)
+      function setNote(cardId, playerIdx, mark) {
+        if (!G.notes[cardId][playerIdx]) G.notes[cardId][playerIdx] = mark;
+      }
+      // toggle (user click): '' → have → no → ''
+      function cycleNote(cardId, playerIdx) {
+        const cur = G.notes[cardId][playerIdx];
+        G.notes[cardId][playerIdx] = cur === "" ? "have" : cur === "have" ? "no" : "";
+      }
+
+      // ── rendering: pickers ────────────────────────────────────────────────
+      function renderPickers() {
+        renderPickList(pickSuspect, G.suspects, "suspect");
+        renderPickList(pickRoom, G.rooms, "room");
+        renderPickList(pickWeapon, G.weapons, "weapon");
+      }
+      function renderPickList(container, cards, kind) {
+        container.innerHTML = "";
+        for (const c of cards) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "chip" + (c.type !== "suspect" ? " tri" : "") +
+            (G.sel[kind] === c.id ? " sel" : "");
+          if (c.type === "suspect") {
+            b.appendChild(avEl(c.profile));
+            const t = document.createElement("div"); t.className = "txt";
+            const dn = document.createElement("div"); dn.className = "dn";
+            dn.textContent = c.profile.displayName || c.profile.handle;
+            const hn = document.createElement("div"); hn.className = "hn";
+            hn.textContent = short(c.profile.handle);
+            t.append(dn, hn); b.appendChild(t);
+          } else {
+            const t = document.createElement("div"); t.className = "txt";
+            const dn = document.createElement("div"); dn.className = "dn";
+            dn.textContent = c.label; t.appendChild(dn); b.appendChild(t);
+          }
+          b.addEventListener("click", () => {
+            if (G.over) return;
+            G.sel[kind] = c.id; G.armed = false; setAccuseText();
+            renderPickers();
+          });
+          container.appendChild(b);
+        }
+      }
+
+      // ── rendering: notesheet ──────────────────────────────────────────────
+      function renderSheet() {
+        // header
+        sheetHead.innerHTML = "";
+        const hr = document.createElement("tr");
+        const h0 = document.createElement("th"); h0.className = "cardcol"; h0.textContent = "card";
+        hr.appendChild(h0);
+        G.players.forEach((pl) => {
+          const th = document.createElement("th");
+          th.textContent = pl.you ? "you" : pl.name.replace(/^@/, "").slice(0, 8);
+          th.title = pl.you ? "you" : pl.name;
+          hr.appendChild(th);
+        });
+        const he = document.createElement("th"); he.className = "envhdr"; he.textContent = "case?";
+        he.title = "in the envelope (the solution) — ruled out for every player";
+        hr.appendChild(he);
+        sheetHead.appendChild(hr);
+
+        // body
+        sheetBody.innerHTML = "";
+        const groups = [
+          ["suspects", G.suspects], ["rooms", G.rooms], ["weapons", G.weapons],
+        ];
+        for (const [gname, cards] of groups) {
+          const gr = document.createElement("tr"); gr.className = "grouprow";
+          const gd = document.createElement("td");
+          gd.colSpan = G.players.length + 2; gd.textContent = gname;
+          gr.appendChild(gd); sheetBody.appendChild(gr);
+
+          for (const c of cards) {
+            const tr = document.createElement("tr");
+            const marks = G.notes[c.id];
+            const held = marks.some((m) => m === "have");
+            const allNo = marks.every((m) => m === "no");
+            if (held) tr.classList.add("held");
+            if (allNo && !held) tr.classList.add("solved");
+
+            const cd = document.createElement("td");
+            const wrap = document.createElement("div"); wrap.className = "cardcell";
+            if (c.type === "suspect") wrap.appendChild(avEl(c.profile));
+            const lab = document.createElement("div");
+            lab.className = "lab" + (c.type !== "suspect" ? " tri" : "");
+            lab.textContent = c.label; lab.title = c.label;
+            wrap.appendChild(lab); cd.appendChild(wrap); tr.appendChild(cd);
+
+            G.players.forEach((pl, pi) => {
+              const td = document.createElement("td");
+              const m = marks[pi];
+              td.className = "mk" + (pl.you ? " youcol" : "") +
+                (m === "have" ? " have" : m === "no" ? " no" : "");
+              td.textContent = m === "have" ? "✓" : m === "no" ? "✗" : "";
+              td.addEventListener("click", () => {
+                if (G.over) return;
+                cycleNote(c.id, pi); renderSheet();
+              });
+              tr.appendChild(td);
+            });
+            const ed = document.createElement("td");
+            ed.className = "env" + (allNo && !held ? " on" : "");
+            ed.textContent = allNo && !held ? "◆" : "";
+            tr.appendChild(ed);
+            sheetBody.appendChild(tr);
+          }
+        }
+      }
+
+      // ── log ────────────────────────────────────────────────────────────
+      function logEntry(html, cls) {
+        const d = document.createElement("div");
+        d.className = "entry" + (cls ? " " + cls : "");
+        d.innerHTML = html;
+        logEl.insertBefore(d, logEl.firstChild);
+      }
+      const cardHtml = (id) => {
+        const c = G.cards[id];
+        return c.type === "suspect"
+          ? `<span class="who">${c.label}</span>`
+          : `<span class="tri">«${c.label}»</span>`;
+      };
+      const pname = (pi) => G.players[pi].you
+        ? '<span class="who">you</span>'
+        : `<span class="who">${G.players[pi].name}</span>`;
+
+      // ── the disprove engine ──────────────────────────────────────────────
+      // Ask each player clockwise from asker+1: first one holding any of the three
+      // suggested cards disproves by showing ONE. A player who holds NONE "passes"
+      // — public info: mark ✗ for that player on all three suggested cards.
+      function resolveSuggestion(askerIdx, sug) {
+        const trio = [sug.suspect, sug.room, sug.weapon];
+        const n = G.players.length;
+        for (let step = 1; step < n; step++) {
+          const rIdx = (askerIdx + step) % n;
+          const responder = G.players[rIdx];
+          const matches = trio.filter((id) => responder.hand.has(id));
+
+          if (matches.length === 0) {
+            // pass — everyone learns this player holds none of the three
+            trio.forEach((id) => setNote(id, rIdx, "no"));
+            logEntry(`${pname(rIdx)} can't disprove it.`, "none");
+            continue;
+          }
+
+          // responder disproves. pick which card to show.
+          let shown;
+          if (askerIdx === 0) {
+            // asker is YOU: you learn the exact card. good opponent re-shows a
+            // card already shown to you if possible (minimises new info).
+            const prev = matches.find((id) => responder.memo.get("shown0") === id);
+            shown = prev || matches[Math.floor(Math.random() * matches.length)];
+            responder.memo.set("shown0", shown);
+            setNote(shown, rIdx, "have");
+            logEntry(
+              `${pname(rIdx)} <span class="show">shows you</span> ${cardHtml(shown)}.`,
+              "you",
+            );
+          } else if (rIdx === 0) {
+            // an AI asked and YOU are the one who can disprove — you show a card.
+            shown = matches[Math.floor(Math.random() * matches.length)];
+            logEntry(`${pname(askerIdx)} asks; you show ${cardHtml(shown)} from your hand.`);
+          } else {
+            // AI asked, AI disproved — you only see THAT it happened, not the card.
+            // (You can deduce the responder holds one of the three; toggle by hand.)
+            shown = matches[0];
+            logEntry(`${pname(rIdx)} shows a card to ${pname(askerIdx)}. <span class="none">(you don't see which)</span>`);
+          }
+          renderSheet();
+          return; // only the first disprover responds
+        }
+        // no one could disprove
+        logEntry(`nobody can disprove it. <span class="none">the ones you don't hold are looking guilty…</span>`, "big");
+        renderSheet();
+      }
+
+      // ── AI turn: pick a suggestion, favouring cards it hasn't seen ─────────
+      function aiSuggestion(pi) {
+        const pl = G.players[pi];
+        const pickFrom = (cards) => {
+          // prefer a card the AI does NOT hold (it's "testing" others); else any
+          const unknown = cards.filter((c) => !pl.hand.has(c.id));
+          const src = unknown.length ? unknown : cards;
+          return src[Math.floor(Math.random() * src.length)].id;
+        };
+        return {
+          suspect: pickFrom(G.suspects),
+          room: pickFrom(G.rooms),
+          weapon: pickFrom(G.weapons),
+        };
+      }
+
+      // ── turn flow ─────────────────────────────────────────────────────────
+      function setTurnPill() {
+        const you = G.turn === 0;
+        turnpill.className = "turnpill" + (you ? " you" : "");
+        turnpill.innerHTML = G.over
+          ? `<b>case closed</b>`
+          : you
+            ? `round ${G.round} · <b>your move</b>`
+            : `round ${G.round} · ${pname(G.turn)} is investigating…`;
+      }
+      function setControls() {
+        const yourTurn = G.turn === 0 && !G.over;
+        suggestBtn.disabled = !yourTurn;
+        accuseBtn.disabled = !yourTurn;
+      }
+      function setAccuseText() {
+        if (G.armed) {
+          accuseBtn.classList.add("armed");
+          accuseBtn.textContent = "lock it in →";
+        } else {
+          accuseBtn.classList.remove("armed");
+          accuseBtn.textContent = "accuse — final";
+        }
+      }
+
+      function advanceTurn() {
+        if (G.over) return;
+        G.turn = (G.turn + 1) % G.players.length;
+        if (G.turn === 0) G.round++;
+        setTurnPill(); setControls();
+        if (G.turn !== 0) {
+          // AI plays after a beat
+          setTimeout(runAiTurn, 950);
+        }
+      }
+      function runAiTurn() {
+        if (G.over || G.turn === 0) return;
+        const pi = G.turn;
+        const sug = aiSuggestion(pi);
+        logEntry(
+          `<span class="rd">rd ${G.round}</span> ${pname(pi)} suggests ` +
+          `${cardHtml(sug.suspect)} in ${cardHtml(sug.room)} with ${cardHtml(sug.weapon)}.`,
+        );
+        resolveSuggestion(pi, sug);
+        setTimeout(advanceTurn, 850);
+      }
+
+      // ── player actions ────────────────────────────────────────────────────
+      suggestBtn.addEventListener("click", () => {
+        if (G.over || G.turn !== 0) return;
+        G.armed = false; setAccuseText();
+        const sug = { suspect: G.sel.suspect, room: G.sel.room, weapon: G.sel.weapon };
+        logEntry(
+          `<span class="rd">rd ${G.round}</span> ${pname(0)} suggest ` +
+          `${cardHtml(sug.suspect)} in ${cardHtml(sug.room)} with ${cardHtml(sug.weapon)}.`,
+          "you",
+        );
+        resolveSuggestion(0, sug);
+        setControls(); // lock while AIs go
+        suggestBtn.disabled = true; accuseBtn.disabled = true;
+        setTimeout(advanceTurn, 700);
+      });
+
+      accuseBtn.addEventListener("click", () => {
+        if (G.over || G.turn !== 0) return;
+        if (!G.armed) { G.armed = true; setAccuseText(); return; }
+        G.armed = false; setAccuseText();
+        doAccuse();
+      });
+
+      function doAccuse() {
+        G.over = true;
+        const a = G.sel, sol = G.solution;
+        const right =
+          a.suspect === sol.suspect && a.weapon === sol.weapon && a.room === sol.room;
+        const line =
+          `it was ${cardHtml(sol.suspect)}, in the ${cardHtml(sol.room)}, ` +
+          `with the ${cardHtml(sol.weapon)}`;
+        if (right) {
+          banner.className = "banner on";
+          banner.innerHTML =
+            `<span style="font-size:1.05rem">case closed. ✓</span><br>${line}. ` +
+            `you named the killer, the cluster, and the weapon. detective of the network.`;
+          logEntry(`${pname(0)} accuse — and nail it. ${line}.`, "big");
+        } else {
+          banner.className = "banner lose on";
+          banner.innerHTML =
+            `<span style="font-size:1.05rem">wrong accusation. ✗</span><br>` +
+            `you said ${cardHtml(a.suspect)} / ${cardHtml(a.room)} / ${cardHtml(a.weapon)}. ` +
+            `it was really — ${line}. the killer walks. open a new case.`;
+          logEntry(`${pname(0)} accuse ${cardHtml(a.suspect)} / ${cardHtml(a.room)} / ${cardHtml(a.weapon)} — wrong. ${line}.`, "big");
+        }
+        // reveal the true solution on the sheet
+        [sol.suspect, sol.room, sol.weapon].forEach((id) => {
+          G.notes[id] = G.players.map(() => "no"); // envelope = nobody holds it
+        });
+        renderSheet();
+        setTurnPill(); setControls();
+        banner.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      // ── set up a fresh case from the loaded roster ─────────────────────────
+      let lastRes = null;
+      function newCase() {
+        buildGame(lastRes);
+        banner.className = "banner"; banner.innerHTML = "";
+        logEl.innerHTML = "";
+        renderBrief(); renderPickers(); renderSheet(); renderHand();
+        setAccuseText(); setTurnPill(); setControls();
+        logEntry(
+          `a body in the network. one of six mutuals did it, in one of six ` +
+          `trigram clusters, with one of six trigram weapons. you hold ` +
+          `${G.players[0].hand.size} cards — everything you hold is innocent. suggest to learn more.`,
+          "big",
+        );
+      }
+
+      function renderBrief() {
+        const rivals = G.players.slice(1).map((p) => p.name).join(", ");
+        brief.innerHTML =
+          `<div class="h">THE CASE</div> six suspects, six clusters, six weapons — ` +
+          `one of each sealed in the envelope. you're playing as ` +
+          `<span class="who">${short(G.self.handle)}</span>. ` +
+          `<span class="rivals">rival detectives holding cards: ${rivals}. ` +
+          `on your turn, suggest a trio; the first rival (clockwise) who holds one ` +
+          `shows it to you. accuse only when you're certain — it's final.</span>`;
+      }
+
+      function renderHand() {
+        const ids = [...G.players[0].hand];
+        const items = ids.map((id) => {
+          const c = G.cards[id];
+          return c.type === "suspect"
+            ? `<b>${c.label}</b>`
+            : `<span class="tri">«${c.label}»</span>`;
+        });
+        handEl.innerHTML = `<b>your hand</b> (all innocent): ` +
+          (items.length ? items.join(" · ") : "—");
+      }
+
+      // ── boot: resolve handle → build roster → open case ───────────────────
+      const initial = new URLSearchParams(location.search).get("h") || "";
+      if (initial) input.value = initial;
+
+      input.addEventListener("input", () => {
+        msg.className = "msg";
+        msg.textContent = "reads Bluesky's public graph in your browser — no login.";
+      });
+
+      newcaseBtn.addEventListener("click", () => { if (lastRes) newCase(); });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const h = input.value.trim();
+        if (!h) { input.focus(); return; }
+        playBtn.disabled = true;
+        msg.className = "msg";
+        msg.textContent = "resolving " + short(h.replace(/^@/, "")) + "…";
+        try {
+          const res = await moots(h, {
+            onStep: (s) => { msg.className = "msg"; msg.textContent = s; },
+          });
+          if (res.pool.length < 8) {
+            msg.className = "msg err";
+            msg.textContent =
+              `${short(res.handle)} only has ${res.pool.length} moots — a case needs ` +
+              `at least 8 (six suspects + rival detectives). try someone with more mutuals.`;
+            playBtn.disabled = false;
+            return;
+          }
+          lastRes = res;
+          msg.className = "msg ok";
+          msg.textContent =
+            `case opened for ${short(res.handle)} — ${res.pool.length} mutuals in the pool.`;
+          game.classList.add("on");
+          newCase();
+          game.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          msg.className = "msg err";
+          msg.textContent =
+            err && err.status === 400
+              ? "couldn't find that handle. check the spelling?"
+              : "couldn't load that one — " + (err.message || "try again") + ".";
+        } finally {
+          playBtn.disabled = false;
+        }
+      });
+
+      if (initial) form.requestSubmit();
+    </script>
+  </body>
+</html>
