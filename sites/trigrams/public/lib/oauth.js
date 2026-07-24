@@ -1,0 +1,341 @@
+// oauth.js — browser-side atproto OAuth (public client), for trigrams.bisks.net.
+//
+// Adapted from mino.mobi's airchat/oauth/flow.js (minormobius/agent01), thank you.
+// Theirs is a confidential client in a Worker (server-held signing key,
+// private_key_jwt assertions, state+tokens in D1). Ours is a PUBLIC client in the
+// browser:
+//   - token_endpoint_auth_method: none  → no client_assertion anywhere
+//   - PKCE + DPoP only (see oauth-jwt.js)
+//   - transient auth state → sessionStorage; the logged-in session → IndexedDB
+//
+// The client_id is the URL of our static client-metadata.json. Scope
+// `atproto transition:generic` is what allows writing app.bsky.feed.post (replies).
+
+import {
+  generateDPoPKeyPair,
+  serializeDPoPKeyPair,
+  deserializeDPoPKeyPair,
+  createDPoPProof,
+  generateCodeVerifier,
+  computeCodeChallenge,
+  generateState,
+  jwtExp,
+} from "./oauth-jwt.js";
+
+const ORIGIN = location.origin; // https://trigrams.bisks.net (or localhost in dev)
+export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
+export const REDIRECT_URI = `${ORIGIN}/reply/`; // must be listed in client-metadata.json
+const SCOPE = "atproto transition:generic";
+
+const BSKY_PUBLIC_API = "https://api.bsky.app";
+const PLC_DIR = "https://plc.directory";
+
+// --- identity resolution (handle -> DID -> PDS -> auth server) ---------------
+
+async function resolveHandle(handle) {
+  const r = await fetch(
+    `${BSKY_PUBLIC_API}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`,
+  );
+  if (!r.ok) return null;
+  return (await r.json()).did || null;
+}
+
+async function resolvePds(did) {
+  try {
+    if (did.startsWith("did:plc:")) {
+      const r = await fetch(`${PLC_DIR}/${did}`);
+      if (r.ok) {
+        const doc = await r.json();
+        const pds = (doc.service || []).find(
+          (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer",
+        );
+        if (pds?.serviceEndpoint) return pds.serviceEndpoint;
+      }
+    } else if (did.startsWith("did:web:")) {
+      const domain = did.replace("did:web:", "").replace(/:/g, "/");
+      const r = await fetch(`https://${domain}/.well-known/did.json`);
+      if (r.ok) {
+        const doc = await r.json();
+        const pds = (doc.service || []).find(
+          (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer",
+        );
+        if (pds?.serviceEndpoint) return pds.serviceEndpoint;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+async function fetchJson(url) {
+  const r = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`fetch ${url} failed (${r.status})`);
+  return r.json();
+}
+
+async function discoverAuthServer(pdsUrl) {
+  const resource = await fetchJson(
+    `${pdsUrl.replace(/\/$/, "")}/.well-known/oauth-protected-resource`,
+  );
+  const authServerUrl = (resource.authorization_servers || [])[0];
+  if (!authServerUrl) throw new Error("PDS advertises no authorization server");
+  const metadata = await fetchJson(
+    `${authServerUrl.replace(/\/$/, "")}/.well-known/oauth-authorization-server`,
+  );
+  return { authServerUrl, metadata };
+}
+
+// --- session storage (IndexedDB) ---------------------------------------------
+
+const DB_NAME = "trigrams-oauth";
+const STORE = "session";
+
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
+    tx.onsuccess = () => resolve(tx.result ?? null);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbSet(key, value) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite").objectStore(STORE).put(value, key);
+    tx.onsuccess = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbDel(key) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite").objectStore(STORE).delete(key);
+    tx.onsuccess = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getSession() {
+  return idbGet("current");
+}
+export async function clearSession() {
+  return idbDel("current");
+}
+
+// --- login: start the flow ---------------------------------------------------
+
+export async function login(handleOrDid) {
+  const did = handleOrDid.startsWith("did:")
+    ? handleOrDid
+    : await resolveHandle(handleOrDid);
+  if (!did) throw new Error("could not resolve handle");
+  const pdsUrl = await resolvePds(did);
+  if (!pdsUrl) throw new Error("could not resolve PDS");
+
+  const { authServerUrl, metadata } = await discoverAuthServer(pdsUrl);
+
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await computeCodeChallenge(codeVerifier);
+  const state = generateState();
+  const dpop = await generateDPoPKeyPair();
+  const dpopSerialized = await serializeDPoPKeyPair(dpop);
+
+  // Pushed Authorization Request. Public client: no client_assertion.
+  const parEndpoint = metadata.pushed_authorization_request_endpoint;
+  const parBody = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    response_type: "code",
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    state,
+    scope: SCOPE,
+    login_hint: handleOrDid,
+  });
+
+  let dpopProof = await createDPoPProof(dpop, "POST", parEndpoint);
+  let parRes = await fetch(parEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", DPoP: dpopProof },
+    body: parBody.toString(),
+  });
+  // The auth server usually rejects the first DPoP proof with a nonce to use.
+  if (parRes.status === 400 || parRes.status === 401) {
+    const nonce = parRes.headers.get("DPoP-Nonce");
+    if (nonce) {
+      dpopProof = await createDPoPProof(dpop, "POST", parEndpoint, nonce);
+      parRes = await fetch(parEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", DPoP: dpopProof },
+        body: parBody.toString(),
+      });
+    }
+  }
+  if (!parRes.ok) {
+    const err = await parRes.text().catch(() => "");
+    throw new Error(`PAR failed (${parRes.status}): ${err.slice(0, 300)}`);
+  }
+  const parData = await parRes.json();
+  const dpopNonce = parRes.headers.get("DPoP-Nonce");
+
+  // Stash what the callback needs. sessionStorage is fine — it's short-lived and
+  // same-origin; the redirect returns to this same tab.
+  sessionStorage.setItem(
+    `oauth:${state}`,
+    JSON.stringify({
+      codeVerifier,
+      dpop: dpopSerialized,
+      did,
+      pdsUrl,
+      tokenEndpoint: metadata.token_endpoint,
+      issuer: metadata.issuer,
+      dpopNonce: dpopNonce || null,
+    }),
+  );
+
+  const authUrl =
+    `${metadata.authorization_endpoint}?` +
+    new URLSearchParams({ request_uri: parData.request_uri, client_id: CLIENT_ID });
+  location.href = authUrl.toString();
+}
+
+// --- callback: exchange code for tokens --------------------------------------
+
+// Call on page load at the redirect URI. Returns the session if this was an
+// OAuth callback, or null if there's no ?code in the URL.
+export async function completeLoginIfCallback() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get("code");
+  const state = params.get("state");
+  const oauthErr = params.get("error");
+  if (oauthErr) {
+    cleanUrl();
+    throw new Error(`authorization failed: ${oauthErr}`);
+  }
+  if (!code || !state) return null;
+
+  const stashed = sessionStorage.getItem(`oauth:${state}`);
+  if (!stashed) {
+    cleanUrl();
+    throw new Error("oauth state not found (already used or wrong tab)");
+  }
+  sessionStorage.removeItem(`oauth:${state}`);
+  const s = JSON.parse(stashed);
+  const dpop = await deserializeDPoPKeyPair(s.dpop);
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: REDIRECT_URI,
+    code_verifier: s.codeVerifier,
+    client_id: CLIENT_ID,
+  });
+
+  let dpopProof = await createDPoPProof(
+    dpop,
+    "POST",
+    s.tokenEndpoint,
+    s.dpopNonce || undefined,
+  );
+  let res = await fetch(s.tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", DPoP: dpopProof },
+    body: body.toString(),
+  });
+  if (res.status === 400 || res.status === 401) {
+    const nonce = res.headers.get("DPoP-Nonce");
+    if (nonce) {
+      dpopProof = await createDPoPProof(dpop, "POST", s.tokenEndpoint, nonce);
+      res = await fetch(s.tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", DPoP: dpopProof },
+        body: body.toString(),
+      });
+    }
+  }
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    cleanUrl();
+    throw new Error(`token exchange failed (${res.status}): ${err.slice(0, 300)}`);
+  }
+  const tokens = await res.json();
+  if (tokens.sub !== s.did) throw new Error("DID mismatch after token exchange");
+
+  const finalNonce = res.headers.get("DPoP-Nonce") || s.dpopNonce || null;
+
+  let handle = tokens.sub;
+  try {
+    const r = await fetch(
+      `${BSKY_PUBLIC_API}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(tokens.sub)}`,
+    );
+    if (r.ok) handle = (await r.json()).handle || handle;
+  } catch {}
+
+  const session = {
+    did: tokens.sub,
+    handle,
+    pdsUrl: s.pdsUrl,
+    tokenEndpoint: s.tokenEndpoint,
+    accessJwt: tokens.access_token,
+    refreshJwt: tokens.refresh_token,
+    accessExpiresAt:
+      jwtExp(tokens.access_token) ||
+      Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600),
+    dpop: s.dpop,
+    dpopNonce: finalNonce,
+    scope: tokens.scope || SCOPE,
+  };
+  await idbSet("current", session);
+  cleanUrl();
+  return session;
+}
+
+function cleanUrl() {
+  history.replaceState({}, "", location.pathname);
+}
+
+// --- authenticated requests (DPoP-bound, with nonce retry) -------------------
+
+// Make a DPoP-authenticated request to the user's PDS (or any atproto endpoint
+// bound to this token). Handles the use_dpop_nonce challenge by retrying once
+// with the server-provided nonce, and persists the rotated nonce.
+export async function dpopFetch(session, url, options = {}) {
+  const dpop = await deserializeDPoPKeyPair(session.dpop);
+  const method = options.method || "GET";
+
+  const doFetch = async (nonce) => {
+    const proof = await createDPoPProof(dpop, method, url, nonce, session.accessJwt);
+    return fetch(url, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `DPoP ${session.accessJwt}`,
+        DPoP: proof,
+      },
+    });
+  };
+
+  let res = await doFetch(session.dpopNonce || undefined);
+  if (res.status === 401 || res.status === 400) {
+    const nonce = res.headers.get("DPoP-Nonce");
+    if (nonce && nonce !== session.dpopNonce) {
+      session.dpopNonce = nonce;
+      await idbSet("current", session);
+      res = await doFetch(nonce);
+    }
+  }
+  // Persist any freshly rotated nonce for next time.
+  const rotated = res.headers.get("DPoP-Nonce");
+  if (rotated && rotated !== session.dpopNonce) {
+    session.dpopNonce = rotated;
+    await idbSet("current", session);
+  }
+  return res;
+}

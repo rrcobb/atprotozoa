@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>reply — trigrams — bisks.net</title>
+    <style>
+      :root {
+        --bg: #f4f6f3;
+        --card: #eaf0ea;
+        --ink: #1a1a1a;
+        --muted: #5a625a;
+        --accent: #2f6b3f;
+        --link: #2b6cb0;
+        --err: #a3352b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.55;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+      h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.5rem;
+        margin: 0 0 0.25rem;
+      }
+      h1 a { color: inherit; text-decoration: none; }
+      .intro { color: var(--muted); margin: 0 0 1.75rem; }
+      .card {
+        background: var(--card);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      label { font-size: 0.9rem; color: var(--muted); display: block; margin-bottom: 0.4rem; }
+      input[type="text"] {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 1rem;
+        padding: 0.5rem 0.6rem;
+        border: 1px solid #cdd6cd;
+        border-radius: 6px;
+        width: 100%;
+      }
+      button {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 0.9rem;
+        padding: 0.55rem 1rem;
+        border: none;
+        border-radius: 6px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        margin-top: 0.75rem;
+      }
+      button.ghost { background: transparent; color: var(--link); padding: 0.3rem 0; }
+      pre {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 0.78rem;
+        background: #e2e8e2;
+        padding: 0.75rem;
+        border-radius: 6px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .err { color: var(--err); }
+      .ok { color: var(--accent); }
+      footer { margin-top: 2rem; color: var(--muted); font-size: 0.8rem; }
+      footer a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1><a href="/firehose/">trigrams</a> / reply</h1>
+      <p class="intro">
+        Reply to a bisk with the perfect trigram. (Building — this is the OAuth +
+        search harness for now.)
+      </p>
+
+      <div id="app"></div>
+
+      <footer>
+        auth cribbed with thanks from
+        <a href="https://github.com/minormobius/agent01">mino.mobi</a> ·
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import {
+        login,
+        completeLoginIfCallback,
+        getSession,
+        clearSession,
+        dpopFetch,
+      } from "../lib/oauth.js";
+
+      const app = document.getElementById("app");
+      const h = (html) => (app.innerHTML = html);
+
+      function loginView(msg) {
+        h(`
+          ${msg ? `<p class="err">${msg}</p>` : ""}
+          <div class="card">
+            <label for="handle">your bluesky handle</label>
+            <input id="handle" type="text" placeholder="bisks.net" value="bisks.net" />
+            <button id="go">sign in with bluesky</button>
+          </div>
+        `);
+        document.getElementById("go").onclick = async () => {
+          const handle = document.getElementById("handle").value.trim();
+          if (!handle) return;
+          try {
+            await login(handle);
+          } catch (e) {
+            loginView(e.message);
+          }
+        };
+      }
+
+      async function sessionView(session) {
+        h(`
+          <div class="card">
+            <p class="ok">signed in as <b>@${session.handle}</b></p>
+            <pre>did: ${session.did}
+pds: ${session.pdsUrl}
+scope: ${session.scope}</pre>
+            <button id="search">test: can this token call searchPosts?</button>
+            <div id="searchResult"></div>
+            <button class="ghost" id="logout">sign out</button>
+          </div>
+        `);
+        document.getElementById("logout").onclick = async () => {
+          await clearSession();
+          loginView();
+        };
+        document.getElementById("search").onclick = async () => {
+          const out = document.getElementById("searchResult");
+          out.innerHTML = "<p>searching…</p>";
+          try {
+            // searchPosts lives on the AppView. DPoP tokens are audience-bound to
+            // the PDS, but the PDS proxies app.bsky.* XRPC to the AppView with the
+            // atproto-proxy header. Route through the PDS so the token is valid.
+            const url =
+              `${session.pdsUrl.replace(/\/$/, "")}/xrpc/app.bsky.feed.searchPosts` +
+              `?q=${encodeURIComponent('"perfect trigram"')}&limit=3`;
+            const res = await dpopFetch(session, url, {
+              headers: { "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+            });
+            const text = await res.text();
+            out.innerHTML = `<pre>HTTP ${res.status}\n${text.slice(0, 800)}</pre>`;
+          } catch (e) {
+            out.innerHTML = `<pre class="err">${e.message}</pre>`;
+          }
+        };
+      }
+
+      (async () => {
+        try {
+          const fromCallback = await completeLoginIfCallback();
+          const session = fromCallback || (await getSession());
+          if (session) sessionView(session);
+          else loginView();
+        } catch (e) {
+          loginView(e.message);
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -104,6 +104,29 @@ airchat-wrangler.jsonc, io-worker.js. (Full clone deleted — 739M → 144K.)
 Net: both views are static pages sharing a copied-in OAuth module. The only
 server anywhere is the redirect handler we already have.
 
+## OAuth implementation: hand-rolled, NO build step
+
+Checked how mino actually does it: **hand-rolled ES modules, no bundler, pure Web
+Crypto** (`airchat/oauth/{jwt,flow,discovery,keypair}.js`). Browsers run ES modules
+natively (`<script type="module">`), and every crypto call is `crypto.subtle.*` /
+`crypto.randomUUID()` — identical in browser and Worker. No Buffer, no require, no
+Node APIs.
+
+So we hand-roll too, copying mino's primitives — but SIMPLER, because we're a
+browser **public client**, not mino's server **confidential client**:
+- Keep: PKCE (`generateCodeVerifier`/`computeCodeChallenge`), DPoP
+  (`generateDPoPKeyPair`/`createDPoPProof`), discovery, the auth-server metadata
+  fetch. All copyable near-verbatim from `jwt.js`/`discovery.js`.
+- Drop: `createClientAssertion` + `keypair.js` (the server-held ES256 signing key
+  and `private_key_jwt` assertions). A public client uses
+  `token_endpoint_auth_method: none` — no client secret/key at all.
+- Tokens/DPoP key persist in **IndexedDB** (browser), not D1.
+
+client-metadata.json served at `trigrams.bisks.net/client-metadata.json`;
+`client_id` = that URL; scope `atproto transition:generic` (covers feed.post).
+Dev friction: atproto OAuth is fiddly against localhost — develop against the
+deployed trigrams.bisks.net (we have push-to-deploy).
+
 ## Attribution
 
 Home page (apex) gets a thank-you to mino.mobi / minormobius/agent01 for the
