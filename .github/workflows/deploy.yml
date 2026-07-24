@@ -1,0 +1,102 @@
+name: deploy
+
+# Deploy changed Workers on push to main. Each site under sites/*, plus apex/,
+# is its own Cloudflare Worker. We diff the push to find which directories
+# changed and deploy only those, so a one-line fix to one experiment doesn't
+# redeploy all of them. See notes/20-deploy.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: "Deploy every site regardless of what changed"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Work out which deployable dirs changed. Each is a top-level unit: "apex" or
+  # "sites/<name>". Outputs a JSON array for the matrix.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.detect.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Every deployable unit: "apex" and each "sites/<name>" that has a
+          # wrangler.toml. One line per dir.
+          all_dirs() {
+            { [ -d apex ] && echo apex || true; }
+            for d in sites/*/; do
+              [ -f "${d}wrangler.toml" ] && echo "${d%/}"
+            done
+          }
+
+          # Map a list of changed file paths (on stdin) to the deployable dirs
+          # they belong to, keeping only dirs that still have a wrangler.toml.
+          changed_dirs() {
+            sed -n -E 's#^(apex)/.*#\1#p; s#^(sites/[^/]+)/.*#\1#p' \
+              | sort -u \
+              | while IFS= read -r d; do
+                  [ -f "$d/wrangler.toml" ] && echo "$d"
+                done
+          }
+
+          before="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy_all }}" = "true" ]; then
+            selected=$(all_dirs)
+          elif [ -z "$before" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            # First push (before is all-zeros / unknown): deploy everything.
+            selected=$(all_dirs)
+          else
+            selected=$(git diff --name-only "$before" "${{ github.sha }}" | changed_dirs)
+          fi
+
+          if [ -z "$selected" ]; then
+            echo "No deployable dirs changed."
+            echo 'dirs=[]' >> "$GITHUB_OUTPUT"
+          else
+            json=$(printf '%s\n' "$selected" | jq -R . | jq -sc .)
+            echo "Deploying: $json"
+            echo "dirs=$json" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: changes
+    if: needs.changes.outputs.dirs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: deploy ${{ matrix.dir }}
+        working-directory: ${{ matrix.dir }}
+        run: pnpm dlx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
