@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trigruessr — guess the poster — bisks.net</title>
+    <meta
+      name="description"
+      content="Guess the Bluesky poster from a set of their three-word phrases. Fewer clues, more points."
+    />
+    <!-- Same plain look as trigrams/rich: black on white, one readable mono,
+         lots of space, one calm accent used only for links + score. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.4rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      /* scoreboard */
+      .board {
+        display: flex; gap: 1.4rem; flex-wrap: wrap;
+        border-top: 1px solid var(--faint); border-bottom: 1px solid var(--faint);
+        padding: 0.7rem 0; margin-bottom: 2rem; font-size: 0.8rem;
+      }
+      .board .stat { color: var(--muted); }
+      .board .stat b { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+      .board .stat .score b { color: var(--accent); }
+
+      .stage { min-height: 8rem; }
+
+      /* clue slots */
+      .clues { list-style: none; margin: 0 0 1.6rem; padding: 0; }
+      .clue {
+        display: flex; align-items: baseline; gap: 0.75rem;
+        padding: 0.55rem 0; border-top: 1px solid var(--faint);
+      }
+      .clue:first-child { border-top: none; }
+      .clue .num {
+        color: var(--muted); font-size: 0.75rem; width: 1.2rem; flex: none;
+      }
+      .clue .gram {
+        font-size: 1.15rem; font-weight: 600; word-break: break-word;
+      }
+      .clue.hidden .gram { color: var(--faint); font-weight: 400; letter-spacing: 0.1em; }
+      .clue.reveal { animation: fade 0.25s ease both; }
+      @keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+
+      .prompt { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.9rem; }
+      .prompt b { color: var(--ink); }
+
+      .actions { margin-bottom: 1.6rem; }
+      .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      @media (max-width: 460px) { .choices { grid-template-columns: 1fr; } }
+
+      button {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.6rem 0.8rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+        cursor: pointer; text-align: left; line-height: 1.35;
+      }
+      button:hover:not(:disabled) { background: #f2f2f2; }
+      button:disabled { cursor: default; }
+      button .dn { font-weight: 600; display: block; }
+      button .hn { color: var(--muted); font-size: 0.78rem; }
+
+      button.solid {
+        background: var(--ink); color: var(--bg); text-align: center;
+        font-size: 0.85rem; padding: 0.55rem 0.9rem;
+      }
+      button.solid:hover:not(:disabled) { background: #000; }
+      button.solid:disabled { opacity: 0.3; }
+
+      button.correct { border-color: var(--good); background: #eafaf0; }
+      button.correct .dn, button.correct .hn { color: var(--good); }
+      button.wrong { border-color: var(--bad); background: #fbeceb; opacity: 0.85; }
+      button.wrong .dn, button.wrong .hn { color: var(--bad); }
+      button.dim { opacity: 0.35; }
+
+      .cluebar {
+        display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+        font-size: 0.8rem; color: var(--muted);
+      }
+
+      /* reveal card */
+      .reveal-card {
+        display: flex; gap: 0.9rem; align-items: center;
+        padding: 1rem 0; border-top: 1px solid var(--faint);
+        margin-top: 0.4rem; animation: fade 0.3s ease both;
+      }
+      .reveal-card img {
+        width: 52px; height: 52px; border-radius: 50%; flex: none;
+        background: var(--faint); object-fit: cover;
+      }
+      .reveal-card .meta { min-width: 0; }
+      .reveal-card .verdict { font-weight: 600; margin: 0 0 0.15rem; }
+      .reveal-card .verdict.win { color: var(--good); }
+      .reveal-card .verdict.lose { color: var(--bad); }
+      .reveal-card .name { font-weight: 600; }
+      .reveal-card a { color: var(--accent); text-decoration: none; font-size: 0.82rem; }
+      .reveal-card a:hover { text-decoration: underline; }
+
+      .err { color: var(--bad); }
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>trigruessr <span class="slash">· guess the poster</span></h1>
+      </header>
+      <p class="intro">
+        A mystery Bluesky account, revealed only through <b>three-word phrases</b>
+        pulled from its posts. Guess who it is. Guess on the <b>first clue</b> for
+        5&nbsp;points; each extra clue you need is worth one less.
+      </p>
+
+      <div class="board">
+        <span class="stat score">score <b id="score">0</b></span>
+        <span class="stat">streak <b id="streak">0</b></span>
+        <span class="stat">best <b id="best">0</b></span>
+        <span class="stat">round <b id="round">–</b></span>
+      </div>
+
+      <div class="stage" id="stage">
+        <p class="prompt" id="loading">warming up… reading the roster off Bluesky.</p>
+      </div>
+
+      <footer>
+        reads Bluesky's public API in your browser — no login. phrase harvesting
+        borrows from <a href="https://trigrams.bisks.net">trigrams</a>; sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { tokenize, score, resolveActorFull } from "../lib/unique.js";
+
+      const PUB = "https://api.bsky.app/xrpc"; // anonymous, CORS *
+
+      // A roster of recognizable-ish Bluesky / atproto folks. Only accounts that
+      // resolve (and have enough posts) become the secret; any of them can show
+      // up as a decoy. Missing/renamed handles just drop out silently.
+      const ROSTER = [
+        "danabra.mov",
+        "pfrazee.com",
+        "jay.bsky.team",
+        "bnewbold.net",
+        "emilyliu.me",
+        "mackuba.eu",
+        "laurenshof.online",
+        "retr0.id",
+        "snarfed.org",
+        "futur.blue",
+        "molly.wiki",
+        "hankgreen.bsky.social",
+        "jamesomalley.co.uk",
+        "annagat.bsky.social",
+        "norvid-studies.bsky.social",
+        "bisks.net",
+      ];
+
+      const GAME_PAGES = 4; // ~400 recent posts — plenty of phrases, fast enough
+      const MIN_POSTS = 60; // need enough text to make a fair set of clues
+      const MIN_CLUES = 3; // a round needs at least this many usable phrases
+      const CLUES = 5; // clues available per round
+      const CHOICES = 6; // multiple-choice options per round
+
+      const stage = document.getElementById("stage");
+      const els = {
+        score: document.getElementById("score"),
+        streak: document.getElementById("streak"),
+        best: document.getElementById("best"),
+        round: document.getElementById("round"),
+      };
+
+      let pool = []; // [{ did, handle, displayName, avatar, postsCount }]
+      let state = { score: 0, streak: 0, round: 0 };
+      let best = Number(localStorage.getItem("trigruessr.best") || 0);
+      let recent = []; // dids of last few secrets, to avoid immediate repeats
+      let cur = null; // current round
+      let nextP = null; // prefetched next round (a promise)
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      const rnd = (n) => Math.floor(Math.random() * n);
+      function shuffle(a) {
+        const r = a.slice();
+        for (let i = r.length - 1; i > 0; i--) {
+          const j = rnd(i + 1);
+          [r[i], r[j]] = [r[j], r[i]];
+        }
+        return r;
+      }
+      function sample(a, n) {
+        return shuffle(a).slice(0, n);
+      }
+      const overlap = (a, b) => a.filter((x) => b.includes(x)).length;
+
+      function paintBoard() {
+        els.score.textContent = state.score;
+        els.streak.textContent = state.streak;
+        els.best.textContent = best;
+        els.round.textContent = state.round || "–";
+      }
+
+      // ── data ────────────────────────────────────────────────────────────────
+      async function jget(url) {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }
+
+      // One batched getProfiles call resolves the whole roster AND gives us
+      // display name / avatar / postsCount — dropping any handle that no longer
+      // exists. (≤25 actors per call; the roster stays under that.)
+      async function loadPool() {
+        const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+        for (const a of ROSTER) u.searchParams.append("actors", a);
+        const d = await jget(u.toString());
+        return (d.profiles || [])
+          .filter((p) => p.did && p.handle)
+          .map((p) => ({
+            did: p.did,
+            handle: p.handle,
+            displayName: p.displayName || p.handle,
+            avatar: p.avatar || "",
+            postsCount: p.postsCount || 0,
+          }));
+      }
+
+      // Harvest content-bearing trigrams from an account's recent posts, then pick
+      // a small, varied set that doesn't give the identity away.
+      async function gatherClues(actor) {
+        const nameToks = new Set([
+          ...tokenize(actor.handle.replace(/[._-]/g, " ")),
+          ...tokenize(actor.displayName || ""),
+        ]);
+
+        const counts = new Map();
+        let cursor = "";
+        for (let page = 0; page < GAME_PAGES; page++) {
+          const u = new URL(
+            `${actor.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords`,
+          );
+          u.searchParams.set("repo", actor.did);
+          u.searchParams.set("collection", "app.bsky.feed.post");
+          u.searchParams.set("limit", "100");
+          if (cursor) u.searchParams.set("cursor", cursor);
+
+          let d;
+          try {
+            d = await jget(u.toString());
+          } catch {
+            break;
+          }
+          const recs = d.records || [];
+          for (const rec of recs) {
+            const text = rec.value && rec.value.text;
+            if (!text) continue;
+            const t = tokenize(text);
+            for (let i = 0; i + 2 < t.length; i++)
+              counts.set(
+                `${t[i]} ${t[i + 1]} ${t[i + 2]}`,
+                (counts.get(`${t[i]} ${t[i + 1]} ${t[i + 2]}`) || 0) + 1,
+              );
+          }
+          cursor = d.cursor;
+          if (!cursor || recs.length === 0) break;
+        }
+
+        const cands = [];
+        for (const [g, cnt] of counts) {
+          const toks = g.split(" ");
+          const s = score(toks); // <0 means all-stopword; higher = more content
+          if (s < 0) continue;
+          if (toks.some((x) => nameToks.has(x))) continue; // don't leak the name
+          cands.push({ g, toks, cnt, s });
+        }
+        cands.sort((a, b) => b.s - a.s);
+
+        // Prefer meaty phrases (s>=4 ≈ two+ content words). Widen only if a quiet
+        // account can't fill a round from the good ones.
+        let good = cands.filter((c) => c.s >= 4);
+        if (good.length < CLUES + 3) good = cands.filter((c) => c.s >= 2);
+        if (good.length < MIN_CLUES) good = cands;
+
+        // Sample from the meatiest phrases (good is sorted by score) for
+        // round-to-round variety without dredging up the dullest ones. Keep clues
+        // distinct — skip any that shares two words with one already picked.
+        const picked = [];
+        for (const c of shuffle(good.slice(0, 30))) {
+          if (picked.length >= CLUES) break;
+          if (picked.some((p) => overlap(p.toks, c.toks) >= 2)) continue;
+          picked.push(c);
+        }
+        for (const c of good) {
+          if (picked.length >= CLUES) break;
+          if (!picked.includes(c)) picked.push(c);
+        }
+        return picked.map((p) => p.g);
+      }
+
+      // Build a playable round: a secret with enough clues + CHOICES-1 decoys.
+      async function makeRound() {
+        const usable = pool.filter(
+          (p) => p.postsCount >= MIN_POSTS && !recent.includes(p.did),
+        );
+        const bench = (usable.length ? usable : pool.filter((p) => p.postsCount >= MIN_POSTS));
+        const order = shuffle(bench);
+        for (const secret of order) {
+          let actor;
+          try {
+            actor = await resolveActorFull(secret.did); // did in → { did, pdsUrl, handle }
+          } catch {
+            continue;
+          }
+          let clues;
+          try {
+            clues = await gatherClues({ ...secret, ...actor });
+          } catch {
+            continue;
+          }
+          if (clues.length < MIN_CLUES) continue;
+
+          const decoys = sample(
+            pool.filter((p) => p.did !== secret.did),
+            CHOICES - 1,
+          );
+          return {
+            secret,
+            clues: clues.slice(0, CLUES),
+            choices: shuffle([secret, ...decoys]),
+            shown: 1,
+            over: false,
+          };
+        }
+        return null;
+      }
+
+      // ── render ───────────────────────────────────────────────────────────────
+      function stake(round) {
+        return Math.max(1, CLUES + 1 - round.shown);
+      }
+
+      function render() {
+        if (!cur) {
+          stage.innerHTML = `<p class="err">Couldn't assemble a round — Bluesky's
+            API may be having a moment. <button class="solid" id="retry">try again</button></p>`;
+          document.getElementById("retry").onclick = boot;
+          return;
+        }
+
+        const cluesHtml = cur.clues
+          .map((g, i) => {
+            const on = i < cur.shown || cur.over;
+            const gram = on ? esc(g) : "· · ·";
+            return `<li class="clue ${on ? "reveal" : "hidden"}">
+              <span class="num">${i + 1}</span>
+              <span class="gram">${gram}</span>
+            </li>`;
+          })
+          .join("");
+
+        const choicesHtml = cur.choices
+          .map(
+            (c, i) => `<button data-i="${i}">
+              <span class="dn">${esc(c.displayName)}</span>
+              <span class="hn">@${esc(c.handle)}</span>
+            </button>`,
+          )
+          .join("");
+
+        stage.innerHTML = `
+          <ul class="clues">${cluesHtml}</ul>
+          <p class="prompt">Who posts like this? Worth <b>${stake(cur)} pt${stake(cur) === 1 ? "" : "s"}</b> right now.</p>
+          <div class="actions cluebar">
+            <button class="solid" id="more" ${cur.shown >= cur.clues.length ? "disabled" : ""}>
+              reveal another clue (−1 pt)
+            </button>
+            <span>${cur.shown} of ${cur.clues.length} clues shown</span>
+          </div>
+          <div class="choices" id="choices">${choicesHtml}</div>`;
+
+        const more = document.getElementById("more");
+        if (more)
+          more.onclick = () => {
+            if (cur.shown < cur.clues.length) {
+              cur.shown++;
+              render();
+            }
+          };
+        document.querySelectorAll("#choices button").forEach((b) => {
+          b.onclick = () => guess(Number(b.dataset.i), b);
+        });
+      }
+
+      function guess(i, btn) {
+        if (cur.over) return;
+        cur.over = true;
+        const picked = cur.choices[i];
+        const won = picked.did === cur.secret.did;
+        const gained = won ? stake(cur) : 0;
+
+        state.round++;
+        if (won) {
+          state.score += gained;
+          state.streak++;
+          if (state.streak > best) {
+            best = state.streak;
+            localStorage.setItem("trigruessr.best", String(best));
+          }
+        } else {
+          state.streak = 0;
+        }
+        recent = [cur.secret.did, ...recent].slice(0, 6);
+        paintBoard();
+
+        // mark buttons: green on the answer, red on a wrong pick, dim the rest
+        document.querySelectorAll("#choices button").forEach((b, j) => {
+          b.disabled = true;
+          const c = cur.choices[j];
+          if (c.did === cur.secret.did) b.className = "correct";
+          else if (j === i) b.className = "wrong";
+          else b.className = "dim";
+        });
+        const more = document.getElementById("more");
+        if (more) more.disabled = true;
+        // reveal any remaining clues now that the round is decided
+        document.querySelectorAll(".clue").forEach((li, j) => {
+          li.classList.remove("hidden");
+          li.querySelector(".gram").textContent = cur.clues[j];
+        });
+
+        const s = cur.secret;
+        const verdict = won
+          ? `<span class="verdict win">✓ Got it in ${cur.shown} clue${cur.shown === 1 ? "" : "s"} · +${gained}</span>`
+          : `<span class="verdict lose">✗ Nope — it was:</span>`;
+        const card = document.createElement("div");
+        card.className = "reveal-card";
+        card.innerHTML = `
+          ${s.avatar ? `<img src="${esc(s.avatar)}" alt="" />` : `<img alt="" />`}
+          <div class="meta">
+            ${verdict}
+            <div class="name">${esc(s.displayName)}</div>
+            <a href="https://bsky.app/profile/${esc(s.handle)}" target="_blank" rel="noopener">@${esc(s.handle)} on bluesky →</a>
+          </div>`;
+        stage.appendChild(card);
+
+        const next = document.createElement("button");
+        next.className = "solid";
+        next.style.marginTop = "1.4rem";
+        next.textContent = "next account →";
+        next.onclick = advance;
+        stage.appendChild(next);
+      }
+
+      async function advance() {
+        stage.innerHTML = `<p class="prompt">dealing the next hand…</p>`;
+        const p = nextP || makeRound();
+        nextP = null;
+        cur = await p;
+        render();
+        nextP = makeRound(); // prefetch the one after, so "next" stays instant
+      }
+
+      async function boot() {
+        stage.innerHTML = `<p class="prompt" id="loading">warming up… reading the roster off Bluesky.</p>`;
+        try {
+          pool = await loadPool();
+        } catch (e) {
+          cur = null;
+          render();
+          return;
+        }
+        if (pool.filter((p) => p.postsCount >= MIN_POSTS).length < CHOICES) {
+          stage.innerHTML = `<p class="err">Not enough of the roster loaded to
+            play right now. Reload in a bit.</p>`;
+          return;
+        }
+        cur = await makeRound();
+        render();
+        nextP = makeRound();
+      }
+
+      paintBoard();
+      boot();
+    </script>
+  </body>
+</html>
