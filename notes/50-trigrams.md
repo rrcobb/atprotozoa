@@ -67,6 +67,9 @@ Match the screenshots: light card with a green left border, monospace title,
 serif body, muted grays, the `3-GRAM` tag in small caps. This visual is a good
 candidate to become the copied-around "card" look for future sites.
 
-## Subdomain
+## URL
 
-`trigrams.bisks.net`
+`trigrams.bisks.net/firehose` — the site is "trigrams", `/firehose` is its live
+view (the only one so far). The bare root redirects to `/firehose`. Future views
+of trigrams can live under other paths (`/unique`, `/search`, …) without a new
+subdomain — subdomain = project, path = view.

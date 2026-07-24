@@ -15,6 +15,9 @@ Prior art we're stealing the vibe from:
 - **vibe-coded.com/projects** — a gallery of small vibe-coded web toys.
 - **all-paperclips.bsky.social** ("fluoddity") and **cee.wtf** — one-person
   streams of tiny, weird, atproto-flavored web things.
+- **github.com/dollspace-gay** (@dollspace.gay) — third-party atproto software,
+  mostly Rust tooling. A reminder that the ecosystem is bigger than the web-toy
+  corner, and that "tools for the protocol" is a valid flavor of experiment too.
 
 The shared thread: a single person can text an idea to a coding agent and have a
 whole small site built and deployed. Low ceremony, high output, deliberately

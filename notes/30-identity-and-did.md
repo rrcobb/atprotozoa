@@ -20,7 +20,7 @@ control the Worker:
 `/.well-known/atproto-did` must return, as `text/plain`, exactly Rob's DID:
 
 ```
-did:plc:XXXXXXXXXXXXXXXXXXXXXXXX     # <- REAL DID, fill in
+did:plc:f6n22z62adionrvb5s6n6vfk     # robcobbable.bsky.social
 ```
 
 To find the current DID from the current handle:
