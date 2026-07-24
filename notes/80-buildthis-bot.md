@@ -44,10 +44,13 @@ The same Worker runs on a cron trigger (every minute or two). Each tick:
    is included in full (a Bluesky post is ~300 chars, so 10 is ~3k chars / <1k
    tokens, not worth truncating). The tagging post keeps a 600-char sanity cap.
    Thread fetch is best-effort; on failure the build proceeds on the tag alone.
-5. `repository_dispatch` to GitHub with the brief + the reply target (the post's
+5. **Like the tagging post** as a "working on it" acknowledgement, so the requester
+   can see the bot picked up the tag while the build runs in the background. Guarded
+   by a per-post `liked:` KV marker so a dispatch retry can't stack duplicate likes.
+6. `repository_dispatch` to GitHub with the brief + the reply target (the post's
    URI/CID) so the Action can reply. (No build-count checks — spend is bounded by
    the provider spend cap, see Budget.)
-6. Record the mention as handled (KV) so it can't re-trigger.
+7. Record the mention as handled (KV) so it can't re-trigger.
 
 Why cron-polling notifications and not Jetstream: `listNotifications` gives
 mentions already filtered and is naturally deduped by cursor; the bot is authed

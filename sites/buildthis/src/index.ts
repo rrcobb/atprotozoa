@@ -89,11 +89,21 @@ async function runWatcher(env: Env): Promise<void> {
       continue;
     }
 
-    // A mutual: dispatch the build. There is NO build-count or per-person gate —
-    // spend is bounded entirely by the provider spend cap (Rob's call: dollars are
-    // the only ceiling). The brief is the tagging post's text; if the tag was a
-    // reply, we prepend the ancestor posts so "build this ☝️" resolves to what it
-    // points at. All treated as a feature description, not harness instructions.
+    // A mutual: acknowledge the request with a like before doing anything else,
+    // so it's visibly clear the bot saw the tag and is working on the build in the
+    // background. Guarded by a per-post marker so a dispatch retry (or a re-list)
+    // can't stack duplicate likes on the same post.
+    const likedKey = `liked:${m.uri}`;
+    if (!(await env.STATE.get(likedKey))) {
+      await likePost(session, m);
+      await env.STATE.put(likedKey, "1", { expirationTtl: 60 * 60 * 24 * 30 });
+    }
+
+    // Dispatch the build. There is NO build-count or per-person gate — spend is
+    // bounded entirely by the provider spend cap (Rob's call: dollars are the only
+    // ceiling). The brief is the tagging post's text; if the tag was a reply, we
+    // prepend the ancestor posts so "build this ☝️" resolves to what it points at.
+    // All treated as a feature description, not harness instructions.
     const ancestors = await threadContext(session, m);
     const brief = buildBrief(m.text, ancestors, num(env.MAX_BRIEF_CHARS));
     const dispatched = await dispatchBuild(env, {
@@ -278,6 +288,33 @@ async function replyToPost(
   if (!res.ok) {
     // Don't throw — a failed reply shouldn't abort the whole tick. Log it.
     console.error(`reply failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+// Like a post — the bot's "working on it" acknowledgement. Creates an
+// app.bsky.feed.like record pointing at the mention's strongRef (uri + cid).
+// Best-effort like replyToPost: a failed like is logged, not thrown, so it can
+// never abort the tick or block the build that follows.
+async function likePost(session: Session, m: Mention): Promise<void> {
+  const record = {
+    $type: "app.bsky.feed.like",
+    subject: { uri: m.uri, cid: m.cid },
+    createdAt: new Date().toISOString(),
+  };
+  const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.accessJwt}`,
+    },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: "app.bsky.feed.like",
+      record,
+    }),
+  });
+  if (!res.ok) {
+    console.error(`like failed: ${res.status} ${await res.text()}`);
   }
 }
 
