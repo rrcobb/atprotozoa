@@ -65,9 +65,13 @@ async function runWatcher(env: Env): Promise<void> {
     const handledKey = `handled:${m.uri}`;
     if (await env.STATE.get(handledKey)) continue;
 
-    const isMutual = await robMutual(env, m.authorDid);
+    // Rob himself is always allowed (he owns the bot — he's not a "mutual" to be
+    // checked; a self-relationship has neither following nor followedBy). Everyone
+    // else must be a mutual of Rob's.
+    const isAllowed =
+      m.authorDid === env.ROB_DID || (await robMutual(env, m.authorDid));
 
-    if (!isMutual) {
+    if (!isAllowed) {
       // Reply once, ever, tagging Rob so he can pick it up by hand. The
       // "replied-nonmutual" marker is per-author (not per-post) so someone can't
       // make the bot spam-tag Rob by mentioning it repeatedly.
