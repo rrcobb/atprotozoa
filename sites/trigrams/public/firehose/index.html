@@ -213,7 +213,7 @@
       <div class="filters">
         <button
           id="uniqBtn"
-          title="Verify each phrase against Bluesky full-text search and show only the ones that appear in NO other post on the whole network — true global uniqueness, not just unique-since-you-loaded. Search is rate-limited and the firehose is much faster, so we check at most one phrase per post, paced; expect the feed to slow to a trickle."
+          title="Verify each phrase against Bluesky full-text search and show only the ones that appear in NO other post on the whole network — true global uniqueness, not just unique-since-you-loaded. To be sure the search actually saw the phrase (fresh posts lag the index), we wait for the source post to show up in results before trusting a verdict; an empty result is treated as 'can't tell yet,' not 'unique.' Search is rate-limited and we only check substantial phrases, one per post — expect the feed to slow to a trickle."
         >unique on bsky</button>
         <span class="verify-status" id="verifyStatus"></span>
         <label title="Only show posts in these languages (post lang tags). Comma or space separated, e.g. en ja. Blank = every language. Posts with no language tag always pass.">
@@ -426,27 +426,71 @@
       // Bluesky full-text search whether that exact phrase already exists in ANY
       // other post, and renders only the ones that don't.
       //
+      // minormobius flagged two ways non-uniques were slipping through, and both
+      // are fixed here:
+      //
+      //  1. "interpreting a null result as no result and publishing." A phrase
+      //     from a post that JUST flew past the firehose is not in the search
+      //     index yet — indexing lags the firehose by seconds to minutes. So an
+      //     EMPTY search result means "not indexed yet," NOT "unique." The old
+      //     code published on empty. Now we demand positive proof the phrase is
+      //     actually searchable: the search must return the SOURCE POST ITSELF
+      //     ("verify the op returns"). If it doesn't, the result is inconclusive
+      //     and we DROP rather than publish. We wait briefly and retry once to
+      //     give the index time to catch up.
+      //
+      //  2. tokenization mismatch. Phrases are built keeping apostrophes ("don't
+      //     really") but the old confirm dropped them, so an apostrophe phrase
+      //     matched nothing and was always called unique. Now both the phrase
+      //     needle and each returned post go through the SAME normalizer.
+      //
+      // Plus minormobius' "easier lift — filter by length then search": we only
+      // verify phrases with real substance (long enough, enough content words).
+      // Short all-stopword trigrams are ~never globally unique AND are exactly
+      // the ones bsky search handles poorly, so skipping them cuts false uniques
+      // and the search rate at once.
+      //
       // Search is authenticated (via our /api/search proxy) but still rate-
-      // limited, and the firehose fires phrases far faster than we can search
-      // them. So — exactly as minormobius warned — we do NOT search everything:
-      // at most ONE phrase per post, fed through a small, paced worker pool with
-      // a bounded backlog. Under load the freshest phrases win and stale ones are
-      // dropped (it's a firehose; dropping is fine). Net effect: with this on,
-      // the feed slows to a trickle of genuinely globally-unique phrases.
+      // limited. We check at most ONE phrase per post through a small, paced
+      // worker pool with a bounded backlog. Net effect: with this on, the feed
+      // slows to a trickle of phrases proven to appear nowhere else.
       const SEARCH_PROXY = location.origin.includes("bisks.net")
         ? "/api/search"
         : "https://trigrams.bisks.net/api/search";
       const VERIFY_CONC = 3; // parallel searches in flight
       const VERIFY_PACE_MS = 300; // min gap after each search before its slot frees
       const VERIFY_QUEUE_CAP = 40; // bounded backlog; drop the stalest under load
+      const VERIFY_INDEX_MS = 5000; // wait this long before searching, so the fresh post can index
+      const VERIFY_MAX_TRIES = 2; // if the op still isn't indexed, retry this many times total
+      const VERIFY_MIN_CHARS = 12; // phrase must be at least this long to bother verifying
+      const VERIFY_MIN_CONTENT = 2; // …and have at least this many non-stopword words
       let verifyUnique = false; // toggle state
       const verifyQueue = []; // candidates awaiting a search
       let verifyActive = 0; // searches currently in flight
 
-      // Tokenize the way unique.js / Bluesky search does, so "phrase present in a
-      // returned post" is judged the same way the index matched it. Padded with
-      // spaces so a whole-phrase substring test can't span word boundaries.
-      function tokPad(text) {
+      // Function words that carry no uniqueness signal (idea from lib/unique.js).
+      const VERIFY_STOP = new Set(
+        ("a an and are as at be been but by for from had has have he her his i in is it its me my no " +
+          "not of on or our so that the their them then they this to up us was we were what when who " +
+          "will with you your just like get got out about into over more all can do if im dont its").split(/\s+/),
+      );
+
+      // minormobius' "filter by trigram length and then search": only spend a
+      // search on a phrase that could plausibly be unique. Trivially-short and
+      // all-stopword trigrams are never unique and are the worst false positives.
+      function worthVerifying(phrase) {
+        if (phrase.join(" ").length < VERIFY_MIN_CHARS) return false;
+        let content = 0;
+        for (const w of phrase) if (!VERIFY_STOP.has(w)) content++;
+        return content >= VERIFY_MIN_CONTENT;
+      }
+
+      // ONE normalizer for both sides of the "does this post contain the phrase"
+      // test, so a tokenization mismatch can't defeat it. Padded with spaces so a
+      // whole-phrase substring test can't span word boundaries. Note it drops
+      // apostrophes — that's fine as long as BOTH the needle and the post text
+      // pass through here, which is the bug this replaces.
+      function normPad(text) {
         return (
           " " +
           String(text || "")
@@ -482,22 +526,29 @@
         return null;
       }
 
-      // true  = the phrase appears in no post other than this one (globally unique)
-      // false = a real prior use exists somewhere on the network
-      // null  = search failed; caller drops it rather than guess either way
+      // true  = the phrase is INDEXED and appears only in the source post (unique)
+      // false = a real use exists in some OTHER post on the network (not unique)
+      // null  = INCONCLUSIVE — the search failed, or the source post itself didn't
+      //         come back, which means the phrase isn't in the index yet. An empty
+      //         result is NOT proof of uniqueness. Caller retries, then drops.
       async function isGloballyUnique(phrase, selfUri) {
         const u = new URL(SEARCH_PROXY, location.href);
         u.searchParams.set("q", `"${phrase}"`); // quoted => exact-phrase intent
-        u.searchParams.set("limit", "15");
+        u.searchParams.set("limit", "25");
         const d = await searchGet(u.toString());
-        if (!d) return null;
-        const needle = " " + phrase + " ";
+        if (!d) return null; // search failed outright
+        const needle = normPad(phrase);
+        let selfSeen = false;
+        let otherSeen = false;
         for (const p of d.posts || []) {
-          if (p.uri === selfUri) continue; // the post that just flew past — not "elsewhere"
           const text = p.record && p.record.text;
-          if (text && tokPad(text).includes(needle)) return false; // search is fuzzy; confirm
+          if (!text || !normPad(text).includes(needle)) continue; // search is fuzzy; confirm
+          if (p.uri === selfUri) selfSeen = true;
+          else otherSeen = true;
         }
-        return true;
+        if (otherSeen) return false; // someone else's post has it → not unique
+        if (!selfSeen) return null; // op not returned → not indexed yet → can't tell
+        return true; // only the source post carries it → globally unique
       }
 
       function enqueueVerify(candidate) {
@@ -520,10 +571,22 @@
       }
 
       async function verifyWorker(c) {
+        const phrase = c.phrase.join(" ");
         const selfUri = `at://${c.did}/app.bsky.feed.post/${c.rkey}`;
-        const uniq = await isGloballyUnique(c.phrase.join(" "), selfUri);
+        let uniq = null;
+        // The op is brand-new, so give the index time to catch up, then require
+        // it to actually return the op before trusting a "unique" verdict. A
+        // definite false ends it early; a null (not indexed yet) waits and retries.
+        for (let attempt = 0; attempt < VERIFY_MAX_TRIES; attempt++) {
+          await new Promise((res) => setTimeout(res, VERIFY_INDEX_MS * (attempt + 1)));
+          if (paused || !verifyUnique) return; // toggled off / paused while waiting
+          uniq = await isGloballyUnique(phrase, selfUri);
+          if (uniq === false) return; // proven non-unique → drop
+          if (uniq === true) break; // proven unique → render
+          // uniq === null: op not indexed yet (or search failed) → wait, retry
+        }
         await new Promise((res) => setTimeout(res, VERIFY_PACE_MS)); // gentle pacing
-        if (uniq !== true) return; // non-unique, or couldn't tell → drop
+        if (uniq !== true) return; // never got positive proof → drop, don't publish
         if (paused || !verifyUnique) return; // stale by the time it resolved
         // Stamp the author cooldown only now, on a real render — a phrase that
         // turned out non-unique shouldn't have burned its author's slot.
@@ -539,8 +602,8 @@
         }
         const q = verifyQueue.length + verifyActive;
         verifyStatus.textContent = q
-          ? `searching ${q} on bsky…`
-          : "searching bsky · idle";
+          ? `verifying ${q} on bsky…`
+          : "verifying bsky · idle";
       }
 
       uniqBtn.addEventListener("click", () => {
@@ -752,6 +815,11 @@
           // so they can still surface later if the threshold is relaxed. Only
           // applies once warmed — before that we have no meaningful score.
           if (surpMin > 0 && warmed() && surpriseOf(tri) < surpMin) continue;
+          // In uniqueness mode, skip trigrams too short / too function-word-heavy
+          // to plausibly be globally unique (minormobius' length pre-filter) —
+          // WITHOUT marking them seen, so they can surface later if the toggle is
+          // off. Try the next trigram in the post instead of giving up.
+          if (verifyUnique && !worthVerifying(tri)) continue;
           seen.add(key);
           // One card per post keeps the feed readable, so we take only the first
           // novel trigram — and, crucially, verify at most this one phrase per
