@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>moot bingo — your mutuals as spheres in a lottery drum — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle and play bingo with its moots. Everyone it follows-back becomes a glossy sphere tumbling in a lottery drum; draw them out one at a time to daub a 5×5 card."
+    />
+    <!-- Same plain look as trigrams / neighborhood: black on white, one readable
+         mono, lots of space, blue accent — plus two bingo-dauber colours and a
+         metallic drum. The spheres are the point, so the drum is the hero. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --daub: #d81e6a; /* bingo dauber ink */
+        --gold: #e0a400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      /* the handle searchbar */
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      button.go, button.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button.go:hover:not(:disabled), button.btn:hover:not(:disabled) { background: #000; }
+      button.go:disabled, button.btn:disabled { opacity: 0.35; cursor: default; }
+      button.ghost {
+        background: var(--bg); color: var(--ink);
+      }
+      button.ghost:hover:not(:disabled) { background: var(--faintbg); }
+
+      /* ── the game ─────────────────────────────────────────────────────── */
+      #game { display: none; margin-top: 0.5rem; }
+      #game.on { display: block; }
+
+      .board {
+        display: grid; grid-template-columns: minmax(0, 420px) 1fr;
+        gap: 2rem; align-items: start;
+      }
+      @media (max-width: 720px) {
+        .board { grid-template-columns: 1fr; gap: 1.6rem; }
+      }
+
+      /* drum column */
+      .drumwrap { position: relative; }
+      canvas#drum {
+        display: block; width: 100%; height: auto; touch-action: none;
+      }
+      .caller {
+        display: flex; align-items: center; gap: 0.85rem;
+        margin-top: 0.4rem; min-height: 68px;
+      }
+      .caller .lastball {
+        width: 62px; height: 62px; flex: none; border-radius: 50%;
+        background: var(--faintbg) center/cover no-repeat;
+        position: relative; box-shadow: none;
+      }
+      .caller .lastball.has {
+        box-shadow: inset -7px -9px 16px rgba(0,0,0,.42),
+                    inset 6px 6px 12px rgba(255,255,255,.22);
+      }
+      .caller .lastball.has::after {
+        content: ""; position: absolute; inset: 0; border-radius: 50%;
+        background: radial-gradient(circle at 32% 28%,
+          rgba(255,255,255,.62), rgba(255,255,255,0) 44%);
+      }
+      .caller .meta { min-width: 0; }
+      .caller .meta .cap {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      .caller .meta .dn {
+        font-weight: 700; font-size: 0.98rem;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .caller .meta .hn {
+        color: var(--accent); font-size: 0.8rem;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .caller .meta a { color: inherit; text-decoration: none; }
+      .caller .meta a:hover { text-decoration: underline; }
+
+      .controls { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.9rem; flex-wrap: wrap; }
+      .controls .count { color: var(--muted); font-size: 0.8rem; margin-left: auto; }
+      label.auto {
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        font-size: 0.85rem; cursor: pointer; user-select: none;
+      }
+
+      /* card column */
+      .cardhead {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap;
+      }
+      .cardhead .who { font-weight: 700; }
+      .cardhead .who .accent { color: var(--accent); }
+      .cardhead .kind { color: var(--muted); font-size: 0.78rem; }
+
+      .bingoword {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+        margin-bottom: 6px;
+      }
+      .bingoword span {
+        text-align: center; font-weight: 700; font-size: 0.9rem;
+        color: var(--accent); letter-spacing: 0.1em;
+      }
+      .card3 .bingoword { grid-template-columns: repeat(3, 1fr); }
+
+      .card {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+      }
+      .card.card3 { grid-template-columns: repeat(3, 1fr); }
+      .cell {
+        position: relative; aspect-ratio: 1; border: 1px solid var(--faint);
+        border-radius: 6px; background: var(--faintbg);
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 3px; padding: 4px 2px 3px;
+        overflow: hidden; transition: border-color .1s ease;
+      }
+      .cell .ball {
+        width: 58%; aspect-ratio: 1; border-radius: 50%;
+        background: #ddd center/cover no-repeat; position: relative;
+        box-shadow: inset -5px -6px 11px rgba(0,0,0,.4),
+                    inset 4px 4px 9px rgba(255,255,255,.22);
+      }
+      .cell .ball::after {
+        content: ""; position: absolute; inset: 0; border-radius: 50%;
+        background: radial-gradient(circle at 32% 28%,
+          rgba(255,255,255,.6), rgba(255,255,255,0) 44%);
+      }
+      .cell .hn {
+        font-size: 0.6rem; line-height: 1.15; color: var(--muted);
+        max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; text-align: center;
+      }
+      .cell.free .ball {
+        box-shadow: inset -5px -6px 11px rgba(0,0,0,.4),
+                    inset 4px 4px 9px rgba(255,255,255,.22),
+                    0 0 0 2px var(--gold);
+      }
+      .cell.free .hn { color: var(--gold); font-weight: 700; }
+
+      /* the daub */
+      .cell.daubed { border-color: var(--daub); }
+      .cell .daub {
+        position: absolute; inset: 0; display: none;
+        align-items: center; justify-content: center; pointer-events: none;
+      }
+      .cell.daubed .daub { display: flex; animation: stamp .22s ease-out; }
+      .cell .daub::before {
+        content: ""; width: 62%; aspect-ratio: 1; border-radius: 50%;
+        background: var(--daub); opacity: 0.42;
+        box-shadow: 0 0 0 3px rgba(216,30,106,.22);
+      }
+      @keyframes stamp {
+        0% { transform: scale(2.1); opacity: 0; }
+        60% { transform: scale(.86); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .cell.win { border-color: var(--gold); background: #fff8e6; }
+      .cell.win .daub::before { background: var(--gold); box-shadow: 0 0 0 3px rgba(224,164,0,.25); }
+
+      .banner {
+        margin-top: 1rem; padding: 0.7rem 0.9rem; border-radius: 5px;
+        border: 1px solid var(--gold); background: #fff8e6; color: #7a5b00;
+        font-weight: 700; display: none;
+      }
+      .banner.on { display: block; animation: stamp .3s ease-out; }
+      .banner.black { border-color: var(--daub); background: #fdeef4; color: #8a1247; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>moot bingo <span class="slash">· your mutuals in a lottery drum</span></h1>
+      <p class="intro">
+        Type a Bluesky handle. Everyone it <b>follows back</b> — its
+        <b>moots</b> — drops into the drum as a glossy little sphere and starts
+        to tumble. <b>Call</b> them out one at a time and daub the ones on your
+        card. Five in a row is a <b>bingo</b>; the whole card is a
+        <b>blackout</b>.
+      </p>
+
+      <form class="finder" id="form" autocomplete="off">
+        <label class="lbl" for="handle">a bluesky handle</label>
+        <div class="searchrow">
+          <input
+            type="text"
+            id="handle"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button class="go" id="play" type="submit">load moots</button>
+        </div>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login.</p>
+
+      <section id="game">
+        <div class="board">
+          <!-- the drum -->
+          <div class="drumcol">
+            <div class="drumwrap">
+              <canvas id="drum" width="840" height="840"></canvas>
+            </div>
+            <div class="caller">
+              <div class="lastball" id="lastball"></div>
+              <div class="meta">
+                <div class="cap">last called</div>
+                <div class="dn" id="lastdn">—</div>
+                <div class="hn"><a id="lasthn" target="_blank" rel="noopener"></a></div>
+              </div>
+            </div>
+            <div class="controls">
+              <button class="btn" id="call">call a moot</button>
+              <label class="auto"><input type="checkbox" id="auto" /> auto</label>
+              <button class="btn ghost" id="newcard">new card</button>
+              <span class="count" id="count"></span>
+            </div>
+          </div>
+
+          <!-- the card -->
+          <div class="cardcol">
+            <div class="cardhead">
+              <div class="who">
+                <span class="accent" id="whoHandle"></span>'s card
+              </div>
+              <div class="kind" id="kind"></div>
+            </div>
+            <div class="bingoword" id="bingoword">
+              <span>B</span><span>I</span><span>N</span><span>G</span><span>O</span>
+            </div>
+            <div class="card" id="card"></div>
+            <div class="banner" id="banner"></div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        moots are mutuals — the follow-back set, borrowed from
+        <a href="https://neighborhood.bisks.net">neighborhood</a>. reads
+        Bluesky's public AppView, no login. sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { moots } from "./lib/moots.js";
+
+      const form = document.getElementById("form");
+      const input = document.getElementById("handle");
+      const msg = document.getElementById("msg");
+      const playBtn = document.getElementById("play");
+      const game = document.getElementById("game");
+
+      const callBtn = document.getElementById("call");
+      const autoBox = document.getElementById("auto");
+      const newCardBtn = document.getElementById("newcard");
+      const countEl = document.getElementById("count");
+      const cardEl = document.getElementById("card");
+      const bingoWord = document.getElementById("bingoword");
+      const whoHandle = document.getElementById("whoHandle");
+      const kindEl = document.getElementById("kind");
+      const banner = document.getElementById("banner");
+
+      const lastBall = document.getElementById("lastball");
+      const lastDn = document.getElementById("lastdn");
+      const lastHn = document.getElementById("lasthn");
+
+      const cv = document.getElementById("drum");
+      const ctx = cv.getContext("2d");
+
+      // ── shared state ──────────────────────────────────────────────────
+      let state = null; // { self, pool, kind }
+      let balls = []; // physics spheres currently in the drum
+      let drawOrder = []; // dids left to call, in random order
+      let cells = []; // card cells: { did, profile, free, daubed, el }
+      let gridSize = 5;
+      let autoTimer = null;
+      let won = false;
+
+      // ── colour fallback for avatarless moots ──────────────────────────
+      const TINTS = ["#1a5fd0","#1f8a4c","#d81e6a","#e0a400","#8e44ad",
+        "#c0392b","#0f9b9b","#e2711d","#5566dd","#2c8c3c"];
+      function tintFor(did) {
+        let h = 0;
+        for (const c of did || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+      const initials = (p) =>
+        (p.displayName || p.handle || "?").replace(/[^\p{L}\p{N}]/gu, "")
+          .slice(0, 2).toUpperCase() || "?";
+
+      // ── canvas sizing (retina) ────────────────────────────────────────
+      let W = 0, H = 0, cx = 0, cy = 0, R = 0;
+      function sizeCanvas() {
+        const css = cv.clientWidth || 420;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        cv.width = Math.round(css * dpr);
+        cv.height = Math.round(css * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        W = css; H = css;
+        cx = W / 2; cy = H / 2;
+        R = W / 2 - 6;
+      }
+
+      // ── sphere image cache ────────────────────────────────────────────
+      const imgCache = new Map();
+      function imageFor(url) {
+        if (!url) return null;
+        if (imgCache.has(url)) return imgCache.get(url);
+        const im = new Image();
+        // no crossOrigin: we draw the image but never read pixels back, so the
+        // canvas can stay untainted-free (we never call toDataURL/getImageData).
+        im.src = url;
+        im.__ok = false;
+        im.onload = () => { im.__ok = true; };
+        imgCache.set(url, im);
+        return im;
+      }
+
+      // ── build a drum of spheres from a set of profiles ────────────────
+      function makeBalls(profiles) {
+        // ball radius scales down as the drum fills, clamped for legibility
+        const n = profiles.length;
+        const r = Math.max(11, Math.min(34, (R * 0.92) / Math.sqrt(Math.max(n, 1))));
+        return profiles.map((p) => {
+          const ang = Math.random() * Math.PI * 2;
+          const rad = Math.random() * (R - r - 4);
+          return {
+            p,
+            r,
+            x: cx + Math.cos(ang) * rad,
+            y: cy + Math.sin(ang) * rad,
+            vx: (Math.random() - 0.5) * 4,
+            vy: (Math.random() - 0.5) * 4,
+            img: imageFor(p.avatar),
+            tint: tintFor(p.did),
+          };
+        });
+      }
+
+      // ── physics: a churning lottery drum ──────────────────────────────
+      const GRAV = 0.28, DRAG = 0.992, REST = 0.42, GRIP = 0.14;
+      let angle = 0;
+      const ROT = 0.025; // drum spin, radians/frame
+
+      function step() {
+        angle += ROT;
+        const wallTangential = ROT * R; // linear speed of the drum wall
+        for (const b of balls) {
+          b.vy += GRAV;
+          b.vx *= DRAG; b.vy *= DRAG;
+          b.x += b.vx; b.y += b.vy;
+
+          // circular wall + tumbling drag
+          const dx = b.x - cx, dy = b.y - cy;
+          const dist = Math.hypot(dx, dy) || 0.0001;
+          const maxD = R - b.r;
+          if (dist > maxD) {
+            const nx = dx / dist, ny = dy / dist;
+            b.x = cx + nx * maxD; b.y = cy + ny * maxD;
+            const vn = b.vx * nx + b.vy * ny;
+            if (vn > 0) { b.vx -= (1 + REST) * vn * nx; b.vy -= (1 + REST) * vn * ny; }
+            // the spinning wall grabs the ball and drags it tangentially
+            const tx = -ny, ty = nx;
+            const vt = b.vx * tx + b.vy * ty;
+            const dvt = (wallTangential - vt) * GRIP;
+            b.vx += dvt * tx; b.vy += dvt * ty;
+          }
+        }
+        // ball-ball collisions (n² but n ≤ ~44)
+        for (let i = 0; i < balls.length; i++) {
+          for (let j = i + 1; j < balls.length; j++) {
+            const a = balls[i], b = balls[j];
+            let dx = b.x - a.x, dy = b.y - a.y;
+            let d = Math.hypot(dx, dy);
+            const min = a.r + b.r;
+            if (d < min && d > 0) {
+              const nx = dx / d, ny = dy / d;
+              const overlap = (min - d) / 2;
+              a.x -= nx * overlap; a.y -= ny * overlap;
+              b.x += nx * overlap; b.y += ny * overlap;
+              const rvn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+              if (rvn < 0) {
+                const imp = -(1 + REST) * rvn / 2;
+                a.vx -= imp * nx; a.vy -= imp * ny;
+                b.vx += imp * nx; b.vy += imp * ny;
+              }
+            }
+          }
+        }
+      }
+
+      function drawSphere(x, y, r, img, tint, txt) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        if (img && img.__ok) {
+          ctx.drawImage(img, x - r, y - r, r * 2, r * 2);
+        } else {
+          ctx.fillStyle = tint;
+          ctx.fillRect(x - r, y - r, r * 2, r * 2);
+          if (txt) {
+            ctx.fillStyle = "rgba(255,255,255,.92)";
+            ctx.font = `700 ${Math.round(r * 0.8)}px ${getComputedStyle(document.body).fontFamily}`;
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(txt, x, y + 1);
+          }
+        }
+        // glossy highlight (top-left)
+        const hl = ctx.createRadialGradient(
+          x - r * 0.35, y - r * 0.4, r * 0.05,
+          x - r * 0.35, y - r * 0.4, r * 1.25);
+        hl.addColorStop(0, "rgba(255,255,255,.6)");
+        hl.addColorStop(0.35, "rgba(255,255,255,.08)");
+        hl.addColorStop(0.7, "rgba(255,255,255,0)");
+        ctx.fillStyle = hl;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        // rim shadow (terminator toward bottom-right)
+        const sh = ctx.createRadialGradient(
+          x + r * 0.2, y + r * 0.25, r * 0.4,
+          x + r * 0.2, y + r * 0.25, r * 1.15);
+        sh.addColorStop(0, "rgba(0,0,0,0)");
+        sh.addColorStop(0.72, "rgba(0,0,0,0)");
+        sh.addColorStop(1, "rgba(0,0,0,.5)");
+        ctx.fillStyle = sh;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        ctx.restore();
+        // crisp rim
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(0,0,0,.28)";
+        ctx.stroke();
+      }
+
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        // drum body
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.closePath();
+        const g = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+        g.addColorStop(0, "#fbfbfb");
+        g.addColorStop(1, "#ededed");
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.clip();
+        // spinning vanes so you can see the drum turn
+        ctx.strokeStyle = "rgba(0,0,0,.05)";
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 6; k++) {
+          const a = angle + (k * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+          ctx.stroke();
+        }
+        ctx.restore();
+        // balls
+        for (const b of balls) {
+          drawSphere(b.x, b.y, b.r, b.img, b.tint, b.img && b.img.__ok ? "" : initials(b.p));
+        }
+        // drum rim
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "#c7c7c7";
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R - 2.5, 0, Math.PI * 2);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(0,0,0,.18)";
+        ctx.stroke();
+      }
+
+      let raf = null;
+      function loop() {
+        step();
+        render();
+        raf = requestAnimationFrame(loop);
+      }
+
+      // ── card + game setup ─────────────────────────────────────────────
+      function shuffle(a) {
+        const x = a.slice();
+        for (let i = x.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [x[i], x[j]] = [x[j], x[i]];
+        }
+        return x;
+      }
+
+      function newGame() {
+        clearAuto();
+        won = false;
+        banner.className = "banner";
+        banner.textContent = "";
+
+        const pool = state.pool;
+        gridSize = pool.length >= 24 ? 5 : 3; // 5×5 needs 24 moots, else 3×3
+        const need = gridSize * gridSize - 1; // centre is FREE
+        const shuffled = shuffle(pool);
+        const cardMoots = shuffled.slice(0, need);
+
+        // build the card grid with self as the FREE centre
+        cardEl.className = "card" + (gridSize === 3 ? " card3" : "");
+        game.querySelector(".cardcol").classList.toggle("card3", gridSize === 3);
+        cardEl.innerHTML = "";
+        cells = [];
+        const centre = Math.floor((gridSize * gridSize) / 2);
+        let mi = 0;
+        for (let i = 0; i < gridSize * gridSize; i++) {
+          const free = i === centre;
+          const p = free ? state.self : cardMoots[mi++];
+          const cell = document.createElement("div");
+          cell.className = "cell" + (free ? " free daubed" : "");
+          const ball = document.createElement("div");
+          ball.className = "ball";
+          if (p.avatar) ball.style.backgroundImage = `url("${p.avatar}")`;
+          else { ball.style.background = tintFor(p.did); ball.textContent = ""; }
+          const hn = document.createElement("div");
+          hn.className = "hn";
+          hn.textContent = free ? "FREE" : "@" + p.handle.replace(/\.bsky\.social$/, "");
+          hn.title = "@" + p.handle;
+          const daub = document.createElement("div");
+          daub.className = "daub";
+          cell.append(ball, daub, hn);
+          cardEl.appendChild(cell);
+          cells.push({ did: p.did, profile: p, free, daubed: free, el: cell });
+        }
+
+        // bingo word row width matches the grid
+        bingoWord.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+        bingoWord.innerHTML = (gridSize === 5 ? "BINGO" : "MOO")
+          .split("").map((c) => `<span>${c}</span>`).join("");
+
+        // tumbler = every card moot (guaranteed callable) + decoys, capped
+        const cardDids = new Set(cardMoots.map((p) => p.did));
+        const decoys = shuffled.filter((p) => !cardDids.has(p.did));
+        const cap = gridSize === 5 ? 44 : 20;
+        const drumProfiles = cardMoots.concat(decoys).slice(0, Math.max(need, cap));
+
+        sizeCanvas();
+        balls = makeBalls(drumProfiles);
+        drawOrder = shuffle(drumProfiles).map((p) => p.did);
+
+        // reset caller
+        lastBall.className = "lastball";
+        lastBall.style.backgroundImage = "";
+        lastDn.textContent = "—";
+        lastHn.textContent = "";
+        lastHn.removeAttribute("href");
+
+        callBtn.disabled = false;
+        autoBox.checked = false;
+        updateCount();
+      }
+
+      function updateCount() {
+        const called = balls.filter((b) => b.called).length;
+        countEl.textContent = `${drawOrder.length} in the drum · ${called} called`;
+      }
+
+      // ── calling a moot ────────────────────────────────────────────────
+      function callOne() {
+        if (!drawOrder.length) { callBtn.disabled = true; clearAuto(); return; }
+        const did = drawOrder.shift();
+        const ball = balls.find((b) => b.p.did === did && !b.called);
+        if (ball) {
+          ball.called = true;
+          balls = balls.filter((b) => b !== ball); // it leaves the drum
+        }
+        const prof = ball ? ball.p : { did, handle: "?", displayName: "?", avatar: "" };
+
+        // show in the caller
+        lastBall.className = "lastball has";
+        if (prof.avatar) lastBall.style.backgroundImage = `url("${prof.avatar}")`;
+        else { lastBall.style.backgroundImage = "none"; lastBall.style.background = tintFor(did); }
+        lastDn.textContent = prof.displayName || prof.handle;
+        lastHn.textContent = "@" + prof.handle;
+        lastHn.href = "https://bsky.app/profile/" + prof.handle;
+
+        // daub matching card cells
+        for (const c of cells) {
+          if (!c.daubed && c.did === did) {
+            c.daubed = true;
+            c.el.classList.add("daubed");
+          }
+        }
+        updateCount();
+        checkWin();
+        if (!drawOrder.length) { callBtn.disabled = true; clearAuto(); }
+      }
+
+      function checkWin() {
+        const n = gridSize;
+        const d = (r, c) => cells[r * n + c].daubed;
+        const lines = [];
+        for (let r = 0; r < n; r++) lines.push(Array.from({ length: n }, (_, c) => [r, c]));
+        for (let c = 0; c < n; c++) lines.push(Array.from({ length: n }, (_, r) => [r, c]));
+        lines.push(Array.from({ length: n }, (_, i) => [i, i]));
+        lines.push(Array.from({ length: n }, (_, i) => [i, n - 1 - i]));
+
+        let winningLine = null;
+        for (const line of lines) {
+          if (line.every(([r, c]) => d(r, c))) { winningLine = line; break; }
+        }
+        const blackout = cells.every((c) => c.daubed);
+
+        if (blackout) {
+          for (const c of cells) c.el.classList.add("win");
+          banner.className = "banner black on";
+          banner.textContent = "BLACKOUT — the whole card. every moot on it came out of the drum.";
+          clearAuto();
+          callBtn.disabled = true;
+          won = true;
+          return;
+        }
+        if (winningLine && !won) {
+          for (const [r, c] of winningLine) cells[r * n + c].el.classList.add("win");
+          banner.className = "banner on";
+          banner.textContent = "BINGO! five moots in a row. keep calling for a blackout.";
+          won = true;
+        }
+      }
+
+      // ── auto-call ─────────────────────────────────────────────────────
+      function clearAuto() {
+        if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+        if (autoBox.checked) autoBox.checked = false;
+      }
+      autoBox.addEventListener("change", () => {
+        if (autoBox.checked) {
+          if (!drawOrder.length) { autoBox.checked = false; return; }
+          autoTimer = setInterval(callOne, 2200);
+        } else clearAuto();
+      });
+
+      callBtn.addEventListener("click", callOne);
+      newCardBtn.addEventListener("click", () => { if (state) newGame(); });
+
+      window.addEventListener("resize", () => {
+        if (!state) return;
+        // keep balls proportional to the new drum size
+        const old = { cx, cy, R };
+        sizeCanvas();
+        if (!old.R) return;
+        for (const b of balls) {
+          b.x = cx + (b.x - old.cx) * (R / old.R);
+          b.y = cy + (b.y - old.cy) * (R / old.R);
+          b.r *= R / old.R;
+        }
+      });
+
+      // ── boot: resolve handle → build moots → start ────────────────────
+      const initial = new URLSearchParams(location.search).get("h") || "";
+      if (initial) input.value = initial;
+
+      input.addEventListener("input", () => {
+        msg.className = "msg";
+        msg.textContent = "reads Bluesky's public graph in your browser — no login.";
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const h = input.value.trim();
+        if (!h) { input.focus(); return; }
+        playBtn.disabled = true;
+        msg.className = "msg";
+        msg.textContent = "resolving @" + h.replace(/^@/, "") + "…";
+        try {
+          const res = await moots(h, {
+            onStep: (s) => { msg.className = "msg"; msg.textContent = s; },
+          });
+          if (res.pool.length < 8) {
+            msg.className = "msg err";
+            msg.textContent =
+              `@${res.handle} only has ${res.pool.length} moots to draw — not enough for a card. try someone with more mutuals.`;
+            playBtn.disabled = false;
+            return;
+          }
+          state = res;
+          whoHandle.textContent = "@" + res.handle.replace(/\.bsky\.social$/, "");
+          const m = res.counts.mutuals;
+          kindEl.textContent =
+            res.kind === "moots"
+              ? `${m} moots in the drum`
+              : `${m} moots + follows (needed ${24 - m} more to fill the drum)`;
+          msg.className = "msg ok";
+          msg.textContent = `loaded @${res.handle} — ${res.pool.length} in the pool. call them out.`;
+          game.classList.add("on");
+          newGame();
+          if (!raf) loop();
+          game.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          msg.className = "msg err";
+          msg.textContent =
+            err && err.status === 400
+              ? "couldn't find that handle. check the spelling?"
+              : "couldn't load that one — " + (err.message || "try again") + ".";
+        } finally {
+          playBtn.disabled = false;
+        }
+      });
+
+      // autoplay if ?h= was supplied
+      if (initial) form.requestSubmit();
+    </script>
+  </body>
+</html>
