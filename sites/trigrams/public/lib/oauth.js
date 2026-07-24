@@ -316,14 +316,59 @@ function cleanUrl() {
 
 // --- authenticated requests (DPoP-bound, with nonce retry) -------------------
 
-// Make a DPoP-authenticated request to the user's PDS (or any atproto endpoint
-// bound to this token). Handles the use_dpop_nonce challenge by retrying once
-// with the server-provided nonce, and persists the rotated nonce.
-export async function dpopFetch(session, url, options = {}) {
+// Refresh an expired access token using the stored refresh token. DPoP-bound,
+// with the same nonce-retry dance as the initial token exchange. Mutates and
+// persists `session` in place. Throws if the refresh token is itself dead (the
+// caller should then send the user back through login).
+export async function refreshSession(session) {
   const dpop = await deserializeDPoPKeyPair(session.dpop);
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: session.refreshJwt,
+    client_id: CLIENT_ID,
+  });
+  const attempt = async (nonce) => {
+    const proof = await createDPoPProof(dpop, "POST", session.tokenEndpoint, nonce);
+    return fetch(session.tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", DPoP: proof },
+      body: body.toString(),
+    });
+  };
+  let res = await attempt(session.dpopNonce || undefined);
+  if (res.status === 400 || res.status === 401) {
+    const nonce = res.headers.get("DPoP-Nonce");
+    if (nonce) res = await attempt(nonce);
+  }
+  if (!res.ok) {
+    throw new Error(`session refresh failed (${res.status}) — please sign in again`);
+  }
+  const tokens = await res.json();
+  session.accessJwt = tokens.access_token;
+  if (tokens.refresh_token) session.refreshJwt = tokens.refresh_token; // may rotate
+  session.accessExpiresAt =
+    jwtExp(tokens.access_token) ||
+    Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600);
+  session.dpopNonce = res.headers.get("DPoP-Nonce") || session.dpopNonce;
+  await idbSet("current", session);
+  return session;
+}
+
+// Make a DPoP-authenticated request to the user's PDS. Refreshes the access token
+// when it's expired (or when the server says invalid_token), handles the
+// use_dpop_nonce challenge, and persists the rotated nonce.
+export async function dpopFetch(session, url, options = {}) {
   const method = options.method || "GET";
 
+  // Proactive refresh: if the access token is expired (or within 30s), refresh
+  // before spending a request on a guaranteed 401.
+  const now = Math.floor(Date.now() / 1000);
+  if (session.accessExpiresAt && session.accessExpiresAt <= now + 30) {
+    await refreshSession(session);
+  }
+
   const doFetch = async (nonce) => {
+    const dpop = await deserializeDPoPKeyPair(session.dpop);
     const proof = await createDPoPProof(dpop, method, url, nonce, session.accessJwt);
     return fetch(url, {
       ...options,
@@ -336,15 +381,26 @@ export async function dpopFetch(session, url, options = {}) {
   };
 
   let res = await doFetch(session.dpopNonce || undefined);
+
+  // 401 handling: could be a DPoP nonce challenge OR an expired/invalid token.
   if (res.status === 401 || res.status === 400) {
     const nonce = res.headers.get("DPoP-Nonce");
-    if (nonce && nonce !== session.dpopNonce) {
+    const errBody = await res.clone().text().catch(() => "");
+    if (/invalid_token|expired/i.test(errBody)) {
+      // token is dead — refresh and retry once.
+      try {
+        await refreshSession(session);
+        res = await doFetch(session.dpopNonce || nonce || undefined);
+      } catch {
+        return res; // refresh failed; let caller surface the 401
+      }
+    } else if (nonce && nonce !== session.dpopNonce) {
       session.dpopNonce = nonce;
       await idbSet("current", session);
       res = await doFetch(nonce);
     }
   }
-  // Persist any freshly rotated nonce for next time.
+
   const rotated = res.headers.get("DPoP-Nonce");
   if (rotated && rotated !== session.dpopNonce) {
     session.dpopNonce = rotated;
