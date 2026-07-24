@@ -60,3 +60,17 @@ work went live:
 - Built/changed nothing → don't create the file (reply sends the honest failure).
 
 Then commit and push to main. The deploy workflow ships whatever changed.
+
+### Optional: a note in your own voice (`BUILD_NOTE`)
+
+You **may** also write a repo-root file `BUILD_NOTE` — one short line (~200 chars,
+a single line) in your own voice: what you built, why it's fun, or your answer to
+an "explain <site>" ask. It's prepended to the success reply; the reply step fits
+the whole post to Bluesky's 300-grapheme limit, truncating the note if needed.
+Skip the file if you've nothing worth adding — the reply just uses its plain "built
+it" line. `BUILD_NOTE` is gitignored, same as `BUILD_RESULT`.
+
+Special case — an **explain-only** request (someone asks the bot to explain an
+existing site, not build or change anything): the note IS the deliverable. Write
+your explanation to `BUILD_NOTE`, set `BUILD_RESULT` to that site's name so the
+reply links it, build/change nothing else, and you're done.

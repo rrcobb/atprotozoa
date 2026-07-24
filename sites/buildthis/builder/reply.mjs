@@ -8,6 +8,8 @@
 //   REPLY_PARENT_URI, REPLY_PARENT_CID -> the mention we're answering
 //   BUILD_OK       -> "true" if the build succeeded
 //   BUILD_RESULT   -> the built site name (or "<site>/<path>"), empty if nothing
+//   BUILD_NOTE     -> optional: the agent's own short line about what it built,
+//                     prepended to the SUCCESS reply and fit to 300 graphemes
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
 //   OUTCOME_URL    -> buildthis worker's /outcome endpoint (optional)
 //   OUTCOME_SECRET -> shared secret for the /outcome POST (optional)
@@ -39,7 +41,14 @@ async function main() {
     url = result.includes("/")
       ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
       : `https://${result}.bisks.net`;
-    text = `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
+    const template = `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
+    // Optional: the agent's own short line about what it built (or its answer to
+    // an "explain <site>" ask), in its voice. Prepended to the template. The
+    // tagger is always one of Rob's mutuals, so we trust the phrasing — the only
+    // mechanical constraint is Bluesky's 300-grapheme post limit, applied below.
+    const note = (process.env.BUILD_NOTE || "").trim();
+    text = note ? `${note}\n\n${template}` : template;
+    text = fitToLimit(text, template, 300);
   } else {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }
@@ -52,6 +61,49 @@ async function main() {
   // the mention uri so it merges onto the record the watcher started. The reply
   // text posted above IS the replyText we log — same copy, one source of truth.
   await reportOutcome({ ok, result, url, text });
+}
+
+// Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
+// an emoji or combined character counts once, not two-or-more. .length would
+// over-count and truncate too aggressively.
+function graphemeLen(s) {
+  const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  let n = 0;
+  for (const _ of seg.segment(s)) n++;
+  return n;
+}
+
+// Take the first `n` graphemes of `s` (grapheme-safe slice — never splits an
+// emoji or combining sequence mid-character).
+function graphemeSlice(s, n) {
+  const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  let out = "";
+  let i = 0;
+  for (const { segment } of seg.segment(s)) {
+    if (i >= n) break;
+    out += segment;
+    i++;
+  }
+  return out;
+}
+
+// Fit `text` (note + "\n\n" + template) into `limit` graphemes. The template is
+// fixed and contains the built-site URL, so it's preserved whole; only the note
+// is truncated (with an ellipsis) to make room. If the template alone already
+// exceeds the limit, return it as-is — that shouldn't happen for our fixed
+// template, and dropping the URL to fit would defeat the reply.
+function fitToLimit(text, template, limit) {
+  if (graphemeLen(text) <= limit) return text;
+  const SEP = "\n\n";
+  const tmplLen = graphemeLen(template);
+  const sepLen = graphemeLen(SEP);
+  const ELLIPSIS = "…";
+  // Budget left for the note itself, after the separator, template, and ellipsis.
+  const noteBudget = limit - tmplLen - sepLen - graphemeLen(ELLIPSIS);
+  if (noteBudget <= 0) return template; // no room for any note — send template alone
+  const note = text.slice(0, text.length - template.length - SEP.length);
+  const truncated = graphemeSlice(note, noteBudget).trimEnd() + ELLIPSIS;
+  return `${truncated}${SEP}${template}`;
 }
 
 // POST the build outcome to the buildthis worker's /outcome endpoint. No-op (with

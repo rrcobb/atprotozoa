@@ -97,6 +97,24 @@ jobs:
             echo "name=" >> "$GITHUB_OUTPUT"
           fi
 
+      # Read the agent's optional note — its own short line about what it built,
+      # prepended to the success reply. Same mechanism as BUILD_RESULT: untracked,
+      # absent => no note => reply uses the fixed template alone. First line only,
+      # and passed through the env file with a heredoc so newlines/quotes survive.
+      - name: read note
+        id: note
+        if: always()
+        run: |
+          if [ -f BUILD_NOTE ]; then
+            {
+              echo "text<<BUILDTHIS_NOTE_EOF"
+              head -n1 BUILD_NOTE
+              echo "BUILDTHIS_NOTE_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "text=" >> "$GITHUB_OUTPUT"
+          fi
+
       # Reply in-thread as the bot. always() so a failed/empty build still gets an
       # honest reply rather than silence. BUILD_OK gates success vs. failure copy.
       - name: reply
@@ -110,6 +128,9 @@ jobs:
           REPLY_PARENT_CID: ${{ github.event.client_payload.replyParentCid }}
           BUILD_OK: ${{ steps.build.outcome == 'success' && steps.result.outputs.name != '' }}
           BUILD_RESULT: ${{ steps.result.outputs.name }}
+          # The agent's optional note, prepended to the success reply (reply.mjs
+          # fits the whole post to Bluesky's 300-grapheme limit).
+          BUILD_NOTE: ${{ steps.note.outputs.text }}
           # Report the outcome to the event log (logs.bisks.net reads it). Keyed by
           # the mention uri. OUTCOME_URL is the worker's public endpoint (not a
           # secret); OUTCOME_SECRET authenticates the POST. Both optional — if the

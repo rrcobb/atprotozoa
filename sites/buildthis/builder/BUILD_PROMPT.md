@@ -16,3 +16,11 @@ called BUILD_RESULT so the reply can point at the result: a new site's subdomain
 name (e.g. "weather-dice"), "<site>/<path>" for a new path, or just the site's name
 if you edited an existing one. BUILD_RESULT is gitignored; the workflow reads it
 after you finish. If you built/changed nothing, don't create the file.
+
+You MAY also write a repo-root file called BUILD_NOTE: one short line (~200 chars,
+one line) in your own voice describing what you built or answering the request —
+it gets prepended to the success reply. Skip it if you've nothing worth adding; the
+reply falls back to the plain "built it" line. BUILD_NOTE is gitignored, same as
+BUILD_RESULT. If the request is purely to EXPLAIN an existing site (no build or
+change asked for), the note IS the deliverable: write BUILD_NOTE with your answer,
+set BUILD_RESULT to that site's name so the reply links it, and change nothing else.
