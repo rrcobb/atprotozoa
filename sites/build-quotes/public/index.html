@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>build quotes — atprotozoa</title>
+    <meta
+      name="description"
+      content="A random bit of inspiration about building things. Press the button for another."
+    />
+    <style>
+      :root {
+        --bg: #f4f6f3;
+        --card: #eaf0ea;
+        --ink: #1a1a1a;
+        --muted: #5a625a;
+        --accent: #2f6b3f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 620px;
+        width: 100%;
+        padding: 2.5rem 1.25rem;
+        text-align: center;
+      }
+      h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.75rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 1.5rem;
+      }
+      figure {
+        background: var(--card);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.75rem 1.5rem;
+        margin: 0 0 1.75rem;
+        text-align: left;
+      }
+      blockquote {
+        margin: 0;
+        font-size: 1.5rem;
+        line-height: 1.4;
+      }
+      figcaption {
+        margin-top: 1rem;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+        color: var(--muted);
+      }
+      figcaption::before { content: "— "; }
+      button {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.85rem;
+        letter-spacing: 0.04em;
+        color: #fff;
+        background: var(--accent);
+        border: 0;
+        border-radius: 8px;
+        padding: 0.7rem 1.4rem;
+        cursor: pointer;
+        transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.08s ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+      }
+      button:active { transform: translateY(0); }
+      footer {
+        margin-top: 2.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      footer a { color: #2b6cb0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>a thought on building things</h1>
+
+      <figure>
+        <blockquote id="quote"></blockquote>
+        <figcaption id="author"></figcaption>
+      </figure>
+
+      <button id="next" type="button">another one</button>
+
+      <footer>
+        part of <a href="https://bisks.net">bisks.net</a> — a little zoo of tiny
+        atproto experiments
+      </footer>
+    </div>
+
+    <script>
+      // Self-contained: quotes live right here, no fetch, no build step.
+      const QUOTES = [
+        { text: "The best way to get a project done faster is to start sooner.", author: "Jim Highsmith" },
+        { text: "Make it work, make it right, make it fast.", author: "Kent Beck" },
+        { text: "Simplicity is prerequisite for reliability.", author: "Edsger W. Dijkstra" },
+        { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+        { text: "Real artists ship.", author: "Steve Jobs" },
+        { text: "A complex system that works is invariably found to have evolved from a simple system that worked.", author: "John Gall" },
+        { text: "First, solve the problem. Then, write the code.", author: "John Johnson" },
+        { text: "Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away.", author: "Antoine de Saint-Exupéry" },
+        { text: "The only way to go fast is to go well.", author: "Robert C. Martin" },
+        { text: "Done is better than perfect.", author: "Sheryl Sandberg" },
+        { text: "If you're not embarrassed by the first version of your product, you've launched too late.", author: "Reid Hoffman" },
+        { text: "Programs must be written for people to read, and only incidentally for machines to execute.", author: "Harold Abelson" },
+        { text: "Ideas are easy. Implementation is hard.", author: "Guy Kawasaki" },
+        { text: "Everything should be made as simple as possible, but not simpler.", author: "Albert Einstein" },
+        { text: "The most disastrous thing that you can ever learn is your first programming language.", author: "Alan Kay" },
+        { text: "You can't build a reputation on what you are going to do.", author: "Henry Ford" },
+        { text: "Start where you are. Use what you have. Do what you can.", author: "Arthur Ashe" },
+        { text: "A good plan violently executed now is better than a perfect plan executed next week.", author: "George S. Patton" },
+        { text: "The function of good software is to make the complex appear to be simple.", author: "Grady Booch" },
+        { text: "Build something 100 people love, not something 1 million people kind of like.", author: "Brian Chesky" },
+        { text: "Talk is cheap. Show me the code.", author: "Linus Torvalds" },
+        { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+        { text: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Proverb" },
+        { text: "Any sufficiently advanced bug is indistinguishable from a feature.", author: "Rich Kulawiec" },
+        { text: "Make the change easy, then make the easy change.", author: "Kent Beck" }
+      ];
+
+      const quoteEl = document.getElementById("quote");
+      const authorEl = document.getElementById("author");
+      const button = document.getElementById("next");
+      let last = -1;
+
+      function show() {
+        let i = Math.floor(Math.random() * QUOTES.length);
+        // Avoid repeating the same quote twice in a row.
+        if (QUOTES.length > 1) {
+          while (i === last) i = Math.floor(Math.random() * QUOTES.length);
+        }
+        last = i;
+        quoteEl.textContent = "“" + QUOTES[i].text + "”";
+        authorEl.textContent = QUOTES[i].author;
+      }
+
+      button.addEventListener("click", show);
+      show();
+    </script>
+  </body>
+</html>
