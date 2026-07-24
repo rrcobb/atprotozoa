@@ -1,4 +1,24 @@
-# trigrams: /rich and /reply (design)
+# trigrams: /quiver (was /rich) and /reply (design)
+
+## RENAME + unification (current)
+
+`/rich` is renamed **`/quiver`** — the phrases are finite ammo, yours alone until
+spent. Two verbs, both "loose an arrow":
+
+- **/quiver** — browse anyone's unique trigrams (open read). When SIGNED IN, each
+  of YOUR trigrams gets a **fire** action → posts it as a TOP-LEVEL bisk.
+- **/reply** — fire at a target: reply to a specific bisk with a trigram.
+
+Firing = a real post that includes the trigram text + a card image + a link to the
+original coining post. Posting it PUBLICLY spends its uniqueness (now used twice →
+no longer a hapax), so it self-heals: next quiver scan won't surface a spent one.
+Make the cost visible (ammo count, spent = greyed). Always human-approved; never
+auto-fire.
+
+The card-image + post-creation machinery is the shared core, used by both verbs.
+
+---
+
 
 Two new views on the trigrams site, from Rob's own unique trigrams.
 
