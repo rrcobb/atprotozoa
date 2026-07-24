@@ -17,8 +17,6 @@ interface Env {
   BOT_IDENTIFIER: string;
   GITHUB_REPO: string;
 
-  MAX_BUILDS_PER_DAY: string;
-  MAX_BUILDS_PER_PERSON_PER_DAY: string;
   MAX_BRIEF_CHARS: string;
 
   // secrets
@@ -87,34 +85,10 @@ async function runWatcher(env: Env): Promise<void> {
       continue;
     }
 
-    // Budget gate. Both counters are UTC-day scoped and expire on their own.
-    const day = utcDayKey();
-    const globalKey = `builds:${day}`;
-    const personKey = `builds:${day}:${m.authorDid}`;
-    const globalCount = numFromKv(await env.STATE.get(globalKey));
-    const personCount = numFromKv(await env.STATE.get(personKey));
-
-    if (globalCount >= num(env.MAX_BUILDS_PER_DAY)) {
-      await replyToPost(
-        session,
-        m,
-        `i've hit my build budget for today — try me again tomorrow!`,
-      );
-      await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
-      continue;
-    }
-    if (personCount >= num(env.MAX_BUILDS_PER_PERSON_PER_DAY)) {
-      await replyToPost(
-        session,
-        m,
-        `you've used up your builds for today — back tomorrow!`,
-      );
-      await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
-      continue;
-    }
-
-    // Dispatch the build. The brief is the post text, treated as a feature
-    // description (not harness instructions) and length-capped.
+    // A mutual: dispatch the build. There is NO build-count or per-person gate —
+    // spend is bounded entirely by the Anthropic workspace spend cap (Rob's call:
+    // dollars are the only ceiling). The brief is the post text, treated as a
+    // feature description (not harness instructions) and length-capped.
     const brief = clampBrief(m.text, num(env.MAX_BRIEF_CHARS));
     const dispatched = await dispatchBuild(env, {
       brief,
@@ -127,10 +101,8 @@ async function runWatcher(env: Env): Promise<void> {
     });
 
     if (dispatched) {
-      // Only count + mark handled if the dispatch actually left. A failed
-      // dispatch stays un-handled so the next tick retries it.
-      await bumpCounter(env.STATE, globalKey);
-      await bumpCounter(env.STATE, personKey);
+      // Only mark handled if the dispatch actually left. A failed dispatch stays
+      // un-handled so the next tick retries it.
       await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
     }
   }
@@ -322,17 +294,6 @@ async function dispatchBuild(env: Env, payload: BuildPayload): Promise<boolean> 
 function num(s: string): number {
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : 0;
-}
-function numFromKv(s: string | null): number {
-  return s ? num(s) : 0;
-}
-async function bumpCounter(kv: KVNamespace, key: string): Promise<void> {
-  const next = numFromKv(await kv.get(key)) + 1;
-  // Expire after ~2 days so day-keyed counters clean themselves up.
-  await kv.put(key, String(next), { expirationTtl: 60 * 60 * 48 });
-}
-function utcDayKey(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 }
 function clampBrief(text: string, max: number): string {
   const t = text.trim();

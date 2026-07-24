@@ -37,10 +37,10 @@ The same Worker runs on a cron trigger (every minute or two). Each tick:
    gets a friendly reply that tags Rob (`@bisks.net`) so he can pick it up by hand
    — the bot doesn't build for them, but it doesn't leave them hanging either. No
    dispatch happens on the non-mutual path.
-4. Check the budget/rate caps (below). Over budget → skip, don't dispatch.
-5. `repository_dispatch` to GitHub with the post text + light thread context as the
+4. `repository_dispatch` to GitHub with the post text + light thread context as the
    build brief, and the reply target (the post's URI/CID) so the Action can reply.
-6. Record the mention as handled (KV) so it can't re-trigger.
+   (No build-count checks — spend is bounded by the workspace cap, see Budget.)
+5. Record the mention as handled (KV) so it can't re-trigger.
 
 Why cron-polling notifications and not Jetstream: `listNotifications` gives
 mentions already filtered and is naturally deduped by cursor; the bot is authed
@@ -86,18 +86,18 @@ from hardest backstop to finest throttle:
   (Verified against the rate-limits docs — there is no per-request USD flag, but
   the workspace cap is a genuine hard wall.)
 - **Model choice — Sonnet 5, not Opus.** The builder runs `--model claude-sonnet-5`
-  (~2–3× cheaper input, and much cheaper than Opus). Scaffolding small static
-  sites doesn't need Opus-tier taste, so this directly buys more builds per dollar.
-  Haiku 4.5 is cheaper still if we ever want to push cost down further.
-- **Daily pacing in the watcher (KV): 5 builds/UTC-day, 3/person/day.** A build
-  only costs money when the watcher dispatches one, so bounding dispatches bounds
-  spend day-to-day. Per-build the Action adds `--max-turns 30` + a job
-  `timeout-minutes` so a single runaway build is bounded too.
+  (~2–3× cheaper input than Opus). Scaffolding small static sites doesn't need
+  Opus-tier taste, so this stretches the cap further. Haiku 4.5 is cheaper still,
+  and Kimi K2 via an Anthropic-compatible proxy is ~15× cheaper again — both are
+  cost-down levers to reach for only if the bill climbs.
+- **Per-build bound in the Action: `--max-turns 30` + a job `timeout-minutes`.**
+  So one runaway build can't spin forever. Not a dollar cap (the action has no USD
+  flag), just a stop on a single wedged run.
 
-Net: the workspace cap is the wall you can't blow through; the model choice and
-daily count keep normal operation well under it. Retune the daily build-count
-(watcher `vars`) for day-to-day spend; retune the workspace cap (Console) for the
-absolute ceiling.
+**No build-count or per-person caps.** Rob's call: the *only* ceiling is dollars —
+the workspace spend cap. The watcher dispatches a build for every mutual mention;
+if that ever costs too much, the workspace cap stops it, and the dial to turn is
+the cap (Console) or the model (cheaper tier), not a count.
 
 ## House rules: the brief is third-party text
 
@@ -128,9 +128,10 @@ point is that good work ships the moment it lands.
 - [x] Non-mutuals: **replied to with a tag to `@bisks.net`** so Rob can take it
       manually. No build, but no silence either.
 - [x] Scope: agent's choice — new site OR new path, per the idea.
-- [x] Budget: **a monthly spend cap on a dedicated Anthropic Workspace** (the hard
-      wall), builder on **Sonnet 5** (cheap), plus **5 builds/day + 3/person/day**
-      in the watcher and `--max-turns 30` per build for day-to-day pacing.
+- [x] Budget: **dollars only** — a monthly spend cap on a dedicated Anthropic
+      Workspace is the sole ceiling. Builder on **Sonnet 5** to stretch it,
+      `--max-turns 30` per build as a runaway stop. **No build-count / per-person
+      caps** — the watcher dispatches for every mutual mention.
 - [x] Builds **serialized** via a concurrency group.
 - [x] House rules: builder works within `sites/` + `apex/public/`.
 
