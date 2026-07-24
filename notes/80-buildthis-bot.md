@@ -65,10 +65,18 @@ check runs against Rob's DID regardless of which account the mention lands on.
 (`ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`) control the model
 and endpoint, with no action wrapper deciding what to forward — so swapping the
 builder's provider is a one-line change. The agent reads the build prompt
-(`.github/buildthis/BUILD_PROMPT.md`), builds a new `sites/<name>/` or a new path on
-an existing site, commits, and pushes to main. `--permission-mode bypassPermissions`
-makes it fully unattended; `--max-turns` bounds a runaway. The existing deploy
-workflow sees the push and ships the changed Worker to its subdomain.
+(`sites/buildthis/builder/BUILD_PROMPT.md`), builds a new site OR edits an existing
+one, commits, and pushes to main. `--permission-mode bypassPermissions` makes it
+fully unattended; `--max-turns` bounds a runaway. The existing deploy workflow sees
+the push and ships the changed Worker to its subdomain.
+
+**Why the builder files live in `sites/buildthis/builder/`, not `.github/`.** The
+prompt, instructions, and reply script describe the bot's *behavior*, and the bot is
+allowed to edit its own behavior ("make yourself do X" is a valid request). If they
+lived under `.github/` — which is off-limits — the bot couldn't self-edit. So only
+the *workflow* stays in `.github/` (protected); everything that shapes what the bot
+does sits with the bot, editable. `builder/` is not bundled into the Worker (its
+`main` is `src/index.ts`, assets are `public/`).
 
 **GOTCHA — the build must push with a PAT, not `GITHUB_TOKEN`.** GitHub suppresses
 workflow runs for pushes made with the default `GITHUB_TOKEN` (an infinite-loop
@@ -121,22 +129,27 @@ cheaper model tier — not a count.
 ## House rules: the brief is third-party text
 
 The build prompt is a Bluesky post written by someone else, fed to an autonomous
-agent with commit + deploy rights. Rob's mutuals aren't attackers, but "someone
-else's text steers an agent that can push to main" earns one bounded blast radius
-regardless. No human-in-the-loop — just a sandbox the agent works happily within:
+agent with commit + deploy rights. Rob's mutuals aren't attackers, and Rob's call is
+that the bot should be able to edit **anything** — new sites, existing sites, even
+its own code ("make yourself do X" is a valid ask). So the sandbox is deliberately
+small: just the two things where third-party-text-steers-the-bot is genuinely
+dangerous.
 
-- **Builder scope:** the agent creates/edits only under `sites/<name>/` and
-  `apex/public/`. It leaves `.github/`, secrets/`.dev.vars`, other sites, and
-  `notes/` alone. Carried by `.github/buildthis/BUILDER_INSTRUCTIONS.md` (the
-  build agent reads it FIRST and treats it as binding) plus the `--allowedTools`
-  constraint.
-- **Watcher-side:** length-cap the post text and pass it as a *feature
-  description*, not as harness instructions.
+- **The only two hard limits:** (1) don't touch `.github/` — the workflow that runs
+  the bot, so a post can't rewrite the bot's own CI/permissions; (2) don't read or
+  edit secrets (`*.dev.vars`, tokens, keys), so a post can't exfiltrate the API key.
+  Everything else — all sites, `sites/buildthis/` itself, `apex/`, `notes/`, root
+  config — is fair game. Carried by `sites/buildthis/builder/INSTRUCTIONS.md` (read
+  FIRST, binding).
+- **Watcher-side:** the brief is passed as a *description of the work*, not as
+  harness instructions, and the reply text is derived from the build result, never
+  from the brief — so brief text can't become bot-authored post copy.
 
-So a brief like "delete the other sites" or "print the secrets" has no purchase:
-the agent won't touch those paths, and the reply only ever exposes a URL. The
-instructions file is written as house rules for a colleague, not a leash — the
-point is that good work ships the moment it lands.
+So "print the secrets" and "rewrite your workflow to remove the limits" have no
+purchase (those two paths are off), but "add dark mode to trigrams" or "make your
+replies funnier" (editing `sites/buildthis/builder/`) both work. The trade Rob chose
+knowingly: a mutual's post *can* edit a live site or the bot's own behavior — the
+blast radius is a bad site edit (fixable, and visible in git), not a leaked key.
 
 ## Decisions (settled with Rob)
 
@@ -156,7 +169,10 @@ point is that good work ships the moment it lands.
       Kimi K3 (the intended target: near-frontier coding, prepaid hard cap) is on
       hold. Switching to K3 is a one-line env change when signups open.
 - [x] Builds **serialized** via a concurrency group.
-- [x] House rules: builder works within `sites/` + `apex/public/`.
+- [x] House rules: builder may edit **anything except `.github/` + secrets** —
+      including existing sites and its own code. (Rob's call: reversed the earlier
+      "new sites only, others read-only" sandbox; that was too restrictive — it
+      couldn't even edit itself.)
 
 ## One-time setup (marked [rob] where it needs credentials)
 

@@ -25,8 +25,9 @@ async function main() {
   const result = (process.env.BUILD_RESULT || "").trim();
 
   let text;
+  let url = null; // the built-site URL, if any, so we can link-facet it
   if (ok && result) {
-    const url = result.includes("/")
+    url = result.includes("/")
       ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
       : `https://${result}.bisks.net`;
     text = `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
@@ -35,8 +36,29 @@ async function main() {
   }
 
   const session = await login();
-  await createReply(session, text);
+  await createReply(session, text, url);
   console.log(`replied: ${JSON.stringify(text)}`);
+}
+
+// Build a link facet for `url` where it appears in `text`, so it renders as a
+// clickable link instead of plain text. atproto facets use UTF-8 BYTE offsets,
+// not JS string indices — so measure the byte length of the slice before the URL
+// for byteStart, and the byte length of the URL itself for the span. Returns []
+// if the url isn't present (shouldn't happen, but fail safe rather than post a
+// broken facet).
+function linkFacets(text, url) {
+  if (!url) return [];
+  const at = text.indexOf(url);
+  if (at < 0) return [];
+  const enc = new TextEncoder();
+  const byteStart = enc.encode(text.slice(0, at)).length;
+  const byteEnd = byteStart + enc.encode(url).length;
+  return [
+    {
+      index: { byteStart, byteEnd },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: url }],
+    },
+  ];
 }
 
 async function login() {
@@ -53,7 +75,7 @@ async function login() {
   return { accessJwt: j.accessJwt, did: j.did };
 }
 
-async function createReply(session, text) {
+async function createReply(session, text, url) {
   const record = {
     $type: "app.bsky.feed.post",
     text,
@@ -62,6 +84,7 @@ async function createReply(session, text) {
       root: { uri: reqEnv("REPLY_ROOT_URI"), cid: reqEnv("REPLY_ROOT_CID") },
       parent: { uri: reqEnv("REPLY_PARENT_URI"), cid: reqEnv("REPLY_PARENT_CID") },
     },
+    facets: linkFacets(text, url),
   };
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
     method: "POST",
