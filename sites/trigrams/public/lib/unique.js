@@ -16,7 +16,7 @@ const PLC_DIR = "https://plc.directory";
 
 const MAX_POST_PAGES = 40; // ≤ ~4000 most-recent posts
 const SCAN_CAP = 2500; // cap candidate list (top-scored first)
-const SEARCH_CONC = 5; // parallel search fan-out
+const SEARCH_CONC = 3; // parallel search fan-out (gentle — api.bsky.app throttles)
 const SEARCH_LIMIT = 15; // posts fetched per phrase
 
 // Grams made only of stopwords carry no signal and are ~never unique.
@@ -144,6 +144,67 @@ export function richness(gram) {
   let s = 0;
   for (const x of w) s += lenBump(x.length);
   return s / w.length;
+}
+
+// ── surprise: the real ranking signal ─────────────────────────────────────────
+// A UNIQUE trigram is surprising when its component parts are COMMON — "training
+// data development" is a shock because "training data" is everywhere, whereas
+// "hockeypsychology suckerpinch sheaffification" being unique is no shock at all.
+// Rob's insight; validated (good ones cluster ~3.3–5.3, bad ones ~0.4–2.3).
+//
+// We measure "how common are the parts" with searchPosts' hitsTotal for each
+// component bigram. Only run this on VERIFIED-unique survivors (a handful), not
+// the thousands of candidates.
+
+const SEARCH_CAP_HITS = 10000; // hitsTotal saturates here; treat as "very common"
+
+// Network-wide count of exact-phrase posts, via hitsTotal. Retries on throttle;
+// returns null (not 0) when it truly can't tell, so callers can distinguish.
+async function phraseHits(phrase, tries = 6) {
+  const u =
+    `${PUB}/app.bsky.feed.searchPosts` +
+    `?q=${encodeURIComponent('"' + phrase + '"')}&limit=1`;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(u);
+      if (r.status === 200) {
+        const d = await r.json();
+        return typeof d.hitsTotal === "number"
+          ? d.hitsTotal
+          : (d.posts || []).length;
+      }
+      // 429 (or other throttle): honor Retry-After if present, else backoff.
+      const ra = parseInt(r.headers.get("retry-after") || "", 10);
+      await new Promise((res) =>
+        setTimeout(res, ra ? ra * 1000 : 600 * (i + 1) + 400 * i * i),
+      );
+    } catch {
+      await new Promise((res) => setTimeout(res, 600 * (i + 1)));
+    }
+  }
+  return null;
+}
+
+// surprise(gram): log-scaled score from component-bigram frequencies. Rewards a
+// high MAX freq (one very common part is enough to make uniqueness surprising)
+// plus a nudge from the MIN (both parts real, not two coinages). Higher = more
+// surprising that this is globally unique. Returns { score, bigrams, freqs }.
+export async function surprise(gram) {
+  const w = String(gram).split(" ").filter(Boolean);
+  const bigrams = [];
+  for (let i = 0; i + 1 < w.length; i++) bigrams.push(w[i] + " " + w[i + 1]);
+
+  const freqs = [];
+  for (const b of bigrams) {
+    freqs.push(await phraseHits(b));
+    await new Promise((res) => setTimeout(res, 120)); // gentle pacing
+  }
+  const valid = freqs.filter((x) => x != null).map((x) => Math.min(x, SEARCH_CAP_HITS));
+  if (valid.length === 0) return { score: 0, bigrams, freqs };
+  const maxF = Math.max(...valid);
+  const minF = Math.min(...valid);
+  const score = Math.log10(maxF + 1) + 0.5 * Math.log10(minF + 1);
+  return { score, bigrams, freqs };
 }
 
 // ── scan: harvest exactly-once bigrams/trigrams from the user's own repo ───────
