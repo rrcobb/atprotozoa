@@ -40,6 +40,25 @@ async function resolveHandle(handle) {
   return (await r.json()).did || null;
 }
 
+// DID -> handle, via the DID doc's alsoKnownAs (`at://<handle>`). Reliable across
+// did:plc and did:web; falls back to the DID string if nothing's found.
+async function resolveHandleForDid(did) {
+  try {
+    let doc = null;
+    if (did.startsWith("did:plc:")) {
+      const r = await fetch(`${PLC_DIR}/${did}`);
+      if (r.ok) doc = await r.json();
+    } else if (did.startsWith("did:web:")) {
+      const domain = did.replace("did:web:", "").replace(/:/g, "/");
+      const r = await fetch(`https://${domain}/.well-known/did.json`);
+      if (r.ok) doc = await r.json();
+    }
+    const aka = (doc?.alsoKnownAs || []).find((a) => a.startsWith("at://"));
+    if (aka) return aka.slice("at://".length);
+  } catch {}
+  return did;
+}
+
 async function resolvePds(did) {
   try {
     if (did.startsWith("did:plc:")) {
@@ -270,13 +289,7 @@ export async function completeLoginIfCallback() {
 
   const finalNonce = res.headers.get("DPoP-Nonce") || s.dpopNonce || null;
 
-  let handle = tokens.sub;
-  try {
-    const r = await fetch(
-      `${BSKY_PUBLIC_API}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(tokens.sub)}`,
-    );
-    if (r.ok) handle = (await r.json()).handle || handle;
-  } catch {}
+  const handle = await resolveHandleForDid(tokens.sub);
 
   const session = {
     did: tokens.sub,
