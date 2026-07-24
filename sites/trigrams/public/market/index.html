@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trigrams — market — bisks.net</title>
+    <meta
+      name="description"
+      content="The most-repeated three-word phrases on Bluesky, ranked as tradable assets. Click any ticker for its currency history."
+    />
+    <!-- bisks.net house style: plain, black on white, one readable mono,
+         hairline-separated rows, blue accent for links + price. A restrained
+         green/red only for up/down deltas — enough to read as a ticker without
+         turning into a casino. This is the INVERSE of /firehose: that page hunts
+         the surprising and UNIQUE; this one hunts the common and REPEATED. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --up: #1a7f4b;
+        --down: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      header h1 a { color: inherit; text-decoration: none; }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #ccc; transition: background 0.3s;
+      }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* controls: pause + stopword strictness. plain, mono, hairline. */
+      .controls {
+        display: flex; align-items: center; gap: 0.85rem 1rem; flex-wrap: wrap;
+        margin: 0 0 0.9rem; font-size: 0.78rem;
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.6rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .controls button:hover { border-color: var(--muted); }
+      .controls button.on { border-color: var(--accent); color: var(--accent); }
+      #pauseBtn { min-width: 4.4rem; }
+      .stop { display: flex; align-items: center; gap: 0.35rem; }
+      .stop .lbl { color: var(--muted); }
+      .stop .grp { display: inline-flex; gap: 0.3rem; }
+      .spacer { flex: 1 1 auto; }
+
+      /* exchange ticker-tape line of aggregate stats */
+      .tape {
+        display: flex; align-items: center; gap: 0.85rem 1.4rem; flex-wrap: wrap;
+        margin: 0 0 1.5rem; padding-bottom: 1.15rem;
+        border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem; color: var(--muted);
+      }
+      .tape b { color: var(--ink); font-weight: 600; }
+
+      /* the ranked table of assets — hairline rows, no card chrome */
+      .board { }
+      .warming {
+        color: var(--muted); font-size: 0.9rem; padding: 2rem 0;
+        text-align: center;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1.6rem 1fr auto auto;
+        align-items: center;
+        gap: 0.5rem 0.8rem;
+        padding: 0.7rem 0;
+        border-top: 1px solid var(--faint);
+        cursor: pointer;
+        transition: background 0.12s;
+      }
+      .row:first-child { border-top: none; }
+      .row:hover { background: #fafafa; }
+      .row:hover .phrase { color: var(--accent); }
+      .rank { color: var(--muted); font-size: 0.8rem; text-align: right; }
+      .asset { min-width: 0; }
+      .ticker {
+        font-size: 0.7rem; letter-spacing: 0.03em; color: var(--accent);
+        font-weight: 600;
+      }
+      .phrase {
+        font-size: 1.02rem; font-weight: 600; line-height: 1.3;
+        word-break: break-word; transition: color 0.12s;
+      }
+      .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+      .spark { width: 60px; height: 22px; display: block; }
+      .price { text-align: right; white-space: nowrap; }
+      .price .val { color: var(--accent); font-weight: 600; }
+      .price .unit { color: var(--muted); font-size: 0.72rem; }
+      .price .delta { display: block; font-size: 0.68rem; margin-top: 0.1rem; }
+      .delta.up { color: var(--up); }
+      .delta.down { color: var(--down); }
+      .delta.flat { color: var(--muted); }
+      @keyframes flash { from { background: rgba(26,95,208,0.12); } to { background: transparent; } }
+      .row.bump { animation: flash 1s ease both; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      /* ── asset detail modal: the "currency history" of one trigram ────────── */
+      .overlay {
+        position: fixed; inset: 0; background: rgba(17,17,17,0.35);
+        display: none; align-items: flex-start; justify-content: center;
+        padding: 3rem 1rem; overflow-y: auto; z-index: 50;
+      }
+      .overlay.open { display: flex; }
+      .sheet {
+        background: var(--bg); width: 100%; max-width: 640px;
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.6rem 1.5rem 2rem; animation: rise 0.2s ease both;
+      }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+      .sheet .top {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem;
+      }
+      .sheet .sym { font-size: 0.78rem; color: var(--accent); font-weight: 600; letter-spacing: 0.03em; }
+      .sheet h2 { font-size: 1.5rem; font-weight: 700; margin: 0.15rem 0 0.2rem; line-height: 1.2; word-break: break-word; }
+      .sheet .close {
+        font-family: var(--mono); font-size: 1.1rem; color: var(--muted);
+        background: none; border: none; cursor: pointer; line-height: 1; padding: 0.2rem;
+      }
+      .sheet .close:hover { color: var(--ink); }
+      .quote {
+        font-size: 1.9rem; font-weight: 700; color: var(--accent); margin: 0.4rem 0 0;
+      }
+      .quote .unit { font-size: 0.9rem; color: var(--muted); font-weight: 400; }
+      .quote .chg { font-size: 0.85rem; margin-left: 0.5rem; font-weight: 600; }
+      .chart { width: 100%; height: 120px; margin: 1rem 0 0.4rem; display: block; }
+      .chart-cap { font-size: 0.72rem; color: var(--muted); margin: 0 0 1.2rem; }
+      .stats {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+        gap: 0.9rem 1rem; margin: 0 0 1.3rem;
+      }
+      .stat .k { font-size: 0.7rem; color: var(--muted); }
+      .stat .v { font-size: 1.05rem; font-weight: 600; }
+      .stat .v.small { font-size: 0.9rem; font-weight: 600; word-break: break-word; }
+      .section-h {
+        font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+        color: var(--muted); margin: 1.3rem 0 0.5rem;
+      }
+      .holder {
+        display: flex; align-items: center; gap: 0.55rem;
+        padding: 0.5rem 0; border-top: 1px solid var(--faint);
+        font-size: 0.85rem;
+      }
+      .holder:first-of-type { border-top: none; }
+      .holder .avatar {
+        width: 22px; height: 22px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat; border: 1px solid var(--faint);
+      }
+      .holder .h { color: var(--ink); text-decoration: none; word-break: break-all; }
+      .holder .h:hover { color: var(--accent); text-decoration: underline; }
+      .holder .badge {
+        font-size: 0.66rem; color: var(--muted); border: 1px solid var(--faint);
+        border-radius: 3px; padding: 0.05rem 0.35rem; white-space: nowrap;
+      }
+      .holder .badge.mint { color: var(--accent); border-color: var(--accent); }
+      .holder .sp { flex: 1 1 auto; }
+      .mintpost {
+        font-size: 0.85rem; color: var(--muted); line-height: 1.55;
+        border-left: 2px solid var(--faint); padding: 0.1rem 0 0.1rem 0.8rem;
+        margin: 0.4rem 0 0; word-break: break-word;
+      }
+      .mintpost b { color: var(--ink); font-weight: 600; }
+      .rules {
+        font-size: 0.76rem; color: var(--muted); line-height: 1.6;
+        margin: 1.4rem 0 0; padding-top: 1rem; border-top: 1px solid var(--faint);
+      }
+      .rules b { color: var(--ink); font-weight: 600; }
+      .netstat { color: var(--muted); font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">trigrams</a> · market</h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        The <a href="/firehose/">firehose</a> hunts the phrases nobody else has said.
+        This is its inverse: the three-word phrases the most people <b>keep</b>
+        saying, live, ranked as a little exchange. Stopwords are filtered out so the
+        board fills with real phrases, not <span style="color:var(--faint)">"one of the"</span>.
+        A phrase is <b>minted</b> by the first person we see post it and gains value
+        every time someone repeats it — the trigram-currency idea
+        <a href="https://bsky.app/profile/blk.box" target="_blank" rel="noopener">@blk.box</a>
+        floated. Click any ticker for its history.
+      </p>
+
+      <div class="controls">
+        <button id="pauseBtn" title="freeze the board (the exchange keeps trading underneath)">pause</button>
+        <div class="stop">
+          <span class="lbl">stopwords</span>
+          <span class="grp" id="stopGrp">
+            <button data-mode="block" class="stopmode on" title="drop any phrase containing a stopword — the strictest, cleanest board">block</button>
+            <button data-mode="trim" class="stopmode" title="only drop phrases that are ALL stopwords">trim</button>
+            <button data-mode="off" class="stopmode" title="no stopword filtering — the raw frequency board">off</button>
+          </span>
+        </div>
+        <span class="spacer"></span>
+      </div>
+
+      <div class="tape" id="tape">
+        <span><b id="tAssets">0</b> assets listed</span>
+        <span><b id="tVolume">0</b> posts traded</span>
+        <span><b id="tHot">—</b> most held</span>
+      </div>
+
+      <main class="board" id="board">
+        <div class="warming" id="warming">watching the firehose for repeats… the board fills as phrases recur.</div>
+      </main>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · circulation via authenticated
+        <a href="https://docs.bsky.app/docs/api/app-bsky-feed-search-posts">searchPosts</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <!-- asset detail modal -->
+    <div class="overlay" id="overlay">
+      <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+    </div>
+
+    <script>
+      // ---- config ----------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MIN_WORD_LEN = 2; // ignore 1-char tokens when forming phrases
+      const TOP_N = 40; // how many assets to list
+      const MIN_COUNT = 2; // a phrase only "lists" once it's been repeated
+      const RENDER_MS = 1000; // redraw the board at most this often
+      const TRACK_CAP = 40000; // prune low-count phrases past here to bound memory
+      const TIMES_CAP = 300; // occurrence timestamps kept per asset (for the chart)
+      const HOLDERS_CAP = 12; // recent distinct posters kept per asset (for "trades")
+
+      // The authenticated search proxy (see src/index.ts). Same-origin on
+      // trigrams.bisks.net; falls back to the deployed proxy elsewhere.
+      const SEARCH_PROXY =
+        location.origin.includes("bisks.net")
+          ? "/api/search"
+          : "https://trigrams.bisks.net/api/search";
+
+      // ---- state -----------------------------------------------------------
+      const assets = new Map(); // key "a b c" -> asset record
+      const board = document.getElementById("board");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const stopGrp = document.getElementById("stopGrp");
+      const tAssets = document.getElementById("tAssets");
+      const tVolume = document.getElementById("tVolume");
+      const tHot = document.getElementById("tHot");
+      const overlay = document.getElementById("overlay");
+      const sheet = document.getElementById("sheet");
+
+      let paused = false;
+      let wsLive = false;
+      let totalVolume = 0; // all counted (non-spam) posts contributing a phrase
+      let openKey = null; // key of the asset currently shown in the modal
+
+      // ---- stopwords -------------------------------------------------------
+      // Copied from lib/unique.js's STOP ("grams made only of stopwords carry no
+      // signal"), then widened with the loudest firehose fillers. Here we use it
+      // the OPPOSITE way: unique.js drops all-stopword grams from a uniqueness
+      // hunt; we drop stopword-laden grams from a frequency hunt, because the raw
+      // top of a frequency ranking is otherwise wall-to-wall "going to be" and
+      // "i don't know". Three strictness modes (see controls).
+      const STOP = new Set(
+        (
+          "a an and are as at be been but by for from had has have he her his i in " +
+          "is it its me my no not of on or our so that the their them then they this to up us was we were " +
+          "what when who will with you your just like get got out about into over more all can do if im dont " +
+          "youre they re ve ll s t m d o u r n y'all your you're don't im i'm it's thats that's " +
+          "here there now new one two how why our ok okay yes yeah nah lol " +
+          "gonna wanna gotta going want need really very much some any these those which " +
+          "am were being does did done make made way thing things people time"
+        ).split(/\s+/),
+      );
+      let stopMode = "block"; // block | trim | off
+
+      // Does a trigram survive the current stopword mode?
+      function phrasePasses(words) {
+        if (stopMode === "off") return true;
+        const stops = words.reduce((n, w) => n + (STOP.has(w) ? 1 : 0), 0);
+        if (stopMode === "block") return stops === 0;
+        return stops < words.length; // "trim": reject only if ALL are stopwords
+      }
+
+      // ---- text handling (mirrors /firehose so phrases read identically) ---
+      // Trigrams only form WITHIN a run (an unbroken stretch of words), so a
+      // phrase never spans a comma, period, or newline.
+      const hasLetter = (w) => /\p{L}/u.test(w);
+      function runsOf(text) {
+        return text
+          .toLowerCase()
+          .replace(/https?:\/\/\S+/g, " ")
+          .split(/[^\p{L}\p{N}' ]+/u)
+          .map((run) =>
+            run.split(/\s+/).filter((w) => w.length >= MIN_WORD_LEN && hasLetter(w)),
+          )
+          .filter((words) => words.length >= 3);
+      }
+      // Unique trigrams in a post, each surviving the stopword filter. A post
+      // contributes each phrase at most once (its own repetition shouldn't count).
+      function trigramsOf(text) {
+        const out = new Set();
+        for (const words of runsOf(text)) {
+          for (let i = 0; i + 2 < words.length; i++) {
+            const tri = [words[i], words[i + 1], words[i + 2]];
+            if (phrasePasses(tri)) out.add(tri.join(" "));
+          }
+        }
+        return out;
+      }
+
+      // Cheap bot/spam gate — same list /firehose uses.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true;
+        if (/^digit:\s|in words:/i.test(text)) return true;
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true;
+        return false;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      // Bold the first occurrence of the phrase inside a post's text.
+      function highlight(text, phraseWords) {
+        const escaped = escapeHtml(text);
+        const sep = "[^\\p{L}\\p{N}']+";
+        const pat = phraseWords
+          .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join(sep);
+        try {
+          return escaped.replace(new RegExp("(" + pat + ")", "iu"), "<b>$1</b>");
+        } catch {
+          return escaped;
+        }
+      }
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+      // Ticker symbol from the three initials, e.g. "black lives matter" -> $BLM.
+      function tickerOf(words) {
+        const s = words.map((w) => w[0]).join("").toUpperCase().slice(0, 4);
+        return "$" + s;
+      }
+
+      // ---- the currency model ----------------------------------------------
+      // "Value" grows with how often the phrase is repeated. We rank the board by
+      // raw COUNT (most frequent — the literal ask), and quote a PRICE derived
+      // from it: a gentle super-linear curve so a much-repeated phrase is worth
+      // meaningfully more, without runaway numbers. One phrase, one mint; each
+      // repeat is a trade that bids the price up. Currency unit: ◈ ("grams").
+      function priceAt(count) {
+        return Math.round(Math.pow(count, 1.35) * 100) / 100;
+      }
+      function fmt(n) {
+        return n >= 1000 ? Math.round(n).toLocaleString() : n.toFixed(2);
+      }
+
+      // ---- author profiles (handle + pfp), cached, promise-in-cache --------
+      const PROFILE_API =
+        "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+
+      // ---- ingest ----------------------------------------------------------
+      function record(key, evt, commit, text, now) {
+        let a = assets.get(key);
+        if (!a) {
+          a = {
+            key,
+            words: key.split(" "),
+            count: 0,
+            holders: new Set(), // distinct DIDs who've posted it = "holders"
+            times: [], // occurrence timestamps for the price chart
+            recent: [], // recent posters, newest first: {did, rkey, text, t}
+            mint: { did: evt.did, rkey: commit.rkey, text, t: now }, // first seen
+            lastCount: 0, // count at previous render, for the per-tick delta
+          };
+          assets.set(key, a);
+        }
+        a.count++;
+        totalVolume++;
+        a.holders.add(evt.did);
+        a.times.push(now);
+        if (a.times.length > TIMES_CAP) a.times.shift();
+        a.recent.unshift({ did: evt.did, rkey: commit.rkey, text, t: now });
+        if (a.recent.length > HOLDERS_CAP) a.recent.pop();
+      }
+
+      function pruneIfNeeded() {
+        if (assets.size <= TRACK_CAP) return;
+        // Drop the never-repeated singletons first; they can't reach the board.
+        for (const [k, a] of assets) {
+          if (a.count < MIN_COUNT) assets.delete(k);
+        }
+      }
+
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text) return;
+        if (looksLikeSpam(text)) return;
+
+        const now = Date.now();
+        for (const key of trigramsOf(text)) record(key, evt, commit, text, now);
+        pruneIfNeeded();
+      }
+
+      // ---- board rendering (throttled to RENDER_MS) ------------------------
+      function topAssets() {
+        const out = [];
+        for (const a of assets.values()) if (a.count >= MIN_COUNT) out.push(a);
+        out.sort((x, y) => y.count - x.count || y.holders.size - x.holders.size);
+        return out.slice(0, TOP_N);
+      }
+
+      // A tiny sparkline of cumulative price over the asset's observed lifetime.
+      function sparkline(a, w, h) {
+        const n = a.times.length;
+        if (n < 2) return "";
+        const pts = [];
+        for (let i = 0; i < n; i++) {
+          const x = (i / (n - 1)) * (w - 2) + 1;
+          const y = h - 1 - (priceAt(i + 1) / priceAt(n)) * (h - 2);
+          pts.push(x.toFixed(1) + "," + y.toFixed(1));
+        }
+        return (
+          `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+          `<polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`
+        );
+      }
+
+      function renderBoard() {
+        if (paused) return;
+        const top = topAssets();
+
+        // aggregate tape
+        let listed = 0;
+        for (const a of assets.values()) if (a.count >= MIN_COUNT) listed++;
+        tAssets.textContent = listed.toLocaleString();
+        tVolume.textContent = totalVolume.toLocaleString();
+        tHot.textContent = top[0] ? top[0].words.join(" ") : "—";
+
+        if (top.length === 0) {
+          board.innerHTML =
+            `<div class="warming">watching the firehose for repeats… ` +
+            `the board fills as phrases recur.</div>`;
+          return;
+        }
+
+        const html = top
+          .map((a, i) => {
+            const price = priceAt(a.count);
+            const delta = a.count - a.lastCount;
+            const bump = delta > 0 && a.lastCount > 0 ? " bump" : "";
+            const dcls = delta > 0 ? "up" : "flat";
+            const dtxt = delta > 0 ? `▲ +${delta}` : "·";
+            return (
+              `<div class="row${bump}" data-key="${escapeHtml(a.key)}">` +
+              `<div class="rank">${i + 1}</div>` +
+              `<div class="asset">` +
+              `<div class="ticker">${escapeHtml(tickerOf(a.words))}</div>` +
+              `<div class="phrase">${escapeHtml(a.words.join(" "))}</div>` +
+              `<div class="meta">×${a.count} posts · ${a.holders.size} holder${a.holders.size === 1 ? "" : "s"}</div>` +
+              `</div>` +
+              sparkline(a, 60, 22) +
+              `<div class="price"><span class="val">${fmt(price)}</span> <span class="unit">◈</span>` +
+              `<span class="delta ${dcls}">${dtxt}</span></div>` +
+              `</div>`
+            );
+          })
+          .join("");
+        board.innerHTML = html;
+
+        for (const a of top) a.lastCount = a.count;
+      }
+
+      board.addEventListener("click", (e) => {
+        const row = e.target.closest(".row");
+        if (row) openAsset(row.dataset.key);
+      });
+
+      setInterval(renderBoard, RENDER_MS);
+
+      // ---- asset detail modal: the currency history ------------------------
+      function bigChart(a, w, h) {
+        const n = a.times.length;
+        if (n < 2) return `<div class="chart-cap">not enough trades yet to chart.</div>`;
+        const t0 = a.times[0];
+        const span = Math.max(1, a.times[n - 1] - t0);
+        const top = priceAt(n);
+        const pts = [];
+        for (let i = 0; i < n; i++) {
+          const x = ((a.times[i] - t0) / span) * (w - 4) + 2;
+          const y = h - 4 - (priceAt(i + 1) / top) * (h - 10);
+          pts.push(x.toFixed(1) + "," + y.toFixed(1));
+        }
+        const area = `2,${h - 2} ` + pts.join(" ") + ` ${w - 2},${h - 2}`;
+        return (
+          `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">` +
+          `<polygon points="${area}" fill="rgba(26,95,208,0.08)"/>` +
+          `<polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2"/>` +
+          `</svg>` +
+          `<div class="chart-cap">price since first seen here · ${n} trade${n === 1 ? "" : "s"} observed this session</div>`
+        );
+      }
+
+      function openAsset(key) {
+        const a = assets.get(key);
+        if (!a) return;
+        openKey = key;
+        const price = priceAt(a.count);
+        const first = priceAt(1);
+        const chgPct = Math.round(((price - first) / first) * 100);
+        const ticker = tickerOf(a.words);
+
+        sheet.innerHTML =
+          `<div class="top"><div>` +
+          `<div class="sym">${escapeHtml(ticker)} · trigram asset</div>` +
+          `<h2>${escapeHtml(a.words.join(" "))}</h2>` +
+          `</div><button class="close" id="closeBtn" aria-label="close">✕</button></div>` +
+          `<div class="quote">${fmt(price)} <span class="unit">◈</span>` +
+          `<span class="chg" style="color:var(--up)">▲ ${chgPct.toLocaleString()}% since mint</span></div>` +
+          bigChart(a, 592, 120) +
+          `<div class="stats">` +
+          `<div class="stat"><div class="k">posts (volume)</div><div class="v">${a.count.toLocaleString()}</div></div>` +
+          `<div class="stat"><div class="k">holders (accounts)</div><div class="v">${a.holders.size.toLocaleString()}</div></div>` +
+          `<div class="stat"><div class="k">network circulation</div><div class="v netstat" id="circ">checking…</div></div>` +
+          `<div class="stat"><div class="k">market cap</div><div class="v netstat" id="mcap">—</div></div>` +
+          `</div>` +
+          `<div class="section-h">minted by</div>` +
+          `<div id="minter"><div class="holder"><span class="avatar"></span>` +
+          `<a class="h" href="${postUrl(a.mint.did, a.mint.rkey)}" target="_blank" rel="noopener">resolving…</a>` +
+          `<span class="sp"></span><span class="badge mint">first to post</span></div>` +
+          `<p class="mintpost">${highlight(a.mint.text, a.words)}</p></div>` +
+          `<div class="section-h">recent trades (repeats)</div>` +
+          `<div id="trades"></div>` +
+          `<div class="section-h">live network holders</div>` +
+          `<div id="netholders"><div class="netstat">searching bluesky…</div></div>` +
+          `<p class="rules">` +
+          `<b>How value works.</b> The first account to post a phrase <b>mints</b> it and owns the ` +
+          `token. Every time someone repeats it — or likes and quotes a post carrying it — the asset ` +
+          `gains value. The board ranks by how often a phrase recurs, so the top of the market is the ` +
+          `network's most-repeated three-word thoughts. (Currency framing per ` +
+          `<a class="h" href="https://bsky.app/profile/blk.box" target="_blank" rel="noopener" style="color:var(--accent)">@blk.box</a>; ` +
+          `observed live, so history begins when you opened this page.)</p>`;
+
+        overlay.classList.add("open");
+        document.getElementById("closeBtn").onclick = closeAsset;
+
+        // minter avatar/handle
+        fetchProfile(a.mint.did).then((p) => {
+          const el = document.querySelector("#minter .h");
+          const av = document.querySelector("#minter .avatar");
+          if (!el) return;
+          if (p && p.handle) {
+            el.textContent = "@" + p.handle;
+            el.href = "https://bsky.app/profile/" + p.handle;
+            if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
+          } else {
+            el.textContent = a.mint.did.slice(0, 20) + "…";
+          }
+        });
+
+        // recent live trades (repeats we saw), newest first, minter tagged
+        const tradesEl = document.getElementById("trades");
+        tradesEl.innerHTML = a.recent
+          .map((r, i) => {
+            const isMint = r.did === a.mint.did && r.rkey === a.mint.rkey;
+            return (
+              `<div class="holder" data-did="${escapeHtml(r.did)}">` +
+              `<span class="avatar"></span>` +
+              `<a class="h" href="${postUrl(r.did, r.rkey)}" target="_blank" rel="noopener">resolving…</a>` +
+              `<span class="sp"></span>` +
+              (isMint ? `<span class="badge mint">mint</span>` : `<span class="badge">repeat</span>`) +
+              `</div>`
+            );
+          })
+          .join("");
+        a.recent.forEach((r, i) => {
+          fetchProfile(r.did).then((p) => {
+            const row = tradesEl.children[i];
+            if (!row) return;
+            const el = row.querySelector(".h");
+            const av = row.querySelector(".avatar");
+            if (p && p.handle) {
+              el.textContent = "@" + p.handle;
+              el.href = "https://bsky.app/profile/" + p.handle;
+              if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
+            } else {
+              el.textContent = r.did.slice(0, 16) + "…";
+            }
+          });
+        });
+
+        // network enrichment: real all-time circulation + real holders via search.
+        enrichFromNetwork(key, a);
+      }
+
+      // Search the network for the exact phrase to ground the "currency" in real
+      // data: hitsTotal = all-time circulation, and the returned posts are real
+      // holders (with like counts = endorsements). Bails silently if the modal
+      // was closed or switched before the search returned.
+      async function enrichFromNetwork(key, a) {
+        try {
+          const u = new URL(SEARCH_PROXY, location.href);
+          u.searchParams.set("q", `"${a.words.join(" ")}"`);
+          u.searchParams.set("limit", "15");
+          const r = await fetch(u.toString());
+          if (!r.ok) throw new Error("search " + r.status);
+          const d = await r.json();
+          if (openKey !== key) return; // user moved on
+
+          const circ =
+            typeof d.hitsTotal === "number" ? d.hitsTotal : (d.posts || []).length;
+          const circEl = document.getElementById("circ");
+          const mcapEl = document.getElementById("mcap");
+          if (circEl) circEl.textContent = circ.toLocaleString() + " posts";
+          if (mcapEl)
+            mcapEl.textContent =
+              fmt(Math.round(priceAt(a.count) * Math.max(1, circ) * 100) / 100) + " ◈";
+
+          // Keep only posts that really contain the phrase (search is fuzzy).
+          const needle = " " + a.words.join(" ") + " ";
+          const pad = (t) =>
+            " " +
+            String(t || "")
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}' ]+/gu, " ")
+              .replace(/\s+/g, " ")
+              .trim() +
+            " ";
+          const hits = (d.posts || [])
+            .filter((p) => p.record && pad(p.record.text).includes(needle))
+            .sort((x, y) => (y.likeCount || 0) - (x.likeCount || 0))
+            .slice(0, 8);
+
+          const el = document.getElementById("netholders");
+          if (!el) return;
+          if (hits.length === 0) {
+            el.innerHTML = `<div class="netstat">no matching posts surfaced right now.</div>`;
+            return;
+          }
+          el.innerHTML = hits
+            .map((p) => {
+              const au = p.author || {};
+              const likes = p.likeCount || 0;
+              return (
+                `<div class="holder">` +
+                `<span class="avatar"${au.avatar ? ` style="background-image:url('${escapeHtml(au.avatar)}')"` : ""}></span>` +
+                `<a class="h" href="https://bsky.app/profile/${escapeHtml(au.handle || au.did || "")}" target="_blank" rel="noopener">@${escapeHtml(au.handle || "unknown")}</a>` +
+                `<span class="sp"></span>` +
+                `<span class="badge">${likes} ♥</span>` +
+                `</div>`
+              );
+            })
+            .join("");
+        } catch (e) {
+          const el = document.getElementById("netholders");
+          if (el && openKey === key)
+            el.innerHTML = `<div class="netstat">couldn't reach the exchange feed just now.</div>`;
+          const circEl = document.getElementById("circ");
+          if (circEl && openKey === key) circEl.textContent = "unavailable";
+        }
+      }
+
+      function closeAsset() {
+        overlay.classList.remove("open");
+        openKey = null;
+        sheet.innerHTML = "";
+      }
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) closeAsset();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && openKey) closeAsset();
+      });
+
+      // ---- controls --------------------------------------------------------
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        pauseBtn.classList.toggle("on", paused);
+        statusText.textContent = paused ? "paused" : wsLive ? "live" : "reconnecting…";
+        if (!paused) renderBoard();
+      });
+
+      stopGrp.addEventListener("click", (e) => {
+        const b = e.target.closest(".stopmode");
+        if (!b) return;
+        stopMode = b.dataset.mode;
+        for (const x of stopGrp.querySelectorAll(".stopmode"))
+          x.classList.toggle("on", x.dataset.mode === stopMode);
+        // Changing strictness only affects phrases counted from here on — old
+        // tallies stand. That's honest: we don't retro-rescore the stream.
+      });
+
+      // ---- firehose --------------------------------------------------------
+      function setStatus(live, msg) {
+        wsLive = live;
+        dot.classList.toggle("live", live);
+        if (!paused) statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "live");
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      connect();
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+    </script>
+  </body>
+</html>
