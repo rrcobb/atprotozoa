@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>waluigi — trigrams — bisks.net</title>
+    <meta
+      name="description"
+      content="Your Waluigis: people who posted your phrases backwards. For each three-word phrase only you have ever posted, the reverse said by exactly one other person — your mirror-twin."
+    />
+    <!-- bisks.net: plain. black on white, one readable monospace, lots of space,
+         no card chrome. accent used only for links/score. This page pairs with
+         /quiver: quiver finds the phrases only YOU have posted; waluigi asks who,
+         if anyone, has posted each of those phrases REVERSED — your evil twin.
+         A gentle warp/purple accent for the mirror half echoes Wa-. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0; /* you: the calm blue used across trigrams */
+        --wa: #7b2fd0; /* them: the mirror half — Waluigi purple */
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; letter-spacing: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; }
+      .intro {
+        color: var(--muted); margin: 0 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 58ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro .wa { color: var(--wa); font-weight: 600; }
+
+      .bar {
+        display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+        margin-bottom: 2.5rem;
+      }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink);
+        border-radius: 3px; max-width: 16rem; flex: 1; min-width: 9rem;
+      }
+      input[type="text"]::placeholder { color: #aaa; }
+      button {
+        font-family: inherit; font-size: 0.85rem;
+        padding: 0.5rem 0.9rem; border: 1px solid var(--ink);
+        background: var(--ink); color: var(--bg); border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .status { font-size: 0.78rem; color: var(--muted); width: 100%; }
+
+      /* one Waluigi = one card. A person, plus every mirrored pair we found. */
+      .waluigi {
+        padding: 1.3rem 0;
+        border-top: 1px solid var(--faint);
+        animation: fade 0.25s ease both;
+      }
+      .waluigi:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+      .whohead {
+        display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.9rem;
+      }
+      .whohead .avatar {
+        width: 34px; height: 34px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat;
+        border: 1px solid var(--faint);
+      }
+      .whohead .name { min-width: 0; }
+      .whohead .name a {
+        color: var(--wa); text-decoration: none; font-weight: 600;
+        font-size: 1.02rem; word-break: break-all;
+      }
+      .whohead .name a:hover { text-decoration: underline; }
+      .whohead .name .sub { font-size: 0.72rem; color: var(--muted); }
+
+      /* the mirror: your phrase on the left, its reverse (theirs) on the right */
+      .pair {
+        margin: 0 0 0.7rem; padding: 0.55rem 0 0.55rem 0.85rem;
+        border-left: 2px solid var(--faint);
+      }
+      .pair:last-child { margin-bottom: 0; }
+      .side {
+        display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+        line-height: 1.4;
+      }
+      .side .lbl {
+        font-size: 0.66rem; letter-spacing: 0.03em; text-transform: uppercase;
+        color: var(--muted); flex: none; width: 3.4rem;
+      }
+      .side .phrase { font-size: 1rem; font-weight: 600; word-break: break-word; }
+      .side.you .phrase { color: var(--accent); }
+      .side.them .phrase { color: var(--wa); }
+      .mirror-rule {
+        color: var(--muted); font-size: 0.72rem; margin: 0.15rem 0 0.15rem 3.9rem;
+      }
+      .pair a.perma {
+        font-size: 0.74rem; color: var(--muted); text-decoration: none;
+        margin-left: 0.4rem;
+      }
+      .pair a.perma:hover { text-decoration: underline; color: var(--ink); }
+
+      .err { color: #c0392b; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/firehose/">trigrams</a> <span class="slash">/</span> waluigi</h1>
+        <span class="who" id="who"></span>
+      </header>
+      <p class="intro">
+        Every <a href="/quiver/" style="color:var(--accent);text-decoration:none">quiver</a>
+        phrase is three words <b>only you</b> have ever posted. This asks the
+        mirror question: take each of those phrases, <b>reverse the three
+        words</b>, and see who said <i>that</i>. If a reversed phrase has been
+        posted by <b>exactly one other person</b>, they're your
+        <span class="wa">Waluigi</span> — the twin who wrote your line backwards.
+        Type any handle.
+      </p>
+
+      <div id="app"></div>
+
+      <footer>
+        uniqueness from
+        <a href="https://b.mino.mobi/unique/">mino.mobi/unique</a> ·
+        the mirror + this page,
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { scan, verify, resolveActorFull, richness, tokenize } from "../lib/unique.js";
+
+      const app = document.getElementById("app");
+      const who = document.getElementById("who");
+
+      // The authenticated search proxy (see src/index.ts). Same-origin on
+      // trigrams.bisks.net; falls back to the deployed proxy elsewhere.
+      const SEARCH_PROXY =
+        location.origin.includes("bisks.net")
+          ? "/api/search"
+          : "https://trigrams.bisks.net/api/search";
+      const SEARCH_LIMIT = 25; // enough posts to tell "one poster" from "many"
+      const REV_CONC = 6; // parallel reverse-searches
+      const VERIFY_BATCH = 300; // how many of your candidates to verify as unique
+      const REV_CAP = 200; // cap reverse-searches so a prolific account stays snappy
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      const postUrl = (did, uri) =>
+        `https://bsky.app/profile/${did}/post/${uri.split("/").pop()}`;
+
+      // searchPosts with retry/backoff on throttle — a copy of lib/unique.js's
+      // internal searchGet (not exported). api.bsky.app soft-rate-limits bursts
+      // with 403/429; both must be RETRIED or we undercount. Only 4xx≠{403,429}
+      // is a real error. Returns parsed JSON or null after exhausting tries.
+      async function searchGet(url, tries = 7) {
+        for (let i = 0; i < tries; i++) {
+          try {
+            const r = await fetch(url);
+            if (r.status === 200) return await r.json();
+            const soft = r.status === 429 || r.status === 403 || r.status >= 500;
+            if (!soft) return null;
+            const ra = parseInt(r.headers.get("retry-after") || "", 10);
+            await new Promise((res) =>
+              setTimeout(res, ra ? ra * 1000 : 700 * (i + 1) + 400 * i * i),
+            );
+          } catch {
+            await new Promise((res) => setTimeout(res, 700 * (i + 1)));
+          }
+        }
+        return null;
+      }
+
+      // Who has posted this exact phrase? Returns a Map<did, {did,handle,avatar,
+      // uri,text}> of DISTINCT posters (one sample post each). Search is fuzzy, so
+      // we keep only posts whose tokenized text actually contains the phrase —
+      // exactly how lib/unique.js verifies. null on search error.
+      async function postersOf(phrase) {
+        const u = new URL(SEARCH_PROXY, location.href);
+        u.searchParams.set("q", `"${phrase}"`);
+        u.searchParams.set("limit", String(SEARCH_LIMIT));
+        const d = await searchGet(u.toString());
+        if (!d) return null;
+        const pad = (t) => " " + tokenize(t).join(" ") + " ";
+        const needle = " " + phrase + " ";
+        const byDid = new Map();
+        for (const p of d.posts || []) {
+          const text = p.record && p.record.text;
+          if (!text || !pad(text).includes(needle)) continue;
+          const did = p.author && p.author.did;
+          if (!did || byDid.has(did)) continue;
+          byDid.set(did, {
+            did,
+            handle: p.author.handle,
+            avatar: p.author.avatar,
+            uri: p.uri,
+            text: String(text).slice(0, 240),
+          });
+        }
+        return byDid;
+      }
+
+      const reversed = (g) => g.split(" ").reverse().join(" ");
+
+      function startView(prefill, msg) {
+        app.innerHTML = `
+          ${msg ? `<p class="err">${escapeHtml(msg)}</p>` : ""}
+          <div class="bar">
+            <input id="handle" type="text" placeholder="a bluesky handle"
+                   value="${escapeHtml(prefill || "")}" />
+            <button id="go">find waluigis</button>
+            <span class="status" id="status"></span>
+          </div>
+          <div id="results"></div>`;
+        const input = document.getElementById("handle");
+        const go = () => {
+          const handle = input.value.trim();
+          if (handle) run(handle);
+        };
+        document.getElementById("go").onclick = go;
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") go();
+        });
+      }
+
+      async function run(handleInput) {
+        const btn = document.getElementById("go");
+        const status = document.getElementById("status");
+        const results = document.getElementById("results");
+        btn.disabled = true;
+        results.innerHTML = "";
+
+        status.textContent = "resolving…";
+        let actor;
+        try {
+          actor = await resolveActorFull(handleInput);
+          who.textContent = `@${actor.handle}`;
+        } catch (e) {
+          status.innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        // 1. Harvest the phrases this account used exactly once.
+        status.textContent = "scanning posts…";
+        let scanRes;
+        try {
+          scanRes = await scan(actor, {
+            mode: "trigram",
+            onPage: (p, posts) => (status.textContent = `scanning… ${posts} posts, page ${p}`),
+          });
+        } catch (e) {
+          status.innerHTML = `<span class="err">scan failed: ${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        // 2. Verify which are globally unique to them (only they ever posted it).
+        const allCands = scanRes.candidates.filter((c) => richness(c.g) >= 0);
+        const cands = allCands.slice(0, VERIFY_BATCH);
+        status.textContent =
+          `${scanRes.posts} posts · ${allCands.length} candidates · verifying top ${cands.length}…`;
+
+        const byPhrase = new Map(); // g -> your source post
+        let checked = 0;
+        await verify(actor, cands, {
+          onVerdict: (v) => {
+            checked++;
+            if (v.status === "unique" && v.mine && !byPhrase.has(v.g)) {
+              byPhrase.set(v.g, v.post);
+            }
+            status.textContent =
+              `checked ${checked}/${cands.length} · ${byPhrase.size} phrase${byPhrase.size === 1 ? "" : "s"} yours alone`;
+          },
+        });
+
+        const yours = [...byPhrase.entries()].map(([g, post]) => ({ g, post }));
+        if (yours.length === 0) {
+          status.textContent = `done · no globally-unique trigrams this pass.`;
+          results.innerHTML =
+            `<p class="status">nothing to mirror — no phrases here are yours alone right now. try again; the search index can be incomplete.</p>`;
+          btn.disabled = false;
+          return;
+        }
+
+        // 3. For each phrase yours alone, reverse the words and ask who posted
+        //    THAT. A Waluigi = the reverse was posted by exactly one distinct
+        //    person, and that person isn't you. Skip word-palindromes (reverse
+        //    equals the original) and dedupe repeated reverses.
+        const toCheck = [];
+        const seenRev = new Set();
+        for (const item of yours) {
+          const rev = reversed(item.g);
+          if (rev === item.g) continue;
+          if (seenRev.has(rev)) continue;
+          seenRev.add(rev);
+          toCheck.push({ ...item, rev });
+          if (toCheck.length >= REV_CAP) break;
+        }
+
+        const matches = []; // { waluigi:{did,handle,avatar}, forward, forwardPost, reverse, reversePost }
+        let scanned = 0;
+        let idx = 0;
+        async function worker() {
+          while (idx < toCheck.length) {
+            const item = toCheck[idx++];
+            let posters;
+            try {
+              posters = await postersOf(item.rev);
+            } catch {
+              posters = null;
+            }
+            scanned++;
+            // exactly one distinct poster, and it isn't the user themself
+            if (posters && posters.size === 1) {
+              const only = [...posters.values()][0];
+              if (only.did !== actor.did) {
+                matches.push({
+                  waluigi: { did: only.did, handle: only.handle, avatar: only.avatar },
+                  forward: item.g,
+                  forwardPost: item.post,
+                  reverse: item.rev,
+                  reversePost: only,
+                });
+                renderMatches(results, matches, actor);
+              }
+            }
+            status.textContent =
+              `mirroring ${scanned}/${toCheck.length} phrase${toCheck.length === 1 ? "" : "s"} · ${matches.length} waluigi hit${matches.length === 1 ? "" : "s"}`;
+          }
+        }
+        await Promise.all(
+          Array.from({ length: Math.min(REV_CONC, toCheck.length || 1) }, worker),
+        );
+
+        if (matches.length === 0) {
+          status.textContent =
+            `done · ${yours.length} phrase${yours.length === 1 ? "" : "s"} yours alone, but no reversed twin surfaced.`;
+          results.innerHTML =
+            `<p class="status">@${escapeHtml(actor.handle)} has no Waluigis right now — none of their ${yours.length} phrases-said-only-by-them turned up reversed in exactly one other mouth.</p>`;
+          btn.disabled = false;
+          return;
+        }
+
+        renderMatches(results, matches, actor);
+        const people = new Set(matches.map((m) => m.waluigi.did)).size;
+        status.textContent =
+          `done · ${people} waluigi${people === 1 ? "" : "s"} across ${matches.length} mirrored phrase${matches.length === 1 ? "" : "s"}` +
+          (scanRes.scannedAll ? "" : " · (hit the post-scan cap; older posts not scanned)");
+        btn.disabled = false;
+      }
+
+      // Group matches by the Waluigi (one card per person, most pairs first).
+      function renderMatches(container, matches, actor) {
+        const groups = new Map();
+        for (const m of matches) {
+          let g = groups.get(m.waluigi.did);
+          if (!g) {
+            g = { who: m.waluigi, pairs: [] };
+            groups.set(m.waluigi.did, g);
+          }
+          g.pairs.push(m);
+        }
+        const ordered = [...groups.values()].sort((a, b) => b.pairs.length - a.pairs.length);
+
+        container.innerHTML = ordered
+          .map((g) => {
+            const av = g.who.avatar
+              ? ` style="background-image:url('${escapeHtml(g.who.avatar)}')"`
+              : "";
+            const handle = g.who.handle || g.who.did.slice(0, 20) + "…";
+            const pairs = g.pairs
+              .map(
+                (m) =>
+                  `<div class="pair">` +
+                  `<div class="side you"><span class="lbl">you</span>` +
+                  `<span class="phrase">${escapeHtml(m.forward)}</span>` +
+                  `<a class="perma" href="${postUrl(m.forwardPost.did, m.forwardPost.uri)}" target="_blank" rel="noopener">post →</a></div>` +
+                  `<div class="mirror-rule">↕ reversed</div>` +
+                  `<div class="side them"><span class="lbl">them</span>` +
+                  `<span class="phrase">${escapeHtml(m.reverse)}</span>` +
+                  `<a class="perma" href="${postUrl(m.reversePost.did, m.reversePost.uri)}" target="_blank" rel="noopener">post →</a></div>` +
+                  `</div>`,
+              )
+              .join("");
+            return (
+              `<article class="waluigi">` +
+              `<div class="whohead"><span class="avatar"${av}></span>` +
+              `<div class="name"><a href="https://bsky.app/profile/${escapeHtml(handle)}" target="_blank" rel="noopener">@${escapeHtml(handle)}</a>` +
+              `<div class="sub">${g.pairs.length} mirrored phrase${g.pairs.length === 1 ? "" : "s"}</div></div></div>` +
+              pairs +
+              `</article>`
+            );
+          })
+          .join("");
+      }
+
+      // Allow ?handle=foo.bsky.social to deep-link; default to bisks.net.
+      const preset = new URLSearchParams(location.search).get("handle");
+      startView(preset || "bisks.net");
+      if (preset) run(preset);
+    </script>
+  </body>
+</html>
