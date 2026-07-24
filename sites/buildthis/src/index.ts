@@ -341,13 +341,14 @@ function num(s: string): number {
 
 // Assemble the build brief from the tagging post plus any ancestor posts (when
 // the tag was a reply). The tagging post is the instruction ("build this"); the
-// ancestors are the context it points at. `max` caps the tagging post; thread
-// context gets its own room so a long thread can't crowd out the actual ask.
+// ancestors are the context it points at. We include the ancestor posts IN FULL —
+// a Bluesky post is ~300 chars, so ≤10 of them is ~3000 chars (<1k tokens),
+// trivial for the builder's context and not worth truncating mid-idea. The only
+// bound on thread context is the 10-ancestor limit in threadContext(). The tag
+// post keeps a generous cap purely as a sanity guard.
 function buildBrief(tagText: string, ancestors: string[], max: number): string {
   const ask = tagText.trim().slice(0, max);
   if (ancestors.length === 0) return ask;
-  // Cap the context block generously but bounded (2x the tag cap).
-  let ctx = ancestors.join("\n").trim();
-  if (ctx.length > max * 2) ctx = ctx.slice(0, max * 2);
+  const ctx = ancestors.join("\n").trim();
   return `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):\n${ctx}`;
 }

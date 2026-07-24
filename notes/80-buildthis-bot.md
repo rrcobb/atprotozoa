@@ -40,10 +40,10 @@ The same Worker runs on a cron trigger (every minute or two). Each tick:
 4. Build the brief. The tagging post's text is the instruction. **If the tag was a
    reply** (someone wrote "@buildthis build this ☝️" under another post),
    `getPostThread` walks the ancestor chain and prepends those posts as context, so
-   "this" resolves to what it points at. Caps: up to **10 ancestors**, thread
-   context sliced to **1200 chars**, the tagging post to **600** — so a brief is at
-   most ~1800 chars. Thread fetch is best-effort; on failure the build proceeds on
-   the tagging post alone.
+   "this" resolves to what it points at. The only bound is **10 ancestors** — each
+   is included in full (a Bluesky post is ~300 chars, so 10 is ~3k chars / <1k
+   tokens, not worth truncating). The tagging post keeps a 600-char sanity cap.
+   Thread fetch is best-effort; on failure the build proceeds on the tag alone.
 5. `repository_dispatch` to GitHub with the brief + the reply target (the post's
    URI/CID) so the Action can reply. (No build-count checks — spend is bounded by
    the provider spend cap, see Budget.)
