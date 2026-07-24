@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bardposting — shall I compare thee — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle and it weaves a Shakespearean sonnet out of that person's own words — read straight from the public firehose, rhyme and all."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="bardposting — shall I compare thee" />
+    <meta
+      property="og:description"
+      content="A sonnet machine for atproto. Give it a handle; it reads that person's posts and answers in fourteen lines of their own words."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="bardposting — shall I compare thee" />
+    <meta
+      name="twitter:description"
+      content="A sonnet machine for atproto. Give it a handle; it reads that person's posts and answers in fourteen lines of their own words."
+    />
+    <!-- bisks.net house style: black on white, one calm blue accent, mono for
+         the chrome. The sonnet itself gets a bookish serif — it has earned it. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --bad: #c0392b;
+        --paper: #fbfaf6;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+          "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header { margin-bottom: 0.5rem; }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 1.8rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 62ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      form {
+        display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: stretch;
+        border-top: 1px solid var(--ink); border-bottom: 1px solid var(--faint);
+        padding: 1rem 0; margin-bottom: 1.6rem;
+      }
+      input[type="text"] {
+        flex: 1 1 14rem; min-width: 0; font-family: var(--mono);
+        font-size: 1rem; padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 6px; color: var(--ink); background: #fff;
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--accent); }
+      button {
+        font-family: var(--mono); font-size: 0.9rem; cursor: pointer;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); border-radius: 6px;
+        background: var(--ink); color: #fff;
+      }
+      button:hover { background: var(--accent); border-color: var(--accent); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.ghost { background: #fff; color: var(--ink); }
+      button.ghost:hover { background: #fff; color: var(--accent); border-color: var(--accent); }
+
+      .status { color: var(--muted); font-size: 0.85rem; min-height: 1.4rem; margin: 0 0 1rem; }
+      .status.err { color: var(--bad); }
+
+      /* the sonnet */
+      .poem { margin: 0; }
+      .poem.hidden { display: none; }
+      .poem .card {
+        background: var(--paper); border: 1px solid var(--faint);
+        border-radius: 10px; padding: 2rem 2rem 1.6rem;
+        box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+      }
+      .poem .to {
+        font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--muted); margin: 0 0 1.1rem;
+      }
+      .poem .to a { color: var(--accent); text-decoration: none; }
+      .poem .to a:hover { text-decoration: underline; }
+      .poem .lines {
+        font-family: var(--serif); font-size: 1.16rem; line-height: 1.72;
+        color: #1a1a1a; white-space: pre-wrap;
+      }
+      .poem .lines .l { display: block; }
+      .poem .lines .l:nth-child(4n+1) { margin-top: 0; }
+      /* stanza breathing room: after lines 4, 8, 12 */
+      .poem .lines .l.stanza { margin-bottom: 0.9rem; }
+      .poem .lines .l.couplet { margin-top: 0.9rem; padding-left: 1.4rem; font-style: italic; }
+      .poem .sig {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+        margin: 1.3rem 0 0; text-align: right;
+      }
+
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 0; }
+      .actions .note { color: var(--muted); font-size: 0.75rem; align-self: center; }
+
+      .fade { animation: fade 0.35s ease both; }
+      @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+
+      .examples { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.82rem; }
+      .examples a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .examples a:hover { text-decoration: underline; }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem; line-height: 1.7;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>
+          <a href="/">bardposting</a>
+          <span class="slash">· shall I compare thee</span>
+        </h1>
+      </header>
+      <p class="intro">
+        Give it a Bluesky handle and it reads that person's posts straight off the
+        public firehose, then answers in <b>fourteen lines of their own words</b> —
+        a Shakespearean sonnet, rhyme and all. No login, no server; the whole thing
+        happens in your browser. <b>Shall I compare thee to a summer's day?</b>
+      </p>
+
+      <form id="form">
+        <input
+          id="handle"
+          type="text"
+          placeholder="a handle, e.g. vgel.me"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+        <button id="go" type="submit">compose</button>
+      </form>
+      <p class="examples">
+        try:
+        <a data-h="vgel.me">@vgel.me</a> ·
+        <a data-h="norvid-studies.bsky.social">@norvid-studies</a> ·
+        <a data-h="buildthis.bisks.net">@buildthis</a>
+      </p>
+
+      <p class="status" id="status"></p>
+
+      <div class="poem hidden" id="poem">
+        <div class="card">
+          <p class="to" id="to"></p>
+          <div class="lines" id="lines"></div>
+          <p class="sig">— bardposting, out of Shakespeare's day, acausally</p>
+        </div>
+        <div class="actions">
+          <button class="ghost" id="reroll" type="button">another</button>
+          <button class="ghost" id="copy" type="button">copy</button>
+          <button class="ghost" id="share" type="button">share the couplet ↗</button>
+          <span class="note" id="poolnote"></span>
+        </div>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a> · reads posts from the
+        public AppView, anonymously · rhyme &amp; meter are hand-written scaffolds,
+        the words are yours · one of the
+        <a href="https://bisks.net">bisks.net</a> experiments ·
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveActorFull, harvestWords, sonnetFor } from "./lib/sonnet.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"),
+        input = $("handle"),
+        go = $("go"),
+        status = $("status"),
+        poem = $("poem"),
+        toEl = $("to"),
+        linesEl = $("lines"),
+        rerollBtn = $("reroll"),
+        copyBtn = $("copy"),
+        shareBtn = $("share"),
+        poolnote = $("poolnote");
+
+      // state for the currently-composed sonnet
+      let cur = null; // { actor, words, name, seed }
+
+      function setStatus(msg, isErr) {
+        status.textContent = msg || "";
+        status.classList.toggle("err", !!isErr);
+      }
+
+      function render() {
+        const { words, name, seed, actor } = cur;
+        const { lines } = sonnetFor(words, name, seed);
+        cur.lines = lines;
+
+        toEl.innerHTML =
+          "To " +
+          `<a href="https://bsky.app/profile/${actor.handle}" target="_blank" rel="noopener">@${actor.handle}</a>` +
+          " — a sonnet in their own words";
+
+        linesEl.innerHTML = "";
+        lines.forEach((line, i) => {
+          const el = document.createElement("span");
+          el.className = "l";
+          if (i === 3 || i === 7) el.classList.add("stanza"); // after quatrains
+          if (i === 11) el.classList.add("stanza");
+          if (i === 12) el.classList.add("couplet");
+          if (i === 13) el.classList.add("couplet");
+          el.textContent = line;
+          linesEl.appendChild(el);
+        });
+        linesEl.parentElement.classList.remove("fade");
+        void linesEl.offsetWidth; // restart the animation
+        linesEl.parentElement.classList.add("fade");
+
+        poem.classList.remove("hidden");
+        poolnote.textContent =
+          words.length >= 8
+            ? `woven from ${words.length} of their words`
+            : "quiet account — helped along with a little Elizabethan filler";
+      }
+
+      async function compose(raw) {
+        const handle = String(raw || "").trim();
+        if (!handle) return;
+        go.disabled = true;
+        poem.classList.add("hidden");
+        setStatus("resolving " + handle.replace(/^@/, "") + " …");
+        try {
+          const actor = await resolveActorFull(handle);
+          setStatus("reading @" + actor.handle + "'s posts …");
+          const { words, posts, pages } = await harvestWords(actor, {
+            onPage: (p, n) => setStatus(`reading @${actor.handle} … ${n} posts`),
+          });
+          setStatus("");
+          cur = {
+            actor,
+            words,
+            name: actor.displayName || "@" + actor.handle.split(".")[0],
+            seed: actor.handle, // deterministic first sonnet per handle
+          };
+          render();
+          if (posts === 0) {
+            setStatus(
+              "no posts found — the sonnet is mostly Elizabethan filler, sorry",
+            );
+          }
+          // shareable permalink
+          location.hash = encodeURIComponent(actor.handle);
+        } catch (e) {
+          poem.classList.add("hidden");
+          const msg =
+            e && e.status === 400
+              ? `couldn't find "${handle.replace(/^@/, "")}" — check the handle?`
+              : `couldn't compose that one: ${(e && e.message) || e}`;
+          setStatus(msg, true);
+        } finally {
+          go.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        compose(input.value);
+      });
+
+      document.querySelectorAll(".examples a").forEach((a) =>
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          input.value = a.dataset.h;
+          compose(a.dataset.h);
+        }),
+      );
+
+      rerollBtn.addEventListener("click", () => {
+        if (!cur) return;
+        // fresh seed → new scaffold + word draw
+        cur.seed = cur.actor.handle + ":" + Math.floor(performance.now());
+        render();
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        if (!cur || !cur.lines) return;
+        const text =
+          cur.lines.join("\n") +
+          "\n\n— for @" +
+          cur.actor.handle +
+          ", via bardposting.bisks.net";
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = "copied ✓";
+          setTimeout(() => (copyBtn.textContent = "copy"), 1400);
+        } catch {
+          copyBtn.textContent = "copy failed";
+          setTimeout(() => (copyBtn.textContent = "copy"), 1400);
+        }
+      });
+
+      // A full sonnet won't fit Bluesky's 300 chars, so share the closing
+      // couplet + a link back to the full thing.
+      shareBtn.addEventListener("click", () => {
+        if (!cur || !cur.lines) return;
+        const couplet = cur.lines.slice(12).join("\n");
+        const link =
+          "https://bardposting.bisks.net/#" + encodeURIComponent(cur.actor.handle);
+        const text = `@${cur.actor.handle} a sonnet, in your own words:\n\n${couplet}\n\n(the whole thing: ${link})`;
+        window.open(
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(text),
+          "_blank",
+          "noopener",
+        );
+      });
+
+      // deep link: #handle composes on load
+      const initial = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+      if (initial) {
+        input.value = initial;
+        compose(initial);
+      } else {
+        input.focus();
+      }
+    </script>
+  </body>
+</html>
