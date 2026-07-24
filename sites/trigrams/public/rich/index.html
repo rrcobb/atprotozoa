@@ -109,7 +109,7 @@
     </div>
 
     <script type="module">
-      import { scan, verify, resolveActorFull } from "../lib/unique.js";
+      import { scan, verify, resolveActorFull, richness } from "../lib/unique.js";
 
       const app = document.getElementById("app");
       const who = document.getElementById("who");
@@ -188,29 +188,41 @@
           return;
         }
 
-        const cands = scanRes.candidates;
+        // Only bother verifying candidates that pass the taste filter — this both
+        // shrinks the search budget and means every verified hit is show-worthy.
+        const cands = scanRes.candidates.filter((c) => richness(c.g) >= 0);
         status.textContent =
-          `${scanRes.posts} posts scanned · ${cands.length} candidate trigrams (used exactly once) · verifying against the network…`;
+          `${scanRes.posts} posts · ${cands.length} candidate trigrams (used once, passed filter) · verifying against the network…`;
 
+        // Collect verified uniques, then rank all at once by richness. Dedup
+        // near-duplicate slices of the same post (keep the highest-scoring).
+        const found = [];
+        const byPost = new Map();
         let checked = 0;
-        let found = 0;
         await verify(actor, cands, {
           onVerdict: (v) => {
             checked++;
             if (v.status === "unique" && v.mine) {
-              found++;
-              renderCard(results, v);
+              const r = richness(v.g);
+              const prev = byPost.get(v.post.uri);
+              if (!prev || r > prev.r) byPost.set(v.post.uri, { v, r });
             }
             status.textContent =
-              `checked ${checked}/${cands.length} · ${found} rich trigram${found === 1 ? "" : "s"} found`;
+              `checked ${checked}/${cands.length} · ${byPost.size} unique trigram${byPost.size === 1 ? "" : "s"} found`;
           },
         });
 
+        for (const { v, r } of byPost.values()) found.push({ v, r });
+        found.sort((a, b) => b.r - a.r);
+
+        results.innerHTML = "";
+        for (const { v } of found) renderCard(results, v);
+
         status.textContent =
-          `done · ${found} rich trigram${found === 1 ? "" : "s"} out of ${cands.length} candidates` +
-          (scanRes.scannedAll ? "" : " (hit the post-scan cap; older posts not included)");
+          `done · ${found.length} unique trigram${found.length === 1 ? "" : "s"}, ranked` +
+          (scanRes.scannedAll ? "" : " · (hit the post-scan cap; older posts not scanned)");
         btn.disabled = false;
-        if (found === 0) {
+        if (found.length === 0) {
           results.innerHTML =
             `<p class="status">no globally-unique trigrams surfaced this pass. try again, or the search index may just be incomplete.</p>`;
         }

@@ -97,7 +97,8 @@ export function tokenize(text) {
 }
 
 // A gram's "interest" score: prefer content words + length, so a capped search
-// spends its budget on the phrases most likely to be distinctive.
+// spends its budget on the phrases most likely to be distinctive. Used only to
+// ORDER the search — not to rank the final results (that's richness()).
 export function score(toks) {
   let s = 0,
     content = 0;
@@ -109,6 +110,40 @@ export function score(toks) {
     }
   }
   return content === 0 ? -1 : s + content; // all-stopword => -1 (dropped)
+}
+
+// NARROW stopword set for richness filtering — ONLY true function words. Rob's
+// 128 curated trigrams include "after/some/such/very/only", so a broad stoplist
+// wrongly rejects his favorites (e.g. "meaning after scarcity"). Calibrated
+// against that curated set: with this list, 0/128 are rejected.
+const FUNC = new Set(
+  ("a an and are as at be been but by for from had has have he her his i in is it its me my no not " +
+    "of on or our so that the their them then they this to up us was we were with you your").split(/\s+/),
+);
+
+// Peak word length ~8 chars; taper for very short and very long words. This
+// undoes mino score()'s "longer is always better" bias — the dry academic
+// trigrams Rob rejects are exactly the longest-word ones.
+function lenBump(len) {
+  if (len <= 2) return 0.1;
+  if (len <= 9) return (len - 2) / 7; // 0.14 .. 1.0
+  return Math.max(0.15, 1 - (len - 9) * 0.12); // decay past 9
+}
+
+// richness(gram): a taste-calibrated score for the FINAL ranking of verified
+// unique trigrams. Returns -1 for hard-rejects (any function word, or a repeated
+// word — both absent from every one of Rob's curated examples). Otherwise a
+// 0..~1 score. NOTE: heuristics filter junk well but rank taste only weakly — the
+// surprise/juxtaposition that defines "good" isn't captured here. See
+// notes/71-rich-taste.md; a taste pass (LLM) is the likely next step.
+export function richness(gram) {
+  const w = String(gram).split(" ").filter(Boolean);
+  if (w.length < 2) return -1;
+  if (new Set(w).size < w.length) return -1; // repeated word
+  if (w.some((x) => FUNC.has(x))) return -1; // any function word
+  let s = 0;
+  for (const x of w) s += lenBump(x.length);
+  return s / w.length;
 }
 
 // ── scan: harvest exactly-once bigrams/trigrams from the user's own repo ───────
