@@ -11,12 +11,21 @@
 // `public.api.bsky.app` 403s. So this whole module runs CLIENT-SIDE with no auth,
 // no worker, for ANY handle. (See notes/70 "HAMMERED".)
 
-const PUB = "https://api.bsky.app/xrpc"; // works anonymously incl. searchPosts
+const PUB = "https://api.bsky.app/xrpc"; // anonymous reads (listRecords, resolve)
 const PLC_DIR = "https://plc.directory";
 
+// Search goes through OUR worker's authenticated proxy — anonymous searchPosts is
+// administratively blocked at volume (403). The proxy holds a bot app-password and
+// returns app.bsky.feed.searchPosts JSON. Same-origin path on trigrams.bisks.net.
+// (In dev/other origins, fall back to the deployed proxy.)
+const SEARCH_PROXY =
+  typeof location !== "undefined" && location.origin.includes("bisks.net")
+    ? "/api/search"
+    : "https://trigrams.bisks.net/api/search";
+
 const MAX_POST_PAGES = 40; // ≤ ~4000 most-recent posts
-const SCAN_CAP = 2500; // cap candidate list (top-scored first)
-const SEARCH_CONC = 3; // parallel search fan-out (gentle — api.bsky.app throttles)
+const SCAN_CAP = 8000; // cap candidate list (top-scored first) — high; filter cuts more
+const SEARCH_CONC = 6; // parallel fan-out (authed proxy has proper rate limits)
 const SEARCH_LIMIT = 15; // posts fetched per phrase
 
 // Grams made only of stopwords carry no signal and are ~never unique.
@@ -158,31 +167,16 @@ export function richness(gram) {
 
 const SEARCH_CAP_HITS = 10000; // hitsTotal saturates here; treat as "very common"
 
-// Network-wide count of exact-phrase posts, via hitsTotal. Retries on throttle;
-// returns null (not 0) when it truly can't tell, so callers can distinguish.
-async function phraseHits(phrase, tries = 6) {
-  const u =
-    `${PUB}/app.bsky.feed.searchPosts` +
-    `?q=${encodeURIComponent('"' + phrase + '"')}&limit=1`;
-  for (let i = 0; i < tries; i++) {
-    try {
-      const r = await fetch(u);
-      if (r.status === 200) {
-        const d = await r.json();
-        return typeof d.hitsTotal === "number"
-          ? d.hitsTotal
-          : (d.posts || []).length;
-      }
-      // 429 (or other throttle): honor Retry-After if present, else backoff.
-      const ra = parseInt(r.headers.get("retry-after") || "", 10);
-      await new Promise((res) =>
-        setTimeout(res, ra ? ra * 1000 : 600 * (i + 1) + 400 * i * i),
-      );
-    } catch {
-      await new Promise((res) => setTimeout(res, 600 * (i + 1)));
-    }
-  }
-  return null;
+// Network-wide count of exact-phrase posts, via hitsTotal. Goes through the
+// authenticated search proxy (same as verify). Returns null (not 0) if it truly
+// can't tell, so callers can distinguish "no data" from "genuinely zero".
+async function phraseHits(phrase) {
+  const u = new URL(SEARCH_PROXY, location.href);
+  u.searchParams.set("q", `"${phrase}"`);
+  u.searchParams.set("limit", "1");
+  const d = await searchGet(u.toString());
+  if (!d) return null;
+  return typeof d.hitsTotal === "number" ? d.hitsTotal : (d.posts || []).length;
 }
 
 // surprise(gram): log-scaled score from component-bigram frequencies. Rewards a
@@ -281,20 +275,42 @@ export async function scan(actor, { mode = "trigram", onPage } = {}) {
   };
 }
 
+// searchPosts with retry/backoff on throttle. api.bsky.app rate-limits bursts;
+// without retry, a throttled candidate is silently lost (this was undercounting
+// uniques ~10x vs mino, which searches with an authed token). Returns parsed JSON
+// or null after exhausting tries.
+// IMPORTANT: under burst load, api.bsky.app returns 403 "forbidden by
+// administrative rules" — a soft rate-limit, NOT a permanent denial. So 403 and
+// 429 must both be RETRIED with backoff. Treating 403 as a hard error was
+// dropping ~half of candidates and undercounting uniques ~8x vs mino (which uses
+// an authed token with far higher limits). Only 4xx≠{403,429} is a real error.
+async function searchGet(url, tries = 7) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url);
+      if (r.status === 200) return await r.json();
+      const soft = r.status === 429 || r.status === 403 || r.status >= 500;
+      if (!soft) return null; // genuine error, don't retry
+      const ra = parseInt(r.headers.get("retry-after") || "", 10);
+      await new Promise((res) =>
+        setTimeout(res, ra ? ra * 1000 : 700 * (i + 1) + 400 * i * i),
+      );
+    } catch {
+      await new Promise((res) => setTimeout(res, 700 * (i + 1)));
+    }
+  }
+  return null;
+}
+
 // ── verify one candidate against platform-wide full-text search ────────────────
 async function searchPhrase(actor, g) {
-  const u = new URL(`${PUB}/app.bsky.feed.searchPosts`); // api.bsky.app, anonymous
+  const u = new URL(SEARCH_PROXY, location.href);
   u.searchParams.set("q", `"${g}"`); // quoted => exact-phrase intent
   u.searchParams.set("limit", String(SEARCH_LIMIT));
 
   const n = g.split(" ").length;
-  let d;
-  try {
-    d = await jget(u.toString());
-  } catch (e) {
-    if (e.status === 429) return { g, n, status: "rate" };
-    return { g, n, status: "error" };
-  }
+  const d = await searchGet(u.toString());
+  if (!d) return { g, n, status: "error" }; // exhausted retries
 
   // Search is fuzzy — keep only posts whose text actually contains the phrase.
   const pad = (t) => " " + tokenize(t).join(" ") + " ";
