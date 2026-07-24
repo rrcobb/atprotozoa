@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rich — trigrams — bisks.net</title>
+    <style>
+      :root {
+        --bg: #f4f6f3;
+        --card: #eaf0ea;
+        --ink: #1a1a1a;
+        --muted: #5a625a;
+        --accent: #2f6b3f;
+        --link: #2b6cb0;
+        --err: #a3352b;
+        --bold: #111;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.5rem;
+        margin: 0;
+      }
+      h1 a { color: inherit; text-decoration: none; }
+      .who { font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; color: var(--muted); }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+      .bar {
+        display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;
+        margin-bottom: 1.5rem;
+      }
+      button {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+        border: none; border-radius: 6px;
+        background: var(--accent); color: #fff; cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.ghost { background: transparent; color: var(--link); padding: 0.3rem 0; }
+      input[type="text"] {
+        font-family: ui-monospace, Menlo, monospace; font-size: 1rem;
+        padding: 0.5rem 0.6rem; border: 1px solid #cdd6cd; border-radius: 6px; width: 100%;
+      }
+      label { font-size: 0.9rem; color: var(--muted); display: block; margin-bottom: 0.4rem; }
+      .status { font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem; color: var(--muted); }
+      .card {
+        background: var(--card);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1rem;
+        animation: pop 0.25s ease;
+      }
+      @keyframes pop { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+      .card h2 {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 1.1rem; margin: 0 0 0.5rem; font-weight: 700; line-height: 1.3;
+        word-break: break-word;
+      }
+      .card h2 .tag {
+        font-size: 0.62rem; letter-spacing: 0.09em; color: var(--muted);
+        text-transform: uppercase; margin-left: 0.45rem; font-weight: 400;
+      }
+      .card .body { margin: 0 0 0.7rem; color: var(--muted); word-break: break-word; }
+      .card .body b { color: var(--bold); }
+      .card a.perma { font-family: ui-monospace, Menlo, monospace; font-size: 0.8rem; color: var(--link); text-decoration: none; }
+      .card a.perma:hover { text-decoration: underline; }
+      .err { color: var(--err); }
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.8rem; }
+      footer a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/firehose/">trigrams</a> / rich</h1>
+        <span class="who" id="who"></span>
+      </header>
+      <p class="intro">
+        The three-word phrases someone used <b>exactly once</b> that <b>no one
+        else on Bluesky has ever posted</b> — hapax legomena, little fingerprints
+        that are theirs alone. Type any handle.
+      </p>
+
+      <div id="app"></div>
+
+      <footer>
+        method cribbed with thanks from
+        <a href="https://github.com/minormobius/agent01">mino.mobi</a> ·
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { scan, verify, resolveActorFull } from "../lib/unique.js";
+
+      const app = document.getElementById("app");
+      const who = document.getElementById("who");
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      function highlight(text, phrase) {
+        const escaped = escapeHtml(text);
+        const sep = "[^\\p{L}\\p{N}']+";
+        const pat = phrase
+          .split(" ")
+          .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join(sep);
+        try {
+          return escaped.replace(new RegExp("(" + pat + ")", "iu"), "<b>$1</b>");
+        } catch {
+          return escaped;
+        }
+      }
+      const postUrl = (did, uri) =>
+        `https://bsky.app/profile/${did}/post/${uri.split("/").pop()}`;
+
+      // Open read — no login. Type any handle, see their rich trigrams.
+      function startView(prefill, msg) {
+        app.innerHTML = `
+          ${msg ? `<p class="err">${escapeHtml(msg)}</p>` : ""}
+          <div class="bar">
+            <input id="handle" type="text" placeholder="a bluesky handle"
+                   value="${escapeHtml(prefill || "")}" style="max-width:16rem" />
+            <button id="go">find rich trigrams</button>
+            <span class="status" id="status"></span>
+          </div>
+          <div id="results"></div>`;
+        const input = document.getElementById("handle");
+        const go = () => {
+          const handle = input.value.trim();
+          if (handle) run(handle);
+        };
+        document.getElementById("go").onclick = go;
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") go();
+        });
+      }
+
+      async function run(handleInput) {
+        const btn = document.getElementById("go");
+        const status = document.getElementById("status");
+        const results = document.getElementById("results");
+        btn.disabled = true;
+        results.innerHTML = "";
+
+        status.textContent = "resolving…";
+        let actor;
+        try {
+          actor = await resolveActorFull(handleInput);
+          who.textContent = `@${actor.handle}`;
+        } catch (e) {
+          status.innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        status.textContent = "scanning posts…";
+        let scanRes;
+        try {
+          scanRes = await scan(actor, {
+            mode: "trigram",
+            onPage: (p, posts) => (status.textContent = `scanning… ${posts} posts, page ${p}`),
+          });
+        } catch (e) {
+          status.innerHTML = `<span class="err">scan failed: ${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        const cands = scanRes.candidates;
+        status.textContent =
+          `${scanRes.posts} posts scanned · ${cands.length} candidate trigrams (used exactly once) · verifying against the network…`;
+
+        let checked = 0;
+        let found = 0;
+        await verify(actor, cands, {
+          onVerdict: (v) => {
+            checked++;
+            if (v.status === "unique" && v.mine) {
+              found++;
+              renderCard(results, v);
+            }
+            status.textContent =
+              `checked ${checked}/${cands.length} · ${found} rich trigram${found === 1 ? "" : "s"} found`;
+          },
+        });
+
+        status.textContent =
+          `done · ${found} rich trigram${found === 1 ? "" : "s"} out of ${cands.length} candidates` +
+          (scanRes.scannedAll ? "" : " (hit the post-scan cap; older posts not included)");
+        btn.disabled = false;
+        if (found === 0) {
+          results.innerHTML =
+            `<p class="status">no globally-unique trigrams surfaced this pass. try again, or the search index may just be incomplete.</p>`;
+        }
+      }
+
+      function renderCard(container, v) {
+        const card = document.createElement("article");
+        card.className = "card";
+        const post = v.post;
+        card.innerHTML =
+          `<h2>${escapeHtml(v.g)} <span class="tag">3-gram · yours alone</span></h2>` +
+          `<p class="body">${highlight(post.text, v.g)}</p>` +
+          `<a class="perma" href="${postUrl(post.did, post.uri)}" target="_blank" rel="noopener">see the one post →</a>`;
+        container.appendChild(card);
+      }
+
+      // Allow ?handle=foo.bsky.social to deep-link a scan; default to bisks.net.
+      const preset = new URLSearchParams(location.search).get("handle");
+      startView(preset || "bisks.net");
+      if (preset) run(preset);
+    </script>
+  </body>
+</html>

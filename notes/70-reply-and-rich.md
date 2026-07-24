@@ -127,6 +127,29 @@ client-metadata.json served at `trigrams.bisks.net/client-metadata.json`;
 Dev friction: atproto OAuth is fiddly against localhost — develop against the
 deployed trigrams.bisks.net (we have push-to-deploy).
 
+## HAMMERED: searchPosts works client-side, anonymously (no worker)
+
+The premise "search needs auth, so /rich needs a proxy worker" was WRONG. Tested
+the actual hosts:
+
+- `public.api.bsky.app` searchPosts → **403** (this is what mino calls `PUB`, and
+  what misled me)
+- `bsky.social` searchPosts → 401
+- `api.bsky.app` searchPosts → **200, unauthenticated**, real results, and
+  `access-control-allow-origin: *` (browser can read it)
+
+mino's code does `token ? APP : PUB` — routes to the working host (`api.bsky.app`)
+only when it has a token, falls back to the 403ing `PUB` when it doesn't. So they
+never exercised the tokenless-`APP` path; it works now regardless.
+
+**Consequence: /rich is fully client-side — no worker, no app-password, no login,
+any handle.** Reads are open (Rob's principle: if you don't own the DID you can
+still look at its trigrams). Only /reply logs in, because it writes.
+
+**Rule for future me:** before adding ANYTHING server-side, check how mino does
+the same thing AND test the real endpoints. The "server instinct" has been wrong
+every time here — search, OAuth, and verification all turned out client-side.
+
 ## Attribution
 
 Home page (apex) gets a thank-you to mino.mobi / minormobius/agent01 for the
