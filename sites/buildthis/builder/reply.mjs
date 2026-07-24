@@ -8,9 +8,18 @@
 //   REPLY_PARENT_URI, REPLY_PARENT_CID -> the mention we're answering
 //   BUILD_OK       -> "true" if the build succeeded
 //   BUILD_RESULT   -> the built site name (or "<site>/<path>"), empty if nothing
+//   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
+//   OUTCOME_URL    -> buildthis worker's /outcome endpoint (optional)
+//   OUTCOME_SECRET -> shared secret for the /outcome POST (optional)
 //
 // The reply text is derived from BUILD_OK/BUILD_RESULT here — NOT from the
 // third-party brief — so the brief text can never become bot-authored post copy.
+//
+// Besides posting to Bluesky, this reports the outcome back to the buildthis
+// worker's event log (POST /outcome), keyed by MENTION_URI, so the logs site
+// (logs.bisks.net) shows built name / success|failure / reply text. That POST is
+// best-effort: a failure logs and is swallowed, so it can never turn a successful
+// build+reply into a red workflow.
 
 const PDS = "https://bsky.social";
 
@@ -38,6 +47,49 @@ async function main() {
   const session = await login();
   await createReply(session, text, url);
   console.log(`replied: ${JSON.stringify(text)}`);
+
+  // Report the outcome to the event log so logs.bisks.net can show it. Keyed by
+  // the mention uri so it merges onto the record the watcher started. The reply
+  // text posted above IS the replyText we log — same copy, one source of truth.
+  await reportOutcome({ ok, result, url, text });
+}
+
+// POST the build outcome to the buildthis worker's /outcome endpoint. No-op (with
+// a log line) if the endpoint or secret isn't configured, so an unconfigured or
+// briefly-down log sink never fails the build. Non-2xx and network errors are
+// logged and swallowed for the same reason.
+async function reportOutcome({ ok, result, url, text }) {
+  const endpoint = process.env.OUTCOME_URL;
+  const secret = process.env.OUTCOME_SECRET;
+  const mentionUri = process.env.MENTION_URI;
+  if (!endpoint || !secret || !mentionUri) {
+    console.log("outcome POST skipped (OUTCOME_URL/OUTCOME_SECRET/MENTION_URI unset)");
+    return;
+  }
+  const payload = {
+    mentionUri,
+    status: ok && result ? "success" : "failure",
+    builtName: result || undefined,
+    url: url || undefined,
+    replyText: text,
+  };
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`outcome POST ${res.status}: ${await res.text()}`);
+    } else {
+      console.log(`outcome reported: ${payload.status}`);
+    }
+  } catch (err) {
+    console.error(`outcome POST failed: ${err}`);
+  }
 }
 
 // Build a link facet for `url` where it appears in `text`, so it renders as a

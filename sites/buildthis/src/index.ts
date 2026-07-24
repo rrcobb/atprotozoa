@@ -22,6 +22,10 @@ interface Env {
   // secrets
   BOT_APP_PASSWORD: string;
   GITHUB_TOKEN: string;
+  // Shared secret the builder presents on POST /outcome so a random caller can't
+  // forge build outcomes into the event log. Set with `wrangler secret put
+  // OUTCOME_SECRET` here and `gh secret set OUTCOME_SECRET` for the Action.
+  OUTCOME_SECRET: string;
 }
 
 const PDS = "https://bsky.social";
@@ -32,6 +36,7 @@ export default {
     const url = new URL(request.url);
 
     // Bluesky handle verification: the bot's DID as plain text, nothing else.
+    // Kept FIRST and unchanged — this is the bot's critical handle endpoint.
     if (url.pathname === "/.well-known/atproto-did") {
       return new Response(env.BOT_DID, {
         headers: {
@@ -39,6 +44,23 @@ export default {
           "cache-control": "no-cache",
         },
       });
+    }
+
+    // Read endpoint for the logs site (logs.bisks.net). Returns the tag/outcome
+    // event log as JSON, newest first. Read-only, CORS-open (public data — it's
+    // the same tags/outcomes already visible on Bluesky), so logs.bisks.net can
+    // fetch it cross-origin. The KV binding stays on this one worker (house style:
+    // one site = one worker); logs.bisks.net is a pure reader of this endpoint.
+    if (url.pathname === "/logs.json") {
+      return handleLogsRead(env);
+    }
+
+    // Outcome sink for the builder (GitHub Action). The build's final step POSTs
+    // its result here — built site name / success|failure / reply text — keyed by
+    // the mention uri, so it merges onto the same event the watcher started.
+    // Authenticated by a shared secret so a random caller can't forge outcomes.
+    if (url.pathname === "/outcome" && request.method === "POST") {
+      return handleOutcomePost(request, env);
     }
 
     return env.ASSETS.fetch(request);
@@ -65,6 +87,19 @@ async function runWatcher(env: Env): Promise<void> {
     const handledKey = `handled:${m.uri}`;
     if (await env.STATE.get(handledKey)) continue;
 
+    // Log the tag the moment we see it, before any gate. Keyed by the mention
+    // uri so subsequent steps (gate, dispatch, and later the build outcome) merge
+    // into the SAME record rather than duplicating. See recordEvent + notes on
+    // the logs site (sites/logs). Best-effort: a KV write must never abort a tick.
+    await recordEvent(env, m.uri, {
+      mentionUri: m.uri,
+      mentionCid: m.cid,
+      authorHandle: m.authorHandle,
+      authorDid: m.authorDid,
+      text: m.text.slice(0, 600),
+      isReply: m.isReply,
+    });
+
     // Rob himself is always allowed (he owns the bot — he's not a "mutual" to be
     // checked; a self-relationship has neither following nor followedBy). Everyone
     // else must be a mutual of Rob's.
@@ -72,6 +107,9 @@ async function runWatcher(env: Env): Promise<void> {
       m.authorDid === env.ROB_DID || (await robMutual(env, m.authorDid));
 
     if (!isAllowed) {
+      // Gate result: non-mutual. No dispatch will happen on this path.
+      await recordEvent(env, m.uri, { mutual: false, dispatched: false });
+
       // Reply once, ever, tagging Rob so he can pick it up by hand. The
       // "replied-nonmutual" marker is per-author (not per-post) so someone can't
       // make the bot spam-tag Rob by mentioning it repeatedly.
@@ -88,6 +126,9 @@ async function runWatcher(env: Env): Promise<void> {
       await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
       continue;
     }
+
+    // Gate result: mutual — this tag will be built.
+    await recordEvent(env, m.uri, { mutual: true });
 
     // A mutual: acknowledge the request with a like before doing anything else,
     // so it's visibly clear the bot saw the tag and is working on the build in the
@@ -109,6 +150,9 @@ async function runWatcher(env: Env): Promise<void> {
     const dispatched = await dispatchBuild(env, {
       brief,
       authorHandle: m.authorHandle,
+      // The mention uri keys the event record; the builder echoes it back on the
+      // outcome POST so the build result lands on the SAME record.
+      mentionUri: m.uri,
       // Everything the reply step needs to answer in-thread.
       replyRootUri: m.rootUri,
       replyRootCid: m.rootCid,
@@ -116,12 +160,156 @@ async function runWatcher(env: Env): Promise<void> {
       replyParentCid: m.cid,
     });
 
+    // Record whether the dispatch actually left, so a dispatch failure is visible
+    // in the timeline rather than looking like a build that silently never ran.
+    await recordEvent(env, m.uri, { dispatched });
+
     if (dispatched) {
       // Only mark handled if the dispatch actually left. A failed dispatch stays
       // un-handled so the next tick retries it.
       await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
     }
   }
+}
+
+// --- Event log -------------------------------------------------------------
+//
+// The bot's tags-and-outcomes timeline. One record per mention, keyed by the
+// mention uri (`event:<uri>` in the STATE KV), accumulated across the steps the
+// watcher already runs (seen -> gate -> dispatch) and finished by the builder's
+// outcome POST. The logs site (sites/logs) reads these via GET /logs.json.
+//
+// KV, not D1: the store is already here (buildthis has STATE), the record set is
+// small (bounded by the handled-mention window), and "list keys + get each +
+// sort in the reader" gives an ordered, readable timeline without a schema. D1
+// would be nicer for ad-hoc queries, but there are none — just "show them all,
+// newest first," which KV does fine.
+
+const EVENT_PREFIX = "event:";
+// Events outlive the 7-day `handled:` dedup window so the timeline stays readable
+// after a tag stops being re-checkable. 30 days is plenty for a toy log.
+const EVENT_TTL = 60 * 60 * 24 * 30;
+
+interface LogEvent {
+  mentionUri: string;
+  mentionCid?: string;
+  authorHandle?: string;
+  authorDid?: string;
+  text?: string;
+  isReply?: boolean;
+  firstSeen: string; // ISO — set once, the timeline sort key
+  updatedAt: string; // ISO — last write
+  mutual?: boolean; // gate result; undefined until gated
+  dispatched?: boolean; // true fired / false failed-or-non-mutual / undefined pre-gate
+  // Filled by the builder's outcome POST. builtName is "<site>" or "<site>/<path>".
+  outcome?: {
+    status: "success" | "failure";
+    builtName?: string;
+    url?: string;
+    replyText?: string;
+    at: string; // ISO
+  };
+}
+
+// Merge `patch` into the event keyed by `mentionUri`, preserving firstSeen and
+// bumping updatedAt. Best-effort: any failure is logged, never thrown, so a KV
+// hiccup can't abort a watcher tick or a build.
+async function recordEvent(
+  env: Env,
+  mentionUri: string,
+  patch: Partial<LogEvent>,
+): Promise<void> {
+  try {
+    const key = `${EVENT_PREFIX}${mentionUri}`;
+    const now = new Date().toISOString();
+    const existing = await env.STATE.get(key);
+    const prev: Partial<LogEvent> = existing ? JSON.parse(existing) : {};
+    const merged: LogEvent = {
+      ...prev,
+      ...patch,
+      mentionUri,
+      firstSeen: prev.firstSeen ?? now,
+      updatedAt: now,
+    };
+    await env.STATE.put(key, JSON.stringify(merged), { expirationTtl: EVENT_TTL });
+  } catch (err) {
+    console.error(`recordEvent failed for ${mentionUri}: ${err}`);
+  }
+}
+
+// GET /logs.json — every event, newest first (by firstSeen). CORS-open so the
+// logs site can read it cross-origin. This is public data (the same tags and
+// replies are already on Bluesky), so no auth on the read.
+async function handleLogsRead(env: Env): Promise<Response> {
+  const cors = {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-cache",
+  };
+  try {
+    const events: LogEvent[] = [];
+    // The event set is small; a single list() page (1000 keys) covers it well
+    // past the 30-day TTL, so we don't paginate.
+    const list = await env.STATE.list({ prefix: EVENT_PREFIX });
+    for (const k of list.keys) {
+      const raw = await env.STATE.get(k.name);
+      if (raw) {
+        try {
+          events.push(JSON.parse(raw) as LogEvent);
+        } catch {
+          // Skip a corrupt record rather than failing the whole read.
+        }
+      }
+    }
+    events.sort((a, b) => (a.firstSeen < b.firstSeen ? 1 : -1)); // newest first
+    return new Response(JSON.stringify({ events }), { headers: cors });
+  } catch (err) {
+    console.error(`logs read failed: ${err}`);
+    return new Response(JSON.stringify({ events: [], error: "read failed" }), {
+      status: 500,
+      headers: cors,
+    });
+  }
+}
+
+// POST /outcome — the builder reports a finished build. Body:
+//   { mentionUri, status: "success"|"failure", builtName?, url?, replyText? }
+// Authenticated by the shared OUTCOME_SECRET (Authorization: Bearer <secret>).
+// Merges an `outcome` onto the event the watcher started for that mention.
+async function handleOutcomePost(request: Request, env: Env): Promise<Response> {
+  const auth = request.headers.get("authorization") || "";
+  const expected = `Bearer ${env.OUTCOME_SECRET}`;
+  // Guard against a misconfig where the secret is unset — never accept then.
+  if (!env.OUTCOME_SECRET || auth !== expected) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  let body: {
+    mentionUri?: string;
+    status?: string;
+    builtName?: string;
+    url?: string;
+    replyText?: string;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return new Response("bad json", { status: 400 });
+  }
+  if (!body.mentionUri || (body.status !== "success" && body.status !== "failure")) {
+    return new Response("bad request", { status: 400 });
+  }
+  await recordEvent(env, body.mentionUri, {
+    outcome: {
+      status: body.status,
+      builtName: body.builtName || undefined,
+      url: body.url || undefined,
+      replyText: body.replyText || undefined,
+      at: new Date().toISOString(),
+    },
+  });
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { "content-type": "application/json" },
+  });
 }
 
 // --- Bluesky ---------------------------------------------------------------
@@ -346,6 +534,7 @@ function mentionFacets(text: string, mentions: Record<string, string>): unknown[
 interface BuildPayload {
   brief: string;
   authorHandle: string;
+  mentionUri: string;
   replyRootUri: string;
   replyRootCid: string;
   replyParentUri: string;
