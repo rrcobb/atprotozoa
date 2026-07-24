@@ -53,51 +53,53 @@ check runs against Rob's DID regardless of which account the mention lands on.
 
 ### 3. The builder (GitHub Action)
 
-`repository_dispatch` (event type `buildthis`) runs Claude Code headless
-(`anthropics/claude-code-action@v1`) with a prompt built from the post text. The
-agent builds a new `sites/<name>/` or a new path on an existing site — whatever
-fits the idea — commits, and pushes to main. The existing deploy workflow sees the
-push and ships the changed Worker to its subdomain.
+`repository_dispatch` (event type `buildthis`) runs the **Claude Code CLI directly**
+(`claude -p`), not the `claude-code-action`. Why the CLI: the builder runs on
+**Kimi K3** via Moonshot's Anthropic-compatible endpoint, and the CLI honors
+`ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` directly — running
+it ourselves means those env vars are set explicitly, with no action wrapper
+deciding what to forward. The agent reads the build prompt
+(`.github/buildthis/BUILD_PROMPT.md`), builds a new `sites/<name>/` or a new path on
+an existing site, commits, and pushes to main. `--permission-mode bypassPermissions`
+makes it fully unattended; `--max-turns` bounds a runaway. The existing deploy
+workflow sees the push and ships the changed Worker to its subdomain.
 
 Builds are **serialized** via a `concurrency` group: two mentions in the same
 minute produce two dispatches, but they run one at a time, so two agents never
-push to main at once. Rate caps keep the queue short.
+push to main at once.
 
 ### 4. The reply
 
-The **last step of the Action** posts the reply — it knows the built site name →
+The **last step of the workflow** posts the reply — it knows the built site name →
 URL and whether the build succeeded. It logs in as the bot and replies in-thread:
 success → "built it: `<name>.bisks.net` 🎉"; failure → an honest "couldn't build
 that one." No human-in-the-loop; the reply is automatic.
 
-## Budget & rate caps
+## Budget
 
-Rob's stated ceiling: **don't spend more than ~$10 by accident.** Three layers,
-from hardest backstop to finest throttle:
+Rob's stated ceiling: **don't spend more than ~$10 by accident.** Dollars are the
+*only* ceiling — no build-count or per-person caps.
 
-- **The real backstop — an Anthropic spend cap on a dedicated Workspace.** The
-  Console (Settings → Limits) lets you set a monthly USD spend cap per Workspace;
-  when it's hit, that workspace's API key **stops serving requests until next
-  month.** So: make a Workspace just for the bot, cap its spend, and give the
-  builder Action a key scoped to it. This is enforced by Anthropic — even if the
-  watcher's own caps failed and dispatched infinitely, spend can't exceed the cap.
-  The cap is **monthly**, not daily; pick a modest monthly number (e.g. $20–50) as
-  the true ceiling, and let the daily build-count below do the day-to-day pacing.
-  (Verified against the rate-limits docs — there is no per-request USD flag, but
-  the workspace cap is a genuine hard wall.)
-- **Model choice — Sonnet 5, not Opus.** The builder runs `--model claude-sonnet-5`
-  (~2–3× cheaper input than Opus). Scaffolding small static sites doesn't need
-  Opus-tier taste, so this stretches the cap further. Haiku 4.5 is cheaper still,
-  and Kimi K2 via an Anthropic-compatible proxy is ~15× cheaper again — both are
-  cost-down levers to reach for only if the bill climbs.
-- **Per-build bound in the Action: `--max-turns 30` + a job `timeout-minutes`.**
-  So one runaway build can't spin forever. Not a dollar cap (the action has no USD
-  flag), just a stop on a single wedged run.
+- **The hard wall — Moonshot is prepaid.** The builder runs on Kimi K3, and
+  Moonshot has no per-key spend-limit setting; instead the account is **prepaid**,
+  so it simply can't spend more than the balance loaded. That balance *is* the cap:
+  load $20 and $20 is the most it can ever cost before you choose to refill. This is
+  a genuine hard ceiling — arguably better than a configurable cap, since it's the
+  account balance, not a setting that can be misconfigured. Keep the balance at
+  whatever accidental-spend number you're comfortable with.
+- **Model — Kimi K3.** Near-frontier coding quality (benchmarks a hair below Fable 5
+  / GPT-5.6, above Sonnet 5) at ~$3/$15 per Mtok, with a steep cache-hit discount
+  ($0.30/Mtok input) that a coding agent hits often. Chosen over Sonnet 5 because
+  it's better output at similar price, and the prepaid model gives us the hard cap
+  anyway. Trade-off accepted: the builder talks to Moonshot's endpoint, not
+  Anthropic's, so the Anthropic-workspace spend cap does not apply — the prepaid
+  balance replaces it.
+- **Per-build bound: `--max-turns 30` + a job `timeout-minutes`.** So one runaway
+  build can't spin forever. Not a dollar cap, just a stop on a single wedged run.
 
-**No build-count or per-person caps.** Rob's call: the *only* ceiling is dollars —
-the workspace spend cap. The watcher dispatches a build for every mutual mention;
-if that ever costs too much, the workspace cap stops it, and the dial to turn is
-the cap (Console) or the model (cheaper tier), not a count.
+The watcher dispatches a build for every mutual mention. If total spend ever climbs
+too fast, the dial is the prepaid balance (don't refill) or the model tier — not a
+count.
 
 ## House rules: the brief is third-party text
 
@@ -122,16 +124,20 @@ point is that good work ships the moment it lands.
 ## Decisions (settled with Rob)
 
 - [x] Reply automatically when tagged — **no** human-in-the-loop, autodeploy.
-- [x] Runner: **GitHub Actions** (Claude Code headless), triggered from the
-      Cloudflare watcher. Nothing routes to Rob's laptop.
+- [x] Runner: **GitHub Actions**, running the Claude Code CLI (`claude -p`) headless
+      against **Kimi K3** (Moonshot endpoint), triggered from the Cloudflare watcher.
+      Nothing routes to Rob's laptop.
 - [x] Allowlist: **Rob's mutuals** (mutual follow of `bisks.net`), not the bot's.
 - [x] Non-mutuals: **replied to with a tag to `@bisks.net`** so Rob can take it
       manually. No build, but no silence either.
 - [x] Scope: agent's choice — new site OR new path, per the idea.
-- [x] Budget: **dollars only** — a monthly spend cap on a dedicated Anthropic
-      Workspace is the sole ceiling. Builder on **Sonnet 5** to stretch it,
-      `--max-turns 30` per build as a runaway stop. **No build-count / per-person
-      caps** — the watcher dispatches for every mutual mention.
+- [x] Budget: **dollars only** — the **prepaid Moonshot balance** is the sole
+      ceiling (Kimi K3 can't spend past what's loaded). `--max-turns 30` per build
+      as a runaway stop. **No build-count / per-person caps** — the watcher
+      dispatches for every mutual mention.
+- [x] Model: **Kimi K3** — near-frontier coding, prepaid = hard cap. (Reverses the
+      earlier Sonnet-5 pick, which was chosen only to keep the Anthropic spend cap;
+      prepaid gives us the cap regardless, so the better model wins.)
 - [x] Builds **serialized** via a concurrency group.
 - [x] House rules: builder works within `sites/` + `apex/public/`.
 
@@ -143,14 +149,14 @@ point is that good work ships the moment it lands.
    `*.bsky.social` handle) and drop it into `sites/buildthis` config.
 3. Deploy `sites/buildthis` so `/.well-known/atproto-did` is live, then **[rob]**
    set the bot's handle to `buildthis.bisks.net` in the Bluesky app.
-4. **[rob]** In the Anthropic Console: create a **Workspace** for the bot, set a
-   monthly **spend cap** on it (Settings → Limits), and mint an `ANTHROPIC_API_KEY`
-   scoped to that workspace. This is the hard spend wall.
-5. **[rob]** Secrets: that workspace-scoped `ANTHROPIC_API_KEY` + `BOT_IDENTIFIER`
-   + `BOT_APP_PASSWORD` as GitHub Actions secrets (the reply step needs the app
-   password too); the bot app-password + a repo-scoped GitHub token as Cloudflare
-   Worker secrets (the watcher uses the token to fire `repository_dispatch`).
-6. Wire the watcher's cron trigger and KV namespace (`wrangler kv namespace create
-   buildthis-state`, paste the id into `wrangler.toml`).
+4. **[rob]** Create a **Moonshot** account, load it with whatever prepaid balance
+   you want as the spend ceiling, and mint a Moonshot API key. That balance is the
+   hard spend wall for builds.
+5. **[rob]** Secrets: `MOONSHOT_API_KEY` + `BOT_IDENTIFIER` + `BOT_APP_PASSWORD` as
+   GitHub Actions secrets (the reply step needs the app password too); the bot
+   app-password + a repo-scoped GitHub token as Cloudflare Worker secrets (the
+   watcher uses the token to fire `repository_dispatch`). — Rob provides the values;
+   Claude runs the `gh secret set` / `wrangler secret put` commands.
+6. KV namespace + repo slug are already wired (`sites/buildthis/wrangler.toml`).
 
 Details for each land next to the code as it's built.
