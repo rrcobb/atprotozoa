@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>hellmole — generative demonic whack-a-mole</title>
+    <meta name="description" content="Banish procedurally generated demons as they claw up from an infernal grid. Every fiend has its own drawn sigil, invented name, and taunt — never the same twice. Spare the pilgrims." />
+    <meta name="color-scheme" content="dark" />
+    <style>
+      :root {
+        --bg: #0a0507;
+        --bg2: #140a0e;
+        --ink: #f2e4d8;
+        --muted: #a07c74;
+        --faint: #3a1f22;
+        --blood: #d6303a;
+        --ember: #ff7a34;
+        --holy: #ffe27a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background:
+          radial-gradient(120% 80% at 50% -10%, #2a0d10 0%, var(--bg2) 45%, var(--bg) 100%);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+        user-select: none;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+
+      header { text-align: center; margin-bottom: 0.75rem; }
+      h1 {
+        font-size: 1.9rem; margin: 0; font-weight: 800; letter-spacing: 0.04em;
+        color: var(--blood);
+        text-shadow: 0 0 18px rgba(214,48,58,0.5), 0 1px 0 #000;
+      }
+      header p { color: var(--muted); margin: 0.25rem 0 0; font-size: 0.82rem; }
+
+      .hud {
+        display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;
+        margin: 0.9rem 0 0.6rem;
+      }
+      .stat {
+        background: rgba(0,0,0,0.35); border: 1px solid var(--faint);
+        border-radius: 10px; padding: 0.35rem 0.7rem; min-width: 74px;
+        text-align: center;
+      }
+      .stat .k { font-size: 0.6rem; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+      .stat .v { font-size: 1.25rem; font-weight: 700; line-height: 1.1; }
+      #combo.hot .v { color: var(--ember); text-shadow: 0 0 12px rgba(255,122,52,0.6); }
+      #souls .v { color: var(--blood); }
+      #wrath .v { color: var(--holy); }
+
+      .board {
+        display: grid; gap: clamp(6px, 2vw, 14px);
+        grid-template-columns: repeat(3, 1fr);
+        margin: 0.75rem auto 0; touch-action: manipulation;
+      }
+      .hole {
+        position: relative; aspect-ratio: 1 / 1;
+        border-radius: 50%;
+        background:
+          radial-gradient(circle at 50% 35%, #1a0c0f 0%, #0c0507 60%, #060304 100%);
+        border: 2px solid #2a1417;
+        box-shadow: inset 0 10px 22px rgba(0,0,0,0.85), inset 0 -3px 8px rgba(255,80,40,0.05);
+        overflow: hidden; cursor: crosshair;
+      }
+      .hole::after { /* rim of the summoning circle */
+        content: ""; position: absolute; inset: 8%;
+        border-radius: 50%;
+        border: 1px dashed rgba(255,90,50,0.18);
+        pointer-events: none;
+      }
+      .hole.lit { box-shadow: inset 0 10px 22px rgba(0,0,0,0.85), 0 0 22px rgba(255,90,40,0.28); }
+
+      .demon {
+        position: absolute; left: 8%; right: 8%; bottom: 6%;
+        display: flex; flex-direction: column; align-items: center;
+        transform: translateY(115%);
+        transition: transform 0.16s cubic-bezier(.2,.8,.3,1);
+        will-change: transform; pointer-events: none;
+      }
+      .demon.up { transform: translateY(0); }
+      .demon.banished { transition: transform 0.28s ease, opacity 0.28s ease; opacity: 0; transform: translateY(20%) scale(0.4) rotate(12deg); }
+      .demon canvas { width: 100%; height: auto; display: block; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6)); }
+      .demon .name {
+        font-size: 0.56rem; margin-top: 2px; letter-spacing: 0.06em;
+        color: var(--ink); background: rgba(0,0,0,0.55); padding: 1px 5px;
+        border-radius: 6px; white-space: nowrap; max-width: 100%; overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .demon.pilgrim .name { color: var(--holy); }
+
+      /* floating score popups */
+      .pop {
+        position: absolute; left: 50%; top: 30%; transform: translate(-50%,0);
+        font-weight: 800; font-size: 1.1rem; pointer-events: none;
+        animation: rise 0.7s ease-out forwards; text-shadow: 0 1px 3px #000;
+        z-index: 5;
+      }
+      @keyframes rise { to { transform: translate(-50%,-140%); opacity: 0; } }
+
+      .controls { display: flex; gap: 0.6rem; justify-content: center; margin-top: 1.1rem; align-items: center; }
+      button {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        color: var(--ink); background: linear-gradient(#3a1418, #240c0f);
+        border: 1px solid var(--blood); border-radius: 10px;
+        padding: 0.55rem 1.2rem; cursor: pointer; letter-spacing: 0.05em;
+        box-shadow: 0 0 14px rgba(214,48,58,0.25);
+      }
+      button:hover { background: linear-gradient(#4c181d, #2c0e12); }
+      button:active { transform: translateY(1px); }
+      button.ghost { border-color: var(--faint); background: transparent; color: var(--muted); box-shadow: none; }
+
+      .msg { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 0.8rem; min-height: 1.2em; }
+
+      /* game over / start overlay */
+      .veil {
+        position: fixed; inset: 0; z-index: 20; display: none;
+        align-items: center; justify-content: center; padding: 1.5rem;
+        background: radial-gradient(120% 90% at 50% 40%, rgba(30,4,6,0.86), rgba(4,2,3,0.96));
+        backdrop-filter: blur(3px);
+      }
+      .veil.show { display: flex; }
+      .card {
+        max-width: 420px; width: 100%; text-align: center;
+        background: rgba(12,6,8,0.9); border: 1px solid var(--faint);
+        border-radius: 16px; padding: 1.6rem 1.4rem;
+        box-shadow: 0 0 60px rgba(214,48,58,0.25);
+      }
+      .card h2 { margin: 0 0 0.4rem; color: var(--blood); font-size: 1.4rem; }
+      .card p { color: var(--muted); font-size: 0.84rem; margin: 0.35rem 0; }
+      .card .big { color: var(--holy); font-size: 2.2rem; font-weight: 800; margin: 0.3rem 0; }
+      .card .rank { color: var(--ember); font-weight: 700; font-size: 1rem; }
+      .card button { margin-top: 1rem; }
+      .legend { font-size: 0.72rem; color: var(--muted); line-height: 1.7; margin-top: 0.6rem; }
+      .legend b { color: var(--holy); }
+      .legend s { color: var(--blood); text-decoration: none; }
+
+      footer {
+        margin-top: 2.5rem; text-align: center;
+        color: var(--muted); font-size: 0.72rem;
+      }
+      footer a { color: var(--ember); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 380px) { .demon .name { font-size: 0.5rem; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>HELLMOLE</h1>
+        <p>generative demonic whack-a-mole &middot; banish the fiends, spare the pilgrims</p>
+      </header>
+
+      <div class="hud">
+        <div class="stat" id="souls"><div class="k">souls</div><div class="v">0</div></div>
+        <div class="stat" id="combo"><div class="k">combo</div><div class="v">&times;1</div></div>
+        <div class="stat" id="wrath"><div class="k">wrath</div><div class="v">III</div></div>
+        <div class="stat" id="time"><div class="k">reckoning</div><div class="v">60</div></div>
+      </div>
+
+      <div class="board" id="board" aria-label="summoning grid"></div>
+
+      <div class="controls">
+        <button id="startBtn">SUMMON</button>
+        <button id="muteBtn" class="ghost">&#128264; sound</button>
+      </div>
+
+      <p class="msg" id="msg">tap SUMMON. click the demons to banish them. do not strike the golden pilgrims.</p>
+
+      <footer>
+        every fiend drawn &amp; named from scratch, never the same twice &middot;
+        a <a href="https://buildthis.bisks.net">@buildthis</a> toy for
+        <a href="https://bsky.app/profile/ver.ooo">@ver.ooo</a> &middot;
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <div class="veil" id="veil">
+      <div class="card">
+        <h2 id="veilTitle">THE PIT AWAITS</h2>
+        <div class="big" id="veilScore"></div>
+        <div class="rank" id="veilRank"></div>
+        <p id="veilBlurb">Fiends rise from the summoning circles. Click to banish. Each is procedurally conjured — its sigil, name, color and eyes are generated on the spot.</p>
+        <div class="legend">
+          <b>&#9733; golden pilgrims</b> — innocents. hitting one costs a soul &amp; your combo.<br />
+          <s>&#9679; red fiends</s> — banish for souls. bigger horns = more worth.<br />
+          combo multiplies your take; a miss resets it. survive the reckoning.
+        </div>
+        <button id="veilBtn">DESCEND</button>
+      </div>
+    </div>
+
+    <script>
+      "use strict";
+
+      // ---- deterministic RNG helper (per-demon uniqueness from one seed) ----
+      function rng(seed) {
+        // mulberry32
+        let a = seed >>> 0;
+        return function () {
+          a |= 0; a = (a + 0x6D2B79F5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      const irnd = () => (Math.random() * 4294967296) >>> 0;
+      const pick = (r, arr) => arr[(r() * arr.length) | 0];
+
+      // ---- generative demon names ----
+      const ONSET = ["Az","Bal","Mor","Vex","Gru","Zeph","Nyx","Kra","Bel","Dra",
+        "Xor","Sab","Hul","Mal","Ur","Gor","Vor","Thul","Rha","Ob","Zul","Ash",
+        "Nax","Quor","Fen","Skra","Vll","Mag","Cor","Dum","Ith","Yog"];
+      const MID = ["a","o","u","e","ae","au","i","y","oo","ua","ah","ee","ou","io"];
+      const CODA = ["goth","zar","moth","riel","buub","gath","noth","xul","reth",
+        "vaal","doon","kesh","mor","phel","thas","grim","zoth","bane","vok","los",
+        "quul","dredge","huth","mancer","lith","gore"];
+      const TITLE = ["the Unlit","of the Ninth Pit","Devourer of Wednesdays","the Small",
+        "Who Hums","the Overdue","Baron of Lint","the Recursive","of Broken Clocks",
+        "the Damp","Warden of the Group Chat","the Off-By-One","the Unsubscribed",
+        "of the Last Tab","the Merely Rude","the Perpetually Buffering","the Petty",
+        "the Load-Bearing"];
+      function demonName(r) {
+        let n = pick(r, ONSET) + pick(r, MID) + pick(r, CODA);
+        if (r() < 0.4) n += " " + pick(r, TITLE);
+        return n;
+      }
+      const PILGRIM_NAMES = ["Br. Aldous","Sr. Wend","the Novice","Pilgrim Osric",
+        "Sr. Perpetua","Br. Cuthbert","the Almoner","Anchoress Neve","a Choirboy",
+        "the Bellringer","Br. Meek","Sr. Placid"];
+
+      const TAUNTS = ["you missed.","too slow, mortal.","is that all?","i'll be back.",
+        "ha!","try again.","weak.","cute.","not even close.","the pit laughs.",
+        "amateur.","tickles."];
+
+      // ---- draw a unique demon onto a canvas ----
+      function drawDemon(canvas, spec) {
+        const r = rng(spec.seed);
+        const S = 120; // logical size
+        canvas.width = S; canvas.height = S;
+        const c = canvas.getContext("2d");
+        c.clearRect(0, 0, S, S);
+        const cx = S / 2;
+
+        if (spec.pilgrim) { drawPilgrim(c, r, S); return; }
+
+        const hue = spec.hue;
+        const bodyR = 30 + spec.beefy * 12;
+        const cy = S - bodyR - 8;
+        const bodyTop = cy - bodyR;
+
+        // sigil glow behind the fiend
+        c.save();
+        c.globalAlpha = 0.5;
+        c.strokeStyle = "hsl(" + hue + ", 90%, 60%)";
+        c.lineWidth = 1;
+        const spokes = 5 + ((r() * 5) | 0);
+        for (let i = 0; i < spokes; i++) {
+          const a = (i / spokes) * Math.PI * 2 + spec.seed;
+          c.beginPath();
+          c.moveTo(cx, cy);
+          c.lineTo(cx + Math.cos(a) * (bodyR + 22), cy + Math.sin(a) * (bodyR + 22));
+          c.stroke();
+        }
+        c.beginPath(); c.arc(cx, cy, bodyR + 20, 0, Math.PI * 2); c.stroke();
+        c.restore();
+
+        // horns
+        const horns = 1 + ((r() * spec.beefy + 1) | 0); // 1..~4
+        c.fillStyle = "hsl(" + hue + ", 40%, 22%)";
+        c.strokeStyle = "#000"; c.lineWidth = 1.5;
+        for (let i = 0; i < horns; i++) {
+          const spread = horns === 1 ? 0 : (i / (horns - 1) - 0.5);
+          const hx = cx + spread * bodyR * 1.3;
+          const baseY = bodyTop + Math.abs(spread) * 8 + 6;
+          const len = 14 + r() * 16;
+          const curl = (r() - 0.5) * 18;
+          c.beginPath();
+          c.moveTo(hx - 5, baseY);
+          c.quadraticCurveTo(hx + curl, baseY - len, hx + curl * 1.3, baseY - len - 5);
+          c.quadraticCurveTo(hx + curl, baseY - len + 4, hx + 5, baseY);
+          c.closePath(); c.fill(); c.stroke();
+        }
+
+        // body — blobby
+        c.beginPath();
+        const lobes = 8;
+        for (let i = 0; i <= lobes; i++) {
+          const a = (i / lobes) * Math.PI * 2;
+          const wob = bodyR * (1 + (r() - 0.5) * 0.16);
+          const x = cx + Math.cos(a) * wob;
+          const y = cy + Math.sin(a) * wob * 1.05;
+          if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+        }
+        c.closePath();
+        const grad = c.createRadialGradient(cx - 8, cy - 10, 4, cx, cy, bodyR * 1.4);
+        grad.addColorStop(0, "hsl(" + hue + ", 85%, 62%)");
+        grad.addColorStop(1, "hsl(" + hue + ", 80%, 30%)");
+        c.fillStyle = grad; c.fill();
+        c.strokeStyle = "hsl(" + hue + ", 60%, 18%)"; c.lineWidth = 2; c.stroke();
+
+        // eyes
+        const eyeCount = 1 + ((r() * 4) | 0); // 1..4
+        c.fillStyle = spec.eyeColor;
+        const eyeY = cy - bodyR * 0.15;
+        for (let i = 0; i < eyeCount; i++) {
+          const t = eyeCount === 1 ? 0 : (i / (eyeCount - 1) - 0.5);
+          const ex = cx + t * bodyR * 0.9;
+          const ey = eyeY + (r() - 0.5) * 8;
+          const er = 4 + r() * 4;
+          c.beginPath(); c.arc(ex, ey, er, 0, Math.PI * 2); c.fill();
+          c.save(); c.fillStyle = "#100";
+          c.beginPath(); c.arc(ex, ey + er * 0.15, er * 0.45, 0, Math.PI * 2); c.fill();
+          c.restore();
+        }
+
+        // mouth — jagged grin
+        c.strokeStyle = "#180405"; c.lineWidth = 2.4;
+        c.beginPath();
+        const my = cy + bodyR * 0.42;
+        const mw = bodyR * 0.7;
+        c.moveTo(cx - mw, my);
+        const teeth = 3 + ((r() * 4) | 0);
+        for (let i = 1; i <= teeth; i++) {
+          const x = cx - mw + (2 * mw) * (i / teeth);
+          c.lineTo(x, my + (i % 2 ? 7 : -1));
+        }
+        c.stroke();
+      }
+
+      function drawPilgrim(c, r, S) {
+        const cx = S / 2, bodyR = 30, cy = S - bodyR - 10;
+        // halo
+        c.strokeStyle = "hsl(48, 100%, 72%)"; c.lineWidth = 3;
+        c.globalAlpha = 0.9;
+        c.beginPath(); c.arc(cx, cy - bodyR - 12, 16, 0, Math.PI * 2); c.stroke();
+        c.globalAlpha = 1;
+        // robe (triangle)
+        c.beginPath();
+        c.moveTo(cx, cy - bodyR);
+        c.lineTo(cx - bodyR, cy + bodyR);
+        c.lineTo(cx + bodyR, cy + bodyR);
+        c.closePath();
+        const g = c.createLinearGradient(0, cy - bodyR, 0, cy + bodyR);
+        g.addColorStop(0, "#f6ecd0"); g.addColorStop(1, "#c9b98a");
+        c.fillStyle = g; c.fill();
+        c.strokeStyle = "#8a7a4a"; c.lineWidth = 2; c.stroke();
+        // head
+        c.fillStyle = "#f2dcc0";
+        c.beginPath(); c.arc(cx, cy - bodyR + 4, 12, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "#b79a76"; c.lineWidth = 1.5; c.stroke();
+        // serene eyes
+        c.fillStyle = "#4a3a2a";
+        c.beginPath(); c.arc(cx - 4, cy - bodyR + 3, 1.6, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(cx + 4, cy - bodyR + 3, 1.6, 0, Math.PI * 2); c.fill();
+        // cross on robe
+        c.strokeStyle = "#8a7a4a"; c.lineWidth = 2.5;
+        c.beginPath(); c.moveTo(cx, cy - 4); c.lineTo(cx, cy + 18); c.stroke();
+        c.beginPath(); c.moveTo(cx - 8, cy + 4); c.lineTo(cx + 8, cy + 4); c.stroke();
+      }
+
+      // ---- tiny WebAudio sfx (no assets) ----
+      let AC = null, muted = false;
+      function ac() { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return AC; }
+      function blip(freq, dur, type, vol) {
+        if (muted) return;
+        const a = ac(); if (!a) return;
+        const o = a.createOscillator(), g = a.createGain();
+        o.type = type || "square"; o.frequency.value = freq;
+        g.gain.value = vol == null ? 0.15 : vol;
+        o.connect(g); g.connect(a.destination);
+        const t = a.currentTime;
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.start(t); o.stop(t + dur);
+      }
+      function banishSfx() { blip(220, 0.08, "square", 0.18); setTimeout(function () { blip(110, 0.18, "sawtooth", 0.14); }, 40); }
+      function summonSfx() { blip(80 + Math.random() * 60, 0.14, "sawtooth", 0.06); }
+      function pilgrimSfx() { blip(700, 0.5, "sine", 0.16); setTimeout(function () { blip(520, 0.4, "sine", 0.12); }, 120); }
+
+      // ---- game state ----
+      const board = document.getElementById("board");
+      const HOLES = 9;
+      const holes = [];
+      let running = false, score = 0, combo = 1, timeLeft = 60, wrath = 3;
+      let spawnTimer = null, tickTimer = null;
+      const active = new Map(); // holeIndex -> demon obj
+
+      const el = {
+        souls: document.querySelector("#souls .v"),
+        combo: document.querySelector("#combo .v"),
+        comboBox: document.getElementById("combo"),
+        wrath: document.querySelector("#wrath .v"),
+        time: document.querySelector("#time .v"),
+        msg: document.getElementById("msg"),
+        startBtn: document.getElementById("startBtn"),
+        muteBtn: document.getElementById("muteBtn"),
+        veil: document.getElementById("veil"),
+        veilTitle: document.getElementById("veilTitle"),
+        veilScore: document.getElementById("veilScore"),
+        veilRank: document.getElementById("veilRank"),
+        veilBlurb: document.getElementById("veilBlurb"),
+        veilBtn: document.getElementById("veilBtn"),
+      };
+
+      const ROMAN = ["0","I","II","III","IV","V","VI","VII","VIII","IX","X"];
+
+      function buildBoard() {
+        board.innerHTML = "";
+        for (let i = 0; i < HOLES; i++) {
+          const hole = document.createElement("div");
+          hole.className = "hole";
+          hole.dataset.i = i;
+          hole.addEventListener("pointerdown", onStrike);
+          board.appendChild(hole);
+          holes.push(hole);
+        }
+      }
+
+      function conjure(hole, i) {
+        const seed = irnd();
+        const r = rng(seed);
+        const pilgrim = r() < 0.16;
+        const beefy = pilgrim ? 0 : (r() * 2.2); // 0..2.2 -> size/worth
+        const hue = pilgrim ? 48 : ((r() * 40 + 340) % 360); // reds/oranges/magentas
+        const spec = {
+          seed: seed, pilgrim: pilgrim, beefy: beefy, hue: hue,
+          eyeColor: "hsl(" + ((r() * 60 + 40) | 0) + ", 100%, 65%)",
+          worth: pilgrim ? 0 : Math.round(1 + beefy * 2),
+        };
+        const wrap = document.createElement("div");
+        wrap.className = "demon" + (pilgrim ? " pilgrim" : "");
+        const cv = document.createElement("canvas");
+        drawDemon(cv, spec);
+        const name = document.createElement("div");
+        name.className = "name";
+        name.textContent = pilgrim ? pick(r, PILGRIM_NAMES) : demonName(r);
+        wrap.appendChild(cv);
+        wrap.appendChild(name);
+        hole.appendChild(wrap);
+        hole.classList.add("lit");
+        // rise on the next frame so the transition plays
+        requestAnimationFrame(function () { requestAnimationFrame(function () { wrap.classList.add("up"); }); });
+        summonSfx();
+
+        // dwell time shrinks as wrath (difficulty) grows
+        const dwell = Math.max(650, 1700 - wrath * 150 - beefy * 80) + Math.random() * 500;
+        const obj = { spec: spec, wrap: wrap, hole: hole, i: i, hit: false, r: r,
+          timeout: setTimeout(function () { retreat(i, true); }, dwell) };
+        active.set(i, obj);
+      }
+
+      function retreat(i, escaped) {
+        const obj = active.get(i);
+        if (!obj) return;
+        clearTimeout(obj.timeout);
+        active.delete(i);
+        obj.wrap.classList.remove("up");
+        obj.hole.classList.remove("lit");
+        if (escaped && !obj.spec.pilgrim && !obj.hit) {
+          floatPop(obj.hole, pick(obj.r, TAUNTS), "var(--muted)", "0.8rem");
+        }
+        setTimeout(function () { obj.wrap.remove(); }, 220);
+      }
+
+      function onStrike() {
+        if (!running) return;
+        const i = +this.dataset.i;
+        const obj = active.get(i);
+        if (!obj || obj.hit) return;
+        obj.hit = true;
+        clearTimeout(obj.timeout);
+
+        if (obj.spec.pilgrim) {
+          // struck an innocent
+          score = Math.max(0, score - 3);
+          combo = 1;
+          wrath = Math.min(10, wrath + 1);
+          pilgrimSfx();
+          floatPop(this, "-3 &#128128;", "var(--holy)", "1.2rem");
+          flash(this, "rgba(255,226,122,0.5)");
+          bump();
+        } else {
+          const gain = obj.spec.worth * combo;
+          score += gain;
+          combo = Math.min(99, combo + 1);
+          banishSfx();
+          obj.wrap.classList.add("banished");
+          floatPop(this, "+" + gain, "var(--ember)", "1.25rem");
+          if (combo >= 5) floatPop(this, "&times;" + combo, "var(--blood)", "0.85rem");
+        }
+        el.souls.textContent = score;
+        el.combo.textContent = "×" + combo;
+        el.comboBox.classList.toggle("hot", combo >= 5);
+        el.wrath.textContent = ROMAN[wrath] || wrath;
+        active.delete(i);
+        obj.hole.classList.remove("lit");
+        setTimeout(function () { obj.wrap.remove(); }, 320);
+      }
+
+      function floatPop(hole, html, color, size) {
+        const p = document.createElement("div");
+        p.className = "pop"; p.innerHTML = html;
+        p.style.color = color; p.style.fontSize = size || "1.1rem";
+        hole.appendChild(p);
+        setTimeout(function () { p.remove(); }, 750);
+      }
+      function flash(node, col) {
+        node.animate(
+          [{ boxShadow: "0 0 0 rgba(0,0,0,0)" }, { boxShadow: "0 0 26px " + col }, { boxShadow: "0 0 0 rgba(0,0,0,0)" }],
+          { duration: 400 }
+        );
+      }
+      function bump() {
+        document.querySelector(".wrap").animate(
+          [{ transform: "translateX(0)" }, { transform: "translateX(-6px)" },
+           { transform: "translateX(5px)" }, { transform: "translateX(0)" }],
+          { duration: 220 }
+        );
+      }
+
+      function scheduleSpawn() {
+        if (!running) return;
+        const gap = Math.max(280, 1050 - wrath * 90 - Math.random() * 250);
+        spawnTimer = setTimeout(function () {
+          const free = [];
+          for (let i = 0; i < HOLES; i++) if (!active.has(i)) free.push(i);
+          if (free.length) {
+            const i = free[(Math.random() * free.length) | 0];
+            conjure(holes[i], i);
+          }
+          // occasionally double-spawn at higher wrath
+          if (wrath >= 5 && Math.random() < 0.4) {
+            const rest = [];
+            for (let k = 0; k < HOLES; k++) if (!active.has(k)) rest.push(k);
+            if (rest.length) {
+              const j = rest[(Math.random() * rest.length) | 0];
+              conjure(holes[j], j);
+            }
+          }
+          scheduleSpawn();
+        }, gap);
+      }
+
+      function clearBoard() {
+        for (const key of Array.from(active.keys())) retreat(key, false);
+        active.clear();
+      }
+
+      function start() {
+        running = true; score = 0; combo = 1; timeLeft = 60; wrath = 3;
+        el.souls.textContent = 0; el.combo.textContent = "×1";
+        el.wrath.textContent = "III"; el.time.textContent = 60;
+        el.comboBox.classList.remove("hot");
+        el.startBtn.textContent = "RESUMMON";
+        el.msg.textContent = "banish the red fiends. do NOT strike the golden pilgrims.";
+        el.veil.classList.remove("show");
+        clearBoard();
+        clearInterval(tickTimer); clearTimeout(spawnTimer);
+        let elapsed = 0;
+        tickTimer = setInterval(function () {
+          if (!running) return;
+          timeLeft--; elapsed++;
+          el.time.textContent = timeLeft;
+          if (elapsed % 8 === 0 && wrath < 10) {
+            wrath++; el.wrath.textContent = ROMAN[wrath] || wrath;
+          }
+          if (timeLeft <= 5) el.time.parentElement.animate(
+            [{ transform: "scale(1)" }, { transform: "scale(1.18)" }, { transform: "scale(1)" }],
+            { duration: 400 });
+          if (timeLeft <= 0) end();
+        }, 1000);
+        scheduleSpawn();
+        const a = ac(); if (a && a.state === "suspended") a.resume();
+      }
+
+      function end() {
+        running = false;
+        clearInterval(tickTimer); clearTimeout(spawnTimer);
+        clearBoard();
+        el.veilTitle.textContent = "THE RECKONING";
+        el.veilScore.textContent = score + " souls";
+        el.veilRank.textContent = rankFor(score);
+        el.veilBlurb.textContent = flavorFor(score);
+        el.veilBtn.textContent = "SUMMON AGAIN";
+        el.veil.classList.add("show");
+      }
+
+      function rankFor(s) {
+        if (s >= 220) return "★ ARCHFIEND-SLAYER ★";
+        if (s >= 140) return "Inquisitor";
+        if (s >= 80) return "Exorcist";
+        if (s >= 40) return "Acolyte";
+        if (s >= 15) return "Dabbler";
+        return "Fresh Meat";
+      }
+      function flavorFor(s) {
+        if (s >= 220) return "The pit itself flinches at your name. Hell files a complaint.";
+        if (s >= 80) return "Respectable carnage. The lower circles have taken notice.";
+        if (s >= 15) return "A start. The demons are, frankly, unbothered.";
+        return "The fiends escaped, the pilgrims wept. Perhaps a hobby.";
+      }
+
+      // ---- wire up ----
+      el.startBtn.addEventListener("click", start);
+      el.veilBtn.addEventListener("click", start);
+      el.muteBtn.addEventListener("click", function () {
+        muted = !muted;
+        el.muteBtn.innerHTML = muted ? "&#128263; muted" : "&#128264; sound";
+      });
+
+      buildBoard();
+      el.veil.classList.add("show"); // show intro on load
+      el.veilBtn.textContent = "DESCEND";
+    </script>
+  </body>
+</html>
