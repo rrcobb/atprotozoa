@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🍭 candyland — the schizophrenic bluesky sweet-stream</title>
+    <meta
+      name="description"
+      content="The live Bluesky firehose poured down a winding rainbow candy path. Every post is a gumdrop, lollipop, or peppermint marching toward Queen Frostine's castle while the posts' own words rise as an overlapping candy-colored chorus."
+    />
+    <style>
+      :root {
+        --ink: #2a0f3a;
+        --pink: #ff5fa2;
+        --grape: #7b2ff7;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: #1a0526;
+        font-family: "Comic Sans MS", "Chalkboard SE", "Baloo 2", "Trebuchet MS", system-ui,
+          sans-serif;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+      }
+      #stage { position: fixed; inset: 0; display: block; }
+
+      /* ---- header / hud ---- */
+      .hud {
+        position: fixed;
+        left: 0; right: 0; top: 0;
+        padding: 12px 16px 26px;
+        pointer-events: none;
+        z-index: 5;
+        background: linear-gradient(180deg, rgba(26, 5, 38, 0.72) 0%, rgba(26, 5, 38, 0) 100%);
+      }
+      .titlebar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.4rem, 4.4vw, 2.6rem);
+        line-height: 1;
+        letter-spacing: 0.5px;
+        background: linear-gradient(90deg, #ff5fa2, #ffd23f, #6ce5ff, #9d4bff, #ff5fa2);
+        background-size: 300% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+        animation: hue 8s linear infinite;
+        filter: drop-shadow(0 0 12px rgba(255, 95, 162, 0.45));
+      }
+      @keyframes hue { to { background-position: 300% 0; } }
+      .sub {
+        margin: 2px 0 0;
+        font-size: clamp(0.72rem, 2.3vw, 0.95rem);
+        color: #ffd7ef;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      .sub b { color: #ffe98a; }
+
+      .controls {
+        position: fixed;
+        right: 12px; bottom: 12px;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+        pointer-events: none;
+      }
+      .panel {
+        pointer-events: auto;
+        background: rgba(43, 15, 58, 0.66);
+        backdrop-filter: blur(6px);
+        border: 2px solid rgba(255, 210, 63, 0.5);
+        border-radius: 16px;
+        padding: 9px 12px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        font-size: 0.82rem;
+      }
+      .panel label { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+      input[type="range"] { width: 116px; accent-color: #ff5fa2; }
+      button {
+        font: inherit;
+        cursor: pointer;
+        border: 2px solid rgba(255, 255, 255, 0.65);
+        background: linear-gradient(180deg, #ff7bb8, #ff3d92);
+        color: #fff;
+        border-radius: 999px;
+        padding: 5px 12px;
+        font-weight: 700;
+        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+      }
+      button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+      button.ghost { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.4); }
+
+      /* live dot */
+      .live { display: inline-flex; align-items: center; gap: 6px; }
+      .dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #64ff9a; box-shadow: 0 0 10px #64ff9a;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      .dot.off { background: #ff6b6b; box-shadow: 0 0 10px #ff6b6b; animation: none; }
+      @keyframes pulse { 50% { opacity: 0.35; transform: scale(0.7); } }
+
+      /* about card */
+      .about {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgba(20, 4, 30, 0.72);
+        backdrop-filter: blur(3px);
+      }
+      .about.show { display: grid; }
+      .about-card {
+        max-width: 480px;
+        background: linear-gradient(160deg, #3a1052, #5a1a6b);
+        border: 3px solid #ffd23f;
+        border-radius: 22px;
+        padding: 22px 24px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        line-height: 1.55;
+      }
+      .about-card h2 { margin: 0 0 8px; font-size: 1.35rem; color: #ffe98a; }
+      .about-card p { margin: 0 0 12px; font-size: 0.95rem; color: #ffe6f5; }
+      .about-card a { color: #7fe9ff; }
+      .about-card .close { display: block; margin: 6px 0 0 auto; }
+      .hint {
+        pointer-events: auto;
+        font-size: 0.72rem;
+        color: #ffbfe4;
+        text-decoration: underline dotted;
+        cursor: pointer;
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div class="hud">
+      <div class="titlebar">
+        <h1>🍭 CANDYLAND 🍭</h1>
+      </div>
+      <p class="sub">
+        the bluesky firehose, poured down the peppermint path to <b>Queen Frostine</b> ·
+        <span class="live"><span class="dot" id="dot"></span><span id="status">tuning the taffy…</span></span>
+        · <span id="crossed">0</span> reached the castle
+      </p>
+    </div>
+
+    <div class="controls">
+      <span class="hint" id="aboutBtn">what is this?</span>
+      <div class="panel">
+        <label>🌀 chaos <input id="chaos" type="range" min="0" max="1" step="0.01" value="0.6" /></label>
+        <button id="pause" class="ghost">pause</button>
+      </div>
+    </div>
+
+    <div class="about" id="about">
+      <div class="about-card">
+        <h2>🍬 A schizophrenic Bluesky candyland</h2>
+        <p>
+          Every card that scrolls past the live
+          <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener"
+            >Bluesky firehose</a
+          >
+          drops into this world as a piece of candy — a gumdrop, a lollipop, a peppermint,
+          a jellybean — and starts its long march down the rainbow path toward
+          <b>Queen Frostine's</b> castle.
+        </p>
+        <p>
+          At the same time the post's own words peel off and rise as a chorus of whispers,
+          all talking over each other at once. That's the <i>schizophrenic</i> part: a
+          thousand sugar-high voices, no single thread. Turn <b>chaos</b> up to drown in it,
+          down to hear a few.
+        </p>
+        <p>
+          It's just the real firehose — no login, no server, nothing stored. Built by the
+          <a href="https://bisks.net" target="_blank" rel="noopener">@buildthis</a> bot when
+          @ver.ooo asked for "schizophrenic bluesky candyland … tonite queen."
+        </p>
+        <button class="close" id="closeAbout">taste the rainbow</button>
+      </div>
+    </div>
+
+    <script>
+      // ======================================================================
+      // Schizophrenic Bluesky Candyland
+      // The live firehose becomes candy walking a winding rainbow path toward
+      // Queen Frostine's castle; the posts' words rise as an overlapping chorus.
+      // Pure browser. No secrets, no server.
+      // ======================================================================
+
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+
+      const cv = document.getElementById("stage");
+      const ctx = cv.getContext("2d");
+      const dot = document.getElementById("dot");
+      const statusEl = document.getElementById("status");
+      const crossedEl = document.getElementById("crossed");
+      const chaosInput = document.getElementById("chaos");
+      const pauseBtn = document.getElementById("pause");
+      const aboutBtn = document.getElementById("aboutBtn");
+      const aboutEl = document.getElementById("about");
+      const closeAbout = document.getElementById("closeAbout");
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // ---- world state -----------------------------------------------------
+      let W = 0, H = 0, DPR = 1;
+      let path = [];        // dense polyline {x,y}
+      let cum = [];         // cumulative arc length per point
+      let totalLen = 0;
+      let tiles = [];       // {x,y,color,r} candy-board squares along the path
+      let boardCanvas = null; // offscreen render of sky-independent board tiles
+
+      const candies = [];   // {dist, speed, type, color, label, bob, seed}
+      const whispers = [];  // {x,y,vx,vy,text,color,angle,life,max,size}
+      const bursts = [];    // arrival sparkles {x,y,life,color,parts:[...]}
+      const bgDrops = [];   // drifting background candy dots
+
+      let chaos = parseFloat(chaosInput.value);
+      let paused = false;
+      let crossed = 0;
+      let hue = 0;
+
+      // firehose rate meter
+      let postCountWindow = 0;
+      let rate = 0;
+
+      const CANDY_TYPES = ["gumdrop", "pepp", "lolli", "bean", "cane", "gummybear"];
+      const PALETTE = [
+        "#ff4d6d", "#ff7b00", "#ffd23f", "#8ac926", "#3fd8ff",
+        "#4361ee", "#9d4bff", "#ff5fa2", "#00d9a3", "#ff9e00",
+      ];
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+
+      // ---- layout / path ---------------------------------------------------
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        cv.width = Math.floor(W * DPR);
+        cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px";
+        cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        buildPath();
+        buildBoard();
+        seedBackground();
+      }
+
+      // A serpentine that snakes down the screen like a real Candy Land board.
+      function buildPath() {
+        path = [];
+        const mx = Math.max(48, W * 0.09);
+        const top = Math.max(78, H * 0.14);
+        const bottom = H - Math.max(96, H * 0.13);
+        const usableH = bottom - top;
+        const rows = Math.max(3, Math.round(usableH / 128));
+        const rowH = usableH / rows;
+        const steps = 46;
+        for (let r = 0; r <= rows; r++) {
+          const y = top + r * rowH;
+          const dir = r % 2 === 0 ? 1 : -1;
+          for (let s = 0; s <= steps; s++) {
+            const f = s / steps;
+            const x = dir > 0 ? mx + f * (W - 2 * mx) : W - mx - f * (W - 2 * mx);
+            const wig = Math.sin(f * Math.PI * 2.2 + r * 1.3) * Math.min(12, rowH * 0.16);
+            path.push({ x, y: y + wig + Math.sin(f * Math.PI) * 6 });
+          }
+        }
+        // arc lengths
+        cum = [0];
+        totalLen = 0;
+        for (let i = 1; i < path.length; i++) {
+          const dx = path[i].x - path[i - 1].x;
+          const dy = path[i].y - path[i - 1].y;
+          totalLen += Math.hypot(dx, dy);
+          cum.push(totalLen);
+        }
+        // board tiles every ~52px
+        tiles = [];
+        const gap = 52;
+        let idx = 0;
+        for (let d = gap * 0.4; d < totalLen - gap * 0.4; d += gap) {
+          const p = posAt(d);
+          tiles.push({ x: p.x, y: p.y, color: PALETTE[idx % PALETTE.length], seed: rnd(6.28) });
+          idx++;
+        }
+      }
+
+      function posAt(d) {
+        d = Math.max(0, Math.min(totalLen, d));
+        // binary search on cum
+        let lo = 0, hi = cum.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (cum[mid] < d) lo = mid + 1;
+          else hi = mid;
+        }
+        const i = Math.max(1, lo);
+        const seg = cum[i] - cum[i - 1] || 1;
+        const f = (d - cum[i - 1]) / seg;
+        const a = path[i - 1], b = path[i];
+        return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+      }
+
+      // Pre-render the static candy-board path onto an offscreen canvas.
+      function buildBoard() {
+        boardCanvas = document.createElement("canvas");
+        boardCanvas.width = cv.width;
+        boardCanvas.height = cv.height;
+        const b = boardCanvas.getContext("2d");
+        b.setTransform(DPR, 0, 0, DPR, 0, 0);
+        // soft wide sugar path underneath
+        b.lineJoin = "round";
+        b.lineCap = "round";
+        b.strokeStyle = "rgba(255,255,255,0.10)";
+        b.lineWidth = 34;
+        b.beginPath();
+        path.forEach((p, i) => (i ? b.lineTo(p.x, p.y) : b.moveTo(p.x, p.y)));
+        b.stroke();
+        // candy tiles
+        const tw = 30;
+        for (const t of tiles) {
+          b.save();
+          b.translate(t.x, t.y);
+          b.rotate(Math.sin(t.seed) * 0.25);
+          roundRect(b, -tw / 2, -tw / 2, tw, tw, 8);
+          const g = b.createLinearGradient(-tw / 2, -tw / 2, tw / 2, tw / 2);
+          g.addColorStop(0, lighten(t.color, 40));
+          g.addColorStop(1, t.color);
+          b.fillStyle = g;
+          b.fill();
+          b.lineWidth = 2.5;
+          b.strokeStyle = "rgba(255,255,255,0.7)";
+          b.stroke();
+          // little sugar shine
+          b.beginPath();
+          b.arc(-tw * 0.18, -tw * 0.18, tw * 0.16, 0, 7);
+          b.fillStyle = "rgba(255,255,255,0.45)";
+          b.fill();
+          b.restore();
+        }
+      }
+
+      function seedBackground() {
+        bgDrops.length = 0;
+        const n = Math.round((W * H) / 26000);
+        for (let i = 0; i < n; i++) {
+          bgDrops.push({
+            x: rnd(W), y: rnd(H), r: rnd(9, 3),
+            color: pick(PALETTE), vy: rnd(18, 6), sway: rnd(6.28), amp: rnd(22, 6),
+          });
+        }
+      }
+
+      // ---- helpers ----------------------------------------------------------
+      function roundRect(c, x, y, w, h, r) {
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.arcTo(x + w, y, x + w, y + h, r);
+        c.arcTo(x + w, y + h, x, y + h, r);
+        c.arcTo(x, y + h, x, y, r);
+        c.arcTo(x, y, x + w, y, r);
+        c.closePath();
+      }
+      function lighten(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        const r = Math.min(255, (n >> 16) + amt);
+        const g = Math.min(255, ((n >> 8) & 255) + amt);
+        const b = Math.min(255, (n & 255) + amt);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      // ---- firehose ingestion -----------------------------------------------
+      const SPAM = /#nowplaying|listen live|onelink\.to|🛒|shop now|buy now|prime members|amzn\.to/i;
+
+      function pickToken(text) {
+        const emoji = text.match(/\p{Extended_Pictographic}/u);
+        if (emoji && Math.random() < 0.55) return emoji[0];
+        const words = text
+          .replace(/https?:\/\/\S+/g, " ")
+          .split(/\s+/)
+          .filter((w) => /\p{L}/u.test(w) && w.length <= 13);
+        if (!words.length) return pick(["🍬", "🍭", "🍡", "🧁", "🍮"]);
+        return pick(words).slice(0, 12);
+      }
+
+      function pickPhrase(text) {
+        const clean = text.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ").trim();
+        if (!clean) return "";
+        const words = clean.split(" ");
+        const n = Math.min(words.length, 2 + ((Math.random() * 4) | 0));
+        const start = (Math.random() * Math.max(1, words.length - n)) | 0;
+        return words.slice(start, start + n).join(" ").slice(0, 54);
+      }
+
+      function spawnCandy(text) {
+        const capC = 40 + chaos * 130;
+        if (candies.length >= capC) return;
+        candies.push({
+          dist: 0,
+          speed: (26 + rnd(34)) * (0.55 + chaos * 1.1),
+          type: pick(CANDY_TYPES),
+          color: pick(PALETTE),
+          color2: pick(PALETTE),
+          label: pickToken(text),
+          bob: rnd(6.28),
+          spin: rnd(-1, 1) * (0.4 + chaos),
+          size: 15 + rnd(12),
+          seed: rnd(6.28),
+        });
+      }
+
+      function spawnWhisper(text) {
+        const capW = 26 + chaos * 120;
+        if (whispers.length >= capW) return;
+        const phrase = pickPhrase(text);
+        if (!phrase) return;
+        const max = 3.4 + rnd(3.2);
+        whispers.push({
+          x: rnd(W * 0.92, W * 0.06),
+          y: rnd(H * 0.9, H * 0.12),
+          vx: rnd(1, -1) * (10 + chaos * 26),
+          vy: -(14 + rnd(30)) * (0.5 + chaos),
+          text: phrase,
+          color: pick(PALETTE),
+          angle: rnd(0.5, -0.5) * (0.4 + chaos),
+          spin: rnd(1, -1) * 0.3 * chaos,
+          life: max,
+          max,
+          size: 13 + rnd(20) * (0.6 + chaos * 0.7),
+        });
+      }
+
+      function onPost(text) {
+        postCountWindow++;
+        if (SPAM.test(text)) return;
+        const t = text.trim();
+        if (!t) return;
+        if (Math.random() < 0.05 + chaos * 0.28) spawnCandy(t);
+        if (Math.random() < 0.1 + chaos * 0.42) spawnWhisper(t);
+        // at high chaos a single post fragments into extra voices
+        if (chaos > 0.7 && Math.random() < (chaos - 0.7) * 1.5) spawnWhisper(t);
+      }
+
+      // ---- websocket --------------------------------------------------------
+      let ws = null;
+      let retry = 0;
+      function connect() {
+        try {
+          ws = new WebSocket(JETSTREAM);
+        } catch (e) {
+          scheduleReconnect();
+          return;
+        }
+        ws.onopen = () => {
+          retry = 0;
+          setStatus(true, "streaming sugar…");
+        };
+        ws.onmessage = (ev) => {
+          if (paused) return;
+          let msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          const c = msg.commit;
+          if (msg.kind === "commit" && c && c.operation === "create" &&
+              c.collection === "app.bsky.feed.post") {
+            onPost((c.record && c.record.text) || "");
+          }
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          scheduleReconnect();
+        };
+        ws.onerror = () => {
+          try { ws.close(); } catch {}
+        };
+      }
+      function scheduleReconnect() {
+        retry = Math.min(retry + 1, 6);
+        setTimeout(connect, 400 * retry + rnd(400));
+      }
+      function setStatus(live, text) {
+        dot.classList.toggle("off", !live);
+        statusEl.textContent = text;
+      }
+
+      // rate meter — update the status line once a second
+      setInterval(() => {
+        rate = postCountWindow;
+        postCountWindow = 0;
+        if (dot.classList.contains("off")) return;
+        statusEl.textContent = paused ? "paused" : `${rate} posts/s pouring in`;
+      }, 1000);
+
+      // ---- candy drawing -----------------------------------------------------
+      function drawCandy(c, x, y, t) {
+        const s = c.size;
+        ctx.save();
+        ctx.translate(x, y - 4 - Math.sin(t * 2 + c.bob) * 4);
+        // shadow
+        ctx.beginPath();
+        ctx.ellipse(0, s * 0.9, s * 0.7, s * 0.28, 0, 0, 7);
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.fill();
+
+        const g = ctx.createLinearGradient(-s, -s, s, s);
+        g.addColorStop(0, lighten(c.color, 55));
+        g.addColorStop(1, c.color);
+
+        if (c.type === "gumdrop") {
+          ctx.beginPath();
+          ctx.moveTo(-s * 0.7, s * 0.6);
+          ctx.quadraticCurveTo(-s * 0.9, -s * 0.9, 0, -s);
+          ctx.quadraticCurveTo(s * 0.9, -s * 0.9, s * 0.7, s * 0.6);
+          ctx.closePath();
+          ctx.fillStyle = g; ctx.fill();
+          sugar(0, 0, s);
+        } else if (c.type === "pepp") {
+          ctx.rotate(t * c.spin);
+          ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+          for (let i = 0; i < 6; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, s, (i / 6) * 6.28, (i / 6) * 6.28 + 0.52);
+            ctx.closePath();
+            ctx.fillStyle = i % 2 ? c.color : lighten(c.color, 30);
+            ctx.fill();
+          }
+          ring(s);
+        } else if (c.type === "lolli") {
+          ctx.strokeStyle = "#fff"; ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(0, s); ctx.lineTo(0, s * 2.2); ctx.stroke();
+          ctx.rotate(t * c.spin);
+          ctx.beginPath(); ctx.arc(0, 0, s, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+          ctx.lineWidth = s * 0.42; ctx.strokeStyle = c.color;
+          ctx.beginPath();
+          for (let a = 0; a < 6.28 * 2.4; a += 0.12) {
+            const rr = (a / (6.28 * 2.4)) * s;
+            const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+            a === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+          }
+          ctx.stroke(); ring(s);
+        } else if (c.type === "bean") {
+          ctx.rotate(Math.sin(t + c.seed) * 0.3);
+          ctx.beginPath(); ctx.ellipse(0, 0, s, s * 0.66, 0, 0, 7);
+          ctx.fillStyle = g; ctx.fill(); sugar(-s * 0.25, -s * 0.2, s * 0.9);
+        } else if (c.type === "cane") {
+          roundRect(ctx, -s * 0.42, -s, s * 0.84, s * 2, s * 0.42);
+          ctx.fillStyle = "#fff"; ctx.fill();
+          ctx.save(); ctx.clip();
+          ctx.strokeStyle = c.color; ctx.lineWidth = s * 0.34;
+          for (let o = -s * 2; o < s * 2; o += s * 0.7) {
+            ctx.beginPath(); ctx.moveTo(o - s, s); ctx.lineTo(o + s, -s); ctx.stroke();
+          }
+          ctx.restore();
+          roundRect(ctx, -s * 0.42, -s, s * 0.84, s * 2, s * 0.42);
+          ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.8)"; ctx.stroke();
+        } else {
+          // gummybear
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(0, 0, s * 0.8, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(-s * 0.55, -s * 0.55, s * 0.28, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(s * 0.55, -s * 0.55, s * 0.28, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(-s * 0.4, s * 0.7, s * 0.26, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(s * 0.4, s * 0.7, s * 0.26, 0, 7); ctx.fill();
+          ctx.fillStyle = "rgba(0,0,0,0.55)";
+          ctx.beginPath(); ctx.arc(-s * 0.28, -s * 0.1, s * 0.1, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.arc(s * 0.28, -s * 0.1, s * 0.1, 0, 7); ctx.fill();
+        }
+        ctx.restore();
+
+        // label bubble
+        if (c.label) {
+          ctx.save();
+          ctx.font = `700 ${Math.max(10, s * 0.7)}px "Comic Sans MS", system-ui`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const ly = y - s - 12 - Math.sin(t * 2 + c.bob) * 4;
+          const w = ctx.measureText(c.label).width + 12;
+          roundRect(ctx, x - w / 2, ly - s * 0.5, w, s * 0.95 + 4, 8);
+          ctx.fillStyle = "rgba(43,15,58,0.78)";
+          ctx.fill();
+          ctx.strokeStyle = c.color; ctx.lineWidth = 2; ctx.stroke();
+          ctx.fillStyle = "#fff";
+          ctx.fillText(c.label, x, ly + 1);
+          ctx.restore();
+        }
+
+        function sugar(ox, oy, rr) {
+          ctx.fillStyle = "rgba(255,255,255,0.5)";
+          for (let i = 0; i < 7; i++) {
+            ctx.beginPath();
+            ctx.arc(ox + rnd(rr, -rr) * 0.5, oy + rnd(rr, -rr) * 0.5, 1.3, 0, 7);
+            ctx.fill();
+          }
+        }
+        function ring(rr) {
+          ctx.beginPath(); ctx.arc(0, 0, rr, 0, 7);
+          ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.stroke();
+        }
+      }
+
+      // ---- castle + queen ----------------------------------------------------
+      function drawCastle(t) {
+        if (!path.length) return;
+        const p = path[path.length - 1];
+        const s = Math.min(70, Math.max(46, W * 0.06));
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        // glow
+        const gl = ctx.createRadialGradient(0, 0, 4, 0, 0, s * 2.4);
+        gl.addColorStop(0, "rgba(255,210,63,0.35)");
+        gl.addColorStop(1, "rgba(255,210,63,0)");
+        ctx.fillStyle = gl;
+        ctx.beginPath(); ctx.arc(0, 0, s * 2.4, 0, 7); ctx.fill();
+
+        // castle body — candy towers
+        const towers = [-1, 0, 1];
+        for (const k of towers) {
+          const tx = k * s * 0.9;
+          const th = k === 0 ? s * 1.9 : s * 1.4;
+          roundRect(ctx, tx - s * 0.42, -th, s * 0.84, th + s * 0.5, 6);
+          const g = ctx.createLinearGradient(tx, -th, tx, s * 0.5);
+          g.addColorStop(0, "#ffd6f0"); g.addColorStop(1, "#ff5fa2");
+          ctx.fillStyle = g; ctx.fill();
+          ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+          // swirl cone roof
+          ctx.beginPath();
+          ctx.moveTo(tx - s * 0.5, -th);
+          ctx.lineTo(tx, -th - s * 0.7);
+          ctx.lineTo(tx + s * 0.5, -th);
+          ctx.closePath();
+          ctx.fillStyle = k === 0 ? "#7b2ff7" : "#6ce5ff"; ctx.fill();
+          ctx.beginPath(); ctx.arc(tx, -th - s * 0.7, 4, 0, 7);
+          ctx.fillStyle = "#ffd23f"; ctx.fill();
+        }
+
+        // Queen Frostine floating above, presiding
+        const qy = -s * 2.9 - Math.sin(t * 1.3) * 6;
+        ctx.font = `${s * 1.15}px system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.save();
+        ctx.rotate(Math.sin(t) * 0.05);
+        ctx.fillText("👸", 0, qy);
+        ctx.restore();
+        ctx.font = `${s * 0.62}px system-ui`;
+        ctx.fillText("👑", 0, qy - s * 0.7);
+        // sparkle crown ring
+        for (let i = 0; i < 8; i++) {
+          const a = t * 0.6 + (i / 8) * 6.28;
+          ctx.beginPath();
+          ctx.arc(Math.cos(a) * s * 1.1, qy + Math.sin(a) * s * 0.55, 2.4, 0, 7);
+          ctx.fillStyle = PALETTE[i % PALETTE.length];
+          ctx.fill();
+        }
+        // name banner
+        ctx.font = `700 ${Math.max(11, s * 0.26)}px "Comic Sans MS", system-ui`;
+        ctx.fillStyle = "#ffe98a";
+        ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 6;
+        ctx.fillText("QUEEN FROSTINE", 0, s * 0.9);
+        ctx.restore();
+      }
+
+      function burstAt(x, y, color) {
+        const parts = [];
+        for (let i = 0; i < 16; i++) {
+          const a = rnd(6.28);
+          const sp = rnd(120, 40);
+          parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, color: pick(PALETTE) });
+        }
+        bursts.push({ life: 0.9, max: 0.9, parts });
+      }
+
+      // ---- main loop ---------------------------------------------------------
+      let last = 0;
+      function frame(ts) {
+        const dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
+        last = ts;
+        hue = (hue + dt * (8 + chaos * 26)) % 360;
+
+        // ---- sky ----
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, `hsl(${(hue + 300) % 360} 80% 22%)`);
+        g.addColorStop(0.5, `hsl(${(hue + 260) % 360} 70% 16%)`);
+        g.addColorStop(1, `hsl(${(hue + 210) % 360} 75% 12%)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        // ---- background candy drops ----
+        for (const d of bgDrops) {
+          d.y += d.vy * dt;
+          d.sway += dt;
+          if (d.y - d.r > H) { d.y = -d.r; d.x = rnd(W); }
+          const dx = d.x + Math.sin(d.sway) * d.amp;
+          ctx.globalAlpha = 0.4;
+          ctx.beginPath(); ctx.arc(dx, d.y, d.r, 0, 7);
+          ctx.fillStyle = d.color; ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        // schizo shimmer — a faint rotating rainbow veil that thickens with chaos
+        if (!reduceMotion && chaos > 0.02) {
+          const rg = ctx.createRadialGradient(
+            W / 2 + Math.cos(hue / 40) * W * 0.3, H / 2 + Math.sin(hue / 33) * H * 0.3, 20,
+            W / 2, H / 2, Math.max(W, H) * 0.8);
+          rg.addColorStop(0, `hsla(${hue} 100% 60% / ${0.03 + chaos * 0.09})`);
+          rg.addColorStop(1, "hsla(0 0% 0% / 0)");
+          ctx.fillStyle = rg;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // ---- board ----
+        if (boardCanvas) ctx.drawImage(boardCanvas, 0, 0, W, H);
+
+        drawCastle(ts / 1000);
+
+        // ---- candies advance ----
+        for (let i = candies.length - 1; i >= 0; i--) {
+          const c = candies[i];
+          if (!paused) c.dist += c.speed * dt;
+          if (c.dist >= totalLen) {
+            const p = posAt(totalLen);
+            burstAt(p.x, p.y, c.color);
+            crossed++;
+            crossedEl.textContent = crossed.toLocaleString();
+            candies.splice(i, 1);
+            continue;
+          }
+          const p = posAt(c.dist);
+          drawCandy(c, p.x, p.y, ts / 1000 + c.seed);
+        }
+
+        // ---- arrival bursts ----
+        for (let i = bursts.length - 1; i >= 0; i--) {
+          const b = bursts[i];
+          b.life -= dt;
+          if (b.life <= 0) { bursts.splice(i, 1); continue; }
+          const a = b.life / b.max;
+          for (const pt of b.parts) {
+            pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.vy += 220 * dt;
+            ctx.globalAlpha = a;
+            ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.5 * a + 1, 0, 7);
+            ctx.fillStyle = pt.color; ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        // ---- whispers (the chorus) ----
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        for (let i = whispers.length - 1; i >= 0; i--) {
+          const w = whispers[i];
+          if (!paused) {
+            w.life -= dt;
+            w.x += w.vx * dt;
+            w.y += w.vy * dt;
+            w.vy *= 0.995;
+            w.angle += w.spin * dt;
+          }
+          if (w.life <= 0) { whispers.splice(i, 1); continue; }
+          const a = Math.min(1, w.life / w.max) * Math.min(1, (w.max - w.life) * 2.2);
+          ctx.save();
+          ctx.translate(w.x, w.y);
+          ctx.rotate(w.angle);
+          ctx.globalAlpha = a * (0.55 + chaos * 0.4);
+          ctx.font = `700 ${w.size}px "Comic Sans MS", "Chalkboard SE", system-ui`;
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(26,5,38,0.85)";
+          ctx.strokeText(w.text, 0, 0);
+          ctx.fillStyle = w.color;
+          ctx.fillText(w.text, 0, 0);
+          ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+
+        requestAnimationFrame(frame);
+      }
+
+      // ---- controls ----------------------------------------------------------
+      chaosInput.addEventListener("input", () => (chaos = parseFloat(chaosInput.value)));
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        if (!dot.classList.contains("off"))
+          statusEl.textContent = paused ? "paused" : `${rate} posts/s pouring in`;
+      });
+      aboutBtn.addEventListener("click", () => aboutEl.classList.add("show"));
+      closeAbout.addEventListener("click", () => aboutEl.classList.remove("show"));
+      aboutEl.addEventListener("click", (e) => {
+        if (e.target === aboutEl) aboutEl.classList.remove("show");
+      });
+
+      window.addEventListener("resize", resize);
+      resize();
+      requestAnimationFrame(frame);
+      connect();
+    </script>
+  </body>
+</html>
