@@ -95,6 +95,17 @@
       #langFilter { width: 8rem; }
       #surpMin { width: 3.6rem; }
       #excludeRe { width: 11rem; }
+      /* the "unique on bsky" toggle: a button in the filter row (like pause),
+         plus a muted live readout of how many phrases are queued for search. */
+      .filters button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.6rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .filters button:hover { border-color: var(--muted); }
+      .filters button.on { border-color: var(--accent); color: var(--accent); }
+      .verify-status { color: var(--muted); white-space: nowrap; }
 
       /* hairline-separated entries, no card chrome */
       .card {
@@ -172,7 +183,10 @@
         fingerprints of a specific thought, streaming by live, each with its
         poster. Pause it, slow it down, or filter by language, surprise, and an
         exclude-regex below; once the stream warms up, each phrase gets a live
-        <b>surprise</b> score. See also your <a href="/quiver/">quiver</a>
+        <b>surprise</b> score. By default a phrase shows the first time it passes
+        <em>here</em>; flip on <b>unique on bsky</b> to show only phrases a live
+        full-text search finds <em>nowhere else on the network</em>. See also
+        your <a href="/quiver/">quiver</a>
         (phrases only you have posted) and the <a href="/launcher/">launcher</a>
         (fire them as posts).
       </p>
@@ -197,6 +211,11 @@
       </div>
 
       <div class="filters">
+        <button
+          id="uniqBtn"
+          title="Verify each phrase against Bluesky full-text search and show only the ones that appear in NO other post on the whole network — true global uniqueness, not just unique-since-you-loaded. Search is rate-limited and the firehose is much faster, so we check at most one phrase per post, paced; expect the feed to slow to a trickle."
+        >unique on bsky</button>
+        <span class="verify-status" id="verifyStatus"></span>
         <label title="Only show posts in these languages (post lang tags). Comma or space separated, e.g. en ja. Blank = every language. Posts with no language tag always pass.">
           lang
           <input id="langFilter" type="text" placeholder="e.g. en — blank = all" autocomplete="off" spellcheck="false" />
@@ -238,6 +257,8 @@
       const langFilter = document.getElementById("langFilter");
       const surpMinInput = document.getElementById("surpMin");
       const excludeReInput = document.getElementById("excludeRe");
+      const uniqBtn = document.getElementById("uniqBtn");
+      const verifyStatus = document.getElementById("verifyStatus");
 
       // ---- text handling ---------------------------------------------------
       // A "run" is a stretch of words with no punctuation or line break between
@@ -398,6 +419,137 @@
         }
       });
 
+      // ---- global uniqueness (opt-in) --------------------------------------
+      // minormobius' ask: the session dedup above only guarantees a trigram is
+      // novel SINCE YOU LOADED THE PAGE — it says nothing about the rest of the
+      // network. This toggle goes all the way: before a card shows, it asks
+      // Bluesky full-text search whether that exact phrase already exists in ANY
+      // other post, and renders only the ones that don't.
+      //
+      // Search is authenticated (via our /api/search proxy) but still rate-
+      // limited, and the firehose fires phrases far faster than we can search
+      // them. So — exactly as minormobius warned — we do NOT search everything:
+      // at most ONE phrase per post, fed through a small, paced worker pool with
+      // a bounded backlog. Under load the freshest phrases win and stale ones are
+      // dropped (it's a firehose; dropping is fine). Net effect: with this on,
+      // the feed slows to a trickle of genuinely globally-unique phrases.
+      const SEARCH_PROXY = location.origin.includes("bisks.net")
+        ? "/api/search"
+        : "https://trigrams.bisks.net/api/search";
+      const VERIFY_CONC = 3; // parallel searches in flight
+      const VERIFY_PACE_MS = 300; // min gap after each search before its slot frees
+      const VERIFY_QUEUE_CAP = 40; // bounded backlog; drop the stalest under load
+      let verifyUnique = false; // toggle state
+      const verifyQueue = []; // candidates awaiting a search
+      let verifyActive = 0; // searches currently in flight
+
+      // Tokenize the way unique.js / Bluesky search does, so "phrase present in a
+      // returned post" is judged the same way the index matched it. Padded with
+      // spaces so a whole-phrase substring test can't span word boundaries.
+      function tokPad(text) {
+        return (
+          " " +
+          String(text || "")
+            .toLowerCase()
+            .replace(/https?:\/\/\S+/g, " ")
+            .replace(/@[\w.-]+/g, " ")
+            .replace(/[#]/g, " ")
+            .split(/[^\p{L}\p{N}]+/u)
+            .filter(Boolean)
+            .join(" ") +
+          " "
+        );
+      }
+
+      // searchPosts through the proxy, retrying soft throttles (429/403/5xx) with
+      // backoff — copied from unique.js, where 403 turned out to be a soft rate
+      // limit, not a denial. Returns parsed JSON, or null once tries run out.
+      async function searchGet(url, tries = 5) {
+        for (let i = 0; i < tries; i++) {
+          try {
+            const r = await fetch(url);
+            if (r.status === 200) return await r.json();
+            const soft = r.status === 429 || r.status === 403 || r.status >= 500;
+            if (!soft) return null;
+            const ra = parseInt(r.headers.get("retry-after") || "", 10);
+            await new Promise((res) =>
+              setTimeout(res, ra ? ra * 1000 : 600 * (i + 1) + 300 * i * i),
+            );
+          } catch {
+            await new Promise((res) => setTimeout(res, 600 * (i + 1)));
+          }
+        }
+        return null;
+      }
+
+      // true  = the phrase appears in no post other than this one (globally unique)
+      // false = a real prior use exists somewhere on the network
+      // null  = search failed; caller drops it rather than guess either way
+      async function isGloballyUnique(phrase, selfUri) {
+        const u = new URL(SEARCH_PROXY, location.href);
+        u.searchParams.set("q", `"${phrase}"`); // quoted => exact-phrase intent
+        u.searchParams.set("limit", "15");
+        const d = await searchGet(u.toString());
+        if (!d) return null;
+        const needle = " " + phrase + " ";
+        for (const p of d.posts || []) {
+          if (p.uri === selfUri) continue; // the post that just flew past — not "elsewhere"
+          const text = p.record && p.record.text;
+          if (text && tokPad(text).includes(needle)) return false; // search is fuzzy; confirm
+        }
+        return true;
+      }
+
+      function enqueueVerify(candidate) {
+        verifyQueue.push(candidate);
+        while (verifyQueue.length > VERIFY_QUEUE_CAP) verifyQueue.shift();
+        updateVerifyStatus();
+        pumpVerify();
+      }
+
+      function pumpVerify() {
+        while (verifyActive < VERIFY_CONC && verifyQueue.length) {
+          const c = verifyQueue.shift();
+          verifyActive++;
+          verifyWorker(c).finally(() => {
+            verifyActive--;
+            updateVerifyStatus();
+            pumpVerify();
+          });
+        }
+      }
+
+      async function verifyWorker(c) {
+        const selfUri = `at://${c.did}/app.bsky.feed.post/${c.rkey}`;
+        const uniq = await isGloballyUnique(c.phrase.join(" "), selfUri);
+        await new Promise((res) => setTimeout(res, VERIFY_PACE_MS)); // gentle pacing
+        if (uniq !== true) return; // non-unique, or couldn't tell → drop
+        if (paused || !verifyUnique) return; // stale by the time it resolved
+        // Stamp the author cooldown only now, on a real render — a phrase that
+        // turned out non-unique shouldn't have burned its author's slot.
+        lastShownByAuthor.set(c.did, Date.now());
+        c.verified = true;
+        queueRender(c);
+      }
+
+      function updateVerifyStatus() {
+        if (!verifyUnique) {
+          verifyStatus.textContent = "";
+          return;
+        }
+        const q = verifyQueue.length + verifyActive;
+        verifyStatus.textContent = q
+          ? `searching ${q} on bsky…`
+          : "searching bsky · idle";
+      }
+
+      uniqBtn.addEventListener("click", () => {
+        verifyUnique = !verifyUnique;
+        uniqBtn.classList.toggle("on", verifyUnique);
+        if (!verifyUnique) verifyQueue.length = 0; // stop; in-flight searches self-cancel
+        updateVerifyStatus();
+      });
+
       // ---- live surprise ---------------------------------------------------
       // Rob's surprise idea (see lib/unique.js): a globally-UNIQUE trigram is
       // surprising exactly when its component word-pairs are COMMON — "training
@@ -455,11 +607,14 @@
       }
 
       // ---- rendering -------------------------------------------------------
-      function renderCard({ phrase, text, did, rkey }) {
+      function renderCard({ phrase, text, did, rkey, verified }) {
         const card = document.createElement("article");
         card.className = "card";
         const title = escapeHtml(phrase.join(" "));
         const perma = `<a class="perma" href="${postUrl(did, rkey)}" target="_blank" rel="noopener">see the one post →</a>`;
+        const verTag = verified
+          ? ` <span class="tag" title="checked against Bluesky full-text search — this exact phrase appears in no other post on the network">✓ unique on bsky</span>`
+          : "";
 
         let surpriseHtml = "";
         if (warmed()) {
@@ -473,7 +628,7 @@
         card.innerHTML =
           `<div class="who"><span class="avatar"></span>` +
           `<a class="handle" href="${postUrl(did, rkey).replace(/\/post\/.*$/, "")}" target="_blank" rel="noopener">resolving…</a></div>` +
-          `<h2>${title} <span class="tag">3-gram</span></h2>` +
+          `<h2>${title} <span class="tag">3-gram</span>${verTag}</h2>` +
           `<p class="body">${highlight(text, phrase)}</p>` +
           `<div class="cardfoot">${perma}${surpriseHtml}</div>`;
         feed.prepend(card);
@@ -598,11 +753,21 @@
           // applies once warmed — before that we have no meaningful score.
           if (surpMin > 0 && warmed() && surpriseOf(tri) < surpMin) continue;
           seen.add(key);
-          // Show the first novel trigram from this post, then move on — one
-          // card per post keeps the feed readable. Stamp the author only now, on
-          // an actual render, so posts that surface nothing don't burn a slot.
-          lastShownByAuthor.set(evt.did, Date.now());
-          queueRender({ phrase: tri, text, did: evt.did, rkey: commit.rkey });
+          // One card per post keeps the feed readable, so we take only the first
+          // novel trigram — and, crucially, verify at most this one phrase per
+          // post, which is what keeps the search rate sane. Marking it `seen`
+          // above means a phrase that comes back non-unique is never re-searched.
+          const candidate = { phrase: tri, text, did: evt.did, rkey: commit.rkey };
+          if (verifyUnique) {
+            // Render later, and only if search says it's unique network-wide.
+            // Author cooldown is stamped in the worker on an actual render.
+            enqueueVerify(candidate);
+          } else {
+            // Stamp the author now, on the render, so posts that surface nothing
+            // don't burn a slot.
+            lastShownByAuthor.set(evt.did, Date.now());
+            queueRender(candidate);
+          }
           return;
         }
       }
