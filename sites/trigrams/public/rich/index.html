@@ -208,11 +208,15 @@
           return;
         }
 
-        // Only bother verifying candidates that pass the taste filter — this both
-        // shrinks the search budget and means every verified hit is show-worthy.
-        const cands = scanRes.candidates.filter((c) => richness(c.g) >= 0);
+        // Filter to well-formed candidates, then verify the top batch by score.
+        // The authed search proxy has a ~86% unique hit-rate, so a few hundred
+        // candidates yields plenty; verifying all thousands would be slow and
+        // produce more cards than anyone reads.
+        const VERIFY_BATCH = 300;
+        const allCands = scanRes.candidates.filter((c) => richness(c.g) >= 0);
+        const cands = allCands.slice(0, VERIFY_BATCH);
         status.textContent =
-          `${scanRes.posts} posts · ${cands.length} candidate trigrams (used once, passed filter) · verifying against the network…`;
+          `${scanRes.posts} posts · ${allCands.length} filtered candidates · verifying top ${cands.length}…`;
 
         // Collect verified uniques (dedup near-dup slices of one post).
         const byPost = new Map();
@@ -237,17 +241,22 @@
           return;
         }
 
-        // Rank by SURPRISE: a unique trigram made of COMMON parts is the good kind.
-        // 2 more searches per survivor (its component bigrams) — cheap, few of them.
+        // Rank by SURPRISE: a unique trigram made of COMMON parts is the good
+        // kind. Each needs 2 more searches (its component bigrams), so cap how many
+        // we score; the rest still show, just after the scored ones.
+        const SURPRISE_CAP = 120;
+        const toScore = uniques.slice(0, SURPRISE_CAP);
+        const rest = uniques.slice(SURPRISE_CAP);
         let scored = 0;
         const ranked = [];
-        for (const v of uniques) {
+        for (const v of toScore) {
           const s = await surprise(v.g);
           ranked.push({ v, s: s.score });
           scored++;
-          status.textContent = `scoring surprise… ${scored}/${uniques.length}`;
+          status.textContent = `scoring surprise… ${scored}/${toScore.length}`;
         }
         ranked.sort((a, b) => b.s - a.s);
+        for (const v of rest) ranked.push({ v, s: null }); // unscored, appended
 
         results.innerHTML = "";
         for (const { v, s } of ranked) renderCard(results, v, s);
