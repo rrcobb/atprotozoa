@@ -55,8 +55,7 @@
       /* controls: pause + speed + live surprise readout. plain, mono, hairline. */
       .controls {
         display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;
-        margin: 0 0 1.5rem; padding-bottom: 1.15rem;
-        border-bottom: 1px solid var(--faint);
+        margin: 0 0 0.85rem;
         font-size: 0.78rem;
       }
       .controls button {
@@ -74,6 +73,29 @@
       .spacer { flex: 1 1 auto; }
       .surprise-status { color: var(--muted); white-space: nowrap; }
 
+      /* filters: language / surprise floor / exclude-regex. same plain row,
+         carries the hairline that closes off the whole control block. */
+      .filters {
+        display: flex; align-items: center; gap: 0.85rem 1rem; flex-wrap: wrap;
+        margin: 0 0 1.5rem; padding-bottom: 1.15rem;
+        border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem;
+      }
+      .filters label {
+        display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted);
+      }
+      .filters input {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.45rem; line-height: 1.3;
+      }
+      .filters input::placeholder { color: #b3b3b3; }
+      .filters input:focus { outline: none; border-color: var(--accent); }
+      .filters input.bad { border-color: #c0392b; color: #c0392b; }
+      #langFilter { width: 8rem; }
+      #surpMin { width: 3.6rem; }
+      #excludeRe { width: 11rem; }
+
       /* hairline-separated entries, no card chrome */
       .card {
         padding: 1.1rem 0;
@@ -82,6 +104,18 @@
       }
       .card:first-child { border-top: none; }
       @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      /* author line: small round pfp + handle, above the phrase */
+      .who {
+        display: flex; align-items: center; gap: 0.5rem;
+        margin: 0 0 0.55rem; font-size: 0.8rem;
+      }
+      .who .avatar {
+        width: 20px; height: 20px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat;
+        border: 1px solid var(--faint);
+      }
+      .who .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .who .handle:hover { color: var(--accent); text-decoration: underline; }
       .card h2 {
         font-size: 1.15rem; font-weight: 600; line-height: 1.35;
         margin: 0 0 0.5rem; word-break: break-word;
@@ -135,8 +169,9 @@
       <p class="intro">
         A 3-gram is three words in a row. This watches the Bluesky firehose and
         shows each three-word phrase the first time it scrolls past here — little
-        fingerprints of a specific thought, streaming by live. Pause it or slow
-        it down below; once the stream warms up, each phrase gets a live
+        fingerprints of a specific thought, streaming by live, each with its
+        poster. Pause it, slow it down, or filter by language, surprise, and an
+        exclude-regex below; once the stream warms up, each phrase gets a live
         <b>surprise</b> score. See also your <a href="/quiver/">quiver</a>
         (phrases only you have posted) and the <a href="/launcher/">launcher</a>
         (fire them as posts).
@@ -159,6 +194,21 @@
           id="surpriseStatus"
           title="Surprise = a globally-unique trigram whose word-pairs are common. We score it live from the frequencies of its two word-pairs in THIS stream so far — no network calls, so it keeps up with the firehose. Warms up as data accumulates."
         >surprise · warming up</span>
+      </div>
+
+      <div class="filters">
+        <label title="Only show posts in these languages (post lang tags). Comma or space separated, e.g. en ja. Blank = every language. Posts with no language tag always pass.">
+          lang
+          <input id="langFilter" type="text" placeholder="e.g. en — blank = all" autocomplete="off" spellcheck="false" />
+        </label>
+        <label title="Only show phrases whose live surprise score is at least this. Needs the stream to be warmed up; while warming, nothing is filtered. Good phrases run ~3.3–5.3.">
+          surprise ≥
+          <input id="surpMin" type="number" min="0" step="0.5" placeholder="0" />
+        </label>
+        <label title="Hide any post whose text matches this regular expression — words or characters you don't want to see. Case-insensitive. Invalid patterns turn the box red and are ignored.">
+          exclude
+          <input id="excludeRe" type="text" placeholder="regex: words|chars" autocomplete="off" spellcheck="false" />
+        </label>
       </div>
 
       <main id="feed"></main>
@@ -185,6 +235,9 @@
       const pauseBtn = document.getElementById("pauseBtn");
       const speedGrp = document.getElementById("speedGrp");
       const surpriseStatus = document.getElementById("surpriseStatus");
+      const langFilter = document.getElementById("langFilter");
+      const surpMinInput = document.getElementById("surpMin");
+      const excludeReInput = document.getElementById("excludeRe");
 
       // ---- text handling ---------------------------------------------------
       // A "run" is a stretch of words with no punctuation or line break between
@@ -277,6 +330,74 @@
         return `https://bsky.app/profile/${did}/post/${rkey}`;
       }
 
+      // ---- author profiles -------------------------------------------------
+      // Jetstream only hands us the author DID, so we resolve handle + pfp from
+      // the public (unauthenticated) AppView. We only fetch on an actual render
+      // — one card per post, deduped per author by this cache — so the call rate
+      // tracks the *display* rate, not the firehose rate. Promise-in-cache keeps
+      // in-flight requests from doubling up.
+      const PROFILE_API =
+        "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map(); // did -> Promise<{handle, avatar} | null>
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+
+      // ---- filters ---------------------------------------------------------
+      // All three are DISPLAY filters — they never touch the surprise corpus, so
+      // scoring stays accurate across the whole stream regardless of what's shown.
+      let allowLangs = new Set(); // empty = every language
+      let surpMin = 0; // minimum live surprise score; 0 = off
+      let excludeRe = null; // compiled regex; posts whose text matches are hidden
+
+      // A post's lang tags look like ["en"] or ["pt-BR"]; match on the base
+      // subtag. Posts with no tag always pass (we don't know, so we don't hide).
+      function langPasses(rec) {
+        if (allowLangs.size === 0) return true;
+        const langs = Array.isArray(rec.langs) ? rec.langs : [];
+        if (langs.length === 0) return true;
+        return langs.some((l) =>
+          allowLangs.has(String(l).toLowerCase().split("-")[0]),
+        );
+      }
+
+      langFilter.addEventListener("input", () => {
+        allowLangs = new Set(
+          langFilter.value
+            .toLowerCase()
+            .split(/[^a-z]+/)
+            .filter(Boolean),
+        );
+      });
+
+      surpMinInput.addEventListener("input", () => {
+        const v = parseFloat(surpMinInput.value);
+        surpMin = isFinite(v) && v > 0 ? v : 0;
+      });
+
+      excludeReInput.addEventListener("input", () => {
+        const raw = excludeReInput.value.trim();
+        if (!raw) {
+          excludeRe = null;
+          excludeReInput.classList.remove("bad");
+          return;
+        }
+        try {
+          excludeRe = new RegExp(raw, "iu"); // non-global: .test() stays stateless
+          excludeReInput.classList.remove("bad");
+        } catch {
+          excludeRe = null; // invalid pattern: flag it, filter nothing
+          excludeReInput.classList.add("bad");
+        }
+      });
+
       // ---- live surprise ---------------------------------------------------
       // Rob's surprise idea (see lib/unique.js): a globally-UNIQUE trigram is
       // surprising exactly when its component word-pairs are COMMON — "training
@@ -350,12 +471,31 @@
         }
 
         card.innerHTML =
+          `<div class="who"><span class="avatar"></span>` +
+          `<a class="handle" href="${postUrl(did, rkey).replace(/\/post\/.*$/, "")}" target="_blank" rel="noopener">resolving…</a></div>` +
           `<h2>${title} <span class="tag">3-gram</span></h2>` +
           `<p class="body">${highlight(text, phrase)}</p>` +
           `<div class="cardfoot">${perma}${surpriseHtml}</div>`;
         feed.prepend(card);
+        fillAuthor(card, did);
         while (feed.childElementCount > MAX_CARDS) {
           feed.removeChild(feed.lastElementChild);
+        }
+      }
+
+      // Resolve the author's handle + pfp after the card is on screen, so a
+      // slow profile fetch never holds up the feed.
+      async function fillAuthor(card, did) {
+        const prof = await fetchProfile(did);
+        const handleEl = card.querySelector(".handle");
+        const avatarEl = card.querySelector(".avatar");
+        if (!handleEl) return;
+        if (prof && prof.handle) {
+          handleEl.textContent = "@" + prof.handle;
+          handleEl.href = "https://bsky.app/profile/" + prof.handle;
+          if (prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
+        } else {
+          handleEl.textContent = did.slice(0, 20) + "…";
         }
       }
 
@@ -440,6 +580,11 @@
         if (rec.reply) return; // top-level posts read cleaner; skip replies
         if (paused) return; // display frozen
 
+        // Display filters (don't affect the corpus above): language allowlist
+        // and the exclude-regex both gate the whole post.
+        if (!langPasses(rec)) return;
+        if (excludeRe && excludeRe.test(text)) return;
+
         // Author cooldown is checked before we touch `seen`, so a rate-limited
         // post doesn't silently consume ("burn") its phrases — another account
         // can still surface the same trigram later.
@@ -448,6 +593,10 @@
         for (const tri of trigramsOf(text)) {
           const key = tri.join(" ");
           if (seen.has(key)) continue;
+          // Surprise floor: skip low-scoring phrases WITHOUT marking them seen,
+          // so they can still surface later if the threshold is relaxed. Only
+          // applies once warmed — before that we have no meaningful score.
+          if (surpMin > 0 && warmed() && surpriseOf(tri) < surpMin) continue;
           seen.add(key);
           // Show the first novel trigram from this post, then move on — one
           // card per post keeps the feed readable. Stamp the author only now, on
