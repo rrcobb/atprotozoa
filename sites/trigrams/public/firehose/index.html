@@ -9,7 +9,7 @@
       content="Unique three-word phrases streaming through Bluesky, one card at a time."
     />
     <!-- bisks.net house style: plain, black on white, one readable mono,
-         hairline-separated entries, blue accent for links only. -->
+         hairline-separated entries, blue accent for links + score only. -->
     <style>
       :root {
         --bg: #ffffff;
@@ -49,8 +49,31 @@
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
       .intro {
         color: var(--muted); font-size: 0.9rem; line-height: 1.7;
-        margin: 0 0 1.75rem; max-width: 58ch;
+        margin: 0 0 1.5rem; max-width: 58ch;
       }
+
+      /* controls: pause + speed + live surprise readout. plain, mono, hairline. */
+      .controls {
+        display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;
+        margin: 0 0 1.5rem; padding-bottom: 1.15rem;
+        border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem;
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.6rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .controls button:hover { border-color: var(--muted); }
+      .controls button.on { border-color: var(--accent); color: var(--accent); }
+      #pauseBtn { min-width: 4.4rem; }
+      .speed { display: flex; align-items: center; gap: 0.35rem; }
+      .speed .lbl { color: var(--muted); }
+      .speed .grp { display: inline-flex; gap: 0.3rem; }
+      .spacer { flex: 1 1 auto; }
+      .surprise-status { color: var(--muted); white-space: nowrap; }
+
       /* hairline-separated entries, no card chrome */
       .card {
         padding: 1.1rem 0;
@@ -73,10 +96,25 @@
         word-break: break-word; font-size: 0.92rem;
       }
       .card .body b { color: var(--ink); font-weight: 600; }
+      .cardfoot {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem;
+      }
       .card a.perma {
         font-size: 0.8rem; color: var(--accent); text-decoration: none;
       }
       .card a.perma:hover { text-decoration: underline; }
+      /* surprise meter: muted track, accent fill, number to the right */
+      .surprise {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        font-size: 0.72rem; color: var(--muted); white-space: nowrap;
+        cursor: help;
+      }
+      .sbar {
+        width: 46px; height: 5px; border-radius: 3px;
+        background: var(--faint); overflow: hidden;
+      }
+      .sbar > i { display: block; height: 100%; background: var(--accent); }
       footer {
         margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
       }
@@ -97,10 +135,31 @@
       <p class="intro">
         A 3-gram is three words in a row. This watches the Bluesky firehose and
         shows each three-word phrase the first time it scrolls past here — little
-        fingerprints of a specific thought, streaming by live. See also your
-        <a href="/quiver/">quiver</a> (phrases only you have posted) and the
-        <a href="/launcher/">launcher</a> (fire them as posts).
+        fingerprints of a specific thought, streaming by live. Pause it or slow
+        it down below; once the stream warms up, each phrase gets a live
+        <b>surprise</b> score. See also your <a href="/quiver/">quiver</a>
+        (phrases only you have posted) and the <a href="/launcher/">launcher</a>
+        (fire them as posts).
       </p>
+
+      <div class="controls">
+        <button id="pauseBtn" title="freeze the feed (the stream keeps flowing underneath)">pause</button>
+        <div class="speed">
+          <span class="lbl">speed</span>
+          <span class="grp" id="speedGrp">
+            <button data-speed="full" class="spd on">full</button>
+            <button data-speed="fast" class="spd">fast</button>
+            <button data-speed="medium" class="spd">medium</button>
+            <button data-speed="slow" class="spd">slow</button>
+          </span>
+        </div>
+        <span class="spacer"></span>
+        <span
+          class="surprise-status"
+          id="surpriseStatus"
+          title="Surprise = a globally-unique trigram whose word-pairs are common. We score it live from the frequencies of its two word-pairs in THIS stream so far — no network calls, so it keeps up with the firehose. Warms up as data accumulates."
+        >surprise · warming up</span>
+      </div>
 
       <main id="feed"></main>
 
@@ -123,6 +182,9 @@
       const feed = document.getElementById("feed");
       const dot = document.getElementById("dot");
       const statusText = document.getElementById("statusText");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const speedGrp = document.getElementById("speedGrp");
+      const surpriseStatus = document.getElementById("surpriseStatus");
 
       // ---- text handling ---------------------------------------------------
       // A "run" is a stretch of words with no punctuation or line break between
@@ -215,19 +277,148 @@
         return `https://bsky.app/profile/${did}/post/${rkey}`;
       }
 
+      // ---- live surprise ---------------------------------------------------
+      // Rob's surprise idea (see lib/unique.js): a globally-UNIQUE trigram is
+      // surprising exactly when its component word-pairs are COMMON — "training
+      // data development" shocks because "training data" is everywhere, while
+      // "hockeypsychology suckerpinch sheaffification" being unique is no shock.
+      //
+      // The real surprise() measures part-commonness with searchPosts hitsTotal:
+      // two authenticated, rate-limited, ~120ms-paced searches PER phrase. That
+      // can't keep up with a firehose where phrases fly by several a second — so
+      // network scoring fails the "fast enough" bar and we DON'T do it here.
+      //
+      // Instead we measure the same quantity — how common are the parts — from
+      // the frequencies of each word-pair in THIS stream so far. Zero network
+      // calls, so it keeps pace with the firehose. It's an approximation (the
+      // live stream is a rolling sample, not all of atproto), but it's the same
+      // signal and the same log-scaled formula, and it warms up in seconds.
+      const bigramCounts = new Map(); // "word word" -> times seen in the stream
+      const BIGRAM_CAP = 200000; // prune singletons past here to bound memory
+      const SURPRISE_SAT = 5000; // saturate a pair's count (matches unique.js cap idea)
+      const SURPRISE_MAX = 5.5; // score ceiling for the meter (good ones ~3.3–5.3)
+      const SURPRISE_WARMUP = 400; // posts of corpus before scores mean anything
+      let postsSeen = 0; // non-spam posts fed into the frequency corpus
+      const warmed = () => postsSeen >= SURPRISE_WARMUP;
+
+      function countBigrams(text) {
+        for (const words of runsOf(text)) {
+          for (let i = 0; i + 1 < words.length; i++) {
+            const b = words[i] + " " + words[i + 1];
+            bigramCounts.set(b, (bigramCounts.get(b) || 0) + 1);
+          }
+        }
+        if (bigramCounts.size > BIGRAM_CAP) {
+          for (const [k, v] of bigramCounts) if (v <= 1) bigramCounts.delete(k);
+        }
+      }
+
+      // surprise([a,b,c]): log-scaled from the two word-pair frequencies. A high
+      // MAX is enough (one very common part makes uniqueness surprising); the MIN
+      // adds a nudge (both parts real, not two coinages). Mirrors unique.js.
+      function surpriseOf(phrase) {
+        const f1 = Math.min(bigramCounts.get(phrase[0] + " " + phrase[1]) || 0, SURPRISE_SAT);
+        const f2 = Math.min(bigramCounts.get(phrase[1] + " " + phrase[2]) || 0, SURPRISE_SAT);
+        const maxF = Math.max(f1, f2);
+        const minF = Math.min(f1, f2);
+        return Math.log10(maxF + 1) + 0.5 * Math.log10(minF + 1);
+      }
+
+      function updateSurpriseStatus() {
+        if (warmed()) {
+          surpriseStatus.textContent = "surprise · live";
+        } else {
+          const pct = Math.min(99, Math.round((postsSeen / SURPRISE_WARMUP) * 100));
+          surpriseStatus.textContent = `surprise · warming up ${pct}%`;
+        }
+      }
+
+      // ---- rendering -------------------------------------------------------
       function renderCard({ phrase, text, did, rkey }) {
         const card = document.createElement("article");
         card.className = "card";
         const title = escapeHtml(phrase.join(" "));
+        const perma = `<a class="perma" href="${postUrl(did, rkey)}" target="_blank" rel="noopener">see the one post →</a>`;
+
+        let surpriseHtml = "";
+        if (warmed()) {
+          const sc = surpriseOf(phrase);
+          const pct = Math.max(3, Math.min(100, Math.round((sc / SURPRISE_MAX) * 100)));
+          surpriseHtml =
+            `<span class="surprise" title="surprise ${sc.toFixed(2)} — how common this phrase's two word-pairs are in the live stream (common parts + a globally-rare whole = surprising)">` +
+            `<span class="sbar"><i style="width:${pct}%"></i></span>${sc.toFixed(1)}</span>`;
+        }
+
         card.innerHTML =
           `<h2>${title} <span class="tag">3-gram</span></h2>` +
           `<p class="body">${highlight(text, phrase)}</p>` +
-          `<a class="perma" href="${postUrl(did, rkey)}" target="_blank" rel="noopener">see the one post →</a>`;
+          `<div class="cardfoot">${perma}${surpriseHtml}</div>`;
         feed.prepend(card);
         while (feed.childElementCount > MAX_CARDS) {
           feed.removeChild(feed.lastElementChild);
         }
       }
+
+      // ---- pause + speed ---------------------------------------------------
+      // Pause freezes the display; the socket stays open and the surprise corpus
+      // keeps warming underneath. Speed throttles how often a new card appears:
+      // when a gap is set, the newest pending phrase is flushed on each tick and
+      // any faster arrivals are dropped (this is a firehose — dropping is fine).
+      const SPEEDS = { full: 0, fast: 450, medium: 1200, slow: 3000 };
+      let minGap = 0; // ms between cards; 0 = unthrottled
+      let paused = false;
+      let wsLive = false;
+      let pending = null; // newest phrase awaiting a throttled slot
+      let tickTimer = null;
+
+      function restartTicker() {
+        if (tickTimer) {
+          clearInterval(tickTimer);
+          tickTimer = null;
+        }
+        if (minGap > 0) {
+          tickTimer = setInterval(() => {
+            if (paused || !pending) return;
+            const c = pending;
+            pending = null;
+            renderCard(c);
+          }, minGap);
+        }
+      }
+
+      function queueRender(candidate) {
+        if (minGap === 0) {
+          renderCard(candidate);
+        } else {
+          pending = candidate; // keep only the newest while throttled
+        }
+      }
+
+      function setSpeed(name) {
+        minGap = SPEEDS[name] ?? 0;
+        for (const b of speedGrp.querySelectorAll(".spd")) {
+          b.classList.toggle("on", b.dataset.speed === name);
+        }
+        restartTicker();
+        if (minGap === 0 && pending) {
+          const c = pending;
+          pending = null;
+          renderCard(c);
+        }
+      }
+
+      speedGrp.addEventListener("click", (e) => {
+        const b = e.target.closest(".spd");
+        if (b) setSpeed(b.dataset.speed);
+      });
+
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        pauseBtn.classList.toggle("on", paused);
+        statusText.textContent = paused ? "paused" : wsLive ? "live" : "reconnecting…";
+        if (paused) pending = null; // don't render a stale card on resume
+      });
 
       // ---- firehose --------------------------------------------------------
       function handlePost(evt) {
@@ -236,10 +427,18 @@
         if (!commit || commit.operation !== "create") return;
         const rec = commit.record;
         if (!rec || typeof rec.text !== "string") return;
-        if (rec.reply) return; // top-level posts read cleaner; skip replies
         const text = rec.text.trim();
         if (!text) return;
         if (looksLikeSpam(text)) return;
+
+        // Feed the surprise corpus first — this runs even while paused/throttled,
+        // so the frequency table (and scores) keep warming regardless of display.
+        countBigrams(text);
+        postsSeen++;
+        if (postsSeen % 20 === 0 || postsSeen === SURPRISE_WARMUP) updateSurpriseStatus();
+
+        if (rec.reply) return; // top-level posts read cleaner; skip replies
+        if (paused) return; // display frozen
 
         // Author cooldown is checked before we touch `seen`, so a rate-limited
         // post doesn't silently consume ("burn") its phrases — another account
@@ -254,14 +453,15 @@
           // card per post keeps the feed readable. Stamp the author only now, on
           // an actual render, so posts that surface nothing don't burn a slot.
           lastShownByAuthor.set(evt.did, Date.now());
-          renderCard({ phrase: tri, text, did: evt.did, rkey: commit.rkey });
+          queueRender({ phrase: tri, text, did: evt.did, rkey: commit.rkey });
           return;
         }
       }
 
       function setStatus(live, msg) {
+        wsLive = live;
         dot.classList.toggle("live", live);
-        statusText.textContent = msg;
+        if (!paused) statusText.textContent = msg;
       }
 
       let ws;
@@ -299,6 +499,7 @@
         };
       }
 
+      updateSurpriseStatus();
       connect();
 
       // Pause the socket when the tab is hidden; resume on return.
