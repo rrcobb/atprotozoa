@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trigramonopoly — monopoly on the bluesky firehose — bisks.net</title>
+    <meta
+      name="description"
+      content="A Monopoly-shaped board of three-word phrases harvested live from Bluesky. Post to move, buy the trigrams you land on, and collect rent whenever a real stranger posts one you own."
+    />
+    <!-- Same plain look as trigrams/rich + trigruessr: black on white, one
+         readable mono, lots of space, calm accents. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .status {
+        font-size: 0.72rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%; background: #bbb;
+        transition: background 0.3s;
+      }
+      .dot.live { background: var(--good); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      .intro {
+        color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 62ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      /* scoreboard */
+      .board-stats {
+        display: flex; gap: 1.4rem; flex-wrap: wrap;
+        border-top: 1px solid var(--faint); border-bottom: 1px solid var(--faint);
+        padding: 0.7rem 0; margin-bottom: 1.5rem; font-size: 0.8rem;
+      }
+      .board-stats .stat { color: var(--muted); }
+      .board-stats .stat b { color: var(--ink); font-weight: 600; font-size: 0.95rem; }
+      .board-stats .stat.cash b { color: var(--good); }
+      .board-stats .goal { margin-left: auto; }
+
+      /* the board — a 7x7 CSS grid, only the perimeter holds tiles */
+      .board {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        grid-template-rows: repeat(7, 1fr);
+        gap: 3px;
+        aspect-ratio: 1 / 1;
+        margin-bottom: 1.6rem;
+      }
+      .tile {
+        border: 1px solid var(--faint);
+        border-radius: 4px;
+        padding: 3px 4px 4px;
+        overflow: hidden;
+        display: flex; flex-direction: column;
+        font-size: 0.62rem; line-height: 1.25;
+        background: var(--bg);
+        position: relative;
+        min-width: 0;
+      }
+      .tile .strip { height: 5px; border-radius: 2px; margin: -1px -1px 3px; background: var(--faint); }
+      .tile .gram {
+        font-weight: 600; word-break: break-word; flex: 1;
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .tile .foot {
+        margin-top: 2px; color: var(--muted); font-size: 0.56rem;
+        display: flex; justify-content: space-between; gap: 2px;
+      }
+      .tile.own-you { border-color: var(--accent); background: #f2f6fe; }
+      .tile.own-net { border-color: var(--bad); background: #fdf1f0; }
+      .tile.own-you .price, .tile.own-net .price { font-weight: 600; }
+      .tile.own-you .price { color: var(--accent); }
+      .tile.own-net .price { color: var(--bad); }
+      .tile.corner {
+        align-items: center; justify-content: center; text-align: center;
+        background: var(--faintbg); font-weight: 600;
+      }
+      .tile.corner .emoji { font-size: 1.1rem; line-height: 1; margin-bottom: 2px; }
+      .tile.corner .clabel { font-size: 0.55rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .tile.here { outline: 2px solid var(--ink); outline-offset: 1px; }
+      .tile .you {
+        position: absolute; top: 2px; right: 3px; font-size: 0.7rem;
+      }
+
+      /* center panel inside the board */
+      .center {
+        grid-column: 2 / 7; grid-row: 2 / 7;
+        border: 1px dashed var(--faint); border-radius: 6px;
+        display: flex; flex-direction: column; align-items: center;
+        justify-content: center; text-align: center; padding: 0.6rem; gap: 0.35rem;
+      }
+      .center .big { font-size: 1.6rem; font-weight: 700; color: var(--good); }
+      .center .big.broke { color: var(--bad); }
+      .center .label { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+      .center .dice { font-size: 1.4rem; letter-spacing: 0.15em; }
+      .center .diceline { font-size: 0.66rem; color: var(--muted); }
+      .center .brand { font-size: 0.62rem; color: var(--muted); margin-top: 0.2rem; }
+
+      /* compose / turn panel */
+      .turn { margin-bottom: 1.4rem; }
+      textarea {
+        width: 100%; font-family: inherit; font-size: 0.9rem; line-height: 1.5;
+        border: 1px solid var(--ink); border-radius: 4px; padding: 0.6rem 0.7rem;
+        resize: vertical; min-height: 3.2rem; background: var(--bg); color: var(--ink);
+      }
+      textarea:disabled { opacity: 0.5; }
+      .composebar {
+        display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+        margin-top: 0.5rem; font-size: 0.76rem; color: var(--muted);
+      }
+      button {
+        font-family: inherit; font-size: 0.85rem;
+        padding: 0.55rem 0.9rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+        cursor: pointer; line-height: 1.3;
+      }
+      button:hover:not(:disabled) { background: #f2f2f2; }
+      button.solid { background: var(--ink); color: var(--bg); text-align: center; }
+      button.solid:hover:not(:disabled) { background: #000; }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.buy { border-color: var(--good); }
+      button.buy:hover:not(:disabled) { background: #eafaf0; }
+
+      .grams { font-size: 0.72rem; color: var(--muted); }
+      .grams b { color: var(--ink); font-weight: 600; }
+
+      /* the landing / buy prompt */
+      .prompt-box {
+        border: 1px solid var(--ink); border-radius: 5px; padding: 0.8rem 0.9rem;
+        margin: 0.9rem 0 0; animation: fade 0.2s ease both; font-size: 0.85rem;
+      }
+      .prompt-box .pgram { font-weight: 700; }
+      .prompt-box .pactions { margin-top: 0.7rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+
+      /* rent feed */
+      h2.feedh { font-size: 0.78rem; font-weight: 600; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.06em; margin: 2rem 0 0.6rem; }
+      .feed { list-style: none; margin: 0; padding: 0; }
+      .ev {
+        border-top: 1px solid var(--faint); padding: 0.55rem 0; font-size: 0.82rem;
+        animation: fade 0.25s ease both;
+      }
+      .ev:first-child { border-top: none; }
+      .ev .amt { font-weight: 700; }
+      .ev .amt.up { color: var(--good); }
+      .ev .amt.down { color: var(--bad); }
+      .ev .g { font-weight: 600; }
+      .ev a { color: var(--accent); text-decoration: none; }
+      .ev a:hover { text-decoration: underline; }
+      .ev.note { color: var(--muted); }
+
+      .banner {
+        border: 1px solid var(--good); background: #eafaf0; color: var(--good);
+        border-radius: 5px; padding: 0.7rem 0.9rem; margin-bottom: 1.2rem;
+        font-size: 0.85rem; font-weight: 600;
+      }
+      .banner.lose { border-color: var(--bad); background: #fbeceb; color: var(--bad); }
+
+      .building { color: var(--muted); font-size: 0.9rem; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>trigramonopoly <span class="slash">· monopoly on the firehose</span></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        A Monopoly board where every property is a <b>three-word phrase</b> pulled
+        live off Bluesky. <b>Post</b> to move your token around the loop; land on an
+        unowned trigram and you can <b>buy</b> it. Then — the whole point — whenever
+        a real stranger anywhere on Bluesky posts a trigram <b>you own</b>, they
+        land on your property and <b>pay you rent</b>. Corner the discourse.
+      </p>
+
+      <div id="app"></div>
+
+      <footer>
+        firehose via
+        <a href="https://github.com/bluesky-social/jetstream">jetstream</a>, read
+        anonymously in your browser — no login, nothing is posted on your behalf.
+        board phrases + rent land in real time. sibling of
+        <a href="https://trigrams.bisks.net">trigrams</a> ·
+        <a href="https://trigruessr.bisks.net">trigruessr</a> ·
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script>
+      // ── config ────────────────────────────────────────────────────────────
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const SAVE_KEY = "trigramonopoly.v2";
+      const N = 24; // tiles around the ring (7x7 perimeter)
+      const CORNERS = { 0: "go", 6: "jail", 12: "park", 18: "gotojail" };
+      const BOARD_GRAMS = 20; // property tiles to harvest
+      const START_CASH = 1500;
+      const GO_BONUS = 200;
+      const GOAL = 3000; // net-worth target
+      const RENT_COOLDOWN = 4000; // ms per tile between firehose rent hits
+      const NET_BUY_COOLDOWN = 7000; // ms between the network claiming a tile
+      const MIN_WORD_LEN = 2;
+      const MAX_FEED = 40;
+
+      // ── tiny helpers ────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const app = $("app");
+      const dot = $("dot");
+      const statusText = $("statusText");
+      const rnd = (n) => Math.floor(Math.random() * n);
+      const die = () => 1 + rnd(6);
+      const money = (n) => (n < 0 ? "−$" + Math.abs(n) : "$" + n);
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+
+      // ── trigram extraction (run-aware, copied from trigrams/firehose) ─────────
+      // A "run" is a stretch of words with no punctuation between them, so a
+      // phrase never spans a comma / period / newline.
+      const hasLetter = (w) => /\p{L}/u.test(w);
+      function runsOf(text) {
+        return text
+          .toLowerCase()
+          .replace(/https?:\/\/\S+/g, " ")
+          .split(/[^\p{L}\p{N}' ]+/u)
+          .map((run) =>
+            run.split(/\s+/).filter((w) => w.length >= MIN_WORD_LEN && hasLetter(w)),
+          )
+          .filter((words) => words.length >= 3);
+      }
+      function trigramsOf(text) {
+        const out = [];
+        for (const words of runsOf(text))
+          for (let i = 0; i + 2 < words.length; i++)
+            out.push(words[i] + " " + words[i + 1] + " " + words[i + 2]);
+        return out;
+      }
+      // Spam gate, also copied from trigrams/firehose.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true;
+        if (/^digit:\s|in words:/i.test(text)) return true;
+        if ((text.match(/#/g) || []).length >= 4) return true;
+        return false;
+      }
+      // Content filter for BOARD tiles only: want at least two real (non-stopword)
+      // words so property names read like thoughts, not "of the the".
+      const STOP = new Set(
+        ("a an and are as at be been but by for from had has have he her his i in is it its me my no " +
+          "not of on or our so that the their them then they this to up us was we were with you your just " +
+          "like get got out about into over more all can do if im dont youre what when who will").split(
+          /\s+/,
+        ),
+      );
+      function boardWorthy(gram) {
+        const w = gram.split(" ");
+        if (new Set(w).size < 3) return false; // no repeated word
+        return w.filter((x) => !STOP.has(x)).length >= 2;
+      }
+
+      // ── board scaffold ────────────────────────────────────────────────────────
+      const PALETTE = [
+        "#c0392b", "#e67e22", "#f1c40f", "#27ae60",
+        "#16a085", "#2980b9", "#8e44ad", "#d81b60",
+      ];
+      const CORNER_META = {
+        go: { emoji: "🏠", label: "GO — post & collect $200", short: "GO" },
+        jail: { emoji: "👀", label: "just visiting", short: "just visiting" },
+        park: { emoji: "✨", label: "vibe check — sweep the pot", short: "vibe check" },
+        gotojail: { emoji: "💀", label: "ratio'd → go to jail", short: "ratio'd" },
+      };
+      // Map a ring position (0..23) to a 7x7 grid cell (1-based row/col).
+      function cellOf(pos) {
+        let r, c;
+        if (pos <= 6) { r = 6; c = 6 - pos; }
+        else if (pos <= 12) { r = 6 - (pos - 6); c = 0; }
+        else if (pos <= 18) { r = 0; c = pos - 12; }
+        else { r = pos - 18; c = 6; }
+        return { row: r + 1, col: c + 1 };
+      }
+
+      // Build a fresh (empty) board; trigrams get filled in as they stream past.
+      function freshBoard() {
+        const tiles = [];
+        let prop = 0;
+        for (let pos = 0; pos < N; pos++) {
+          if (CORNERS[pos]) {
+            tiles.push({ pos, kind: CORNERS[pos] });
+          } else {
+            const price = 60 + prop * 20; // 60 .. 440
+            tiles.push({
+              pos,
+              kind: "prop",
+              gram: null,
+              price,
+              rent: Math.round((price * 0.35) / 5) * 5, // ~35% of price, to nearest 5
+              owner: null, // null | "you" | "net"
+              color: PALETTE[Math.floor(prop / 2) % PALETTE.length],
+              lastRent: 0,
+            });
+            prop++;
+          }
+        }
+        return tiles;
+      }
+
+      // ── game state ────────────────────────────────────────────────────────────
+      let S = null; // the persisted state, or null before a game exists
+      let gramIndex = new Map(); // gram string -> tile index (property tiles)
+      let phase = "build"; // build | play | deciding | over
+      let lastRoll = null; // { a, b }
+      let pending = null; // tile index awaiting a buy decision
+      let lastNetBuy = 0;
+      let seenBuildGrams = new Set();
+
+      function load() {
+        try {
+          const raw = localStorage.getItem(SAVE_KEY);
+          if (!raw) return null;
+          const s = JSON.parse(raw);
+          if (!s || !Array.isArray(s.tiles) || s.tiles.length !== N) return null;
+          return s;
+        } catch {
+          return null;
+        }
+      }
+      function save() {
+        if (!S) return;
+        try {
+          localStorage.setItem(SAVE_KEY, JSON.stringify(S));
+        } catch {}
+      }
+      function rebuildIndex() {
+        gramIndex = new Map();
+        S.tiles.forEach((t, i) => {
+          if (t.kind === "prop" && t.gram) gramIndex.set(t.gram, i);
+        });
+      }
+      function netWorth() {
+        let w = S.cash;
+        for (const t of S.tiles) if (t.owner === "you") w += t.price;
+        return w;
+      }
+      function pushEvent(html, cls) {
+        S.feed.unshift({ html, cls: cls || "" });
+        if (S.feed.length > MAX_FEED) S.feed.length = MAX_FEED;
+      }
+
+      // ── render ─────────────────────────────────────────────────────────────
+      function render() {
+        if (phase === "build") return renderBuild();
+        renderGame();
+      }
+
+      function renderBuild() {
+        const got = seenBuildGrams.size;
+        app.innerHTML = `
+          <p class="building">
+            building your board off the live firehose…
+            <b>${got}</b> / ${BOARD_GRAMS} trigrams claimed as property.
+          </p>
+          <p class="building" style="font-size:0.78rem">
+            each tile is a real three-word phrase someone just posted to Bluesky.
+          </p>`;
+      }
+
+      function tileHtml(t) {
+        const cell = cellOf(t.pos);
+        const pos = `grid-row:${cell.row};grid-column:${cell.col}`;
+        const here = S.pos === t.pos ? " here" : "";
+        if (t.kind !== "prop") {
+          const m = CORNER_META[t.kind];
+          return `<div class="tile corner${here}" style="${pos}" title="${esc(m.label)}">
+            ${here ? '<span class="you">▸</span>' : ""}
+            <span class="emoji">${m.emoji}</span>
+            <span class="clabel">${esc(m.short)}</span>
+          </div>`;
+        }
+        const own = t.owner === "you" ? " own-you" : t.owner === "net" ? " own-net" : "";
+        const foot =
+          t.owner === "you"
+            ? `<span class="price">yours</span><span>r ${money(t.rent)}</span>`
+            : t.owner === "net"
+              ? `<span class="price">network</span><span>r ${money(t.rent)}</span>`
+              : `<span class="price">${money(t.price)}</span><span>r ${money(t.rent)}</span>`;
+        return `<div class="tile${own}${here}" style="${pos}" title="${esc(t.gram || "")} — buy ${money(t.price)}, rent ${money(t.rent)}">
+          ${here ? '<span class="you">▸</span>' : ""}
+          <span class="strip" style="background:${t.color}"></span>
+          <span class="gram">${esc(t.gram || "…")}</span>
+          <span class="foot">${foot}</span>
+        </div>`;
+      }
+
+      function centerHtml() {
+        const broke = S.cash < 0 ? " broke" : "";
+        let dice = "🎲";
+        let diceline = "post to roll &amp; move";
+        if (lastRoll) {
+          const faces = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+          dice = `${faces[lastRoll.a]} ${faces[lastRoll.b]}`;
+          diceline = `rolled ${lastRoll.a} + ${lastRoll.b} = ${lastRoll.a + lastRoll.b}`;
+        }
+        return `<div class="center">
+          <div class="label">your cash</div>
+          <div class="big${broke}">${money(S.cash)}</div>
+          <div class="dice">${dice}</div>
+          <div class="diceline">${diceline}</div>
+          <div class="brand">trigramonopoly</div>
+        </div>`;
+      }
+
+      function renderGame() {
+        const owned = S.tiles.filter((t) => t.owner === "you").length;
+        const nw = netWorth();
+        const goalMet = nw >= GOAL;
+
+        const banner = S.over
+          ? `<div class="banner lose">bankrupt — the discourse ratio'd you. net worth ${money(nw)}. <button class="solid" id="restart" style="margin-left:0.5rem">new game</button></div>`
+          : goalMet
+            ? `<div class="banner">📣 you cornered the discourse — net worth ${money(nw)} (goal ${money(GOAL)}). keep going, or start a fresh board.</div>`
+            : "";
+
+        const tiles = S.tiles.map(tileHtml).join("");
+
+        // turn / compose area
+        let turn = "";
+        if (S.over) {
+          turn = "";
+        } else if (phase === "deciding" && pending != null) {
+          const t = S.tiles[pending];
+          const canAfford = S.cash >= t.price;
+          turn = `
+            <div class="prompt-box">
+              you landed on <span class="pgram">“${esc(t.gram)}”</span> — unowned.
+              buy it for <b>${money(t.price)}</b>? (then you collect
+              <b>${money(t.rent)}</b> every time someone posts it)
+              <div class="pactions">
+                <button class="buy" id="buy" ${canAfford ? "" : "disabled"}>
+                  buy ${money(t.price)}${canAfford ? "" : " — can't afford"}
+                </button>
+                <button id="skip">skip it</button>
+              </div>
+            </div>`;
+        } else {
+          turn = `
+            <div class="turn">
+              <textarea id="post" placeholder="compose a post — anything on your mind. hit post to take your turn." maxlength="300"></textarea>
+              <div class="composebar">
+                <button class="solid" id="go">post &amp; move →</button>
+                <span id="gramcount" class="grams"></span>
+              </div>
+            </div>`;
+        }
+
+        const feed = S.feed.length
+          ? S.feed.map((e) => `<li class="ev ${e.cls}">${e.html}</li>`).join("")
+          : `<li class="ev note">no rent yet. buy some trigrams, then wait for a stranger to post one.</li>`;
+
+        app.innerHTML = `
+          ${banner}
+          <div class="board-stats">
+            <span class="stat cash">cash <b>${money(S.cash)}</b></span>
+            <span class="stat">net worth <b>${money(nw)}</b></span>
+            <span class="stat">properties <b>${owned}</b></span>
+            <span class="stat goal">goal <b>${money(GOAL)}</b></span>
+          </div>
+          <div class="board">${tiles}${centerHtml()}</div>
+          ${turn}
+          <div style="margin-top:0.4rem"><button id="newgame" style="font-size:0.72rem;padding:0.35rem 0.6rem">start a new board</button></div>
+          <h2 class="feedh">rent &amp; the ticker</h2>
+          <ul class="feed">${feed}</ul>`;
+
+        wireGame();
+      }
+
+      function wireGame() {
+        const go = $("go");
+        if (go) {
+          const ta = $("post");
+          const gc = $("gramcount");
+          const update = () => {
+            const grams = [...new Set(trigramsOf(ta.value))];
+            gc.innerHTML = grams.length
+              ? `this post spins off <b>${grams.length}</b> trigram${grams.length === 1 ? "" : "s"}`
+              : "";
+          };
+          ta.addEventListener("input", update);
+          ta.focus();
+          go.onclick = () => {
+            if (!ta.value.trim()) {
+              ta.focus();
+              ta.placeholder = "type something first — even a few words.";
+              return;
+            }
+            takeTurn(ta.value);
+          };
+        }
+        const buy = $("buy");
+        if (buy) buy.onclick = doBuy;
+        const skip = $("skip");
+        if (skip) skip.onclick = doSkip;
+        const ng = $("newgame");
+        if (ng) ng.onclick = newGame;
+        const rs = $("restart");
+        if (rs) rs.onclick = newGame;
+      }
+
+      // ── the turn ────────────────────────────────────────────────────────────
+      function takeTurn(text) {
+        const grams = [...new Set(trigramsOf(text))];
+        const a = die(), b = die();
+        const steps = a + b;
+        const from = S.pos;
+        const to = (from + steps) % N;
+
+        // pass GO (but not when you land squarely on it — that's paid below)
+        if (from + steps > N) {
+          S.cash += GO_BONUS;
+          pushEvent(`🏠 <span class="amt up">+${money(GO_BONUS)}</span> — you passed GO.`, "");
+        }
+        S.pos = to;
+        lastRoll = { a, b };
+
+        if (grams.length)
+          pushEvent(
+            `📮 you posted — <b>${grams.length}</b> trigram${grams.length === 1 ? "" : "s"} spun off (“${esc(grams[0])}”…). moved ${steps} tiles.`,
+            "note",
+          );
+        else
+          pushEvent(`📮 you posted a short one. moved ${steps} tiles.`, "note");
+
+        resolveLanding(to);
+        save();
+        render();
+      }
+
+      function resolveLanding(pos) {
+        const t = S.tiles[pos];
+        if (t.kind === "go") {
+          S.cash += GO_BONUS; // landed squarely on GO — a full helping
+          pushEvent(`🏠 <span class="amt up">+${money(GO_BONUS)}</span> — landed right on GO.`, "");
+          phase = "play";
+          return;
+        }
+        if (t.kind === "jail") {
+          pushEvent(`👀 just visiting jail. nothing owed.`, "note");
+          phase = "play";
+          return;
+        }
+        if (t.kind === "park") {
+          const pot = S.pot || 0;
+          S.pot = 0;
+          S.cash += pot;
+          pushEvent(
+            pot > 0
+              ? `✨ vibe check — you swept the pot: <span class="amt up">+${money(pot)}</span>.`
+              : `✨ vibe check — the pot was empty.`,
+            "",
+          );
+          phase = "play";
+          return;
+        }
+        if (t.kind === "gotojail") {
+          const fine = 50;
+          S.cash -= fine;
+          S.pot = (S.pot || 0) + fine;
+          S.pos = 6; // hauled to the jail tile
+          pushEvent(`💀 ratio'd — hauled to jail, <span class="amt down">−${money(fine)}</span> fine into the pot.`, "");
+          checkBust();
+          phase = "play";
+          return;
+        }
+        // property tile
+        if (!t.gram) { phase = "play"; return; }
+        if (t.owner === "you") {
+          pushEvent(`🏡 home turf — “${esc(t.gram)}”. rent-free.`, "note");
+          phase = "play";
+          return;
+        }
+        if (t.owner === "net") {
+          S.cash -= t.rent;
+          pushEvent(
+            `🏦 you landed on the network’s “<span class="g">${esc(t.gram)}</span>” — paid rent <span class="amt down">−${money(t.rent)}</span>.`,
+            "",
+          );
+          checkBust();
+          phase = "play";
+          return;
+        }
+        // unowned → offer to buy
+        pending = pos;
+        phase = "deciding";
+      }
+
+      function doBuy() {
+        if (pending == null) return;
+        const t = S.tiles[pending];
+        if (S.cash >= t.price) {
+          S.cash -= t.price;
+          t.owner = "you";
+          rebuildIndex();
+          pushEvent(
+            `🛒 you bought “<span class="g">${esc(t.gram)}</span>” for <span class="amt down">−${money(t.price)}</span>. anyone who posts it now pays you ${money(t.rent)}.`,
+            "",
+          );
+        }
+        pending = null;
+        phase = "play";
+        save();
+        render();
+      }
+      function doSkip() {
+        if (pending != null) {
+          const t = S.tiles[pending];
+          pushEvent(`↪️ passed on “${esc(t.gram)}”.`, "note");
+        }
+        pending = null;
+        phase = "play";
+        save();
+        render();
+      }
+      function checkBust() {
+        if (S.cash < 0) {
+          S.over = true;
+          phase = "over";
+          pushEvent(`💥 you went bankrupt.`, "");
+        }
+      }
+
+      // ── firehose: the rent engine ─────────────────────────────────────────────
+      function handlePost(evt) {
+        if (phase === "build") return handleBuildPost(evt);
+        if (!S || S.over) return;
+
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text || looksLikeSpam(text)) return;
+
+        const now = Date.now();
+        // Scan the post's trigrams against the board. First matching tile wins,
+        // so one post triggers at most one event.
+        for (const g of trigramsOf(text)) {
+          const idx = gramIndex.get(g);
+          if (idx == null) continue;
+          const t = S.tiles[idx];
+
+          if (t.owner === "you") {
+            if (now - (t.lastRent || 0) < RENT_COOLDOWN) return;
+            t.lastRent = now;
+            S.cash += t.rent;
+            const link = `https://bsky.app/profile/${evt.did}/post/${commit.rkey}`;
+            pushEvent(
+              `💰 someone posted your “<span class="g">${esc(g)}</span>” — rent <span class="amt up">+${money(t.rent)}</span>. <a href="${esc(link)}" target="_blank" rel="noopener">see the post →</a>`,
+              "",
+            );
+            save();
+            render();
+            return;
+          }
+
+          if (t.owner == null) {
+            // the network snaps up unowned trigrams it "lands on" (rate-limited)
+            if (now - lastNetBuy < NET_BUY_COOLDOWN) return;
+            lastNetBuy = now;
+            t.owner = "net";
+            t.lastRent = now;
+            pushEvent(
+              `🏦 the network grabbed “<span class="g">${esc(g)}</span>” (${money(t.price)}) — someone just posted it. you’ll owe ${money(t.rent)} if you land there.`,
+              "note",
+            );
+            save();
+            render();
+            return;
+          }
+          // already network-owned: keep quiet
+          return;
+        }
+      }
+
+      function handleBuildPost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        if (rec.reply) return; // top-level posts read cleaner for board names
+        const text = rec.text.trim();
+        if (!text || looksLikeSpam(text)) return;
+
+        for (const g of trigramsOf(text)) {
+          if (seenBuildGrams.has(g)) continue;
+          if (!boardWorthy(g)) continue;
+          seenBuildGrams.add(g);
+          renderBuild();
+          if (seenBuildGrams.size >= BOARD_GRAMS) {
+            finishBuild();
+            return;
+          }
+          return; // one gram per post keeps the board diverse
+        }
+      }
+
+      function finishBuild() {
+        const grams = [...seenBuildGrams].slice(0, BOARD_GRAMS);
+        let gi = 0;
+        for (const t of S.tiles) if (t.kind === "prop") t.gram = grams[gi++];
+        rebuildIndex();
+        phase = "play";
+        save();
+        render();
+      }
+
+      // ── new game ──────────────────────────────────────────────────────────────
+      function newGame() {
+        S = {
+          cash: START_CASH,
+          pos: 0,
+          pot: 0,
+          over: false,
+          tiles: freshBoard(),
+          feed: [],
+        };
+        seenBuildGrams = new Set();
+        gramIndex = new Map();
+        lastRoll = null;
+        pending = null;
+        lastNetBuy = 0;
+        phase = "build";
+        localStorage.removeItem(SAVE_KEY);
+        render();
+      }
+
+      // ── firehose plumbing (copied from trigrams/firehose) ──────────────────────
+      let ws, reconnectDelay = 1000;
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "live");
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try { evt = JSON.parse(m.data); } catch { return; }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => { try { ws.close(); } catch {} };
+      }
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      // ── boot ────────────────────────────────────────────────────────────────
+      S = load();
+      if (S && S.tiles.every((t) => t.kind !== "prop" || t.gram)) {
+        // a finished board was saved — resume play
+        rebuildIndex();
+        phase = "play";
+      } else {
+        // fresh (or half-built) — start a clean build
+        S = {
+          cash: START_CASH, pos: 0, pot: 0, over: false,
+          tiles: freshBoard(), feed: [],
+        };
+        phase = "build";
+      }
+      render();
+      connect();
+    </script>
+  </body>
+</html>
