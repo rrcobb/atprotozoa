@@ -1,0 +1,58 @@
+name = "atprotozoa-buildthis"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# This Worker does double duty (see notes/80-buildthis-bot.md):
+#  1. fetch handler  -> serves /.well-known/atproto-did so buildthis.bisks.net
+#     can be verified as the bot's Bluesky handle, plus a static landing page.
+#  2. scheduled handler (cron) -> the watcher: polls the bot's mentions, gates on
+#     Rob's mutuals + budget, and fires a repository_dispatch to build the idea.
+assets = { directory = "./public", binding = "ASSETS" }
+
+# Binds the subdomain to the Worker (provisions DNS + cert on deploy).
+# MUST stay ABOVE the [vars] table and the [[kv_namespaces]] / [triggers] blocks:
+# in TOML, keys after a table header belong to that table, so a `routes` line
+# below a table silently becomes <table>.routes and the domain never binds.
+# (Same gotcha called out in apex/wrangler.toml.)
+routes = [{ pattern = "buildthis.bisks.net", custom_domain = true }]
+
+# Poll for new mentions. Every 2 minutes keeps latency low without hammering the
+# AppView; the cron only reads notifications + does cheap graph checks.
+[triggers]
+crons = ["*/2 * * * *"]
+
+# Rolling state: last-seen notification cursor, per-day + per-person build counts,
+# handled-mention ids, and which non-mutuals have already been replied-to once.
+# Create with: wrangler kv namespace create buildthis-state
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# The bot's own DID (buildthis.bisks.net). Fill after creating the account +
+# resolving its DID. Served at /.well-known/atproto-did.
+BOT_DID = "REPLACE_WITH_BOT_DID"
+
+# Rob's DID. The mutual-allowlist is computed against THIS did (people who
+# mutually follow bisks.net), not the bot's own follows.
+ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"
+
+# The bot's login handle for createSession (its handle once set, or its DID).
+BOT_IDENTIFIER = "buildthis.bisks.net"
+
+# GitHub repo the builder Action lives in, "owner/name". repository_dispatch
+# targets this repo.
+GITHUB_REPO = "REPLACE_WITH_owner/repo"
+
+# --- Budget & rate caps (see notes/80). Change these to retune spend. ---
+# Global builds per UTC day. ~$2/build max => 5 keeps the accidental ceiling ~$10.
+MAX_BUILDS_PER_DAY = "5"
+# Builds one person can trigger per UTC day.
+MAX_BUILDS_PER_PERSON_PER_DAY = "3"
+# Longest brief we'll accept (chars). Longer posts get truncated to this.
+MAX_BRIEF_CHARS = "600"
+
+# Secrets (set with `wrangler secret put`, never in this file):
+#   BOT_APP_PASSWORD  -> the bot account's app-password (createSession).
+#   GITHUB_TOKEN      -> a PAT with `repo` scope to fire repository_dispatch.
