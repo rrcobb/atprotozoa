@@ -6,169 +6,339 @@
     <title>reply — trigrams — bisks.net</title>
     <style>
       :root {
-        --bg: #f4f6f3;
-        --card: #eaf0ea;
-        --ink: #1a1a1a;
-        --muted: #5a625a;
-        --accent: #2f6b3f;
-        --link: #2b6cb0;
-        --err: #a3352b;
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --spent: #b9b9b9;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
       body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--ink);
-        font-family: Georgia, "Times New Roman", serif;
-        line-height: 1.55;
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
       }
-      .wrap { max-width: 620px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
-      h1 {
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        font-size: 1.5rem;
-        margin: 0 0 0.25rem;
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
       }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
       h1 a { color: inherit; text-decoration: none; }
-      .intro { color: var(--muted); margin: 0 0 1.75rem; }
-      .card {
-        background: var(--card);
-        border-left: 4px solid var(--accent);
-        border-radius: 10px;
-        padding: 1.1rem 1.25rem;
-        margin-bottom: 1rem;
-      }
-      label { font-size: 0.9rem; color: var(--muted); display: block; margin-bottom: 0.4rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.9rem; line-height: 1.7; max-width: 56ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+
       input[type="text"] {
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 1rem;
-        padding: 0.5rem 0.6rem;
-        border: 1px solid #cdd6cd;
-        border-radius: 6px;
-        width: 100%;
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
       }
+      input[type="text"]::placeholder { color: #aaa; }
       button {
-        font-family: ui-monospace, Menlo, monospace;
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border-color: var(--faint); }
+      button.ghost:hover { background: #f5f8ff; }
+      .status { font-size: 0.78rem; color: var(--muted); }
+      .err { color: #c0392b; }
+
+      .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.5rem; }
+      .bar input { flex: 1; min-width: 12rem; }
+
+      /* target post box */
+      .target {
+        border: 1px solid var(--faint); border-left: 3px solid var(--accent);
+        border-radius: 3px; padding: 0.85rem 1rem; margin-bottom: 1.5rem;
         font-size: 0.9rem;
-        padding: 0.55rem 1rem;
-        border: none;
-        border-radius: 6px;
-        background: var(--accent);
-        color: #fff;
-        cursor: pointer;
-        margin-top: 0.75rem;
       }
-      button.ghost { background: transparent; color: var(--link); padding: 0.3rem 0; }
-      pre {
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 0.78rem;
-        background: #e2e8e2;
-        padding: 0.75rem;
-        border-radius: 6px;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
+      .target .who2 { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.3rem; }
+      .target .txt { white-space: pre-wrap; word-break: break-word; }
+
+      /* ammo counter */
+      .ammo {
+        display: flex; align-items: baseline; gap: 0.5rem; margin: 1.5rem 0 0.5rem;
+        font-size: 0.85rem; color: var(--muted);
       }
-      .err { color: var(--err); }
-      .ok { color: var(--accent); }
-      footer { margin-top: 2rem; color: var(--muted); font-size: 0.8rem; }
-      footer a { color: var(--link); }
+      .ammo b { color: var(--ink); font-size: 1.1rem; font-weight: 600; }
+      .filter { margin: 0.5rem 0 1rem; }
+      .filter input { width: 100%; max-width: 20rem; }
+
+      /* quiver list */
+      .shot {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0.7rem 0; border-top: 1px solid var(--faint);
+      }
+      .shot .g { flex: 1; font-size: 1.02rem; font-weight: 600; word-break: break-word; }
+      .shot .g .sc { font-size: 0.7rem; color: var(--accent); font-weight: 400; margin-left: 0.4rem; }
+      .shot.spent { opacity: 0.5; }
+      .shot.spent .g { color: var(--spent); text-decoration: line-through; }
+      .fire { font-size: 0.78rem; padding: 0.35rem 0.75rem; white-space: nowrap; }
+      .spent-tag { font-size: 0.72rem; color: var(--spent); white-space: nowrap; }
+
+      /* preview modal */
+      .modal-bg {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+        display: flex; align-items: center; justify-content: center; padding: 1rem;
+        z-index: 10;
+      }
+      .modal {
+        background: var(--bg); border-radius: 6px; max-width: 520px; width: 100%;
+        padding: 1.5rem; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      }
+      .modal h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+      .modal .preview-text { border: 1px solid var(--faint); border-radius: 4px; padding: 0.75rem; margin-bottom: 0.75rem; font-size: 0.92rem; white-space: pre-wrap; }
+      .modal .preview-text a { color: var(--accent); }
+      .modal img { width: 100%; border: 1px solid var(--faint); border-radius: 4px; margin-bottom: 0.75rem; display: block; }
+      .modal .warn { color: #c0392b; font-size: 0.82rem; margin: 0 0 1rem; }
+      .modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1><a href="/firehose/">trigrams</a> / reply</h1>
+      <header>
+        <h1><a href="/firehose/">trigrams</a> <span class="slash">/</span> reply</h1>
+        <span class="who" id="who"></span>
+      </header>
       <p class="intro">
-        Reply to a bisk with the perfect trigram. (Building — this is the OAuth +
-        search harness for now.)
+        Reply to a bisk with a phrase from your <a href="/quiver/">quiver</a> —
+        one of the three-word phrases <b>only you</b> have ever posted. Firing one
+        posts it publicly, which <b>spends it</b>: it's no longer yours alone.
+        Finite ammo.
       </p>
 
       <div id="app"></div>
 
       <footer>
-        auth cribbed with thanks from
-        <a href="https://github.com/minormobius/agent01">mino.mobi</a> ·
+        uniqueness via <a href="https://b.mino.mobi/unique/">mino.mobi/unique</a> ·
         <a href="https://bisks.net">bisks.net</a>
       </footer>
     </div>
 
     <script type="module">
       import {
-        login,
-        completeLoginIfCallback,
-        getSession,
-        clearSession,
-        dpopFetch,
+        login, completeLoginIfCallback, getSession, clearSession,
       } from "../lib/oauth.js";
+      import { scan, verify, resolveActorFull, richness, surprise } from "../lib/unique.js";
+      import { makeCard } from "../lib/card.js";
+      import { resolvePostRef, uploadImage, firePost } from "../lib/post.js";
 
       const app = document.getElementById("app");
-      const h = (html) => (app.innerHTML = html);
+      const who = document.getElementById("who");
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const postUrl = (did, uri) => `https://bsky.app/profile/${did}/post/${uri.split("/").pop()}`;
 
+      let session = null;      // oauth session
+      let target = null;       // resolved post to reply to
+      let quiver = [];         // [{ g, post, score, spent }]
+
+      // ---- login gate ------------------------------------------------------
       function loginView(msg) {
-        h(`
-          ${msg ? `<p class="err">${msg}</p>` : ""}
-          <div class="card">
-            <label for="handle">your bluesky handle</label>
-            <input id="handle" type="text" placeholder="bisks.net" value="bisks.net" />
+        who.textContent = "";
+        app.innerHTML = `
+          ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
+          <div class="bar">
+            <input id="handle" type="text" placeholder="your bluesky handle" value="bisks.net" />
             <button id="go">sign in with bluesky</button>
           </div>
-        `);
+          <p class="status">replying posts on your behalf, so it needs you signed in.</p>`;
         document.getElementById("go").onclick = async () => {
-          const handle = document.getElementById("handle").value.trim();
-          if (!handle) return;
-          try {
-            await login(handle);
-          } catch (e) {
-            loginView(e.message);
-          }
+          const h = document.getElementById("handle").value.trim();
+          if (h) try { await login(h); } catch (e) { loginView(e.message); }
         };
       }
 
-      async function sessionView(session) {
-        h(`
-          <div class="card">
-            <p class="ok">signed in as <b>@${session.handle}</b></p>
-            <pre>did: ${session.did}
-pds: ${session.pdsUrl}
-scope: ${session.scope}</pre>
-            <button id="search">test: can this token call searchPosts?</button>
-            <div id="searchResult"></div>
-            <button class="ghost" id="logout">sign out</button>
+      function signedInHeader() {
+        who.innerHTML = `@${esc(session.handle)} · <a id="out">sign out</a>`;
+        document.getElementById("out").onclick = async () => {
+          await clearSession(); session = null; loginView();
+        };
+      }
+
+      // ---- main composer ---------------------------------------------------
+      function composerView() {
+        signedInHeader();
+        app.innerHTML = `
+          <div class="bar">
+            <input id="url" type="text" placeholder="paste a bsky.app post URL to reply to" />
+            <button id="load">load</button>
           </div>
-        `);
-        document.getElementById("logout").onclick = async () => {
-          await clearSession();
-          loginView();
-        };
-        document.getElementById("search").onclick = async () => {
-          const out = document.getElementById("searchResult");
-          out.innerHTML = "<p>searching…</p>";
+          <div id="targetBox"></div>
+          <div id="quiverArea"></div>`;
+        document.getElementById("load").onclick = loadTarget;
+        document.getElementById("url").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") loadTarget();
+        });
+      }
+
+      async function loadTarget() {
+        const url = document.getElementById("url").value.trim();
+        if (!url) return;
+        const box = document.getElementById("targetBox");
+        box.innerHTML = `<p class="status">loading post…</p>`;
+        try {
+          target = await resolvePostRef(url);
+        } catch (e) {
+          box.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+          return;
+        }
+        box.innerHTML = `
+          <div class="target">
+            <div class="who2">replying to @${esc(target.display.handle || "")}</div>
+            <div class="txt">${esc(target.display.text)}</div>
+          </div>`;
+        if (!quiver.length) loadQuiver();
+        else renderQuiver();
+      }
+
+      // ---- load the user's quiver (their unique trigrams) ------------------
+      async function loadQuiver() {
+        const area = document.getElementById("quiverArea");
+        area.innerHTML = `<p class="status" id="qs">loading your quiver…</p>`;
+        const qs = () => document.getElementById("qs");
+        const actor = { did: session.did, pdsUrl: session.pdsUrl, handle: session.handle };
+        let scanRes;
+        try {
+          scanRes = await scan(actor, { mode: "trigram",
+            onPage: (p, posts) => { if (qs()) qs().textContent = `scanning your posts… ${posts}`; } });
+        } catch (e) { area.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+
+        const cands = scanRes.candidates.filter((c) => richness(c.g) >= 0).slice(0, 250);
+        const byPost = new Map();
+        let checked = 0;
+        await verify(actor, cands, { onVerdict: (v) => {
+          checked++;
+          if (v.status === "unique" && v.mine && !byPost.has(v.post.uri)) byPost.set(v.post.uri, v);
+          if (qs()) qs().textContent = `checking… ${checked}/${cands.length} · ${byPost.size} in quiver`;
+        }});
+
+        const uniques = [...byPost.values()];
+        // surprise-score the top slice
+        const scored = [];
+        let i = 0;
+        for (const v of uniques.slice(0, 100)) {
+          const s = await surprise(v.g);
+          scored.push({ g: v.g, post: v.post, score: s.score, spent: false });
+          if (qs()) qs().textContent = `scoring… ${++i}/${Math.min(uniques.length, 100)}`;
+        }
+        for (const v of uniques.slice(100)) scored.push({ g: v.g, post: v.post, score: null, spent: false });
+        scored.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+        quiver = scored;
+        renderQuiver();
+      }
+
+      function renderQuiver(filter = "") {
+        const area = document.getElementById("quiverArea");
+        const live = quiver.filter((q) => !q.spent).length;
+        const shown = quiver.filter((q) => q.g.includes(filter.toLowerCase()));
+        area.innerHTML = `
+          <div class="ammo"><b>${live}</b> arrows in your quiver${filter ? ` · ${shown.length} shown` : ""}</div>
+          <div class="filter"><input id="filter" type="text" placeholder="narrow…" value="${esc(filter)}" /></div>
+          <div id="shots"></div>`;
+        const fi = document.getElementById("filter");
+        fi.oninput = () => renderQuiver(fi.value);
+        fi.focus();
+        fi.setSelectionRange(fi.value.length, fi.value.length);
+        const shots = document.getElementById("shots");
+        for (const q of shown) {
+          const el = document.createElement("div");
+          el.className = "shot" + (q.spent ? " spent" : "");
+          const sc = q.score != null ? `<span class="sc">surprise ${q.score.toFixed(1)}</span>` : "";
+          el.innerHTML = `<div class="g">${esc(q.g)}${sc}</div>` +
+            (q.spent ? `<span class="spent-tag">spent</span>`
+                     : `<button class="fire ghost">fire →</button>`);
+          if (!q.spent) el.querySelector(".fire").onclick = () => openPreview(q);
+          shots.appendChild(el);
+        }
+      }
+
+      // ---- preview + confirm + fire ---------------------------------------
+      async function openPreview(q) {
+        if (!target) { alert("load a post to reply to first"); return; }
+        const linkText = "(coined here)";
+        const text = `${q.g} ${linkText}`;
+        const coinUrl = postUrl(session.did, q.post.uri);
+
+        const bg = document.createElement("div");
+        bg.className = "modal-bg";
+        bg.innerHTML = `
+          <div class="modal">
+            <h3>fire this arrow?</h3>
+            <div class="preview-text">${esc(q.g)} <a href="${coinUrl}" target="_blank">${esc(linkText)}</a></div>
+            <p class="status" id="cardStatus">rendering card…</p>
+            <p class="warn">firing posts this reply publicly and <b>spends</b>
+              &ldquo;${esc(q.g)}&rdquo; — it won't be yours alone anymore.</p>
+            <div class="actions">
+              <button class="ghost" id="cancel">cancel</button>
+              <button id="confirm" disabled>fire</button>
+            </div>
+          </div>`;
+        document.body.appendChild(bg);
+        const close = () => bg.remove();
+        bg.querySelector("#cancel").onclick = close;
+        bg.onclick = (e) => { if (e.target === bg) close(); };
+
+        // render the card image
+        let card;
+        try {
+          card = await makeCard({ trigram: q.g, post: q.post.text, byline: `@${session.handle} · trigrams.bisks.net` });
+          const img = document.createElement("img");
+          img.src = card.dataUrl;
+          bg.querySelector(".preview-text").after(img);
+          bg.querySelector("#cardStatus").remove();
+          bg.querySelector("#confirm").disabled = false;
+        } catch (e) {
+          bg.querySelector("#cardStatus").innerHTML = `<span class="err">card failed: ${esc(e.message)}</span>`;
+          bg.querySelector("#confirm").disabled = false; // can still fire without image
+        }
+
+        bg.querySelector("#confirm").onclick = async () => {
+          const btn = bg.querySelector("#confirm");
+          btn.disabled = true; btn.textContent = "firing…";
           try {
-            // searchPosts lives on the AppView. DPoP tokens are audience-bound to
-            // the PDS, but the PDS proxies app.bsky.* XRPC to the AppView with the
-            // atproto-proxy header. Route through the PDS so the token is valid.
-            const url =
-              `${session.pdsUrl.replace(/\/$/, "")}/xrpc/app.bsky.feed.searchPosts` +
-              `?q=${encodeURIComponent('"perfect trigram"')}&limit=3`;
-            const res = await dpopFetch(session, url, {
-              headers: { "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+            let image = null;
+            if (card) {
+              const blob = await uploadImage(session, card.bytes, "image/png");
+              image = { blob, alt: card.alt };
+            }
+            const res = await firePost(session, {
+              text, linkText, linkUri: coinUrl, image, replyRef: { root: target.root, parent: target.parent },
             });
-            const text = await res.text();
-            out.innerHTML = `<pre>HTTP ${res.status}\n${text.slice(0, 800)}</pre>`;
+            q.spent = true;
+            close();
+            renderQuiver();
+            // brief confirmation
+            const done = postUrl(session.did, res.uri);
+            const note = document.createElement("p");
+            note.className = "status";
+            note.innerHTML = `fired &ldquo;${esc(q.g)}&rdquo; → <a href="${done}" target="_blank">see the reply</a>`;
+            document.getElementById("quiverArea").prepend(note);
           } catch (e) {
-            out.innerHTML = `<pre class="err">${e.message}</pre>`;
+            btn.disabled = false; btn.textContent = "fire";
+            bg.querySelector(".warn").innerHTML = `<span class="err">${esc(e.message)}</span>`;
           }
         };
       }
 
+      // ---- boot ------------------------------------------------------------
       (async () => {
         try {
-          const fromCallback = await completeLoginIfCallback();
-          const session = fromCallback || (await getSession());
-          if (session) sessionView(session);
-          else loginView();
-        } catch (e) {
-          loginView(e.message);
-        }
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) { loginView(e.message); return; }
+        if (session) composerView();
+        else loginView();
       })();
     </script>
   </body>
