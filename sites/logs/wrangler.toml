@@ -1,0 +1,26 @@
+name = "atprotozoa-logs"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# MUST stay ABOVE any [table] headers (same TOML gotcha as buildthis/apex): a
+# `routes` line under a table silently becomes <table>.routes and never binds.
+routes = [{ pattern = "logs.bisks.net", custom_domain = true }]
+
+# The logs site (logs.bisks.net): the build bot's tags-and-outcomes timeline.
+# It's a pure READER — it fetches buildthis.bisks.net/logs.json server-side and
+# renders the timeline. The KV binding stays on the buildthis worker (house
+# style: one site = one worker), so this site holds no state of its own.
+#
+# run_worker_first: the Worker renders "/" and "/stats" dynamically, so it must
+# run BEFORE the static-asset router. Without it, the assets router would serve
+# public/index.html directly for "/" and the timeline would never render. The
+# Worker falls through to env.ASSETS.fetch for anything it doesn't handle.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# Durable logs, same as the other workers, so a failed render is visible in the
+# dashboard without live-tailing.
+[observability]
+enabled = true
