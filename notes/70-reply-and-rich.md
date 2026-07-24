@@ -1,0 +1,98 @@
+# trigrams: /rich and /reply (design)
+
+Two new views on the trigrams site, from Rob's own unique trigrams.
+
+## /rich — the good ones
+
+Mino's unique-trigram list (phrases that are Rob's alone on the network) with an
+EXTRA judging layer that scores each n-gram for being a genuinely *good/cool*
+trigram — richness as a property of the trigram itself, not relative to any post.
+Filters out the junk ("of the and") so only the bangers show.
+
+- Source: the unique-trigram computation (from mino's `b/unique`, likely
+  client-side against the public AppView). TBD after reading mino's code.
+- Judge: an LLM scores each candidate for coolness/evocativeness. Model choice
+  OPEN — Workers AI (self-contained, cheaper) vs Claude (better taste, needs an
+  API key as a Worker secret). Leaning: try to keep it client-callable / cheap.
+- Precompute vs live: lean precompute — judge once, cache the scored list, page
+  reads the cache. (Revisit once we know if anything server-side exists at all.)
+
+## /reply — reply with the perfect trigram
+
+A composer. Point it at a bisk (post) you want to reply to → search your own past
+bisks + trigrams → pick the perfect one → it posts the reply, with a little
+perfect card image + a link back to the source.
+
+- Needs Bluesky OAuth with write scope (createRecord for app.bsky.feed.post).
+  Whether that can be client-side-only or needs a Worker is THE open question —
+  being answered by reading mino's OAuth (airchat/oauth, fluoddity/auth). Yoink
+  mino's auth, attribute on the home page.
+- Posting model: ALWAYS show the drafted reply + preview image, require an
+  explicit "post" click. Never auto-send.
+- The card image: the trigram card (like the screenshots), tidied up, rendered as
+  an image and attached to the reply. Server-side SVG→PNG (mino renders OG images
+  as SVG — see og.svg). Maybe subtle style pickers.
+
+## Build order (Rob's call)
+
+1. /reply first, but it depends on the OAuth infra — so: OAuth infra → /reply.
+2. /rich can come alongside or after; it depends on the unique-trigram generator
+   + a judge, not on OAuth.
+
+## What we learned from mino's source (agent01)
+
+Read the repo. Findings that shape the build:
+
+- **OAuth-to-post CAN be client-side** (atproto public-client: PKCE + DPoP,
+  `token_endpoint_auth_method: none`, tokens in IndexedDB, via
+  `@atproto/oauth-client-browser`). mino deliberately does NOT — every write goes
+  through a confidential-client **Worker + D1** because browser-held refresh
+  tokens are XSS-exfiltratable and a token = PDS write access. That's a security
+  posture for multi-user public surfaces, not a protocol requirement.
+  - **Our call (v1): client-side OAuth.** /reply is Rob's personal tool on his own
+    device; the XSS risk that drove mino's choice is much smaller for a single
+    user. Harden to the Worker+storage pattern later if it's ever opened up.
+  - If we DO want the Worker pattern: `airchat/` is the copyable ~5-file example
+    (oauth/{flow,jwt,discovery,keypair}.js + worker.js), backed by D1.
+
+- **The richness judge needs NO LLM.** mino's unique-trigram tool ranks with a
+  pure heuristic `score()` (stopwords +0.15; content words +min(len,12)/4+1;
+  all-stopword grams dropped). Uniqueness is decided by searchPosts verification,
+  not a scorer. Only LLMs in the whole repo are unrelated (a Gemini regex helper).
+  - **Our call (v1): heuristic-only for /rich.** Run it on Rob's real trigrams,
+    look at what surfaces, add a tiny model (Workers AI Llama 3.2 3B, on-edge,
+    ~free) ONLY if the heuristic can't find the cool ones.
+
+- **Unique-trigram computation is copyable** (`b/unique/unique.js`): resolve
+  handle→DID→PDS, harvest own repo via `listRecords` (app.bsky.feed.post, ~40
+  pages), tokenize, keep EXACTLY-ONCE grams (a repeated phrase is already ≥2 uses
+  network-wide), then verify each against `searchPosts`. NOT firehose.
+  - **Catch:** `searchPosts` 403s on the public AppView — needs a service-account
+    token. So /rich needs a small **search-proxy Worker** (app-password, calls
+    searchPosts), even with no LLM. Not durable storage, just a proxy holding one
+    secret.
+
+- **Reply builder copyable** from `io/worker.js` `replyTracked()`: correct
+  root/parent strongRefs, link facets with UTF-8 BYTE offsets (not JS string
+  indices). Two production lessons baked in.
+
+- **WARNING: automated replies got mino's service account taken down**
+  (AccountTakedown, in io/DESIGN.md). Their reply tool defaults OFF + rate-limits.
+  Confirms /reply MUST be human-in-the-loop, one at a time, never a bot.
+
+## Reference files kept
+
+`scratchpad/mino-ref/`: b-unique/, b-worker.js, airchat-oauth/, airchat-worker.js,
+airchat-wrangler.jsonc, io-worker.js. (Full clone deleted — 739M → 144K.)
+
+## Open decisions (for Rob)
+
+- [ ] /reply OAuth: client-side-only (my rec) vs Worker+D1?
+- [ ] /rich search-proxy Worker with an app-password service token — OK?
+- [ ] /rich judge: heuristic-only v1 (my rec)?
+- [ ] Card image style + whether style pickers are v1 or later.
+
+## Attribution
+
+Home page (apex) gets a thank-you to mino.mobi / minormobius/agent01 for the
+OAuth and trigram groundwork we're building on.
