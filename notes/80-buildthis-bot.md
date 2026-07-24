@@ -37,10 +37,17 @@ The same Worker runs on a cron trigger (every minute or two). Each tick:
    gets a friendly reply that tags Rob (`@bisks.net`) so he can pick it up by hand
    — the bot doesn't build for them, but it doesn't leave them hanging either. No
    dispatch happens on the non-mutual path.
-4. `repository_dispatch` to GitHub with the post text + light thread context as the
-   build brief, and the reply target (the post's URI/CID) so the Action can reply.
-   (No build-count checks — spend is bounded by the workspace cap, see Budget.)
-5. Record the mention as handled (KV) so it can't re-trigger.
+4. Build the brief. The tagging post's text is the instruction. **If the tag was a
+   reply** (someone wrote "@buildthis build this ☝️" under another post),
+   `getPostThread` walks the ancestor chain and prepends those posts as context, so
+   "this" resolves to what it points at. Caps: up to **10 ancestors**, thread
+   context sliced to **1200 chars**, the tagging post to **600** — so a brief is at
+   most ~1800 chars. Thread fetch is best-effort; on failure the build proceeds on
+   the tagging post alone.
+5. `repository_dispatch` to GitHub with the brief + the reply target (the post's
+   URI/CID) so the Action can reply. (No build-count checks — spend is bounded by
+   the provider spend cap, see Budget.)
+6. Record the mention as handled (KV) so it can't re-trigger.
 
 Why cron-polling notifications and not Jetstream: `listNotifications` gives
 mentions already filtered and is naturally deduped by cursor; the bot is authed
@@ -62,6 +69,14 @@ builder's provider is a one-line change. The agent reads the build prompt
 an existing site, commits, and pushes to main. `--permission-mode bypassPermissions`
 makes it fully unattended; `--max-turns` bounds a runaway. The existing deploy
 workflow sees the push and ships the changed Worker to its subdomain.
+
+**GOTCHA — the build must push with a PAT, not `GITHUB_TOKEN`.** GitHub suppresses
+workflow runs for pushes made with the default `GITHUB_TOKEN` (an infinite-loop
+guard), so a build that pushed with it would land on main but **never deploy** — the
+reply promises a URL that never comes up. The checkout therefore uses a repo-scoped
+PAT (`BUILDER_PAT`, Contents:write) as its token, which pushes as a normal user and
+fires `deploy.yml`. Caught this the first live test — do not "simplify" it back to
+`GITHUB_TOKEN`.
 
 **Model: currently Opus 4.8 on the Anthropic endpoint.** Kimi K3 was the plan (near-
 frontier coding, prepaid = hard cap), but Moonshot's signups are capacity-throttled

@@ -86,10 +86,12 @@ async function runWatcher(env: Env): Promise<void> {
     }
 
     // A mutual: dispatch the build. There is NO build-count or per-person gate —
-    // spend is bounded entirely by the Anthropic workspace spend cap (Rob's call:
-    // dollars are the only ceiling). The brief is the post text, treated as a
-    // feature description (not harness instructions) and length-capped.
-    const brief = clampBrief(m.text, num(env.MAX_BRIEF_CHARS));
+    // spend is bounded entirely by the provider spend cap (Rob's call: dollars are
+    // the only ceiling). The brief is the tagging post's text; if the tag was a
+    // reply, we prepend the ancestor posts so "build this ☝️" resolves to what it
+    // points at. All treated as a feature description, not harness instructions.
+    const ancestors = await threadContext(session, m);
+    const brief = buildBrief(m.text, ancestors, num(env.MAX_BRIEF_CHARS));
     const dispatched = await dispatchBuild(env, {
       brief,
       authorHandle: m.authorHandle,
@@ -141,6 +143,10 @@ interface Mention {
   // inside a thread it's the thread's root. Both are filled from the record.
   rootUri: string;
   rootCid: string;
+  // True when this mention is itself a reply — i.e. the person tagged the bot in
+  // a reply to some other post ("@buildthis build this ☝️"). When set, we fetch
+  // the ancestor posts so the brief includes what "this" refers to.
+  isReply: boolean;
 }
 
 async function recentMentions(session: Session): Promise<Mention[]> {
@@ -166,8 +172,45 @@ async function recentMentions(session: Session): Promise<Mention[]> {
         text: rec.text ?? "",
         rootUri: root?.uri ?? n.uri,
         rootCid: root?.cid ?? n.cid,
+        isReply: Boolean(rec.reply),
       };
     });
+}
+
+// When the mention is a reply, walk the thread's ancestor chain (root -> ... ->
+// the post being replied to) and return their text, oldest first, so the build
+// brief can include what "this" / "☝️" points at. Best-effort: on any failure we
+// return [] and the build just proceeds on the mention text alone.
+async function threadContext(session: Session, m: Mention): Promise<string[]> {
+  if (!m.isReply) return [];
+  const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
+  u.searchParams.set("uri", m.uri);
+  u.searchParams.set("parentHeight", "10"); // walk up to 10 ancestors
+  u.searchParams.set("depth", "0");
+  const res = await fetch(u.toString(), {
+    headers: { authorization: `Bearer ${session.accessJwt}` },
+  });
+  if (!res.ok) return [];
+  const j = (await res.json()) as { thread?: ThreadNode };
+
+  // Collect ancestors newest->oldest by following .parent, then reverse.
+  const chain: string[] = [];
+  let node = j.thread?.parent;
+  while (node?.post) {
+    const handle = node.post.author?.handle ?? "someone";
+    const text = (node.post.record?.text ?? "").trim();
+    if (text) chain.push(`@${handle}: ${text}`);
+    node = node.parent;
+  }
+  return chain.reverse();
+}
+
+interface ThreadNode {
+  post?: {
+    author?: { handle?: string };
+    record?: { text?: string };
+  };
+  parent?: ThreadNode;
 }
 
 interface RawNotif {
@@ -295,7 +338,16 @@ function num(s: string): number {
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : 0;
 }
-function clampBrief(text: string, max: number): string {
-  const t = text.trim();
-  return t.length <= max ? t : t.slice(0, max);
+
+// Assemble the build brief from the tagging post plus any ancestor posts (when
+// the tag was a reply). The tagging post is the instruction ("build this"); the
+// ancestors are the context it points at. `max` caps the tagging post; thread
+// context gets its own room so a long thread can't crowd out the actual ask.
+function buildBrief(tagText: string, ancestors: string[], max: number): string {
+  const ask = tagText.trim().slice(0, max);
+  if (ancestors.length === 0) return ask;
+  // Cap the context block generously but bounded (2x the tag cap).
+  let ctx = ancestors.join("\n").trim();
+  if (ctx.length > max * 2) ctx = ctx.slice(0, max * 2);
+  return `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):\n${ctx}`;
 }
