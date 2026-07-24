@@ -18,6 +18,8 @@ Prior art we're stealing the vibe from:
 - **github.com/dollspace-gay** (@dollspace.gay) — third-party atproto software,
   mostly Rust tooling. A reminder that the ecosystem is bigger than the web-toy
   corner, and that "tools for the protocol" is a valid flavor of experiment too.
+- **@carbonadoks.com** — another handle-as-domain person shipping small sites;
+  same shape as this project (the domain is both identity and host).
 
 The shared thread: a single person can text an idea to a coding agent and have a
 whole small site built and deployed. Low ceremony, high output, deliberately
