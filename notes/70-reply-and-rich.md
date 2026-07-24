@@ -67,10 +67,18 @@ Read the repo. Findings that shape the build:
   handle→DID→PDS, harvest own repo via `listRecords` (app.bsky.feed.post, ~40
   pages), tokenize, keep EXACTLY-ONCE grams (a repeated phrase is already ≥2 uses
   network-wide), then verify each against `searchPosts`. NOT firehose.
-  - **Catch:** `searchPosts` 403s on the public AppView — needs a service-account
-    token. So /rich needs a small **search-proxy Worker** (app-password, calls
-    searchPosts), even with no LLM. Not durable storage, just a proxy holding one
-    secret.
+  - **searchPosts auth (resolved):** the *anonymous* public AppView 403s search
+    (verified: `public.api.bsky.app` → 403). mino works around this with a shared
+    service-account app-password token in `b/worker.js` (`serviceToken()` =
+    plain `createSession` → Bearer), because their tool searches on behalf of
+    anonymous visitors typing in ANY handle.
+  - **We don't need that.** /rich is only for Rob, who is ALREADY logged in via
+    the /reply OAuth session. An authed AppView call (`api.bsky.app` with the
+    session's Bearer) does search. So /rich verification runs CLIENT-SIDE with
+    Rob's own token — no proxy worker, no app-password, no service account.
+    (To confirm: a user-OAuth token is accepted by searchPosts just like an
+    app-password session token. Verify once OAuth is standing; fallback is a tiny
+    proxy worker if not.)
 
 - **Reply builder copyable** from `io/worker.js` `replyTracked()`: correct
   root/parent strongRefs, link facets with UTF-8 BYTE offsets (not JS string
@@ -85,12 +93,16 @@ Read the repo. Findings that shape the build:
 `scratchpad/mino-ref/`: b-unique/, b-worker.js, airchat-oauth/, airchat-worker.js,
 airchat-wrangler.jsonc, io-worker.js. (Full clone deleted — 739M → 144K.)
 
-## Open decisions (for Rob)
+## Decisions (settled with Rob)
 
-- [ ] /reply OAuth: client-side-only (my rec) vs Worker+D1?
-- [ ] /rich search-proxy Worker with an app-password service token — OK?
-- [ ] /rich judge: heuristic-only v1 (my rec)?
-- [ ] Card image style + whether style pickers are v1 or later.
+- [x] /reply OAuth: **client-side** (`@atproto/oauth-client-browser`).
+- [x] /rich: **fully client-side too**, behind the same OAuth login — Rob's own
+      session token does the searchPosts verification. No worker.
+- [x] /rich judge: **heuristic-only v1**, copy mino's `score()`, iterate after.
+- [ ] Card image style + whether style pickers are v1 or later. (open)
+
+Net: both views are static pages sharing a copied-in OAuth module. The only
+server anywhere is the redirect handler we already have.
 
 ## Attribution
 
