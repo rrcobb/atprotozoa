@@ -1,6 +1,6 @@
 // post.js — the shared "fire an arrow" core: create a Bluesky post carrying a
 // trigram's text, a link facet, and a card image. Used by both /quiver (fire as a
-// top-level post) and /reply (fire at a target post).
+// standalone post) and /launcher (fire at a target post as a reply).
 //
 // Writes go to the user's own PDS via the OAuth session's dpopFetch. Two lessons
 // copied from mino's io/worker.js reply builder: (1) reply refs need root+parent

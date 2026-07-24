@@ -24,7 +24,7 @@ import {
 
 const ORIGIN = location.origin; // https://trigrams.bisks.net (or localhost in dev)
 export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
-export const REDIRECT_URI = `${ORIGIN}/reply/`; // must be listed in client-metadata.json
+export const REDIRECT_URI = `${ORIGIN}/launcher/`; // must be listed in client-metadata.json
 const SCOPE = "atproto transition:generic";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
