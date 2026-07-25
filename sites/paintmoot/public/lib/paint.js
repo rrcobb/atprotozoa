@@ -96,11 +96,15 @@ export function attachInteraction(canvas, board, state, onMark) {
   let path = null;
   let snapshot = null;
 
+  // atproto records have no float type (only integer) — round to board-space
+  // pixels here, at the single source of pointer coordinates, so every mark
+  // built from this (path/line points, rect/ellipse x/y/w/h, text/sticker
+  // placement) is createRecord-safe.
   function toBoard(e) {
     const r = canvas.getBoundingClientRect();
     const sx = canvas.width / r.width;
     const sy = canvas.height / r.height;
-    return [(e.clientX - r.left) * sx, (e.clientY - r.top) * sy];
+    return [Math.round((e.clientX - r.left) * sx), Math.round((e.clientY - r.top) * sy)];
   }
 
   function baseMark(kind) {
