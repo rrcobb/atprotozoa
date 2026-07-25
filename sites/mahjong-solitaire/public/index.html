@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>mahjong solitaire — bisks.net</title>
+    <meta
+      name="description"
+      content="An accessible mahjong pairs game built for older phones and eyes that don't want to squint: big tiles, no dragging, no timer, undo and restart always on screen, and a 'step down a level' button for when a board's too hard."
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #555555;
+        --faint: #d8d8d8;
+        --accent: #1450b3;
+        --accent-ink: #ffffff;
+        --panel: #f4f4f4;
+        --good: #1e7d32;
+        --bad: #a3143d;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --tile-bg-a: #fffdf7;
+        --tile-bg-b: #efe5cd;
+        --tile-edge: #cdbd98;
+        --tile-border: #a6935f;
+        --tile-ink: #241f0f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111111;
+          --ink: #f0f0f0;
+          --muted: #b7b7b7;
+          --faint: #3a3a3a;
+          --accent: #6ba1ff;
+          --accent-ink: #0a1730;
+          --panel: #1b1b1b;
+          --good: #63c17a;
+          --bad: #ff8fae;
+        }
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono);
+      }
+      body {
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        font-size: 17px;
+        line-height: 1.5;
+      }
+      body.text-lg { font-size: 19px; }
+      body.text-xl { font-size: 22px; }
+
+      a { color: var(--accent); }
+
+      header {
+        padding: 0.9rem 1rem 0.3rem; text-align: center;
+      }
+      header h1 {
+        margin: 0 0 0.2rem; font-size: 1.3rem; font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      header p { margin: 0; color: var(--muted); font-size: 0.85em; max-width: 34em; margin: 0 auto; }
+      header a { color: inherit; text-decoration: underline; }
+
+      details.howto {
+        max-width: 40em; margin: 0.6rem auto 0; padding: 0 1rem;
+        font-size: 0.85em; color: var(--muted);
+      }
+      details.howto summary {
+        cursor: pointer; color: var(--ink); font-weight: 600;
+        padding: 0.4rem 0; list-style: none;
+      }
+      details.howto summary::-webkit-details-marker { display: none; }
+      details.howto summary::before { content: "▸ "; }
+      details.howto[open] summary::before { content: "▾ "; }
+      details.howto ul { margin: 0.2rem 0 0.6rem; padding-left: 1.3em; }
+      details.howto li { margin-bottom: 0.3em; }
+
+      .levelbar {
+        display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem;
+        margin: 0.7rem auto 0.2rem; padding: 0 0.6rem; max-width: 46em;
+      }
+      .levelbar button {
+        font-family: var(--mono); font-size: 0.85em; font-weight: 600;
+        color: var(--ink); background: var(--panel);
+        border: 2px solid var(--faint); border-radius: 10px;
+        padding: 0.55rem 0.8rem; cursor: pointer; min-height: 48px;
+      }
+      .levelbar button.active {
+        border-color: var(--accent); color: var(--accent-ink); background: var(--accent);
+      }
+      .levelbar button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+      .toolbar {
+        display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+        gap: 0.5rem; margin: 0.55rem auto 0.3rem; padding: 0 0.6rem; max-width: 46em;
+      }
+      .toolbar button {
+        font-family: var(--mono); font-size: 0.82em; font-weight: 600;
+        color: var(--ink); background: var(--bg); border: 2px solid var(--faint);
+        border-radius: 10px; padding: 0.5rem 0.7rem; cursor: pointer; min-height: 44px;
+      }
+      .toolbar button:hover, .levelbar button:hover { border-color: var(--accent); }
+      .toolbar button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+      .toolbar button:disabled { opacity: 0.4; cursor: default; }
+
+      #status {
+        width: 100%; text-align: center; font-size: 0.9em; color: var(--muted);
+        margin: 0.15rem 0 0.1rem; min-height: 1.3em;
+      }
+
+      .viewport {
+        flex: 1; min-height: 240px; display: flex;
+        overflow: auto; padding: 0.4rem;
+      }
+      .board-wrap { position: relative; margin: auto; }
+      .board { position: absolute; top: 0; left: 0; transform-origin: top left; }
+
+      .tile {
+        position: absolute;
+        border-radius: 9px;
+        background: linear-gradient(180deg, var(--tile-bg-a), var(--tile-bg-b));
+        border: 1.5px solid var(--tile-border);
+        color: var(--tile-ink);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        font-family: var(--mono);
+        cursor: pointer; user-select: none; padding: 0;
+        transition: transform 0.12s ease, opacity 0.22s ease, box-shadow 0.12s ease;
+      }
+      .tile .num {
+        position: absolute; top: 3px; left: 5px; font-weight: 800; font-size: 0.72rem;
+      }
+      .tile .glyph { font-size: 1.7rem; line-height: 1; font-weight: 700; }
+      .tile.locked { opacity: 0.5; filter: saturate(0.55); cursor: not-allowed; }
+      .tile.selected { transform: translateY(-7px) scale(1.04); }
+      .tile.matched { opacity: 0; transform: scale(0.35); pointer-events: none; }
+      .tile.shake { animation: tileshake 0.35s; }
+      .tile.hint { animation: tilehint 0.9s ease-in-out 2; }
+      .tile:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+      @keyframes tileshake {
+        10%, 90% { transform: translateX(-3px); }
+        20%, 80% { transform: translateX(4px); }
+        30%, 50%, 70% { transform: translateX(-6px); }
+        40%, 60% { transform: translateX(6px); }
+      }
+      @keyframes tilehint {
+        0%, 100% { box-shadow: 0 0 0 3px gold; }
+        50% { box-shadow: 0 0 0 6px gold; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tile { transition: none; }
+        .tile.shake, .tile.hint { animation: none; }
+        .tile.selected { transform: none; outline: 3px dashed var(--ink); outline-offset: 3px; }
+      }
+
+      .panel {
+        max-width: 40em; margin: 0.3rem auto 0.7rem; padding: 0.9rem 1.1rem;
+        background: var(--panel); border-radius: 12px; text-align: center;
+      }
+      .panel h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+      .panel p { margin: 0 0 0.7rem; color: var(--muted); font-size: 0.9em; }
+      .panel .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+      .panel button {
+        font-family: var(--mono); font-size: 0.9em; font-weight: 700;
+        border-radius: 10px; padding: 0.6rem 0.9rem; cursor: pointer; min-height: 46px;
+        border: 2px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+      }
+      .panel button.secondary { background: var(--bg); color: var(--ink); border-color: var(--faint); }
+      .panel button:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+      #stuckPanel { border: 2px solid var(--bad); }
+      #winPanel { border: 2px solid var(--good); }
+
+      footer {
+        max-width: 46em; margin: 0 auto 1.6rem; padding: 0.6rem 1.1rem 0;
+        color: var(--muted); font-size: 0.72rem; text-align: center;
+      }
+      footer a { color: var(--ink); }
+
+      #toast {
+        position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%);
+        background: var(--ink); color: var(--bg); padding: 0.6rem 1rem;
+        border-radius: 10px; font-size: 0.85em; font-weight: 600;
+        opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+        max-width: 88vw; text-align: center; z-index: 10;
+      }
+      #toast.show { opacity: 1; }
+
+      .sr-only {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>mahjong solitaire</h1>
+      <p>
+        tap two matching tiles to clear them. no dragging, no timer, no rush —
+        built for older phones and eyes that don't want to squint.
+      </p>
+    </header>
+
+    <details class="howto">
+      <summary>how to play</summary>
+      <ul>
+        <li>tap a tile to pick it, then tap its matching twin to clear both.</li>
+        <li>a tile is playable only when nothing sits on top of it and at least one
+          side (left or right) is open — playable tiles have a blue outline and sit
+          up a little; locked tiles look dim and flat.</li>
+        <li>stuck? the toolbar always has <b>undo</b> (rewind your last move) and
+          <b>restart</b> (reset this exact board). if no moves are left, a panel
+          offers a shuffle, or a button to step down to an easier level.</li>
+        <li>pick a level any time from the row of buttons above the board — easier
+          levels have fewer tiles and less stacking.</li>
+      </ul>
+    </details>
+
+    <div class="levelbar" id="levelbar" role="group" aria-label="difficulty level"></div>
+
+    <div class="toolbar">
+      <button id="hintBtn" type="button">hint</button>
+      <button id="undoBtn" type="button">undo</button>
+      <button id="restartBtn" type="button">restart</button>
+      <button id="dealBtn" type="button">new deal</button>
+      <button id="textBtn" type="button">bigger text</button>
+      <button id="soundBtn" type="button">sound: on</button>
+    </div>
+    <div id="status" role="status" aria-live="polite"></div>
+
+    <div class="viewport" id="viewport">
+      <div class="board-wrap" id="boardWrap">
+        <div class="board" id="board"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="stuckPanel" hidden>
+      <h2>no moves left</h2>
+      <p>every tile left is either covered or boxed in on both sides. that's normal — pick one:</p>
+      <div class="actions">
+        <button type="button" id="stuckShuffle">shuffle remaining tiles</button>
+        <button type="button" class="secondary" id="stuckUndo">undo last move</button>
+        <button type="button" class="secondary" id="stuckRestart">restart this board</button>
+        <button type="button" class="secondary" id="stuckDown">step down a level</button>
+      </div>
+    </div>
+
+    <div class="panel" id="winPanel" hidden>
+      <h2 id="winHeading">all matched!</h2>
+      <p>nicely done. play it again, or try the next level up.</p>
+      <div class="actions">
+        <button type="button" id="winAgain">play again</button>
+        <button type="button" class="secondary" id="winNext">next level</button>
+      </div>
+    </div>
+
+    <footer>
+      untimed, no dragging, guaranteed-solvable deals. built for
+      <a href="https://bsky.app/profile/heartpunk.com" target="_blank" rel="noopener">@heartpunk.com</a>
+      by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> &middot;
+      <a href="https://bisks.net">bisks.net</a>
+    </footer>
+
+    <div id="toast" role="status" aria-live="assertive"></div>
+
+    <script>
+      "use strict";
+
+      // ---------- geometry ----------
+      // Grid coordinates are in half-tile steps: adjacent same-layer tiles are
+      // 2 apart (touching). Higher layers are nested rectangles inset by at
+      // least one tile (margin >= 2) from the layer below, which guarantees
+      // the whole board is always clearable top layer first, then the next,
+      // etc. (verified with a randomized simulation before shipping this).
+      function rect(layer, cols, rows, x0, y0, step) {
+        step = step || 2;
+        const out = [];
+        for (let i = 0; i < cols; i++) {
+          for (let j = 0; j < rows; j++) {
+            out.push({ layer: layer, gx: x0 + i * step, gy: y0 + j * step });
+          }
+        }
+        return out;
+      }
+
+      const LEVELS = [
+        {
+          name: "1 · Wide Open",
+          blurb: "one layer, short rows — the gentlest start.",
+          layers: [rect(0, 5, 6, 0, 0)],
+        },
+        {
+          name: "2 · Long Rows",
+          blurb: "one layer, longer rows — clear from the ends inward.",
+          layers: [rect(0, 6, 7, 0, 0)],
+        },
+        {
+          name: "3 · Rising Steps",
+          blurb: "two layers — clear the top step first.",
+          layers: [rect(0, 7, 7, 0, 0), rect(1, 5, 3, 2, 3)],
+        },
+        {
+          name: "4 · Turtle Peak",
+          blurb: "three layers, the full climb.",
+          layers: [rect(0, 7, 8, 0, 0), rect(1, 5, 4, 2, 3), rect(2, 3, 2, 4, 5)],
+        },
+      ];
+
+      // ---------- tile face palette ----------
+      // Every type is coded three redundant ways (shape + color + number or
+      // unique glyph) so matching never depends on color alone.
+      const SUIT_DEFS = [
+        { shape: "●", color: "#b3261e", name: "circle" }, // ●
+        { shape: "■", color: "#1450b3", name: "square" }, // ■
+        { shape: "▲", color: "#1e7d32", name: "triangle" }, // ▲
+      ];
+      const HONOR_DEFS = [
+        { shape: "★", color: "#8a6d00", name: "gold star" }, // ★
+        { shape: "♥", color: "#a3143d", name: "red heart" }, // ♥
+        { shape: "♣", color: "#0e7a6b", name: "teal clover" }, // ♣
+        { shape: "♦", color: "#6a3aa0", name: "violet diamond" }, // ♦
+        { shape: "☀", color: "#b05a00", name: "orange sun" }, // ☀
+        { shape: "☾", color: "#2d3a8c", name: "indigo moon" }, // ☾
+      ];
+      function buildTypes() {
+        const types = [];
+        for (const s of SUIT_DEFS) {
+          for (let n = 1; n <= 9; n++) {
+            types.push({ id: s.name + n, shape: s.shape, num: n, color: s.color, label: n + " " + s.name });
+          }
+        }
+        for (const h of HONOR_DEFS) {
+          types.push({ id: h.name, shape: h.shape, num: null, color: h.color, label: h.name });
+        }
+        return types;
+      }
+      const TYPES = buildTypes();
+
+      function shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const t = a[i]; a[i] = a[j]; a[j] = t;
+        }
+        return a;
+      }
+
+      // ---------- freedom rules ----------
+      function key(l, x, y) { return l + "_" + x + "_" + y; }
+      function isFree(t, occSet) {
+        const covered =
+          occSet.has(key(t.layer + 1, t.gx, t.gy)) ||
+          occSet.has(key(t.layer + 1, t.gx - 1, t.gy)) ||
+          occSet.has(key(t.layer + 1, t.gx + 1, t.gy)) ||
+          occSet.has(key(t.layer + 1, t.gx, t.gy - 1)) ||
+          occSet.has(key(t.layer + 1, t.gx, t.gy + 1)) ||
+          occSet.has(key(t.layer + 1, t.gx - 1, t.gy - 1)) ||
+          occSet.has(key(t.layer + 1, t.gx + 1, t.gy + 1)) ||
+          occSet.has(key(t.layer + 1, t.gx - 1, t.gy + 1)) ||
+          occSet.has(key(t.layer + 1, t.gx + 1, t.gy - 1));
+        const leftBlocked = occSet.has(key(t.layer, t.gx - 2, t.gy));
+        const rightBlocked = occSet.has(key(t.layer, t.gx + 2, t.gy));
+        return !covered && (!leftBlocked || !rightBlocked);
+      }
+      function pickPairBiased(free) {
+        let maxLayer = -Infinity;
+        for (const t of free) if (t.layer > maxLayer) maxLayer = t.layer;
+        const top = free.filter((t) => t.layer === maxLayer);
+        const pool = top.length >= 2 ? top : free;
+        const a = pool[Math.floor(Math.random() * pool.length)];
+        let bPool = pool.filter((t) => t.id !== a.id);
+        if (bPool.length === 0) bPool = free.filter((t) => t.id !== a.id);
+        const b = bPool[Math.floor(Math.random() * bPool.length)];
+        return [a, b];
+      }
+
+      // Assigns .type to every tile such that AT LEAST ONE full clearing
+      // order exists: simulate removing free tiles top-layer-first (which is
+      // always possible for our nested-rectangle boards), and hand each
+      // removed pair the same tile type.
+      function simulateAssignTypes(tiles) {
+        const pool = shuffle(TYPES);
+        let cursor = 0;
+        let remaining = tiles.slice();
+        let guard = 0;
+        while (remaining.length > 0 && guard++ < 20000) {
+          const occSet = new Set(remaining.map((t) => key(t.layer, t.gx, t.gy)));
+          let free = remaining.filter((t) => isFree(t, occSet));
+          if (free.length < 2) free = remaining.slice();
+          if (free.length < 2) break;
+          const pair = pickPairBiased(free);
+          const type = pool[cursor % pool.length]; cursor++;
+          pair[0].type = type; pair[1].type = type;
+          remaining = remaining.filter((t) => t !== pair[0] && t !== pair[1]);
+        }
+        remaining.forEach((t) => { t.type = pool[cursor % pool.length]; cursor++; });
+      }
+
+      // ---------- pixel layout ----------
+      const TW = 64, TH = 88;
+      const STEP_X = TW / 2, STEP_Y = TH / 2;
+      const LAYER_DX = -6, LAYER_DY = -8;
+
+      function layoutBoard(tiles) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const raw = tiles.map((t) => {
+          const x = t.gx * STEP_X + t.layer * LAYER_DX;
+          const y = t.gy * STEP_Y + t.layer * LAYER_DY;
+          return { t: t, x: x, y: y };
+        });
+        raw.forEach((r) => {
+          if (r.x < minX) minX = r.x;
+          if (r.y < minY) minY = r.y;
+          if (r.x + TW > maxX) maxX = r.x + TW;
+          if (r.y + TH > maxY) maxY = r.y + TH;
+        });
+        raw.forEach((r) => { r.t.px = r.x - minX; r.t.py = r.y - minY; });
+        return { width: maxX - minX, height: maxY - minY };
+      }
+
+      // ---------- game state ----------
+      let nextId = 1;
+      const state = {
+        levelIdx: 0,
+        tiles: [],
+        initialTiles: null,
+        boardSize: { width: 0, height: 0 },
+        selectedId: null,
+        history: [],
+      };
+      const tileEls = new Map();
+
+      function generateBoard(levelIdx) {
+        const level = LEVELS[levelIdx];
+        const positions = level.layers.reduce((acc, l) => acc.concat(l), []);
+        const tiles = positions.map((p) => ({
+          id: "t" + nextId++,
+          layer: p.layer, gx: p.gx, gy: p.gy,
+          type: null, matched: false,
+        }));
+        simulateAssignTypes(tiles);
+        return tiles;
+      }
+
+      function cloneTiles(tiles) {
+        return tiles.map((t) => ({ id: t.id, layer: t.layer, gx: t.gx, gy: t.gy, type: t.type, matched: false, px: t.px, py: t.py }));
+      }
+
+      function newDeal(levelIdx) {
+        state.levelIdx = levelIdx;
+        state.tiles = generateBoard(levelIdx);
+        state.boardSize = layoutBoard(state.tiles);
+        state.initialTiles = cloneTiles(state.tiles);
+        state.selectedId = null;
+        state.history = [];
+        buildDom();
+        fitBoard();
+        render();
+        announce(LEVELS[levelIdx].name + " — new deal, " + state.tiles.length / 2 + " pairs.");
+      }
+
+      function restart() {
+        state.tiles = cloneTiles(state.initialTiles);
+        state.selectedId = null;
+        state.history = [];
+        buildDom();
+        fitBoard();
+        render();
+        announce("board restarted.");
+      }
+
+      function undo() {
+        if (state.history.length === 0) { toast("nothing to undo yet."); return; }
+        const pair = state.history.pop();
+        for (const t of state.tiles) {
+          if (t.id === pair[0] || t.id === pair[1]) t.matched = false;
+        }
+        state.selectedId = null;
+        render();
+        announce("last move undone.");
+      }
+
+      function shuffleRemaining() {
+        const remaining = state.tiles.filter((t) => !t.matched);
+        if (remaining.length < 2) return;
+        simulateAssignTypes(remaining);
+        state.selectedId = null;
+        render();
+        announce("remaining tiles shuffled.");
+      }
+
+      function stepDown() {
+        if (state.levelIdx === 0) { toast("already on the easiest level."); return; }
+        selectLevel(state.levelIdx - 1);
+      }
+
+      function stepUp() {
+        if (state.levelIdx >= LEVELS.length - 1) { restart(); return; }
+        selectLevel(state.levelIdx + 1);
+      }
+
+      function selectLevel(idx) {
+        hidePanels();
+        newDeal(idx);
+        renderLevelBar();
+      }
+
+      // ---------- freedom / stuck / win ----------
+      function computeFree() {
+        const occ = state.tiles.filter((t) => !t.matched);
+        const occSet = new Set(occ.map((t) => key(t.layer, t.gx, t.gy)));
+        for (const t of occ) t._free = isFree(t, occSet);
+      }
+
+      function hasAnyMove() {
+        const free = state.tiles.filter((t) => !t.matched && t._free);
+        const counts = new Map();
+        for (const t of free) counts.set(t.type.id, (counts.get(t.type.id) || 0) + 1);
+        for (const c of counts.values()) if (c >= 2) return true;
+        return false;
+      }
+
+      function hidePanels() {
+        document.getElementById("stuckPanel").hidden = true;
+        document.getElementById("winPanel").hidden = true;
+      }
+
+      // ---------- DOM ----------
+      const boardEl = document.getElementById("board");
+      const boardWrapEl = document.getElementById("boardWrap");
+      const viewportEl = document.getElementById("viewport");
+
+      function tileFaceHtml(type) {
+        if (type.num != null) {
+          return (
+            '<span class="num" style="color:' + type.color + '">' + type.num + "</span>" +
+            '<span class="glyph" style="color:' + type.color + '">' + type.shape + "</span>"
+          );
+        }
+        return '<span class="glyph" style="color:' + type.color + '">' + type.shape + "</span>";
+      }
+
+      function buildDom() {
+        boardEl.innerHTML = "";
+        tileEls.clear();
+        const sorted = state.tiles.slice().sort((a, b) => a.gy - b.gy || a.gx - b.gx || a.layer - b.layer);
+        for (const t of sorted) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "tile";
+          btn.style.width = TW + "px";
+          btn.style.height = TH + "px";
+          btn.style.left = t.px + "px";
+          btn.style.top = t.py + "px";
+          btn.addEventListener("click", (function (id) { return function () { onTileClick(id); }; })(t.id));
+          boardEl.appendChild(btn);
+          tileEls.set(t.id, btn);
+        }
+        boardEl.style.width = state.boardSize.width + "px";
+        boardEl.style.height = state.boardSize.height + "px";
+      }
+
+      function render() {
+        computeFree();
+        let matchedCount = 0;
+        for (const t of state.tiles) {
+          const el = tileEls.get(t.id);
+          if (!el) continue;
+          if (t.matched) {
+            el.classList.add("matched");
+            el.setAttribute("aria-hidden", "true");
+            el.tabIndex = -1;
+            el.disabled = true;
+            matchedCount++;
+            continue;
+          }
+          el.classList.remove("matched");
+          el.removeAttribute("aria-hidden");
+          el.tabIndex = 0;
+          el.disabled = false;
+          el.classList.toggle("free", !!t._free);
+          el.classList.toggle("locked", !t._free);
+          el.classList.toggle("selected", state.selectedId === t.id);
+          const depth = 3 + t.layer * 2;
+          const blur = 5 + t.layer * 3;
+          el.style.boxShadow = t._free
+            ? "0 " + depth + "px 0 var(--tile-edge), 0 0 0 2.5px var(--accent), 0 " + (depth + 3) + "px " + blur + "px rgba(0,0,0,.32)"
+            : "0 " + depth + "px 0 var(--tile-edge), 0 " + (depth + 2) + "px " + blur + "px rgba(0,0,0,.2)";
+          el.innerHTML = tileFaceHtml(t.type);
+          const stateWord = t._free ? "free to play" : "not free yet";
+          const selWord = state.selectedId === t.id ? ", selected" : "";
+          el.setAttribute("aria-label", t.type.label + " tile, layer " + (t.layer + 1) + ", " + stateWord + selWord);
+        }
+        const total = state.tiles.length;
+        const pairsLeft = (total - matchedCount) / 2;
+        const statusEl = document.getElementById("status");
+        if (matchedCount === total) {
+          statusEl.textContent = "all " + total / 2 + " pairs matched!";
+        } else {
+          statusEl.textContent = pairsLeft + " pair" + (pairsLeft === 1 ? "" : "s") + " left · " + LEVELS[state.levelIdx].blurb;
+        }
+        document.getElementById("undoBtn").disabled = state.history.length === 0;
+
+        if (matchedCount === total) {
+          showWin();
+        } else if (!hasAnyMove()) {
+          showStuck();
+        } else {
+          hidePanels();
+        }
+      }
+
+      function showStuck() {
+        document.getElementById("winPanel").hidden = true;
+        document.getElementById("stuckPanel").hidden = false;
+      }
+      function showWin() {
+        document.getElementById("stuckPanel").hidden = true;
+        const panel = document.getElementById("winPanel");
+        panel.hidden = false;
+        document.getElementById("winNext").textContent =
+          state.levelIdx >= LEVELS.length - 1 ? "play again" : "next level";
+        playSound("win");
+        announce("all pairs matched! nice work.");
+      }
+
+      // ---------- interaction ----------
+      function onTileClick(id) {
+        const t = state.tiles.find((x) => x.id === id);
+        if (!t || t.matched) return;
+        computeFree();
+        if (!t._free) {
+          toast("that tile's covered or boxed in — not playable yet.");
+          shakeTile(id);
+          return;
+        }
+        if (state.selectedId === id) {
+          state.selectedId = null;
+          render();
+          return;
+        }
+        if (state.selectedId == null) {
+          state.selectedId = id;
+          render();
+          return;
+        }
+        const other = state.tiles.find((x) => x.id === state.selectedId);
+        if (other && other.type.id === t.type.id) {
+          other.matched = true;
+          t.matched = true;
+          state.history.push([other.id, t.id]);
+          state.selectedId = null;
+          playSound("match");
+          render();
+          if (!state.tiles.every((x) => x.matched)) {
+            announce("matched " + other.type.label + ".");
+          }
+        } else {
+          playSound("no");
+          shakeTile(other.id);
+          shakeTile(id);
+          state.selectedId = id;
+          render();
+          announce("not a match — try again.");
+        }
+      }
+
+      function shakeTile(id) {
+        const el = tileEls.get(id);
+        if (!el) return;
+        el.classList.remove("shake");
+        void el.offsetWidth;
+        el.classList.add("shake");
+        setTimeout(() => el.classList.remove("shake"), 400);
+      }
+
+      function hint() {
+        computeFree();
+        const free = state.tiles.filter((t) => !t.matched && t._free);
+        const byType = new Map();
+        for (const t of free) {
+          const arr = byType.get(t.type.id) || [];
+          arr.push(t);
+          byType.set(t.type.id, arr);
+        }
+        for (const arr of byType.values()) {
+          if (arr.length >= 2) {
+            [arr[0], arr[1]].forEach((t) => {
+              const el = tileEls.get(t.id);
+              if (!el) return;
+              el.classList.remove("hint");
+              void el.offsetWidth;
+              el.classList.add("hint");
+              setTimeout(() => el.classList.remove("hint"), 1900);
+            });
+            announce("hint: try the two highlighted tiles.");
+            return;
+          }
+        }
+        toast("no matching pair is free right now — try shuffle or undo.");
+      }
+
+      // ---------- scale to fit ----------
+      function fitBoard() {
+        const availW = viewportEl.clientWidth - 4;
+        const availH = viewportEl.clientHeight - 4;
+        const natW = state.boardSize.width || 1;
+        const natH = state.boardSize.height || 1;
+        let scale = Math.min(availW / natW, availH / natH);
+        // Never shrink tiles past a legible/tappable minimum — if the board still
+        // doesn't fit at that size, the viewport scrolls instead (overflow: auto).
+        scale = Math.max(0.55, Math.min(scale, 2.2));
+        boardEl.style.transform = "scale(" + scale + ")";
+        boardWrapEl.style.width = natW * scale + "px";
+        boardWrapEl.style.height = natH * scale + "px";
+      }
+      let resizeT = null;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeT);
+        resizeT = setTimeout(fitBoard, 120);
+      });
+      window.addEventListener("orientationchange", () => setTimeout(fitBoard, 200));
+
+      // ---------- level bar ----------
+      function renderLevelBar() {
+        const bar = document.getElementById("levelbar");
+        bar.innerHTML = "";
+        LEVELS.forEach((lvl, i) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = lvl.name;
+          b.className = i === state.levelIdx ? "active" : "";
+          b.setAttribute("aria-pressed", i === state.levelIdx ? "true" : "false");
+          b.addEventListener("click", () => selectLevel(i));
+          bar.appendChild(b);
+        });
+      }
+
+      // ---------- sound ----------
+      let soundOn = localStorage.getItem("mahjong-sound") !== "off";
+      let audioCtx = null;
+      function playSound(kind) {
+        if (!soundOn) return;
+        try {
+          if (!audioCtx) {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return;
+            audioCtx = new Ctx();
+          }
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          if (kind === "match") {
+            osc.frequency.setValueAtTime(660, now);
+            osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+            gain.gain.setValueAtTime(0.09, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+            osc.start(now); osc.stop(now + 0.24);
+          } else if (kind === "no") {
+            osc.frequency.setValueAtTime(180, now);
+            gain.gain.setValueAtTime(0.07, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+            osc.start(now); osc.stop(now + 0.2);
+          } else if (kind === "win") {
+            [523, 659, 784, 1046].forEach((f, i) => {
+              const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+              o.connect(g); g.connect(audioCtx.destination);
+              const t0 = now + i * 0.12;
+              o.frequency.setValueAtTime(f, t0);
+              g.gain.setValueAtTime(0.08, t0);
+              g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.3);
+              o.start(t0); o.stop(t0 + 0.32);
+            });
+          }
+        } catch (e) { /* audio unsupported — silently skip */ }
+      }
+
+      // ---------- toast + live region ----------
+      let toastT = null;
+      function toast(msg) {
+        const el = document.getElementById("toast");
+        el.textContent = msg;
+        el.classList.add("show");
+        clearTimeout(toastT);
+        toastT = setTimeout(() => el.classList.remove("show"), 2200);
+      }
+      function announce(msg) {
+        toast(msg);
+      }
+
+      // ---------- text size ----------
+      const sizes = ["", "text-lg", "text-xl"];
+      let sizeIdx = Math.max(0, sizes.indexOf(localStorage.getItem("mahjong-textsize") || ""));
+      function applyTextSize() {
+        document.body.classList.remove("text-lg", "text-xl");
+        if (sizes[sizeIdx]) document.body.classList.add(sizes[sizeIdx]);
+        const labels = ["bigger text", "biggest text", "normal text"];
+        document.getElementById("textBtn").textContent = labels[sizeIdx];
+      }
+      document.getElementById("textBtn").addEventListener("click", () => {
+        sizeIdx = (sizeIdx + 1) % sizes.length;
+        localStorage.setItem("mahjong-textsize", sizes[sizeIdx]);
+        applyTextSize();
+        fitBoard();
+      });
+
+      document.getElementById("soundBtn").addEventListener("click", () => {
+        soundOn = !soundOn;
+        localStorage.setItem("mahjong-sound", soundOn ? "on" : "off");
+        document.getElementById("soundBtn").textContent = "sound: " + (soundOn ? "on" : "off");
+      });
+
+      // ---------- wire up ----------
+      document.getElementById("hintBtn").addEventListener("click", hint);
+      document.getElementById("undoBtn").addEventListener("click", undo);
+      document.getElementById("restartBtn").addEventListener("click", restart);
+      document.getElementById("dealBtn").addEventListener("click", () => newDeal(state.levelIdx));
+      document.getElementById("stuckShuffle").addEventListener("click", shuffleRemaining);
+      document.getElementById("stuckUndo").addEventListener("click", undo);
+      document.getElementById("stuckRestart").addEventListener("click", restart);
+      document.getElementById("stuckDown").addEventListener("click", stepDown);
+      document.getElementById("winAgain").addEventListener("click", restart);
+      document.getElementById("winNext").addEventListener("click", stepUp);
+
+      applyTextSize();
+      document.getElementById("soundBtn").textContent = "sound: " + (soundOn ? "on" : "off");
+      newDeal(0);
+      renderLevelBar();
+    </script>
+  </body>
+</html>
