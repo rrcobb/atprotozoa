@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>immortals — be immortalized — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter your Bluesky handle to be immortalized. We resolve the handle, pull the profile and greatest-hits posts from Bluesky's public AppView, and raise a marble-and-gold monument to the account — enshrined for all time at immortals.bisks.net/<handle>."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://immortals.bisks.net/" />
+    <meta property="og:title" content="immortals — be immortalized" />
+    <meta
+      property="og:description"
+      content="Enter a Bluesky handle and a marble-and-gold monument rises: avatar enshrined, greatest-hits posts inscribed, immortalized for all time. It's a loving bit."
+    />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+
+    <style>
+      /* Reverent hall-of-fame look: cold marble, warm gold, an inscribed
+         serif for the monument copy and a plain mono for the machinery. One
+         theme only — bright gallery marble — and we never toggle; the
+         monument owns the page. */
+      :root {
+        --marble: #f4f1ea;
+        --marble-2: #e9e4d8;
+        --stone: #2a2620;
+        --stone-soft: #57503f;
+        --gold: #b08d2f;
+        --gold-bright: #d9b451;
+        --gold-deep: #7c611c;
+        --line: #d7cfbe;
+        --shadow: rgba(40, 33, 15, 0.18);
+        --serif: "Cormorant Garamond", "Hoefler Text", "Baskerville",
+          "Times New Roman", Georgia, serif;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+          monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background:
+          radial-gradient(120% 80% at 50% -10%, #fbf9f4 0%, var(--marble) 46%, var(--marble-2) 100%),
+          var(--marble);
+        color: var(--stone);
+        font-family: var(--serif);
+        font-size: 19px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      /* faint veined marble overlay */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.5;
+        background:
+          repeating-linear-gradient(115deg, transparent 0 42px, rgba(120,110,84,0.035) 42px 43px),
+          repeating-linear-gradient(200deg, transparent 0 70px, rgba(120,110,84,0.03) 70px 71px);
+        z-index: 0;
+      }
+      .wrap {
+        position: relative;
+        z-index: 1;
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 54px 22px 90px;
+      }
+      a { color: var(--gold-deep); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      /* ── the enter view ─────────────────────────────────────────── */
+      .enter { text-align: center; padding-top: 6vh; }
+      .crest {
+        font-size: 2.1rem;
+        color: var(--gold);
+        letter-spacing: 0.5em;
+        margin: 0 0 6px;
+        text-indent: 0.5em;
+      }
+      .enter h1 {
+        font-size: clamp(2.6rem, 8vw, 4.4rem);
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0 0 4px;
+      }
+      .enter .sub {
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--stone-soft);
+        margin: 0 0 40px;
+      }
+      .enter .lede {
+        font-size: 1.5rem;
+        color: var(--stone-soft);
+        font-style: italic;
+        max-width: 30ch;
+        margin: 0 auto 34px;
+      }
+      form {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: 520px;
+        margin: 0 auto 14px;
+      }
+      input[type="text"] {
+        flex: 1 1 300px;
+        min-width: 0;
+        font-family: var(--mono);
+        font-size: 1rem;
+        text-align: center;
+        padding: 14px 16px;
+        border: 1px solid var(--gold);
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--stone);
+        letter-spacing: 0.04em;
+      }
+      input[type="text"]:focus {
+        outline: none;
+        border-color: var(--gold-deep);
+        box-shadow: 0 0 0 3px rgba(176, 141, 47, 0.18);
+      }
+      button {
+        font-family: var(--mono);
+        font-size: 0.86rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        padding: 14px 26px;
+        border: 1px solid var(--gold-deep);
+        background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+        color: #3a2f0c;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button:hover { background: linear-gradient(180deg, #e6c667, var(--gold-bright)); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .try {
+        font-family: var(--mono);
+        color: var(--stone-soft);
+        font-size: 0.78rem;
+        letter-spacing: 0.05em;
+        margin: 6px 0 0;
+      }
+      .try a { cursor: pointer; }
+
+      .status {
+        min-height: 1.4em;
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--stone-soft);
+        margin: 26px 0 0;
+        text-align: center;
+      }
+      .status.err { color: #9a3b23; }
+
+      /* ── the monument ───────────────────────────────────────────── */
+      .monument { display: none; }
+      .monument.show { display: block; animation: rise 0.7s ease both; }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(18px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      .plinth {
+        text-align: center;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--gold);
+        background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.15));
+        box-shadow: 0 24px 60px -30px var(--shadow);
+        padding: 44px 28px 40px;
+      }
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+        color: var(--gold-deep);
+        margin: 0 0 22px;
+      }
+      .bust {
+        width: 168px;
+        height: 168px;
+        margin: 0 auto 8px;
+        border-radius: 50%;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--marble-2);
+        border: 3px solid var(--gold);
+        box-shadow:
+          0 0 0 8px rgba(255, 255, 255, 0.45),
+          0 0 0 9px var(--line),
+          0 18px 40px -18px var(--shadow);
+      }
+      .laurel {
+        font-size: 1.5rem;
+        color: var(--gold);
+        letter-spacing: 0.3em;
+        margin: 10px 0 2px;
+      }
+      .name {
+        font-size: clamp(2.2rem, 7vw, 3.4rem);
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        margin: 6px 0 2px;
+        line-height: 1.05;
+      }
+      .handle {
+        font-family: var(--mono);
+        font-size: 0.9rem;
+        letter-spacing: 0.08em;
+        color: var(--stone-soft);
+        margin: 0 0 18px;
+      }
+      .reign {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: var(--gold-deep);
+        margin: 0 0 20px;
+      }
+      .epitaph {
+        font-size: 1.5rem;
+        font-style: italic;
+        color: var(--stone-soft);
+        max-width: 46ch;
+        margin: 0 auto 26px;
+      }
+      .rites {
+        display: flex;
+        justify-content: center;
+        gap: 0;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        max-width: 520px;
+        margin: 0 auto;
+      }
+      .rite {
+        flex: 1 1 0;
+        min-width: 90px;
+        padding: 16px 8px;
+      }
+      .rite + .rite { border-left: 1px solid var(--line); }
+      .rite .num {
+        font-size: 1.9rem;
+        font-weight: 600;
+        color: var(--stone);
+        line-height: 1;
+      }
+      .rite .lbl {
+        font-family: var(--mono);
+        font-size: 0.64rem;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--stone-soft);
+        margin-top: 6px;
+      }
+
+      /* inscribed greatest hits */
+      .hall-title {
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        letter-spacing: 0.4em;
+        text-transform: uppercase;
+        color: var(--gold-deep);
+        margin: 48px 0 22px;
+      }
+      .hall-title::before,
+      .hall-title::after {
+        content: "❧";
+        color: var(--gold);
+        margin: 0 12px;
+        font-size: 0.9rem;
+      }
+      .tablet {
+        position: relative;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.2));
+        box-shadow: 0 14px 34px -26px var(--shadow);
+        padding: 26px 30px 22px;
+        margin: 0 0 20px;
+      }
+      .tablet .ord {
+        position: absolute;
+        top: 14px;
+        right: 18px;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        letter-spacing: 0.2em;
+        color: var(--gold);
+      }
+      .tablet blockquote {
+        margin: 0 0 14px;
+        font-size: 1.42rem;
+        line-height: 1.42;
+        color: var(--stone);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .tablet .foot {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        color: var(--stone-soft);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .tablet .foot .meta { color: var(--gold-deep); }
+
+      .decree {
+        text-align: center;
+        font-style: italic;
+        font-size: 1.25rem;
+        color: var(--stone-soft);
+        margin: 40px auto 6px;
+        max-width: 44ch;
+      }
+      .actions {
+        text-align: center;
+        margin: 26px 0 0;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        letter-spacing: 0.06em;
+      }
+      .actions a { margin: 0 10px; cursor: pointer; }
+
+      footer {
+        margin-top: 64px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--stone-soft);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        letter-spacing: 0.04em;
+        line-height: 1.7;
+        text-align: center;
+      }
+
+      @media (max-width: 560px) {
+        body { font-size: 17px; }
+        .bust { width: 132px; height: 132px; }
+        .tablet blockquote { font-size: 1.24rem; }
+        .rite .num { font-size: 1.5rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <!-- ENTER VIEW -->
+      <section class="enter" id="enter">
+        <div class="crest">⚜</div>
+        <h1>Immortals</h1>
+        <p class="sub">bisks.net · a hall of the ever-posting</p>
+        <p class="lede">Enter your Bluesky handle to be immortalized.</p>
+
+        <form id="form">
+          <input
+            id="handle"
+            type="text"
+            placeholder="handle.bsky.social"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+          />
+          <button id="go" type="submit">Immortalize</button>
+        </form>
+        <p class="try">
+          or gaze upon:
+          <a data-h="minormobius.bsky.social">minormobius</a> ·
+          <a data-h="pfrazee.com">pfrazee.com</a> ·
+          <a data-h="bisks.net">bisks.net</a>
+        </p>
+
+        <p id="status" class="status"></p>
+      </section>
+
+      <!-- MONUMENT VIEW -->
+      <section class="monument" id="monument">
+        <div class="plinth">
+          <p class="eyebrow">Immortalized for all time</p>
+          <div class="bust" id="bust"></div>
+          <div class="laurel">🌿 &nbsp;❦&nbsp; 🌿</div>
+          <h2 class="name" id="mName"></h2>
+          <p class="handle" id="mHandle"></p>
+          <p class="reign" id="mReign"></p>
+          <p class="epitaph" id="mEpitaph"></p>
+          <div class="rites" id="mRites"></div>
+        </div>
+
+        <p class="hall-title">Their Words, Inscribed</p>
+        <div id="mHits"></div>
+
+        <p class="decree" id="mDecree"></p>
+
+        <p class="actions">
+          <a id="copyLink">⧉ copy this monument's link</a> ·
+          <a id="another">✦ immortalize another</a>
+        </p>
+      </section>
+
+      <footer>
+        raised from Bluesky's public AppView (resolveHandle · getProfile ·
+        getAuthorFeed), no login, no records altered<br />
+        requested by
+        <a href="https://bsky.app/profile/minormobius.bsky.social">@minormobius.bsky.social</a>
+        via
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        · one of the little sites at <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import {
+        immortalize,
+        cleanHandle,
+        reignNumeral,
+        foundingYear,
+      } from "./lib/immortal.js";
+
+      const $ = (id) => document.getElementById(id);
+      const enter = $("enter");
+      const monument = $("monument");
+      const form = $("form");
+      const handleInput = $("handle");
+      const go = $("go");
+      const status = $("status");
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      const nf = (n) => n.toLocaleString("en-US");
+
+      function setStatus(msg, isErr = false) {
+        status.textContent = msg;
+        status.className = "status" + (isErr ? " err" : "");
+      }
+
+      // Grand epithets scale with a following. Nobody's not-notable here.
+      function epithet(followers) {
+        if (followers >= 100000) return "Sovereign of the Timeline";
+        if (followers >= 25000) return "Colossus of the Feed";
+        if (followers >= 5000) return "Luminary of the Realm";
+        if (followers >= 1000) return "Keeper of the Discourse";
+        if (followers >= 100) return "Voice Among the Devoted";
+        return "The Undiscovered Great";
+      }
+
+      // A reverent one-line epitaph woven from what we actually know.
+      function epitaphFor(profile) {
+        const yr = foundingYear(profile.createdAt);
+        const since = yr ? `Enshrined since the year ${yr}. ` : "";
+        const bio = (profile.description || "").trim().split("\n")[0];
+        if (bio) return `${since}“${bio}”`;
+        return `${since}Poster without equal, remembered here forever.`;
+      }
+
+      function renderMonument(data) {
+        const { profile, hits, did, scanned } = data;
+        const name = profile.displayName || profile.handle;
+        document.title = `${name} — immortalized — bisks.net`;
+
+        if (profile.avatar) $("bust").style.backgroundImage = `url("${profile.avatar}")`;
+        $("mName").textContent = name;
+        $("mHandle").textContent = "@" + profile.handle;
+
+        const { roman } = reignNumeral(did);
+        $("mReign").textContent = `${epithet(profile.followersCount || 0)} · ${roman}`;
+        $("mEpitaph").textContent = epitaphFor(profile);
+
+        const rites = [
+          [nf(profile.followersCount || 0), "devoted"],
+          [nf(profile.postsCount || 0), "utterances"],
+          [nf(profile.followsCount || 0), "kindred"],
+        ];
+        $("mRites").innerHTML = rites
+          .map(
+            ([num, lbl]) =>
+              `<div class="rite"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`,
+          )
+          .join("");
+
+        const romanSmall = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+        if (!hits.length) {
+          $("mHits").innerHTML =
+            `<div class="tablet"><blockquote>A quiet immortal. The words are few, but the legend endures.</blockquote></div>`;
+        } else {
+          $("mHits").innerHTML = hits
+            .map((h, i) => {
+              const when = foundingYear(h.createdAt);
+              const meta = [];
+              if (h.likeCount) meta.push(`${nf(h.likeCount)} ♡`);
+              if (h.repostCount) meta.push(`${nf(h.repostCount)} ↻`);
+              if (h.replyCount) meta.push(`${nf(h.replyCount)} ✎`);
+              return `
+                <div class="tablet">
+                  <span class="ord">${romanSmall[i] || i + 1}</span>
+                  <blockquote>${esc(h.text)}</blockquote>
+                  <div class="foot">
+                    <span class="meta">${meta.join("&nbsp;&nbsp;·&nbsp;&nbsp;") || "spoken into the void"}</span>
+                    ${when ? `<span>anno ${when}</span>` : ""}
+                    <a href="${esc(h.url)}" target="_blank" rel="noopener">view the original stone ↗</a>
+                  </div>
+                </div>`;
+            })
+            .join("");
+        }
+
+        $("mDecree").textContent =
+          `So it is written, from ${nf(scanned)} recorded utterances. ` +
+          `Let @${profile.handle} be remembered for all time.`;
+
+        enter.style.display = "none";
+        monument.classList.add("show");
+      }
+
+      async function run(actor, { push = true } = {}) {
+        const clean = cleanHandle(actor);
+        if (!clean) return;
+        go.disabled = true;
+        handleInput.disabled = true;
+        setStatus("raising the monument…");
+        try {
+          const data = await immortalize(clean, { onStep: (s) => setStatus(s) });
+          setStatus("");
+          renderMonument(data);
+          if (push) {
+            const url = "/" + encodeURIComponent(clean);
+            history.pushState({ handle: clean }, "", url);
+          }
+          window.scrollTo({ top: 0 });
+        } catch (err) {
+          const msg =
+            err.status === 400 || /resolve/i.test(err.message || "")
+              ? `No such immortal: “${clean}”. Check the handle?`
+              : err.message || "the marble cracked — try again";
+          setStatus(msg, true);
+          go.disabled = false;
+          handleInput.disabled = false;
+        }
+      }
+
+      // Where's the handle? Path first (/<handle>), then ?handle=, then none.
+      function handleFromLocation() {
+        const path = decodeURIComponent(location.pathname.replace(/^\/+/, "")).trim();
+        if (path && path !== "index.html") return path;
+        const q = new URLSearchParams(location.search).get("handle");
+        return q ? q.trim() : "";
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = handleInput.value.trim();
+        if (v) run(v);
+      });
+      document.querySelectorAll(".try a").forEach((a) =>
+        a.addEventListener("click", () => {
+          handleInput.value = a.dataset.h;
+          run(a.dataset.h);
+        }),
+      );
+      $("copyLink").addEventListener("click", () => {
+        navigator.clipboard?.writeText(location.href);
+        $("copyLink").textContent = "⧉ link copied";
+        setTimeout(() => ($("copyLink").textContent = "⧉ copy this monument's link"), 1600);
+      });
+      $("another").addEventListener("click", () => {
+        history.pushState({}, "", "/");
+        monument.classList.remove("show");
+        enter.style.display = "";
+        handleInput.value = "";
+        handleInput.disabled = false;
+        go.disabled = false;
+        setStatus("");
+        handleInput.focus();
+      });
+
+      // Back/forward between monuments and the entry hall.
+      window.addEventListener("popstate", () => {
+        const h = handleFromLocation();
+        if (h) {
+          run(h, { push: false });
+        } else {
+          monument.classList.remove("show");
+          enter.style.display = "";
+        }
+      });
+
+      // On load: a path or ?handle= renders that monument straight away. A bare
+      // visit to the root stays on the entry hall (no auto-render), so the
+      // landing page is an invitation, not someone else's monument.
+      const initial = handleFromLocation();
+      if (initial) run(initial, { push: false });
+    </script>
+  </body>
+</html>
