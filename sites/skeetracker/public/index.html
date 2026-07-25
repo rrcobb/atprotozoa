@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>skeetracker — a tracker that fits in a thread</title>
+    <meta
+      name="description"
+      content="A little step-sequencer tracker with custom Web Audio synths. Export a song as a minified, gzipped, base64 skeet thread — and load one back from a link."
+    />
+    <style>
+      :root {
+        --bg: #0d0f0c;
+        --panel: #14170f;
+        --line: #2a2f22;
+        --ink: #d7e6c8;
+        --muted: #7d8a6c;
+        --accent: #8ef23a;
+        --accent-dim: #4f8f2a;
+        --amber: #f2b93a;
+        --red: #f2593a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 13px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+      header h1 {
+        font-size: 1.35rem; margin: 0 0 0.25rem; font-weight: 600;
+        color: var(--accent); letter-spacing: 0.02em;
+      }
+      header p { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.85rem; }
+      header p a { color: var(--amber); }
+
+      h2 {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 1.75rem 0 0.6rem; font-weight: 600;
+      }
+      section:first-of-type h2 { margin-top: 0; }
+
+      button {
+        font-family: var(--mono); background: var(--panel); color: var(--ink);
+        border: 1px solid var(--line); border-radius: 3px; padding: 0.3rem 0.6rem;
+        cursor: pointer; font-size: 0.8rem;
+      }
+      button:hover { border-color: var(--accent-dim); }
+      button:active { transform: translateY(1px); }
+      button.primary { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+      button.primary:hover { background: #a4f562; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      input, select, textarea {
+        font-family: var(--mono); background: #0a0c08; color: var(--ink);
+        border: 1px solid var(--line); border-radius: 3px; padding: 0.3rem 0.45rem;
+        font-size: 0.8rem;
+      }
+      input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-dim); }
+
+      .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .transport {
+        display: flex; gap: 1.1rem; align-items: center; flex-wrap: wrap;
+        padding: 0.75rem; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+      .transport .field { display: flex; gap: 0.35rem; align-items: center; }
+      .transport label { color: var(--muted); font-size: 0.72rem; }
+      .transport input[type="number"] { width: 4.2rem; }
+      .transport input[type="text"] { width: 11rem; }
+      .stepper { display: flex; align-items: center; gap: 0.3rem; }
+      .stepper button { padding: 0.15rem 0.5rem; }
+      .stepper .val { min-width: 1.6rem; text-align: center; color: var(--amber); }
+
+      #insList { display: flex; flex-direction: column; gap: 0.4rem; }
+      .ins-row {
+        display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+        padding: 0.4rem 0.5rem; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 4px; font-size: 0.75rem;
+      }
+      .ins-row.active { border-color: var(--accent); }
+      .ins-row input[type="text"] { width: 8.5rem; }
+      .ins-row select { width: 6rem; }
+      .ins-row input[type="number"] { width: 4rem; }
+      .ins-row .lbl { color: var(--muted); }
+      .ins-row .del { margin-left: auto; color: var(--red); }
+
+      .pat-tabs, .order-chips { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; }
+      .pat-tabs button.active { border-color: var(--accent); color: var(--accent); }
+      .pat-tabs button.playing::after { content: " ▸"; color: var(--amber); }
+      .chip {
+        display: inline-flex; align-items: center; gap: 0.3rem;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+        padding: 0.15rem 0.3rem 0.15rem 0.5rem; font-size: 0.75rem;
+      }
+      .chip button { padding: 0 0.35rem; font-size: 0.7rem; color: var(--red); border: none; background: none; }
+
+      #gridWrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+      table#gridTable { border-collapse: collapse; width: 100%; font-size: 0.78rem; }
+      table#gridTable th {
+        position: sticky; top: 0; background: var(--panel); color: var(--muted);
+        font-weight: 600; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line);
+        text-align: left; white-space: nowrap;
+      }
+      table#gridTable td {
+        padding: 0.15rem 0.5rem; white-space: pre; cursor: pointer;
+        border-bottom: 1px solid #1a1d14;
+      }
+      td.rownum { color: var(--muted); cursor: default; user-select: none; }
+      td.cell { color: var(--ink); }
+      td.cell.empty { color: #3c4530; }
+      tr.beat td { background: #171b10; }
+      td.cell.sel { outline: 1px solid var(--accent); outline-offset: -1px; background: #1c2414; }
+      tr.playrow td { background: #26330f; }
+      tr.playrow td.sel { background: #33470f; }
+
+      #exportOut, #importPanel { display: flex; flex-direction: column; gap: 0.5rem; }
+      .chunk {
+        display: flex; gap: 0.5rem; align-items: center;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+        padding: 0.4rem 0.5rem;
+      }
+      .chunk textarea {
+        flex: 1; resize: none; height: 2.4rem; font-size: 0.72rem; color: var(--muted);
+      }
+      .chunk .n { color: var(--amber); font-size: 0.72rem; min-width: 2.2rem; }
+      .status { color: var(--muted); font-size: 0.78rem; min-height: 1.2em; }
+      .status.err { color: var(--red); }
+      .status.ok { color: var(--accent); }
+      .hint { color: var(--muted); font-size: 0.75rem; line-height: 1.6; margin: 0 0 0.6rem; }
+      kbd {
+        font-family: var(--mono); background: #0a0c08; border: 1px solid var(--line);
+        border-radius: 3px; padding: 0 0.3rem; color: var(--amber); font-size: 0.72rem;
+      }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--line);
+        color: var(--muted); font-size: 0.72rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>skeetracker</h1>
+        <p>
+          a step-sequencer tracker with custom Web Audio synths. export a song
+          as a minified, gzipped skeet thread; load one back from a link.
+          keyboard: <kbd>z x c v b n m</kbd> + <kbd>s d g h j</kbd> = notes,
+          <kbd>q w e r t y u</kbd> row = an octave up, <kbd>[</kbd> <kbd>]</kbd>
+          octave, <kbd>1</kbd> note-off, <kbd>.</kbd> clear, arrows navigate,
+          <kbd>space</kbd> play/stop.
+        </p>
+      </header>
+
+      <section>
+        <h2>transport</h2>
+        <div class="transport">
+          <button id="playBtn" class="primary">▶ play</button>
+          <button id="stopBtn">■ stop</button>
+          <div class="field">
+            <label for="titleInput">title</label>
+            <input id="titleInput" type="text" maxlength="40" />
+          </div>
+          <div class="field">
+            <label for="bpmInput">bpm</label>
+            <input id="bpmInput" type="number" min="20" max="400" />
+          </div>
+          <div class="field">
+            <label>octave</label>
+            <div class="stepper">
+              <button id="octDown">−</button>
+              <span class="val" id="octVal">4</span>
+              <button id="octUp">+</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>vel</label>
+            <div class="stepper">
+              <button id="velDown">−</button>
+              <span class="val" id="velVal">7</span>
+              <button id="velUp">+</button>
+            </div>
+          </div>
+          <span class="status" id="mainStatus"></span>
+        </div>
+      </section>
+
+      <section>
+        <h2>instruments (custom synths)</h2>
+        <div id="insList"></div>
+        <div class="row" style="margin-top: 0.5rem;">
+          <button id="addInsBtn">+ instrument</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>patterns</h2>
+        <div class="row">
+          <div class="pat-tabs" id="patTabs"></div>
+          <button id="addPatBtn">+ new</button>
+          <button id="dupPatBtn">+ duplicate</button>
+          <button id="delPatBtn">delete</button>
+        </div>
+        <div class="row" style="margin-top: 0.5rem;">
+          <span class="hint" style="margin:0;">song order:</span>
+          <div class="order-chips" id="orderChips"></div>
+          <button id="addOrderBtn">+ add current pattern</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>pattern grid</h2>
+        <div id="gridWrap">
+          <table id="gridTable"></table>
+        </div>
+      </section>
+
+      <section>
+        <h2>export → skeet thread</h2>
+        <p class="hint">
+          packs the song (json → gzip → base64) and splits it into
+          skeet-sized chunks tagged so a thread of them can be reassembled.
+          post part 1, then reply to your own post with part 2, reply to
+          that with part 3, and so on — that reply chain <em>is</em> the
+          song file. anyone can then paste a link to any post in that thread
+          below to load it.
+        </p>
+        <button id="exportBtn">pack song</button>
+        <div id="exportOut"></div>
+      </section>
+
+      <section>
+        <h2>load from a skeet</h2>
+        <div id="importPanel">
+          <div class="row">
+            <input id="importUrl" type="text" placeholder="https://bsky.app/profile/handle/post/xxxxx" style="width: 26rem;" />
+            <button id="importBtn">load from skeet</button>
+          </div>
+          <span class="status" id="importStatus"></span>
+        </div>
+      </section>
+
+      <footer>
+        songs autosave to this browser only · a
+        <a href="https://buildthis.bisks.net">@buildthis</a> toy for
+        <a href="https://bsky.app/profile/fubarchitect.com">@fubarchitect.com</a>
+        · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { Engine, NOTE_OFF, noteName } from "./lib/audio.js";
+      import { songToChunks, chunksToSong } from "./lib/pack.js";
+      import { fetchThreadTexts } from "./lib/bsky.js";
+
+      const STORE_KEY = "skeetracker-song-v1";
+      const WAVES = ["square", "sawtooth", "triangle", "sine", "noise"];
+      const LOWER = { z:0, s:1, x:2, d:3, c:4, v:5, g:6, b:7, h:8, n:9, j:10, m:11 };
+      const UPPER = { q:0, "2":1, w:2, "3":3, e:4, r:5, "5":6, t:7, "6":8, y:9, "7":10, u:11 };
+
+      function emptyPattern(rows, chans) {
+        return Array.from({ length: rows }, () => Array.from({ length: chans }, () => null));
+      }
+
+      function defaultIns(name, wave) {
+        return { name, wave, a: 0.005, d: 0.08, s: 0.5, r: 0.12, gain: 0.5, cutoff: 0, q: 0.7 };
+      }
+
+      function demoSong() {
+        const rows = 16, chans = 4;
+        const pat = emptyPattern(rows, chans);
+        const lead = [72, 0, 7], leadE = [76, 0, 7], leadG = [79, 0, 7];
+        const bass = [48, 1, 7];
+        const hat = [72, 2, 4];
+        pat[0][0] = lead; pat[0][1] = bass; pat[0][2] = hat;
+        pat[2][2] = hat;
+        pat[3][0] = leadE;
+        pat[4][1] = bass; pat[4][2] = hat;
+        pat[6][2] = hat;
+        pat[6][0] = leadG;
+        pat[8][0] = lead; pat[8][1] = bass; pat[8][2] = hat;
+        pat[10][2] = hat;
+        pat[11][0] = leadE;
+        pat[12][1] = bass; pat[12][2] = hat;
+        pat[14][2] = hat;
+        pat[14][0] = leadG;
+        return {
+          title: "demo",
+          bpm: 120,
+          spr: 4,
+          rows,
+          chans,
+          ins: [
+            defaultIns("square lead", "square"),
+            { ...defaultIns("tri bass", "triangle"), gain: 0.6, s: 0.8 },
+            { ...defaultIns("noise hat", "noise"), a: 0.001, d: 0.03, s: 0, r: 0.02, gain: 0.25, cutoff: 6000 },
+          ],
+          pats: [pat],
+          order: [0],
+        };
+      }
+
+      function loadLocal() {
+        try {
+          const raw = localStorage.getItem(STORE_KEY);
+          if (!raw) return null;
+          const data = JSON.parse(raw);
+          if (!data || !data.song || !Array.isArray(data.song.pats)) return null;
+          return data;
+        } catch {
+          return null;
+        }
+      }
+
+      let saveTimer = null;
+      function saveLocal() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          try {
+            localStorage.setItem(STORE_KEY, JSON.stringify({ song, editPat, octave, curVel, curIns }));
+          } catch {}
+        }, 200);
+      }
+
+      const restored = loadLocal();
+      let song = restored ? restored.song : demoSong();
+      let editPat = restored ? Math.min(restored.editPat || 0, song.pats.length - 1) : 0;
+      let octave = restored ? restored.octave : 4;
+      let curVel = restored ? restored.curVel : 7;
+      let curIns = restored ? Math.min(restored.curIns || 0, Math.max(0, song.ins.length - 1)) : 0;
+      let sel = { row: 0, chan: 0 };
+      let playhead = null;
+
+      const engine = new Engine();
+
+      const $ = (id) => document.getElementById(id);
+      const playBtn = $("playBtn"), stopBtn = $("stopBtn");
+      const titleInput = $("titleInput"), bpmInput = $("bpmInput");
+      const octVal = $("octVal"), velVal = $("velVal");
+      const mainStatus = $("mainStatus");
+      const insList = $("insList");
+      const patTabs = $("patTabs"), orderChips = $("orderChips");
+      const gridTable = $("gridTable");
+      const exportOut = $("exportOut");
+      const importStatus = $("importStatus");
+
+      function setStatus(el, msg, kind) {
+        el.textContent = msg || "";
+        el.className = "status" + (kind ? " " + kind : "");
+      }
+
+      titleInput.value = song.title || "";
+      bpmInput.value = song.bpm;
+
+      titleInput.addEventListener("input", () => { song.title = titleInput.value; saveLocal(); });
+      bpmInput.addEventListener("input", () => {
+        const v = Math.max(20, Math.min(400, parseInt(bpmInput.value, 10) || 120));
+        song.bpm = v;
+        saveLocal();
+      });
+
+      function setOctave(v) { octave = Math.max(0, Math.min(8, v)); octVal.textContent = octave; saveLocal(); }
+      function setVel(v) { curVel = Math.max(0, Math.min(9, v)); velVal.textContent = curVel; saveLocal(); }
+      $("octDown").onclick = () => setOctave(octave - 1);
+      $("octUp").onclick = () => setOctave(octave + 1);
+      $("velDown").onclick = () => setVel(curVel - 1);
+      $("velUp").onclick = () => setVel(curVel + 1);
+      setOctave(octave);
+      setVel(curVel);
+
+      function doPlay() {
+        try {
+          engine.ensureCtx();
+        } catch (e) {
+          setStatus(mainStatus, "Web Audio unavailable: " + e.message, "err");
+          return;
+        }
+        if (!song.order.length) {
+          setStatus(mainStatus, "add at least one pattern to the song order first", "err");
+          return;
+        }
+        engine.start(song, 0);
+        setStatus(mainStatus, "playing…", "ok");
+      }
+      function doStop() {
+        engine.stop();
+        playhead = null;
+        setStatus(mainStatus, "");
+        renderGrid();
+        renderPatTabs();
+      }
+      playBtn.onclick = doPlay;
+      stopBtn.onclick = doStop;
+
+      // --- instruments ---
+      function renderInsList() {
+        insList.innerHTML = "";
+        song.ins.forEach((ins, idx) => {
+          const row = document.createElement("div");
+          row.className = "ins-row" + (idx === curIns ? " active" : "");
+
+          const radio = document.createElement("input");
+          radio.type = "radio"; radio.name = "curIns"; radio.checked = idx === curIns;
+          radio.title = "use for new notes";
+          radio.onchange = () => { curIns = idx; saveLocal(); renderInsList(); };
+
+          const name = document.createElement("input");
+          name.type = "text"; name.value = ins.name;
+          name.oninput = () => { ins.name = name.value; saveLocal(); };
+
+          const wave = document.createElement("select");
+          WAVES.forEach((w) => {
+            const o = document.createElement("option");
+            o.value = w; o.textContent = w; if (w === ins.wave) o.selected = true;
+            wave.appendChild(o);
+          });
+          wave.onchange = () => { ins.wave = wave.value; saveLocal(); };
+
+          const fields = [
+            ["a", "atk", 0, 2, 0.005],
+            ["d", "dec", 0, 2, 0.005],
+            ["s", "sus", 0, 1, 0.05],
+            ["r", "rel", 0, 3, 0.005],
+            ["gain", "vol", 0, 1, 0.05],
+            ["cutoff", "cutoff", 0, 12000, 100],
+            ["q", "q", 0.1, 20, 0.1],
+          ];
+          const inputs = fields.map(([key, label, min, max, step]) => {
+            const wrap = document.createElement("span");
+            wrap.className = "row";
+            const lbl = document.createElement("span");
+            lbl.className = "lbl"; lbl.textContent = label;
+            const inp = document.createElement("input");
+            inp.type = "number"; inp.min = min; inp.max = max; inp.step = step;
+            inp.value = ins[key];
+            inp.oninput = () => { ins[key] = parseFloat(inp.value) || 0; saveLocal(); };
+            wrap.append(lbl, inp);
+            return wrap;
+          });
+
+          const del = document.createElement("button");
+          del.className = "del"; del.textContent = "×"; del.title = "delete instrument";
+          del.onclick = () => deleteInstrument(idx);
+
+          row.append(radio, name, wave, ...inputs, del);
+          insList.appendChild(row);
+        });
+      }
+
+      $("addInsBtn").onclick = () => {
+        song.ins.push(defaultIns("ins " + song.ins.length, "square"));
+        saveLocal(); renderInsList();
+      };
+
+      function deleteInstrument(idx) {
+        if (song.ins.length <= 1) {
+          setStatus(mainStatus, "need at least one instrument", "err");
+          return;
+        }
+        song.pats.forEach((pat) => {
+          pat.forEach((row) => {
+            row.forEach((cell, ci) => {
+              if (!cell) return;
+              if (cell[1] === idx) row[ci] = null;
+              else if (cell[1] > idx) cell[1] -= 1;
+            });
+          });
+        });
+        song.ins.splice(idx, 1);
+        if (curIns >= song.ins.length) curIns = song.ins.length - 1;
+        saveLocal(); renderInsList(); renderGrid();
+      }
+
+      // --- patterns ---
+      function renderPatTabs() {
+        patTabs.innerHTML = "";
+        const playingPat = engine.playing && playhead ? playhead.patIdx : -1;
+        song.pats.forEach((_, idx) => {
+          const b = document.createElement("button");
+          b.textContent = "pat " + idx;
+          if (idx === editPat) b.classList.add("active");
+          if (idx === playingPat) b.classList.add("playing");
+          b.onclick = () => { editPat = idx; sel = { row: 0, chan: 0 }; saveLocal(); renderPatTabs(); renderGrid(); };
+          patTabs.appendChild(b);
+        });
+      }
+
+      $("addPatBtn").onclick = () => {
+        song.pats.push(emptyPattern(song.rows, song.chans));
+        editPat = song.pats.length - 1;
+        saveLocal(); renderPatTabs(); renderGrid();
+      };
+      $("dupPatBtn").onclick = () => {
+        const clone = song.pats[editPat].map((row) => row.map((c) => (c ? [...c] : null)));
+        song.pats.push(clone);
+        editPat = song.pats.length - 1;
+        saveLocal(); renderPatTabs(); renderGrid();
+      };
+      $("delPatBtn").onclick = () => {
+        if (song.pats.length <= 1) {
+          setStatus(mainStatus, "need at least one pattern", "err");
+          return;
+        }
+        song.pats.splice(editPat, 1);
+        song.order = song.order
+          .filter((p) => p !== editPat)
+          .map((p) => (p > editPat ? p - 1 : p));
+        editPat = Math.max(0, editPat - 1);
+        saveLocal(); renderPatTabs(); renderOrderChips(); renderGrid();
+      };
+
+      function renderOrderChips() {
+        orderChips.innerHTML = "";
+        song.order.forEach((patIdx, pos) => {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          const label = document.createElement("span");
+          label.textContent = "pat " + patIdx;
+          const rm = document.createElement("button");
+          rm.textContent = "×";
+          rm.onclick = () => { song.order.splice(pos, 1); saveLocal(); renderOrderChips(); };
+          chip.append(label, rm);
+          orderChips.appendChild(chip);
+        });
+      }
+      $("addOrderBtn").onclick = () => { song.order.push(editPat); saveLocal(); renderOrderChips(); };
+
+      // --- grid ---
+      function cellText(cell) {
+        if (!cell) return "--- .. .";
+        const [note, insIdx, vol] = cell;
+        if (note === NOTE_OFF) return "OFF .. .";
+        return `${noteName(note).padEnd(3)} ${String(insIdx).padStart(2, "0")} ${vol}`;
+      }
+
+      function renderGrid() {
+        const pat = song.pats[editPat];
+        if (!pat) return;
+        let html = "<thead><tr><th></th>";
+        for (let c = 0; c < song.chans; c++) html += `<th>ch ${c}</th>`;
+        html += "</tr></thead><tbody>";
+        for (let r = 0; r < song.rows; r++) {
+          const isBeat = r % song.spr === 0;
+          const isPlayrow = playhead && playhead.patIdx === editPat && playhead.rowIdx === r;
+          html += `<tr class="${isBeat ? "beat" : ""} ${isPlayrow ? "playrow" : ""}">`;
+          html += `<td class="rownum">${String(r).padStart(2, "0")}</td>`;
+          for (let c = 0; c < song.chans; c++) {
+            const cell = pat[r][c];
+            const isSel = sel.row === r && sel.chan === c;
+            html += `<td class="cell ${cell ? "" : "empty"} ${isSel ? "sel" : ""}" data-row="${r}" data-chan="${c}">${cellText(cell)}</td>`;
+          }
+          html += "</tr>";
+        }
+        html += "</tbody>";
+        gridTable.innerHTML = html;
+        gridTable.querySelectorAll("td.cell").forEach((td) => {
+          td.addEventListener("click", () => {
+            if (document.activeElement) document.activeElement.blur();
+            sel = { row: parseInt(td.dataset.row, 10), chan: parseInt(td.dataset.chan, 10) };
+            renderGrid();
+          });
+        });
+      }
+
+      function advanceRowSel() { sel.row = (sel.row + 1) % song.rows; }
+
+      document.addEventListener("keydown", (e) => {
+        const tag = document.activeElement && document.activeElement.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        if (e.key === " ") { e.preventDefault(); engine.playing ? doStop() : doPlay(); return; }
+        if (e.key === "ArrowUp") { e.preventDefault(); sel.row = (sel.row - 1 + song.rows) % song.rows; renderGrid(); return; }
+        if (e.key === "ArrowDown") { e.preventDefault(); sel.row = (sel.row + 1) % song.rows; renderGrid(); return; }
+        if (e.key === "ArrowLeft" || (e.key === "Tab" && e.shiftKey)) { e.preventDefault(); sel.chan = (sel.chan - 1 + song.chans) % song.chans; renderGrid(); return; }
+        if (e.key === "ArrowRight" || e.key === "Tab") { e.preventDefault(); sel.chan = (sel.chan + 1) % song.chans; renderGrid(); return; }
+        if (e.key === "[") { setOctave(octave - 1); return; }
+        if (e.key === "]") { setOctave(octave + 1); return; }
+        if (e.key === "Delete" || e.key === "Backspace" || e.key === ".") {
+          e.preventDefault();
+          song.pats[editPat][sel.row][sel.chan] = null;
+          saveLocal(); renderGrid();
+          return;
+        }
+        if (e.key === "1") {
+          e.preventDefault();
+          song.pats[editPat][sel.row][sel.chan] = [NOTE_OFF, 0, 0];
+          advanceRowSel();
+          saveLocal(); renderGrid();
+          return;
+        }
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        let semitone = null, octOffset = 0;
+        if (k in LOWER) { semitone = LOWER[k]; octOffset = 0; }
+        else if (k in UPPER) { semitone = UPPER[k]; octOffset = 1; }
+        if (semitone !== null) {
+          e.preventDefault();
+          if (!song.ins.length) { setStatus(mainStatus, "add an instrument first", "err"); return; }
+          const note = (octave + octOffset + 1) * 12 + semitone;
+          if (note < 0 || note > 127) return;
+          song.pats[editPat][sel.row][sel.chan] = [note, curIns, curVel];
+          advanceRowSel();
+          saveLocal(); renderGrid();
+        }
+      });
+
+      // --- export ---
+      $("exportBtn").onclick = async () => {
+        exportOut.innerHTML = "packing…";
+        try {
+          const chunks = await songToChunks(song, 280);
+          exportOut.innerHTML = "";
+          chunks.forEach((chunk, i) => {
+            const row = document.createElement("div");
+            row.className = "chunk";
+            const n = document.createElement("span");
+            n.className = "n"; n.textContent = `${i + 1}/${chunks.length}`;
+            const ta = document.createElement("textarea");
+            ta.readOnly = true; ta.value = chunk;
+            const copy = document.createElement("button");
+            copy.textContent = "copy";
+            copy.onclick = () => navigator.clipboard.writeText(chunk).then(() => {
+              copy.textContent = "copied!"; setTimeout(() => (copy.textContent = "copy"), 1200);
+            });
+            const post = document.createElement("button");
+            post.textContent = "compose";
+            post.title = i === 0 ? "opens Bluesky's composer with this text" : "opens the composer — reply to the previous post in the thread";
+            post.onclick = () => window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(chunk)}`, "_blank");
+            row.append(n, ta, copy, post);
+            exportOut.appendChild(row);
+          });
+        } catch (e) {
+          exportOut.textContent = "export failed: " + e.message;
+        }
+      };
+
+      // --- import ---
+      $("importBtn").onclick = async () => {
+        doStop();
+        setStatus(importStatus, "fetching thread…");
+        try {
+          const texts = await fetchThreadTexts($("importUrl").value);
+          setStatus(importStatus, "unpacking…");
+          const loaded = await chunksToSong(texts);
+          song = loaded;
+          editPat = 0; sel = { row: 0, chan: 0 }; curIns = 0;
+          titleInput.value = song.title || "";
+          bpmInput.value = song.bpm;
+          saveLocal();
+          renderAll();
+          setStatus(importStatus, `loaded "${song.title || "untitled"}" — ${song.pats.length} pattern(s)`, "ok");
+        } catch (e) {
+          setStatus(importStatus, "load failed: " + e.message, "err");
+        }
+      };
+
+      function renderAll() {
+        renderInsList();
+        renderPatTabs();
+        renderOrderChips();
+        renderGrid();
+      }
+      renderAll();
+
+      function raf() {
+        requestAnimationFrame(raf);
+        if (!engine.ctx) return;
+        const now = engine.ctx.currentTime;
+        let latest = null;
+        while (engine.rowQueue.length && engine.rowQueue[0].time <= now) {
+          latest = engine.rowQueue.shift();
+        }
+        if (latest) {
+          playhead = latest;
+          renderGrid();
+          renderPatTabs();
+        }
+        if (!engine.playing && playhead) {
+          playhead = null;
+          renderGrid();
+          renderPatTabs();
+        }
+      }
+      raf();
+    </script>
+  </body>
+</html>
