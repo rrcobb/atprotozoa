@@ -6,7 +6,7 @@
     <title>mootdrone — an ambient soundboard made of your atproto network</title>
     <meta
       name="description"
-      content="Type a Bluesky handle. Each moot becomes a synthesized drone voice — LFO from their hashed DID, instrument from their hashed bio, brightness from how often they post. Mute, solo, loop."
+      content="Type a Bluesky handle, then pick or randomize which moots become drone voices — LFO from their hashed DID, instrument from their hashed bio, brightness from how often they post. Mute, solo, loop."
     />
     <style>
       :root {
@@ -53,6 +53,53 @@
       #status.error { color: var(--warn); }
 
       #board[hidden] { display: none; }
+      #picker[hidden] { display: none; }
+
+      .picker-panel {
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      .picker-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+      .picker-head .meta { color: var(--muted); font-size: 0.78rem; margin-right: auto; }
+      #picker-count { color: var(--muted); font-size: 0.8rem; }
+      #picker-randomize, #picker-build {
+        font-family: var(--mono); font-size: 0.8rem; font-weight: 600; cursor: pointer;
+        border-radius: 6px; padding: 0.45rem 0.8rem;
+      }
+      #picker-randomize {
+        background: transparent; color: var(--ink); border: 1px solid var(--accent-dim);
+      }
+      #picker-randomize:hover { border-color: var(--accent); color: var(--accent); }
+      #picker-build { background: var(--accent); color: var(--bg); border: none; }
+      #picker-build:disabled { opacity: 0.4; cursor: default; }
+      #picker-note { min-height: 1rem; color: var(--warn); font-size: 0.76rem; margin-bottom: 0.5rem; }
+      #picker-list {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 0.4rem; max-height: 320px; overflow-y: auto; padding-right: 0.25rem;
+      }
+      .pick-row {
+        display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.5rem;
+        border: 1px solid var(--faint); border-radius: 6px; cursor: pointer; min-width: 0;
+      }
+      .pick-row:hover { border-color: var(--accent-dim); }
+      .pick-row input[type="checkbox"] { accent-color: var(--accent); flex-shrink: 0; }
+      .avatar.small { width: 1.6rem; height: 1.6rem; font-size: 0.7rem; }
+      .pick-meta { display: flex; flex-direction: column; min-width: 0; }
+      .pick-name {
+        font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+      .pick-handle {
+        font-size: 0.7rem; color: var(--muted); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+
+      #reselect-btn {
+        font-family: var(--mono); font-size: 0.8rem; font-weight: 600;
+        color: var(--ink); background: transparent; border: 1px solid var(--accent-dim);
+        border-radius: 6px; padding: 0.45rem 0.8rem; cursor: pointer;
+      }
+      #reselect-btn:hover { border-color: var(--accent); color: var(--accent); }
 
       .master-row {
         display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
@@ -188,12 +235,14 @@
       <header>
         <h1><span>moot</span>drone</h1>
         <p>
-          type a Bluesky handle. every moot (mutual, widened to follows if
-          there aren't enough) becomes one synthesized voice on the board — an
-          LFO rate from their hashed DID, an instrument from their hashed bio
-          (pad / horn / vox / bell / drumkit), and brightness from how often
-          they've been posting lately. mute, solo, loop, mix — then grab a
-          clip of the network breathing and post it to Bluesky as a video.
+          type a Bluesky handle, then pick or randomize which moots (mutuals,
+          widened to follows if there aren't enough) land on the board — up to
+          eight. each becomes one synthesized voice: an LFO rate from their
+          hashed DID, an instrument from their hashed bio (pad / horn / vox /
+          bell / drumkit), and brightness from how often they've been posting
+          lately. mute, solo, loop, mix, reselect the lineup any time — then
+          grab a clip of the network breathing and post it to Bluesky as a
+          video.
         </p>
       </header>
 
@@ -203,12 +252,26 @@
       </form>
       <div id="status"></div>
 
+      <div id="picker" hidden>
+        <div class="picker-panel">
+          <div class="picker-head">
+            <span class="meta" id="picker-meta"></span>
+            <span id="picker-count"></span>
+            <button type="button" id="picker-randomize">🎲 randomize</button>
+            <button type="button" id="picker-build" disabled>▶ build board</button>
+          </div>
+          <div id="picker-note"></div>
+          <div id="picker-list"></div>
+        </div>
+      </div>
+
       <div id="board" hidden>
         <div id="vis-wrap"><canvas id="vis" width="640" height="360"></canvas></div>
         <div class="master-row">
           <button id="play-btn" disabled>▶ start</button>
           <label>master <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8" /></label>
           <span id="board-meta"></span>
+          <button id="reselect-btn" title="change which accounts are on the board">🎲 reselect</button>
           <button id="share-btn" disabled title="record a 14s clip and post it to Bluesky">🎬 share as video</button>
         </div>
         <div id="tracks"></div>

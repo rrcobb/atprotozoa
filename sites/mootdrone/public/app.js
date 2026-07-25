@@ -10,7 +10,9 @@ import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/
 import { uploadVideo, firePostWithVideo } from "./lib/videopost.js";
 
 const MAX_TRACKS = 8;
+const PICKER_CAP = 120; // how many pool accounts we render as pickable checkboxes
 const RESUME_KEY = "mootdrone:last-actor";
+const SELECTION_KEY = "mootdrone:last-selection";
 
 const form = document.getElementById("load-form");
 const input = document.getElementById("handle-input");
@@ -21,8 +23,17 @@ const boardMeta = document.getElementById("board-meta");
 const playBtn = document.getElementById("play-btn");
 const masterVol = document.getElementById("master-vol");
 const shareBtn = document.getElementById("share-btn");
+const reselectBtn = document.getElementById("reselect-btn");
 const whoEl = document.getElementById("who");
 const visCanvas = document.getElementById("vis");
+
+const pickerEl = document.getElementById("picker");
+const pickerMeta = document.getElementById("picker-meta");
+const pickerCount = document.getElementById("picker-count");
+const pickerNote = document.getElementById("picker-note");
+const pickerList = document.getElementById("picker-list");
+const randomizeBtn = document.getElementById("picker-randomize");
+const pickerBuildBtn = document.getElementById("picker-build");
 
 const visualizer = createVisualizer(visCanvas);
 visualizer.start();
@@ -33,6 +44,7 @@ let voices = []; // [{ did, handle, muted, soloed, voice }]
 let playing = false;
 let session = null;
 let lastActor = "";
+let currentCluster = null;
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg || "";
@@ -159,16 +171,35 @@ function trackRow(entry) {
   return row;
 }
 
-async function loadNetwork(actor) {
+function readSavedSelection() {
+  try {
+    const raw = localStorage.getItem(SELECTION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSelection(cluster, picked) {
+  try {
+    localStorage.setItem(
+      SELECTION_KEY,
+      JSON.stringify({ did: cluster.did, dids: picked.map((p) => p.did) }),
+    );
+  } catch {}
+}
+
+async function loadNetwork(actor, { tryResumeSelection = false } = {}) {
   teardownVoices();
   board.hidden = true;
+  pickerEl.hidden = true;
   playBtn.disabled = true;
   playBtn.textContent = "▶ start";
   playing = false;
   if (ctx) ctx.suspend();
 
   setStatus("resolving handle…");
-  const audioCtx = ensureAudio();
+  ensureAudio();
 
   let cluster;
   try {
@@ -183,7 +214,136 @@ async function loadNetwork(actor) {
     return;
   }
 
-  const picked = cluster.pool.slice(0, MAX_TRACKS);
+  currentCluster = cluster;
+  lastActor = actor;
+  try {
+    localStorage.setItem(RESUME_KEY, actor);
+  } catch {}
+
+  if (tryResumeSelection) {
+    const saved = readSavedSelection();
+    if (saved && saved.did === cluster.did) {
+      const savedSet = new Set(saved.dids);
+      const matched = cluster.pool.filter((p) => savedSet.has(p.did));
+      if (matched.length) {
+        setStatus("");
+        await buildBoard(cluster, matched);
+        return;
+      }
+    }
+  }
+
+  showPicker(cluster);
+}
+
+function setPickerNote(msg) {
+  pickerNote.textContent = msg || "";
+}
+
+function showPicker(cluster) {
+  const pickPool = cluster.pool.slice(0, PICKER_CAP);
+  const currentDids = new Set(voices.map((v) => v.did));
+  const carried = pickPool.filter((p) => currentDids.has(p.did)).map((p) => p.did);
+  const initial = carried.length
+    ? carried
+    : pickPool.slice(0, Math.min(MAX_TRACKS, pickPool.length)).map((p) => p.did);
+  const selected = new Set(initial);
+
+  function renderCount() {
+    pickerCount.textContent = `${selected.size} / ${MAX_TRACKS} selected`;
+    pickerBuildBtn.disabled = selected.size === 0;
+  }
+
+  pickerList.innerHTML = "";
+  for (const p of pickPool) {
+    const row = document.createElement("label");
+    row.className = "pick-row";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = selected.has(p.did);
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        if (selected.size >= MAX_TRACKS) {
+          cb.checked = false;
+          setPickerNote(`board only holds ${MAX_TRACKS} — uncheck one first`);
+          return;
+        }
+        selected.add(p.did);
+      } else {
+        selected.delete(p.did);
+      }
+      setPickerNote("");
+      renderCount();
+    });
+
+    const avatar = document.createElement(p.avatar ? "img" : "div");
+    avatar.className = "avatar small";
+    if (p.avatar) {
+      avatar.src = p.avatar;
+      avatar.alt = "";
+      avatar.loading = "lazy";
+    } else {
+      avatar.textContent = (p.displayName || p.handle || "?")[0].toUpperCase();
+    }
+
+    const meta = document.createElement("span");
+    meta.className = "pick-meta";
+    meta.innerHTML =
+      `<span class="pick-name">${esc(p.displayName || p.handle)}</span>` +
+      `<span class="pick-handle">@${esc(p.handle)}</span>`;
+
+    row.appendChild(cb);
+    row.appendChild(avatar);
+    row.appendChild(meta);
+    pickerList.appendChild(row);
+  }
+
+  const truncated = cluster.pool.length > pickPool.length;
+  pickerMeta.textContent =
+    `${cluster.kind} · ${cluster.pool.length} in pool` +
+    (truncated ? ` (showing first ${pickPool.length} — randomize samples this list)` : "");
+  setPickerNote("");
+  renderCount();
+
+  randomizeBtn.onclick = () => {
+    selected.clear();
+    const idxs = new Set();
+    const n = Math.min(MAX_TRACKS, pickPool.length);
+    while (idxs.size < n) idxs.add(Math.floor(Math.random() * pickPool.length));
+    for (const i of idxs) selected.add(pickPool[i].did);
+    [...pickerList.children].forEach((row, i) => {
+      row.querySelector("input").checked = selected.has(pickPool[i].did);
+    });
+    setPickerNote("");
+    renderCount();
+  };
+
+  pickerBuildBtn.onclick = () => {
+    const chosen = cluster.pool.filter((p) => selected.has(p.did));
+    buildBoard(cluster, chosen);
+  };
+
+  pickerEl.hidden = false;
+  setStatus("");
+}
+
+async function buildBoard(cluster, picked) {
+  if (!picked.length) {
+    setPickerNote("pick at least one account first.");
+    return;
+  }
+
+  pickerEl.hidden = true;
+  teardownVoices();
+  board.hidden = true;
+  playBtn.disabled = true;
+  playBtn.textContent = "▶ start";
+  playing = false;
+  if (ctx) ctx.suspend();
+
+  const audioCtx = ensureAudio();
+
   setStatus("reading bios…");
   const profiles = await getProfiles(picked.map((p) => p.did));
   const profileByDid = new Map(profiles.map((p) => [p.did, p]));
@@ -232,11 +392,12 @@ async function loadNetwork(actor) {
   if (!canRecord()) shareBtn.title = "this browser can't record canvas+audio";
   setStatus("");
 
-  lastActor = actor;
-  try {
-    localStorage.setItem(RESUME_KEY, actor);
-  } catch {}
+  saveSelection(cluster, picked);
 }
+
+reselectBtn.addEventListener("click", () => {
+  if (currentCluster) showPicker(currentCluster);
+});
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -400,6 +561,6 @@ shareBtn.addEventListener("click", async () => {
   } catch {}
   if (resumeActor) {
     input.value = resumeActor;
-    loadNetwork(resumeActor);
+    loadNetwork(resumeActor, { tryResumeSelection: true });
   }
 })();
