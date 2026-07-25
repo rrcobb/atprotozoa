@@ -59,13 +59,19 @@ rm -f BUILD_RESULT
 # in the sandbox. Tee the CLI's output to a log so we can tell "out of budget"
 # (usage-limit) from "build flopped" afterwards, and stream it to the box journal.
 BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5}"
+# Turn ceiling: a runaway stop, not a build budget. The Action used 30 (tuned for
+# Opus, which is more turn-efficient). Sonnet takes more, smaller steps, and a real
+# build — a whole game with animations, not a one-file edit — blew past 30 and got
+# cut off mid-build. 60 gives room; the systemd TimeoutStopSec + wall-clock are the
+# real runaway guards. Overridable via BUILDER_MAX_TURNS.
+BUILDER_MAX_TURNS="${BUILDER_MAX_TURNS:-60}"
 CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
 AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
   claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
     --model "$BUILDER_MODEL" \
-    --max-turns 30 \
+    --max-turns "$BUILDER_MAX_TURNS" \
     --permission-mode bypassPermissions \
     --allowedTools Edit,Read,Write,Bash,Glob,Grep \
   2>&1 | tee "$CLAUDE_LOG"
