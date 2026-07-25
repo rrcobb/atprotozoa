@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>popmoot — infinite bubble wrap</title>
+    <meta
+      name="description"
+      content="A big sheet of bubble wrap. Pop it. Satisfying synthesized pops, a lifetime counter, a re-inflate button, and the occasional unearned commentary."
+    />
+    <style>
+      :root {
+        --bg: #171623;
+        --sheet: #1f1e30;
+        --bubble: #2c2a45;
+        --bubble-hi: #4b4772;
+        --popped: #131220;
+        --ink: #e7e4f8;
+        --muted: #8d89b3;
+        --accent: #ff8fce;
+        --accent2: #7ee6c6;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        overflow: hidden;
+        touch-action: manipulation;
+      }
+      body { display: flex; flex-direction: column; }
+
+      header {
+        padding: 0.9rem 1.1rem 0.7rem;
+        flex: none;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        border-bottom: 1px solid #2a2840;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--accent);
+      }
+      header .sub {
+        margin: 0.15rem 0 0;
+        font-size: 0.72rem;
+        color: var(--muted);
+      }
+      .stats {
+        display: flex;
+        align-items: center;
+        gap: 0.9rem;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .stats b { color: var(--accent2); font-weight: 700; }
+      button#reinflate {
+        font-family: var(--mono);
+        background: var(--bubble);
+        color: var(--ink);
+        border: 1px solid #423f66;
+        border-radius: 6px;
+        padding: 0.35rem 0.7rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+      button#reinflate:hover { border-color: var(--accent); color: var(--accent); }
+      button#reinflate:active { transform: translateY(1px); }
+
+      #sheetWrap {
+        flex: 1;
+        overflow: auto;
+        padding: 1rem;
+        -webkit-overflow-scrolling: touch;
+      }
+      #sheet {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+        gap: 8px;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding-bottom: 2rem;
+      }
+      .bubble {
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background:
+          radial-gradient(circle at 32% 28%, var(--bubble-hi), var(--bubble) 60%, #201f34 100%);
+        box-shadow:
+          inset 0 -3px 5px rgba(0, 0, 0, 0.35),
+          inset 0 2px 3px rgba(255, 255, 255, 0.12),
+          0 1px 0 rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        transition: transform 0.05s ease-out;
+        touch-action: manipulation;
+      }
+      .bubble:hover { filter: brightness(1.08); }
+      .bubble.popped {
+        background: radial-gradient(circle at 40% 35%, #1a1930, var(--popped) 70%);
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+        cursor: default;
+        animation: none;
+      }
+      .bubble.popping {
+        animation: pop 0.16s ease-out forwards;
+      }
+      @keyframes pop {
+        0% { transform: scale(1); }
+        40% { transform: scale(1.22); }
+        100% { transform: scale(0.94); }
+      }
+      .bubble.reinflating {
+        animation: reinflate 0.35s ease-out forwards;
+      }
+      @keyframes reinflate {
+        0% { transform: scale(0.85); filter: brightness(0.7); }
+        60% { transform: scale(1.08); }
+        100% { transform: scale(1); filter: brightness(1); }
+      }
+
+      #toast {
+        position: fixed;
+        left: 50%;
+        bottom: 1.2rem;
+        transform: translate(-50%, 12px);
+        background: var(--sheet);
+        border: 1px solid #423f66;
+        border-radius: 8px;
+        padding: 0.5rem 0.9rem;
+        font-size: 0.78rem;
+        color: var(--ink);
+        max-width: min(88vw, 30rem);
+        text-align: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        z-index: 10;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+      }
+      #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+      footer {
+        flex: none;
+        padding: 0.5rem 1.1rem 0.7rem;
+        font-size: 0.68rem;
+        color: var(--muted);
+        text-align: center;
+        border-top: 1px solid #2a2840;
+      }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>popmoot</h1>
+        <p class="sub">a sheet of bubble wrap. that's the whole site.</p>
+      </div>
+      <div class="stats">
+        <span>this sheet: <b id="sheetCount">0</b></span>
+        <span>lifetime: <b id="lifeCount">0</b></span>
+        <button id="reinflate">re-inflate</button>
+      </div>
+    </header>
+
+    <div id="sheetWrap">
+      <div id="sheet"></div>
+    </div>
+
+    <div id="toast"></div>
+
+    <footer>
+      no servers were harmed. no atproto was involved. built for
+      <a href="https://bsky.app/profile/hraness.bsky.social">@hraness.bsky.social</a>
+      because they asked for simple and fun.
+    </footer>
+
+    <script>
+      const COLS_TARGET = 18;
+      const ROWS = 22;
+      const sheetEl = document.getElementById("sheet");
+      const sheetCountEl = document.getElementById("sheetCount");
+      const lifeCountEl = document.getElementById("lifeCount");
+      const toastEl = document.getElementById("toast");
+      const reinflateBtn = document.getElementById("reinflate");
+
+      const LINES = [
+        "pop. the timeline is quieter now.",
+        "you have depressurized a moot.",
+        "this one was load-bearing. sorry.",
+        "certified: one (1) satisfying sound produced.",
+        "an ancestor bubble. it lived a full plastic life.",
+        "the algorithm noticed that.",
+        "somewhere, a mutual felt a mild disturbance.",
+        "you could be doing literally anything else right now.",
+        "bisks.net is not responsible for the resulting serotonin.",
+        "re-inflating bubble wrap is against the laws of physics. we don't care.",
+        "that one was going to pop itself eventually. you just sped it up.",
+        "logged. filed under 'important work.'",
+        "the bubble did not consent to this. it did not need to.",
+        "another one for the lifetime count. your parents would be so proud.",
+        "this is, statistically, the best use of your time today.",
+      ];
+
+      let sheetPops = 0;
+      let lifePops = Number(localStorage.getItem("popmoot_lifetime") || 0);
+      lifeCountEl.textContent = lifePops;
+
+      let audioCtx = null;
+      function pop_sound() {
+        try {
+          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          const freq = 200 + Math.random() * 160;
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq * 0.28), now + 0.075);
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(0.5, now + 0.006);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+          osc.connect(gain).connect(audioCtx.destination);
+          osc.start(now);
+          osc.stop(now + 0.1);
+        } catch (e) {
+          /* audio is a bonus, not a requirement */
+        }
+      }
+
+      let toastTimer = null;
+      function showToast(text) {
+        toastEl.textContent = text;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+      }
+
+      function colCount() {
+        const w = sheetEl.clientWidth || window.innerWidth;
+        return Math.max(6, Math.round(w / 44));
+      }
+
+      function buildSheet() {
+        sheetEl.innerHTML = "";
+        const cols = Math.max(COLS_TARGET, colCount());
+        const total = cols * ROWS;
+        for (let i = 0; i < total; i++) {
+          const b = document.createElement("div");
+          b.className = "bubble";
+          b.dataset.popped = "0";
+          sheetEl.appendChild(b);
+        }
+        sheetPops = 0;
+        sheetCountEl.textContent = "0";
+      }
+
+      function popBubble(b) {
+        if (b.dataset.popped === "1") return;
+        b.dataset.popped = "1";
+        b.classList.add("popping");
+        setTimeout(() => {
+          b.classList.remove("popping");
+          b.classList.add("popped");
+        }, 160);
+
+        pop_sound();
+
+        sheetPops++;
+        lifePops++;
+        sheetCountEl.textContent = sheetPops;
+        lifeCountEl.textContent = lifePops;
+        localStorage.setItem("popmoot_lifetime", String(lifePops));
+
+        if (Math.random() < 0.12) {
+          showToast(LINES[Math.floor(Math.random() * LINES.length)]);
+        }
+      }
+
+      sheetEl.addEventListener("pointerdown", (e) => {
+        const b = e.target.closest(".bubble");
+        if (b) popBubble(b);
+      });
+
+      // dragging across the sheet with the pointer held down pops a trail
+      let dragging = false;
+      sheetEl.addEventListener("pointerdown", () => (dragging = true));
+      window.addEventListener("pointerup", () => (dragging = false));
+      sheetEl.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const b = document.elementFromPoint(e.clientX, e.clientY);
+        if (b && b.classList && b.classList.contains("bubble")) popBubble(b);
+      });
+
+      reinflateBtn.addEventListener("click", () => {
+        const bubbles = Array.from(sheetEl.querySelectorAll(".bubble"));
+        bubbles.forEach((b, i) => {
+          if (b.dataset.popped !== "1") return;
+          setTimeout(() => {
+            b.dataset.popped = "0";
+            b.classList.remove("popped");
+            b.classList.add("reinflating");
+            setTimeout(() => b.classList.remove("reinflating"), 350);
+          }, Math.random() * 400);
+        });
+        sheetPops = 0;
+        sheetCountEl.textContent = "0";
+        showToast("re-inflated. don't ask how.");
+      });
+
+      let resizeTimer = null;
+      window.addEventListener("resize", () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(buildSheet, 200);
+      });
+
+      buildSheet();
+    </script>
+  </body>
+</html>
