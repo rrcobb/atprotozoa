@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>biskshow — guess who posted it — bisks.net</title>
+    <meta
+      name="description"
+      content="A game-show quiz: a mystery bisk shows up, you guess who posted it. Solo mode plays your follows; versus mode plays the combined follows of two accounts."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="biskshow — guess who posted it" />
+    <meta
+      property="og:description"
+      content="A mystery bisk shows up. You guess who posted it. Solo mode: your follows. Versus mode: two accounts' combined follows."
+    />
+
+    <!-- House mono look, turned up for a game show: gold marquee accent, a
+         chase-light bar, a big lit-up scoreboard. Same bones as trigruessr. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --footlights: #fff3d0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 0 1.25rem 6rem; }
+
+      /* ── marquee header ─────────────────────────────────────────────── */
+      .marquee {
+        margin: 0 -1.25rem 1.6rem;
+        padding: 2.2rem 1.25rem 1.4rem;
+        background: radial-gradient(120% 140% at 50% -20%, #fffaf0 0%, #fff 60%);
+        border-bottom: 3px solid var(--gold);
+        position: relative;
+        overflow: hidden;
+        text-align: center;
+      }
+      .chaselights {
+        position: absolute; left: 0; right: 0; bottom: -1px; height: 6px;
+        background-image: radial-gradient(circle, var(--gold) 40%, transparent 42%);
+        background-size: 22px 6px;
+        background-repeat: repeat-x;
+        animation: chase 0.9s steps(2) infinite;
+        opacity: 0.85;
+      }
+      @keyframes chase { to { background-position: 22px 0; } }
+      h1.title {
+        margin: 0; font-size: 1.7rem; font-weight: 800; letter-spacing: 0.02em;
+      }
+      h1.title .glow { color: var(--gold); text-shadow: 0 0 14px rgba(224,164,0,.35); }
+      .tagline {
+        color: var(--muted); font-size: 0.88rem; margin: 0.5rem auto 0; max-width: 46ch;
+      }
+      .tagline b { color: var(--ink); }
+
+      /* ── mode tabs ──────────────────────────────────────────────────── */
+      .tabs { display: flex; gap: 0.5rem; margin: 0 0 1.1rem; }
+      .tab {
+        flex: 1; font-family: inherit; font-size: 0.85rem; font-weight: 700;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--ink); background: var(--bg);
+        color: var(--ink); border-radius: 4px 4px 0 0; cursor: pointer;
+        letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .tab.on { background: var(--ink); color: #fff; }
+      .tab:not(.on):hover { background: var(--faintbg); }
+
+      /* ── finder forms ───────────────────────────────────────────────── */
+      .finder { border: 1px solid var(--ink); border-top: none; border-radius: 0 0 6px 6px; padding: 1rem; margin-bottom: 0.6rem; }
+      .finder.hidden { display: none; }
+      label.lbl {
+        display: block; font-size: 0.75rem; color: var(--muted);
+        margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+      .row:last-child { margin-bottom: 0; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 3px; background: var(--bg); color: var(--ink); min-width: 0;
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .vs-pair { display: flex; align-items: center; gap: 0.6rem; }
+      .vs-pair .vslabel { font-weight: 800; color: var(--gold); font-size: 0.85rem; flex: none; }
+
+      button {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.6rem 0.9rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+        cursor: pointer; text-align: left; line-height: 1.35;
+      }
+      button:hover:not(:disabled) { background: #f2f2f2; }
+      button:disabled { cursor: default; opacity: 0.4; }
+      button.solid { background: var(--ink); color: #fff; text-align: center; font-weight: 700; }
+      button.solid:hover:not(:disabled) { background: #000; }
+      button.ghost { background: var(--bg); }
+      button.ghost:hover:not(:disabled) { background: var(--faintbg); }
+      button.gold { border-color: var(--gold); color: #7a5b00; background: #fffaf0; }
+      button.gold:hover:not(:disabled) { background: #fff3d8; }
+
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      /* ── scoreboard ─────────────────────────────────────────────────── */
+      .board {
+        display: flex; gap: 1.4rem; flex-wrap: wrap; align-items: center;
+        border: 1px solid var(--ink); border-radius: 5px;
+        padding: 0.7rem 0.9rem; margin-bottom: 1.6rem; font-size: 0.8rem;
+        background: linear-gradient(180deg, #fffdf6, #fff);
+      }
+      .board .stat { color: var(--muted); }
+      .board .stat b { color: var(--ink); font-weight: 800; font-size: 1.05rem; }
+      .board .stat.score b { color: var(--gold); }
+      .board .poolof { margin-left: auto; color: var(--muted); font-size: 0.76rem; text-align: right; }
+      .board .poolof button.link {
+        border: none; background: none; color: var(--accent); cursor: pointer;
+        font-family: inherit; font-size: 0.76rem; padding: 0; text-decoration: underline;
+      }
+
+      .stage { min-height: 10rem; }
+
+      /* ── the bisk card(s) ───────────────────────────────────────────── */
+      .bisks { list-style: none; margin: 0 0 1rem; padding: 0; }
+      .bisk {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.85rem 0.95rem;
+        margin-bottom: 0.7rem; animation: fade 0.25s ease both; background: #fff;
+      }
+      @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+      .bisk .who {
+        display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem;
+        color: var(--muted); font-size: 0.78rem;
+      }
+      .bisk .mystery {
+        width: 26px; height: 26px; border-radius: 50%; flex: none;
+        background: #222 center/cover no-repeat;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 0.85rem; font-weight: 800;
+      }
+      .bisk .text { font-size: 0.98rem; white-space: pre-wrap; word-break: break-word; }
+      .bisk .num { font-weight: 700; color: var(--gold); }
+
+      .prompt { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.9rem; }
+      .prompt b { color: var(--ink); }
+
+      .actions { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.4rem; font-size: 0.8rem; color: var(--muted); }
+
+      .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      @media (max-width: 460px) { .choices { grid-template-columns: 1fr; } }
+      .choices button { display: flex; align-items: center; gap: 0.55rem; }
+      .choices button img, .choices button .ph {
+        width: 30px; height: 30px; border-radius: 50%; flex: none; object-fit: cover;
+        background: var(--faintbg);
+      }
+      .choices button .ph { display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+      .choices button .meta { min-width: 0; }
+      .choices button .dn { font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .choices button .hn { color: var(--muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      button.correct { border-color: var(--good); background: #eafaf0; }
+      button.correct .dn, button.correct .hn { color: var(--good); }
+      button.wrong { border-color: var(--bad); background: #fbeceb; opacity: 0.85; }
+      button.wrong .dn, button.wrong .hn { color: var(--bad); }
+      button.dim { opacity: 0.3; }
+      button.cut { visibility: hidden; }
+
+      .reveal-card {
+        display: flex; gap: 0.9rem; align-items: center;
+        padding: 1rem 0; border-top: 1px solid var(--faint);
+        margin-top: 0.4rem; animation: fade 0.3s ease both;
+      }
+      .reveal-card img { width: 52px; height: 52px; border-radius: 50%; flex: none; background: var(--faint); object-fit: cover; }
+      .reveal-card .meta { min-width: 0; }
+      .reveal-card .verdict { font-weight: 800; margin: 0 0 0.15rem; }
+      .reveal-card .verdict.win { color: var(--good); }
+      .reveal-card .verdict.lose { color: var(--bad); }
+      .reveal-card .name { font-weight: 700; }
+      .reveal-card a { color: var(--accent); text-decoration: none; font-size: 0.82rem; }
+      .reveal-card a:hover { text-decoration: underline; }
+
+      .err { color: var(--bad); }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="marquee">
+      <h1 class="title">bisk<span class="glow">show</span></h1>
+      <p class="tagline">
+        A mystery <b>bisk</b> drops in. You guess who posted it. Fewer bisks
+        shown, more points — like a trigram game, but the whole post is the clue.
+      </p>
+      <div class="chaselights"></div>
+    </div>
+
+    <div class="wrap">
+      <div class="tabs">
+        <button class="tab on" id="tabSolo" type="button">solo</button>
+        <button class="tab" id="tabVersus" type="button">versus</button>
+      </div>
+
+      <form class="finder" id="soloForm" autocomplete="off">
+        <label class="lbl" for="soloHandle">a bluesky handle — quiz on who it follows</label>
+        <div class="row">
+          <input type="text" id="soloHandle" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+          <button class="solid" id="soloGo" type="submit">play</button>
+        </div>
+      </form>
+
+      <form class="finder hidden" id="versusForm" autocomplete="off">
+        <label class="lbl">two handles — quiz on the union of who they follow</label>
+        <div class="row vs-pair">
+          <span class="vslabel">A</span>
+          <input type="text" id="handleA" placeholder="e.g. pfrazee.com" spellcheck="false" />
+        </div>
+        <div class="row vs-pair">
+          <span class="vslabel">B</span>
+          <input type="text" id="handleB" placeholder="e.g. jay.bsky.team" spellcheck="false" />
+        </div>
+        <div class="row">
+          <button class="solid" id="versusGo" type="submit">play</button>
+          <button class="ghost" id="shareBtn" type="button" style="display:none">copy share link</button>
+        </div>
+      </form>
+
+      <p class="msg" id="msg">reads Bluesky's public API in your browser — no login.</p>
+
+      <div id="game" style="display:none">
+        <div class="board" id="board"></div>
+        <div class="stage" id="stage"></div>
+      </div>
+
+      <footer>
+        solo mode plays a handle's follows; versus mode plays the <b>set
+        union</b> of two handles' follows. reads Bluesky's public AppView, no
+        login. clue harvesting and scoring borrow from
+        <a href="https://trigruessr.bisks.net">trigruessr</a> and
+        <a href="https://neighborhood.bisks.net">neighborhood</a> · sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { soloPool, versusPool, authorPosts, pickBisks } from "./lib/pool.js";
+
+      const HARVEST_PAGES = 2; // ~200 recent posts per candidate — plenty of bisks
+      const MIN_CLUES = 2; // a round needs at least this many usable bisks
+      const CLUES = 5; // bisks available per round
+      const CHOICES = 6; // multiple-choice options per round (clamped to pool size)
+
+      const els = {
+        tabSolo: document.getElementById("tabSolo"),
+        tabVersus: document.getElementById("tabVersus"),
+        soloForm: document.getElementById("soloForm"),
+        versusForm: document.getElementById("versusForm"),
+        soloHandle: document.getElementById("soloHandle"),
+        soloGo: document.getElementById("soloGo"),
+        handleA: document.getElementById("handleA"),
+        handleB: document.getElementById("handleB"),
+        versusGo: document.getElementById("versusGo"),
+        shareBtn: document.getElementById("shareBtn"),
+        msg: document.getElementById("msg"),
+        game: document.getElementById("game"),
+        board: document.getElementById("board"),
+        stage: document.getElementById("stage"),
+      };
+
+      let mode = "solo";
+      let poolInfo = null; // whatever soloPool/versusPool returned
+      let pool = []; // [{did,handle,displayName,avatar}]
+      let choiceN = CHOICES;
+      let state = { score: 0, streak: 0, round: 0 };
+      let best = Number(localStorage.getItem("biskshow.best") || 0);
+      let recent = []; // dids of last few secrets, to avoid immediate repeats
+      let cur = null; // current round
+      let nextP = null; // prefetched next round (a promise)
+      let usedCut = false;
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      const rnd = (n) => Math.floor(Math.random() * n);
+      function shuffle(a) {
+        const r = a.slice();
+        for (let i = r.length - 1; i > 0; i--) {
+          const j = rnd(i + 1);
+          [r[i], r[j]] = [r[j], r[i]];
+        }
+        return r;
+      }
+      function sample(a, n) {
+        return shuffle(a).slice(0, Math.max(0, n));
+      }
+      const initials = (p) =>
+        (p.displayName || p.handle || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+
+      // ── mode switching ───────────────────────────────────────────────────
+      function setMode(m) {
+        mode = m;
+        els.tabSolo.classList.toggle("on", m === "solo");
+        els.tabVersus.classList.toggle("on", m === "versus");
+        els.soloForm.classList.toggle("hidden", m !== "solo");
+        els.versusForm.classList.toggle("hidden", m !== "versus");
+        els.shareBtn.style.display = m === "versus" && poolInfo && poolInfo.handleA ? "" : "none";
+      }
+      els.tabSolo.onclick = () => setMode("solo");
+      els.tabVersus.onclick = () => setMode("versus");
+
+      // ── scoreboard ───────────────────────────────────────────────────────
+      function paintBoard() {
+        els.board.innerHTML = `
+          <span class="stat score">score <b>${state.score}</b></span>
+          <span class="stat">streak <b>${state.streak}</b></span>
+          <span class="stat">best <b>${best}</b></span>
+          <span class="stat">round <b>${state.round || "–"}</b></span>
+          <span class="poolof">
+            playing <b>${esc(poolInfo.label)}</b> — ${pool.length} in the pool
+            · <button class="link" id="changeBtn" type="button">change</button>
+          </span>`;
+        const c = document.getElementById("changeBtn");
+        if (c) c.onclick = openFinder;
+      }
+      function openFinder() {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        (mode === "solo" ? els.soloHandle : els.handleA).focus();
+      }
+
+      // ── round building ───────────────────────────────────────────────────
+      async function makeRound() {
+        const fresh = pool.filter((p) => !recent.includes(p.did));
+        const order = shuffle(fresh.length >= 2 ? fresh : pool);
+        for (const secret of order) {
+          let texts;
+          try {
+            texts = await authorPosts(secret.did, { pages: HARVEST_PAGES });
+          } catch {
+            continue;
+          }
+          const bisks = pickBisks(secret, texts, { need: CLUES });
+          if (bisks.length < MIN_CLUES) continue;
+
+          const decoys = sample(
+            pool.filter((p) => p.did !== secret.did),
+            choiceN - 1,
+          );
+          if (decoys.length < 1) continue;
+          return {
+            secret,
+            bisks,
+            choices: shuffle([secret, ...decoys]),
+            shown: 1,
+            over: false,
+            cutIdx: [],
+          };
+        }
+        return null;
+      }
+
+      // ── render ───────────────────────────────────────────────────────────
+      function stake(round) {
+        return Math.max(1, CLUES + 1 - round.shown);
+      }
+
+      function render() {
+        if (!cur) {
+          els.stage.innerHTML = `<p class="err">Couldn't assemble a round from
+            this pool — not enough accounts with harvestable bisks, or
+            Bluesky's API had a moment. <button class="solid" id="retry">try again</button></p>`;
+          document.getElementById("retry").onclick = startGame;
+          return;
+        }
+
+        const bisksHtml = cur.bisks
+          .map((t, i) => {
+            const on = i < cur.shown || cur.over;
+            if (!on) return "";
+            return `<li class="bisk">
+              <div class="who"><span class="mystery">?</span> mystery bisk <span class="num">#${i + 1}</span></div>
+              <div class="text">${esc(t)}</div>
+            </li>`;
+          })
+          .join("");
+
+        const choicesHtml = cur.choices
+          .map((c, i) => {
+            const cut = cur.cutIdx.includes(i);
+            const av = c.avatar
+              ? `<img src="${esc(c.avatar)}" alt="" />`
+              : `<span class="ph">${esc(initials(c))}</span>`;
+            return `<button class="${cut ? "cut" : ""}" data-i="${i}" ${cut ? "disabled tabindex=-1" : ""}>
+              ${av}
+              <span class="meta"><span class="dn">${esc(c.displayName)}</span><span class="hn">@${esc(c.handle)}</span></span>
+            </button>`;
+          })
+          .join("");
+
+        const canCut = !usedCut && cur.choices.length >= 4 && !cur.over;
+
+        els.stage.innerHTML = `
+          <ul class="bisks">${bisksHtml}</ul>
+          <p class="prompt">Who posted this? Worth <b>${stake(cur)} pt${stake(cur) === 1 ? "" : "s"}</b> right now.</p>
+          <div class="actions">
+            <button class="ghost" id="more" ${cur.shown >= cur.bisks.length ? "disabled" : ""}>
+              show another bisk (−1 pt)
+            </button>
+            <button class="gold" id="cut" ${canCut ? "" : "disabled"}>cut two (once free)</button>
+            <span>${cur.shown} of ${cur.bisks.length} shown</span>
+          </div>
+          <div class="choices" id="choices">${choicesHtml}</div>`;
+
+        const more = document.getElementById("more");
+        if (more)
+          more.onclick = () => {
+            if (cur.shown < cur.bisks.length) {
+              cur.shown++;
+              render();
+            }
+          };
+        const cut = document.getElementById("cut");
+        if (cut)
+          cut.onclick = () => {
+            if (usedCut || cur.over) return;
+            const wrongIdx = cur.choices
+              .map((c, i) => i)
+              .filter((i) => cur.choices[i].did !== cur.secret.did && !cur.cutIdx.includes(i));
+            const toCut = sample(wrongIdx, 2);
+            cur.cutIdx = toCut;
+            usedCut = true;
+            render();
+          };
+        document.querySelectorAll("#choices button:not(.cut)").forEach((b) => {
+          b.onclick = () => guess(Number(b.dataset.i));
+        });
+      }
+
+      function guess(i) {
+        if (cur.over) return;
+        cur.over = true;
+        const picked = cur.choices[i];
+        const won = picked.did === cur.secret.did;
+        const gained = won ? stake(cur) : 0;
+
+        state.round++;
+        if (won) {
+          state.score += gained;
+          state.streak++;
+          if (state.streak > best) {
+            best = state.streak;
+            localStorage.setItem("biskshow.best", String(best));
+          }
+        } else {
+          state.streak = 0;
+        }
+        recent = [cur.secret.did, ...recent].slice(0, 6);
+        paintBoard();
+
+        document.querySelectorAll("#choices button").forEach((b, j) => {
+          b.disabled = true;
+          b.classList.remove("cut");
+          const c = cur.choices[j];
+          if (c.did === cur.secret.did) b.className = "correct";
+          else if (j === i) b.className = "wrong";
+          else b.className = "dim";
+        });
+        const more = document.getElementById("more");
+        if (more) more.disabled = true;
+        const cutBtn = document.getElementById("cut");
+        if (cutBtn) cutBtn.disabled = true;
+
+        document.querySelectorAll(".bisk").forEach((li, j) => {
+          li.querySelector(".text").textContent = cur.bisks[j];
+        });
+        // reveal any bisks that weren't shown yet
+        if (cur.shown < cur.bisks.length) {
+          const list = els.stage.querySelector(".bisks");
+          for (let j = cur.shown; j < cur.bisks.length; j++) {
+            const li = document.createElement("li");
+            li.className = "bisk";
+            li.innerHTML = `<div class="who"><span class="mystery">?</span> mystery bisk <span class="num">#${j + 1}</span></div><div class="text">${esc(cur.bisks[j])}</div>`;
+            list.appendChild(li);
+          }
+        }
+
+        const s = cur.secret;
+        const verdict = won
+          ? `<span class="verdict win">✓ Got it in ${cur.shown} bisk${cur.shown === 1 ? "" : "s"} · +${gained}</span>`
+          : `<span class="verdict lose">✗ Nope — it was:</span>`;
+        const card = document.createElement("div");
+        card.className = "reveal-card";
+        card.innerHTML = `
+          ${s.avatar ? `<img src="${esc(s.avatar)}" alt="" />` : `<img alt="" />`}
+          <div class="meta">
+            ${verdict}
+            <div class="name">${esc(s.displayName)}</div>
+            <a href="https://bsky.app/profile/${esc(s.handle)}" target="_blank" rel="noopener">@${esc(s.handle)} on bluesky →</a>
+          </div>`;
+        els.stage.appendChild(card);
+
+        const next = document.createElement("button");
+        next.className = "solid";
+        next.style.marginTop = "1.4rem";
+        next.textContent = "next bisk →";
+        next.onclick = advance;
+        els.stage.appendChild(next);
+      }
+
+      async function advance() {
+        els.stage.innerHTML = `<p class="prompt">cueing up the next bisk…</p>`;
+        usedCut = false;
+        const p = nextP || makeRound();
+        nextP = null;
+        cur = await p;
+        render();
+        nextP = makeRound(); // prefetch so "next" stays instant
+      }
+
+      async function startGame() {
+        els.stage.innerHTML = `<p class="prompt">warming up the studio audience…</p>`;
+        cur = await makeRound();
+        render();
+        nextP = makeRound();
+      }
+
+      // ── loading a pool ───────────────────────────────────────────────────
+      function step(m) {
+        els.msg.className = "msg";
+        els.msg.textContent = m;
+      }
+
+      async function loadSolo(handle) {
+        els.soloGo.disabled = true;
+        els.soloHandle.value = handle;
+        state = { score: 0, streak: 0, round: 0 };
+        recent = [];
+        cur = null;
+        nextP = null;
+        step(`resolving @${handle.replace(/^@/, "")}…`);
+        let res;
+        try {
+          res = await soloPool(handle, { onStep: step });
+        } catch (e) {
+          els.msg.className = "msg err";
+          els.msg.textContent = `couldn't load that one — ${(e && e.message) || "check the handle"}.`;
+          els.soloGo.disabled = false;
+          return;
+        }
+        finishLoad(res, `?mode=solo&h=${encodeURIComponent(res.handle)}`);
+        els.soloGo.disabled = false;
+      }
+
+      async function loadVersus(a, b) {
+        els.versusGo.disabled = true;
+        els.handleA.value = a;
+        els.handleB.value = b;
+        state = { score: 0, streak: 0, round: 0 };
+        recent = [];
+        cur = null;
+        nextP = null;
+        step(`resolving @${a.replace(/^@/, "")} and @${b.replace(/^@/, "")}…`);
+        let res;
+        try {
+          res = await versusPool(a, b, { onStep: step });
+        } catch (e) {
+          els.msg.className = "msg err";
+          els.msg.textContent = `couldn't load that matchup — ${(e && e.message) || "check both handles"}.`;
+          els.versusGo.disabled = false;
+          return;
+        }
+        finishLoad(res, `?mode=versus&a=${encodeURIComponent(res.handleA)}&b=${encodeURIComponent(res.handleB)}`);
+        els.versusGo.disabled = false;
+        els.shareBtn.style.display = "";
+        els.shareBtn.onclick = () => copyShareLink(res);
+      }
+
+      async function copyShareLink(res) {
+        const url = `${location.origin}${location.pathname}?mode=versus&a=${encodeURIComponent(res.handleA)}&b=${encodeURIComponent(res.handleB)}`;
+        try {
+          await navigator.clipboard.writeText(url);
+          els.shareBtn.textContent = "copied!";
+        } catch {
+          els.shareBtn.textContent = url;
+        }
+        setTimeout(() => { els.shareBtn.textContent = "copy share link"; }, 1800);
+      }
+
+      function finishLoad(res, qs) {
+        poolInfo = res;
+        pool = res.pool;
+        choiceN = Math.max(2, Math.min(CHOICES, pool.length));
+        if (pool.length < 2) {
+          els.msg.className = "msg err";
+          els.msg.textContent = `only ${pool.length} account${pool.length === 1 ? "" : "s"} in that pool — too small to play. try someone (or a pair) with more follows.`;
+          return;
+        }
+        try {
+          history.replaceState(null, "", qs);
+        } catch {}
+        els.msg.className = "msg ok";
+        els.msg.textContent = `loaded ${res.label} — ${pool.length} in the pool. guess away.`;
+        els.game.style.display = "";
+        paintBoard();
+        startGame();
+        els.game.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+
+      els.soloForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const h = els.soloHandle.value.trim();
+        if (h) loadSolo(h);
+        else els.soloHandle.focus();
+      });
+      els.versusForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const a = els.handleA.value.trim();
+        const b = els.handleB.value.trim();
+        if (!a) return els.handleA.focus();
+        if (!b) return els.handleB.focus();
+        loadVersus(a, b);
+      });
+
+      // ── boot from query params ────────────────────────────────────────────
+      const qp = new URLSearchParams(location.search);
+      const qMode = qp.get("mode");
+      if (qMode === "versus" && qp.get("a") && qp.get("b")) {
+        setMode("versus");
+        loadVersus(qp.get("a"), qp.get("b"));
+      } else if (qp.get("h")) {
+        setMode("solo");
+        loadSolo(qp.get("h"));
+      } else {
+        setMode("solo");
+      }
+    </script>
+  </body>
+</html>
