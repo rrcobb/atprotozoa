@@ -15,8 +15,13 @@
 #   export REPLY_PARENT_URI="at://…" REPLY_PARENT_CID="bafy…"
 #   bash box-build.sh
 #
-# Secrets come from the environment (source /etc/buildthis/env first):
-#   ANTHROPIC_API_KEY, ANTHROPIC_MODEL, [ANTHROPIC_BASE_URL],
+# Inference auth is Rob's Claude Code SUBSCRIPTION LOGIN, not an API key — the
+# whole reason the builds moved off the ephemeral GitHub Action onto a persistent
+# box (`claude setup-token` stores a long-lived credential in ~/.claude.json).
+# Do NOT set ANTHROPIC_API_KEY: if it's present, `claude` uses API billing and
+# IGNORES the login. So this script deliberately unsets it before the build.
+#
+# Non-inference secrets come from the environment (source /etc/buildthis/env):
 #   BUILDER_PAT, BOT_IDENTIFIER, BOT_APP_PASSWORD, OUTCOME_SECRET
 set -euo pipefail
 
@@ -25,8 +30,18 @@ BUILD_DIR="$CHECKOUT"
 cd "$BUILD_DIR"
 
 : "${BRIEF:?BRIEF is required (the build request text)}"
-: "${ANTHROPIC_API_KEY:?source /etc/buildthis/env first}"
 : "${BUILDER_PAT:?source /etc/buildthis/env first}"
+
+# Guard: the box must be logged in to Claude (subscription), or every build 400s.
+# Fail loud here rather than discover it per-build. `claude setup-token` (run once
+# by Rob) populates this.
+if ! claude auth status 2>/dev/null | grep -q '"loggedIn": true'; then
+  echo "ERROR: claude is not logged in on this box. Run: claude setup-token" >&2
+  exit 1
+fi
+# Belt-and-suspenders: never let an API key leak in and silently switch billing
+# from the subscription to per-token API. The login is the intended auth.
+unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL
 
 echo "=== sync to origin/main (discard any local build leftovers) ==="
 git fetch origin main
@@ -38,9 +53,9 @@ echo "=== build (claude -p, same invocation as the Action) ==="
 # a prior build can't be mistaken for this build's result.
 rm -f BUILD_RESULT
 # --max-turns bounds a runaway; bypassPermissions makes it unattended; the
-# allowedTools + the FIRST-read INSTRUCTIONS.md keep edits in the sandbox.
-# Model/endpoint come from the env — swapping providers is those vars, nothing here.
-# Tee the CLI's output to a log so we can tell "out of budget" (usage-limit 400)
+# allowedTools + the FIRST-read INSTRUCTIONS.md keep edits in the sandbox. The
+# model is whatever the subscription login defaults to (no ANTHROPIC_MODEL set).
+# Tee the CLI's output to a log so we can tell "out of budget" (usage-limit)
 # from "build flopped" afterwards, and still stream it live to the box's journal.
 CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
@@ -70,8 +85,11 @@ fi
 # Distinguish "out of budget" from "build flopped" so reply.mjs sends the honest
 # out-of-budget reply, not the generic failure. The box hits the same provider
 # spend cap the Action does; the CLI prints the usage-limit 400 to the log.
+# On the subscription, hitting the ceiling reads as a usage/rate-limit message
+# ("usage limit reached", "rate limit", "resets at ...") rather than the API's
+# 400. Match either so the honest "out of budget, back soon" reply still fires.
 BUILD_ERROR=""
-if [ "$BUILD_OK" != "true" ] && grep -qi "usage limit\|usage limits" "$CLAUDE_LOG" 2>/dev/null; then
+if [ "$BUILD_OK" != "true" ] && grep -qiE "usage limit|rate limit|resets? at|reached your (usage|limit)" "$CLAUDE_LOG" 2>/dev/null; then
   BUILD_ERROR="usage_limit"
 fi
 echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) ok=$BUILD_OK err='${BUILD_ERROR}' ==="

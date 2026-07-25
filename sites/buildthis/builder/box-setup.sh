@@ -54,13 +54,12 @@ if [ ! -f /etc/buildthis/env ]; then
   sudo tee /etc/buildthis/env >/dev/null <<'ENVTEMPLATE'
 # buildthis builder box secrets. Fill these in by hand. chmod 600, root-owned.
 # NONE of these belong in git.
-
-# Anthropic API key (the capped-workspace key today). Swapping the builder's
-# provider later is just these three lines -> a cheaper Anthropic-compatible
-# endpoint (DeepSeek/GLM/Kimi). Task delivery/gate/deploy/reply don't change.
-ANTHROPIC_API_KEY=
-ANTHROPIC_MODEL=claude-opus-5
-# ANTHROPIC_BASE_URL=            # set only when pointing at a non-Anthropic endpoint
+#
+# NOTE: there is deliberately NO ANTHROPIC_API_KEY here. Inference runs on Rob's
+# Claude Code SUBSCRIPTION login (`claude setup-token`, stored in ~/.claude.json),
+# not per-token API billing — that's the whole point of the persistent box. An
+# API key in this file would override the login and switch to API billing, so
+# box-build.sh unsets it defensively.
 
 # Repo-scoped PAT (Contents:write) so the build's push fires deploy.yml.
 BUILDER_PAT=
@@ -83,5 +82,7 @@ fi
 
 echo
 echo "=== done. next: ==="
-echo "  1. sudo \$EDITOR /etc/buildthis/env   (fill in the secrets)"
-echo "  2. test a build by hand:  bash box-build.sh   (with a BRIEF set — see that script's header)"
+echo "  1. LOG IN to Claude (subscription):  claude setup-token"
+echo "     (opens a URL to approve; stores a long-lived token in ~/.claude.json)"
+echo "  2. sudo \$EDITOR /etc/buildthis/env   (fill in the non-inference secrets)"
+echo "  3. test a build by hand:  bash box-build.sh   (with a BRIEF set — see that script's header)"
