@@ -40,68 +40,64 @@ rm -f BUILD_RESULT
 # --max-turns bounds a runaway; bypassPermissions makes it unattended; the
 # allowedTools + the FIRST-read INSTRUCTIONS.md keep edits in the sandbox.
 # Model/endpoint come from the env — swapping providers is those vars, nothing here.
+# Tee the CLI's output to a log so we can tell "out of budget" (usage-limit 400)
+# from "build flopped" afterwards, and still stream it live to the box's journal.
+CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
 AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
   claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
     --max-turns 30 \
     --permission-mode bypassPermissions \
-    --allowedTools Edit,Read,Write,Bash,Glob,Grep
-BUILD_RC=$?
+    --allowedTools Edit,Read,Write,Bash,Glob,Grep \
+  2>&1 | tee "$CLAUDE_LOG"
+BUILD_RC=${PIPESTATUS[0]}
 set -e
 
-# Read what the agent built. Absent/empty BUILD_RESULT => nothing built.
+# Read what the agent built. Absent/empty BUILD_RESULT => nothing built. The agent
+# may instead leave a BUILD_NOTE (a friendly line for a tag with nothing to build
+# from) — reply.mjs posts that as the reply. Both are untracked, repo-root files.
 BUILD_RESULT=""
-if [ -f BUILD_RESULT ]; then
-  BUILD_RESULT="$(head -n1 BUILD_RESULT | tr -d '[:space:]')"
-fi
+[ -f BUILD_RESULT ] && BUILD_RESULT="$(head -n1 BUILD_RESULT | tr -d '[:space:]')"
+BUILD_NOTE=""
+[ -f BUILD_NOTE ] && BUILD_NOTE="$(cat BUILD_NOTE)"
+
 if [ "$BUILD_RC" -eq 0 ] && [ -n "$BUILD_RESULT" ]; then
   BUILD_OK="true"
 else
   BUILD_OK="false"
 fi
-echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' ok=$BUILD_OK ==="
+
+# Distinguish "out of budget" from "build flopped" so reply.mjs sends the honest
+# out-of-budget reply, not the generic failure. The box hits the same provider
+# spend cap the Action does; the CLI prints the usage-limit 400 to the log.
+BUILD_ERROR=""
+if [ "$BUILD_OK" != "true" ] && grep -qi "usage limit\|usage limits" "$CLAUDE_LOG" 2>/dev/null; then
+  BUILD_ERROR="usage_limit"
+fi
+echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) ok=$BUILD_OK err='${BUILD_ERROR}' ==="
 
 echo "=== push to main (PAT, so deploy.yml fires) ==="
-# Only push if the build actually changed tracked files. A no-op build (or a
-# failed one) shouldn't push an empty commit.
+# Only push if the build actually changed tracked files. A no-op build, a failed
+# one, or a note-only "nothing to build" reaction shouldn't push an empty commit.
 if [ "$BUILD_OK" = "true" ] && ! git diff --quiet; then
   git add -A
-  git commit -m "buildthis: ${BUILD_RESULT} (@${AUTHOR:-someone})"
-  git push "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main
+  git commit -q -m "buildthis: ${BUILD_RESULT} (@${AUTHOR:-someone})"
+  git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main
 else
   echo "  nothing to push (build not ok or no changes)"
 fi
 
-echo "=== reply in-thread (same reply.mjs the Action uses) ==="
-BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILD_RESULT" \
+# Reply in-thread AND report the outcome to the event log — reply.mjs does both
+# (it owns the /outcome POST now, keyed by MENTION_URI, with the reply text as the
+# logged replyText). Same script the Action's reply step runs, same env contract.
+echo "=== reply + report outcome (reply.mjs) ==="
+BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILD_RESULT" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
   BOT_IDENTIFIER="${BOT_IDENTIFIER}" BOT_APP_PASSWORD="${BOT_APP_PASSWORD}" \
   REPLY_ROOT_URI="${REPLY_ROOT_URI}" REPLY_ROOT_CID="${REPLY_ROOT_CID}" \
   REPLY_PARENT_URI="${REPLY_PARENT_URI}" REPLY_PARENT_CID="${REPLY_PARENT_CID}" \
+  MENTION_URI="${MENTION_URI:-}" \
+  OUTCOME_URL="${OUTCOME_URL:-https://buildthis.bisks.net/outcome}" \
+  OUTCOME_SECRET="${OUTCOME_SECRET:-}" \
   node sites/buildthis/builder/reply.mjs
-
-echo "=== report outcome to the event log (POST /outcome) ==="
-# Best-effort: a failed outcome POST must not fail the build. Mirrors the record
-# the logs site renders. Keyed by MENTION_URI so it merges onto the watcher's event.
-if [ -n "${MENTION_URI:-}" ] && [ -n "${OUTCOME_SECRET:-}" ]; then
-  STATUS="failure"; [ "$BUILD_OK" = "true" ] && STATUS="success"
-  URL=""
-  if [ "$BUILD_OK" = "true" ]; then
-    case "$BUILD_RESULT" in
-      */*) URL="https://${BUILD_RESULT%%/*}.bisks.net/${BUILD_RESULT#*/}" ;;
-      *)   URL="https://${BUILD_RESULT}.bisks.net" ;;
-    esac
-  fi
-  # Build the JSON body with node's JSON.stringify (correct escaping), passing the
-  # values through the environment so they're read as env vars, not argv.
-  BODY="$(MENTION_URI="$MENTION_URI" STATUS="$STATUS" BUILD_RESULT="$BUILD_RESULT" URL="$URL" \
-    node -e 'const e=process.env; const o={mentionUri:e.MENTION_URI, status:e.STATUS, builtName:e.BUILD_RESULT||undefined, url:e.URL||undefined}; process.stdout.write(JSON.stringify(o))')"
-  curl -fsS -X POST "https://buildthis.bisks.net/outcome" \
-    -H "authorization: Bearer ${OUTCOME_SECRET}" \
-    -H "content-type: application/json" \
-    -d "$BODY" \
-    >/dev/null || echo "  outcome POST failed (non-fatal)"
-else
-  echo "  skipped outcome POST (no MENTION_URI/OUTCOME_SECRET)"
-fi
 
 echo "=== done ==="
