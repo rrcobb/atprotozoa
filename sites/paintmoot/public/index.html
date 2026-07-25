@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>paintmoot — bisks.net</title>
+    <meta
+      name="description"
+      content="A collaborative drawing board on atproto. Boards and strokes are custom lexicon records in each artist's own repo — draw on your own board, or on any board owned by one of your moots."
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.9rem; line-height: 1.7; max-width: 62ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      input[type="text"], input[type="number"], select {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+      }
+      input[type="text"]::placeholder { color: #aaa; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border-color: var(--faint); }
+      button.ghost:hover { background: #f5f8ff; }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.55rem; }
+      button.active { background: var(--accent); border-color: var(--accent); }
+      .status { font-size: 0.78rem; color: var(--muted); }
+      .err { color: #c0392b; }
+      a { color: var(--accent); }
+
+      .bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+      .bar input[type="text"] { flex: 1; min-width: 12rem; }
+      .panel-label {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 1.5rem 0 0.6rem; font-weight: 600;
+      }
+      .panel-label:first-of-type { margin-top: 0; }
+
+      /* home: board lists */
+      .boardlist { border-top: 1px solid var(--faint); }
+      .boardrow {
+        display: block; padding: 0.7rem 0; border-bottom: 1px solid var(--faint);
+        text-decoration: none; color: inherit;
+      }
+      .boardrow:hover .btitle { color: var(--accent); }
+      .btitle { font-weight: 600; }
+      .bmeta { font-size: 0.76rem; color: var(--muted); }
+      .by-group { margin-bottom: 1.1rem; }
+      .by-group h3 { font-size: 0.85rem; margin: 0 0 0.3rem; }
+      .by-group h3 a { color: inherit; }
+      .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+      /* new board form */
+      .newboard {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+        margin: 0.75rem 0 1.5rem; display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end;
+      }
+      .newboard label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.76rem; color: var(--muted); }
+
+      /* board view */
+      .board-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.3rem; }
+      .board-meta h2 { font-size: 1.1rem; margin: 0; }
+      .canvas-wrap { position: relative; margin: 0.75rem 0; line-height: 0; }
+      canvas {
+        max-width: 100%; height: auto; touch-action: none;
+        border: 1px solid var(--ink); border-radius: 4px; background: #fff;
+        cursor: crosshair;
+      }
+      #text-editor-layer input {
+        position: absolute; border: 1px dashed var(--accent); background: rgba(255,255,255,0.9);
+        padding: 2px 4px; font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+
+      .toolbar {
+        display: flex; gap: 1.1rem; flex-wrap: wrap; align-items: center;
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.5rem;
+      }
+      .tool-group { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+      .tool-group button { padding: 0.35rem 0.55rem; font-size: 0.95rem; }
+      .field { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); }
+      .stickers { display: flex; gap: 0.15rem; flex-wrap: wrap; max-width: 16rem; }
+      .stickers button { padding: 0.25rem 0.4rem; font-size: 1rem; background: transparent; color: inherit; border-color: var(--faint); }
+      .stickers button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .readonly-note {
+        font-size: 0.82rem; color: var(--muted); margin-top: 0.6rem;
+        padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 3px;
+      }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">paintmoot</a> <span id="crumb"></span></h1>
+        <span class="who" id="who"></span>
+      </header>
+
+      <section id="home">
+        <p class="intro">
+          A collaborative drawing board. State is nothing but
+          <b>net.bisks.paintmoot.*</b> records posted as you, the logged-in
+          user — a board record for the canvas, a mark record per stroke,
+          shape, text field, or emoji sticker. Anyone can start a board; a
+          board's <b>moots</b> (its owner's mutual follows) can draw on it
+          too. Everyone else gets a read-only view.
+        </p>
+
+        <div id="signin-box"></div>
+
+        <div class="panel-label">look up a handle</div>
+        <div class="bar">
+          <input id="lookup-handle" type="text" placeholder="a bluesky handle" />
+          <button id="lookup-go">look up</button>
+        </div>
+        <p class="status" id="home-status"></p>
+
+        <div id="new-board-box" hidden></div>
+        <div id="home-results"></div>
+      </section>
+
+      <section id="board" hidden>
+        <div class="board-meta">
+          <h2 id="board-title"></h2>
+          <button id="copy-link" class="ghost tiny">copy link</button>
+        </div>
+        <p class="status" id="board-status"></p>
+        <div class="canvas-wrap">
+          <canvas id="canvas" width="800" height="600"></canvas>
+          <div id="text-editor-layer"></div>
+        </div>
+
+        <div class="toolbar" id="toolbar" hidden>
+          <div class="tool-group" id="tool-group">
+            <button data-tool="pencil" class="active" title="pencil">✏️</button>
+            <button data-tool="eraser" title="eraser">🧼</button>
+            <button data-tool="line" title="line">╱</button>
+            <button data-tool="rect" title="rectangle">▭</button>
+            <button data-tool="ellipse" title="ellipse">◯</button>
+            <button data-tool="text" title="text field">T</button>
+          </div>
+          <label class="field">color <input type="color" id="f-color" value="#111111" /></label>
+          <label class="field">size <input type="range" id="f-size" min="1" max="80" value="6" /></label>
+          <label class="field"><input type="checkbox" id="f-fill" /> fill</label>
+          <div class="stickers" id="stickers"></div>
+        </div>
+        <p class="readonly-note" id="readonly-note" hidden></p>
+      </section>
+
+      <footer>
+        <a href="/">paintmoot</a> · part of <a href="https://bisks.net">bisks.net</a> ·
+        boards are <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+        records — nothing lives on this server.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+      import {
+        resolveDid, resolveHandleForDid, resolvePds,
+        getRecord, listRecords, getFollows, moots, mapLimit,
+      } from "./lib/atproto.js";
+      import { redraw, drawMark, clearBoard, attachInteraction } from "./lib/paint.js";
+
+      const BOARD_COLLECTION = "net.bisks.paintmoot.board";
+      const MARK_COLLECTION = "net.bisks.paintmoot.mark";
+      const CONTRIBUTOR_CAP = 30; // owner + up to this many moots scanned per board load
+      const FOLLOW_SCAN_CAP = 40; // follows scanned for "boards from people you follow"
+      const STICKERS = ["🙂","😂","❤️","🔥","⭐","💀","👀","🐸","🎉","💯","👍","🍕","🌈","😭","🤯","👻"];
+
+      const $ = (sel) => document.querySelector(sel);
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      let session = null;
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          console.error(e);
+        }
+        renderWho();
+        route();
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `@${esc(session.handle)} · <a id="signout">sign out</a>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            session = null;
+            location.reload();
+          });
+        } else {
+          who.textContent = "";
+        }
+      }
+
+      function route() {
+        const params = new URLSearchParams(location.search);
+        const owner = params.get("owner");
+        const rkey = params.get("rkey");
+        if (owner && rkey) {
+          $("#home").hidden = true;
+          $("#board").hidden = false;
+          $("#crumb").textContent = "";
+          showBoard(owner, rkey);
+        } else {
+          $("#board").hidden = true;
+          $("#home").hidden = false;
+          $("#crumb").textContent = "";
+          showHome();
+        }
+      }
+
+      // --- home -------------------------------------------------------------
+
+      function showHome() {
+        renderSignInBox();
+        renderNewBoardBox();
+
+        $("#lookup-go").addEventListener("click", () => {
+          const h = $("#lookup-handle").value.trim();
+          if (h) lookup(h);
+        });
+        $("#lookup-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("#lookup-go").click();
+        });
+
+        if (session) {
+          $("#lookup-handle").value = session.handle;
+          lookup(session.handle);
+        }
+      }
+
+      function renderSignInBox() {
+        const box = $("#signin-box");
+        if (session) {
+          box.innerHTML = "";
+          return;
+        }
+        box.innerHTML = `
+          <div class="panel-label">sign in to draw</div>
+          <div class="bar">
+            <input id="signin-handle" type="text" placeholder="your bluesky handle" />
+            <button id="signin-go">sign in with bluesky</button>
+          </div>
+          <p class="status err" id="signin-err"></p>
+        `;
+        $("#signin-go").addEventListener("click", async () => {
+          const h = $("#signin-handle").value.trim();
+          if (!h) return;
+          try {
+            await login(h);
+          } catch (e) {
+            $("#signin-err").textContent = e.message;
+          }
+        });
+      }
+
+      function renderNewBoardBox() {
+        const box = $("#new-board-box");
+        if (!session) {
+          box.hidden = true;
+          box.innerHTML = "";
+          return;
+        }
+        box.hidden = false;
+        box.innerHTML = `
+          <div class="panel-label">new board</div>
+          <div class="newboard">
+            <label>title <input id="nb-title" type="text" placeholder="doodle jam" /></label>
+            <label>size
+              <select id="nb-size">
+                <option value="480x360">small (480×360)</option>
+                <option value="800x600" selected>medium (800×600)</option>
+                <option value="1000x700">large (1000×700)</option>
+              </select>
+            </label>
+            <label>background <input id="nb-bg" type="color" value="#ffffff" /></label>
+            <button id="nb-create">create</button>
+          </div>
+          <p class="status err" id="nb-err"></p>
+        `;
+        $("#nb-create").addEventListener("click", createBoard);
+      }
+
+      async function createBoard() {
+        const title = $("#nb-title").value.trim() || "untitled board";
+        const [w, h] = $("#nb-size").value.split("x").map(Number);
+        const background = $("#nb-bg").value;
+        const err = $("#nb-err");
+        err.textContent = "";
+        try {
+          const record = {
+            $type: BOARD_COLLECTION,
+            title,
+            width: w,
+            height: h,
+            background,
+            createdAt: new Date().toISOString(),
+          };
+          const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: BOARD_COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`createRecord failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+          const j = await res.json();
+          const rkey = j.uri.split("/").pop();
+          location.href = `/?owner=${encodeURIComponent(session.did)}&rkey=${encodeURIComponent(rkey)}`;
+        } catch (e) {
+          err.textContent = e.message;
+        }
+      }
+
+      async function lookup(handleInput) {
+        const status = $("#home-status");
+        const results = $("#home-results");
+        results.innerHTML = "";
+        status.textContent = `resolving @${handleInput}…`;
+        status.classList.remove("err");
+        let did, pdsUrl;
+        try {
+          did = await resolveDid(handleInput);
+          pdsUrl = await resolvePds(did);
+          if (!pdsUrl) throw new Error("couldn't resolve their PDS");
+        } catch (e) {
+          status.textContent = e.message;
+          status.classList.add("err");
+          return;
+        }
+        const handle = handleInput.replace(/^@/, "");
+
+        status.textContent = `loading @${handle}'s boards…`;
+        const ownBoards = await listRecords(pdsUrl, did, BOARD_COLLECTION, null, 3);
+
+        results.innerHTML = `
+          <div class="by-group">
+            <h3>@${esc(handle)}'s boards</h3>
+            ${renderBoardList(ownBoards)}
+          </div>
+          <div class="by-group" id="follows-group">
+            <h3>boards from people @${esc(handle)} follows</h3>
+            <p class="empty">scanning…</p>
+          </div>
+        `;
+
+        status.textContent = `scanning up to ${FOLLOW_SCAN_CAP} follows for boards…`;
+        const follows = await getFollows(did, FOLLOW_SCAN_CAP);
+        const withBoards = (
+          await mapLimit(follows, 6, async (f) => {
+            const pds = await resolvePds(f.did);
+            if (!pds) return null;
+            const recs = await listRecords(pds, f.did, BOARD_COLLECTION, null, 1);
+            return recs.length ? { who: f, boards: recs } : null;
+          })
+        ).filter(Boolean);
+
+        const followsGroup = $("#follows-group");
+        if (!followsGroup) return; // user navigated away mid-scan
+        if (!withBoards.length) {
+          followsGroup.querySelector("p, .boardlist")?.remove();
+          followsGroup.insertAdjacentHTML("beforeend", `<p class="empty">none of the ${follows.length} follows scanned have a board yet.</p>`);
+        } else {
+          followsGroup.innerHTML = `<h3>boards from people @${esc(handle)} follows</h3>` +
+            withBoards.map((g) => `
+              <div class="bmeta" style="margin-top:0.6rem">@${esc(g.who.handle)}</div>
+              ${renderBoardList(g.boards)}
+            `).join("");
+        }
+        status.textContent = `done — checked @${handle} + ${follows.length} follows (capped at ${FOLLOW_SCAN_CAP}).`;
+      }
+
+      function renderBoardList(records) {
+        if (!records.length) return `<p class="empty">no boards yet.</p>`;
+        return `<div class="boardlist">${records
+          .map((r) => {
+            const rkey = r.uri.split("/").pop();
+            const owner = r.uri.split("/")[2];
+            const v = r.value;
+            return `<a class="boardrow" href="/?owner=${encodeURIComponent(owner)}&rkey=${encodeURIComponent(rkey)}">
+              <div class="btitle">${esc(v.title || "untitled")}</div>
+              <div class="bmeta">${v.width}×${v.height} · ${esc(fmtDay(v.createdAt))}</div>
+            </a>`;
+          })
+          .join("")}</div>`;
+      }
+
+      // --- board --------------------------------------------------------------
+
+      async function showBoard(ownerDid, rkey) {
+        const status = $("#board-status");
+        const titleEl = $("#board-title");
+        const canvas = $("#canvas");
+        const ctx = canvas.getContext("2d");
+        const toolbar = $("#toolbar");
+        const note = $("#readonly-note");
+        toolbar.hidden = true;
+        note.hidden = true;
+        titleEl.textContent = "";
+        status.classList.remove("err");
+        status.textContent = "loading board…";
+
+        $("#copy-link").addEventListener("click", () => {
+          navigator.clipboard?.writeText(location.href);
+          $("#copy-link").textContent = "copied!";
+          setTimeout(() => ($("#copy-link").textContent = "copy link"), 1200);
+        });
+
+        let ownerPds;
+        try {
+          ownerPds = await resolvePds(ownerDid);
+          if (!ownerPds) throw new Error("couldn't resolve the board owner's PDS");
+        } catch (e) {
+          status.textContent = e.message;
+          status.classList.add("err");
+          return;
+        }
+
+        let boardRec;
+        try {
+          boardRec = await getRecord(ownerPds, ownerDid, BOARD_COLLECTION, rkey);
+        } catch {
+          status.textContent = "board not found — the link may be wrong, or the record was deleted.";
+          status.classList.add("err");
+          return;
+        }
+        const board = boardRec.value;
+        const boardUri = boardRec.uri;
+        const ownerHandle = await resolveHandleForDid(ownerDid);
+
+        titleEl.textContent = board.title || "untitled board";
+        canvas.width = board.width;
+        canvas.height = board.height;
+        clearBoard(ctx, board);
+
+        status.textContent = `finding @${ownerHandle}'s moots…`;
+        let ownerMoots = [];
+        try {
+          ownerMoots = await moots(ownerDid, CONTRIBUTOR_CAP);
+        } catch {
+          // owner has no reachable graph (rare) — still show their own marks
+        }
+
+        const viewerDid = session?.did || null;
+        const canEdit = viewerDid === ownerDid || ownerMoots.some((m) => m.did === viewerDid);
+
+        status.textContent = `loading marks from @${ownerHandle} + their moots…`;
+        const contributors = [ownerDid, ...ownerMoots.map((m) => m.did)];
+
+        const marksPerRepo = await mapLimit(contributors, 5, async (did) => {
+          const pds = await resolvePds(did);
+          if (!pds) return [];
+          const recs = await listRecords(pds, did, MARK_COLLECTION, (v) => v.board === boardUri, 3);
+          return recs.map((r) => r.value);
+        });
+        let localMarks = marksPerRepo.flat().filter(Boolean);
+        localMarks.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        redraw(ctx, board, localMarks);
+
+        status.textContent =
+          `${localMarks.length} mark${localMarks.length === 1 ? "" : "s"} · ` +
+          `${contributors.length} contributor${contributors.length === 1 ? "" : "s"} scanned` +
+          (contributors.length >= CONTRIBUTOR_CAP + 1 ? ` (capped at ${CONTRIBUTOR_CAP} moots)` : "");
+
+        if (!canEdit) {
+          note.hidden = false;
+          if (viewerDid) {
+            note.textContent = `you're not a moot of @${ownerHandle} — sign in as one of their mutual follows to draw here. read-only for now.`;
+          } else {
+            // No session at all — give people a way to sign in right here,
+            // since this is often the first page someone lands on (a shared
+            // board link). login() remembers this board's URL and returns
+            // here once signed in.
+            note.innerHTML = `
+              sign in as @${esc(ownerHandle)} or one of their moots (mutual follows) to draw here — read-only for now.
+              <span class="bar" style="margin:0.5rem 0 0">
+                <input id="board-signin-handle" type="text" placeholder="your bluesky handle" />
+                <button id="board-signin-go" class="ghost tiny">sign in</button>
+              </span>
+              <span class="err" id="board-signin-err"></span>
+            `;
+            $("#board-signin-go").addEventListener("click", async () => {
+              const h = $("#board-signin-handle").value.trim();
+              if (!h) return;
+              try {
+                await login(h);
+              } catch (e) {
+                $("#board-signin-err").textContent = e.message;
+              }
+            });
+          }
+          return;
+        }
+
+        toolbar.hidden = false;
+        wireToolbar(canvas, board, boardUri, ctx, localMarks);
+      }
+
+      function wireToolbar(canvas, board, boardUri, ctx, localMarks) {
+        const state = { enabled: true, tool: "pencil", color: "#111111", size: 6, fill: false, emoji: STICKERS[0] };
+
+        const toolGroup = $("#tool-group");
+        toolGroup.addEventListener("click", (e) => {
+          const btn = e.target.closest("button[data-tool]");
+          if (!btn) return;
+          state.tool = btn.dataset.tool;
+          for (const b of toolGroup.querySelectorAll("button")) b.classList.toggle("active", b === btn);
+          for (const b of stickerBox.querySelectorAll("button")) b.classList.remove("active");
+          // sensible default sizes per tool
+          if (state.tool === "text") $("#f-size").value = 24;
+          else if (state.tool === "rect" || state.tool === "ellipse") $("#f-size").value = 3;
+          else $("#f-size").value = 6;
+          state.size = Number($("#f-size").value);
+        });
+
+        $("#f-color").addEventListener("input", (e) => (state.color = e.target.value));
+        $("#f-size").addEventListener("input", (e) => (state.size = Number(e.target.value)));
+        $("#f-fill").addEventListener("change", (e) => (state.fill = e.target.checked));
+
+        const stickerBox = $("#stickers");
+        stickerBox.innerHTML = STICKERS.map((s) => `<button type="button" data-emoji="${s}">${s}</button>`).join("");
+        stickerBox.addEventListener("click", (e) => {
+          const btn = e.target.closest("button[data-emoji]");
+          if (!btn) return;
+          state.emoji = btn.dataset.emoji;
+          state.tool = "sticker";
+          for (const b of stickerBox.querySelectorAll("button")) b.classList.toggle("active", b === btn);
+          for (const b of toolGroup.querySelectorAll("button")) b.classList.remove("active");
+        });
+
+        state.onText = (x, y) => openTextEditor(canvas, x, y, state, (mark) => commitMark(mark));
+
+        async function commitMark(mark) {
+          localMarks.push(mark);
+          try {
+            const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: MARK_COLLECTION,
+                record: { $type: MARK_COLLECTION, board: boardUri, ...mark },
+              }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+          } catch (e) {
+            console.error("failed to save mark:", e);
+            $("#board-status").textContent = "that mark didn't save (network/PDS error) — it's only visible to you until you retry.";
+            $("#board-status").classList.add("err");
+          }
+        }
+
+        attachInteraction(canvas, board, state, commitMark);
+      }
+
+      function openTextEditor(canvas, boardX, boardY, state, onCommit) {
+        const layer = $("#text-editor-layer");
+        layer.innerHTML = "";
+        const r = canvas.getBoundingClientRect();
+        const wrapRect = canvas.parentElement.getBoundingClientRect();
+        const scale = r.width / canvas.width;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "type text, Enter to place";
+        input.style.left = `${r.left - wrapRect.left + boardX * scale}px`;
+        input.style.top = `${r.top - wrapRect.top + boardY * scale}px`;
+        input.style.fontSize = `${Math.max(10, state.size * scale)}px`;
+        input.style.color = state.color;
+        layer.appendChild(input);
+        input.focus();
+
+        // Removing the input (on commit or cancel) fires a synchronous `blur`,
+        // which would otherwise re-enter commit() a second time — guard with a
+        // one-shot flag so Enter (or Escape) can't double-post the mark.
+        let done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          const text = input.value.trim();
+          layer.innerHTML = "";
+          if (!text) return;
+          const mark = {
+            kind: "text",
+            color: state.color,
+            size: state.size,
+            x: boardX,
+            y: boardY,
+            text,
+            createdAt: new Date().toISOString(),
+          };
+          drawMark(canvas.getContext("2d"), mark);
+          onCommit(mark);
+        }
+        function cancel() {
+          done = true;
+          layer.innerHTML = "";
+        }
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") cancel();
+        });
+        input.addEventListener("blur", commit);
+      }
+
+      function fmtDay(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso || "";
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
