@@ -271,6 +271,14 @@
         return { top, newest, count: originals.length };
       }
 
+      // Timers from an in-flight shatter (screenshot hold, delayed collapse) —
+      // cleared whenever a new run starts so they can't clobber the next card.
+      let pendingTimers = [];
+      function clearPendingTimers() {
+        pendingTimers.forEach((id) => clearTimeout(id));
+        pendingTimers = [];
+      }
+
       let busy = false;
       async function run(rawHandle) {
         if (busy) return;
@@ -278,6 +286,7 @@
         go.disabled = true;
         statusEl.className = "status";
         statusEl.textContent = "reading the feed…";
+        clearPendingTimers();
         stage.classList.remove("show");
         goingWrap.style.display = "none";
         startedHost.innerHTML = "";
@@ -412,8 +421,28 @@
         const tap = card.querySelector(".tap");
         if (tap) tap.style.display = "none";
 
-        // Collapse the empty started slot after the shards have started falling.
-        setTimeout(() => {
+        // Reveal how-it's-going.
+        pendingTimers.push(setTimeout(() => {
+          goingWrap.style.display = "block";
+          goingHost.firstElementChild?.classList.add("reveal-in");
+          goingWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 450));
+
+        // Once the shards have finished falling, bring the started card back
+        // (cracks and all) so both posts sit on screen together — long enough
+        // to grab a screenshot — before it clears away for good.
+        pendingTimers.push(setTimeout(() => {
+          overlay.remove();
+          crack.remove();
+          realCard.style.visibility = "visible";
+          realCard.style.transition = "opacity 0.4s ease";
+          realCard.style.opacity = "0";
+          requestAnimationFrame(() => { realCard.style.opacity = "1"; });
+        }, 1550));
+
+        // Hold both posts on screen for the screenshot, then collapse the
+        // now-empty started slot away.
+        pendingTimers.push(setTimeout(() => {
           startedHost.style.transition = "height 0.5s ease, opacity 0.5s ease, margin 0.5s ease";
           startedHost.style.height = "0px";
           startedHost.style.overflow = "hidden";
@@ -422,14 +451,7 @@
           const lbl = document.getElementById("startedLabel");
           lbl.style.transition = "opacity 0.4s ease";
           lbl.style.opacity = "0.35";
-        }, 320);
-
-        // Reveal how-it's-going.
-        setTimeout(() => {
-          goingWrap.style.display = "block";
-          goingHost.firstElementChild?.classList.add("reveal-in");
-          goingWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        }, 450);
+        }, 5000));
       }
 
       function crackSVG(W, H, ox, oy) {
@@ -456,7 +478,7 @@
       document.querySelectorAll(".examples a").forEach((el) =>
         el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
       replay.addEventListener("click", () => { handleEl.value = ""; handleEl.focus();
-        stage.classList.remove("show"); goingWrap.style.display = "none"; });
+        clearPendingTimers(); stage.classList.remove("show"); goingWrap.style.display = "none"; });
 
       // Deep-link support: ?handle=
       const qp = new URLSearchParams(location.search).get("handle");
