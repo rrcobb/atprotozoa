@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>🫧 gulpstream — agar.io on the bluesky firehose</title>
+    <title>🫧 gulpstream v2 — @norvid-studies eats their own archive</title>
     <meta
       name="description"
-      content="An agar.io clone played against the live Bluesky firehose. Arrow keys to move your blob around the arena, eat real posts as pellets to grow, and press spacebar to fire half your mass at a rival account. Outgrow them or get eaten."
+      content="v2: you play as @norvid-studies.bsky.social, and every pellet is a real post pulled from their own archive. Arrow keys to move, spacebar fires half your mass at a rival. Watch for @croissanthology.com — he wanders the arena as a duck, and firing on him bursts him into a hail of tweets."
     />
     <style>
       :root { --ink: #eafcff; }
@@ -40,6 +40,7 @@
       .mass { font-size: clamp(22px, 5vw, 36px); line-height: 1; }
       .mass .n { color: #6bf0ff; }
       .best { font-size: 12px; opacity: 0.75; letter-spacing: 0.02em; font-weight: 600; margin-top: 4px; }
+      .who { font-size: 11px; opacity: 0.6; letter-spacing: 0.02em; font-weight: 600; margin-top: 2px; }
       .board {
         background: rgba(4, 16, 22, 0.6);
         border: 1px solid rgba(107, 240, 255, 0.18);
@@ -165,6 +166,7 @@
       <div>
         <div class="mass">🫧 <span class="n" id="massVal">0</span></div>
         <div class="best" id="best"></div>
+        <div class="who">playing as @norvid-studies.bsky.social</div>
       </div>
       <div class="board">
         <div class="title">arena</div>
@@ -174,23 +176,25 @@
 
     <div class="feed" id="feed"></div>
 
-    <div class="status"><span class="dot off" id="dot"></span><span id="statusText">connecting to the firehose…</span></div>
+    <div class="status"><span class="dot off" id="dot"></span><span id="statusText">loading @norvid-studies.bsky.social's archive…</span></div>
 
     <!-- start / game over -->
     <div class="overlay" id="startOverlay">
-      <h1>🫧 gulp<span class="bub">stream</span></h1>
+      <h1>🫧 gulp<span class="bub">stream</span> v2</h1>
       <p>
-        The live Bluesky firehose, poured into an arena as pellets. Every pellet
-        is a real post — gulp them down to grow. Other accounts drift the arena
-        as rival blobs: outgrow them and they're lunch, but if they outgrow
-        <i>you</i>, you're theirs.
+        You are @norvid-studies.bsky.social. Every pellet in the arena is a real
+        post pulled straight from your own archive — gulp your own words down to
+        grow. Keep an eye out for @croissanthology.com: he wanders the arena as a
+        duck. Outgrow rivals and they're lunch, but if they outgrow <i>you</i>,
+        you're theirs.
       </p>
       <p class="fine">
         <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move ·
-        <kbd>space</kbd> fires half your mass at the nearest rival
+        <kbd>space</kbd> fires half your tweets at the nearest rival —
+        catch the duck and he bursts into a hail of tweets
       </p>
       <button class="btn" id="startBtn">drop in</button>
-      <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, for @norvid-studies.bsky.social</div>
+      <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, v2 for @norvid-studies.bsky.social</div>
     </div>
 
     <div class="overlay hidden" id="overOverlay">
@@ -203,16 +207,20 @@
 
     <script>
       // ------------------------------------------------------------------
-      // Gulpstream — agar.io played against the live Bluesky firehose.
-      // Arrow keys / WASD move your blob around a bounded arena; real posts
-      // fall in as colored pellets to eat and grow. Other firehose accounts
-      // wander the arena as AI rival blobs — outgrow and eat them, or get
-      // eaten. Spacebar fires half your mass at the nearest rival. Pure
-      // client-side, no login, no server. Jetstream consumer copied from
-      // sites/fruitninja (itself copied from sites/candyland).
+      // Gulpstream v2 — agar.io played against your own archive.
+      // Arrow keys / WASD move your blob (@norvid-studies.bsky.social)
+      // around a bounded arena; posts pulled from that account's real post
+      // history fall in as colored pellets to eat and grow. Accounts
+      // mentioned in the archive wander the arena as AI rival blobs —
+      // outgrow and eat them, or get eaten. @croissanthology.com always
+      // gets a look-in as a duck; catching him with a shot bursts him into
+      // a hail of tweets. Spacebar fires half your mass at the nearest
+      // rival. Pure client-side, no login, no server — reads the public
+      // AppView the way sites/skeetracker's lib/bsky.js does.
       // ------------------------------------------------------------------
-      const JETSTREAM =
-        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const NORVID_HANDLE = "norvid-studies.bsky.social";
+      const DUCK_HANDLE = "croissanthology.com";
+      const PUB = "https://public.api.bsky.app/xrpc";
 
       const cv = document.getElementById("stage");
       const ctx = cv.getContext("2d");
@@ -263,54 +271,90 @@
       function blobFill(hue) { return `hsl(${hue} 78% 58%)`; }
       function blobDark(hue) { return `hsl(${hue} 70% 34%)`; }
 
-      // ---- firehose ingestion (jetstream, copied from fruitninja) ----------
-      const SPAM = /#nowplaying|listen live|onelink\.to|🛒|shop now|buy now|prime members|amzn\.to/i;
-      const postQueue = []; // {did, handle, text}
-      const MAX_QUEUE = 140;
-      let postCountWindow = 0, rate = 0, connected = false;
+      // ---- archive ingestion (@norvid-studies.bsky.social's own posts) -----
+      // v2 drops the live firehose: every pellet is a real post from the
+      // player's own archive, fetched once from the public AppView (CORS *,
+      // no auth) and cycled through for the whole session. Handles mentioned
+      // anywhere in the archive become the pool rivals are drawn from, so
+      // @croissanthology.com — always guaranteed a spot — shows up as a duck.
+      let connected = false;
+      let norvidDid = "norvid-studies";
+      let archivePosts = []; // {did, handle, text}
+      let mentionPool = [DUCK_HANDLE];
 
-      function onPost(did, text) {
-        postCountWindow++;
-        if (SPAM.test(text)) return;
-        const t = (text || "").replace(/\s+/g, " ").trim();
-        if (!t) return;
-        const handle = did.startsWith("did:plc:") ? did.slice(8, 16) + "…" : (did || "someone");
-        if (postQueue.length >= MAX_QUEUE) postQueue.shift();
-        postQueue.push({ did, handle, text: t });
-      }
-
-      let ws = null, retry = 0;
-      function connect() {
-        try { ws = new WebSocket(JETSTREAM); } catch (e) { scheduleReconnect(); return; }
-        ws.onopen = () => { retry = 0; connected = true; setStatus(true, "streaming posts…"); };
-        ws.onmessage = (ev) => {
-          let msg;
-          try { msg = JSON.parse(ev.data); } catch { return; }
-          const c = msg.commit;
-          if (msg.kind === "commit" && c && c.operation === "create" && c.collection === "app.bsky.feed.post") {
-            onPost(msg.did || "", (c.record && c.record.text) || "");
-          }
-        };
-        ws.onclose = () => { connected = false; setStatus(false, "reconnecting…"); scheduleReconnect(); };
-        ws.onerror = () => { try { ws.close(); } catch {} };
-      }
-      function scheduleReconnect() { retry = Math.min(retry + 1, 6); setTimeout(connect, 400 * retry + rnd(400)); }
       function setStatus(live, text) { dot.classList.toggle("off", !live); statusText.textContent = text; }
-      setInterval(() => {
-        rate = postCountWindow; postCountWindow = 0;
-        if (!connected) return;
-        setStatus(true, `${rate} posts/s · ${postQueue.length} in the stream`);
-      }, 1000);
-      connect();
 
-      let fillerN = 0;
+      async function jget(url) {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error("http " + r.status);
+        return r.json();
+      }
+
+      function scanMentions(text) {
+        const re = /@([a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,})/g;
+        let m;
+        while ((m = re.exec(text))) {
+          const h = m[1].toLowerCase().replace(/\.+$/, "");
+          if (h && h !== NORVID_HANDLE && !mentionPool.includes(h)) mentionPool.push(h);
+        }
+      }
+
+      async function loadArchive() {
+        setStatus(false, `loading @${NORVID_HANDLE}'s archive…`);
+        try {
+          const idres = await jget(`${PUB}/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(NORVID_HANDLE)}`);
+          if (idres.did) norvidDid = idres.did;
+          let cursor;
+          for (let page = 0; page < 4; page++) {
+            const url = `${PUB}/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(NORVID_HANDLE)}&limit=100` +
+              (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+            const data = await jget(url);
+            const feed = data.feed || [];
+            for (const item of feed) {
+              const text = item.post && item.post.record && item.post.record.text;
+              if (!text) continue;
+              scanMentions(text);
+              if (!item.reason && item.post.author && item.post.author.did === norvidDid) {
+                archivePosts.push({ did: norvidDid, handle: NORVID_HANDLE, text: text.replace(/\s+/g, " ").trim() });
+              }
+            }
+            cursor = data.cursor;
+            if (!cursor || !feed.length) break;
+          }
+        } catch (e) {
+          // network/CORS hiccup — the game still runs on filler pellets below
+        }
+        connected = true;
+        setStatus(true, archivePosts.length
+          ? `${archivePosts.length} posts from the archive, loaded`
+          : "archive was quiet — gulping placeholder posts");
+      }
+      loadArchive();
+
+      let archiveShuffled = [], archiveIdx = 0, fillerN = 0;
+      function shuffledArchive() {
+        const a = archivePosts.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = (Math.random() * (i + 1)) | 0;
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
       function nextPost() {
-        if (postQueue.length) return postQueue.shift();
+        if (archivePosts.length) {
+          if (archiveIdx >= archiveShuffled.length) { archiveShuffled = shuffledArchive(); archiveIdx = 0; }
+          return archiveShuffled[archiveIdx++];
+        }
         fillerN++;
-        return { did: "filler:" + fillerN, handle: "the.stream", text: pick([
-          "waiting on the next post…", "somebody say something on bluesky",
-          "the stream is quiet for a sec", "gulp me anyway",
+        return { did: "filler:" + fillerN, handle: NORVID_HANDLE, text: pick([
+          "waiting on the archive…", "gulp me anyway",
+          "the feed's quiet for a sec", "eat this one on credit",
         ]) };
+      }
+
+      function pickRivalHandle() {
+        const rest = mentionPool.filter((h) => h !== DUCK_HANDLE);
+        return rest.length ? pick(rest) : DUCK_HANDLE;
       }
 
       // ---- world state --------------------------------------------------
@@ -324,6 +368,7 @@
       const shots = [];       // {x,y,vx,vy,mass,r,age,hue}
       const bursts = [];      // floating pop text {x,y,text,color,life,max,vy}
       const worldBits = [];   // small death-splatter particles
+      const tweetBits = [];   // tumbling tweet-snippet particles (duck explosion)
 
       const MAX_PELLETS = 180;
       const MAX_RIVALS = 11;
@@ -354,28 +399,30 @@
         pellets.push({ x: p.x, y: p.y, mass: m, r: 3.4 + m * 0.9, hue: hueFor(post.did), post });
       }
 
-      function spawnRival(near) {
+      function spawnRival(near, forceDuck) {
         if (rivals.length >= MAX_RIVALS) return;
-        const post = nextPost();
+        const isDuck = forceDuck || (!rivals.some((r) => r.isDuck) && Math.random() < 0.35);
+        const handle = isDuck ? DUCK_HANDLE : pickRivalHandle();
         const p = near ? randomNear(near.x, near.y, 1700) : randomNear(WORLD / 2, WORLD / 2, WORLD / 2.1);
-        const mass = rnd(14, 85);
+        const mass = isDuck ? rnd(30, 70) : rnd(14, 85);
         rivals.push({
           x: p.x, y: p.y, vx: 0, vy: 0, mass,
-          hue: hueFor(post.did), handle: post.handle,
+          hue: isDuck ? 42 : hueFor(handle), handle, isDuck: !!isDuck,
           retarget: 0, tx: p.x, ty: p.y, fleeing: false,
         });
       }
 
       function resetWorld() {
-        pellets.length = 0; rivals.length = 0; shots.length = 0; bursts.length = 0; worldBits.length = 0;
-        const startPost = nextPost();
+        pellets.length = 0; rivals.length = 0; shots.length = 0; bursts.length = 0;
+        worldBits.length = 0; tweetBits.length = 0;
         player = {
           x: WORLD / 2, y: WORLD / 2, vx: 0, vy: 0, mass: START_MASS,
-          facing: { x: 1, y: 0 }, hue: hueFor(startPost.did || "you"),
+          facing: { x: 1, y: 0 }, hue: hueFor(NORVID_HANDLE),
         };
         cam.x = player.x; cam.y = player.y; cam.scale = 1;
         for (let i = 0; i < 90; i++) spawnPellet(player);
-        for (let i = 0; i < 7; i++) spawnRival(player);
+        spawnRival(player, true); // guarantee the duck is out there somewhere
+        for (let i = 0; i < 6; i++) spawnRival(player);
       }
 
       // ---- input ----------------------------------------------------------
@@ -423,7 +470,9 @@
           mass: amount, r: massToR(amount) * 0.55, age: 0, hue: player.hue,
           targetHandle: target ? target.handle : null,
         });
-        pushFeed({ handle: "you", text: target ? `fired at @${target.handle}` : "fired into the stream" }, true);
+        pushFeed({ handle: "you", text: target
+          ? `fired at @${target.handle}${target.isDuck ? " 🦆" : ""}`
+          : "fired into the stream" }, true);
       }
 
       // ---- feed / pops ------------------------------------------------------
@@ -516,13 +565,40 @@
         r.y = clamp(r.y + r.vy * dt, 20, WORLD - 20);
       }
 
-      function killRival(r, idx, eatenBy) {
+      // the duck bursts into a hail of tumbling tweet snippets instead of
+      // the usual splatter — his mass still scatters back as pellets so
+      // nothing just vanishes from the archive
+      function explodeDuck(r) {
         scatterMassAsPellets(r.x, r.y, r.mass * 0.7, r.hue);
-        splatBits(r.x, r.y, r.hue, 16);
+        splatBits(r.x, r.y, r.hue, 22);
+        shake = Math.min(14, shake + 8);
+        for (let i = 0; i < 12; i++) {
+          const a = rnd(6.2832), sp = rnd(90, 260);
+          const src = archivePosts.length ? pick(archivePosts).text : "gulp";
+          const snippet = src.length > 20 ? src.slice(0, 20) + "…" : src;
+          tweetBits.push({
+            x: r.x, y: r.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            rot: rnd(6.2832), vr: rnd(-4, 4), text: snippet,
+            life: rnd(1.1, 1.8), max: 1.8,
+          });
+        }
+      }
+
+      function killRival(r, idx, eatenBy) {
+        if (r.isDuck) explodeDuck(r);
+        else {
+          scatterMassAsPellets(r.x, r.y, r.mass * 0.7, r.hue);
+          splatBits(r.x, r.y, r.hue, 16);
+        }
         rivals.splice(idx, 1);
         if (eatenBy === player) {
-          floatText(r.x, r.y, `gulped @${r.handle}!`, "#ffe14d");
-          pushFeed({ handle: "you", text: `gulped @${r.handle}` }, true);
+          if (r.isDuck) {
+            floatText(r.x, r.y, `🦆 burst @${r.handle}!`, "#ffb020");
+            pushFeed({ handle: "you", text: `exploded @${r.handle} into a hail of tweets` }, true);
+          } else {
+            floatText(r.x, r.y, `gulped @${r.handle}!`, "#ffe14d");
+            pushFeed({ handle: "you", text: `gulped @${r.handle}` }, true);
+          }
         }
         setTimeout(() => { if (running) spawnRival(player); }, rnd(1500, 3200));
       }
@@ -642,6 +718,11 @@
         // particles
         for (const b of worldBits) { b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= 0.94; b.vy *= 0.94; b.life -= dt; }
         for (let i = worldBits.length - 1; i >= 0; i--) if (worldBits[i].life <= 0) worldBits.splice(i, 1);
+        for (const t of tweetBits) {
+          t.x += t.vx * dt; t.y += t.vy * dt; t.vx *= 0.93; t.vy *= 0.93;
+          t.rot += t.vr * dt; t.life -= dt;
+        }
+        for (let i = tweetBits.length - 1; i >= 0; i--) if (tweetBits[i].life <= 0) tweetBits.splice(i, 1);
         for (const p of bursts) { p.y += p.vy * dt; p.life -= dt; }
         for (let i = bursts.length - 1; i >= 0; i--) if (bursts[i].life <= 0) bursts.splice(i, 1);
         if (shake > 0) shake = Math.max(0, shake - dt * 40);
@@ -682,6 +763,49 @@
           ctx.textAlign = "center";
           ctx.fillStyle = "rgba(6,19,28,0.85)";
           ctx.fillText(label, x, y + 4);
+        }
+      }
+
+      // @croissanthology.com gets rendered as a duck instead of a plain blob
+      function drawDuck(x, y, r, hue, label) {
+        ctx.save();
+        ctx.translate(x, y);
+        const g = ctx.createRadialGradient(-r * 0.3, -r * 0.2, r * 0.15, 0, 0, r);
+        g.addColorStop(0, `hsl(${hue} 90% 72%)`);
+        g.addColorStop(1, `hsl(${hue} 80% 55%)`);
+        ctx.lineWidth = Math.max(1.5, r * 0.06);
+        ctx.strokeStyle = `hsl(${hue} 70% 34%)`;
+        // body
+        ctx.beginPath();
+        ctx.ellipse(0, r * 0.1, r, r * 0.82, 0, 0, 6.2832);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.stroke();
+        // head
+        ctx.beginPath();
+        ctx.arc(r * 0.6, -r * 0.55, r * 0.44, 0, 6.2832);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.stroke();
+        // beak
+        ctx.beginPath();
+        ctx.moveTo(r * 0.96, -r * 0.55);
+        ctx.lineTo(r * 1.34, -r * 0.42);
+        ctx.lineTo(r * 0.96, -r * 0.32);
+        ctx.closePath();
+        ctx.fillStyle = "#ff9c2e";
+        ctx.fill();
+        // eye
+        ctx.beginPath();
+        ctx.arc(r * 0.72, -r * 0.68, Math.max(1.2, r * 0.07), 0, 6.2832);
+        ctx.fillStyle = "#152028";
+        ctx.fill();
+        ctx.restore();
+        if (label && r > 12) {
+          ctx.font = `700 ${clamp(r * 0.3, 10, 15)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillStyle = "rgba(6,19,28,0.85)";
+          ctx.fillText(label, x, y + r * 0.95);
         }
       }
 
@@ -733,7 +857,8 @@
           // rivals
           for (const r of rivals) {
             const s = worldToScreen(r.x, r.y);
-            drawBlob(s.x, s.y, massToR(r.mass) * cam.scale, r.hue, "@" + r.handle);
+            if (r.isDuck) drawDuck(s.x, s.y, massToR(r.mass) * cam.scale, r.hue, "🦆 @" + r.handle);
+            else drawBlob(s.x, s.y, massToR(r.mass) * cam.scale, r.hue, "@" + r.handle);
           }
 
           // shots
@@ -746,6 +871,24 @@
           const ps = worldToScreen(player.x, player.y);
           drawBlob(ps.x, ps.y, massToR(player.mass) * cam.scale, player.hue, "you");
         }
+
+        // hail-of-tweets shrapnel from a popped duck
+        for (const t of tweetBits) {
+          const s = worldToScreen(t.x, t.y);
+          ctx.save();
+          ctx.globalAlpha = clamp(t.life / t.max, 0, 1);
+          ctx.translate(s.x, s.y);
+          ctx.rotate(t.rot);
+          ctx.font = "700 10px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          ctx.lineWidth = 2.5;
+          ctx.strokeText(t.text, 0, 0);
+          ctx.fillStyle = "#fff2cf";
+          ctx.fillText(t.text, 0, 0);
+          ctx.restore();
+        }
+        ctx.globalAlpha = 1;
 
         // pops
         for (const p of bursts) {
