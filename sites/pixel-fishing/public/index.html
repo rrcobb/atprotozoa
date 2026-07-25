@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🎣 pixel fishing</title>
+    <meta
+      name="description"
+      content="A pixel-art fishing game. Cast into a pond that cycles day, dusk, night and dawn. Hook the bite in a short window, then reel against the tension before the line snaps. Eight hand-pixeled fish, one only bites at night, one is vanishingly rare and golden."
+    />
+    <style>
+      :root { --ink: #eaf6ff; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: #0b1a24;
+        font-family: "Press Start 2P", "VT323", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #stage { position: fixed; inset: 0; display: block; cursor: crosshair; }
+
+      /* ---- hud ---- */
+      .hud {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        pointer-events: none;
+        z-index: 5;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+      }
+      .hud .box {
+        background: rgba(8, 16, 22, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.18);
+        border-radius: 4px;
+        padding: 7px 10px;
+        font-size: 9px;
+        line-height: 1.9;
+        pointer-events: auto;
+      }
+      .hud .score { font-size: 14px; color: #ffe14d; }
+      .hud .box .row { white-space: nowrap; }
+      .hud .box button {
+        pointer-events: auto;
+        margin-top: 3px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 9px;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.12);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+        padding: 4px 7px;
+      }
+      .hud .box button:active { transform: translateY(1px); }
+
+      /* ---- status / bars ---- */
+      .status {
+        position: fixed;
+        left: 0; right: 0; bottom: 18px;
+        text-align: center;
+        pointer-events: none;
+        z-index: 6;
+      }
+      .status .text {
+        display: inline-block;
+        font-size: 10px;
+        padding: 7px 12px;
+        background: rgba(8, 16, 22, 0.55);
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        border-radius: 4px;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+      }
+      .status .text.urgent {
+        color: #ffe14d;
+        background: rgba(120, 20, 10, 0.55);
+        border-color: #ffb020;
+        animation: pulse 0.35s steps(2) infinite;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+      .bars {
+        position: fixed;
+        left: 50%; bottom: 56px;
+        transform: translateX(-50%);
+        width: min(320px, 78vw);
+        display: none;
+        flex-direction: column;
+        gap: 5px;
+        z-index: 6;
+        pointer-events: none;
+      }
+      .bars.on { display: flex; }
+      .bar { height: 12px; border: 2px solid rgba(255,255,255,0.35); border-radius: 3px; background: rgba(0,0,0,0.4); overflow: hidden; }
+      .bar .fill { height: 100%; width: 0%; transition: width 0.06s linear; }
+      .bar.progress .fill { background: linear-gradient(90deg, #57ff9d, #22c85a); }
+      .bar.tension .fill { background: linear-gradient(90deg, #ffd43b, #ff4d4d); }
+      .bar .lbl { font-size: 7px; opacity: 0.85; margin-bottom: 2px; }
+
+      #reelBtn {
+        position: fixed;
+        left: 50%; bottom: 90px;
+        transform: translateX(-50%);
+        display: none;
+        pointer-events: auto;
+        cursor: pointer;
+        border: none;
+        border-radius: 999px;
+        padding: 13px 30px;
+        font-family: inherit;
+        font-size: 12px;
+        color: #08160e;
+        background: linear-gradient(180deg, #7dff6b, #22c85a);
+        box-shadow: 0 6px 0 #128a38, 0 10px 20px rgba(0, 0, 0, 0.4);
+        z-index: 7;
+      }
+      #reelBtn.on { display: block; }
+      #reelBtn:active { transform: translateX(-50%) translateY(4px); box-shadow: 0 2px 0 #128a38; }
+
+      /* ---- feed ---- */
+      .feed {
+        position: fixed;
+        left: 12px; bottom: 18px;
+        width: min(230px, 56vw);
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 5px;
+        pointer-events: none;
+        z-index: 4;
+      }
+      .feed .item {
+        background: rgba(6, 20, 13, 0.6);
+        border-left: 3px solid #57ff9d;
+        border-radius: 0 6px 6px 0;
+        padding: 4px 8px;
+        font-size: 8px;
+        line-height: 1.6;
+        animation: slidein 0.2s ease, fade 4.4s linear forwards;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      @keyframes slidein { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+      @keyframes fade { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
+
+      /* ---- overlays ---- */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 22px;
+        text-align: center;
+        background: rgba(4, 12, 18, 0.78);
+        backdrop-filter: blur(3px);
+        z-index: 20;
+      }
+      .overlay.hidden { display: none; }
+      .overlay h1 { margin: 0; font-size: clamp(16px, 4.6vw, 30px); line-height: 1.5; text-shadow: 0 4px 0 #05202b; }
+      .overlay p { margin: 0; max-width: 42ch; font-size: 10px; line-height: 1.9; opacity: 0.92; }
+      .overlay .fine { font-size: 8px; opacity: 0.62; max-width: 46ch; line-height: 1.8; }
+      .btn {
+        pointer-events: auto;
+        cursor: pointer;
+        border: none;
+        border-radius: 6px;
+        padding: 13px 26px;
+        font-family: inherit;
+        font-size: 11px;
+        color: #08160e;
+        background: linear-gradient(180deg, #7dff6b, #22c85a);
+        box-shadow: 0 6px 0 #128a38, 0 10px 20px rgba(0, 0, 0, 0.4);
+      }
+      .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #128a38; }
+      .credit { font-size: 8px; opacity: 0.6; line-height: 1.8; }
+      .credit a { color: #9dffc4; }
+
+      /* ---- catch card ---- */
+      #catchCard {
+        position: fixed;
+        left: 50%; bottom: -260px;
+        transform: translateX(-50%);
+        width: min(300px, 84vw);
+        background: rgba(10, 22, 16, 0.92);
+        border: 2px solid rgba(255, 255, 255, 0.25);
+        border-radius: 8px;
+        padding: 12px 14px 14px;
+        text-align: center;
+        z-index: 15;
+        transition: bottom 0.35s cubic-bezier(.2, 1.4, .4, 1);
+        cursor: pointer;
+      }
+      #catchCard.on { bottom: 100px; }
+      #catchCard canvas { image-rendering: pixelated; margin: 2px auto 6px; display: block; }
+      #catchCard .name { font-size: 11px; color: #ffe14d; margin-bottom: 4px; }
+      #catchCard .sub { font-size: 8px; opacity: 0.85; line-height: 1.9; }
+      #catchCard .legendary { color: #ffd43b; animation: pulse 0.4s steps(2) infinite; }
+      #catchCard .new { display: inline-block; margin-top: 4px; font-size: 7px; padding: 2px 6px; background: #ff4d9d; color: #fff; border-radius: 3px; }
+
+      /* ---- field guide ---- */
+      #guide {
+        position: fixed; inset: 0; z-index: 25;
+        display: none;
+        align-items: center; justify-content: center;
+        background: rgba(4, 10, 14, 0.86);
+        padding: 20px;
+      }
+      #guide.on { display: flex; }
+      #guide .panel {
+        pointer-events: auto;
+        width: min(560px, 94vw);
+        max-height: 84vh;
+        overflow-y: auto;
+        background: rgba(10, 22, 16, 0.95);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 16px;
+      }
+      #guide h2 { margin: 0 0 4px; font-size: 12px; color: #ffe14d; }
+      #guide .hint { font-size: 8px; opacity: 0.7; margin-bottom: 12px; line-height: 1.8; }
+      #guide .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+      #guide .entry { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px; padding: 6px; text-align: center; }
+      #guide .entry canvas { image-rendering: pixelated; display: block; margin: 0 auto 4px; }
+      #guide .entry .n { font-size: 8px; margin-bottom: 3px; }
+      #guide .entry .s { font-size: 7px; opacity: 0.7; line-height: 1.7; }
+      #guide .close { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div class="hud">
+      <div class="box">
+        <div class="score"><span id="score">0</span> pts</div>
+        <div class="row">catches: <span id="catches">0</span></div>
+      </div>
+      <div class="box" style="text-align:right;">
+        <div class="row">best catch: <span id="best">0</span></div>
+        <div class="row">lifetime: <span id="lifetime">0</span></div>
+        <button id="guideBtn">field guide</button>
+      </div>
+    </div>
+
+    <div class="feed" id="feed"></div>
+
+    <div class="bars" id="bars">
+      <div>
+        <div class="lbl">reeling in</div>
+        <div class="bar progress"><div class="fill" id="progressFill"></div></div>
+      </div>
+      <div>
+        <div class="lbl">line tension</div>
+        <div class="bar tension"><div class="fill" id="tensionFill"></div></div>
+      </div>
+    </div>
+
+    <button id="reelBtn">reel!</button>
+
+    <div class="status"><span class="text" id="statusText">cast your line</span></div>
+
+    <div id="catchCard"></div>
+
+    <!-- start -->
+    <div class="overlay" id="startOverlay">
+      <h1>🎣 pixel fishing</h1>
+      <p>
+        click or tap the water to cast. watch the bobber — when it dips, click
+        fast to hook it. then tap "reel!" to fight it in before the tension
+        bar snaps the line. eight fish live in this pond; one only bites
+        after dark.
+      </p>
+      <button class="btn" id="startBtn">cast off</button>
+      <div class="fine">mouse or finger · a pixel pond that has its own day/night cycle</div>
+      <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, for @steve-adams.me</div>
+    </div>
+
+    <!-- field guide -->
+    <div id="guide">
+      <div class="panel">
+        <h2>field guide</h2>
+        <div class="hint">every species that's ever taken your bait, revealed. the rest stay silhouettes.</div>
+        <div class="grid" id="guideGrid"></div>
+        <button class="btn close" id="guideClose">close</button>
+      </div>
+    </div>
+
+    <script>
+      // ==================================================================
+      // pixel fishing — a small pixel-art fishing game. cast into a pond
+      // with its own day/dusk/night/dawn cycle, hook a short bite window,
+      // reel against a tension bar. eight fish, hand-pixeled, one nocturnal,
+      // one vanishingly rare and golden. plus junk, because ponds have junk.
+      // Pure client-side, no login, no server.
+      // ==================================================================
+
+      const cv = document.getElementById("stage");
+      const ctx = cv.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+
+      const scoreEl = document.getElementById("score");
+      const catchesEl = document.getElementById("catches");
+      const bestEl = document.getElementById("best");
+      const lifetimeEl = document.getElementById("lifetime");
+      const statusText = document.getElementById("statusText");
+      const feedEl = document.getElementById("feed");
+      const barsEl = document.getElementById("bars");
+      const progressFill = document.getElementById("progressFill");
+      const tensionFill = document.getElementById("tensionFill");
+      const reelBtn = document.getElementById("reelBtn");
+      const catchCard = document.getElementById("catchCard");
+      const startOverlay = document.getElementById("startOverlay");
+      const startBtn = document.getElementById("startBtn");
+      const guideEl = document.getElementById("guide");
+      const guideGrid = document.getElementById("guideGrid");
+      const guideBtn = document.getElementById("guideBtn");
+      const guideClose = document.getElementById("guideClose");
+
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      function hexToRgb(h) {
+        const n = parseInt(h.slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      }
+      function rgbToHex(r, g, b) {
+        const c = (x) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0");
+        return "#" + c(r) + c(g) + c(b);
+      }
+      function hexLerp(h1, h2, t) {
+        const a = hexToRgb(h1), b = hexToRgb(h2);
+        return rgbToHex(lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t));
+      }
+      function darken(hex, amt) {
+        const [r, g, b] = hexToRgb(hex);
+        return rgbToHex(r - amt, g - amt, b - amt);
+      }
+
+      // ---- storage -----------------------------------------------------
+      let sessionScore = 0;
+      let best = 0, lifetime = 0, totalCatches = 0;
+      let guideData = {};
+      try {
+        best = parseInt(localStorage.getItem("pf_best") || "0", 10) || 0;
+        lifetime = parseInt(localStorage.getItem("pf_lifetime") || "0", 10) || 0;
+        totalCatches = parseInt(localStorage.getItem("pf_catches") || "0", 10) || 0;
+        guideData = JSON.parse(localStorage.getItem("pf_guide") || "{}");
+      } catch {}
+      function saveStats() {
+        try {
+          localStorage.setItem("pf_best", String(best));
+          localStorage.setItem("pf_lifetime", String(lifetime));
+          localStorage.setItem("pf_catches", String(totalCatches));
+          localStorage.setItem("pf_guide", JSON.stringify(guideData));
+        } catch {}
+      }
+      function updateHud() {
+        scoreEl.textContent = sessionScore;
+        catchesEl.textContent = totalCatches;
+        bestEl.textContent = best;
+        lifetimeEl.textContent = lifetime;
+      }
+      updateHud();
+
+      // ---- pixel sprites -------------------------------------------------
+      // 20x10 fish silhouette: F=fin, B=body, b=belly, E=eye white, P=pupil
+      const FISH_GRID = [
+        "....FF..............",
+        "...FFFF.............",
+        "..FFFFFBBBBBBBBB....",
+        ".FFFFFFBBBBBBBBBB...",
+        "FFFFFFFBBBBBEPBBBB..",
+        "FFFFFFFBbbbbbbbbBB..",
+        ".FFFFFFBbbbbbbbBBB..",
+        "..FFFFFBBBBBBBBB....",
+        "...FFFF.............",
+        "....FF..............",
+      ].map((r) => r.slice(0, 20));
+
+      const BOOT_GRID = [
+        "....BBBBB...",
+        "....BBBBB...",
+        "....BBBBB...",
+        "....BBBBB...",
+        "....BBBBB...",
+        "....BBBBBB..",
+        ".BBBBBBBBBB.",
+        "BBBBBBBBBBBB",
+        "SSSSSSSSSSSS",
+        "............",
+      ].map((r) => r.slice(0, 12));
+
+      const CAN_GRID = [
+        ".BBBBBBBB.",
+        "BBBBBBBBBB",
+        "BbbbbbbbbB",
+        "BbbbbbbbbB",
+        "BLLLLLLLLB",
+        "BLLLLLLLLB",
+        "BbbbbbbbbB",
+        "BbbbbbbbbB",
+        "BBBBBBBBBB",
+        ".BBBBBBBB.",
+      ].map((r) => r.slice(0, 10));
+
+      const SPOT_CELLS = [[2, 9], [2, 12], [3, 10], [3, 14], [7, 9], [7, 13]];
+
+      function drawGrid(gctx, grid, colorMap, x, y, cw, ch, recolor) {
+        for (let r = 0; r < grid.length; r++) {
+          const row = grid[r];
+          for (let c = 0; c < row.length; c++) {
+            const ch2 = row[c];
+            if (ch2 === ".") continue;
+            let color = (recolor && recolor(ch2, r, c)) || colorMap[ch2] || "#f0f";
+            gctx.fillStyle = color;
+            gctx.fillRect(Math.round(x + c * cw), Math.round(y + r * ch), Math.ceil(cw) + 1, Math.ceil(ch) + 1);
+          }
+        }
+      }
+
+      function fishColorMap(sp) {
+        return { F: sp.fin, B: sp.body, b: sp.belly, E: "#f5fbff", P: "#12141a" };
+      }
+      function fishRecolor(sp) {
+        return (ch, r, c) => {
+          if (sp.stripes && ch === "B" && c % 3 === 1) return darken(sp.body, 45);
+          if (sp.spots && ch === "B" && SPOT_CELLS.some(([sr, sc]) => sr === r && sc === c)) return sp.spotColor;
+          return null;
+        };
+      }
+      function drawFish(gctx, x, y, cw, ch, sp) {
+        drawGrid(gctx, FISH_GRID, fishColorMap(sp), x, y, cw, ch, fishRecolor(sp));
+        if (sp.whiskers) {
+          gctx.strokeStyle = sp.fin;
+          gctx.lineWidth = Math.max(1, cw * 0.35);
+          gctx.beginPath();
+          gctx.moveTo(x + 17 * cw, y + 5 * ch);
+          gctx.lineTo(x + 21.5 * cw, y + 3.6 * ch);
+          gctx.moveTo(x + 17 * cw, y + 6 * ch);
+          gctx.lineTo(x + 21.5 * cw, y + 7 * ch);
+          gctx.stroke();
+        }
+        if (sp.legendary) {
+          const t = performance.now() / 220;
+          for (let i = 0; i < 3; i++) {
+            const a = t + i * 2.1;
+            const sx = x + (10 + Math.sin(a) * 6) * cw;
+            const sy = y + (2 + Math.cos(a * 1.3) * 3) * ch;
+            gctx.fillStyle = "rgba(255,255,255," + (0.4 + 0.5 * Math.sin(a * 2)) + ")";
+            gctx.fillRect(sx, sy, Math.max(1, cw * 0.6), Math.max(1, cw * 0.6));
+          }
+        }
+      }
+      function drawJunk(gctx, x, y, cw, ch, item) {
+        if (item.id === "boot") drawGrid(gctx, BOOT_GRID, { B: "#5b3a21", S: "#2b1a10" }, x, y, cw, ch);
+        else drawGrid(gctx, CAN_GRID, { B: "#b7c2c7", b: "#e6eef0", L: "#c23b3b" }, x, y, cw, ch);
+      }
+
+      // fit a (possibly stretched) fish sprite inside a canvas box without clipping
+      function fitFish(canvasW, canvasH, sp, marginX, marginTop, marginBottom) {
+        const scaleX = sp.scaleX || 1, scaleY = sp.scaleY || 1;
+        const availW = canvasW - marginX * 2;
+        const availH = canvasH - marginTop - marginBottom;
+        const cw = availW / (20 * scaleX);
+        const ch = availH / (10 * scaleY);
+        return { cw, ch, x: marginX, y: marginTop };
+      }
+
+      // ---- species ---------------------------------------------------------
+      const SPECIES = [
+        { id: "bluegill", name: "Bluegill", body: "#2f6f8f", belly: "#eaf6ff", fin: "#1c4a63",
+          minPts: 4, maxPts: 9, wMin: 0.3, wMax: 1.1, weight: 30, time: "any", strength: 0.18 },
+        { id: "perch", name: "Perch", body: "#c9a13a", belly: "#fff4d1", fin: "#7a5a12",
+          minPts: 7, maxPts: 14, wMin: 0.4, wMax: 1.4, weight: 26, time: "any", strength: 0.22, stripes: true },
+        { id: "bass", name: "Largemouth Bass", body: "#4f7a3a", belly: "#dff0c8", fin: "#2f4d22",
+          minPts: 14, maxPts: 28, wMin: 1.2, wMax: 4.5, weight: 16, time: "any", strength: 0.38 },
+        { id: "catfish", name: "Catfish", body: "#5b5347", belly: "#a89c86", fin: "#332e26",
+          minPts: 18, maxPts: 32, wMin: 2, wMax: 8, weight: 12, time: "any", strength: 0.42, scaleX: 1.15, whiskers: true },
+        { id: "trout", name: "Rainbow Trout", body: "#7fb3c8", belly: "#ffe0ea", fin: "#3d6e82",
+          minPts: 18, maxPts: 36, wMin: 1, wMax: 3.5, weight: 14, time: "day", strength: 0.34, spots: true, spotColor: "#e85d8a" },
+        { id: "pike", name: "Northern Pike", body: "#2f5d3a", belly: "#cfe6c8", fin: "#1a331f",
+          minPts: 36, maxPts: 64, wMin: 3, wMax: 9, weight: 8, time: "any", strength: 0.58, scaleX: 1.5 },
+        { id: "eel", name: "Eel", body: "#2a2a33", belly: "#54545f", fin: "#111116",
+          minPts: 40, maxPts: 70, wMin: 1.5, wMax: 4, weight: 9, time: "night", strength: 0.55, scaleX: 1.7, scaleY: 0.72 },
+        { id: "goldencarp", name: "Golden Carp", body: "#f4c430", belly: "#fff2b0", fin: "#c98f0a",
+          minPts: 150, maxPts: 260, wMin: 5, wMax: 14, weight: 1.2, time: "any", strength: 0.85, scaleX: 1.2, scaleY: 1.15, legendary: true },
+      ];
+      const JUNK = [
+        { id: "boot", name: "Old Boot", flavor: "just an old boot. bleh." },
+        { id: "can", name: "Tin Can", flavor: "somebody's litter. gross." },
+      ];
+
+      function weightedPick(list) {
+        const total = list.reduce((s, x) => s + (x.weight || 1), 0);
+        let r = rnd(total);
+        for (const item of list) {
+          r -= item.weight || 1;
+          if (r <= 0) return item;
+        }
+        return list[list.length - 1];
+      }
+
+      // ---- day/night cycle ---------------------------------------------
+      const CYCLE_SECONDS = 100;
+      function dayT() { return (performance.now() / 1000 % CYCLE_SECONDS) / CYCLE_SECONDS; }
+      function isNight() { return dayT() >= 0.55; }
+      function phase() { return isNight() ? "night" : "day"; }
+
+      const STOPS = [
+        { t: 0.00, top: "#ffd9a0", bottom: "#ffb37a", hill: "#7fae52", w1: "#3fa7c9", w2: "#2f86a8" },
+        { t: 0.22, top: "#7ec8f2", bottom: "#bfe8ff", hill: "#5f9e46", w1: "#2f8fc4", w2: "#1f6fa0" },
+        { t: 0.50, top: "#f2925a", bottom: "#ffce8a", hill: "#4d7a3a", w1: "#2f6f95", w2: "#215a7d" },
+        { t: 0.62, top: "#1c2340", bottom: "#2f3a63", hill: "#233522", w1: "#132a3f", w2: "#0c1c2c" },
+        { t: 0.90, top: "#141a33", bottom: "#232c52", hill: "#1e2e1e", w1: "#0f2536", w2: "#091624" },
+        { t: 1.00, top: "#ffd9a0", bottom: "#ffb37a", hill: "#7fae52", w1: "#3fa7c9", w2: "#2f86a8" },
+      ];
+      function skyNow() {
+        const t = dayT();
+        let a = STOPS[0], b = STOPS[STOPS.length - 1];
+        for (let i = 0; i < STOPS.length - 1; i++) {
+          if (t >= STOPS[i].t && t <= STOPS[i + 1].t) { a = STOPS[i]; b = STOPS[i + 1]; break; }
+        }
+        const span = b.t - a.t || 1;
+        const lt = (t - a.t) / span;
+        return {
+          top: hexLerp(a.top, b.top, lt), bottom: hexLerp(a.bottom, b.bottom, lt),
+          hill: hexLerp(a.hill, b.hill, lt), w1: hexLerp(a.w1, b.w1, lt), w2: hexLerp(a.w2, b.w2, lt),
+        };
+      }
+
+      // ---- canvas layout -------------------------------------------------
+      let W = 0, H = 0, DPR = 1, horizonY = 0, dockW = 0;
+      let hillSteps = [];
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth; H = window.innerHeight;
+        cv.width = Math.floor(W * DPR); cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px"; cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        horizonY = H * 0.6;
+        dockW = Math.min(230, W * 0.28);
+        if (!hillSteps.length) {
+          const n = 26;
+          for (let i = 0; i < n; i++) hillSteps.push(18 + Math.abs(Math.sin(i * 1.7 + 0.3)) * 34 + Math.abs(Math.sin(i * 0.53)) * 20);
+        }
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ---- fisherman + rod anchor -----------------------------------------
+      function anchor() {
+        return { x: dockW * 0.78, y: horizonY - 10, tipX: dockW * 0.78 + 42, tipY: horizonY - 34 };
+      }
+
+      // ---- state -----------------------------------------------------------
+      let mode = "idle"; // idle, casting, waiting, bite, reeling, reelingJunk, snapped, missed
+      let bobber = { x: 0, y: 0, vx: 0, vy: 0, resting: false };
+      let castFrom = { x: 0, y: 0 }, castTo = { x: 0, y: 0 }, castT = 0;
+      let waitUntil = 0, biteUntil = 0;
+      let progress = 0, tension = 0, currentCatch = null;
+      let ripples = [], splashes = [];
+      let started = false, guideOpen = false;
+      let flavorTimer = 0, flavorIdx = 0;
+      const WAIT_FLAVORS = ["the water is calm.", "something moved out there.", "a breeze crosses the pond.", "still waiting…"];
+
+      function setStatus(text, urgent) {
+        statusText.textContent = text;
+        statusText.classList.toggle("urgent", !!urgent);
+      }
+
+      function beginCast(x, y) {
+        if (mode !== "idle") return;
+        const a = anchor();
+        const bx = clamp(x, dockW + 20, W - 16);
+        const by = clamp(y, horizonY + 18, H - 16);
+        castFrom = { x: a.tipX, y: a.tipY };
+        castTo = { x: bx, y: by };
+        castT = 0;
+        mode = "casting";
+        setStatus("splash!");
+      }
+
+      function land() {
+        bobber.x = castTo.x; bobber.y = castTo.y; bobber.resting = true;
+        splashAt(castTo.x, castTo.y);
+        mode = "waiting";
+        waitUntil = performance.now() + rnd(1000, 3400);
+        flavorTimer = performance.now() + 3800;
+        setStatus("waiting for a bite…");
+      }
+
+      function splashAt(x, y) {
+        for (let i = 0; i < 10; i++) {
+          const a = rnd(6.28), sp = rnd(30, 110);
+          splashes.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: rnd(0.35, 0.7), max: 0.7 });
+        }
+        ripples.push({ x, y, r: 2, life: 1.1, max: 1.1 });
+      }
+
+      function triggerBite() {
+        mode = "bite";
+        biteUntil = performance.now() + Math.max(430, 900 - totalCatches * 6);
+        setStatus("!!! GOT ONE — CLICK NOW !!!", true);
+      }
+
+      function missBite() {
+        mode = "missed";
+        setStatus("it got away before you could hook it.");
+        setTimeout(() => { if (mode === "missed") returnToIdle(); }, 1100);
+      }
+
+      function hookBite() {
+        currentCatch = pickCatch();
+        if (currentCatch.type === "junk") {
+          mode = "reelingJunk";
+          setStatus("reeling in… something.");
+          setTimeout(() => { if (mode === "reelingJunk") revealCatch(); }, 650);
+        } else {
+          mode = "reeling";
+          progress = 8; tension = 4;
+          barsEl.classList.add("on");
+          reelBtn.classList.add("on");
+          setStatus("reel it in! tap fast — but watch the tension.");
+        }
+      }
+
+      function tapReel() {
+        if (mode !== "reeling") return;
+        const sp = currentCatch.species;
+        progress += 10;
+        tension += 3 + sp.strength * 6;
+      }
+      reelBtn.addEventListener("click", tapReel);
+      reelBtn.addEventListener("touchstart", (e) => { e.preventDefault(); tapReel(); }, { passive: false });
+
+      function pickCatch() {
+        if (Math.random() < 0.12) return { type: "junk", item: weightedPick(JUNK.map((j) => ({ ...j, weight: 1 }))) };
+        const pool = SPECIES.filter((s) => s.time === "any" || s.time === phase());
+        return { type: "fish", species: weightedPick(pool) };
+      }
+
+      function snapLine() {
+        mode = "snapped";
+        barsEl.classList.remove("on");
+        reelBtn.classList.remove("on");
+        setStatus("the line snapped! it got away.");
+        setTimeout(() => { if (mode === "snapped") returnToIdle(); }, 1200);
+      }
+
+      function revealCatch() {
+        barsEl.classList.remove("on");
+        reelBtn.classList.remove("on");
+        mode = "reveal";
+        splashAt(bobber.x, bobber.y);
+        let title, sub, isNew = false, canvasEl;
+        if (currentCatch.type === "junk") {
+          const item = currentCatch.item;
+          title = item.name; sub = item.flavor;
+          canvasEl = miniCanvas(96, 60, (c) => drawJunk(c.getContext("2d"), 14, 6, 4.6, 4.6, item));
+          pushFeed(title, 0, false);
+        } else {
+          const sp = currentCatch.species;
+          const w = (rnd(sp.wMax, sp.wMin)).toFixed(1);
+          const pts = Math.round(rnd(sp.minPts, sp.maxPts));
+          sessionScore += pts; lifetime += pts; totalCatches++;
+          if (pts > best) best = pts;
+          const g = guideData[sp.id] || { count: 0, bestW: 0, bestP: 0 };
+          isNew = g.count === 0;
+          g.count++; g.bestW = Math.max(g.bestW, parseFloat(w)); g.bestP = Math.max(g.bestP, pts);
+          guideData[sp.id] = g;
+          saveStats(); updateHud();
+          title = sp.name;
+          sub = w + " lb · +" + pts + " pts";
+          canvasEl = miniCanvas(120, 70, (c) => {
+            const gctx = c.getContext("2d");
+            gctx.imageSmoothingEnabled = false;
+            const f = fitFish(120, 70, sp, 8, 4, 8);
+            drawFish(gctx, f.x, f.y, f.cw, f.ch, sp);
+          });
+          pushFeed(title, pts, sp.legendary);
+        }
+        catchCard.innerHTML = "";
+        catchCard.appendChild(canvasEl);
+        const nameEl = document.createElement("div");
+        nameEl.className = "name" + (currentCatch.type === "fish" && currentCatch.species.legendary ? " legendary" : "");
+        nameEl.textContent = title;
+        catchCard.appendChild(nameEl);
+        const subEl = document.createElement("div");
+        subEl.className = "sub"; subEl.textContent = sub;
+        catchCard.appendChild(subEl);
+        if (isNew) {
+          const badge = document.createElement("div");
+          badge.className = "new"; badge.textContent = "NEW!";
+          catchCard.appendChild(badge);
+        }
+        catchCard.classList.add("on");
+        setStatus("tap the card, or the water, to keep fishing.");
+        catchCard.onclick = returnToIdle;
+      }
+
+      function miniCanvas(w, h, draw) {
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.style.width = w / 1.4 + "px"; c.style.height = h / 1.4 + "px";
+        draw(c);
+        return c;
+      }
+
+      function pushFeed(name, pts, legendary) {
+        const item = document.createElement("div");
+        item.className = "item";
+        item.textContent = pts > 0 ? "caught " + name + " (+" + pts + ")" : "reeled up " + name;
+        if (legendary) item.style.borderColor = "#ffd43b";
+        feedEl.appendChild(item);
+        while (feedEl.children.length > 4) feedEl.removeChild(feedEl.firstChild);
+        setTimeout(() => item.remove(), 4600);
+      }
+
+      function returnToIdle() {
+        mode = "idle";
+        bobber.resting = false;
+        catchCard.classList.remove("on");
+        barsEl.classList.remove("on");
+        reelBtn.classList.remove("on");
+        setStatus("cast your line");
+      }
+
+      // ---- input -------------------------------------------------------
+      function coords(e) {
+        const r = cv.getBoundingClientRect();
+        const t = e.touches ? e.touches[0] : e;
+        return { x: t.clientX - r.left, y: t.clientY - r.top };
+      }
+      function onPointer(x, y) {
+        if (!started) return;
+        if (guideOpen) return;
+        if (mode === "idle") beginCast(x, y);
+        else if (mode === "bite") hookBite();
+        else if (mode === "reeling") tapReel();
+        else if (mode === "reveal") returnToIdle();
+      }
+      cv.addEventListener("mousedown", (e) => { const c = coords(e); onPointer(c.x, c.y); });
+      cv.addEventListener(
+        "touchstart",
+        (e) => { e.preventDefault(); const c = coords(e); onPointer(c.x, c.y); },
+        { passive: false }
+      );
+      window.addEventListener("keydown", (e) => {
+        if (e.code !== "Space") return;
+        e.preventDefault();
+        if (!started) return;
+        if (mode === "idle") beginCast(rnd(dockW + 60, W - 60), rnd(horizonY + 30, H - 40));
+        else if (mode === "bite") hookBite();
+        else if (mode === "reeling") tapReel();
+        else if (mode === "reveal") returnToIdle();
+      });
+
+      startBtn.addEventListener("click", () => { started = true; startOverlay.classList.add("hidden"); });
+      guideBtn.addEventListener("click", () => { buildGuide(); guideEl.classList.add("on"); guideOpen = true; });
+      guideClose.addEventListener("click", () => { guideEl.classList.remove("on"); guideOpen = false; });
+
+      function buildGuide() {
+        guideGrid.innerHTML = "";
+        SPECIES.forEach((sp) => {
+          const g = guideData[sp.id];
+          const entry = document.createElement("div");
+          entry.className = "entry";
+          const c = miniCanvas(100, 56, (cc) => {
+            const gctx = cc.getContext("2d");
+            gctx.imageSmoothingEnabled = false;
+            const f = fitFish(100, 56, sp, 6, 4, 6);
+            if (g && g.count) {
+              drawFish(gctx, f.x, f.y, f.cw, f.ch, sp);
+            } else {
+              drawGrid(gctx, FISH_GRID, { F: "#141d24", B: "#141d24", b: "#141d24", E: "#1a262e", P: "#1a262e" }, f.x, f.y, f.cw, f.ch);
+            }
+          });
+          entry.appendChild(c);
+          const n = document.createElement("div");
+          n.className = "n";
+          n.textContent = g && g.count ? sp.name : "???";
+          entry.appendChild(n);
+          const s = document.createElement("div");
+          s.className = "s";
+          if (g && g.count) {
+            s.textContent = "caught ×" + g.count + " · best " + g.bestW.toFixed(1) + " lb · " + g.bestP + " pts";
+          } else {
+            s.textContent = sp.time === "night" ? "seen only after dark" : sp.time === "day" ? "seen only by daylight" : "not yet caught";
+          }
+          entry.appendChild(s);
+          guideGrid.appendChild(entry);
+        });
+      }
+
+      // ---- drawing: scene --------------------------------------------------
+      function drawSky(sky) {
+        const g = ctx.createLinearGradient(0, 0, 0, horizonY);
+        g.addColorStop(0, sky.top); g.addColorStop(1, sky.bottom);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, horizonY);
+      }
+
+      function drawCelestial() {
+        const t = dayT();
+        if (!isNight()) {
+          const sub = t / 0.55;
+          const x = sub * W, y = horizonY - Math.sin(sub * Math.PI) * horizonY * 0.55 - 20;
+          ctx.save();
+          ctx.shadowColor = "#fff2b0"; ctx.shadowBlur = 24;
+          ctx.fillStyle = "#fff2b0";
+          ctx.beginPath(); ctx.arc(x, y, 16, 0, 6.283); ctx.fill();
+          ctx.restore();
+        } else {
+          const sub = (t - 0.55) / 0.45;
+          const x = sub * W, y = horizonY - Math.sin(sub * Math.PI) * horizonY * 0.5 - 20;
+          ctx.fillStyle = "#eef2ff";
+          ctx.beginPath(); ctx.arc(x, y, 13, 0, 6.283); ctx.fill();
+          ctx.fillStyle = "#141a33";
+          ctx.beginPath(); ctx.arc(x + 5, y - 3, 12, 0, 6.283); ctx.fill();
+          for (let i = 0; i < 34; i++) {
+            const sx = (i * 137.5) % W;
+            const sy = (i * 71.3) % (horizonY * 0.85);
+            const tw = 0.4 + 0.6 * Math.abs(Math.sin(performance.now() / 900 + i));
+            ctx.fillStyle = "rgba(255,255,255," + tw * 0.8 + ")";
+            ctx.fillRect(sx, sy, 2, 2);
+          }
+        }
+      }
+
+      function drawHills(sky) {
+        ctx.fillStyle = sky.hill;
+        const n = hillSteps.length, stepW = W / (n - 1);
+        ctx.beginPath();
+        ctx.moveTo(0, horizonY);
+        for (let i = 0; i < n; i++) ctx.lineTo(Math.round(i * stepW), Math.round(horizonY - hillSteps[i]));
+        ctx.lineTo(W, horizonY);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawWater(sky) {
+        const g = ctx.createLinearGradient(0, horizonY, 0, H);
+        g.addColorStop(0, sky.w1); g.addColorStop(1, sky.w2);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, horizonY, W, H - horizonY);
+        const time = performance.now() / 1000;
+        const bandH = 16;
+        for (let i = 0; i * bandH < H - horizonY; i++) {
+          const y = horizonY + i * bandH;
+          const off = Math.sin(time * 0.9 + i * 0.6) * 10;
+          ctx.fillStyle = "rgba(255,255,255,0.05)";
+          for (let x = -20 + off; x < W; x += 30) {
+            ctx.fillRect(Math.round(x), Math.round(y), 14, 3);
+          }
+        }
+      }
+
+      function drawDock() {
+        const woodTop = "#8a5a34", wood = "#6f4526", dark = "#4a2d18";
+        ctx.fillStyle = dark;
+        ctx.fillRect(0, horizonY - 4, dockW, 8);
+        ctx.fillStyle = wood;
+        ctx.fillRect(0, horizonY - 14, dockW, 12);
+        ctx.fillStyle = woodTop;
+        for (let x = 4; x < dockW; x += 18) ctx.fillRect(x, horizonY - 15, 14, 3);
+        ctx.fillStyle = dark;
+        const poleLen = Math.min(60, H - horizonY);
+        for (let x = 12; x < dockW; x += 46) {
+          ctx.fillRect(x, horizonY - 4, 6, poleLen);
+        }
+      }
+
+      function drawFisherman() {
+        const a = anchor();
+        const x = a.x, y = a.y;
+        ctx.fillStyle = "#2c3e50"; // legs/body
+        ctx.fillRect(x - 8, y - 18, 18, 20);
+        ctx.fillStyle = "#e8b083"; // head
+        ctx.fillRect(x - 4, y - 30, 12, 12);
+        ctx.fillStyle = "#3a4750"; // hat
+        ctx.fillRect(x - 7, y - 33, 18, 5);
+        ctx.fillRect(x - 3, y - 38, 10, 6);
+        ctx.fillStyle = "#c0392b"; // shirt stripe
+        ctx.fillRect(x - 8, y - 12, 18, 4);
+        // rod
+        ctx.strokeStyle = "#8a5a34";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + 8, y - 14);
+        ctx.lineTo(a.tipX, a.tipY);
+        ctx.stroke();
+      }
+
+      function drawLineAndBobber() {
+        if (mode === "idle" || mode === "reveal") return;
+        const a = anchor();
+        let bx, by;
+        if (mode === "casting") {
+          castT += 1 / 34;
+          const t = Math.min(1, castT);
+          bx = lerp(castFrom.x, castTo.x, t);
+          by = lerp(castFrom.y, castTo.y, t) - Math.sin(t * Math.PI) * 70;
+          if (t >= 1) { land(); bx = castTo.x; by = castTo.y; }
+        } else {
+          const bob = mode === "waiting" ? Math.sin(performance.now() / 380) * 3 : mode === "bite" ? Math.sin(performance.now() / 60) * 7 : Math.sin(performance.now() / 140) * 4;
+          bx = bobber.x; by = bobber.y + bob;
+        }
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(a.tipX, a.tipY); ctx.lineTo(bx, by); ctx.stroke();
+        ctx.fillStyle = "#e63946";
+        ctx.beginPath(); ctx.arc(bx, by + 3, 6, 0, Math.PI, false); ctx.fill();
+        ctx.fillStyle = "#f1faee";
+        ctx.beginPath(); ctx.arc(bx, by - 2, 6, Math.PI, 0, false); ctx.fill();
+        bobber.drawX = bx; bobber.drawY = by;
+      }
+
+      function drawRipples(dt) {
+        for (let i = ripples.length - 1; i >= 0; i--) {
+          const r = ripples[i];
+          r.life -= dt; r.r += dt * 46;
+          if (r.life <= 0) { ripples.splice(i, 1); continue; }
+          ctx.strokeStyle = "rgba(255,255,255," + clamp(r.life / r.max, 0, 1) * 0.5 + ")";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.ellipse(r.x, r.y, r.r, r.r * 0.35, 0, 0, 6.283); ctx.stroke();
+        }
+        if (mode === "waiting" && Math.random() < 0.02) ripples.push({ x: bobber.x, y: bobber.y, r: 1, life: 0.8, max: 0.8 });
+      }
+      function drawSplashes(dt) {
+        for (let i = splashes.length - 1; i >= 0; i--) {
+          const p = splashes[i];
+          p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 220 * dt;
+          if (p.life <= 0) { splashes.splice(i, 1); continue; }
+          ctx.fillStyle = "rgba(220,240,255," + clamp(p.life / p.max, 0, 1) + ")";
+          ctx.fillRect(p.x, p.y, 3, 3);
+        }
+      }
+
+      // ---- main loop ---------------------------------------------------
+      let last = 0;
+      function frame(ts) {
+        const dt = Math.min(0.05, (ts - last) / 1000 || 0);
+        last = ts;
+
+        const sky = skyNow();
+        ctx.clearRect(0, 0, W, H);
+        drawSky(sky);
+        drawCelestial();
+        drawHills(sky);
+        drawWater(sky);
+        drawRipples(dt);
+        drawDock();
+        drawFisherman();
+        drawLineAndBobber();
+        drawSplashes(dt);
+
+        if (started) update(dt);
+
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      function update(dt) {
+        const now = performance.now();
+        if (mode === "waiting") {
+          if (now >= flavorTimer) {
+            flavorIdx = (flavorIdx + 1) % WAIT_FLAVORS.length;
+            setStatus(WAIT_FLAVORS[flavorIdx]);
+            flavorTimer = now + 3800;
+          }
+          if (now >= waitUntil) triggerBite();
+        } else if (mode === "bite") {
+          if (now >= biteUntil) missBite();
+        } else if (mode === "reeling") {
+          const sp = currentCatch.species;
+          tension += (2 + sp.strength * 4) * dt;
+          progress -= 1.5 * dt;
+          progress = clamp(progress, 0, 100);
+          tension = clamp(tension, 0, 100);
+          progressFill.style.width = progress + "%";
+          tensionFill.style.width = tension + "%";
+          if (progress >= 100) revealCatch();
+          else if (tension >= 100) snapLine();
+        }
+      }
+
+      // ---- housekeeping --------------------------------------------------
+      window.addEventListener("contextmenu", (e) => e.preventDefault());
+    </script>
+  </body>
+</html>
