@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>norvidwave — an EP for @norvid-studies</title>
+    <meta name="description" content="A five-track EP about @norvid-studies, synthesized live in your browser with Web Audio — charts, graphs, and the eternal grind of posting, set to music. SoundCloud-style, with play buttons and speech-synth vocals." />
+    <style>
+      :root {
+        --bg:#161512; --panel:#1e1c18; --panel2:#26231d; --ink:#f2efe9;
+        --muted:#a49e92; --faint:#332f28; --orange:#ff5500; --orange2:#ff8800;
+        --wave:#4a453b; --wave-play:#ff5500;
+        --sans: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:var(--bg); color:var(--ink); font-family:var(--sans);
+        font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:680px; margin:0 auto; padding:1.5rem 1rem 6rem; }
+      a { color:var(--orange); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      /* SoundCloud-style artist header */
+      .hero { display:flex; gap:1.1rem; align-items:flex-start; margin:1.2rem 0 1.6rem;
+        padding:1.4rem; border-radius:14px;
+        background:linear-gradient(135deg, #2a2018, #3a2a12 60%, #4a2e0e);
+        border:1px solid var(--faint); }
+      .cover { width:120px; height:120px; border-radius:10px; flex:none;
+        background:conic-gradient(from 210deg, #ff5500, #ff8800, #ffcc00, #ff5500);
+        position:relative; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.45); }
+      .cover canvas { position:absolute; inset:0; width:100%; height:100%; }
+      .hero .meta { flex:1; min-width:0; }
+      .hero .kicker { font-family:var(--mono); font-size:0.72rem; letter-spacing:0.12em;
+        text-transform:uppercase; color:var(--orange2); margin:0 0 0.35rem; }
+      .hero h1 { font-size:1.9rem; font-weight:800; margin:0 0 0.2rem; letter-spacing:-0.02em; }
+      .hero .artist { color:var(--muted); font-size:0.95rem; margin:0 0 0.7rem; }
+      .hero .artist a { color:var(--ink); font-weight:600; }
+      .hero .blurb { color:var(--muted); font-size:0.85rem; margin:0; max-width:44ch; }
+
+      .globalbar { display:flex; align-items:center; gap:0.9rem; margin:0 0 1.5rem; }
+      .playall { display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer;
+        background:var(--orange); color:#fff; border:0; border-radius:999px;
+        padding:0.6rem 1.2rem; font:inherit; font-weight:700; font-size:0.9rem; }
+      .playall:hover { background:#ff6a1a; }
+      .playall .ico { font-size:0.8rem; }
+      .hint { color:var(--muted); font-size:0.8rem; }
+
+      /* track rows */
+      .track { display:flex; gap:0.85rem; align-items:center; padding:0.7rem 0.4rem;
+        border-top:1px solid var(--faint); }
+      .track:last-of-type { border-bottom:1px solid var(--faint); }
+      .play { width:40px; height:40px; border-radius:50%; flex:none; cursor:pointer;
+        background:var(--orange); border:0; color:#fff; font-size:0.85rem;
+        display:flex; align-items:center; justify-content:center; }
+      .play:hover { background:#ff6a1a; }
+      .play.playing { background:#fff; color:var(--orange); }
+      .tbody { flex:1; min-width:0; }
+      .trow { display:flex; justify-content:space-between; align-items:baseline; gap:0.6rem; }
+      .tname { font-weight:600; font-size:0.95rem; white-space:nowrap; overflow:hidden;
+        text-overflow:ellipsis; }
+      .tnum { color:var(--muted); font-family:var(--mono); font-size:0.78rem; margin-right:0.15rem; }
+      .ttime { color:var(--muted); font-family:var(--mono); font-size:0.78rem; flex:none; }
+      .wave { margin-top:0.4rem; height:38px; width:100%; cursor:pointer; display:block; }
+      .tsub { color:var(--muted); font-size:0.78rem; margin-top:0.15rem;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+      .now { position:fixed; left:0; right:0; bottom:0; background:#0e0d0b;
+        border-top:1px solid var(--faint); padding:0.6rem 1rem; display:none;
+        align-items:center; gap:0.8rem; z-index:10; }
+      .now.show { display:flex; }
+      .now .np-title { font-size:0.85rem; font-weight:600; flex:1; min-width:0;
+        white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .now .np-lyric { color:var(--orange2); font-family:var(--mono); font-size:0.78rem;
+        flex:2; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .now .np-stop { cursor:pointer; background:none; border:1px solid var(--faint);
+        color:var(--ink); border-radius:7px; padding:0.35rem 0.7rem; font:inherit; font-size:0.8rem; }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+
+      <section class="hero">
+        <div class="cover"><canvas id="cover" width="240" height="240"></canvas></div>
+        <div class="meta">
+          <p class="kicker">EP · 5 tracks · ~10 min</p>
+          <h1>norvidwave</h1>
+          <p class="artist">an EP for <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies</a> · charts, graphs & the grind</p>
+          <p class="blurb">Synthesized live in your browser — no audio files, every note generated on play. Vocals by your device's speech synth. Hit play on a track, or play the whole thing.</p>
+        </div>
+      </section>
+
+      <div class="globalbar">
+        <button class="playall" id="playAll"><span class="ico">▶</span> Play EP</button>
+        <span class="hint">headphones recommended · vocals use your browser's voice</span>
+      </div>
+
+      <div id="tracklist"></div>
+
+      <p class="note">
+        Everything here is generated in the browser with the Web Audio API (oscillators,
+        noise, envelopes — no samples or audio files) and the SpeechSynthesis API for the
+        spoken vocals, so each track is composed on the fly when you press play. It's a
+        toy homage, not a real release. Nothing is posted or collected. Best in a
+        Chromium browser; speech voices vary by device.
+      </p>
+      <p class="credit">asked for by <a href="https://bsky.app/profile/cee.wtf">@cee.wtf</a> · about <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
+    </div>
+
+    <div class="now" id="nowPlaying">
+      <span class="np-title" id="npTitle"></span>
+      <span class="np-lyric" id="npLyric"></span>
+      <button class="np-stop" id="npStop">■ stop</button>
+    </div>
+
+    <script type="module">
+      // ---------------------------------------------------------------------
+      // norvidwave — a five-track EP synthesized live. Each track is a small
+      // arrangement: a chord pad, a bass line, an arpeggio, and a drum pattern,
+      // sequenced over a set number of bars, with spoken "vocals" (SpeechSynthesis)
+      // dropped in on cue. No audio files — all oscillators + noise + envelopes.
+      // ---------------------------------------------------------------------
+
+      const A4 = 440;
+      // note name -> frequency (equal temperament). Octave in the name, e.g. "C3".
+      const NOTE_IDX = { C:0, "C#":1, D:2, "D#":3, E:4, F:5, "F#":6, G:7, "G#":8, A:9, "A#":10, B:11 };
+      function freq(note) {
+        const m = note.match(/^([A-G]#?)(\d)$/);
+        if (!m) return 0;
+        const semis = NOTE_IDX[m[1]] + (parseInt(m[2], 10) - 4) * 12 - 9; // relative to A4
+        return A4 * Math.pow(2, semis / 12);
+      }
+      const chord = (root, type, oct) => {
+        // triad intervals
+        const shapes = { maj:[0,4,7], min:[0,3,7], sus:[0,5,7], min7:[0,3,7,10], maj7:[0,4,7,11] };
+        const base = NOTE_IDX[root];
+        return shapes[type].map((iv) => {
+          const n = base + iv;
+          const o = oct + Math.floor(n / 12);
+          const names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+          return names[n % 12] + o;
+        });
+      };
+
+      // ---- the tracks -----------------------------------------------------
+      // Each track: title, bpm, bars, a chord progression (one chord per bar or
+      // two), a "mood" that picks timbres, and a set of spoken lines with the bar
+      // they land on. Titles + lyrics riff on norvid_studies: charts, graphs,
+      // posting, the timeline, being online. Affectionate, a little absurd.
+      const TRACKS = [
+        {
+          title: "Charts & Graphs (Intro)",
+          sub: "downtempo · the data comes in",
+          bpm: 84, bars: 40, mood: "pad",
+          prog: [["C","maj7"],["A","min7"],["F","maj7"],["G","sus"]],
+          lyrics: [
+            [2, "a chart appears"],
+            [6, "and then a graph"],
+            [10, "the numbers only go one way"],
+            [14, "up. mostly up."],
+            [18, "log scale. always log scale."],
+            [24, "an axis, unlabeled, but confident"],
+            [30, "the trend line knows something we don't"],
+            [36, "and the data comes in"],
+          ],
+        },
+        {
+          title: "Ratio'd (But Right)",
+          sub: "uptempo · posting through it",
+          bpm: 122, bars: 56, mood: "arp",
+          prog: [["A","min"],["F","maj"],["C","maj"],["G","maj"]],
+          lyrics: [
+            [2, "you posted the take"],
+            [8, "the replies are arriving"],
+            [14, "the ratio is severe"],
+            [20, "but you were right"],
+            [26, "you were right, and that's the tragedy"],
+            [34, "the quote tweets, they multiply"],
+            [42, "someone screenshotted it to another app"],
+            [50, "but the graph. the graph agrees with you."],
+          ],
+        },
+        {
+          title: "Substack Sunday",
+          sub: "midtempo · the long read",
+          bpm: 96, bars: 48, mood: "keys",
+          prog: [["F","maj7"],["G","maj7"],["E","min7"],["A","min7"]],
+          lyrics: [
+            [3, "twelve hundred words"],
+            [9, "on a theory nobody asked for"],
+            [15, "with three footnotes"],
+            [21, "and one really good chart"],
+            [28, "the paywall drops at paragraph six"],
+            [34, "but the free preview slaps"],
+            [40, "subscribe. it's a substack sunday."],
+          ],
+        },
+        {
+          title: "Timeline Velocity",
+          sub: "driving · the feed never stops",
+          bpm: 138, bars: 56, mood: "bass",
+          prog: [["D","min"],["D","min"],["A#","maj"],["C","maj"]],
+          lyrics: [
+            [4, "scroll"],
+            [8, "scroll"],
+            [12, "a discourse blooms and dies in ninety minutes"],
+            [20, "scroll"],
+            [26, "we are so back. we are never back."],
+            [34, "the timeline moves at the speed of dread"],
+            [42, "a main character is chosen. it could be you."],
+            [50, "scroll. scroll. touch nothing. touch grass never."],
+          ],
+        },
+        {
+          title: "Log Off (Outro)",
+          sub: "ambient · touching grass, theoretically",
+          bpm: 72, bars: 40, mood: "pad",
+          prog: [["C","maj7"],["E","min7"],["F","maj7"],["G","sus"]],
+          lyrics: [
+            [4, "you could log off"],
+            [10, "you could go outside"],
+            [16, "the graph would still be there tomorrow"],
+            [22, "trending gently upward"],
+            [28, "the drafts folder forgives you"],
+            [34, "the notifications can wait"],
+            [39, "log off. the data will keep. it always keeps."],
+          ],
+        },
+      ];
+
+      // ---- audio engine ---------------------------------------------------
+      let ctx = null;
+      function audio() {
+        if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+        if (ctx.state === "suspended") ctx.resume();
+        return ctx;
+      }
+
+      // A plucked/held tone with an ADSR-ish envelope on a gain node.
+      function tone(dest, f, t, dur, { type = "sine", gain = 0.2, attack = 0.01, release = 0.2, detune = 0 } = {}) {
+        const c = audio();
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(f, t);
+        if (detune) osc.detune.setValueAtTime(detune, t);
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(gain, t + attack);
+        g.gain.setValueAtTime(gain, t + Math.max(attack, dur - release));
+        g.gain.linearRampToValueAtTime(0, t + dur);
+        osc.connect(g).connect(dest);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+      }
+
+      // Noise burst for drums (hat/snare), shaped by a bandpass + gain envelope.
+      function noiseHit(dest, t, dur, { freq: cf = 6000, q = 1, gain = 0.25 } = {}) {
+        const c = audio();
+        const n = c.createBufferSource();
+        const buf = c.createBuffer(1, Math.ceil(c.sampleRate * dur), c.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        n.buffer = buf;
+        const bp = c.createBiquadFilter();
+        bp.type = "bandpass"; bp.frequency.value = cf; bp.Q.value = q;
+        const g = c.createGain();
+        g.gain.setValueAtTime(gain, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        n.connect(bp).connect(g).connect(dest);
+        n.start(t); n.stop(t + dur);
+      }
+
+      // Kick: a pitch-dropping sine.
+      function kick(dest, t, { gain = 0.6 } = {}) {
+        const c = audio();
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.frequency.setValueAtTime(150, t);
+        osc.frequency.exponentialRampToValueAtTime(45, t + 0.14);
+        g.gain.setValueAtTime(gain, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        osc.connect(g).connect(dest);
+        osc.start(t); osc.stop(t + 0.24);
+      }
+
+      // ---- player ---------------------------------------------------------
+      // Schedules a whole track ahead of time on the AudioContext clock, wires up
+      // a progress ticker for the waveform, and fires the spoken lyrics on cue.
+      let active = null; // { index, stop(), master }
+
+      function stopActive() {
+        if (!active) return;
+        try { active.master.gain.cancelScheduledValues(audio().currentTime); } catch {}
+        try { active.master.disconnect(); } catch {}
+        try { window.speechSynthesis.cancel(); } catch {}
+        clearInterval(active.ticker);
+        cancelAnimationFrame(active.raf);
+        const btn = document.querySelector(`.play[data-i="${active.index}"]`);
+        if (btn) { btn.classList.remove("playing"); btn.textContent = "▶"; }
+        active = null;
+        document.getElementById("nowPlaying").classList.remove("show");
+      }
+
+      function speak(text, when) {
+        // Schedule via a timeout aligned to the audio clock (SpeechSynthesis has no
+        // sample-accurate scheduling; close enough for spoken vocals over a beat).
+        const delayMs = Math.max(0, (when - audio().currentTime) * 1000);
+        return setTimeout(() => {
+          if (!active) return;
+          try {
+            const u = new SpeechSynthesisUtterance(text);
+            u.rate = 0.92; u.pitch = 0.85; u.volume = 0.9;
+            const voices = window.speechSynthesis.getVoices();
+            const pref = voices.find((v) => /en[-_]/i.test(v.lang));
+            if (pref) u.voice = pref;
+            window.speechSynthesis.speak(u);
+          } catch {}
+          document.getElementById("npLyric").textContent = "♪ " + text;
+        }, delayMs);
+      }
+
+      function playTrack(index, { chain = false } = {}) {
+        stopActive();
+        const c = audio();
+        const t0 = c.currentTime + 0.15;
+        const track = TRACKS[index];
+        const spb = 60 / track.bpm;            // seconds per beat
+        const barSec = spb * 4;                 // 4/4
+        const totalSec = track.bars * barSec;
+
+        const master = c.createGain();
+        master.gain.value = 0.9;
+        // gentle master fade in/out
+        master.gain.setValueAtTime(0, t0);
+        master.gain.linearRampToValueAtTime(0.9, t0 + 0.8);
+        master.gain.setValueAtTime(0.9, t0 + totalSec - 1.2);
+        master.gain.linearRampToValueAtTime(0, t0 + totalSec);
+        const comp = c.createDynamicsCompressor();
+        master.connect(comp).connect(c.destination);
+
+        const timeouts = [];
+        const chordAt = (bar) => track.prog[bar % track.prog.length];
+
+        for (let bar = 0; bar < track.bars; bar++) {
+          const bt = t0 + bar * barSec;
+          const [root, type] = chordAt(bar);
+          const notes = chord(root, type, track.mood === "bass" ? 2 : 3);
+
+          // pad / keys: hold the chord across the bar
+          if (track.mood === "pad" || track.mood === "keys") {
+            notes.forEach((nm, i) =>
+              tone(master, freq(nm), bt, barSec * 0.98, {
+                type: track.mood === "pad" ? "sawtooth" : "triangle",
+                gain: track.mood === "pad" ? 0.055 : 0.08,
+                attack: track.mood === "pad" ? 0.4 : 0.02,
+                release: track.mood === "pad" ? 0.6 : 0.3,
+                detune: i * 4,
+              }));
+          }
+          // arp: run the chord notes as eighth notes
+          if (track.mood === "arp" || track.mood === "keys") {
+            for (let e = 0; e < 8; e++) {
+              const nm = notes[e % notes.length];
+              tone(master, freq(nm) * (e >= 4 ? 2 : 1), bt + e * (spb / 2), spb / 2 * 0.9, {
+                type: "square", gain: 0.05, attack: 0.005, release: 0.08,
+              });
+            }
+          }
+          // bass: root on beats 1 & 3
+          const broot = freq(chord(root, type, 2)[0]);
+          [0, 2].forEach((beat) =>
+            tone(master, broot, bt + beat * spb, spb * 0.9, {
+              type: "triangle", gain: 0.22, attack: 0.01, release: 0.1,
+            }));
+
+          // drums (skip on the softest pad tracks' first 2 bars for an intro feel)
+          const drums = !(track.mood === "pad" && bar < 2);
+          if (drums) {
+            for (let beat = 0; beat < 4; beat++) {
+              const btt = bt + beat * spb;
+              if (beat === 0 || beat === 2) kick(master, btt, { gain: 0.5 });
+              if (beat === 1 || beat === 3) noiseHit(master, btt, 0.18, { freq: 1800, q: 0.7, gain: 0.18 }); // snare
+              // hats on the offbeats
+              noiseHit(master, btt + spb / 2, 0.05, { freq: 9000, q: 1.2, gain: 0.06 });
+            }
+          }
+        }
+
+        // schedule the spoken lyrics
+        for (const [bar, line] of track.lyrics) {
+          timeouts.push(speak(line, t0 + bar * barSec + 0.2));
+        }
+
+        // UI
+        const btn = document.querySelector(`.play[data-i="${index}"]`);
+        if (btn) { btn.classList.add("playing"); btn.textContent = "❚❚"; }
+        const np = document.getElementById("nowPlaying");
+        np.classList.add("show");
+        document.getElementById("npTitle").textContent = track.title;
+        document.getElementById("npLyric").textContent = "";
+
+        const canvas = document.getElementById(`wave-${index}`);
+        const ctx2d = canvas.getContext("2d");
+        const raf = { id: 0 };
+        const draw = () => {
+          const elapsed = c.currentTime - t0;
+          const prog = Math.min(1, Math.max(0, elapsed / totalSec));
+          paintWave(canvas, ctx2d, index, prog);
+          if (active && elapsed < totalSec) raf.id = requestAnimationFrame(draw);
+        };
+
+        active = {
+          index, master, ticker: 0, raf: 0,
+          stop: stopActive,
+        };
+        raf.id = requestAnimationFrame(draw);
+        active.raf = raf.id;
+
+        // auto-advance / end
+        active.ticker = setInterval(() => {
+          if (!active) return;
+          const elapsed = c.currentTime - t0;
+          if (elapsed >= totalSec) {
+            clearInterval(active.ticker);
+            const wasIndex = index;
+            stopActive();
+            paintWave(canvas, ctx2d, wasIndex, 0);
+            if (chain && wasIndex + 1 < TRACKS.length) playTrack(wasIndex + 1, { chain: true });
+          }
+        }, 120);
+
+        active._timeouts = timeouts;
+      }
+
+      // ---- deterministic per-track waveform (drawn, then filled as it plays) ---
+      function seededWave(index, n) {
+        // a stable pseudo-random shape per track
+        let s = 1234 + index * 9871;
+        const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+        const arr = [];
+        for (let i = 0; i < n; i++) {
+          const env = 0.35 + 0.65 * Math.abs(Math.sin((i / n) * Math.PI * (2 + index)));
+          arr.push((0.25 + rand() * 0.75) * env);
+        }
+        return arr;
+      }
+      const WAVE_BARS = 90;
+      const waveCache = {};
+      function paintWave(canvas, g, index, progress) {
+        const w = canvas.width, h = canvas.height;
+        g.clearRect(0, 0, w, h);
+        const data = (waveCache[index] ||= seededWave(index, WAVE_BARS));
+        const bw = w / WAVE_BARS;
+        for (let i = 0; i < WAVE_BARS; i++) {
+          const bh = data[i] * h * 0.9;
+          const played = i / WAVE_BARS <= progress;
+          g.fillStyle = played ? getCss("--wave-play") : getCss("--wave");
+          g.fillRect(i * bw + bw * 0.15, (h - bh) / 2, bw * 0.7, bh);
+        }
+      }
+      function getCss(v) {
+        return getComputedStyle(document.documentElement).getPropertyValue(v).trim() || "#888";
+      }
+
+      // ---- render the track list ------------------------------------------
+      function fmtDur(track) {
+        const total = track.bars * (60 / track.bpm) * 4;
+        const m = Math.floor(total / 60), s = Math.round(total % 60);
+        return `${m}:${String(s).padStart(2, "0")}`;
+      }
+      function render() {
+        const host = document.getElementById("tracklist");
+        host.innerHTML = TRACKS.map((t, i) => `
+          <div class="track">
+            <button class="play" data-i="${i}" aria-label="play ${escapeAttr(t.title)}">▶</button>
+            <div class="tbody">
+              <div class="trow">
+                <div class="tname"><span class="tnum">${i + 1}.</span>${escapeHtml(t.title)}</div>
+                <div class="ttime">${fmtDur(t)}</div>
+              </div>
+              <canvas class="wave" id="wave-${i}" width="620" height="38"></canvas>
+              <div class="tsub">${escapeHtml(t.sub)}</div>
+            </div>
+          </div>`).join("");
+
+        TRACKS.forEach((t, i) => {
+          const canvas = document.getElementById(`wave-${i}`);
+          paintWave(canvas, canvas.getContext("2d"), i, 0);
+          canvas.addEventListener("click", () => {
+            if (active && active.index === i) stopActive();
+            else playTrack(i);
+          });
+        });
+        document.querySelectorAll(".play").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const i = +btn.dataset.i;
+            if (active && active.index === i) stopActive();
+            else playTrack(i);
+          });
+        });
+      }
+      function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+      function escapeAttr(s){return escapeHtml(s);}
+
+      // album cover: a little animated "chart line" over the gradient
+      function paintCover() {
+        const cv = document.getElementById("cover");
+        const g = cv.getContext("2d");
+        const w = cv.width, h = cv.height;
+        let s = 42;
+        const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+        g.strokeStyle = "rgba(0,0,0,0.55)"; g.lineWidth = 6; g.lineJoin = "round";
+        g.beginPath();
+        let y = h * 0.7;
+        for (let x = 0; x <= w; x += w / 8) {
+          y = Math.max(h * 0.15, Math.min(h * 0.85, y - rand() * h * 0.18 + h * 0.02));
+          if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
+        }
+        g.stroke();
+        // axis
+        g.strokeStyle = "rgba(0,0,0,0.35)"; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(14, 14); g.lineTo(14, h - 14); g.lineTo(w - 14, h - 14); g.stroke();
+      }
+
+      document.getElementById("playAll").addEventListener("click", () => {
+        if (active) { stopActive(); document.getElementById("playAll").innerHTML = '<span class="ico">▶</span> Play EP'; }
+        else { playTrack(0, { chain: true }); document.getElementById("playAll").innerHTML = '<span class="ico">❚❚</span> Stop'; }
+      });
+      document.getElementById("npStop").addEventListener("click", () => {
+        stopActive();
+        document.getElementById("playAll").innerHTML = '<span class="ico">▶</span> Play EP';
+      });
+
+      // Some browsers populate speech voices async; nudge them.
+      if ("speechSynthesis" in window) { window.speechSynthesis.getVoices(); window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices(); }
+
+      render();
+      paintCover();
+    </script>
+  </body>
+</html>
