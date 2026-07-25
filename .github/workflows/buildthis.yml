@@ -102,6 +102,49 @@ jobs:
             echo "name=" >> "$GITHUB_OUTPUT"
           fi
 
+      # Safety-net commit + push, mirroring the box path. The agent is told to push
+      # itself, but if it staged its work and left committing to the harness (or hit
+      # max-turns mid-commit), those changes would otherwise never reach main — and
+      # the reply would still promise a live URL that never deploys (the favstar
+      # bug). Stamp provenance into the built site, then push any change (staged,
+      # unstaged, or a wholly-untracked new site dir — `git status --porcelain`
+      # catches all three; the old `git diff` guard missed new dirs). `pushed`
+      # gates the success reply so only work actually on main is announced live.
+      - name: commit + push
+        id: push
+        if: always()
+        env:
+          BUILDER_PAT: ${{ secrets.BUILDER_PAT }}
+          BRIEF: ${{ github.event.client_payload.brief }}
+          AUTHOR: ${{ github.event.client_payload.authorHandle }}
+          MENTION_URI: ${{ github.event.client_payload.mentionUri }}
+        run: |
+          NAME="${{ steps.result.outputs.name }}"
+          BASE_SHA="$(git rev-parse HEAD)"
+          if [ -n "$NAME" ]; then
+            SITE_DIR="sites/${NAME%%/*}"
+            if [ -d "$SITE_DIR" ]; then
+              NOTE=""
+              [ -f BUILD_NOTE ] && NOTE="$(cat BUILD_NOTE)"
+              jq -n --arg name "$NAME" --arg handle "${AUTHOR:-someone}" \
+                --arg brief "$BRIEF" --arg note "$NOTE" --arg mention "${MENTION_URI:-}" \
+                --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{builtName:$name,requestedBy:$handle,brief:$brief,note:(if $note==""then null else $note end),mentionUri:(if $mention==""then null else $mention end),builtAt:$builtAt,builtBy:"@buildthis.bisks.net"}' \
+                > "$SITE_DIR/.buildthis.json"
+            fi
+          fi
+          if [ -n "$NAME" ] && [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -q -m "buildthis: ${NAME} (@${AUTHOR:-someone})"
+            git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main
+          fi
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$HEAD_SHA" != "$BASE_SHA" ]; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Classify a failure so the reply can be honest about the cause. Right now the
       # only case we special-case is the Anthropic spend cap (usage limit) — a "the
       # bot is out of budget" state, not a "your idea flopped" one. Anything else
@@ -147,7 +190,11 @@ jobs:
           REPLY_ROOT_CID: ${{ github.event.client_payload.replyRootCid }}
           REPLY_PARENT_URI: ${{ github.event.client_payload.replyParentUri }}
           REPLY_PARENT_CID: ${{ github.event.client_payload.replyParentCid }}
-          BUILD_OK: ${{ steps.build.outcome == 'success' && steps.result.outputs.name != '' }}
+          # Success = the work actually landed on main (commit + push step moved
+          # HEAD), NOT merely "a BUILD_RESULT file exists". A staged-but-unpushed
+          # build must not get the celebratory "it's live" reply for a URL that
+          # never deploys. Same push-based success signal the box path uses.
+          BUILD_OK: ${{ steps.push.outputs.pushed == 'true' }}
           BUILD_RESULT: ${{ steps.result.outputs.name }}
           # Why a build failed, when we can tell. "usage_limit" => the bot is out of
           # its monthly budget; reply.mjs sends an honest out-of-budget line instead

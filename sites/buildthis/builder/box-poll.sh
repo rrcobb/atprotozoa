@@ -45,9 +45,13 @@ while true; do
   fi
   echo "box-poll: claimed build for $MENTION_URI"
 
+  # ATTEMPT is which try this is (1-based); the worker bumps it on each requeue so
+  # box-build.sh can cap retries. Older jobs (pre-retry) have no attempts field —
+  # jq's // 1 defaults them to attempt 1.
   BRIEF="$(printf '%s' "$BODY" | jq -r .brief)" \
   AUTHOR="$(printf '%s' "$BODY" | jq -r .authorHandle)" \
   MENTION_URI="$MENTION_URI" \
+  ATTEMPT="$(printf '%s' "$BODY" | jq -r '.attempts // 1')" \
   REPLY_ROOT_URI="$(printf '%s' "$BODY" | jq -r .replyRootUri)" \
   REPLY_ROOT_CID="$(printf '%s' "$BODY" | jq -r .replyRootCid)" \
   REPLY_PARENT_URI="$(printf '%s' "$BODY" | jq -r .replyParentUri)" \

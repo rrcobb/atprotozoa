@@ -574,6 +574,9 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     builtName?: string;
     url?: string;
     replyText?: string;
+    // The box asks to requeue instead of retire when the build was incomplete or
+    // out of budget and it wants another attempt. The worker enforces the ceiling.
+    requeue?: boolean;
   };
   try {
     body = await request.json();
@@ -583,6 +586,22 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
   if (!body.mentionUri || (body.status !== "success" && body.status !== "failure")) {
     return new Response("bad request", { status: 400 });
   }
+
+  // Requeue path: the build didn't finish (incomplete with retries left, or out of
+  // budget) and the box asked for another attempt. Put the job back to `queued`,
+  // bump its attempt count, and move it to the tail (fresh enqueuedAt) so it doesn't
+  // starve everyone behind it. Do NOT write a terminal outcome — the build isn't
+  // done; recording a `failure` here would wrongly flip the timeline to failed and
+  // (via computeDirectory) drop it from the in-flight queue. We still requeue only
+  // up to MAX_JOB_ATTEMPTS; past that the box will already have sent a terminal
+  // reply, so a stale requeue request just retires the job instead of looping.
+  if (body.requeue) {
+    const requeued = await requeueJob(env, body.mentionUri);
+    return new Response(JSON.stringify({ ok: true, requeued }), {
+      headers: { "content-type": "application/json" },
+    });
+  }
+
   await recordEvent(env, body.mentionUri, {
     outcome: {
       status: body.status,
@@ -870,11 +889,19 @@ const JOB_PREFIX = "job:";
 // Jobs live long enough to survive a box outage + retries, then age out. The box
 // deletes a job when it finishes; this TTL is the backstop for one that never does.
 const JOB_TTL = 60 * 60 * 24 * 3;
+// How many times a job may run before we stop retrying it. An incomplete build
+// (agent worked but nothing landed on main) requeues until this ceiling, then the
+// box sends a terminal honest-failure reply. Each attempt is a full Sonnet run, so
+// keep this modest — most incompletes are genuinely-too-big asks a retry won't fix.
+// The box reads `attempts` off the job and gives up on its side at the same number;
+// this is the worker-side backstop so a buggy box can't loop forever.
+const MAX_JOB_ATTEMPTS = 3;
 
 interface QueueJob extends BuildPayload {
   status: "queued" | "claimed";
-  enqueuedAt: string; // ISO — FIFO order
+  enqueuedAt: string; // ISO — FIFO order; reset on requeue so a retry goes to the tail
   claimedAt?: string; // ISO — when the box took it
+  attempts: number; // 1-based; bumped on each requeue. The box caps retries on this.
 }
 
 // Enqueue a build for the box. Idempotent on mention uri: if a job for this
@@ -887,11 +914,47 @@ async function enqueueJob(env: Env, payload: BuildPayload): Promise<boolean> {
       ...payload,
       status: "queued",
       enqueuedAt: new Date().toISOString(),
+      attempts: 1,
     };
     await env.STATE.put(key, JSON.stringify(job), { expirationTtl: JOB_TTL });
     return true;
   } catch (err) {
     console.error(`enqueueJob failed for ${payload.mentionUri}: ${err}`);
+    return false;
+  }
+}
+
+// Requeue a claimed job for another attempt: flip it back to `queued`, bump its
+// attempt count, and move it to the tail (fresh enqueuedAt) so a repeatedly-failing
+// build doesn't block the ones behind it. Returns true if the job was put back,
+// false if it was retired — either because it hit the attempt ceiling or because no
+// job record exists (already retired / aged out). On the ceiling we delete the job
+// so the box's terminal failure reply is the last word. Best-effort like the rest
+// of the queue: a KV hiccup is logged, and the job ages out on its TTL regardless.
+async function requeueJob(env: Env, mentionUri: string): Promise<boolean> {
+  try {
+    const key = `${JOB_PREFIX}${mentionUri}`;
+    const raw = await env.STATE.get(key);
+    if (!raw) return false; // nothing to requeue — already retired or aged out
+    const job = JSON.parse(raw) as QueueJob;
+    const nextAttempt = (job.attempts ?? 1) + 1;
+    if (nextAttempt > MAX_JOB_ATTEMPTS) {
+      // Out of retries. The box already sent the terminal reply on this attempt;
+      // drop the job so it can't be served again.
+      await env.STATE.delete(key);
+      return false;
+    }
+    const requeued: QueueJob = {
+      ...job,
+      status: "queued",
+      attempts: nextAttempt,
+      enqueuedAt: new Date().toISOString(), // tail of the FIFO
+      claimedAt: undefined,
+    };
+    await env.STATE.put(key, JSON.stringify(requeued), { expirationTtl: JOB_TTL });
+    return true;
+  } catch (err) {
+    console.error(`requeueJob failed for ${mentionUri}: ${err}`);
     return false;
   }
 }

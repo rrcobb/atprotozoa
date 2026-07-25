@@ -114,17 +114,56 @@ bot naps and catches up, it doesn't bill.
 
 Reuses the buildthis Worker's `STATE` KV. A `job:<uri>` record is the same
 `BuildPayload` the Action's dispatch carried, plus a claim lifecycle
-(`queued` → `claimed`, deleted on outcome). Keyed by mention uri so a re-tick
-can't double-enqueue, and so it lines up with the `event:<uri>` timeline record.
+(`queued` → `claimed`, deleted on outcome) and an `attempts` counter. Keyed by
+mention uri so a re-tick can't double-enqueue, and so it lines up with the
+`event:<uri>` timeline record.
 
-- `enqueueJob()` — watcher writes the job (idempotent on uri).
+- `enqueueJob()` — watcher writes the job (idempotent on uri), `attempts: 1`.
 - `POST /next-job` (QUEUE_TOKEN-authed) — box claims the oldest queued job.
 - `POST /outcome` (OUTCOME_SECRET-authed) — box reports the result; merges onto
   the event record AND deletes the job. No separate done endpoint.
+  - With `requeue: true` it instead **requeues**: the job flips back to `queued`,
+    `attempts` bumps, and `enqueuedAt` resets so the retry goes to the FIFO tail
+    (a repeatedly-failing build doesn't starve the ones behind it). No terminal
+    outcome is written — the build isn't done. Capped at `MAX_JOB_ATTEMPTS` (3);
+    past that the job is retired and the box's terminal failure reply is the last
+    word.
 
 KV, not a real queue: the store's already here, the job set is tiny (one box,
 serialized), and "list queued, take oldest, mark claimed" is all that's needed.
 Claims aren't perfectly atomic, but one box means no contention.
+
+### Retry / requeue (why a build comes back)
+
+The box classifies each build into a **disposition** (in `box-build.sh`) and the
+reply + queue act on it:
+
+- **success** — work actually landed on `origin/main` (HEAD moved past the pre-build
+  SHA). Reply "built it", retire the job. Success is measured by *the push*, not by
+  "a `BUILD_RESULT` file exists" — that distinction is what stops a staged-but-
+  -uncommitted build from being announced live when it never shipped.
+- **usage_limit** — out of subscription budget. Honest "out of budget, back soon"
+  reply, and **requeue** (retry once budget resets — not the build's fault).
+- **incomplete** — the agent worked but nothing reached main (`rc != 0`, or it
+  claimed a result that never got pushed). **Requeue** up to the attempt cap; the
+  requeues are silent (`REPLY_SKIP` — no "trying again" spam in the thread), and only
+  the *final* failed attempt posts a terminal honest-failure reply. This is the case
+  the favstar/mistarget bugs fell into.
+- **no_build** — the agent cleanly chose not to build (a note-only reaction to
+  banter/a question). Post the note, retire — retrying would just re-react.
+
+The box caps retries on the job's `attempts` field; the worker enforces the same
+ceiling as a backstop, so a buggy box can't loop a job forever.
+
+### Provenance (each site records its own origin)
+
+On a real site build, `box-build.sh` stamps `sites/<name>/.buildthis.json` —
+`{builtName, requestedBy, brief, note, mentionUri, builtAt}` — and commits it with
+the site. This is the **durable** origin record: the KV event log (`/logs.json`,
+logs.bisks.net) has a 30-day TTL; git history doesn't. The scratch files
+(`BUILD_RESULT`, `BUILD_NOTE`) stay gitignored and per-build — they're cleared at
+the start of every build (`git clean` skips gitignored files, so a stale one used to
+leak into the next build and reply the wrong copy to the wrong thread).
 
 ## The cutover switch
 

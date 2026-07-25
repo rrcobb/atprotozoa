@@ -64,14 +64,27 @@ async function main() {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }
 
-  const session = await login();
-  await createReply(session, text, url);
-  console.log(`replied: ${JSON.stringify(text)}`);
+  // REPLY_SKIP=1 means "report the outcome, but don't post to the thread." Set by
+  // box-build.sh when the build is being silently requeued (usage_limit, or an
+  // incomplete build with retries left): a retry isn't a user-facing event, and
+  // posting "trying again" under every slow build would be thread noise. We still
+  // report so the queue can requeue and the timeline reflects the attempt.
+  const skipReply = process.env.REPLY_SKIP === "1";
+  if (skipReply) {
+    console.log(`reply skipped (requeue); would have said: ${JSON.stringify(text)}`);
+  } else {
+    const session = await login();
+    await createReply(session, text, url);
+    console.log(`replied: ${JSON.stringify(text)}`);
+  }
 
   // Report the outcome to the event log so logs.bisks.net can show it. Keyed by
   // the mention uri so it merges onto the record the watcher started. The reply
   // text posted above IS the replyText we log — same copy, one source of truth.
-  await reportOutcome({ ok, result, url, text });
+  // `requeue` tells the worker to put the job back on the queue instead of retiring
+  // it (see REQUEUE in box-build.sh); `posted` records whether we actually replied.
+  const requeue = process.env.REQUEUE === "true";
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -121,7 +134,7 @@ function fitToLimit(text, template, limit) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -134,7 +147,12 @@ async function reportOutcome({ ok, result, url, text }) {
     status: ok && result ? "success" : "failure",
     builtName: result || undefined,
     url: url || undefined,
-    replyText: text,
+    // Don't overwrite the event's replyText with copy we never posted — on a
+    // silent requeue there's no reply to record, so omit it and keep any prior one.
+    replyText: posted ? text : undefined,
+    // Ask the worker to requeue this job (bump attempts, back to queued) rather
+    // than retire it. The worker enforces the attempt ceiling; this is the request.
+    requeue: requeue || undefined,
   };
   try {
     const res = await fetch(endpoint, {
