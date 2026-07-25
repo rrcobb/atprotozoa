@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootdrone — an ambient soundboard made of your atproto network</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. Each moot becomes a synthesized drone voice — LFO from their hashed DID, instrument from their hashed bio, brightness from how often they post. Mute, solo, loop."
+    />
+    <style>
+      :root {
+        --bg: #0c0e12;
+        --panel: #14171d;
+        --ink: #e7e8ea;
+        --muted: #8a8f99;
+        --faint: #262a32;
+        --accent: #7fb8ff;
+        --accent-dim: #3a5a80;
+        --warn: #ff8b7f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+      header h1 {
+        font-size: 1.5rem; margin: 0 0 0.35rem; font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      header h1 span { color: var(--accent); }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 56ch; }
+
+      form#load-form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+      #handle-input {
+        flex: 1; font-family: var(--mono); font-size: 0.9rem; color: var(--ink);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      #handle-input:focus { outline: none; border-color: var(--accent-dim); }
+      form#load-form button {
+        font-family: var(--mono); font-size: 0.85rem; color: var(--bg);
+        background: var(--accent); border: none; border-radius: 6px;
+        padding: 0 1rem; cursor: pointer; font-weight: 600;
+      }
+      form#load-form button:hover { filter: brightness(1.08); }
+
+      #status { min-height: 1.2rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 1.5rem; }
+      #status.error { color: var(--warn); }
+
+      #board[hidden] { display: none; }
+
+      .master-row {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      #play-btn {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+        color: var(--bg); background: var(--accent); border: none;
+        border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer;
+      }
+      #play-btn:disabled { opacity: 0.4; cursor: default; }
+      .master-row label {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        color: var(--muted); font-size: 0.8rem;
+      }
+      #board-meta { margin-left: auto; color: var(--muted); font-size: 0.78rem; }
+
+      #tracks { display: flex; flex-direction: column; gap: 0.5rem; }
+      .track {
+        display: grid;
+        grid-template-columns: 2.2rem 1fr 6.5rem auto auto auto;
+        align-items: center; gap: 0.7rem;
+        padding: 0.55rem 0.75rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      .avatar {
+        width: 2.2rem; height: 2.2rem; border-radius: 50%; object-fit: cover;
+        background: var(--faint); flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--muted); font-weight: 600; font-size: 0.9rem;
+      }
+      .meta { min-width: 0; }
+      .name {
+        font-size: 0.88rem; font-weight: 600; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+      .tag {
+        font-size: 0.72rem; color: var(--muted); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+      }
+      .tag .inst { color: var(--accent); }
+      .lfodot {
+        display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%;
+        background: var(--accent); margin: 0 0.15rem;
+        animation: pulse var(--dur, 4s) ease-in-out infinite;
+        vertical-align: middle;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.25; transform: scale(0.8); }
+        50% { opacity: 1; transform: scale(1.15); }
+      }
+      input.fader { width: 6.5rem; accent-color: var(--accent); }
+      .chip {
+        font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+        color: var(--muted); background: transparent; border: 1px solid var(--faint);
+        border-radius: 5px; padding: 0.35rem 0.5rem; cursor: pointer; letter-spacing: 0.03em;
+      }
+      .chip:hover { border-color: var(--accent-dim); }
+      .chip.mute.active { color: var(--warn); border-color: var(--warn); }
+      .chip.solo.active { color: var(--accent); border-color: var(--accent); }
+      .chip.loop.active { color: var(--ink); border-color: var(--accent-dim); background: rgba(127,184,255,0.08); }
+
+      footer {
+        margin-top: 2.5rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 560px) {
+        .track { grid-template-columns: 2rem 1fr; grid-template-areas: "avatar meta" "fader fader" "controls controls"; row-gap: 0.4rem; }
+        .track .avatar { grid-area: avatar; }
+        .track .meta { grid-area: meta; }
+        .track input.fader { grid-area: fader; width: 100%; }
+        .track .chip { grid-area: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span>moot</span>drone</h1>
+        <p>
+          type a Bluesky handle. every moot (mutual, widened to follows if
+          there aren't enough) becomes one synthesized voice on the board — an
+          LFO rate from their hashed DID, an instrument from their hashed bio
+          (pad / horn / vox / bell / drumkit), and brightness from how often
+          they've been posting lately. mute, solo, loop, mix.
+        </p>
+      </header>
+
+      <form id="load-form">
+        <input id="handle-input" placeholder="handle.bsky.social" autocomplete="off" />
+        <button type="submit">load network</button>
+      </form>
+      <div id="status"></div>
+
+      <div id="board" hidden>
+        <div class="master-row">
+          <button id="play-btn" disabled>▶ start</button>
+          <label>master <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8" /></label>
+          <span id="board-meta"></span>
+        </div>
+        <div id="tracks"></div>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a> · public AppView reads
+        only, nothing written · synthesis is plain Web Audio, no samples ·
+        moots-graph logic copied from
+        <a href="https://clustercrawl.bisks.net">clustercrawl</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
