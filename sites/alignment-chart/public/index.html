@@ -246,6 +246,34 @@
         .dot { width: 20px; height: 20px; margin: -10px 0 0 -10px; }
       }
 
+      .share { margin-top: 34px; }
+      .share h2 {
+        font-size: 0.95rem;
+        margin: 0 0 12px;
+        letter-spacing: -0.01em;
+      }
+      .share-canvas {
+        display: block;
+        width: 100%;
+        max-width: 380px;
+        height: auto;
+        margin: 0 auto 14px;
+        border: 1px solid var(--faint);
+        background: var(--bg);
+      }
+      .share-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      .share-hint {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.76rem;
+        margin: 10px 0 0;
+      }
+
       footer {
         margin-top: 54px;
         padding-top: 16px;
@@ -313,6 +341,24 @@
         <div class="roster-grid" id="rosterGrid"></div>
       </details>
 
+      <div class="share" id="share" hidden>
+        <h2>share your card</h2>
+        <canvas
+          class="share-canvas"
+          id="shareCanvas"
+          width="1080"
+          height="1350"
+        ></canvas>
+        <div class="share-actions">
+          <button id="shareDownload" type="button">⬇ download card</button>
+          <button id="shareBluesky" type="button">🦋 share on bluesky</button>
+        </div>
+        <p class="share-hint">
+          downloads a PNG; "share on bluesky" uses your device's share sheet
+          when it can attach the image, otherwise opens a pre-filled post.
+        </p>
+      </div>
+
       <footer>
         reads Bluesky's public AppView (getFollows / getFollowers /
         getAuthorFeed) with no login. requested by
@@ -339,6 +385,9 @@
       const roster = $("roster");
       const rosterGrid = $("rosterGrid");
       const tip = $("tip");
+      const share = $("share");
+
+      let lastResult = null;
 
       // Build the nine labelled cells once.
       function buildCells() {
@@ -502,6 +551,8 @@
         legend.hidden = true;
         counts.hidden = true;
         roster.hidden = true;
+        share.hidden = true;
+        lastResult = null;
         frame.hidden = false;
         buildCells();
         setStatus("resolving handle…");
@@ -516,6 +567,11 @@
           } else {
             setStatus("");
             render(result);
+            lastResult = result;
+            share.hidden = false;
+            setStatus("building your share card…");
+            await buildShareCard(result);
+            setStatus("");
           }
         } catch (err) {
           setStatus(err.message || "something went wrong", true);
@@ -524,6 +580,204 @@
           handle.disabled = false;
         }
       }
+
+      // ── share card: a canvas snapshot of the grid, made to post ────────
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      async function buildShareCard(result) {
+        const canvas = $("shareCanvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width;
+        const H = canvas.height;
+        const self = result.plotted.find((p) => p.isSelf) || result.self;
+        const cellName =
+          self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
+
+        // self drawn last so its ring sits on top; preload avatars in that order
+        const ordered = result.plotted
+          .slice()
+          .sort((a, b) => (a.isSelf ? 1 : 0) - (b.isSelf ? 1 : 0));
+        const imgs = await Promise.all(ordered.map((p) => loadImg(p.avatar)));
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = "#111111";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(6, 6, W - 12, H - 12);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = "700 24px ui-monospace, monospace";
+        ctx.fillText("NETWORK ALIGNMENT CHART", W / 2, 76);
+        ctx.fillStyle = "#111111";
+        ctx.font = "700 46px ui-monospace, monospace";
+        ctx.fillText("@" + (self.handle || result.self.handle), W / 2, 132);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = "400 22px ui-monospace, monospace";
+        ctx.fillText(
+          `${result.kind} · ${result.plotted.length} accounts plotted`,
+          W / 2,
+          168,
+        );
+
+        const gs = 780;
+        const gx = (W - gs) / 2;
+        const gy = 230;
+
+        ctx.font = "700 20px ui-monospace, monospace";
+        ctx.fillStyle = "#7b4fd0";
+        ctx.fillText("MOGGING ↑", W / 2, gy - 26);
+        ctx.fillStyle = "#d81e6a";
+        ctx.fillText("↓ GOONING", W / 2, gy + gs + 46);
+        ctx.save();
+        ctx.translate(gx - 34, gy + gs / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = "#1f8a4c";
+        ctx.fillText("CHILL ←", 0, 0);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(gx + gs + 34, gy + gs / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = "#c0392b";
+        ctx.fillText("→ HARSH", 0, 0);
+        ctx.restore();
+
+        ctx.fillStyle = "#f6f6f6";
+        ctx.fillRect(gx, gy, gs, gs);
+        ctx.strokeStyle = "#111111";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(gx, gy, gs, gs);
+        ctx.strokeStyle = "#e4e4e4";
+        ctx.lineWidth = 1;
+        const cell = gs / 3;
+        for (let i = 1; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(gx + i * cell, gy);
+          ctx.lineTo(gx + i * cell, gy + gs);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(gx, gy + i * cell);
+          ctx.lineTo(gx + gs, gy + i * cell);
+          ctx.stroke();
+        }
+        ctx.textAlign = "left";
+        ctx.font = "600 13px ui-monospace, monospace";
+        ctx.fillStyle = "#6b6b6b";
+        for (let i = 0; i < 9; i++) {
+          const col = i % 3;
+          const row = (i / 3) | 0;
+          ctx.fillText(
+            CELLS[i].name.toUpperCase(),
+            gx + col * cell + 8,
+            gy + row * cell + 20,
+          );
+        }
+
+        ordered.forEach((p, i) => {
+          const { left, top } = pos(p.px, p.py);
+          const cx = gx + (left / 100) * gs;
+          const cy = gy + (top / 100) * gs;
+          const r = p.isSelf ? 26 : 17;
+          const img = imgs[i];
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          if (img) {
+            ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+          } else {
+            ctx.fillStyle = p.empty ? "#e4e4e4" : "#cfcfcf";
+            ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+          }
+          ctx.restore();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.strokeStyle = p.isSelf ? "#e0a400" : "#ffffff";
+          ctx.lineWidth = p.isSelf ? 5 : 2;
+          ctx.stroke();
+        });
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#111111";
+        ctx.font = "700 34px ui-monospace, monospace";
+        wrapText(ctx, `you are: ${cellName.toUpperCase()}`, W / 2, gy + gs + 92, gs, 40);
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = "400 20px ui-monospace, monospace";
+        ctx.fillText("alignment-chart.bisks.net — plot yours, it's a bit", W / 2, H - 40);
+      }
+
+      $("shareDownload").addEventListener("click", () => {
+        if (!lastResult) return;
+        const canvas = $("shareCanvas");
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          const who = (lastResult.self.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+          a.download = `alignment-chart-${who}.png`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      $("shareBluesky").addEventListener("click", () => {
+        if (!lastResult) return;
+        const self =
+          lastResult.plotted.find((p) => p.isSelf) || lastResult.self;
+        const cellName =
+          self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
+        const text =
+          `I'm ${cellName} on the network alignment chart 🧭\n\n` +
+          `plot your own network → https://alignment-chart.bisks.net`;
+        const canvas = $("shareCanvas");
+        canvas.toBlob(async (blob) => {
+          const file =
+            blob && new File([blob], "alignment-chart.png", { type: "image/png" });
+          if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({ files: [file], text });
+              return;
+            } catch {
+              // user backed out of the share sheet — fall back to the compose link
+            }
+          }
+          window.open(
+            `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
+            "_blank",
+          );
+        }, "image/png");
+      });
 
       form.addEventListener("submit", (e) => {
         e.preventDefault();
