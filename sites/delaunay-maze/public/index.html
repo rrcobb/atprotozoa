@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🎲 delaunay probability maze</title>
+    <meta
+      name="description"
+      content="A Delaunay graph of scattered nodes with red / blue / green edges. Roll a weighted die — red on 4 faces, blue on 3, green on 2 — and it shows a pair of colors. Cross an edge matching either color. Get from the start node to the end node. A probability maze."
+    />
+    <style>
+      :root {
+        --bg: #0c0f1a;
+        --bg2: #141a2e;
+        --ink: #eaf0ff;
+        --muted: #9fb0d4;
+        --red: #ff5a6e;
+        --blue: #4aa8ff;
+        --green: #47d18a;
+        --gold: #ffd873;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background:
+          radial-gradient(1200px 800px at 70% -10%, #1b2340 0%, rgba(27,35,64,0) 60%),
+          radial-gradient(900px 700px at 10% 110%, #17213d 0%, rgba(23,33,61,0) 55%),
+          var(--bg);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        touch-action: manipulation;
+      }
+      #maze { position: fixed; inset: 0; display: block; }
+
+      /* ---- header ---- */
+      .hud {
+        position: fixed; left: 0; right: 0; top: 0;
+        padding: 14px 18px 26px;
+        pointer-events: none; z-index: 5;
+        background: linear-gradient(180deg, rgba(12,15,26,0.82) 0%, rgba(12,15,26,0) 100%);
+      }
+      .titlebar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.15rem, 3.6vw, 2rem);
+        line-height: 1; letter-spacing: 0.3px; font-weight: 700;
+        text-shadow: 0 2px 14px rgba(0,0,0,0.5);
+      }
+      .sub {
+        margin: 6px 0 0; max-width: 62ch;
+        font-size: clamp(0.72rem, 2vw, 0.92rem);
+        color: var(--muted); line-height: 1.5;
+      }
+      .sub b { color: var(--gold); font-weight: 600; }
+      .r { color: var(--red); font-weight: 700; }
+      .b { color: var(--blue); font-weight: 700; }
+      .g { color: var(--green); font-weight: 700; }
+
+      /* ---- die + controls (bottom-left) ---- */
+      .dock {
+        position: fixed; left: 14px; bottom: 14px; z-index: 6;
+        display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+      }
+      .panel {
+        pointer-events: auto;
+        background: rgba(20,26,46,0.72);
+        backdrop-filter: blur(9px);
+        border: 1px solid rgba(159,176,212,0.24);
+        border-radius: 16px;
+        padding: 12px 14px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      }
+      .dierow { display: flex; align-items: center; gap: 14px; }
+      .die {
+        width: 74px; height: 74px; border-radius: 16px; flex: none;
+        background: linear-gradient(145deg, #232c4c, #161d33);
+        border: 1px solid rgba(159,176,212,0.35);
+        display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+        padding: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.4);
+        transition: transform 0.08s;
+      }
+      .die.rolling { animation: shake 0.5s ease-in-out; }
+      .pip {
+        border-radius: 50%;
+        box-shadow: 0 0 10px currentColor;
+        align-self: center; justify-self: center;
+        width: 20px; height: 20px;
+      }
+      .pip.red { color: var(--red); background: var(--red); }
+      .pip.blue { color: var(--blue); background: var(--blue); }
+      .pip.green { color: var(--green); background: var(--green); }
+      @keyframes shake {
+        0%,100% { transform: rotate(0) translateY(0); }
+        20% { transform: rotate(-9deg) translateY(-3px); }
+        40% { transform: rotate(8deg) translateY(1px); }
+        60% { transform: rotate(-6deg) translateY(-2px); }
+        80% { transform: rotate(4deg); }
+      }
+      .diebody { display: flex; flex-direction: column; gap: 8px; }
+      .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+      button {
+        font: inherit; cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.28);
+        background: rgba(255,255,255,0.08);
+        color: var(--ink);
+        border-radius: 999px; padding: 7px 15px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.roll {
+        background: linear-gradient(180deg, #ffe3a0, #f2b74a);
+        border-color: rgba(255,255,255,0.55); color: #3a2600;
+      }
+      button.roll:hover:not(:disabled) { filter: brightness(1.06); }
+      .status {
+        font-size: 0.86rem; color: var(--muted); min-height: 1.2em;
+        max-width: 240px; line-height: 1.35;
+      }
+      .status b { color: var(--ink); }
+
+      /* ---- stats (bottom-right) ---- */
+      .stats {
+        position: fixed; right: 14px; bottom: 14px; z-index: 6;
+        pointer-events: auto;
+        background: rgba(20,26,46,0.72);
+        backdrop-filter: blur(9px);
+        border: 1px solid rgba(159,176,212,0.24);
+        border-radius: 16px; padding: 11px 15px;
+        font-size: 0.82rem; color: var(--muted);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+        display: flex; flex-direction: column; gap: 5px; min-width: 168px;
+      }
+      .stats .n { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+      .odds { display: flex; gap: 10px; margin-top: 3px; }
+      .odds span { display: inline-flex; align-items: center; gap: 4px; }
+      .swatch { width: 10px; height: 10px; border-radius: 3px; box-shadow: 0 0 7px currentColor; }
+      .swatch.red { color: var(--red); background: var(--red); }
+      .swatch.blue { color: var(--blue); background: var(--blue); }
+      .swatch.green { color: var(--green); background: var(--green); }
+
+      /* ---- win banner ---- */
+      .banner {
+        position: fixed; inset: 0; z-index: 20; display: none;
+        align-items: center; justify-content: center;
+        background: rgba(8,10,18,0.72); backdrop-filter: blur(3px);
+      }
+      .banner.show { display: flex; }
+      .bannerbox {
+        background: rgba(20,26,46,0.95);
+        border: 1px solid rgba(255,216,115,0.5);
+        border-radius: 20px; padding: 28px 34px; text-align: center;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.6); max-width: 90vw;
+      }
+      .bannerbox h2 { margin: 0 0 8px; font-size: 1.6rem; color: var(--gold); }
+      .bannerbox p { margin: 0 0 18px; color: var(--muted); }
+
+      @media (max-width: 620px) {
+        .stats { display: none; }
+        .status { max-width: 200px; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="maze"></canvas>
+
+    <div class="hud">
+      <div class="titlebar">
+        <h1>🎲 delaunay probability maze</h1>
+      </div>
+      <p class="sub">
+        A Delaunay triangulation of scattered nodes. Every edge is
+        <span class="r">red</span>, <span class="b">blue</span>, or
+        <span class="g">green</span>. Roll the weighted die — <b>red on 4 faces,
+        blue on 3, green on 2</b> — and it shows a <b>pair</b> of colors. From
+        your node you may cross any lit edge matching <b>either</b> color. Reach the
+        <b>★ end</b>.
+      </p>
+    </div>
+
+    <div class="dock">
+      <div class="panel">
+        <div class="dierow">
+          <div class="die" id="die" aria-label="die">
+            <div class="pip" id="pipA"></div>
+            <div class="pip" id="pipB"></div>
+          </div>
+          <div class="diebody">
+            <div class="btns">
+              <button class="roll" id="rollBtn">Roll</button>
+              <button id="newBtn" title="new random maze">New maze</button>
+            </div>
+            <div class="status" id="status">Roll the die to begin.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div>rolls: <span class="n" id="rollCount">0</span> · moves: <span class="n" id="moveCount">0</span></div>
+      <div>per-color odds (one face of the pair):</div>
+      <div class="odds">
+        <span><i class="swatch red"></i> 4⁄9</span>
+        <span><i class="swatch blue"></i> 3⁄9</span>
+        <span><i class="swatch green"></i> 2⁄9</span>
+      </div>
+      <div id="reachHint" style="margin-top:4px"></div>
+    </div>
+
+    <div class="banner" id="banner">
+      <div class="bannerbox">
+        <h2 id="banTitle">🏁 You reached the end!</h2>
+        <p id="banBody"></p>
+        <button class="roll" id="banBtn">New maze</button>
+      </div>
+    </div>
+
+    <script>
+      // ------------------------------------------------------------------
+      // Delaunay probability maze
+      //
+      // The die: nine faces — 4 red, 3 blue, 2 green. Each roll draws TWO
+      // faces (with replacement) and shows them as a colored pair; you may
+      // cross any edge from your current node whose color matches EITHER
+      // face. A pair is what makes the maze playable — a single color would
+      // often strand you at a node with no edge of that color. ("they can
+      // pair", per the brief.)
+      //
+      // Triangulation is Bowyer–Watson, written out below. Points are
+      // scattered with a little min-spacing so the mesh looks nice.
+      // ------------------------------------------------------------------
+
+      const COLORS = ["red", "blue", "green"];
+      const HEX = { red: "#ff5a6e", blue: "#4aa8ff", green: "#47d18a" };
+      // Weighted die face pool: 4 red, 3 blue, 2 green (nine faces).
+      const FACES = ["red","red","red","red","blue","blue","blue","green","green"];
+
+      const canvas = document.getElementById("maze");
+      const ctx = canvas.getContext("2d");
+      const dieEl = document.getElementById("die");
+      const pipA = document.getElementById("pipA");
+      const pipB = document.getElementById("pipB");
+      const statusEl = document.getElementById("status");
+      const rollBtn = document.getElementById("rollBtn");
+      const newBtn = document.getElementById("newBtn");
+      const rollCountEl = document.getElementById("rollCount");
+      const moveCountEl = document.getElementById("moveCount");
+      const reachHintEl = document.getElementById("reachHint");
+      const banner = document.getElementById("banner");
+      const banBody = document.getElementById("banBody");
+      const banBtn = document.getElementById("banBtn");
+
+      let DPR = 1, W = 0, H = 0;
+      let nodes = [];   // {x, y}
+      let edges = [];   // {a, b, color}
+      let adj = [];     // adj[i] = [{to, color, edgeIdx}]
+      let startIdx = 0, endIdx = 0;
+      let curIdx = 0;
+      let rollColors = null;      // [colorA, colorB] currently allowed
+      let legalMoves = [];        // node indices reachable this roll
+      let rolls = 0, moves = 0;
+      let visited = new Set();
+      let won = false;
+      let anim = 0;               // time base for pulses
+
+      function rnd() { return Math.random(); }
+
+      // ---------- Bowyer–Watson Delaunay triangulation ----------
+      // Returns a list of triangles [i,j,k] indexing into pts.
+      function triangulate(pts) {
+        if (pts.length < 3) return [];
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of pts) {
+          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+        }
+        const dx = maxX - minX, dy = maxY - minY, dmax = Math.max(dx, dy) || 1;
+        const midx = (minX + maxX) / 2, midy = (minY + maxY) / 2;
+        const P = pts.slice();
+        const s0 = P.length, s1 = P.length + 1, s2 = P.length + 2;
+        P.push({ x: midx - 20 * dmax, y: midy - dmax });
+        P.push({ x: midx, y: midy + 20 * dmax });
+        P.push({ x: midx + 20 * dmax, y: midy - dmax });
+
+        let tris = [[s0, s1, s2]];
+
+        function circum(a, b, c) {
+          const ax = P[a].x, ay = P[a].y, bx = P[b].x, by = P[b].y, cx = P[c].x, cy = P[c].y;
+          const d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+          if (Math.abs(d) < 1e-9) return null;
+          const ux = ((ax*ax+ay*ay)*(by-cy) + (bx*bx+by*by)*(cy-ay) + (cx*cx+cy*cy)*(ay-by)) / d;
+          const uy = ((ax*ax+ay*ay)*(cx-bx) + (bx*bx+by*by)*(ax-cx) + (cx*cx+cy*cy)*(bx-ax)) / d;
+          const r2 = (ux-ax)*(ux-ax) + (uy-ay)*(uy-ay);
+          return { x: ux, y: uy, r2 };
+        }
+
+        for (let i = 0; i < P.length - 3; i++) {
+          const bad = [];
+          for (const t of tris) {
+            const cc = circum(t[0], t[1], t[2]);
+            if (!cc) continue;
+            const ddx = P[i].x - cc.x, ddy = P[i].y - cc.y;
+            if (ddx*ddx + ddy*ddy < cc.r2) bad.push(t);
+          }
+          // Boundary of the hole: edges owned by exactly one bad triangle.
+          const poly = [];
+          for (let bi = 0; bi < bad.length; bi++) {
+            const t = bad[bi];
+            const teds = [[t[0],t[1]],[t[1],t[2]],[t[2],t[0]]];
+            for (const e of teds) {
+              let shared = false;
+              for (let bj = 0; bj < bad.length; bj++) {
+                if (bi === bj) continue;
+                const u = bad[bj];
+                const ueds = [[u[0],u[1]],[u[1],u[2]],[u[2],u[0]]];
+                for (const f of ueds) {
+                  if ((e[0]===f[0]&&e[1]===f[1]) || (e[0]===f[1]&&e[1]===f[0])) { shared = true; break; }
+                }
+                if (shared) break;
+              }
+              if (!shared) poly.push(e);
+            }
+          }
+          tris = tris.filter(t => !bad.includes(t));
+          for (const e of poly) tris.push([e[0], e[1], i]);
+        }
+        // Drop triangles touching the super-triangle vertices.
+        return tris.filter(t => t.every(v => v < s0));
+      }
+
+      // ---------- build a fresh maze ----------
+      function build() {
+        won = false;
+        banner.classList.remove("show");
+        visited = new Set();
+        rolls = 0; moves = 0; rollColors = null; legalMoves = [];
+
+        const area = W * H;
+        const target = Math.max(16, Math.min(60, Math.round(area / 26000)));
+        const margin = Math.min(90, Math.max(46, Math.min(W, H) * 0.09));
+        const topPad = 104; // keep clear of the header
+        const minDist = Math.sqrt(area / target) * 0.72;
+
+        let pts = [];
+        let guard = 0;
+        while (pts.length < target && guard < target * 60) {
+          guard++;
+          const x = margin + rnd() * (W - 2 * margin);
+          const y = topPad + rnd() * (H - topPad - margin);
+          let ok = true;
+          for (const p of pts) {
+            const ddx = p.x - x, ddy = p.y - y;
+            if (ddx*ddx + ddy*ddy < minDist * minDist) { ok = false; break; }
+          }
+          if (ok) pts.push({ x, y });
+        }
+        nodes = pts;
+
+        const tris = triangulate(nodes);
+
+        // unique edges from triangles
+        const seen = new Map();
+        edges = [];
+        function addEdge(a, b) {
+          const key = a < b ? a + "_" + b : b + "_" + a;
+          if (seen.has(key)) return;
+          seen.set(key, true);
+          edges.push({ a, b, color: COLORS[Math.floor(rnd() * 3)] });
+        }
+        for (const t of tris) {
+          addEdge(t[0], t[1]); addEdge(t[1], t[2]); addEdge(t[2], t[0]);
+        }
+
+        // adjacency
+        adj = nodes.map(() => []);
+        edges.forEach((e, i) => {
+          adj[e.a].push({ to: e.b, color: e.color, edgeIdx: i });
+          adj[e.b].push({ to: e.a, color: e.color, edgeIdx: i });
+        });
+
+        // start = a node near the top-left; end = graph-farthest from it.
+        startIdx = 0;
+        for (let i = 1; i < nodes.length; i++) {
+          if (nodes[i].x + nodes[i].y * 0.15 < nodes[startIdx].x + nodes[startIdx].y * 0.15) startIdx = i;
+        }
+        endIdx = farthestConnected(startIdx);
+        if (endIdx === startIdx) {
+          let best = startIdx, bd = -1;
+          for (let i = 0; i < nodes.length; i++) {
+            const dxx = nodes[i].x - nodes[startIdx].x, dyy = nodes[i].y - nodes[startIdx].y;
+            const d = dxx*dxx + dyy*dyy;
+            if (d > bd) { bd = d; best = i; }
+          }
+          endIdx = best;
+        }
+
+        curIdx = startIdx;
+        visited.add(startIdx);
+        setStatus("Roll the die to begin.");
+        updateStats();
+      }
+
+      // BFS from src over all edges (ignoring color); return the max-hop node.
+      function farthestConnected(src) {
+        const dist = new Array(nodes.length).fill(-1);
+        dist[src] = 0;
+        const q = [src];
+        let far = src;
+        while (q.length) {
+          const u = q.shift();
+          for (const nb of adj[u]) {
+            if (dist[nb.to] === -1) {
+              dist[nb.to] = dist[u] + 1;
+              if (dist[nb.to] > dist[far]) far = nb.to;
+              q.push(nb.to);
+            }
+          }
+        }
+        return far;
+      }
+
+      // ---------- die ----------
+      let rolling = false;
+      function roll() {
+        if (won || rolling) return;
+        rolling = true;
+        dieEl.classList.remove("rolling");
+        void dieEl.offsetWidth;
+        dieEl.classList.add("rolling");
+
+        let ticks = 0;
+        const flick = setInterval(() => {
+          showPair(FACES[(Math.random()*9)|0], FACES[(Math.random()*9)|0]);
+          if (++ticks > 6) clearInterval(flick);
+        }, 70);
+
+        setTimeout(() => {
+          const a = FACES[(Math.random()*FACES.length)|0];
+          const b = FACES[(Math.random()*FACES.length)|0];
+          rollColors = [a, b];
+          showPair(a, b);
+          rolls++;
+          rolling = false;
+          computeLegal();
+        }, 520);
+      }
+
+      function showPair(a, b) {
+        pipA.className = "pip " + a;
+        pipB.className = "pip " + b;
+      }
+
+      function computeLegal() {
+        const allowed = new Set(rollColors);
+        legalMoves = [];
+        for (const nb of adj[curIdx]) {
+          if (allowed.has(nb.color)) legalMoves.push(nb.to);
+        }
+        legalMoves = [...new Set(legalMoves)];
+
+        const pretty = rollColors[0] === rollColors[1]
+          ? `<b style="color:${HEX[rollColors[0]]}">${rollColors[0]}</b> (doubles)`
+          : `<b style="color:${HEX[rollColors[0]]}">${rollColors[0]}</b> or <b style="color:${HEX[rollColors[1]]}">${rollColors[1]}</b>`;
+
+        if (legalMoves.length === 0) {
+          setStatus(`Rolled ${pretty}. No matching edge from here — roll again.`);
+        } else {
+          setStatus(`Rolled ${pretty}. ${legalMoves.length} edge${legalMoves.length>1?"s":""} lit — click a glowing node to move.`);
+        }
+        updateStats();
+      }
+
+      // ---------- movement ----------
+      function moveTo(i) {
+        if (!legalMoves.includes(i) || won) return;
+        curIdx = i;
+        visited.add(i);
+        moves++;
+        legalMoves = [];
+        rollColors = null;
+        if (curIdx === endIdx) { win(); }
+        else { setStatus("Moved. Roll again."); }
+        updateStats();
+      }
+
+      function win() {
+        won = true;
+        banBody.innerHTML =
+          `Reached the end in <b>${moves}</b> move${moves===1?"":"s"} across <b>${rolls}</b> roll${rolls===1?"":"s"}. ` +
+          `Your rolls found a road <b>${(moves/Math.max(1,rolls)*100|0)}%</b> of the time.`;
+        banner.classList.add("show");
+        setStatus("You made it! 🏁");
+      }
+
+      // ---------- odds hint: P(this node offers at least one move on a roll) ----------
+      function reachProb(idx) {
+        // Per-color face prob: r=4/9, b=3/9, g=2/9. A roll picks 2 faces; the
+        // node is "opened" unless BOTH faces are colors it lacks an edge of.
+        const have = new Set(adj[idx].map(n => n.color));
+        const p = { red: 4/9, blue: 3/9, green: 2/9 };
+        let miss = 0;
+        for (const c of COLORS) if (!have.has(c)) miss += p[c];
+        return 1 - miss * miss;
+      }
+      function updateReachHint() {
+        if (won) { reachHintEl.innerHTML = ""; return; }
+        const pr = reachProb(curIdx);
+        reachHintEl.innerHTML = `P(this node opens a road on a roll): <span class="n">${(pr*100).toFixed(0)}%</span>`;
+      }
+
+      // ---------- rendering ----------
+      function resize() {
+        DPR = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth; H = window.innerHeight;
+        canvas.width = W * DPR; canvas.height = H * DPR;
+        canvas.style.width = W + "px"; canvas.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+
+      function draw() {
+        anim += 0.03;
+        ctx.clearRect(0, 0, W, H);
+
+        const allowed = rollColors ? new Set(rollColors) : null;
+
+        // edges
+        for (const e of edges) {
+          const A = nodes[e.a], B = nodes[e.b];
+          const incident = (e.a === curIdx || e.b === curIdx);
+          const lit = allowed && allowed.has(e.color) && incident;
+          ctx.beginPath();
+          ctx.moveTo(A.x, A.y);
+          ctx.lineTo(B.x, B.y);
+          if (lit) {
+            ctx.strokeStyle = HEX[e.color];
+            ctx.lineWidth = 3.4;
+            ctx.globalAlpha = 0.9 + 0.1 * Math.sin(anim * 3);
+            ctx.shadowColor = HEX[e.color];
+            ctx.shadowBlur = 14;
+          } else {
+            ctx.strokeStyle = HEX[e.color];
+            ctx.lineWidth = 1.4;
+            ctx.globalAlpha = incident ? 0.55 : 0.28;
+            ctx.shadowBlur = 0;
+          }
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+
+        // nodes
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          const isStart = i === startIdx, isEnd = i === endIdx;
+          const isCur = i === curIdx;
+          const isLegal = legalMoves.includes(i);
+          const wasVisited = visited.has(i);
+
+          let r = 5.5;
+          if (isStart || isEnd || isCur) r = 9;
+
+          if (isLegal) {
+            const pulse = 10 + 4 * Math.sin(anim * 4);
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + pulse, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255,216,115,0.9)";
+            ctx.lineWidth = 2;
+            ctx.shadowColor = "#ffd873"; ctx.shadowBlur = 16;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+          }
+
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+          if (isCur) { ctx.fillStyle = "#ffd873"; ctx.shadowColor = "#ffd873"; ctx.shadowBlur = 18; }
+          else if (isEnd) { ctx.fillStyle = "#ff8bd0"; ctx.shadowColor = "#ff8bd0"; ctx.shadowBlur = 14; }
+          else if (isStart) { ctx.fillStyle = "#8affc4"; ctx.shadowColor = "#8affc4"; ctx.shadowBlur = 12; }
+          else if (wasVisited) { ctx.fillStyle = "#6d7ba6"; ctx.shadowBlur = 0; }
+          else { ctx.fillStyle = "#c3cff0"; ctx.shadowBlur = 0; }
+          ctx.fill();
+          ctx.shadowBlur = 0;
+
+          if (isStart || isEnd) {
+            ctx.fillStyle = "#0c0f1a";
+            ctx.font = "bold 11px system-ui";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(isStart ? "▶" : "★", n.x, n.y + 0.5);
+            ctx.fillStyle = isStart ? "#8affc4" : "#ff8bd0";
+            ctx.font = "600 12px system-ui";
+            ctx.textBaseline = "bottom";
+            ctx.fillText(isStart ? "start" : "end", n.x, n.y - r - 5);
+          }
+        }
+
+        requestAnimationFrame(draw);
+      }
+
+      // ---------- hit testing ----------
+      function pick(px, py) {
+        let best = -1, bd = 24 * 24;
+        for (let i = 0; i < nodes.length; i++) {
+          const dxx = nodes[i].x - px, dyy = nodes[i].y - py;
+          const d = dxx*dxx + dyy*dyy;
+          if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+      }
+
+      canvas.addEventListener("pointerdown", (ev) => {
+        const rect = canvas.getBoundingClientRect();
+        const i = pick(ev.clientX - rect.left, ev.clientY - rect.top);
+        if (i >= 0) moveTo(i);
+      });
+
+      // ---------- helpers ----------
+      function setStatus(html) { statusEl.innerHTML = html; }
+      function updateStats() {
+        rollCountEl.textContent = rolls;
+        moveCountEl.textContent = moves;
+        updateReachHint();
+      }
+
+      rollBtn.addEventListener("click", roll);
+      newBtn.addEventListener("click", () => { resize(); build(); });
+      banBtn.addEventListener("click", () => { resize(); build(); });
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") { e.preventDefault(); roll(); }
+      });
+      let rw = 0, rh = 0;
+      window.addEventListener("resize", () => {
+        const oldW = W, oldH = H;
+        resize();
+        // only rebuild on a meaningful size change to avoid nuking mid-game
+        if (Math.abs(W - oldW) > 140 || Math.abs(H - oldH) > 140) build();
+      });
+
+      // init
+      resize();
+      build();
+      showPair("red", "blue");
+      requestAnimationFrame(draw);
+    </script>
+  </body>
+</html>
