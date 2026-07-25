@@ -26,6 +26,14 @@ interface Env {
   // forge build outcomes into the event log. Set with `wrangler secret put
   // OUTCOME_SECRET` here and `gh secret set OUTCOME_SECRET` for the Action.
   OUTCOME_SECRET: string;
+  // Shared secret the builder BOX presents on POST /next-job to claim a build off
+  // the queue. Set with `wrangler secret put QUEUE_TOKEN` here + in the box's
+  // /etc/buildthis/env. Without it, /next-job rejects (fail closed).
+  QUEUE_TOKEN: string;
+  // "1" => the watcher enqueues builds for the box to pull (the live path). Unset
+  // or not "1" => the watcher fires the GitHub Action via repository_dispatch (the
+  // fallback path). A plain var so the cutover is one dashboard toggle, no deploy.
+  USE_BOX_QUEUE?: string;
 }
 
 const PDS = "https://bsky.social";
@@ -61,6 +69,12 @@ export default {
     // Authenticated by a shared secret so a random caller can't forge outcomes.
     if (url.pathname === "/outcome" && request.method === "POST") {
       return handleOutcomePost(request, env);
+    }
+
+    // The builder box claims the next queued build here (authed by QUEUE_TOKEN).
+    // Returns the job payload, or 204 when the queue is empty.
+    if (url.pathname === "/next-job" && request.method === "POST") {
+      return handleNextJob(request, env);
     }
 
     return env.ASSETS.fetch(request);
@@ -147,7 +161,7 @@ async function runWatcher(env: Env): Promise<void> {
     // All treated as a feature description, not harness instructions.
     const ancestors = await threadContext(session, m);
     const brief = buildBrief(m.text, ancestors, num(env.MAX_BRIEF_CHARS));
-    const dispatched = await dispatchBuild(env, {
+    const payload: BuildPayload = {
       brief,
       authorHandle: m.authorHandle,
       // The mention uri keys the event record; the builder echoes it back on the
@@ -158,14 +172,23 @@ async function runWatcher(env: Env): Promise<void> {
       replyRootCid: m.rootCid,
       replyParentUri: m.uri,
       replyParentCid: m.cid,
-    });
+    };
 
-    // Record whether the dispatch actually left, so a dispatch failure is visible
-    // in the timeline rather than looking like a build that silently never ran.
+    // Two paths, selected by the USE_BOX_QUEUE var so the cutover is a toggle:
+    //   box queue (live)  -> enqueue for the Hetzner box to pull and build.
+    //   dispatch (fallback) -> fire the GitHub Action (the original path).
+    // Either way `dispatched` means "the build was successfully handed off."
+    const useQueue = env.USE_BOX_QUEUE === "1";
+    const dispatched = useQueue
+      ? await enqueueJob(env, payload)
+      : await dispatchBuild(env, payload);
+
+    // Record whether the handoff actually left, so a failure is visible in the
+    // timeline rather than looking like a build that silently never ran.
     await recordEvent(env, m.uri, { dispatched });
 
     if (dispatched) {
-      // Only mark handled if the dispatch actually left. A failed dispatch stays
+      // Only mark handled if the handoff actually left. A failed one stays
       // un-handled so the next tick retries it.
       await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
     }
@@ -307,6 +330,13 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       at: new Date().toISOString(),
     },
   });
+  // A finished outcome also retires the queue job (box path): the build ran and
+  // replied, so drop it from the queue. No-op on the dispatch path (no job key).
+  try {
+    await env.STATE.delete(`${JOB_PREFIX}${body.mentionUri}`);
+  } catch {
+    // The job ages out on its TTL anyway; a failed delete isn't worth erroring on.
+  }
   return new Response(JSON.stringify({ ok: true }), {
     headers: { "content-type": "application/json" },
   });
@@ -560,6 +590,84 @@ async function dispatchBuild(env: Env, payload: BuildPayload): Promise<boolean> 
     return false;
   }
   return true;
+}
+
+// --- Build queue (box path) ------------------------------------------------
+//
+// A KV-backed FIFO the Hetzner builder box drains. A job is the same BuildPayload
+// the Action's dispatch carries, plus a claim lifecycle. Keyed by mention uri so a
+// re-tick can't enqueue the same mention twice (put is idempotent on the key), and
+// so it lines up with the event:<uri> record the timeline reads.
+//
+// KV, not a real queue: the store is already here, the job set is tiny (one box,
+// serialized builds), and "list queued keys, take the oldest, mark claimed" is all
+// we need. Claims aren't perfectly atomic on KV, but a single box means no
+// contention — the claim marker just stops the same job being served twice.
+
+const JOB_PREFIX = "job:";
+// Jobs live long enough to survive a box outage + retries, then age out. The box
+// deletes a job when it finishes; this TTL is the backstop for one that never does.
+const JOB_TTL = 60 * 60 * 24 * 3;
+
+interface QueueJob extends BuildPayload {
+  status: "queued" | "claimed";
+  enqueuedAt: string; // ISO — FIFO order
+  claimedAt?: string; // ISO — when the box took it
+}
+
+// Enqueue a build for the box. Idempotent on mention uri: if a job for this
+// mention already exists (queued or in-flight), leave it. Returns true on success.
+async function enqueueJob(env: Env, payload: BuildPayload): Promise<boolean> {
+  try {
+    const key = `${JOB_PREFIX}${payload.mentionUri}`;
+    if (await env.STATE.get(key)) return true; // already queued/claimed — no dup
+    const job: QueueJob = {
+      ...payload,
+      status: "queued",
+      enqueuedAt: new Date().toISOString(),
+    };
+    await env.STATE.put(key, JSON.stringify(job), { expirationTtl: JOB_TTL });
+    return true;
+  } catch (err) {
+    console.error(`enqueueJob failed for ${payload.mentionUri}: ${err}`);
+    return false;
+  }
+}
+
+// POST /next-job — the box claims the oldest queued build. Authed by QUEUE_TOKEN.
+// Flips the job to "claimed" and returns it; 204 when nothing's queued. The job is
+// retired when the box reports its outcome (POST /outcome deletes it), so there's
+// no separate done endpoint — claim here, report there.
+async function handleNextJob(request: Request, env: Env): Promise<Response> {
+  if (!env.QUEUE_TOKEN || request.headers.get("authorization") !== `Bearer ${env.QUEUE_TOKEN}`) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  const list = await env.STATE.list({ prefix: JOB_PREFIX });
+  const jobs: QueueJob[] = [];
+  for (const k of list.keys) {
+    const raw = await env.STATE.get(k.name);
+    if (!raw) continue;
+    try {
+      jobs.push(JSON.parse(raw) as QueueJob);
+    } catch {
+      // skip a corrupt job rather than wedge the queue
+    }
+  }
+  // Oldest queued job first. Claimed jobs are skipped (a build in flight).
+  const queued = jobs
+    .filter((j) => j.status === "queued")
+    .sort((a, b) => (a.enqueuedAt < b.enqueuedAt ? -1 : 1));
+  const next = queued[0];
+  if (!next) return new Response(null, { status: 204 });
+
+  next.status = "claimed";
+  next.claimedAt = new Date().toISOString();
+  await env.STATE.put(`${JOB_PREFIX}${next.mentionUri}`, JSON.stringify(next), {
+    expirationTtl: JOB_TTL,
+  });
+  return new Response(JSON.stringify(next), {
+    headers: { "content-type": "application/json" },
+  });
 }
 
 // --- small helpers ---------------------------------------------------------
