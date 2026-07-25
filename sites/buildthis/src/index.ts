@@ -322,6 +322,7 @@ interface DirectoryEntry {
   url: string;
   handle?: string;
   at: string; // ISO — when this outcome landed
+  description?: string;
 }
 interface QueueEntry {
   handle?: string;
@@ -365,6 +366,7 @@ function computeDirectory(events: LogEvent[]): DirectorySnapshot {
         url: e.outcome.url || `https://${e.outcome.builtName.split("/")[0]}.bisks.net`,
         handle: e.authorHandle,
         at: e.outcome.at,
+        description: entryDescription(e),
       };
       const prev = builtByName.get(entry.name);
       if (!prev || prev.at < entry.at) builtByName.set(entry.name, entry);
@@ -376,6 +378,28 @@ function computeDirectory(events: LogEvent[]): DirectorySnapshot {
   const built = [...builtByName.values()].sort((a, b) => (a.at < b.at ? 1 : -1)); // newest first
   queue.sort((a, b) => (a.at < b.at ? -1 : 1)); // oldest first — it's a queue
   return { computedAt: new Date().toISOString(), built, queue };
+}
+
+// Pull a one-line description for a shipped entry. Prefer the builder's own
+// BUILD_NOTE, recovered from replyText by stripping the fixed "built it 🎉 —
+// <url> / (give the deploy a minute to go live)" template it's prepended to
+// (see reply.mjs) — whatever's left is the note verbatim, or the whole
+// replyText for an explain-only reply (no template at all). Fall back to the
+// original request text when there's no note to recover from.
+const REPLY_TEMPLATE_MARKER = "built it 🎉";
+function entryDescription(e: LogEvent): string | undefined {
+  const reply = e.outcome?.replyText?.trim();
+  if (reply) {
+    const idx = reply.indexOf(REPLY_TEMPLATE_MARKER);
+    const note = idx === -1 ? reply : reply.slice(0, idx).trim();
+    if (note) return truncate(note, 220);
+  }
+  const text = e.text?.trim();
+  return text ? truncate(text, 220) : undefined;
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max).trimEnd()}…` : s;
 }
 
 // Cron-driven: recompute and cache the snapshot once the previous one is more
@@ -418,6 +442,7 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
         .map(
           (b) => `<a class="card" href="${escHtml(b.url)}">
           <h2>${escHtml(b.name)}</h2>
+          ${b.description ? `<p class="desc">${escHtml(b.description)}</p>` : ""}
           <p>${b.handle ? `asked for by @${escHtml(b.handle)} · ` : ""}${escHtml(fmtDay(b.at))}</p>
         </a>`,
         )
@@ -481,6 +506,7 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
       }
       .card p { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
       .card p:last-child { margin-bottom: 0; }
+      .card .desc { color: var(--ink); }
       .card .when { font-size: 0.78rem; }
       .empty { color: var(--muted); font-style: italic; }
       footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
