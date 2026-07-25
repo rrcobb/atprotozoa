@@ -99,12 +99,22 @@
         border-radius: 6px;
         background: var(--card-bg);
         color: var(--ink);
-        user-select: none; cursor: pointer;
+        user-select: none; cursor: grab;
+        touch-action: none;
         display: flex; flex-direction: column; justify-content: space-between;
         padding: 4px 5px;
         font-size: clamp(11px, 2.6vw, 15px);
         line-height: 1;
         z-index: 1;
+      }
+      .card.hidden-drag { visibility: hidden; }
+      #draglayer {
+        position: fixed; inset: 0; z-index: 40; pointer-events: none;
+      }
+      #draglayer .card {
+        cursor: grabbing;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+        margin: 0;
       }
       .card.facedown {
         background-image: repeating-linear-gradient(
@@ -128,6 +138,7 @@
       .card.stock-back {
         display: flex; align-items: center; justify-content: center;
         font-size: 1.4em; color: var(--ink);
+        cursor: pointer;
       }
       .pile.empty-hint {
         display: flex; align-items: center; justify-content: center;
@@ -184,7 +195,7 @@
 
     <div class="toolbar">
       <button id="newgame">new game</button>
-      <span id="status">click a card, then click where it goes</span>
+      <span id="status">drag a card where it goes</span>
     </div>
 
     <div class="board">
@@ -203,9 +214,10 @@
     </div>
 
     <footer>
-      click a card to pick it up, click a pile to drop it. double-click sends
-      a card home to its foundation. stock recycles when empty. once every
-      card in the tableau is face up, double-click any card to auto-finish.
+      drag a card to move it — let go over a valid pile close enough to snap,
+      or it floats back home. double-click sends a card home to its
+      foundation. stock recycles when empty. once every card in the tableau
+      is face up, double-click any card to auto-finish.
       built for <a href="https://bsky.app/profile/heartpunk.com" target="_blank" rel="noopener">@heartpunk.com</a>
       by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> &middot;
       <a href="https://bisks.net">bisks.net</a>
@@ -213,6 +225,7 @@
 
     <div id="winbanner">you win<small>click anywhere to deal a new game</small></div>
     <div id="cascade"></div>
+    <div id="draglayer"></div>
 
     <script>
       // ---------- model ----------
@@ -258,7 +271,7 @@
           foundations: { S: [], H: [], D: [], C: [] },
           tableau,
         };
-        setStatus("click a card, then click where it goes");
+        setStatus("drag a card where it goes");
         render();
       }
 
@@ -405,12 +418,6 @@
         render();
       }
 
-      function pickUp(zone, col, index) {
-        selection = { zone, col, index };
-        render();
-        setStatus("now click a pile to drop it, or click it again to cancel");
-      }
-
       function movingCards() {
         if (!selection) return [];
         if (selection.zone === "tableau") return state.tableau[selection.col].slice(selection.index);
@@ -434,98 +441,45 @@
         return [];
       }
 
-      function tryMoveTo(destZone, destCol) {
-        const moving = movingCards();
-        if (!moving.length) return false;
-
+      function wouldAccept(cards, destZone, destCol) {
+        if (!cards.length) return false;
         if (destZone === "foundation") {
-          if (moving.length !== 1) return false;
-          if (!canFoundation(moving[0], destCol)) return false;
-          removeSelectionSource();
-          state.foundations[destCol].push(moving[0]);
-          return true;
+          if (cards.length !== 1) return false;
+          return canFoundation(cards[0], destCol);
         }
-
         if (destZone === "tableau") {
           const col = state.tableau[destCol];
-          if (col.length === 0) {
-            if (moving[0].rank !== 13) return false;
-          } else {
-            const top = col[col.length - 1];
-            if (!top.faceUp || !canStack(moving[0], top)) return false;
-          }
-          removeSelectionSource();
-          state.tableau[destCol].push(...moving);
-          return true;
+          if (col.length === 0) return cards[0].rank === 13;
+          const top = col[col.length - 1];
+          return top.faceUp && canStack(cards[0], top);
         }
         return false;
       }
 
-      function handlePileClick(zone, col, cardIndex) {
+      function tryMoveTo(destZone, destCol) {
+        const moving = movingCards();
+        if (!wouldAccept(moving, destZone, destCol)) return false;
+        removeSelectionSource();
+        if (destZone === "foundation") state.foundations[destCol].push(moving[0]);
+        else state.tableau[destCol].push(...moving);
+        return true;
+      }
+
+      function drawStock() {
         if (autoPlaying) return;
-        if (zone === "stock") {
-          selection = null;
-          if (state.stock.length) {
-            const card = state.stock.pop();
-            card.faceUp = true;
-            state.waste.push(card);
-          } else if (state.waste.length) {
-            while (state.waste.length) {
-              const card = state.waste.pop();
-              card.faceUp = false;
-              state.stock.push(card);
-            }
+        if (state.stock.length) {
+          const card = state.stock.pop();
+          card.faceUp = true;
+          state.waste.push(card);
+        } else if (state.waste.length) {
+          while (state.waste.length) {
+            const card = state.waste.pop();
+            card.faceUp = false;
+            state.stock.push(card);
           }
-          render();
-          updateStatusHint("click a card, then click where it goes");
-          return;
         }
-
-        if (!selection) {
-          // try to pick up from this pile
-          if (zone === "waste" && state.waste.length) {
-            pickUp("waste", null, state.waste.length - 1);
-          } else if (zone === "foundation" && state.foundations[col].length) {
-            pickUp("foundation", col, state.foundations[col].length - 1);
-          } else if (zone === "tableau") {
-            const pile = state.tableau[col];
-            if (pile.length) {
-              const idx =
-                cardIndex === null || cardIndex === undefined ? pile.length - 1 : cardIndex;
-              const card = pile[idx];
-              if (card && card.faceUp) pickUp("tableau", col, idx);
-            }
-          }
-          return;
-        }
-
-        // a selection is active
-        if (selection.zone === zone && selection.col === col) {
-          if (
-            zone === "tableau" &&
-            cardIndex !== null &&
-            cardIndex !== undefined &&
-            cardIndex !== selection.index &&
-            state.tableau[col][cardIndex] &&
-            state.tableau[col][cardIndex].faceUp
-          ) {
-            pickUp("tableau", col, cardIndex);
-            return;
-          }
-          clearSelection();
-          setStatus("click a card, then click where it goes");
-          return;
-        }
-
-        const ok = tryMoveTo(zone, col);
-        selection = null;
         render();
-        if (ok && isWon()) {
-          setStatus("nice");
-          setTimeout(startCascade, 250);
-        } else {
-          updateStatusHint(ok ? "nice" : "click a card, then click where it goes");
-        }
+        updateStatusHint("drag a card where it goes");
       }
 
       function handleCardDoubleClick(zone, col) {
@@ -613,22 +567,186 @@
           setStatus("nice");
           setTimeout(startCascade, 250);
         } else {
-          updateStatusHint("click a card, then click where it goes");
+          updateStatusHint("drag a card where it goes");
         }
       }
 
-      document.getElementById("stock").addEventListener("click", () => handlePileClick("stock"));
-      document.getElementById("waste").addEventListener("click", () => handlePileClick("waste"));
-      document.getElementById("waste").addEventListener("dblclick", () => handleCardDoubleClick("waste"));
-      for (const s of SUITS) {
-        document.getElementById("f-" + s.id).addEventListener("click", () => handlePileClick("foundation", s.id));
+      // ---------- drag and drop ----------
+      const dragLayer = document.getElementById("draglayer");
+      let drag = null; // { zone, col, index, cards, srcEls, ghosts, homeRects, pointerId, startX, startY, moved }
+
+      function pileTargets() {
+        const targets = [];
+        for (const s of SUITS) targets.push({ zone: "foundation", col: s.id, el: document.getElementById("f-" + s.id) });
+        for (let c = 0; c < 7; c++) targets.push({ zone: "tableau", col: c, el: document.getElementById("t-" + c) });
+        return targets;
       }
-      tableauRow.addEventListener("click", (e) => {
+
+      function rectOverlapArea(a, b) {
+        const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+        const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+        return x * y;
+      }
+
+      // "close enough to snap" = a valid destination with the biggest overlap, above a minimum overlap fraction
+      function findDropTarget(anchorRect, cards, excludeZone, excludeCol) {
+        let best = null;
+        let bestArea = 0;
+        const anchorArea = anchorRect.width * anchorRect.height;
+        for (const t of pileTargets()) {
+          if (t.zone === excludeZone && t.col === excludeCol) continue;
+          const area = rectOverlapArea(anchorRect, t.el.getBoundingClientRect());
+          if (area <= 0 || area / anchorArea < 0.3) continue;
+          if (!wouldAccept(cards, t.zone, t.col)) continue;
+          if (area > bestArea) {
+            bestArea = area;
+            best = t;
+          }
+        }
+        return best;
+      }
+
+      function clearTargetHighlights() {
+        document.querySelectorAll(".pile.target-ok").forEach((el) => el.classList.remove("target-ok"));
+      }
+
+      function startDrag(zone, col, index, srcEls, pointerEvent) {
+        if (autoPlaying || drag) return;
+        const cards =
+          zone === "tableau"
+            ? state.tableau[col].slice(index)
+            : zone === "waste"
+              ? [state.waste[state.waste.length - 1]]
+              : [state.foundations[col][state.foundations[col].length - 1]];
+
+        const homeRects = srcEls.map((el) => el.getBoundingClientRect());
+        const ghosts = srcEls.map((el, i) => {
+          const ghost = el.cloneNode(true);
+          const r = homeRects[i];
+          ghost.classList.remove("selected");
+          ghost.style.position = "fixed";
+          ghost.style.left = r.left + "px";
+          ghost.style.top = r.top + "px";
+          ghost.style.width = r.width + "px";
+          dragLayer.appendChild(ghost);
+          return ghost;
+        });
+        srcEls.forEach((el) => el.classList.add("hidden-drag"));
+
+        drag = {
+          zone,
+          col,
+          index,
+          cards,
+          srcEls,
+          ghosts,
+          homeRects,
+          pointerId: pointerEvent.pointerId,
+          startX: pointerEvent.clientX,
+          startY: pointerEvent.clientY,
+          moved: false,
+        };
+        window.addEventListener("pointermove", onDragMove);
+        window.addEventListener("pointerup", onDragEnd);
+        window.addEventListener("pointercancel", onDragEnd);
+      }
+
+      function onDragMove(e) {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
+        if (!drag.moved) return;
+        drag.ghosts.forEach((ghost, i) => {
+          const r = drag.homeRects[i];
+          ghost.style.left = r.left + dx + "px";
+          ghost.style.top = r.top + dy + "px";
+        });
+        clearTargetHighlights();
+        const anchorRect = drag.ghosts[0].getBoundingClientRect();
+        const target = findDropTarget(anchorRect, drag.cards, drag.zone, drag.col);
+        if (target) target.el.classList.add("target-ok");
+      }
+
+      function endDrag() {
+        window.removeEventListener("pointermove", onDragMove);
+        window.removeEventListener("pointerup", onDragEnd);
+        window.removeEventListener("pointercancel", onDragEnd);
+        clearTargetHighlights();
+        drag.ghosts.forEach((g) => g.remove());
+        drag.srcEls.forEach((el) => el.classList.remove("hidden-drag"));
+        drag = null;
+      }
+
+      function settleGhostsHome(onDone) {
+        const ghosts = drag.ghosts;
+        const homeRects = drag.homeRects;
+        ghosts.forEach((ghost, i) => {
+          const r = homeRects[i];
+          ghost.style.transition = "left 0.2s ease, top 0.2s ease";
+          ghost.style.left = r.left + "px";
+          ghost.style.top = r.top + "px";
+        });
+        setTimeout(onDone, 210);
+      }
+
+      function onDragEnd(e) {
+        if (!drag || e.pointerId !== drag.pointerId) return;
+        if (!drag.moved) {
+          endDrag();
+          return;
+        }
+        const anchorRect = drag.ghosts[0].getBoundingClientRect();
+        const target = findDropTarget(anchorRect, drag.cards, drag.zone, drag.col);
+        if (target) {
+          selection = { zone: drag.zone, col: drag.col, index: drag.index };
+          const ok = tryMoveTo(target.zone, target.col);
+          selection = null;
+          endDrag();
+          if (ok) {
+            render();
+            if (isWon()) {
+              setStatus("nice");
+              setTimeout(startCascade, 250);
+            } else {
+              updateStatusHint("nice");
+            }
+          }
+          return;
+        }
+        settleGhostsHome(() => endDrag());
+      }
+
+      document.getElementById("stock").addEventListener("click", drawStock);
+
+      document.getElementById("waste").addEventListener("pointerdown", (e) => {
+        if (!state.waste.length) return;
+        const el = e.target.closest(".card");
+        if (!el) return;
+        startDrag("waste", null, state.waste.length - 1, [el], e);
+      });
+      document.getElementById("waste").addEventListener("dblclick", () => handleCardDoubleClick("waste"));
+
+      for (const s of SUITS) {
+        document.getElementById("f-" + s.id).addEventListener("pointerdown", (e) => {
+          if (!state.foundations[s.id].length) return;
+          const el = e.target.closest(".card");
+          if (!el) return;
+          startDrag("foundation", s.id, state.foundations[s.id].length - 1, [el], e);
+        });
+      }
+
+      tableauRow.addEventListener("pointerdown", (e) => {
         const pile = e.target.closest(".pile.tableau");
         if (!pile) return;
         const cardEl = e.target.closest(".card");
-        const cardIndex = cardEl && cardEl.dataset.index !== undefined ? Number(cardEl.dataset.index) : null;
-        handlePileClick("tableau", Number(pile.dataset.col), cardIndex);
+        if (!cardEl || cardEl.dataset.index === undefined) return;
+        const col = Number(pile.dataset.col);
+        const index = Number(cardEl.dataset.index);
+        const card = state.tableau[col][index];
+        if (!card || !card.faceUp) return;
+        const els = Array.from(pile.querySelectorAll(".card")).filter((el) => Number(el.dataset.index) >= index);
+        startDrag("tableau", col, index, els, e);
       });
       tableauRow.addEventListener("dblclick", (e) => {
         const pile = e.target.closest(".pile.tableau");
