@@ -84,7 +84,11 @@ async function main() {
   // `requeue` tells the worker to put the job back on the queue instead of retiring
   // it (see REQUEUE in box-build.sh); `posted` records whether we actually replied.
   const requeue = process.env.REQUEUE === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply });
+  // Whether box-build.sh confirmed the site actually served after deploy. Logged on
+  // the outcome so /health and the timeline can flag a build that pushed but never
+  // came up (a broken deploy) vs. one verified live.
+  const liveVerified = process.env.LIVE_VERIFIED === "true";
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -134,7 +138,7 @@ function fitToLimit(text, template, limit) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -153,6 +157,9 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // Ask the worker to requeue this job (bump attempts, back to queued) rather
     // than retire it. The worker enforces the attempt ceiling; this is the request.
     requeue: requeue || undefined,
+    // Post-deploy liveness result (success builds only). false here on a success
+    // means "pushed but the URL didn't serve in time" — a signal worth surfacing.
+    liveVerified: ok && result ? liveVerified : undefined,
   };
   try {
     const res = await fetch(endpoint, {

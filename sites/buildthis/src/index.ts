@@ -77,6 +77,16 @@ export default {
       return handleNextJob(request, env);
     }
 
+    // Health surface. "Is the whole thing OK?" in one place, computed from data
+    // already in KV: box heartbeat freshness, queue depth, oldest-job age, orphan
+    // count, recent build outcomes. `/health` is JSON (scriptable, for alerting);
+    // `/health.html` renders the same snapshot for eyeballing. Public + read-only —
+    // it exposes no secrets, just operational counts (the tags are already public
+    // on Bluesky), so no auth, so a cron/uptime check can hit it without a token.
+    if (url.pathname === "/health" || url.pathname === "/health.html") {
+      return handleHealth(env, url.pathname.endsWith(".html"));
+    }
+
     // The bot's own "what I've built, what's still waiting" page. Reads a
     // once-a-day snapshot (see maybeRefreshDirectory) rather than recomputing
     // live on every hit.
@@ -240,6 +250,10 @@ interface LogEvent {
     builtName?: string;
     url?: string;
     replyText?: string;
+    // Post-deploy liveness result on a success: true = the box confirmed the URL
+    // served; false = it pushed but the URL didn't come up in time (worth a look);
+    // undefined = not a success / older record from before the check existed.
+    liveVerified?: boolean;
     at: string; // ISO
   };
 }
@@ -580,6 +594,8 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     // The box asks to requeue instead of retire when the build was incomplete or
     // out of budget and it wants another attempt. The worker enforces the ceiling.
     requeue?: boolean;
+    // Post-deploy liveness result (success only): did the built URL actually serve?
+    liveVerified?: boolean;
   };
   try {
     body = await request.json();
@@ -611,6 +627,7 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       builtName: body.builtName || undefined,
       url: body.url || undefined,
       replyText: body.replyText || undefined,
+      liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
       at: new Date().toISOString(),
     },
   });
@@ -892,6 +909,8 @@ const JOB_PREFIX = "job:";
 // Jobs live long enough to survive a box outage + retries, then age out. The box
 // deletes a job when it finishes; this TTL is the backstop for one that never does.
 const JOB_TTL = 60 * 60 * 24 * 3;
+// Last time the box polled /next-job. Written every poll (~15s), read by /health.
+const BOX_HEARTBEAT_KEY = "box-heartbeat";
 // How many times a job may run before we stop retrying it. An incomplete build
 // (agent worked but nothing landed on main) requeues until this ceiling, then the
 // box sends a terminal honest-failure reply. Each attempt is a full Sonnet run, so
@@ -970,6 +989,14 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
   if (!env.QUEUE_TOKEN || request.headers.get("authorization") !== `Bearer ${env.QUEUE_TOKEN}`) {
     return new Response("unauthorized", { status: 401 });
   }
+  // Box heartbeat: the box polls this every ~15s, so recording "last poll" here is
+  // a free liveness signal — /health reads it to tell a dead box from an idle one.
+  // Best-effort: a failed write must never block claiming a job.
+  try {
+    await env.STATE.put(BOX_HEARTBEAT_KEY, new Date().toISOString());
+  } catch {
+    // non-fatal — the heartbeat just goes stale, which /health surfaces anyway
+  }
   const list = await env.STATE.list({ prefix: JOB_PREFIX });
   const jobs: QueueJob[] = [];
   for (const k of list.keys) {
@@ -996,6 +1023,223 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
   return new Response(JSON.stringify(next), {
     headers: { "content-type": "application/json" },
   });
+}
+
+// --- Health ----------------------------------------------------------------
+//
+// One place to answer "is the whole thing OK?", computed from data already in KV.
+// The unattended failure modes this catches — each invisible before:
+//   - box is dead: no heartbeat in a while → tags pile up, nobody builds or replies
+//   - queue is backing up: builds slower than tags arrive → growing delay
+//   - a job is stuck claimed: a build died mid-run and never reported → requester
+//     is left hanging (the day-old orphan we found in the audit)
+// `ok` is the single boolean an uptime check / cron alert can watch.
+
+// Box is considered alive if it polled within this window. It polls every ~15s, so
+// 90s is 6 missed polls — comfortably past a transient blip, well short of "down".
+const BOX_ALIVE_WINDOW_MS = 90 * 1000;
+// A claimed job older than this is treated as an orphan: a real build is bounded by
+// the box's max-turns + wall clock (minutes), so a job claimed far longer than any
+// build takes has almost certainly died without reporting. Also the queue-stuck
+// signal — the oldest claimed job shouldn't sit this long.
+const ORPHAN_AGE_MS = 30 * 60 * 1000;
+// Queue is "backing up" past this many waiting jobs — with one box building
+// serially, a handful is normal churn; a deep backlog means arrivals outpace builds.
+const QUEUE_BACKLOG_WARN = 8;
+
+interface HealthSnapshot {
+  ok: boolean;
+  checkedAt: string;
+  box: { lastPoll: string | null; secondsAgo: number | null; alive: boolean };
+  queue: {
+    queued: number;
+    claimed: number;
+    oldestQueuedAgeMin: number | null;
+    oldestClaimedAgeMin: number | null;
+    backlog: boolean;
+  };
+  orphans: number; // claimed jobs stuck past ORPHAN_AGE_MS (died without reporting)
+  recent: { window: number; successes: number; failures: number };
+  deadLinks: string[]; // recent successes whose URL didn't serve after deploy
+  issues: string[]; // human-readable list of what's wrong (empty when ok)
+}
+
+async function computeHealth(env: Env): Promise<HealthSnapshot> {
+  const now = Date.now();
+
+  // Box heartbeat.
+  const hb = await env.STATE.get(BOX_HEARTBEAT_KEY);
+  const lastPollMs = hb ? new Date(hb).getTime() : null;
+  const secondsAgo = lastPollMs ? Math.round((now - lastPollMs) / 1000) : null;
+  const alive = lastPollMs !== null && now - lastPollMs < BOX_ALIVE_WINDOW_MS;
+
+  // Queue: read all job records, bucket by status, find the oldest of each.
+  const jobList = await env.STATE.list({ prefix: JOB_PREFIX });
+  let queued = 0,
+    claimed = 0,
+    orphans = 0;
+  let oldestQueuedMs: number | null = null;
+  let oldestClaimedMs: number | null = null;
+  for (const k of jobList.keys) {
+    const raw = await env.STATE.get(k.name);
+    if (!raw) continue;
+    let job: QueueJob;
+    try {
+      job = JSON.parse(raw) as QueueJob;
+    } catch {
+      continue;
+    }
+    if (job.status === "queued") {
+      queued++;
+      const t = new Date(job.enqueuedAt).getTime();
+      if (!isNaN(t) && (oldestQueuedMs === null || t < oldestQueuedMs)) oldestQueuedMs = t;
+    } else if (job.status === "claimed") {
+      claimed++;
+      const t = new Date(job.claimedAt ?? job.enqueuedAt).getTime();
+      if (!isNaN(t)) {
+        if (oldestClaimedMs === null || t < oldestClaimedMs) oldestClaimedMs = t;
+        if (now - t > ORPHAN_AGE_MS) orphans++;
+      }
+    }
+  }
+  const ageMin = (ms: number | null) => (ms === null ? null : Math.round((now - ms) / 60000));
+  const backlog = queued > QUEUE_BACKLOG_WARN;
+
+  // Recent build outcomes — a quick "is it actually producing?" over the last events.
+  const events = await loadAllEvents(env);
+  events.sort((a, b) => (a.firstSeen < b.firstSeen ? 1 : -1));
+  const recentWindow = events.slice(0, 20);
+  let successes = 0,
+    failures = 0;
+  const deadLinks: string[] = []; // recent successes the box couldn't verify live
+  for (const e of recentWindow) {
+    if (e.outcome?.status === "success") {
+      successes++;
+      // A success whose URL never served after deploy — a broken deploy the bot
+      // still linked. liveVerified===false is the explicit "checked and it wasn't
+      // up" (undefined = older record from before the check, don't flag those).
+      if (e.outcome.liveVerified === false && e.outcome.builtName) {
+        deadLinks.push(e.outcome.builtName);
+      }
+    } else if (e.outcome?.status === "failure") failures++;
+  }
+
+  // Roll up the issues. `ok` is false if any of these fire.
+  const issues: string[] = [];
+  if (!alive) {
+    issues.push(
+      lastPollMs === null
+        ? "box has never polled (no heartbeat)"
+        : `box last polled ${secondsAgo}s ago (>${BOX_ALIVE_WINDOW_MS / 1000}s — likely down)`,
+    );
+  }
+  if (orphans > 0) issues.push(`${orphans} orphaned job(s) stuck claimed >${ORPHAN_AGE_MS / 60000}min`);
+  if (backlog) issues.push(`queue backlog: ${queued} waiting (>${QUEUE_BACKLOG_WARN})`);
+  if (deadLinks.length) issues.push(`${deadLinks.length} recent build(s) pushed but not live: ${deadLinks.join(", ")}`);
+
+  return {
+    ok: issues.length === 0,
+    checkedAt: new Date(now).toISOString(),
+    box: { lastPoll: hb ?? null, secondsAgo, alive },
+    queue: {
+      queued,
+      claimed,
+      oldestQueuedAgeMin: ageMin(oldestQueuedMs),
+      oldestClaimedAgeMin: ageMin(oldestClaimedMs),
+      backlog,
+    },
+    orphans,
+    recent: { window: recentWindow.length, successes, failures },
+    deadLinks,
+    issues,
+  };
+}
+
+async function handleHealth(env: Env, asHtml: boolean): Promise<Response> {
+  let snap: HealthSnapshot;
+  try {
+    snap = await computeHealth(env);
+  } catch (err) {
+    console.error(`health check failed: ${err}`);
+    // A health endpoint that errors is itself a red signal — report it as not-ok
+    // rather than 500 into the void, so a watcher sees `ok:false` not a blank.
+    const body = {
+      ok: false,
+      checkedAt: new Date().toISOString(),
+      issues: [`health check threw: ${err}`],
+    };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
+  if (asHtml) {
+    return new Response(renderHealthPage(snap), {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
+  return new Response(JSON.stringify(snap, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-cache",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
+function renderHealthPage(s: HealthSnapshot): string {
+  const dot = (ok: boolean) => (ok ? "🟢" : "🔴");
+  const row = (label: string, value: string) =>
+    `<tr><td>${escHtml(label)}</td><td>${escHtml(value)}</td></tr>`;
+  const issues = s.issues.length
+    ? `<ul class="issues">${s.issues.map((i) => `<li>${escHtml(i)}</li>`).join("")}</ul>`
+    : `<p class="ok">no issues — everything's nominal.</p>`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>buildthis health</title>
+<style>
+  body { margin:0; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    background:#0d0a06; color:#e8dcc8; line-height:1.6; }
+  .wrap { max-width:560px; margin:0 auto; padding:3rem 1.25rem 5rem; }
+  h1 { font-size:1.4rem; margin:0 0 0.25rem; }
+  .status { font-size:1.15rem; margin:0 0 1.5rem; }
+  table { width:100%; border-collapse:collapse; margin:1rem 0; }
+  td { padding:0.4rem 0.5rem; border-bottom:1px solid #1f2226; font-size:0.9rem; }
+  td:first-child { color:#9c8f78; width:52%; }
+  .issues { color:#ff9b6b; } .ok { color:#7fd08a; }
+  h2 { font-size:0.95rem; color:#c8922e; margin:1.6rem 0 0.3rem; }
+  footer { margin-top:2rem; color:#9c8f78; font-size:0.78rem; }
+  a { color:#e0b23c; }
+</style></head><body><div class="wrap">
+  <h1>buildthis health</h1>
+  <p class="status">${dot(s.ok)} ${s.ok ? "OK" : "ATTENTION"} · <span style="color:#9c8f78">as of ${escHtml(s.checkedAt.replace("T", " ").slice(0, 19))}Z</span></p>
+  ${issues}
+  <h2>box (builder)</h2>
+  <table>
+    ${row("alive", `${dot(s.box.alive)} ${s.box.alive ? "yes" : "no"}`)}
+    ${row("last poll", s.box.secondsAgo === null ? "never" : `${s.box.secondsAgo}s ago`)}
+  </table>
+  <h2>queue</h2>
+  <table>
+    ${row("waiting", String(s.queue.queued))}
+    ${row("building now", String(s.queue.claimed))}
+    ${row("oldest waiting", s.queue.oldestQueuedAgeMin === null ? "—" : `${s.queue.oldestQueuedAgeMin} min`)}
+    ${row("oldest building", s.queue.oldestClaimedAgeMin === null ? "—" : `${s.queue.oldestClaimedAgeMin} min`)}
+    ${row("orphaned jobs", `${dot(s.orphans === 0)} ${s.orphans}`)}
+  </table>
+  <h2>recent builds (last ${s.recent.window})</h2>
+  <table>
+    ${row("shipped", String(s.recent.successes))}
+    ${row("failed", String(s.recent.failures))}
+    ${row("pushed but not live", `${dot(s.deadLinks.length === 0)} ${s.deadLinks.length}${s.deadLinks.length ? " (" + s.deadLinks.join(", ") + ")" : ""}`)}
+  </table>
+  <footer>
+    machine-readable at <a href="/health">/health</a> ·
+    tag timeline at <a href="https://logs.bisks.net">logs.bisks.net</a> ·
+    <a href="/directory">directory</a>
+  </footer>
+</div></body></html>`;
 }
 
 // --- small helpers ---------------------------------------------------------

@@ -204,7 +204,37 @@ elif [ "$DISPOSITION" = "incomplete" ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; th
   REQUEUE="true"
 fi
 
-echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
+# Post-deploy liveness check: the bot's whole promise is "it's live at <url>", so
+# verify that's TRUE before saying it. On a success, poll the target URL until it
+# serves (deploy.yml + Cloudflare take ~40s), bounded. This is the belt-and-braces
+# for favstar-class misses: even if some future bug lets an unshipped build read as
+# pushed, a dead URL is caught here and recorded, instead of the bot cheerfully
+# linking a 404. LIVE_VERIFIED is passed to reply.mjs → logged on the outcome, so
+# /health and the timeline can flag a build that pushed but never came up.
+LIVE_VERIFIED=""
+if [ "$DISPOSITION" = "success" ] && [ -n "$BUILD_RESULT" ]; then
+  # <site> -> https://<site>.bisks.net ; <site>/<path> -> .../<path>
+  SITE_HOST="${BUILD_RESULT%%/*}"
+  SITE_PATH=""
+  [ "$BUILD_RESULT" != "$SITE_HOST" ] && SITE_PATH="/${BUILD_RESULT#*/}"
+  LIVE_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
+  echo "=== verify live: $LIVE_URL ==="
+  # ~90s budget (deploy is usually <60s). 2xx/3xx = live. New custom domains can
+  # take longer to provision a cert; a miss here isn't fatal — it's recorded, and
+  # the reply still goes out (the deploy may simply be a touch behind).
+  for i in $(seq 1 9); do
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$LIVE_URL" 2>/dev/null || echo 000)"
+    if [ "$CODE" -ge 200 ] 2>/dev/null && [ "$CODE" -lt 400 ] 2>/dev/null; then
+      LIVE_VERIFIED="true"
+      echo "  live ($CODE) after ~$((i*10))s"
+      break
+    fi
+    sleep 10
+  done
+  [ "$LIVE_VERIFIED" = "true" ] || echo "  NOT verified live within ~90s (last=$CODE) — recorded, reply still sent"
+fi
+
+echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=$([ "$LIVE_VERIFIED" = "true" ] && echo y || echo n) disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
 
 # When we're going to retry silently, don't post to the thread — a requeue isn't a
 # user-facing event, and "trying again" spam under every slow build would be noise.
@@ -228,7 +258,7 @@ BUILD_ERROR=""
 echo "=== reply + report outcome (reply.mjs) ==="
 BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILD_RESULT" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
   DISPOSITION="$DISPOSITION" REQUEUE="$REQUEUE" REPLY_SKIP="$REPLY_SKIP" \
-  ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" \
+  ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" LIVE_VERIFIED="$LIVE_VERIFIED" \
   BOT_IDENTIFIER="${BOT_IDENTIFIER}" BOT_APP_PASSWORD="${BOT_APP_PASSWORD}" \
   REPLY_ROOT_URI="${REPLY_ROOT_URI}" REPLY_ROOT_CID="${REPLY_ROOT_CID}" \
   REPLY_PARENT_URI="${REPLY_PARENT_URI}" REPLY_PARENT_CID="${REPLY_PARENT_CID}" \
