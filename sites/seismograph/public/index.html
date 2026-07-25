@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>seismograph — the follows that don't follow back — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. We find the accounts it follows that don't follow back — the one-way follows — and run them across a seismograph drum. Each unrequited follow is one twitch of the needle; bigger accounts throw bigger spikes. It measures the quiet."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://seismograph.bisks.net/" />
+    <meta property="og:title" content="seismograph of unrequited follows" />
+    <meta
+      property="og:description"
+      content="A seismograph that twitches with the people you follow who don't follow back. Each one-way follow is a spike on the paper; the big accounts jolt the needle hardest."
+    />
+    <meta name="twitter:card" content="summary" />
+
+    <!-- Plain house look, tuned for a lab instrument: warm chart paper, oxblood
+         grid ruling, black ink needle, one readable mono. The drum is the hero,
+         so it gets the room. Deliberately a little melancholy: the whole page
+         reads as an instrument left running in an empty room. -->
+    <style>
+      :root {
+        --bg: #ece7dc;          /* chart paper, warm off-white */
+        --paper: #f4efe4;       /* the drum surface, a touch lighter */
+        --ink: #1a1712;         /* needle + type, near-black warm */
+        --muted: #6f675a;       /* faded pencil */
+        --rule: #d8b7a6;        /* faint oxblood grid ruling */
+        --rule-strong: #c99;    /* the amplitude datum lines */
+        --needle: #17130d;      /* the trace itself */
+        --accent: #8a2f22;      /* oxblood — buttons, the live tick */
+        --accent-ink: #f4efe4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: 1040px; margin: 0 auto; padding: 26px 20px 72px; }
+
+      header h1 {
+        font-size: 1.35rem;
+        margin: 0 0 4px;
+        letter-spacing: -0.01em;
+      }
+      header h1 .em { color: var(--accent); }
+      header p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        max-width: 68ch;
+      }
+      header p .bit { font-style: italic; }
+
+      /* control strip */
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 0 0 18px;
+      }
+      input[type="text"] {
+        flex: 1 1 260px;
+        min-width: 200px;
+        padding: 9px 12px;
+        border: 1.5px solid var(--ink);
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        border-radius: 2px;
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); }
+      button {
+        padding: 9px 16px;
+        border: 1.5px solid var(--ink);
+        background: var(--accent);
+        color: var(--accent-ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        border-radius: 2px;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      /* the instrument */
+      .machine {
+        position: relative;
+        border: 1.5px solid var(--ink);
+        border-radius: 3px;
+        background: var(--paper);
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06),
+          inset 0 0 40px rgba(120, 80, 40, 0.05);
+        overflow: hidden;
+      }
+      .machine .plate {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        padding: 8px 12px;
+        border-bottom: 1.5px solid var(--ink);
+        background: var(--bg);
+        font-size: 12.5px;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+      }
+      .machine .plate .model { color: var(--ink); font-weight: 600; }
+      .machine .plate .reading { color: var(--accent); }
+      canvas { display: block; width: 100%; height: 300px; }
+
+      /* status / richter line under the drum */
+      .status {
+        margin: 12px 2px 0;
+        min-height: 1.5em;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      .status.err { color: var(--accent); }
+      .richter {
+        margin: 14px 0 2px;
+        font-size: 14px;
+      }
+      .richter b { color: var(--ink); }
+      .richter .big { color: var(--accent); }
+
+      /* the hover readout / legend */
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        margin: 8px 2px 0;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      /* the list of the loudest twitches, printed like a strip of readings */
+      .roster {
+        margin: 26px 0 0;
+      }
+      .roster h2 {
+        font-size: 0.95rem;
+        margin: 0 0 8px;
+        color: var(--ink);
+        letter-spacing: 0.01em;
+      }
+      .roster ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 2px 18px;
+      }
+      .roster li {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 5px 4px;
+        border-bottom: 1px dotted var(--rule);
+      }
+      .roster li .amp {
+        flex: 0 0 42px;
+        text-align: right;
+        color: var(--accent);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+      }
+      .roster li img {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--bg);
+        flex: 0 0 auto;
+        object-fit: cover;
+      }
+      .roster li .who { min-width: 0; }
+      .roster li .who a {
+        text-decoration: none;
+        color: var(--ink);
+        font-weight: 600;
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .roster li .who .h {
+        color: var(--muted);
+        font-weight: 400;
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .roster .more { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+
+      footer {
+        margin-top: 40px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      footer a { color: var(--accent); }
+
+      /* floating hover tag over the drum */
+      .tip {
+        position: absolute;
+        pointer-events: none;
+        background: var(--ink);
+        color: var(--paper);
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        white-space: nowrap;
+        transform: translate(-50%, -140%);
+        opacity: 0;
+        transition: opacity 0.08s;
+        z-index: 3;
+      }
+      .tip .n { color: #f0c9bf; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>
+          seismograph
+          <span class="em">of the follows that don't follow back</span>
+        </h1>
+        <p>
+          Type a handle. We read who it follows and who follows it back, then run
+          the difference — the <b>one-way follows</b> — across the drum. Each
+          unrequited follow is one twitch of the needle; bigger accounts throw
+          bigger spikes.
+          <span class="bit">It measures the quiet.</span>
+        </p>
+      </header>
+
+      <form id="form">
+        <input
+          id="handle"
+          type="text"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="a bluesky handle — e.g. xan.lol"
+        />
+        <button id="go" type="submit">record</button>
+      </form>
+
+      <div class="machine" id="machine">
+        <div class="plate">
+          <span class="model">bisks &amp; co. — model 1W “unrequited”</span>
+          <span class="reading" id="reading">— idle —</span>
+        </div>
+        <canvas id="drum"></canvas>
+        <div class="tip" id="tip"></div>
+      </div>
+
+      <div class="status" id="status"></div>
+      <div class="richter" id="richter"></div>
+      <div class="legend">
+        <span>needle twitch = one account you follow that doesn't follow back</span>
+        <span>spike height = how big that account is</span>
+        <span>hover a spike to read who it is</span>
+      </div>
+
+      <div class="roster" id="roster"></div>
+
+      <footer>
+        Reads only Bluesky's public AppView (<code>getFollows</code> /
+        <code>getFollowers</code>, anonymous). Nothing is stored; nobody is
+        notified. Scans up to ~1500 each way. A quiet needle is a good sign.
+        <br />part of <a href="https://bisks.net">bisks.net</a> · idea by
+        <a href="https://bsky.app/profile/xan.lol">@xan.lol</a>
+      </footer>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
