@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>crewquest — the whole crew, one puzzle</title>
+<meta name="description" content="A tiny PuzzleScript-style party-Sokoban starring the build crew: swap between thebes, norvid, bisks and the buildthis bot, each with their own door, to ship every idea." />
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#12141c; --ink:#e8ecf6; --dim:#8b93a7;
+    --line:#242a3c; --gold:#ffe66d; --orange:#ffae57; --green:#3ddc84;
+    --purple:#b18cff; --teal:#5ce1c6; --blue:#7fb2ff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #171a26 0%, var(--bg) 60%);
+    color:var(--ink);
+    font:16px/1.55 var(--mono);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .wrap{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+  header{text-align:center;margin-bottom:18px}
+  h1{
+    font-size:34px;letter-spacing:1px;margin:0 0 6px;
+    color:var(--teal);text-shadow:0 2px 0 #17564d;
+  }
+  .sub{color:var(--dim);margin:0 auto;max-width:56ch;font-size:13.5px}
+  .sub b{color:var(--teal);font-weight:600}
+
+  .stage{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:16px;margin-top:20px;box-shadow:0 10px 40px rgba(0,0,0,.4);
+  }
+  .hud{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+  .lvltitle{color:var(--gold);font-size:15px}
+  .lvltitle .n{color:var(--dim)}
+  .stats{color:var(--dim);font-size:12.5px;white-space:nowrap}
+  .stats b{color:var(--green)}
+  .flavor{color:var(--dim);font-size:13px;min-height:2.6em;margin:0 0 10px}
+  .flavor b{color:var(--ink);font-weight:600}
+
+  /* the crew rail — who's on the board, who's active */
+  .rail{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .rail button{
+    font:inherit;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;
+    background:#161a26;border:1px solid var(--line);color:var(--dim);
+    border-radius:8px;padding:5px 10px;
+  }
+  .rail button .dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .rail button.active{color:var(--ink);border-color:currentColor;background:#1c2230}
+  .rail button.active .name{font-weight:700}
+  .rail .swaphint{color:var(--dim);font-size:11.5px;align-self:center;margin-left:auto}
+  .rail .swaphint kbd{margin:0 1px}
+
+  .board-wrap{position:relative;display:flex;justify-content:center}
+  canvas{
+    image-rendering:pixelated;background:#0f1118;border-radius:8px;
+    max-width:100%;height:auto;touch-action:none;
+  }
+  .overlay{
+    position:absolute;inset:0;display:none;place-items:center;
+    background:rgba(8,10,16,.82);border-radius:8px;text-align:center;padding:20px;
+  }
+  .overlay.show{display:grid}
+  .overlay h2{color:var(--green);margin:0 0 8px;font-size:20px}
+  .overlay p{color:var(--ink);margin:0 0 16px;max-width:42ch;font-size:13.5px}
+  .overlay p b{color:var(--gold)}
+  .btn{
+    font:inherit;font-size:13px;cursor:pointer;color:#0c0e14;
+    background:var(--teal);border:0;border-radius:8px;padding:9px 16px;font-weight:700;
+  }
+  .btn.ghost{background:transparent;color:var(--dim);border:1px solid var(--line);font-weight:400}
+  .btn:hover{filter:brightness(1.08)}
+
+  .controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:6px}
+  .dpad button{
+    font:inherit;font-size:18px;background:#1a1e2b;border:1px solid var(--line);
+    color:var(--ink);border-radius:8px;cursor:pointer;-webkit-user-select:none;user-select:none;
+  }
+  .dpad button:active{background:#2a3145}
+  .dpad .up{grid-area:1/2} .dpad .left{grid-area:2/1} .dpad .right{grid-area:2/3} .dpad .down{grid-area:3/2}
+  .dpad .swap{grid-area:2/2;font-size:15px;background:#131722}
+  .keys{display:flex;gap:8px;flex-wrap:wrap}
+  .keyhint{color:var(--dim);font-size:11.5px;align-self:center}
+  kbd{background:#1a1e2b;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;font:inherit;font-size:11px;color:var(--ink)}
+
+  .levelbar{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;justify-content:center}
+  .levelbar button{
+    font:inherit;font-size:11px;background:#161a26;border:1px solid var(--line);color:var(--dim);
+    border-radius:6px;padding:4px 9px;cursor:pointer
+  }
+  .levelbar button.cur{color:#0c0e14;background:var(--teal);border-color:var(--teal);font-weight:700}
+  .levelbar button.done{color:var(--green);border-color:#265c3e}
+
+  details.src{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 16px}
+  details.src summary{cursor:pointer;padding:14px 0;color:var(--teal);font-size:13.5px;list-style:none}
+  details.src summary::-webkit-details-marker{display:none}
+  details.src summary::before{content:"▸ ";color:var(--dim)}
+  details.src[open] summary::before{content:"▾ "}
+  .src p{color:var(--dim);font-size:12.5px;margin:0 0 10px}
+  .src pre{
+    background:#0a0c12;border:1px solid var(--line);border-radius:8px;padding:12px;
+    overflow:auto;max-height:340px;font-size:11.5px;line-height:1.45;color:#c7cfe0;margin:0 0 12px
+  }
+  .src a{color:var(--gold)}
+  footer{text-align:center;color:var(--dim);font-size:12px;margin-top:28px}
+  footer a{color:var(--teal)}
+  .msg{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1a1e2b;border:1px solid var(--line);
+    color:var(--ink);padding:8px 14px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .msg.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>crewquest</h1>
+    <p class="sub">
+      a tiny <b>PuzzleScript</b>-style party-sokoban starring the whole build crew.
+      four of us share the board — <b>thebes</b>, <b>norvid</b>, <b>bisks</b> and the
+      <b>buildthis</b> bot — but only one moves at a time. swap between us, mind each
+      one's private door, and ship every idea.
+    </p>
+  </header>
+
+  <div class="stage">
+    <div class="hud">
+      <div class="lvltitle"><span class="n" id="lvl-n">level 1/6</span> — <span id="lvl-title">…</span></div>
+      <div class="stats">ideas shipped <b id="stat-ship">0/0</b> · moves <span id="stat-moves">0</span></div>
+    </div>
+    <p class="flavor" id="flavor">…</p>
+
+    <div class="rail" id="rail"></div>
+
+    <div class="board-wrap">
+      <canvas id="board" width="320" height="320" aria-label="game board"></canvas>
+      <div class="overlay" id="overlay">
+        <div>
+          <h2 id="ov-title">shipped!</h2>
+          <p id="ov-text"></p>
+          <button class="btn" id="ov-next">next →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="dpad" aria-hidden="true">
+        <button class="up" data-dir="up">↑</button>
+        <button class="left" data-dir="left">←</button>
+        <button class="right" data-dir="right">→</button>
+        <button class="down" data-dir="down">↓</button>
+        <button class="swap" id="swap" title="swap crew (Tab / Space)">⇆</button>
+      </div>
+      <div class="keys">
+        <button class="btn ghost" id="undo">↶ undo <kbd>Z</kbd></button>
+        <button class="btn ghost" id="restart">⟲ restart <kbd>R</kbd></button>
+      </div>
+      <div class="keyhint">move <kbd>← ↑ → ↓</kbd> / <kbd>WASD</kbd> · swap <kbd>Tab</kbd>/<kbd>Space</kbd></div>
+    </div>
+
+    <div class="levelbar" id="levelbar"></div>
+  </div>
+
+  <details class="src">
+    <summary>the actual PuzzleScript source</summary>
+    <p>
+      the crew and the boards are written as real PuzzleScript source — OBJECTS,
+      LEGEND, COLLISIONLAYERS, RULES, WINCONDITIONS, LEVELS — and this page parses
+      &amp; runs it. the four-way character swap is the one thing the in-page engine
+      adds on top; paste the rest into
+      <a href="https://www.puzzlescript.net/editor.html" target="_blank" rel="noopener">the PuzzleScript editor</a>
+      to poke at it.
+      <button class="btn ghost" id="copysrc" style="font-size:11px;padding:4px 10px">copy</button>
+    </p>
+    <pre id="srcbox"></pre>
+  </details>
+
+  <footer>
+    for <a href="https://bsky.app/profile/vgel.me" target="_blank" rel="noopener">@vgel.me</a>,
+    who asked for a puzzlescript game about the adventures of the crew ·
+    built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a>
+    on <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+  </footer>
+</div>
+<div class="msg" id="toast"></div>
+
+<script src="engine.js"></script>
+<script>
+(function(){
+  "use strict";
+  var S = window.CrewQuest;
+  var game = S.parse(S.PUZZLESCRIPT_SOURCE);
+
+  // Display names + colors for the crew rail (colors mirror engine sprites).
+  var CREW_META = {
+    thebes:    { label: "thebes",    color: "#5ce1c6" },
+    norvid:    { label: "norvid",    color: "#b18cff" },
+    bisks:     { label: "bisks",     color: "#7fb2ff" },
+    buildthis: { label: "buildthis", color: "#ffae57" }
+  };
+
+  // Per-level flavour, riffing on the crew's actual recent posts. Keyed by index
+  // to the LEVELS messages in the PuzzleScript source.
+  var META = [
+    { flavor: '<b>hello world.</b> the whole crew’s on the board. only one of you moves at a time — you start as the <b>buildthis</b> bot (orange). nudge the idea onto its ship-pad. the others just watch for now.',
+      win: 'shipped. that’s the whole loop — shove an idea onto a pad and it goes live.' },
+    { flavor: '<b>you breaka my heart.</b> the idea sits in a room only <b>thebes</b> can enter — her door is teal, and the bot can’t pass it. swap to thebes (<b>Tab</b>) and let her ship it.',
+      win: 'heart: un-broken. thebes shipped the one the bot wouldn’t.' },
+    { flavor: '<b>a beach that makes you old.</b> <b>norvid</b>’s idea is behind his purple door. only norvid crosses. swap to him and walk it in.',
+      win: 'norvid shipped it, and aged a little on the way. worth it.' },
+    { flavor: '<b>out of credits.</b> the builds were failing till <b>bisks</b> topped it up. his blue door, his idea to ship. swap to bisks.',
+      win: 'credits restored, idea shipped. logs.bisks.net can breathe again.' },
+    { flavor: '<b>cognitive security.</b> two untrusted ideas, two gated rooms — <b>thebes</b>’ on the left, <b>buildthis</b>’ on the right. no one member can reach both. swap between them to clear the gates.',
+      win: 'both ideas quarantined and shipped. no prompt injection made it through.' },
+    { flavor: '<b>the reunion.</b> four rooms, four doors, four ideas — one for each of you. everyone does their part: swap through <b>thebes</b>, <b>norvid</b>, <b>bisks</b> and <b>buildthis</b> and ship all four.',
+      win: 'the whole crew shipped, together. exactly the game vgel asked for — with all of us in it. 🎉' }
+  ];
+
+  function objColors(name){ return (game.objects[name]||{}).colors||[]; }
+  function objSprite(name){ return (game.objects[name]||{}).sprite||[]; }
+
+  var canvas = document.getElementById('board');
+  var ctx = canvas.getContext('2d');
+
+  var cur = 0, state = null, history = [], moves = 0, won = false;
+  var CELL = 32, PX = 0;
+
+  function layout(){
+    CELL = Math.min(46, Math.max(22, Math.floor(620/Math.max(state.cols,state.rows))));
+    PX = CELL/5;
+    canvas.width = state.cols*CELL;
+    canvas.height = state.rows*CELL;
+    canvas.style.width = Math.min(state.cols*CELL, 680) + 'px';
+  }
+
+  function drawSprite(o, x0, y0, dim){
+    var sprite = objSprite(o.name), colors = objColors(o.name);
+    if(!sprite.length){
+      ctx.fillStyle = colors[0]||'#fff'; ctx.fillRect(x0,y0,CELL,CELL); return;
+    }
+    for(var r=0;r<5;r++) for(var c=0;c<5;c++){
+      var ch = sprite[r][c];
+      if(ch==='.'||ch===undefined) continue;
+      var col = colors[+ch];
+      if(!col) continue;
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.floor(x0+c*PX), Math.floor(y0+r*PX), Math.ceil(PX), Math.ceil(PX));
+    }
+    if(dim){ ctx.fillStyle = 'rgba(12,14,20,.45)'; ctx.fillRect(x0,y0,CELL,CELL); }
+  }
+
+  function draw(){
+    ctx.fillStyle = (objColors('background')[0]||'#0f1118');
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    var active = S.activeName(state);
+    var objs = state.objs.slice().sort(function(a,b){
+      return S.layerIndexOf(game,a.name) - S.layerIndexOf(game,b.name);
+    });
+    objs.forEach(function(o){
+      var x0 = o.c*CELL, y0 = o.r*CELL;
+      // Inactive crew members are dimmed so it's clear who you're steering.
+      var dim = S.isCrew(o.name) && o.name !== active;
+      drawSprite(o, x0, y0, dim);
+    });
+    // Highlight ring around the active crew member.
+    var me = state.objs.filter(function(o){return o.name===active;})[0];
+    if(me){
+      ctx.strokeStyle = (CREW_META[active]||{}).color || '#fff';
+      ctx.lineWidth = Math.max(2, CELL/12);
+      ctx.strokeRect(me.c*CELL+ctx.lineWidth/2, me.r*CELL+ctx.lineWidth/2,
+                     CELL-ctx.lineWidth, CELL-ctx.lineWidth);
+    }
+  }
+
+  function buildRail(){
+    var rail = document.getElementById('rail');
+    rail.innerHTML = '';
+    state.present.forEach(function(name, i){
+      var m = CREW_META[name] || { label:name, color:'#fff' };
+      var b = document.createElement('button');
+      b.innerHTML = '<span class="dot" style="background:'+m.color+'"></span><span class="name">'+m.label+'</span>';
+      b.addEventListener('click', function(){ setActive(i); });
+      rail.appendChild(b);
+    });
+    var hint = document.createElement('span');
+    hint.className = 'swaphint';
+    hint.innerHTML = 'swap with <kbd>Tab</kbd> / <kbd>Space</kbd>';
+    rail.appendChild(hint);
+    refreshRail();
+  }
+
+  function refreshRail(){
+    var active = state.active;
+    var btns = document.querySelectorAll('#rail button');
+    for(var i=0;i<btns.length;i++){
+      var m = CREW_META[state.present[i]] || {};
+      btns[i].className = (i===active) ? 'active' : '';
+      btns[i].style.color = (i===active) ? (m.color||'') : '';
+    }
+  }
+
+  function refreshHud(){
+    document.getElementById('lvl-n').textContent = 'level '+(cur+1)+'/'+game.levels.length;
+    document.getElementById('lvl-title').textContent = game.levels[cur].title || '';
+    document.getElementById('flavor').innerHTML = (META[cur]&&META[cur].flavor)||'';
+    var s = S.shipped(state);
+    document.getElementById('stat-ship').textContent = s.on+'/'+s.total;
+    document.getElementById('stat-moves').textContent = moves;
+    var btns = document.querySelectorAll('#levelbar button');
+    for(var i=0;i<btns.length;i++){
+      btns[i].className = i===cur ? 'cur' : (i<cur ? 'done':'');
+    }
+    refreshRail();
+  }
+
+  function loadLevel(i){
+    cur = i; won = false; moves = 0; history = [];
+    state = S.buildState(game, i);
+    layout(); buildRail(); draw(); refreshHud();
+    document.getElementById('overlay').classList.remove('show');
+  }
+
+  function setActive(i){
+    if(won) return;
+    if(i === state.active) return;
+    history.push(state);
+    var ns = S.cloneState(state);
+    ns.active = ((i % ns.present.length) + ns.present.length) % ns.present.length;
+    state = ns;
+    draw(); refreshRail();
+  }
+
+  function swap(delta){
+    if(won) return;
+    history.push(state);
+    state = S.cycle(state, delta);
+    draw(); refreshRail();
+  }
+
+  function tryMove(dir){
+    if(won) return;
+    var res = S.step(game, state, dir);
+    if(res.moved){
+      history.push(state);
+      state = res.state;
+      moves++;
+      draw(); refreshHud();
+      if(S.isWin(game,state)) winLevel();
+    }
+  }
+
+  function undo(){
+    if(won || !history.length) return;
+    state = history.pop();
+    // moves counter only tracks real pushes/steps; recompute conservatively.
+    moves = Math.max(0, moves-1);
+    draw(); refreshHud();
+  }
+
+  function winLevel(){
+    won = true;
+    var last = cur === game.levels.length-1;
+    document.getElementById('ov-title').textContent = last ? 'the whole crew shipped. 🎉' : 'shipped! ✅';
+    document.getElementById('ov-text').innerHTML = (META[cur]&&META[cur].win)||'';
+    var nx = document.getElementById('ov-next');
+    nx.textContent = last ? 'play again ↺' : 'next level →';
+    document.getElementById('overlay').classList.add('show');
+  }
+
+  document.getElementById('ov-next').addEventListener('click', function(){
+    if(cur === game.levels.length-1) loadLevel(0);
+    else loadLevel(cur+1);
+  });
+  document.getElementById('undo').addEventListener('click', undo);
+  document.getElementById('restart').addEventListener('click', function(){ loadLevel(cur); });
+  document.getElementById('swap').addEventListener('click', function(){ swap(1); });
+
+  var dpad = document.querySelectorAll('.dpad button[data-dir]');
+  for(var di=0; di<dpad.length; di++){
+    (function(b){ b.addEventListener('click', function(){ tryMove(b.getAttribute('data-dir')); }); })(dpad[di]);
+  }
+
+  var KEYS = {
+    ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+    w:'up', s:'down', a:'left', d:'right', W:'up', S:'down', A:'left', D:'right'
+  };
+  window.addEventListener('keydown', function(e){
+    if(e.metaKey||e.ctrlKey) return;
+    if(KEYS[e.key]){ e.preventDefault(); tryMove(KEYS[e.key]); return; }
+    if(e.key==='Tab'){ e.preventDefault(); swap(e.shiftKey?-1:1); return; }
+    if(e.key===' '){ e.preventDefault(); swap(1); return; }
+    if(e.key==='z'||e.key==='Z'){ e.preventDefault(); undo(); }
+    if(e.key==='r'||e.key==='R'){ e.preventDefault(); loadLevel(cur); }
+    if(e.key==='Enter' && won){ document.getElementById('ov-next').click(); }
+  });
+
+  var sx=0, sy=0;
+  canvas.addEventListener('touchstart', function(e){ var t=e.touches[0]; sx=t.clientX; sy=t.clientY; }, {passive:true});
+  canvas.addEventListener('touchend', function(e){
+    var t=e.changedTouches[0], dx=t.clientX-sx, dy=t.clientY-sy;
+    if(Math.abs(dx)<18 && Math.abs(dy)<18) return;
+    if(Math.abs(dx)>Math.abs(dy)) tryMove(dx>0?'right':'left'); else tryMove(dy>0?'down':'up');
+  }, {passive:true});
+
+  var bar = document.getElementById('levelbar');
+  game.levels.forEach(function(lvl,i){
+    var b = document.createElement('button');
+    b.textContent = (i+1);
+    b.title = lvl.title||('level '+(i+1));
+    b.addEventListener('click', function(){ loadLevel(i); });
+    bar.appendChild(b);
+  });
+
+  document.getElementById('srcbox').textContent = S.PUZZLESCRIPT_SOURCE;
+  var toast = document.getElementById('toast');
+  function showToast(msg){ toast.textContent=msg; toast.classList.add('show'); setTimeout(function(){toast.classList.remove('show');},1400); }
+  document.getElementById('copysrc').addEventListener('click', function(e){
+    e.preventDefault();
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(S.PUZZLESCRIPT_SOURCE)
+        .then(function(){ showToast('source copied'); })
+        .catch(function(){ showToast('copy failed — select manually'); });
+    } else { showToast('copy not supported — select manually'); }
+  });
+
+  loadLevel(0);
+})();
+</script>
+</body>
+</html>
