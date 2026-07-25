@@ -275,6 +275,75 @@ export async function scan(actor, { mode = "trigram", onPage } = {}) {
   };
 }
 
+const MAX_MENTION_PAGES = 40; // ≤ ~4000 most-recent posts tagging the actor
+
+// scanMentions: harvest posts that TAG/mention an actor (not posts they wrote)
+// via searchPosts' `mentions` filter, and keep trigrams that occur EXACTLY ONCE
+// across that whole harvested set. Unlike scan() (which only sees the actor's
+// own repo and needs a later network-wide verify() pass), the corpus here
+// already spans every author who tagged them — so a local count of 1 already
+// means "only one tagger, ever, used this exact phrase." No verify phase needed.
+// onPage(pagesDone, posts) is called after each page so the UI can show progress.
+export async function scanMentions(actor, { onPage } = {}) {
+  const { did } = actor;
+  const counts = new Map(); // gram -> { count, post }
+  let cursor = "";
+  let pages = 0;
+  let posts = 0;
+
+  for (; pages < MAX_MENTION_PAGES; pages++) {
+    const u = new URL(SEARCH_PROXY, location.href);
+    u.searchParams.set("q", "*");
+    u.searchParams.set("mentions", did);
+    u.searchParams.set("sort", "latest");
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+
+    const d = await searchGet(u.toString());
+    if (!d) break;
+    const recs = d.posts || [];
+    for (const p of recs) {
+      const text = p.record && p.record.text;
+      if (!text) continue;
+      posts++;
+      const t = tokenize(text);
+      for (let i = 0; i + 2 < t.length; i++) {
+        const g = t[i] + " " + t[i + 1] + " " + t[i + 2];
+        const sc = score(g.split(" "));
+        if (sc < 0) continue; // all-stopword
+        let e = counts.get(g);
+        if (!e) {
+          e = {
+            count: 0,
+            post: {
+              uri: p.uri,
+              did: p.author && p.author.did,
+              handle: p.author && p.author.handle,
+              text,
+            },
+          };
+          counts.set(g, e);
+        }
+        e.count++;
+      }
+    }
+    if (onPage) onPage(pages + 1, posts);
+    cursor = d.cursor;
+    if (!cursor || recs.length === 0) {
+      pages++;
+      break;
+    }
+  }
+
+  const uniques = [];
+  for (const [g, e] of counts) {
+    if (e.count !== 1) continue;
+    uniques.push({ g, n: 3, post: e.post });
+  }
+
+  return { posts, pages, scannedAll: !cursor, uniques };
+}
+
 // searchPosts with retry/backoff on throttle. api.bsky.app rate-limits bursts;
 // without retry, a throttled candidate is silently lost (this was undercounting
 // uniques ~10x vs mino, which searches with an authed token). Returns parsed JSON

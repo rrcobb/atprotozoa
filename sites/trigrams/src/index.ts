@@ -49,6 +49,21 @@ async function botToken(env: Env): Promise<string> {
   return j.accessJwt;
 }
 
+// Params passed straight through to searchPosts when present. "q" and "limit"
+// are handled separately below (q is required, limit gets a default).
+const PASSTHROUGH_PARAMS = [
+  "sort",
+  "since",
+  "until",
+  "mentions",
+  "author",
+  "lang",
+  "tag",
+  "domain",
+  "url",
+  "cursor",
+];
+
 async function handleSearch(url: URL, env: Env): Promise<Response> {
   const q = url.searchParams.get("q");
   if (!q) {
@@ -57,9 +72,13 @@ async function handleSearch(url: URL, env: Env): Promise<Response> {
   const limit = url.searchParams.get("limit") || "15";
 
   const jwt = await botToken(env);
-  const target =
-    `${APPVIEW}/xrpc/app.bsky.feed.searchPosts` +
-    `?q=${encodeURIComponent(q)}&limit=${encodeURIComponent(limit)}`;
+  const target = new URL(`${APPVIEW}/xrpc/app.bsky.feed.searchPosts`);
+  target.searchParams.set("q", q);
+  target.searchParams.set("limit", limit);
+  for (const key of PASSTHROUGH_PARAMS) {
+    const v = url.searchParams.get(key);
+    if (v) target.searchParams.set(key, v);
+  }
 
   let res = await fetch(target, { headers: { authorization: `Bearer ${jwt}` } });
   // If the cached token was stale/revoked, mint a fresh one once and retry.
