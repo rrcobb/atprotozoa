@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>💡 idea island — a lightbulb over an island</title>
+    <meta
+      name="description"
+      content="An idea that lands. An idea with land. A landed idea. A little island in a calm sea, a lightbulb hovering over it. Click and the idea lands: the bulb flickers on, the island glows, ripples spread. A quiet loop."
+    />
+    <style>
+      :root {
+        --sky-top: #0a1030;
+        --sky-bot: #1b2a5e;
+        --sea: #0d2846;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: var(--sky-top);
+        font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman",
+          system-ui, serif;
+        color: #eef3ff;
+        -webkit-font-smoothing: antialiased;
+        touch-action: manipulation;
+      }
+      #scene { position: fixed; inset: 0; display: block; cursor: pointer; }
+
+      .hud {
+        position: fixed;
+        left: 0; right: 0; top: 0;
+        padding: 16px 20px 40px;
+        pointer-events: none;
+        z-index: 5;
+        background: linear-gradient(180deg, rgba(10, 16, 48, 0.55) 0%, rgba(10, 16, 48, 0) 100%);
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.3rem, 4.5vw, 2.3rem);
+        line-height: 1;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+        color: #fff4d6;
+        text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+      }
+      .sub {
+        margin: 6px 0 0;
+        font-size: clamp(0.74rem, 2.4vw, 0.98rem);
+        color: #cdd8ff;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+        font-family: system-ui, sans-serif;
+      }
+      .sub b { color: #ffe6a8; font-weight: 600; }
+
+      .hint {
+        position: fixed;
+        left: 0; right: 0; bottom: 20px;
+        text-align: center;
+        pointer-events: none;
+        z-index: 5;
+        font-family: system-ui, sans-serif;
+        font-size: clamp(0.72rem, 2.2vw, 0.9rem);
+        color: rgba(226, 232, 255, 0.55);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+        transition: opacity 1.2s ease;
+      }
+      .hint.gone { opacity: 0; }
+
+      .credit {
+        position: fixed;
+        right: 12px; bottom: 10px;
+        z-index: 5;
+        font-family: system-ui, sans-serif;
+        font-size: 0.68rem;
+        color: rgba(205, 216, 255, 0.35);
+        text-decoration: none;
+      }
+      .credit:hover { color: rgba(255, 230, 168, 0.7); }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <div class="hud">
+      <h1>idea island</h1>
+      <p class="sub">an idea that lands · an idea with land · a <b>landed idea</b></p>
+    </div>
+
+    <div class="hint" id="hint">click the water — let an idea land</div>
+    <a class="credit" href="https://bisks.net">built by @buildthis</a>
+
+    <script>
+      const canvas = document.getElementById("scene");
+      const ctx = canvas.getContext("2d");
+      let W = 0, H = 0, DPR = 1;
+
+      function resize() {
+        DPR = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        canvas.width = Math.floor(W * DPR);
+        canvas.height = Math.floor(H * DPR);
+        canvas.style.width = W + "px";
+        canvas.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        layout();
+      }
+
+      // --- scene geometry, recomputed on resize ---
+      let sea, island, bulb, stars;
+      function layout() {
+        sea = { y: H * 0.62 };
+        const irx = Math.min(W * 0.22, 230);
+        island = { cx: W * 0.5, cy: sea.y, rx: irx, ry: irx * 0.28 };
+        bulb = {
+          x: island.cx,
+          y: sea.y - Math.min(H * 0.34, 260),
+          r: Math.max(Math.min(W, H) * 0.045, 26),
+        };
+        stars = [];
+        const n = Math.floor((W * H) / 9000);
+        for (let i = 0; i < n; i++) {
+          // deterministic scatter so stars stay put across resizes
+          const sx = pseudo(i * 2.17) * W;
+          const sy = pseudo(i * 3.71 + 1.3) * (sea.y - 10);
+          stars.push({ x: sx, y: sy, s: 0.4 + pseudo(i * 5.9) * 1.4, tw: pseudo(i * 7.3) * 6.28 });
+        }
+      }
+      function pseudo(k) {
+        const v = Math.sin(k * 12.9898) * 43758.5453;
+        return v - Math.floor(v);
+      }
+
+      // --- idea state: the bulb glows, waxing & waning, boosted by "landings" ---
+      let glow = 0;          // current glow, eased toward target
+      let target = 0.16;     // gentle ambient level the glow drifts toward
+      let ripples = [];      // expanding rings on the water
+      let flick = 0;         // brief flicker timer after a landing
+
+      function land(x, y) {
+        // an idea lands: pop the bulb bright, flicker, drop a ripple on the water
+        target = 1;
+        flick = 1;
+        glow = Math.min(1, glow + 0.5);
+        const rx = (x ?? island.cx);
+        const ry = Math.max((y ?? sea.y + 20), sea.y + 4);
+        ripples.push({ x: rx, y: ry, r: 4, life: 1 });
+        if (ripples.length > 40) ripples.shift();
+        // settle back toward ambient after the pop
+        clearTimeout(land._t);
+        land._t = setTimeout(() => { target = 0.16; }, 2600);
+      }
+
+      canvas.addEventListener("pointerdown", (e) => {
+        land(e.clientX, e.clientY);
+        document.getElementById("hint").classList.add("gone");
+        idleTimer = 0;
+      });
+
+      // the loop drops an idea on its own now and then, so it's alive when idle
+      let idleTimer = 0;
+      let last = performance.now();
+
+      function frame(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+        const t = now / 1000;
+
+        // ease glow toward target; flicker adds a fast jitter right after a landing
+        glow += (target - glow) * Math.min(dt * 2.4, 1);
+        flick = Math.max(0, flick - dt * 1.6);
+        const flicker = flick > 0 ? (0.82 + 0.18 * Math.sin(t * 55) * pseudo(t * 90)) : 1;
+        const lit = glow * flicker;
+
+        // self-landing idea every ~7s of idle
+        idleTimer += dt;
+        if (idleTimer > 7) { idleTimer = 0; land(); }
+
+        draw(t, lit);
+        requestAnimationFrame(frame);
+      }
+
+      function draw(t, lit) {
+        // ---- sky ----
+        const sky = ctx.createLinearGradient(0, 0, 0, sea.y);
+        sky.addColorStop(0, "#0a1030");
+        sky.addColorStop(1, "#1b2a5e");
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, W, sea.y);
+
+        // ---- stars (dim a little when the idea blazes) ----
+        for (const s of stars) {
+          const tw = 0.55 + 0.45 * Math.sin(t * 1.5 + s.tw);
+          ctx.globalAlpha = tw * (0.5 + 0.5 * (1 - lit * 0.5));
+          ctx.fillStyle = "#dfe7ff";
+          ctx.fillRect(s.x, s.y, s.s, s.s);
+        }
+        ctx.globalAlpha = 1;
+
+        // ---- warm halo of the idea washing over the sky ----
+        if (lit > 0.02) {
+          const halo = ctx.createRadialGradient(
+            bulb.x, bulb.y, 0, bulb.x, bulb.y, Math.max(W, H) * 0.7
+          );
+          halo.addColorStop(0, `rgba(255, 224, 150, ${0.16 * lit})`);
+          halo.addColorStop(0.4, `rgba(255, 210, 120, ${0.06 * lit})`);
+          halo.addColorStop(1, "rgba(255, 210, 120, 0)");
+          ctx.fillStyle = halo;
+          ctx.fillRect(0, 0, W, sea.y);
+        }
+
+        // ---- sea ----
+        const sea2 = ctx.createLinearGradient(0, sea.y, 0, H);
+        sea2.addColorStop(0, "#12345c");
+        sea2.addColorStop(1, "#081a30");
+        ctx.fillStyle = sea2;
+        ctx.fillRect(0, sea.y, W, H - sea.y);
+
+        // shimmering reflection column under the bulb
+        if (lit > 0.02) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, sea.y, W, H - sea.y);
+          ctx.clip();
+          const rw = bulb.r * 1.6;
+          for (let i = 0; i < 26; i++) {
+            const yy = sea.y + i * ((H - sea.y) / 26);
+            const wob = Math.sin(t * 2 + i * 0.7) * (6 + i * 0.9);
+            const a = lit * 0.14 * (1 - i / 30);
+            ctx.fillStyle = `rgba(255, 226, 158, ${Math.max(a, 0)})`;
+            ctx.fillRect(bulb.x - rw / 2 + wob, yy, rw, 3);
+          }
+          ctx.restore();
+        }
+
+        // ---- ripples on the water ----
+        for (let i = ripples.length - 1; i >= 0; i--) {
+          const r = ripples[i];
+          r.r += 46 * 0.016;
+          r.life -= 0.008;
+          if (r.life <= 0) { ripples.splice(i, 1); continue; }
+          ctx.globalAlpha = Math.max(r.life, 0) * 0.5;
+          ctx.strokeStyle = "rgba(200, 224, 255, 0.9)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.ellipse(r.x, r.y, r.r, r.r * 0.32, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+
+        // ---- island ----
+        drawIsland(lit);
+
+        // ---- beam from bulb down to the island ----
+        if (lit > 0.02) {
+          const beam = ctx.createLinearGradient(bulb.x, bulb.y, island.cx, island.cy);
+          beam.addColorStop(0, `rgba(255, 228, 160, ${0.22 * lit})`);
+          beam.addColorStop(1, "rgba(255, 228, 160, 0)");
+          ctx.fillStyle = beam;
+          ctx.beginPath();
+          ctx.moveTo(bulb.x - bulb.r * 0.5, bulb.y);
+          ctx.lineTo(island.cx - island.rx * 0.9, island.cy);
+          ctx.lineTo(island.cx + island.rx * 0.9, island.cy);
+          ctx.lineTo(bulb.x + bulb.r * 0.5, bulb.y);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // ---- the lightbulb ----
+        drawBulb(t, lit);
+      }
+
+      function drawIsland(lit) {
+        const { cx, cy, rx, ry } = island;
+        // faint reflection of the island in the water
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#0c2136";
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + ry * 1.4, rx * 0.9, ry * 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // sandy mound — brightens as the idea lights it
+        const sand = ctx.createLinearGradient(cx, cy - ry * 2.9, cx, cy + ry);
+        sand.addColorStop(0, mix("#3a2f22", "#c9a86a", lit));
+        sand.addColorStop(1, mix("#2a2117", "#8a6f43", lit));
+        ctx.fillStyle = sand;
+        ctx.beginPath();
+        ctx.moveTo(cx - rx, cy);
+        ctx.quadraticCurveTo(cx - rx * 0.5, cy - ry * 2.6, cx, cy - ry * 2.9);
+        ctx.quadraticCurveTo(cx + rx * 0.5, cy - ry * 2.6, cx + rx, cy);
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI, false);
+        ctx.closePath();
+        ctx.fill();
+
+        // a single little palm, lit by the idea
+        const tx = cx + rx * 0.12;
+        const ty = cy - ry * 2.4;
+        ctx.strokeStyle = mix("#241a10", "#6b4a24", lit);
+        ctx.lineWidth = Math.max(rx * 0.03, 3);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(tx, cy - ry * 0.2);
+        ctx.quadraticCurveTo(tx - rx * 0.06, ty + ry * 0.8, tx + rx * 0.05, ty);
+        ctx.stroke();
+        // fronds
+        ctx.strokeStyle = mix("#153021", "#3f8f57", lit);
+        ctx.lineWidth = Math.max(rx * 0.02, 2);
+        const frondLen = rx * 0.34;
+        for (let a = 0; a < 5; a++) {
+          const ang = -Math.PI / 2 + (a - 2) * 0.55;
+          ctx.beginPath();
+          ctx.moveTo(tx + rx * 0.05, ty);
+          ctx.quadraticCurveTo(
+            tx + rx * 0.05 + Math.cos(ang) * frondLen * 0.6,
+            ty + Math.sin(ang) * frondLen * 0.6 - ry * 0.4,
+            tx + rx * 0.05 + Math.cos(ang) * frondLen,
+            ty + Math.sin(ang) * frondLen * 0.5
+          );
+          ctx.stroke();
+        }
+      }
+
+      function drawBulb(t, lit) {
+        const { x, y, r } = bulb;
+        const bob = Math.sin(t * 0.9) * (r * 0.12);
+        const by = y + bob;
+
+        // outer glow when lit
+        if (lit > 0.02) {
+          const g = ctx.createRadialGradient(x, by, 0, x, by, r * 4.2);
+          g.addColorStop(0, `rgba(255, 232, 170, ${0.55 * lit})`);
+          g.addColorStop(0.5, `rgba(255, 214, 120, ${0.18 * lit})`);
+          g.addColorStop(1, "rgba(255, 214, 120, 0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(x, by, r * 4.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // glass bulb — dark when off, warm when the idea lands
+        const glass = ctx.createRadialGradient(
+          x - r * 0.3, by - r * 0.3, r * 0.1, x, by, r
+        );
+        const onCol = "#fff3c4", offCol = "#26314e";
+        glass.addColorStop(0, mix(offCol, "#ffffff", lit));
+        glass.addColorStop(0.6, mix(offCol, onCol, lit));
+        glass.addColorStop(1, mix("#1a2138", "#e8b84a", lit));
+        ctx.fillStyle = glass;
+        ctx.beginPath();
+        ctx.arc(x, by, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // filament
+        ctx.strokeStyle = mix("#3a4260", "#ff9d3c", lit);
+        ctx.lineWidth = Math.max(r * 0.06, 1.4);
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.32, by + r * 0.2);
+        ctx.lineTo(x - r * 0.14, by - r * 0.1);
+        ctx.lineTo(x, by + r * 0.05);
+        ctx.lineTo(x + r * 0.14, by - r * 0.1);
+        ctx.lineTo(x + r * 0.32, by + r * 0.2);
+        ctx.stroke();
+
+        // screw base / cap
+        ctx.fillStyle = "#8a8f9e";
+        const cw = r * 0.78, ch = r * 0.5;
+        roundRect(x - cw / 2, by + r * 0.72, cw, ch, r * 0.12);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.28)";
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 3; i++) {
+          const yy = by + r * 0.72 + (ch / 3) * i;
+          ctx.beginPath();
+          ctx.moveTo(x - cw / 2, yy);
+          ctx.lineTo(x + cw / 2, yy);
+          ctx.stroke();
+        }
+      }
+
+      // helpers
+      function mix(a, b, t) {
+        t = Math.max(0, Math.min(1, t));
+        const ca = hex(a), cb = hex(b);
+        const r = Math.round(ca[0] + (cb[0] - ca[0]) * t);
+        const g = Math.round(ca[1] + (cb[1] - ca[1]) * t);
+        const bl = Math.round(ca[2] + (cb[2] - ca[2]) * t);
+        return `rgb(${r},${g},${bl})`;
+      }
+      function hex(h) {
+        const s = h.replace("#", "");
+        return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+      }
+      function roundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      window.addEventListener("resize", resize);
+      resize();
+      // a first idea lands shortly after load
+      setTimeout(() => land(), 900);
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
