@@ -52,16 +52,19 @@ echo "=== build (claude -p, same invocation as the Action) ==="
 # BUILD_RESULT is how the agent reports what it built; make sure a stale one from
 # a prior build can't be mistaken for this build's result.
 rm -f BUILD_RESULT
-# --max-turns bounds a runaway; bypassPermissions makes it unattended; the
-# allowedTools + the FIRST-read INSTRUCTIONS.md keep edits in the sandbox. The
-# model is whatever the subscription login defaults to (no ANTHROPIC_MODEL set).
-# Tee the CLI's output to a log so we can tell "out of budget" (usage-limit)
-# from "build flopped" afterwards, and still stream it live to the box's journal.
+# Sonnet for the builder (cheaper than Opus, near-Opus on this copy-a-site-and-edit
+# workload). Overridable via BUILDER_MODEL if we ever want to bump a build to Opus.
+# --max-turns bounds a runaway; bypassPermissions makes it unattended (fine on this
+# isolated non-root box); allowedTools + the FIRST-read INSTRUCTIONS.md keep edits
+# in the sandbox. Tee the CLI's output to a log so we can tell "out of budget"
+# (usage-limit) from "build flopped" afterwards, and stream it to the box journal.
+BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5}"
 CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
 AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
   claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
+    --model "$BUILDER_MODEL" \
     --max-turns 30 \
     --permission-mode bypassPermissions \
     --allowedTools Edit,Read,Write,Bash,Glob,Grep \
