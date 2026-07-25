@@ -214,6 +214,7 @@
       .card .pw { font-size: 0.85rem; font-weight: 700; }
       .card.strike .k, .card.strike .pw { color: var(--red); }
       .card.guard .k, .card.guard .pw { color: var(--blue); }
+      .card.potion .k, .card.potion .pw { color: #ff6bb0; }
       .card.tier0 { border-color: var(--gray); }
       .card.tier1 { border-color: #2fae53; }
       .card.tier2 { border-color: var(--blue); }
@@ -269,8 +270,10 @@
       <p class="intro">
         Type a Bluesky handle. Six-to-eight rooms per floor, five floors deep —
         a fifth-generation dungeon, sort of literally. The <b>mutuals</b> in that
-        handle's cluster guard the rooms as monsters; the handle's <b>own posts</b>
-        become item-cards dropped on the floor, rarer the more they got liked.
+        handle's cluster roam the rooms as monsters, closing in when they spot
+        you; the handle's <b>own posts</b> become item-cards dropped on the
+        floor, rarer the more they got liked — and any post a mutual actually
+        <span style="color:#ff6bb0">liked</span> drops as a healing potion.
         Bump a monster to fight it in <span class="c">turn-based card combat</span>;
         open the <span class="a">Deck</span> screen anytime to
         <b>combine two collected cards into one stronger crafted card</b> — you'll
@@ -387,7 +390,7 @@
     </div>
 
     <script type="module">
-      import { moots, ownPosts } from "./lib/cluster.js";
+      import { moots, ownPosts, mootLikedPosts } from "./lib/cluster.js";
 
       // ── DOM ─────────────────────────────────────────────────────────────
       const $ = (id) => document.getElementById(id);
@@ -534,15 +537,32 @@
           crafted: false,
         };
       }
+      function spawnPotionCard(pool, rng) {
+        const post = pool[Math.floor(rng() * pool.length)];
+        const engagement = (post.likeCount || 0) + (post.repostCount || 0) * 2 + (post.replyCount || 0);
+        const tier = tierOf(engagement);
+        const likerName = short(post.liker.handle || post.liker.displayName || "a moot");
+        return {
+          id: uid(),
+          kind: "potion",
+          power: 4 + tier * 3,
+          tier,
+          name: `${likerName}'s like`,
+          text: post.text,
+          engagement,
+          crafted: false,
+        };
+      }
 
-      function populateFloor(layout, floor, monsterPool, postPool, rng, isBossFloor) {
+      function populateFloor(layout, floor, monsterPool, postPool, potionPool, rng, isBossFloor) {
         const monsters = [], items = [];
         const midRooms = layout.rooms.slice(1, layout.rooms.length - 1);
         for (const r of midRooms) {
           const c = centerOf(r);
           const roll = rng();
-          if (roll < 0.5) monsters.push({ ...spawnMonster(monsterPool, floor, rng, false), x: c.x, y: c.y });
-          else if (roll < 0.8) items.push({ card: spawnItemCard(postPool, rng), x: c.x, y: c.y, taken: false });
+          if (roll < 0.45) monsters.push({ ...spawnMonster(monsterPool, floor, rng, false), x: c.x, y: c.y });
+          else if (roll < 0.68) items.push({ card: spawnItemCard(postPool, rng), x: c.x, y: c.y, taken: false });
+          else if (roll < 0.84 && potionPool.length) items.push({ card: spawnPotionCard(potionPool, rng), x: c.x, y: c.y, taken: false });
         }
         let boss = null, stairs = null;
         const lastRoom = layout.rooms[layout.rooms.length - 1];
@@ -605,7 +625,7 @@
       function enterFloor(n) {
         floorNum = n;
         const layout = genFloorLayout(rng);
-        floorState = populateFloor(layout, n, cluster.pool, cluster.posts, rng, n === TOTAL_FLOORS);
+        floorState = populateFloor(layout, n, cluster.pool, cluster.posts, cluster.potions, rng, n === TOTAL_FLOORS);
         player.x = floorState.start.x;
         player.y = floorState.start.y;
         if (n > 1) {
@@ -621,8 +641,9 @@
         const overlay = new Map(); // "x,y" -> { ch, cls, color }
         for (const it of floorState.items) {
           if (it.taken) continue;
-          const col = TIER_COLORS[it.card.tier];
-          overlay.set(it.x + "," + it.y, { ch: "!", cls: "it", color: col });
+          const isPotion = it.card.kind === "potion";
+          const col = isPotion ? "#ff6bb0" : TIER_COLORS[it.card.tier];
+          overlay.set(it.x + "," + it.y, { ch: isPotion ? "♥" : "!", cls: "it" + (isPotion ? " pot" : ""), color: col });
         }
         for (const m of floorState.monsters) {
           if (!m.alive) continue;
@@ -695,7 +716,11 @@
           it.taken = true;
           deck.push(it.card);
           drawPile.unshift(it.card.id);
-          log(`picked up <b style="color:${TIER_COLORS[it.card.tier]}">${it.card.name}</b> <span class="amber">[${TIER_NAMES[it.card.tier]}]</span> — power ${it.card.power}.`);
+          if (it.card.kind === "potion") {
+            log(`found a warm little <b style="color:#ff6bb0">${it.card.name}</b> <span class="amber">[${TIER_NAMES[it.card.tier]}]</span> — heals ${it.card.power} in a pinch.`);
+          } else {
+            log(`picked up <b style="color:${TIER_COLORS[it.card.tier]}">${it.card.name}</b> <span class="amber">[${TIER_NAMES[it.card.tier]}]</span> — power ${it.card.power}.`);
+          }
         }
         if (floorState.stairs && nx === floorState.stairs.x && ny === floorState.stairs.y) {
           player.x = nx; player.y = ny;
@@ -706,7 +731,37 @@
           return;
         }
         player.x = nx; player.y = ny;
-        renderAll();
+        moveMonsters();
+        if (!combat) renderAll();
+      }
+
+      // monsters take a step each time the player moves — mostly toward the
+      // player, sometimes wandering. bosses hold their room instead of roaming.
+      function moveMonsters() {
+        for (const m of floorState.monsters) {
+          if (!m.alive) continue;
+          if (rng() > 0.65) continue;
+          const dx = Math.sign(player.x - m.x), dy = Math.sign(player.y - m.y);
+          let dirs;
+          if (rng() < 0.65) {
+            dirs = Math.abs(player.x - m.x) > Math.abs(player.y - m.y)
+              ? [[dx, 0], [0, dy], [0, -dy], [-dx, 0]]
+              : [[0, dy], [dx, 0], [-dx, 0], [0, -dy]];
+          } else {
+            dirs = shuffle([[1, 0], [-1, 0], [0, 1], [0, -1]], rng);
+          }
+          for (const [cx, cy] of dirs) {
+            if (cx === 0 && cy === 0) continue;
+            const nx = m.x + cx, ny = m.y + cy;
+            if (blocked(nx, ny)) continue;
+            if (floorState.monsters.some((o) => o !== m && o.alive && o.x === nx && o.y === ny)) continue;
+            if (floorState.boss && floorState.boss.alive && floorState.boss.x === nx && floorState.boss.y === ny) continue;
+            m.x = nx; m.y = ny;
+            break;
+          }
+        }
+        const caught = floorState.monsters.find((m) => m.alive && m.x === player.x && m.y === player.y);
+        if (caught) startCombat(caught);
       }
       window.addEventListener("keydown", (e) => {
         if (!game.classList.contains("on")) return;
@@ -776,6 +831,10 @@
         if (card.kind === "guard") {
           combat.block += card.power;
           clog(`<span class="you">you</span> brace with <b>${card.name}</b> — +${card.power} block.`, "you");
+        } else if (card.kind === "potion") {
+          player.hp = Math.min(player.maxHp, player.hp + card.power);
+          renderSidebar();
+          clog(`<span class="you">you</span> down <b>${card.name}</b> — +${card.power} hp.`, "you");
         } else {
           combat.monster.hp -= card.power;
           clog(`<span class="you">you</span> hit ${combat.monster.name} with <b>${card.name}</b> for ${card.power}.`, "you");
@@ -872,7 +931,9 @@
       function previewCombine(a, b) {
         const power = Math.round((a.power + b.power) * 1.15);
         const tier = Math.min(4, Math.max(a.tier || 0, b.tier || 0) + 1);
-        const kind = a.kind === "guard" && b.kind === "guard" ? "guard" : "strike";
+        const kind = a.kind === "guard" && b.kind === "guard" ? "guard"
+          : a.kind === "potion" && b.kind === "potion" ? "potion"
+          : "strike";
         const name = shorten(a.name, 20) + " × " + shorten(b.name, 20);
         return { power, tier, kind, name };
       }
@@ -952,9 +1013,12 @@
         try {
           const res = await moots(h, { onStep: (s) => { msg.className = "msg"; msg.textContent = s; } });
           const posts = await ownPosts(res.did, { onStep: (s) => { msg.className = "msg"; msg.textContent = s; } });
-          cluster = { handle: res.handle, pool: res.pool, posts, self: res.self };
+          const poolDids = new Set(res.pool.map((p) => p.did));
+          const potions = await mootLikedPosts(posts, poolDids, { onStep: (s) => { msg.className = "msg"; msg.textContent = s; } });
+          cluster = { handle: res.handle, pool: res.pool, posts, potions, self: res.self };
           msg.className = "msg ok";
-          msg.textContent = `cluster mapped — ${res.pool.length} in the roster, ${posts.length} posts to loot.`;
+          msg.textContent = `cluster mapped — ${res.pool.length} in the roster, ${posts.length} posts to loot` +
+            (potions.length ? `, ${potions.length} liked by mutuals.` : ".");
           game.classList.add("on");
           newRun(true);
           game.scrollIntoView({ behavior: "smooth", block: "start" });

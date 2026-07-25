@@ -131,7 +131,7 @@ export async function moots(actor, { onStep } = {}) {
 
 // Pull a page of a handle's own standalone posts (no replies, no reposts) —
 // these become the dungeon's item drops. Returns
-// [{ text, likeCount, repostCount, replyCount, createdAt }].
+// [{ text, uri, likeCount, repostCount, replyCount, createdAt }].
 export async function ownPosts(did, { onStep } = {}) {
   if (onStep) onStep("digging through their posts…");
   const items = [];
@@ -148,6 +148,7 @@ export async function ownPosts(did, { onStep } = {}) {
       if (!text) continue;
       items.push({
         text,
+        uri: post.uri || "",
         likeCount: post.likeCount || 0,
         repostCount: post.repostCount || 0,
         replyCount: post.replyCount || 0,
@@ -156,4 +157,40 @@ export async function ownPosts(did, { onStep } = {}) {
     }
   } catch {}
   return items;
+}
+
+const LIKE_CHECK_MAX = 12; // how many of the handle's top posts we spend a getLikes call on
+
+// Of a handle's posts, find the ones a moot (someone in `poolDids`) actually
+// liked — those become "potion" item drops instead of strike cards. Only
+// checks the top-liked posts to keep the request count bounded. Returns
+// [{ text, uri, likeCount, repostCount, replyCount, liker: { handle, displayName } }].
+export async function mootLikedPosts(posts, poolDids, { onStep } = {}) {
+  const candidates = posts
+    .filter((p) => p.uri && (p.likeCount || 0) > 0)
+    .sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0))
+    .slice(0, LIKE_CHECK_MAX);
+  if (!candidates.length) return [];
+  if (onStep) onStep("checking who liked what…");
+  const out = [];
+  for (const post of candidates) {
+    try {
+      const u = new URL(`${PUB}/app.bsky.feed.getLikes`);
+      u.searchParams.set("uri", post.uri);
+      u.searchParams.set("limit", "100");
+      const d = await jget(u.toString());
+      const hit = (d.likes || []).find((l) => l.actor && poolDids.has(l.actor.did));
+      if (hit) {
+        out.push({
+          text: post.text,
+          uri: post.uri,
+          likeCount: post.likeCount,
+          repostCount: post.repostCount,
+          replyCount: post.replyCount,
+          liker: profileOf(hit.actor),
+        });
+      }
+    } catch {}
+  }
+  return out;
 }
