@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🫧 gulpstream — agar.io on the bluesky firehose</title>
+    <meta
+      name="description"
+      content="An agar.io clone played against the live Bluesky firehose. Arrow keys to move your blob around the arena, eat real posts as pellets to grow, and press spacebar to fire half your mass at a rival account. Outgrow them or get eaten."
+    />
+    <style>
+      :root { --ink: #eafcff; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: #06131c;
+        font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #stage { position: fixed; inset: 0; display: block; }
+
+      /* ---- hud ---- */
+      .hud {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px;
+        pointer-events: none;
+        z-index: 5;
+        font-weight: 700;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+      .mass { font-size: clamp(22px, 5vw, 36px); line-height: 1; }
+      .mass .n { color: #6bf0ff; }
+      .best { font-size: 12px; opacity: 0.75; letter-spacing: 0.02em; font-weight: 600; margin-top: 4px; }
+      .board {
+        background: rgba(4, 16, 22, 0.6);
+        border: 1px solid rgba(107, 240, 255, 0.18);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 12.5px;
+        min-width: 150px;
+      }
+      .board .row { display: flex; justify-content: space-between; gap: 10px; padding: 1px 0; font-weight: 600; }
+      .board .row.me { color: #6bf0ff; }
+      .board .title { font-size: 10.5px; opacity: 0.65; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; font-weight: 700; }
+
+      .status {
+        position: fixed;
+        left: 0; right: 0; bottom: 10px;
+        text-align: center;
+        font-size: 12px;
+        opacity: 0.72;
+        pointer-events: none;
+        z-index: 5;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+      }
+      .status .dot {
+        display: inline-block;
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #6bf0ff;
+        box-shadow: 0 0 8px #6bf0ff;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .status .dot.off { background: #ff5c5c; box-shadow: 0 0 8px #ff5c5c; }
+
+      /* ---- overlays ---- */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 24px;
+        text-align: center;
+        background: rgba(3, 10, 15, 0.75);
+        backdrop-filter: blur(3px);
+        z-index: 20;
+      }
+      .overlay.hidden { display: none; }
+      .overlay h1 {
+        margin: 0;
+        font-size: clamp(30px, 8vw, 62px);
+        line-height: 1.05;
+        letter-spacing: -0.01em;
+        text-shadow: 0 4px 0 #06323f, 0 8px 22px rgba(0, 0, 0, 0.6);
+      }
+      .overlay h1 .bub { color: #6bf0ff; }
+      .overlay p { margin: 0; max-width: 42ch; font-size: 15px; line-height: 1.5; opacity: 0.92; }
+      .overlay .fine { font-size: 12.5px; opacity: 0.66; max-width: 46ch; }
+      .overlay .final { font-size: 21px; font-weight: 800; }
+      .overlay .final .n { color: #6bf0ff; }
+      .btn {
+        pointer-events: auto;
+        cursor: pointer;
+        border: none;
+        border-radius: 999px;
+        padding: 15px 34px;
+        font-family: inherit;
+        font-weight: 800;
+        font-size: 19px;
+        color: #04141a;
+        background: linear-gradient(180deg, #7defff, #22b3c8);
+        box-shadow: 0 6px 0 #0f7c8c, 0 10px 24px rgba(0, 0, 0, 0.4);
+        transition: transform 0.06s ease, box-shadow 0.06s ease;
+      }
+      .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #0f7c8c, 0 6px 14px rgba(0, 0, 0, 0.4); }
+      .credit { font-size: 12px; opacity: 0.6; }
+      .credit a { color: #9de9ff; }
+      kbd {
+        display: inline-block;
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.28);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        padding: 1px 7px;
+        font-family: inherit;
+        font-weight: 700;
+        font-size: 0.92em;
+      }
+
+      /* eaten-post feed, bottom-left */
+      .feed {
+        position: fixed;
+        left: 14px; bottom: 34px;
+        width: min(340px, 62vw);
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 6px;
+        pointer-events: none;
+        z-index: 4;
+      }
+      .feed .item {
+        background: rgba(4, 16, 22, 0.66);
+        border-left: 3px solid #6bf0ff;
+        border-radius: 0 8px 8px 0;
+        padding: 5px 9px;
+        font-size: 12px;
+        line-height: 1.35;
+        animation: slidein 0.25s ease, fade 4.2s linear forwards;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      .feed .item.event { border-left-color: #ffcf5c; }
+      .feed .item .who { color: #9de9ff; font-weight: 700; }
+      .feed .item.event .who { color: #ffcf5c; }
+      @keyframes slidein { from { transform: translateX(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+      @keyframes fade { 0%, 84% { opacity: 1; } 100% { opacity: 0; } }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div class="hud">
+      <div>
+        <div class="mass">🫧 <span class="n" id="massVal">0</span></div>
+        <div class="best" id="best"></div>
+      </div>
+      <div class="board">
+        <div class="title">arena</div>
+        <div id="boardList"></div>
+      </div>
+    </div>
+
+    <div class="feed" id="feed"></div>
+
+    <div class="status"><span class="dot off" id="dot"></span><span id="statusText">connecting to the firehose…</span></div>
+
+    <!-- start / game over -->
+    <div class="overlay" id="startOverlay">
+      <h1>🫧 gulp<span class="bub">stream</span></h1>
+      <p>
+        The live Bluesky firehose, poured into an arena as pellets. Every pellet
+        is a real post — gulp them down to grow. Other accounts drift the arena
+        as rival blobs: outgrow them and they're lunch, but if they outgrow
+        <i>you</i>, you're theirs.
+      </p>
+      <p class="fine">
+        <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move ·
+        <kbd>space</kbd> fires half your mass at the nearest rival
+      </p>
+      <button class="btn" id="startBtn">drop in</button>
+      <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, for @norvid-studies.bsky.social</div>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1>🫧 gulped</h1>
+      <div class="final">final mass: <span class="n" id="finalMass">0</span> · best: <span id="finalBest">0</span></div>
+      <p id="overBlurb"></p>
+      <button class="btn" id="againBtn">drop in again</button>
+      <div class="credit">the stream never stops. neither does the next blob.</div>
+    </div>
+
+    <script>
+      // ------------------------------------------------------------------
+      // Gulpstream — agar.io played against the live Bluesky firehose.
+      // Arrow keys / WASD move your blob around a bounded arena; real posts
+      // fall in as colored pellets to eat and grow. Other firehose accounts
+      // wander the arena as AI rival blobs — outgrow and eat them, or get
+      // eaten. Spacebar fires half your mass at the nearest rival. Pure
+      // client-side, no login, no server. Jetstream consumer copied from
+      // sites/fruitninja (itself copied from sites/candyland).
+      // ------------------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+
+      const cv = document.getElementById("stage");
+      const ctx = cv.getContext("2d");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const massVal = document.getElementById("massVal");
+      const bestEl = document.getElementById("best");
+      const boardList = document.getElementById("boardList");
+      const feedEl = document.getElementById("feed");
+      const startOverlay = document.getElementById("startOverlay");
+      const overOverlay = document.getElementById("overOverlay");
+      const startBtn = document.getElementById("startBtn");
+      const againBtn = document.getElementById("againBtn");
+      const finalMassEl = document.getElementById("finalMass");
+      const finalBestEl = document.getElementById("finalBest");
+      const overBlurb = document.getElementById("overBlurb");
+
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+
+      // ---- world ------------------------------------------------------------
+      const WORLD = 3400; // square arena, world units
+      const massToR = (m) => 9 + Math.sqrt(Math.max(0, m)) * 2.15;
+      const speedForR = (r) => clamp(360 - r * 3.4, 68, 360);
+
+      let W = 0, H = 0, DPR = 1;
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        cv.width = Math.floor(W * DPR);
+        cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px";
+        cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ---- identity color (consistent per-account hue) ----------------------
+      function hueFor(key) {
+        let h = 0;
+        for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+        return h % 360;
+      }
+      function blobFill(hue) { return `hsl(${hue} 78% 58%)`; }
+      function blobDark(hue) { return `hsl(${hue} 70% 34%)`; }
+
+      // ---- firehose ingestion (jetstream, copied from fruitninja) ----------
+      const SPAM = /#nowplaying|listen live|onelink\.to|🛒|shop now|buy now|prime members|amzn\.to/i;
+      const postQueue = []; // {did, handle, text}
+      const MAX_QUEUE = 140;
+      let postCountWindow = 0, rate = 0, connected = false;
+
+      function onPost(did, text) {
+        postCountWindow++;
+        if (SPAM.test(text)) return;
+        const t = (text || "").replace(/\s+/g, " ").trim();
+        if (!t) return;
+        const handle = did.startsWith("did:plc:") ? did.slice(8, 16) + "…" : (did || "someone");
+        if (postQueue.length >= MAX_QUEUE) postQueue.shift();
+        postQueue.push({ did, handle, text: t });
+      }
+
+      let ws = null, retry = 0;
+      function connect() {
+        try { ws = new WebSocket(JETSTREAM); } catch (e) { scheduleReconnect(); return; }
+        ws.onopen = () => { retry = 0; connected = true; setStatus(true, "streaming posts…"); };
+        ws.onmessage = (ev) => {
+          let msg;
+          try { msg = JSON.parse(ev.data); } catch { return; }
+          const c = msg.commit;
+          if (msg.kind === "commit" && c && c.operation === "create" && c.collection === "app.bsky.feed.post") {
+            onPost(msg.did || "", (c.record && c.record.text) || "");
+          }
+        };
+        ws.onclose = () => { connected = false; setStatus(false, "reconnecting…"); scheduleReconnect(); };
+        ws.onerror = () => { try { ws.close(); } catch {} };
+      }
+      function scheduleReconnect() { retry = Math.min(retry + 1, 6); setTimeout(connect, 400 * retry + rnd(400)); }
+      function setStatus(live, text) { dot.classList.toggle("off", !live); statusText.textContent = text; }
+      setInterval(() => {
+        rate = postCountWindow; postCountWindow = 0;
+        if (!connected) return;
+        setStatus(true, `${rate} posts/s · ${postQueue.length} in the stream`);
+      }, 1000);
+      connect();
+
+      let fillerN = 0;
+      function nextPost() {
+        if (postQueue.length) return postQueue.shift();
+        fillerN++;
+        return { did: "filler:" + fillerN, handle: "the.stream", text: pick([
+          "waiting on the next post…", "somebody say something on bluesky",
+          "the stream is quiet for a sec", "gulp me anyway",
+        ]) };
+      }
+
+      // ---- world state --------------------------------------------------
+      let running = false;
+      let best = 0;
+      try { best = parseInt(localStorage.getItem("gs_best") || "0", 10) || 0; } catch {}
+
+      let player = null;      // {x,y,vx,vy,mass,facing:{x,y},hue}
+      const rivals = [];      // {x,y,vx,vy,mass,hue,handle,retarget,tx,ty,alive}
+      const pellets = [];     // {x,y,mass,r,hue,post}
+      const shots = [];       // {x,y,vx,vy,mass,r,age,hue}
+      const bursts = [];      // floating pop text {x,y,text,color,life,max,vy}
+      const worldBits = [];   // small death-splatter particles
+
+      const MAX_PELLETS = 180;
+      const MAX_RIVALS = 11;
+      const START_MASS = 22;
+      const MIN_RIVAL_MASS = 9;
+      const FIRE_MIN_MASS = 34;
+      const FIRE_COOLDOWN = 0.5;
+
+      let cam = { x: WORLD / 2, y: WORLD / 2, scale: 1 };
+      let shake = 0;
+      let last = 0;
+      let fireCd = 0;
+      let spawnPelletTimer = 0;
+      let spawnRivalTimer = 0;
+
+      function pelletMassFor(text) { return clamp(1.6 + text.length / 22, 1.6, 5.5); }
+
+      function randomNear(x, y, radius) {
+        const a = rnd(6.2832), d = Math.sqrt(Math.random()) * radius;
+        return { x: clamp(x + Math.cos(a) * d, 40, WORLD - 40), y: clamp(y + Math.sin(a) * d, 40, WORLD - 40) };
+      }
+
+      function spawnPellet(near) {
+        if (pellets.length >= MAX_PELLETS) return;
+        const post = nextPost();
+        const p = near ? randomNear(near.x, near.y, 1500) : randomNear(WORLD / 2, WORLD / 2, WORLD / 2.1);
+        const m = pelletMassFor(post.text);
+        pellets.push({ x: p.x, y: p.y, mass: m, r: 3.4 + m * 0.9, hue: hueFor(post.did), post });
+      }
+
+      function spawnRival(near) {
+        if (rivals.length >= MAX_RIVALS) return;
+        const post = nextPost();
+        const p = near ? randomNear(near.x, near.y, 1700) : randomNear(WORLD / 2, WORLD / 2, WORLD / 2.1);
+        const mass = rnd(14, 85);
+        rivals.push({
+          x: p.x, y: p.y, vx: 0, vy: 0, mass,
+          hue: hueFor(post.did), handle: post.handle,
+          retarget: 0, tx: p.x, ty: p.y, fleeing: false,
+        });
+      }
+
+      function resetWorld() {
+        pellets.length = 0; rivals.length = 0; shots.length = 0; bursts.length = 0; worldBits.length = 0;
+        const startPost = nextPost();
+        player = {
+          x: WORLD / 2, y: WORLD / 2, vx: 0, vy: 0, mass: START_MASS,
+          facing: { x: 1, y: 0 }, hue: hueFor(startPost.did || "you"),
+        };
+        cam.x = player.x; cam.y = player.y; cam.scale = 1;
+        for (let i = 0; i < 90; i++) spawnPellet(player);
+        for (let i = 0; i < 7; i++) spawnRival(player);
+      }
+
+      // ---- input ----------------------------------------------------------
+      const keys = new Set();
+      window.addEventListener("keydown", (e) => {
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+        keys.add(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+        if (e.key === " " && running) fireShot();
+      });
+      window.addEventListener("keyup", (e) => {
+        keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+      });
+
+      function moveVector() {
+        let dx = 0, dy = 0;
+        if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
+        if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
+        if (keys.has("ArrowUp") || keys.has("w")) dy -= 1;
+        if (keys.has("ArrowDown") || keys.has("s")) dy += 1;
+        const len = Math.hypot(dx, dy);
+        return len > 0 ? { x: dx / len, y: dy / len } : null;
+      }
+
+      function fireShot() {
+        if (fireCd > 0 || !player || player.mass < FIRE_MIN_MASS) return;
+        fireCd = FIRE_COOLDOWN;
+        const amount = player.mass * 0.5;
+        player.mass -= amount;
+
+        // auto-aim at the nearest living rival within range, else fire facing
+        let target = null, best = Infinity;
+        for (const r of rivals) {
+          const d = dist(player.x, player.y, r.x, r.y);
+          if (d < 950 && d < best) { best = d; target = r; }
+        }
+        let dx = player.facing.x, dy = player.facing.y;
+        if (target) {
+          const d = dist(player.x, player.y, target.x, target.y) || 1;
+          dx = (target.x - player.x) / d; dy = (target.y - player.y) / d;
+        }
+        const r0 = massToR(player.mass);
+        shots.push({
+          x: player.x + dx * (r0 + 6), y: player.y + dy * (r0 + 6),
+          vx: dx * 720, vy: dy * 720,
+          mass: amount, r: massToR(amount) * 0.55, age: 0, hue: player.hue,
+          targetHandle: target ? target.handle : null,
+        });
+        pushFeed({ handle: "you", text: target ? `fired at @${target.handle}` : "fired into the stream" }, true);
+      }
+
+      // ---- feed / pops ------------------------------------------------------
+      function pushFeed(post, isEvent) {
+        const item = document.createElement("div");
+        item.className = "item" + (isEvent ? " event" : "");
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = "@" + post.handle + " ";
+        item.appendChild(who);
+        item.appendChild(document.createTextNode(isEvent ? post.text : post.text.slice(0, 130)));
+        feedEl.appendChild(item);
+        while (feedEl.children.length > 4) feedEl.removeChild(feedEl.firstChild);
+        setTimeout(() => item.remove(), 4400);
+      }
+
+      function floatText(x, y, text, color) {
+        bursts.push({ x, y, text, color, life: 0.9, max: 0.9, vy: -55 });
+      }
+
+      function splatBits(x, y, hue, n) {
+        for (let i = 0; i < n; i++) {
+          const a = rnd(6.2832), sp = rnd(60, 320);
+          worldBits.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: rnd(2, 5), hue, life: rnd(0.4, 0.9), max: 0.9 });
+        }
+      }
+
+      // scatter surviving mass as pellets at a spot (used when a shot misses
+      // or a blob dies) so nothing just vanishes from the stream
+      function scatterMassAsPellets(x, y, mass, hue) {
+        let remaining = mass;
+        while (remaining > 1.2 && pellets.length < MAX_PELLETS + 20) {
+          const chunk = Math.min(remaining, rnd(1.6, 4));
+          remaining -= chunk;
+          const p = randomNear(x, y, 70);
+          pellets.push({ x: p.x, y: p.y, mass: chunk, r: 3.4 + chunk * 0.9, hue, post: { handle: "the.stream", text: "leftover mass" } });
+        }
+      }
+
+      // ---- AI ----------------------------------------------------------
+      function stepRival(r, dt) {
+        r.retarget -= dt;
+        // threat check: flee anything notably bigger within range
+        let threat = null, threatD = Infinity;
+        const consider = [player, ...rivals];
+        for (const o of consider) {
+          if (o === r || !o) continue;
+          const om = o.mass;
+          if (om > r.mass * 1.15) {
+            const d = dist(r.x, r.y, o.x, o.y);
+            if (d < 420 && d < threatD) { threatD = d; threat = o; }
+          }
+        }
+        if (threat) {
+          const d = threatD || 1;
+          r.tx = r.x - (threat.x - r.x) / d * 300;
+          r.ty = r.y - (threat.y - r.y) / d * 300;
+          r.fleeing = true;
+          r.retarget = Math.max(r.retarget, 0.2);
+        } else if (r.retarget <= 0) {
+          r.fleeing = false;
+          // hunt: chase a much smaller nearby blob if bigger, else nearest pellet, else wander
+          let prey = null, preyD = Infinity;
+          for (const o of consider) {
+            if (o === r || !o) continue;
+            if (r.mass > o.mass * 1.25) {
+              const d = dist(r.x, r.y, o.x, o.y);
+              if (d < 500 && d < preyD) { preyD = d; prey = o; }
+            }
+          }
+          if (prey) {
+            r.tx = prey.x; r.ty = prey.y;
+          } else {
+            let np = null, npD = Infinity;
+            for (const p of pellets) {
+              const d = dist(r.x, r.y, p.x, p.y);
+              if (d < 650 && d < npD) { npD = d; np = p; }
+            }
+            if (np) { r.tx = np.x; r.ty = np.y; }
+            else { const w = randomNear(r.x, r.y, 500); r.tx = w.x; r.ty = w.y; }
+          }
+          r.retarget = rnd(1, 2.2);
+        }
+        const d = dist(r.x, r.y, r.tx, r.ty) || 1;
+        const spd = speedForR(massToR(r.mass)) * (r.fleeing ? 1.15 : 0.85);
+        const dx = (r.tx - r.x) / d, dy = (r.ty - r.y) / d;
+        r.vx += (dx * spd - r.vx) * clamp(dt * 3, 0, 1);
+        r.vy += (dy * spd - r.vy) * clamp(dt * 3, 0, 1);
+        r.x = clamp(r.x + r.vx * dt, 20, WORLD - 20);
+        r.y = clamp(r.y + r.vy * dt, 20, WORLD - 20);
+      }
+
+      function killRival(r, idx, eatenBy) {
+        scatterMassAsPellets(r.x, r.y, r.mass * 0.7, r.hue);
+        splatBits(r.x, r.y, r.hue, 16);
+        rivals.splice(idx, 1);
+        if (eatenBy === player) {
+          floatText(r.x, r.y, `gulped @${r.handle}!`, "#ffe14d");
+          pushFeed({ handle: "you", text: `gulped @${r.handle}` }, true);
+        }
+        setTimeout(() => { if (running) spawnRival(player); }, rnd(1500, 3200));
+      }
+
+      // ---- update ---------------------------------------------------------
+      function update(dt) {
+        fireCd = Math.max(0, fireCd - dt);
+
+        // player movement
+        const mv = moveVector();
+        const r0 = massToR(player.mass);
+        const maxSpd = speedForR(r0);
+        if (mv) {
+          player.vx += (mv.x * maxSpd - player.vx) * clamp(dt * 6, 0, 1);
+          player.vy += (mv.y * maxSpd - player.vy) * clamp(dt * 6, 0, 1);
+          player.facing = mv;
+        } else {
+          player.vx *= Math.max(0, 1 - dt * 4.5);
+          player.vy *= Math.max(0, 1 - dt * 4.5);
+        }
+        player.x = clamp(player.x + player.vx * dt, r0, WORLD - r0);
+        player.y = clamp(player.y + player.vy * dt, r0, WORLD - r0);
+
+        // camera follows, zooms out with size
+        cam.x += (player.x - cam.x) * clamp(dt * 5, 0, 1);
+        cam.y += (player.y - cam.y) * clamp(dt * 5, 0, 1);
+        const targetScale = clamp(1.05 - (r0 - massToR(START_MASS)) * 0.0026, 0.42, 1.05);
+        cam.scale += (targetScale - cam.scale) * clamp(dt * 3, 0, 1);
+
+        // rivals think + move
+        for (const r of rivals) stepRival(r, dt);
+
+        // spawn cadence
+        spawnPelletTimer -= dt;
+        if (spawnPelletTimer <= 0) { spawnPellet(player); spawnPelletTimer = rnd(0.12, 0.3); }
+        spawnRivalTimer -= dt;
+        if (spawnRivalTimer <= 0 && rivals.length < MAX_RIVALS) { spawnRival(player); spawnRivalTimer = rnd(4, 9); }
+
+        // cull pellets that drifted (conceptually) too far from play — here
+        // pellets don't move, but cap far-away ones so density stays near you
+        for (let i = pellets.length - 1; i >= 0; i--) {
+          if (dist(pellets[i].x, pellets[i].y, player.x, player.y) > 2600) pellets.splice(i, 1);
+        }
+
+        // player eats pellets
+        for (let i = pellets.length - 1; i >= 0; i--) {
+          const p = pellets[i];
+          if (dist(p.x, p.y, player.x, player.y) < r0) {
+            player.mass += p.mass;
+            floatText(p.x, p.y, `+${p.mass.toFixed(1)}`, "#9de9ff");
+            pushFeed(p.post, false);
+            pellets.splice(i, 1);
+          }
+        }
+        // rivals eat pellets
+        for (const rv of rivals) {
+          const rr = massToR(rv.mass);
+          for (let i = pellets.length - 1; i >= 0; i--) {
+            const p = pellets[i];
+            if (dist(p.x, p.y, rv.x, rv.y) < rr) { rv.mass += p.mass; pellets.splice(i, 1); }
+          }
+        }
+
+        // shots travel + collide with rivals
+        for (let i = shots.length - 1; i >= 0; i--) {
+          const s = shots[i];
+          s.age += dt;
+          s.x += s.vx * dt; s.y += s.vy * dt;
+          let hit = false;
+          if (s.x < 0 || s.x > WORLD || s.y < 0 || s.y > WORLD || s.age > 1.3) {
+            scatterMassAsPellets(clamp(s.x, 10, WORLD - 10), clamp(s.y, 10, WORLD - 10), s.mass, s.hue);
+            shots.splice(i, 1);
+            continue;
+          }
+          for (let j = rivals.length - 1; j >= 0; j--) {
+            const rv = rivals[j];
+            if (dist(s.x, s.y, rv.x, rv.y) < massToR(rv.mass) + s.r) {
+              rv.mass -= s.mass;
+              floatText(rv.x, rv.y, `-${s.mass.toFixed(1)}`, "#ff8a8a");
+              shake = Math.min(10, shake + 4);
+              if (rv.mass < MIN_RIVAL_MASS) killRival(rv, j, player);
+              hit = true;
+              break;
+            }
+          }
+          if (hit) shots.splice(i, 1);
+        }
+
+        // blob-vs-blob: bigger eats smaller (player + rivals)
+        for (let i = rivals.length - 1; i >= 0; i--) {
+          const rv = rivals[i];
+          const d = dist(rv.x, rv.y, player.x, player.y);
+          const rr = massToR(rv.mass);
+          if (d < Math.max(r0, rr) * 0.82) {
+            if (player.mass > rv.mass * 1.15) {
+              player.mass += rv.mass * 0.8;
+              killRival(rv, i, player);
+            } else if (rv.mass > player.mass * 1.15) {
+              gameOver(rv.handle);
+              return;
+            }
+          }
+        }
+        for (let i = rivals.length - 1; i >= 0; i--) {
+          for (let j = rivals.length - 1; j >= 0; j--) {
+            if (i === j || !rivals[i] || !rivals[j]) continue;
+            const a = rivals[i], b = rivals[j];
+            const d = dist(a.x, a.y, b.x, b.y);
+            if (d < Math.max(massToR(a.mass), massToR(b.mass)) * 0.82 && a.mass > b.mass * 1.15) {
+              a.mass += b.mass * 0.8;
+              killRival(b, j, null);
+              break;
+            }
+          }
+        }
+
+        // particles
+        for (const b of worldBits) { b.x += b.vx * dt; b.y += b.vy * dt; b.vx *= 0.94; b.vy *= 0.94; b.life -= dt; }
+        for (let i = worldBits.length - 1; i >= 0; i--) if (worldBits[i].life <= 0) worldBits.splice(i, 1);
+        for (const p of bursts) { p.y += p.vy * dt; p.life -= dt; }
+        for (let i = bursts.length - 1; i >= 0; i--) if (bursts[i].life <= 0) bursts.splice(i, 1);
+        if (shake > 0) shake = Math.max(0, shake - dt * 40);
+
+        massVal.textContent = Math.round(player.mass);
+        renderBoard();
+      }
+
+      function renderBoard() {
+        const all = [{ name: "you", mass: player.mass, me: true }]
+          .concat(rivals.map((r) => ({ name: "@" + r.handle, mass: r.mass, me: false })));
+        all.sort((a, b) => b.mass - a.mass);
+        let html = "";
+        for (const e of all.slice(0, 5)) {
+          html += `<div class="row${e.me ? " me" : ""}"><span>${e.me ? "you" : e.name}</span><span>${Math.round(e.mass)}</span></div>`;
+        }
+        boardList.innerHTML = html;
+      }
+
+      // ---- drawing ---------------------------------------------------------
+      function worldToScreen(x, y) {
+        return { x: (x - cam.x) * cam.scale + W / 2, y: (y - cam.y) * cam.scale + H / 2 };
+      }
+
+      function drawBlob(x, y, r, hue, label) {
+        const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.15, x, y, r);
+        g.addColorStop(0, `hsl(${hue} 85% 68%)`);
+        g.addColorStop(1, blobFill(hue));
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, 6.2832);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.lineWidth = Math.max(1.5, r * 0.06);
+        ctx.strokeStyle = blobDark(hue);
+        ctx.stroke();
+        if (label && r > 12) {
+          ctx.font = `700 ${clamp(r * 0.34, 10, 16)}px "Baloo 2", system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillStyle = "rgba(6,19,28,0.85)";
+          ctx.fillText(label, x, y + 4);
+        }
+      }
+
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        if (shake > 0.5) ctx.translate(rnd(-shake, shake) * 0.5, rnd(-shake, shake) * 0.5);
+
+        // background grid, in world space
+        const gridStep = 90;
+        ctx.strokeStyle = "rgba(107,240,255,0.06)";
+        ctx.lineWidth = 1;
+        const topLeft = worldToScreen(0, 0);
+        const startX = topLeft.x % (gridStep * cam.scale);
+        const startY = topLeft.y % (gridStep * cam.scale);
+        ctx.beginPath();
+        for (let x = startX; x < W; x += gridStep * cam.scale) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+        for (let y = startY; y < H; y += gridStep * cam.scale) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+        ctx.stroke();
+
+        // arena boundary glow
+        const tl = worldToScreen(0, 0), br = worldToScreen(WORLD, WORLD);
+        ctx.strokeStyle = "rgba(107,240,255,0.35)";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+
+        if (player) {
+          // pellets
+          for (const p of pellets) {
+            const s = worldToScreen(p.x, p.y);
+            if (s.x < -20 || s.x > W + 20 || s.y < -20 || s.y > H + 20) continue;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, p.r * cam.scale, 0, 6.2832);
+            ctx.fillStyle = `hsl(${p.hue} 75% 62%)`;
+            ctx.fill();
+          }
+
+          // death particles
+          for (const b of worldBits) {
+            const s = worldToScreen(b.x, b.y);
+            ctx.globalAlpha = clamp(b.life / b.max, 0, 1);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, b.r * cam.scale, 0, 6.2832);
+            ctx.fillStyle = `hsl(${b.hue} 75% 62%)`;
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+
+          // rivals
+          for (const r of rivals) {
+            const s = worldToScreen(r.x, r.y);
+            drawBlob(s.x, s.y, massToR(r.mass) * cam.scale, r.hue, "@" + r.handle);
+          }
+
+          // shots
+          for (const sh of shots) {
+            const s = worldToScreen(sh.x, sh.y);
+            drawBlob(s.x, s.y, sh.r * cam.scale, sh.hue, null);
+          }
+
+          // player (always drawn on top)
+          const ps = worldToScreen(player.x, player.y);
+          drawBlob(ps.x, ps.y, massToR(player.mass) * cam.scale, player.hue, "you");
+        }
+
+        // pops
+        for (const p of bursts) {
+          const s = worldToScreen(p.x, p.y);
+          ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
+          ctx.font = "800 18px 'Baloo 2', system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillStyle = p.color;
+          ctx.strokeStyle = "rgba(0,0,0,0.5)";
+          ctx.lineWidth = 3;
+          ctx.strokeText(p.text, s.x, s.y);
+          ctx.fillText(p.text, s.x, s.y);
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.restore();
+      }
+
+      // ---- loop ------------------------------------------------------------
+      function frame(ts) {
+        const dt = Math.min(0.05, (ts - last) / 1000 || 0);
+        last = ts;
+        if (running) update(dt);
+        render();
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      // ---- game control ----------------------------------------------------
+      const OVER_BLURBS = [
+        "the stream kept flowing without you. it always does.",
+        "outgrown, outgulped. happens to the best blobs.",
+        "you were somebody's pellet all along.",
+        "a bigger blob was watching the whole time.",
+      ];
+
+      function startGame() {
+        resetWorld();
+        bestEl.textContent = best ? "best " + best : "";
+        massVal.textContent = Math.round(player.mass);
+        startOverlay.classList.add("hidden");
+        overOverlay.classList.add("hidden");
+        running = true;
+      }
+
+      function gameOver(byHandle) {
+        running = false;
+        const finalMass = Math.round(player.mass);
+        if (finalMass > best) {
+          best = finalMass;
+          try { localStorage.setItem("gs_best", String(best)); } catch {}
+        }
+        finalMassEl.textContent = finalMass;
+        finalBestEl.textContent = best;
+        overBlurb.textContent = byHandle
+          ? `gulped by @${byHandle}. ${pick(OVER_BLURBS)}`
+          : pick(OVER_BLURBS);
+        overOverlay.classList.remove("hidden");
+      }
+
+      startBtn.addEventListener("click", startGame);
+      againBtn.addEventListener("click", startGame);
+      bestEl.textContent = best ? "best " + best : "";
+    </script>
+  </body>
+</html>
