@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>demon avocado — a criticality incident that speaks Lisp</title>
+<meta name="description" content="An avocado whose pit is a demon core that implements ANSI Common Lisp. Type into the pit. Do not fully assemble the two hemispheres." />
+<style>
+  :root {
+    --skin: #2f4a1f;
+    --flesh-outer: #a6c34a;
+    --flesh-inner: #dfe98f;
+    --core-glow: #7dff9e;
+    --core-hot: #b6ffcf;
+    --bg: #0a0d09;
+    --ink: #cfe8c4;
+    --amber: #ffcf6b;
+    --danger: #ff5a4d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #14201025, transparent),
+      var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    min-height: 100%;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 28px 16px 64px;
+  }
+  header { text-align: center; max-width: 720px; }
+  h1 {
+    font-size: clamp(26px, 6vw, 44px); margin: 0 0 6px;
+    letter-spacing: -0.02em; color: #eafbe0;
+    text-shadow: 0 0 24px #3dff7a33;
+  }
+  .tagline { color: #8fb27f; margin: 0 0 4px; }
+  .warn {
+    display: inline-block; margin-top: 8px; padding: 3px 10px;
+    border: 1px solid var(--danger); border-radius: 999px;
+    color: var(--danger); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+  .stage {
+    display: flex; flex-wrap: wrap; gap: 28px; justify-content: center;
+    align-items: flex-start; margin: 26px 0 8px; width: 100%; max-width: 980px;
+  }
+
+  /* ---- the avocado ---- */
+  .avocado-wrap { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; }
+  .avocado { width: 260px; height: 340px; position: relative; }
+  .avocado svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .core-halo {
+    position: absolute; left: 50%; top: 60%; width: 150px; height: 150px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, var(--core-glow) 0%, #2bff6a55 34%, transparent 66%);
+    filter: blur(6px); pointer-events: none;
+    animation: breathe 3.6s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity: .6; transform: translate(-50%,-50%) scale(.94); } 50% { opacity: 1; transform: translate(-50%,-50%) scale(1.08); } }
+  .crit { animation: crit-flash 0.14s steps(2) 6; }
+  @keyframes crit-flash { 0%{filter:blur(6px) brightness(1);} 50%{filter:blur(2px) brightness(3.2);} 100%{filter:blur(6px) brightness(1);} }
+  .caption { margin-top: 10px; font-size: 12px; color: #7a9a6c; text-align: center; max-width: 240px; }
+  .caption b { color: var(--amber); }
+
+  /* ---- the REPL ---- */
+  .repl {
+    flex: 1 1 420px; min-width: 300px; max-width: 560px;
+    background: #05100a; border: 1px solid #1c3a24;
+    border-radius: 10px; box-shadow: 0 0 0 1px #0c2015, 0 20px 60px #000a;
+    display: flex; flex-direction: column; overflow: hidden;
+    height: 400px;
+  }
+  .repl-bar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background: #08150d; border-bottom: 1px solid #163021; font-size: 12px; color: #6fae7f;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--core-glow); box-shadow: 0 0 8px var(--core-glow); }
+  .repl-out {
+    flex: 1; overflow-y: auto; padding: 12px 14px; white-space: pre-wrap; word-break: break-word;
+  }
+  .repl-out .prompt { color: #55c37a; }
+  .repl-out .in { color: #eafbe0; }
+  .repl-out .res { color: var(--amber); }
+  .repl-out .err { color: var(--danger); }
+  .repl-out .say { color: #7fb9ff; }
+  .repl-out .print { color: #b6ffcf; }
+  .repl-in-row { display: flex; align-items: center; border-top: 1px solid #163021; background: #071009; }
+  .repl-in-row .caret { padding: 0 6px 0 12px; color: #55c37a; }
+  .repl-in {
+    flex: 1; background: transparent; border: 0; outline: 0; color: #eafbe0;
+    font: inherit; padding: 10px 12px 10px 2px;
+  }
+  .hint { color: #5c7a52; }
+  a { color: var(--core-glow); }
+  .examples { max-width: 560px; margin: 22px auto 0; color: #7a9a6c; font-size: 13px; }
+  .examples code {
+    display: inline-block; margin: 3px 6px 3px 0; padding: 2px 8px;
+    background: #0c1c12; border: 1px solid #1c3a24; border-radius: 6px;
+    color: #cfe8c4; cursor: pointer;
+  }
+  .examples code:hover { background: #12301c; border-color: var(--core-glow); }
+  footer { margin-top: 34px; color: #4c6642; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>demon avocado</h1>
+    <p class="tagline">an avocado whose pit is a demon core that implements ANSI Common Lisp</p>
+    <span class="warn">criticality warning · do not fully seat the hemispheres</span>
+  </header>
+
+  <div class="stage">
+    <div class="avocado-wrap">
+      <div class="avocado">
+        <div class="core-halo" id="halo"></div>
+        <svg viewBox="0 0 260 340" role="img" aria-label="An avocado cut in half, its pit glowing as a demon core">
+          <defs>
+            <radialGradient id="flesh" cx="50%" cy="42%" r="62%">
+              <stop offset="0%" stop-color="var(--flesh-inner)"/>
+              <stop offset="70%" stop-color="var(--flesh-outer)"/>
+              <stop offset="100%" stop-color="#7f9f38"/>
+            </radialGradient>
+            <radialGradient id="core" cx="50%" cy="42%" r="60%">
+              <stop offset="0%" stop-color="var(--core-hot)"/>
+              <stop offset="45%" stop-color="var(--core-glow)"/>
+              <stop offset="100%" stop-color="#0f7a3a"/>
+            </radialGradient>
+            <filter id="soft"><feGaussianBlur stdDeviation="0.6"/></filter>
+          </defs>
+
+          <!-- avocado body: skin -->
+          <path d="M130 14
+                   C 74 14, 40 74, 40 152
+                   C 40 250, 84 326, 130 326
+                   C 176 326, 220 250, 220 152
+                   C 220 74, 186 14, 130 14 Z"
+                fill="var(--skin)"/>
+          <!-- flesh -->
+          <path d="M130 30
+                   C 84 30, 56 82, 56 152
+                   C 56 240, 92 310, 130 310
+                   C 168 310, 204 240, 204 152
+                   C 204 82, 176 30, 130 30 Z"
+                fill="url(#flesh)"/>
+
+          <!-- the pit socket (subtle darker ring) -->
+          <ellipse cx="130" cy="196" rx="66" ry="66" fill="#0b1a10" opacity="0.55"/>
+
+          <!-- the DEMON CORE (the "ball"): sphere in two hemispheres -->
+          <circle cx="130" cy="196" r="54" fill="url(#core)"/>
+          <!-- specular highlight -->
+          <ellipse cx="112" cy="176" rx="20" ry="13" fill="#eafff0" opacity="0.55" filter="url(#soft)"/>
+          <!-- the gap between the two hemispheres (Slotin's screwdriver) -->
+          <path d="M76 196 H184" stroke="#04150a" stroke-width="3" opacity="0.85"/>
+          <!-- the screwdriver holding the top hemisphere ajar -->
+          <g id="driver">
+            <rect x="176" y="150" width="46" height="6" rx="3" transform="rotate(-24 176 153)" fill="#c9c9c9"/>
+            <rect x="214" y="128" width="10" height="26" rx="3" transform="rotate(-24 214 141)" fill="#d94a3d"/>
+          </g>
+          <!-- faint criticality tick marks -->
+          <circle cx="130" cy="196" r="54" fill="none" stroke="var(--core-hot)" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <p class="caption">
+        the pit is a <b>demon core</b> — a sub-critical sphere held a screwdriver's-width
+        ajar. it evaluates Lisp. every form you enter nudges the hemispheres.
+      </p>
+    </div>
+
+    <div class="repl" id="repl">
+      <div class="repl-bar"><span class="dot"></span> DEMON-CORE-LISP · REPL · (reactor stable)</div>
+      <div class="repl-out" id="out"></div>
+      <div class="repl-in-row">
+        <span class="caret">λ&gt;</span>
+        <input class="repl-in" id="in" autocomplete="off" autocapitalize="off"
+               spellcheck="false" placeholder="(+ 1 2 3)" aria-label="Lisp input" />
+      </div>
+    </div>
+  </div>
+
+  <div class="examples">
+    <span class="hint">tap to load — the core will evaluate it:</span><br/>
+    <code>(defun fact (n) (if (&lt;= n 1) 1 (* n (fact (- n 1)))))</code>
+    <code>(fact 20)</code>
+    <code>(mapcar (lambda (x) (* x x)) '(1 2 3 4 5))</code>
+    <code>(let ((half 4.7e9)) (* half half))</code>
+    <code>(reduce #'+ '(1 2 3 4 5 6 7 8 9 10))</code>
+    <code>(reverse '(demon core critical mass))</code>
+    <code>(format nil "~a rem absorbed" 1050)</code>
+    <code>(assemble)</code>
+    <code>(help)</code>
+  </div>
+
+  <footer>
+    a <a href="https://buildthis.bisks.net">@buildthis</a> build · requested by
+    @norvid-studies · part of <a href="https://bisks.net">atprotozoa</a><br/>
+    the Lisp is real (a subset). the plutonium is not. please do not perform the demon core experiment.
+  </footer>
+
+<script type="module">
+import { makeInterpreter } from "./lisp.js";
+
+const out = document.getElementById("out");
+const input = document.getElementById("in");
+const halo = document.getElementById("halo");
+const repl = document.getElementById("repl");
+const bar = document.querySelector(".repl-bar");
+
+const interp = makeInterpreter();
+interp.setOutput((s) => line("print", s));
+
+// A couple of non-standard "flavor" builtins live in the same env as the real ones.
+interp.env.define("HELP", () => { showHelp(); return { sym: "T" }; });
+interp.env.define("ASSEMBLE", () => {
+  goCritical();
+  return { str: "the hemispheres touch. a blue flash. 21 μs of prompt criticality. (do not do this)" };
+});
+interp.env.define("SCRAM", () => { bar.textContent = ""; bar.append(dot(), document.createTextNode(" DEMON-CORE-LISP · REPL · (reactor stable)")); repl.classList.remove("hot"); return { str: "reactor scrammed. control rods in." }; });
+
+function dot() { const d = document.createElement("span"); d.className = "dot"; return d; }
+
+function line(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls;
+  div.textContent = text;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+}
+function echo(src) {
+  const div = document.createElement("div");
+  div.innerHTML = '<span class="prompt">λ&gt; </span>';
+  const s = document.createElement("span");
+  s.className = "in"; s.textContent = src;
+  div.appendChild(s);
+  out.appendChild(div);
+}
+
+function pulseCore() {
+  halo.classList.remove("crit"); void halo.offsetWidth; halo.classList.add("crit");
+}
+function goCritical() {
+  pulseCore();
+  bar.style.color = "#ff5a4d";
+  line("err", "*** BLUE GLOW — a burst of criticality ***");
+  setTimeout(() => { bar.style.color = ""; }, 1600);
+}
+
+const HELP = [
+  "DEMON-CORE-LISP — an ANSI-flavored subset, running inside an avocado pit.",
+  "",
+  "numbers:   + - * / mod rem 1+ 1- abs min max sqrt expt floor gcd expt",
+  "compare:   = /= < > <= >= zerop plusp evenp oddp",
+  "logic:     and or not if cond when unless",
+  "predicates: null atom consp listp numberp symbolp stringp eq eql equal",
+  "lists:     cons car cdr first rest nth list append reverse length member assoc",
+  "           remove sort last mapcar mapcan reduce remove-if find-if every some",
+  "binding:   let let* setq defvar defun lambda funcall apply",
+  "strings:   concatenate string-upcase string-downcase format length reverse",
+  "io:        print princ format terpri",
+  "flavor:    (assemble)  (scram)  (help)   ·   constants: t nil pi *demon-core*",
+  "",
+  "it is NOT full ANSI CL — but it genuinely evaluates. try (fact 20).",
+];
+function showHelp() { HELP.forEach((l) => line("say", l)); }
+
+function evalLine(src) {
+  src = src.trim();
+  if (!src) return;
+  echo(src);
+  pulseCore();
+  try {
+    const results = interp.run(src);
+    results.forEach((r) => line("res", r));
+  } catch (e) {
+    line("err", "; error: " + e.message);
+  }
+}
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const v = input.value; input.value = ""; evalLine(v); }
+});
+document.querySelectorAll(".examples code").forEach((c) => {
+  c.addEventListener("click", () => { input.value = c.textContent; input.focus(); });
+});
+
+// boot banner
+line("say", "; DEMON-CORE-LISP 0.1 — the pit is critical. type a form, hit enter.");
+line("say", "; (help) lists what the core understands. (assemble) at your own risk.");
+input.focus();
+</script>
+</body>
+</html>
