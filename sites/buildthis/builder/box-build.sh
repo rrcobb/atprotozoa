@@ -70,20 +70,31 @@ write_provenance() {
   echo "  wrote provenance $out"
 }
 
-echo "=== sync to origin/main ==="
+echo "=== sync to origin/main (preserve any local work, never discard it) ==="
 git fetch origin main
-# Fast-forward to main, preserving anything already committed locally. Every build
-# now commits + pushes its work before finishing (see the preserve/push block), so
-# at the top of a normal build the tree is clean and a ff pull just advances it —
-# no --hard reset that would throw away committed work. The fallback: if the tree is
-# dirty (a build was SIGKILLed mid-edit and left uncommitted junk) or the pull can't
-# fast-forward, reset --hard to origin/main to guarantee a clean, current start.
-# Committed work is safe either way (it's on origin); only uncommitted leftovers,
-# which are by definition junk from an interrupted run, get discarded.
-if git pull --ff-only origin main; then
+# Get to a clean, current checkout WITHOUT throwing away committed work. Three cases:
+#   - clean tree, fast-forwardable  -> ff pull (the normal path).
+#   - LOCAL COMMITS ahead of origin -> a prior build committed but couldn't push (the
+#     agent's git has no PAT, or a push raced). REBASE them onto origin so they're
+#     preserved and the push block below can carry them — do NOT reset them away.
+#     (This is the bug that lost heartpunk's solitaire: the old fallback hard-reset
+#     discarded exactly this committed-but-unpushed work.)
+#   - dirty tree with NO local commits -> junk from a SIGKILLed mid-edit; discard it.
+# `git clean` (below) only ever removes untracked non-ignored files, never commits.
+if git pull --ff-only origin main 2>/dev/null; then
   echo "  fast-forwarded to origin/main"
+elif [ -n "$(git log --oneline origin/main..HEAD 2>/dev/null)" ]; then
+  echo "  local commit(s) ahead of origin — rebasing to preserve them"
+  git stash -q 2>/dev/null || true   # park any uncommitted junk so rebase can run
+  if git rebase origin/main -q; then
+    echo "  rebased local commits onto origin/main (will be pushed at end)"
+  else
+    git rebase --abort 2>/dev/null || true
+    echo "  rebase conflicted — resetting to origin/main (local commits stay in reflog)"
+    git reset --hard origin/main
+  fi
 else
-  echo "  ff pull failed (dirty tree or diverged) — hard-resetting to origin/main"
+  echo "  dirty tree, no local commits — resetting to origin/main"
   git reset --hard origin/main
 fi
 # `git clean -fd` removes untracked leftovers but SKIPS gitignored files, so
@@ -154,49 +165,62 @@ if grep -qiE "reached max turns|max.?turns" "$CLAUDE_LOG" 2>/dev/null; then
   MAX_TURNS_HIT="1"
 fi
 
-# Did the build change anything on disk? This — not "did the agent write
-# BUILD_RESULT" — is the ground truth for "is there work to preserve". A max-turns
-# kill lands before the agent's final report, so work-happened and result-file-exists
-# diverge exactly when it matters most.
-CHANGED=""
-[ -n "$(git status --porcelain)" ] && CHANGED="1"
+# Is there work to preserve? TWO ways work can exist, and we must catch BOTH:
+#   1. UNCOMMITTED changes in the tree (git status --porcelain) — the agent edited
+#      files but didn't commit (or was killed mid-build).
+#   2. LOCAL COMMITS ahead of origin (git log origin/main..HEAD) — the agent
+#      committed its own work AND its push failed (the agent's git has no PAT: it
+#      logs "Push isn't available in this sandbox"). This is the common case, and the
+#      bug that lost heartpunk's solitaire drag-drop: the old check looked only at #1,
+#      saw a clean tree (work was committed, not dirty), concluded "nothing changed",
+#      never pushed, and the next build's sync reset the local commit away.
+# "did the agent write BUILD_RESULT" is NOT the signal — work-happened and result-
+# -file-exists diverge exactly on a max-turns kill, when it matters most.
+git fetch origin main -q
+DIRTY=""; [ -n "$(git status --porcelain)" ] && DIRTY="1"
+AHEAD=""; [ -n "$(git log --oneline origin/main..HEAD 2>/dev/null)" ] && AHEAD="1"
+CHANGED=""; { [ -n "$DIRTY" ] || [ -n "$AHEAD" ]; } && CHANGED="1"
 
-# Derive the built site's name deterministically from the changed files, so the
-# harness can preserve + report a build the agent didn't get to name (e.g. killed
-# before writing BUILD_RESULT). A build touches sites/<name>/... (and often apex/ for
-# the gallery card); the site is the first changed sites/<name> dir. BUILD_RESULT
-# wins when the agent DID set it — it's nicer, and the only way to express
-# "<site>/<path>". DERIVED_NAME is empty if only apex/notes/root changed (no site
-# dir), in which case we fall back to BUILD_RESULT if present.
-DERIVED_NAME="$(git status --porcelain | sed -E 's/^...//; s/^"//' \
-  | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
+# Derive the built site's name from ALL the work — uncommitted (status) AND already-
+# -committed-locally (diff origin/main..HEAD) — so a build the agent committed itself
+# is still named/reported. A build touches sites/<name>/... (+ often apex/); the site
+# is the first changed sites/<name> dir. BUILD_RESULT wins when set (nicer, and the
+# only way to express "<site>/<path>").
+CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff --name-only origin/main..HEAD 2>/dev/null; } )"
+DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
 BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
 
-# Provenance: stamp who-asked-what into the built site so it permanently carries its
-# origin (the KV log has a 30-day TTL; git history doesn't). Written before the push
-# so it rides the same commit. Uses BUILT_NAME (agent's or derived), for a real site
-# dir only. Skipped when nothing changed or no site dir is identifiable.
+# Provenance: stamp who-asked-what into the built site (durable origin — the KV log
+# has a 30-day TTL, git history doesn't). Written to the tree; committed by the push
+# block below (whether that's a fresh commit or amended onto the agent's own).
 if [ -n "$CHANGED" ] && [ -n "$BUILT_NAME" ]; then
   SITE_DIR="sites/${BUILT_NAME%%/*}"
   [ -d "$SITE_DIR" ] && write_provenance "$SITE_DIR/.buildthis.json"
 fi
 
 echo "=== push to main (PAT, so deploy.yml fires) ==="
-# PRESERVE, don't discard. If the build changed ANYTHING, commit + push it —
-# regardless of how the build ended. A max-turns overrun that got a real first pass
-# onto disk should land on main (live, and continuable by re-tagging), not be reset
-# away. There's no BUILD_RESULT gate: work is preserved on the fact that it exists,
-# not on the agent remembering to name it. `git status --porcelain` (via CHANGED)
-# catches staged, unstaged, and brand-new-untracked alike. PUSHED is set true only
-# on the push's own success — the unambiguous "it's on main now" signal.
+# PRESERVE, don't discard. Commit any uncommitted work (including the provenance we
+# just wrote), then push whatever's ahead of origin — regardless of how the build
+# ended, and regardless of whether the AGENT already committed. PUSHED is true only
+# on the push's own success. If the push is rejected (someone else pushed first), a
+# rebase-and-retry handles the race; a still-failing push leaves the commit local for
+# the next build's sync to carry (which now rebases, never discards — see the sync
+# block at the top).
 PUSHED="false"
 if [ -n "$CHANGED" ]; then
-  git add -A
-  git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"
-  if git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main; then
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A
+    git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"
+  fi
+  PUSH_URL="https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git"
+  if git push -q "$PUSH_URL" HEAD:main; then
+    PUSHED="true"
+  elif git fetch origin main -q && git rebase origin/main -q && git push -q "$PUSH_URL" HEAD:main; then
+    echo "  push raced; rebased on origin/main and pushed"
     PUSHED="true"
   else
-    echo "  push FAILED — work is committed locally; will retry sync next build"
+    git rebase --abort 2>/dev/null || true
+    echo "  push FAILED — work is committed locally; next build's sync will carry it"
   fi
 else
   echo "  nothing changed — no commit (a note-only reaction or a build that made nothing)"
