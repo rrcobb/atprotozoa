@@ -203,7 +203,43 @@ endpoints are the escape hatch if that changes.
 
 ## Watching it
 
+- **Health surface (start here): `buildthis.bisks.net/health`** — one JSON answer to
+  "is the whole thing OK?", computed from KV. `ok:false` + an `issues` list when
+  something's wrong. `/health.html` is the same, for eyeballing. What it checks:
+  - **box alive** — did the box poll `/next-job` within 12 min? (It polls every 15s
+    *when idle*; during a build it's heads-down, hence the wide window — a build can
+    run ~10 min. A dead box trips this AND the orphan check below.)
+  - **queue** — how many waiting / building, and the age of the oldest of each. A
+    backlog (>8 waiting) means arrivals are outpacing the one box.
+  - **orphans** — jobs stuck `claimed` >30 min (a build that died without reporting;
+    this is what the day-old orphaned job would have shown up as).
+  - **pushed-but-not-live** — recent successes whose URL didn't serve after deploy
+    (`liveVerified:false`); the favstar-class dead-link signal.
+  - It's public + read-only (no secrets, just counts), so an uptime check or a cron
+    can watch `.ok` without a token.
 - Box loop: `journalctl -u buildthis-poll -f` on the box.
 - Timeline: `logs.bisks.net` (reads `buildthis.bisks.net/logs.json`).
 - Watcher: `pnpm --filter @atprotozoa/buildthis logs`, or the Cloudflare
   dashboard (observability is on).
+
+## Guardrails against silent failure (why the bot's promises are now self-checking)
+
+Two classes of bug bit early on, both invisible until someone complained: a build
+that reported "live 🎉" but never actually shipped (favstar), and a failed build
+that replied with a *previous* build's leftover note to the wrong thread. The
+defenses now in place:
+
+- **Success = the push actually landed on main** (HEAD moved past the pre-build
+  SHA), not "a `BUILD_RESULT` file exists." A staged-but-uncommitted build can't be
+  reported live. (`box-build.sh`)
+- **Post-deploy liveness check** — after a success pushes, the box polls the target
+  URL until it serves (bounded ~90s) *before* replying. The result (`liveVerified`)
+  is logged on the outcome; a build that pushed but never came up is flagged in
+  `/health`, not linked as a 404.
+- **Scratch files cleared every build** — `BUILD_RESULT`/`BUILD_NOTE` are gitignored,
+  so `git clean` skips them; they're now `rm`'d at the start of every build so a
+  stale note can't leak into a later reply.
+- **Retry/requeue** — an incomplete or out-of-budget build requeues (bumped
+  attempts, FIFO tail, capped at 3) instead of dying silently.
+- **`post-reply.mjs`** — admin tool (runs on the box) to post or delete a bot reply
+  by hand for corrections, without leaking the app-password off the box.
