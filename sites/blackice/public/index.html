@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BLACK ICE — a cyberpunk downhill run</title>
+<meta name="description" content="A SkiFree-style endless downhill run, reskinned neon-cyberpunk. Weave data-spires and corrupted blocks, grab chips, and outrun a cyborg crow before it catches you. Mobile-friendly: drag to steer.">
+<style>
+  :root {
+    --bg: #05030a;
+    --grid: #ff2fd0;
+    --grid-2: #26f7ff;
+    --snow-glow: #7a5cff;
+    --hud: #d8e6ff;
+    --accent: #26f7ff;
+    --accent-2: #ff2fd0;
+    --danger: #ff2b4e;
+    --panel: rgba(6,4,16,0.86);
+    --player: #eafcff;
+    --player-2: #26f7ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg);
+    color: var(--hud);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; padding: 10px;
+  }
+  #stage {
+    position: relative;
+    width: min(96vw, 480px);
+    height: min(84vh, 800px);
+    aspect-ratio: 480 / 800;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08),
+                0 0 40px rgba(255,47,208,0.15),
+                0 24px 60px rgba(0,0,0,0.6);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(3px);
+    padding: 22px; gap: 12px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(24px, 8vw, 40px);
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: 0 0 18px var(--accent-2), 0 0 4px var(--accent);
+  }
+  .overlay p { margin: 0; max-width: 34ch; line-height: 1.5; opacity: 0.9; font-size: 14px; }
+  .keys { font-size: 12px; opacity: 0.7; }
+  .keys b { color: var(--accent-2); }
+  button.big {
+    font: inherit; font-size: 17px;
+    padding: 12px 26px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #05030a; font-weight: bold; cursor: pointer;
+    box-shadow: 0 0 20px var(--accent-2);
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.96); }
+
+  #hud {
+    position: absolute; top: 8px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 12px; z-index: 4; pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  }
+  #hud .stat { line-height: 1.4; }
+  #hud .stat b { color: var(--accent); }
+  #pursuit {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 55%; max-width: 220px;
+    display: none;
+    z-index: 4; text-align: center;
+  }
+  #pursuit.on { display: block; }
+  #pursuit .lbl { font-size: 10px; letter-spacing: 2px; color: var(--danger); text-shadow: 0 0 6px var(--danger); }
+  #pursuit .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; margin-top: 2px; }
+  #pursuit .fill { height: 100%; background: var(--danger); box-shadow: 0 0 8px var(--danger); width: 100%; transition: width .1s linear; }
+
+  #touch {
+    position: absolute; bottom: 10px; right: 10px;
+    display: none; z-index: 4;
+  }
+  #touch button {
+    font: inherit; font-size: 12px; letter-spacing: 1px;
+    width: 68px; height: 44px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.08);
+    color: var(--hud); backdrop-filter: blur(2px);
+  }
+  #touch button:active { background: rgba(38,247,255,0.25); }
+  @media (pointer: coarse) { #touch { display: flex; } }
+
+  #dragHint {
+    position: absolute; bottom: 10px; left: 10px;
+    font-size: 10px; opacity: 0.55; z-index: 4;
+    display: none;
+  }
+  @media (pointer: coarse) { #dragHint { display: block; } }
+
+  #bar {
+    width: min(96vw, 480px);
+    display: flex; justify-content: center; align-items: center; gap: 12px;
+  }
+  a.credit { color: var(--accent); text-decoration: none; }
+  a.credit:hover { text-decoration: underline; }
+  .foot { font-size: 10.5px; opacity: 0.6; text-align: center; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="480" height="800"></canvas>
+
+    <div id="hud">
+      <div class="stat">RUN <b id="dist">0</b>m<br>CHIPS <b id="score">0</b></div>
+      <div class="stat" style="text-align:right">BEST <b id="best">0</b>m</div>
+    </div>
+    <div id="pursuit">
+      <div class="lbl">⚠ ICE CONSTRUCT INBOUND</div>
+      <div class="bar"><div class="fill" id="pursuitFill"></div></div>
+    </div>
+
+    <div id="dragHint">drag to steer</div>
+    <div id="touch">
+      <button id="tTuck">▼ TUCK</button>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <h1>BLACK ICE</h1>
+      <p>Jack in and ride the slope-code down through Chiba's junk data.
+         Weave the data-spires and corrupted blocks, snag chips for score.
+         Wipe out enough and something wakes up behind you — a cyborg
+         crow, cut loose from some dead zaibatsu's ICE. Don't let it land.</p>
+      <p class="keys">
+        <b>&larr; &rarr;</b> / <b>A D</b> steer &middot; <b>&darr;</b> / <b>hold TUCK</b> for speed &middot;
+        drag the slope on touch
+      </p>
+      <button class="big" id="startBtn">▶ jack in</button>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1 id="overTitle">WIPED</h1>
+      <p id="overMsg">The crow got you.</p>
+      <p>Ran <b id="finalDist" style="color:var(--accent-2)">0</b>m before it caught you,
+         with <b id="finalScore" style="color:var(--accent)">0</b> chips lifted.</p>
+      <button class="big" id="againBtn">↻ jack back in</button>
+    </div>
+  </div>
+
+  <div id="bar"></div>
+  <div class="foot">
+    a SkiFree clone jacked into the matrix &middot;
+    built by <a class="credit" href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a class="credit" href="https://bsky.app/profile/schwarzgerat.bsky.social">@schwarzgerat.bsky.social</a>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
