@@ -85,16 +85,17 @@
       }
       button.go:hover:not(:disabled) { background: #6dffa0; }
       button.go:disabled { opacity: 0.35; cursor: default; }
-      button.btn {
+      .btn {
         font-size: 0.8rem; padding: 0.5rem 0.8rem;
         border: 1px solid var(--ink-dim); background: transparent; color: var(--ink);
-        border-radius: 2px;
+        border-radius: 2px; display: inline-block; text-decoration: none;
+        font-family: inherit; cursor: pointer;
       }
-      button.btn:hover:not(:disabled) { border-color: var(--ink); background: rgba(61,255,122,0.08); }
-      button.btn:disabled { opacity: 0.3; cursor: default; }
-      button.btn.primary { border-color: var(--cyan); color: var(--cyan); }
-      button.btn.primary:hover:not(:disabled) { background: rgba(75,232,255,0.1); }
-      button.btn.danger { border-color: var(--red); color: var(--red); }
+      .btn:hover:not(:disabled) { border-color: var(--ink); background: rgba(61,255,122,0.08); }
+      .btn:disabled { opacity: 0.3; cursor: default; }
+      .btn.primary { border-color: var(--cyan); color: var(--cyan); }
+      .btn.primary:hover:not(:disabled) { background: rgba(75,232,255,0.1); }
+      .btn.danger { border-color: var(--red); color: var(--red); }
 
       #game { display: none; margin-top: 0.5rem; }
       #game.on { display: block; }
@@ -587,6 +588,8 @@
       let floorState = null;
       let deck = [], drawPile = [], discardPile = [], hand = [];
       let combat = null; // { monster, block, energy, isBoss }
+      let defeated = []; // names of monsters beaten this run
+      let killedBy = null; // monster that ended the run
 
       function log(html, cls) {
         const d = document.createElement("div");
@@ -618,6 +621,8 @@
         hand = [];
         floorNum = 1;
         combat = null;
+        defeated = [];
+        killedBy = null;
         logEl.innerHTML = "";
         enterFloor(1);
         log(`<b>a body of work opens beneath ${short(cluster.handle)}.</b> descend.`, "good");
@@ -811,11 +816,13 @@
         m.alive = false;
         const wasBoss = m.isBoss;
         player.hp = Math.min(player.maxHp, player.hp + 3);
+        defeated.push(m.name);
         log(`defeated <b style="color:${m.tint}">${m.name}</b>.`, "good");
         endCombat();
         if (wasBoss) showWin();
       }
       function gameOver() {
+        killedBy = combat.monster;
         combat = null;
         mapPanel.classList.remove("hidden");
         combatEl.classList.remove("on");
@@ -969,6 +976,29 @@
       deckModal.addEventListener("click", (e) => { if (e.target === deckModal) closeDeck(); });
 
       // ── win / lose ─────────────────────────────────────────────────────
+      const GAME_URL = "https://clustercrawl.bisks.net";
+      function gameLink() {
+        return GAME_URL + "?h=" + encodeURIComponent(cluster.handle);
+      }
+      function composeUrl(text) {
+        return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+      function nameList(names) {
+        const trimmed = names.map((n) => shorten(n, 24));
+        if (trimmed.length <= 3) return trimmed.join(", ");
+        return trimmed.slice(0, 3).join(", ") + ` +${trimmed.length - 3} more`;
+      }
+      function winShareText() {
+        const tail = defeated.length ? ` — took down ${nameList(defeated)} along the way.` : ".";
+        return `cleared GEN 5 of ${short(cluster.handle)}'s cluster on clustercrawl${tail} crawl it yourself: ${gameLink()}`;
+      }
+      function loseShareText() {
+        const killer = killedBy ? killedBy.name : "the cluster";
+        const beat = defeated.length
+          ? ` not before taking down ${nameList(defeated)}.`
+          : "";
+        return `${killer} ended my run in ${short(cluster.handle)}'s cluster on clustercrawl, GEN ${floorNum}/${TOTAL_FLOORS}.${beat} think you'd do better? ${gameLink()}`;
+      }
       function showWin() {
         banner.className = "banner on";
         banner.innerHTML =
@@ -976,7 +1006,9 @@
           `<div class="d">the guardian falls. every mutual in ${short(cluster.handle)}'s cluster stands down —
           you crawled the whole thing with a deck of ${deck.length} cards, ${deck.filter(c => c.crafted).length} of them forged from their posts.</div>` +
           `<button class="btn primary" id="againBtn" type="button">crawl again</button> ` +
-          `<button class="btn" id="otherBtn" type="button">try another handle</button>`;
+          `<button class="btn" id="otherBtn" type="button">try another handle</button> ` +
+          `<a class="btn primary" id="shareBtn" target="_blank" rel="noopener">post your run</a>`;
+        $("shareBtn").href = composeUrl(winShareText());
         $("againBtn").addEventListener("click", () => { banner.className = "banner"; newRun(); });
         $("otherBtn").addEventListener("click", resetToIntro);
       }
@@ -986,7 +1018,9 @@
           `<div class="t">YOU DIED — GEN ${floorNum} / ${TOTAL_FLOORS}</div>` +
           `<div class="d">${short(cluster.handle)}'s cluster gets the better of you this run.</div>` +
           `<button class="btn primary" id="againBtn" type="button">try again</button> ` +
-          `<button class="btn" id="otherBtn" type="button">try another handle</button>`;
+          `<button class="btn" id="otherBtn" type="button">try another handle</button> ` +
+          `<a class="btn danger" id="shareBtn" target="_blank" rel="noopener">post your death</a>`;
+        $("shareBtn").href = composeUrl(loseShareText());
         $("againBtn").addEventListener("click", () => { banner.className = "banner"; newRun(); });
         $("otherBtn").addEventListener("click", resetToIntro);
       }
