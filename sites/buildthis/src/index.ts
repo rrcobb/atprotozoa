@@ -1035,9 +1035,15 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
 //     is left hanging (the day-old orphan we found in the audit)
 // `ok` is the single boolean an uptime check / cron alert can watch.
 
-// Box is considered alive if it polled within this window. It polls every ~15s, so
-// 90s is 6 missed polls — comfortably past a transient blip, well short of "down".
-const BOX_ALIVE_WINDOW_MS = 90 * 1000;
+// Box is considered alive if it polled /next-job within this window. Subtlety: the
+// box only polls WHEN IDLE — during a build it's heads-down and doesn't poll — so
+// the window must exceed the longest a build can take, or a healthy building box
+// would false-alarm as "down". A max-turns-60 Sonnet build runs ~5-10 min, plus the
+// ~90s post-deploy liveness poll, so 12 min covers a full build with margin. A
+// genuinely dead box (process gone) stops polling AND its claimed job ages into an
+// orphan (see ORPHAN_AGE_MS) — so a real outage still trips within a bounded time,
+// via one signal or the other. This window is the "idle loop stopped" detector.
+const BOX_ALIVE_WINDOW_MS = 12 * 60 * 1000;
 // A claimed job older than this is treated as an orphan: a real build is bounded by
 // the box's max-turns + wall clock (minutes), so a job claimed far longer than any
 // build takes has almost certainly died without reporting. Also the queue-stuck
@@ -1129,8 +1135,8 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   if (!alive) {
     issues.push(
       lastPollMs === null
-        ? "box has never polled (no heartbeat)"
-        : `box last polled ${secondsAgo}s ago (>${BOX_ALIVE_WINDOW_MS / 1000}s — likely down)`,
+        ? "box has never polled (no heartbeat yet)"
+        : `box last polled ${Math.round((secondsAgo ?? 0) / 60)}min ago (>${BOX_ALIVE_WINDOW_MS / 60000}min — likely down)`,
     );
   }
   if (orphans > 0) issues.push(`${orphans} orphaned job(s) stuck claimed >${ORPHAN_AGE_MS / 60000}min`);
