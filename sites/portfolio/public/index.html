@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>portfolio — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle and get a searchable portfolio of that account's posts, grouped by topic."
+    />
+    <!-- bisks.net house style: plain, black on white, mono chrome, blue accent
+         for links. Post prose is a warm serif so the portfolio reads like a
+         personal site. Everything runs in the browser; reads the public AppView
+         anonymously (see lib/feed.js). -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #14110e;
+        --muted: #6b6b6b;
+        --faint: #e7e4df;
+        --accent: #1a5fd0;
+        --paper: #faf8f4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+          Georgia, "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header h1 {
+        font-size: 1.5rem; margin: 0 0 0.3rem; font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      header h1 a { color: inherit; }
+      header .lede { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.9rem; }
+
+      /* ── handle form ─────────────────────────────────────────────── */
+      form.handle {
+        display: flex; gap: 0.5rem; flex-wrap: wrap;
+        margin: 0 0 0.75rem;
+      }
+      form.handle input {
+        flex: 1 1 240px; min-width: 0;
+        font-family: var(--mono); font-size: 1rem;
+        padding: 0.6rem 0.75rem; color: var(--ink);
+        background: var(--paper); border: 1px solid var(--faint);
+        border-radius: 6px;
+      }
+      form.handle input:focus {
+        outline: none; border-color: var(--accent);
+      }
+      form.handle button {
+        font-family: var(--mono); font-size: 0.95rem; cursor: pointer;
+        padding: 0.6rem 1.1rem; color: #fff; background: var(--ink);
+        border: 1px solid var(--ink); border-radius: 6px;
+      }
+      form.handle button:hover { background: var(--accent); border-color: var(--accent); }
+      form.handle button:disabled { opacity: 0.5; cursor: default; }
+      .examples { font-size: 0.82rem; color: var(--muted); margin: 0 0 2rem; }
+      .examples a { margin-right: 0.6rem; }
+
+      .status { color: var(--muted); font-size: 0.9rem; margin: 1.5rem 0; }
+      .status.err { color: #b3261e; }
+
+      /* ── profile head ────────────────────────────────────────────── */
+      .profile {
+        display: flex; gap: 0.9rem; align-items: center;
+        padding-bottom: 1.1rem; margin-bottom: 1.25rem;
+        border-bottom: 1px solid var(--ink);
+      }
+      .profile img {
+        width: 56px; height: 56px; border-radius: 50%; flex: none;
+        background: var(--faint); object-fit: cover;
+      }
+      .profile .who { min-width: 0; }
+      .profile .name { font-weight: 600; font-size: 1.05rem; }
+      .profile .name a { color: inherit; }
+      .profile .handle { color: var(--muted); font-size: 0.85rem; }
+      .profile .stats { color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem; }
+
+      /* ── controls (search + topic jump) ──────────────────────────── */
+      .controls { margin-bottom: 1.5rem; }
+      .controls input.search {
+        width: 100%; font-family: var(--mono); font-size: 0.95rem;
+        padding: 0.55rem 0.7rem; color: var(--ink);
+        background: var(--paper); border: 1px solid var(--faint); border-radius: 6px;
+      }
+      .controls input.search:focus { outline: none; border-color: var(--accent); }
+      .toc {
+        display: flex; flex-wrap: wrap; gap: 0.4rem 0.5rem; margin-top: 0.8rem;
+        font-size: 0.8rem;
+      }
+      .toc a {
+        color: var(--muted); background: var(--paper);
+        border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.15rem 0.6rem;
+      }
+      .toc a:hover { color: var(--accent); text-decoration: none; border-color: var(--accent); }
+      .toc a .n { color: var(--faint); }
+
+      /* ── topics + posts ──────────────────────────────────────────── */
+      .topic { margin: 2.25rem 0; }
+      .topic h2 {
+        font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--accent); font-weight: 600; margin: 0 0 0.15rem;
+        display: flex; align-items: baseline; gap: 0.5rem;
+      }
+      .topic h2 .count { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+      .topic .kindnote { color: var(--muted); font-size: 0.75rem; margin: 0 0 1rem; }
+
+      .post {
+        padding: 0.9rem 0; border-top: 1px solid var(--faint);
+      }
+      .post .text {
+        font-family: var(--serif); font-size: 1.12rem; line-height: 1.5;
+        white-space: pre-wrap; word-wrap: break-word;
+      }
+      .post .text a { color: var(--accent); }
+      .post mark { background: #fff2a8; color: inherit; padding: 0 1px; border-radius: 2px; }
+      .post .meta {
+        margin-top: 0.4rem; font-size: 0.76rem; color: var(--muted);
+        display: flex; gap: 0.9rem; flex-wrap: wrap;
+      }
+      .post .meta a { color: var(--muted); }
+      .post .meta a:hover { color: var(--accent); }
+
+      .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+
+      footer {
+        margin-top: 4rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      @media (max-width: 480px) {
+        .post .text { font-size: 1.05rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="./">portfolio</a></h1>
+        <p class="lede">
+          Enter a Bluesky handle. Get a searchable portfolio of that account's
+          posts, grouped by topic, newest first within each.
+        </p>
+        <form class="handle" id="form">
+          <input
+            id="handle"
+            type="text"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            placeholder="handle.bsky.social  ·  @you.bsky.social  ·  did:plc:…"
+          />
+          <button type="submit" id="go">build →</button>
+        </form>
+        <p class="examples" id="examples">
+          try:
+          <a href="?handle=pfrazee.com">pfrazee.com</a>
+          <a href="?handle=jay.bsky.team">jay.bsky.team</a>
+          <a href="?handle=gracekind.net">gracekind.net</a>
+        </p>
+      </header>
+
+      <div class="status" id="status" hidden></div>
+
+      <section id="result" hidden>
+        <div class="profile" id="profile"></div>
+        <div class="controls" id="controls">
+          <input
+            class="search"
+            id="search"
+            type="text"
+            autocomplete="off"
+            placeholder="search these posts…"
+          />
+          <nav class="toc" id="toc"></nav>
+        </div>
+        <div id="topics"></div>
+      </section>
+
+      <footer>
+        reads Bluesky's public AppView anonymously · one of the
+        <a href="https://bisks.net">bisks.net</a> experiments · built by
+        <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import {
+        resolveDid,
+        getProfile,
+        authorPortfolio,
+        groupByTopic,
+        FEED_PAGES,
+      } from "./lib/feed.js";
+
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      const resultEl = $("result");
+
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+
+      // Linkify URLs, @handles, and #tags in escaped post text.
+      function linkify(text) {
+        let h = esc(text);
+        h = h.replace(
+          /(https?:\/\/[^\s<]+)/g,
+          (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`,
+        );
+        h = h.replace(
+          /(^|\s)@([a-z0-9.-]+\.[a-z]{2,})/gi,
+          (m, pre, handle) =>
+            `${pre}<a href="https://bsky.app/profile/${handle}" target="_blank" rel="noopener">@${handle}</a>`,
+        );
+        h = h.replace(
+          /(^|\s)#(\p{L}[\p{L}\p{N}_]{1,30})/gu,
+          (m, pre, tag) =>
+            `${pre}<a href="https://bsky.app/hashtag/${tag}" target="_blank" rel="noopener">#${tag}</a>`,
+        );
+        return h;
+      }
+
+      // Highlight a lowercase query term inside already-linkified HTML, skipping
+      // text inside tags/attrs so we don't corrupt hrefs.
+      function highlight(html, q) {
+        if (!q) return html;
+        const re = new RegExp(
+          "(" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")",
+          "gi",
+        );
+        return html.replace(/(<[^>]+>)|([^<]+)/g, (m, tag, txt) =>
+          tag ? tag : txt.replace(re, "<mark>$1</mark>"),
+        );
+      }
+
+      const slug = (s) =>
+        "t-" + String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+      function fmtDate(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (isNaN(d)) return "";
+        return d.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      function say(msg, isErr) {
+        statusEl.textContent = msg;
+        statusEl.hidden = false;
+        statusEl.classList.toggle("err", !!isErr);
+      }
+
+      let ALL_POSTS = []; // flat list, for search
+      let GROUPS = []; // [{topic, kind, posts}]
+      let PROFILE = null;
+
+      function renderProfile() {
+        const p = PROFILE;
+        const link = `https://bsky.app/profile/${p.handle}`;
+        $("profile").innerHTML = `
+          ${p.avatar ? `<img src="${esc(p.avatar)}" alt="" />` : `<img alt="" />`}
+          <div class="who">
+            <div class="name"><a href="${link}" target="_blank" rel="noopener">${esc(
+              p.displayName,
+            )}</a></div>
+            <div class="handle">@${esc(p.handle)}</div>
+            <div class="stats">${ALL_POSTS.length} posts shown${
+              p.postsCount ? ` of ${p.postsCount.toLocaleString()} total` : ""
+            } · ${GROUPS.length} topic${GROUPS.length === 1 ? "" : "s"}</div>
+          </div>`;
+      }
+
+      // Render topics, filtered by the search query. Rebuilds the TOC to match
+      // whatever survives the filter.
+      function renderTopics(q) {
+        q = (q || "").trim().toLowerCase();
+        const topicsEl = $("topics");
+        const tocEl = $("toc");
+        topicsEl.innerHTML = "";
+        tocEl.innerHTML = "";
+
+        let anyShown = 0;
+        for (const g of GROUPS) {
+          const matches = q
+            ? g.posts.filter((p) => p.text.toLowerCase().includes(q))
+            : g.posts;
+          if (!matches.length) continue;
+          anyShown += matches.length;
+
+          const id = slug(g.topic);
+          tocEl.insertAdjacentHTML(
+            "beforeend",
+            `<a href="#${id}">${g.kind === "hashtag" ? "#" : ""}${esc(
+              g.topic,
+            )} <span class="n">${matches.length}</span></a>`,
+          );
+
+          const posts = matches
+            .map((p) => {
+              const body = highlight(linkify(p.text), q);
+              const bits = [fmtDate(p.createdAt)];
+              if (p.likes) bits.push(`♥ ${p.likes}`);
+              if (p.reposts) bits.push(`↻ ${p.reposts}`);
+              return `<article class="post">
+                <div class="text">${body}</div>
+                <div class="meta">
+                  ${bits.map((b) => `<span>${b}</span>`).join("")}
+                  <a href="${esc(p.url)}" target="_blank" rel="noopener">open ↗</a>
+                </div>
+              </article>`;
+            })
+            .join("");
+
+          const note =
+            g.kind === "hashtag"
+              ? "grouped by hashtag"
+              : "grouped by recurring keyword";
+          topicsEl.insertAdjacentHTML(
+            "beforeend",
+            `<section class="topic" id="${id}">
+              <h2>${g.kind === "hashtag" ? "#" : ""}${esc(
+                g.topic,
+              )} <span class="count">${matches.length}</span></h2>
+              <p class="kindnote">${note}</p>
+              ${posts}
+            </section>`,
+          );
+        }
+
+        if (!anyShown) {
+          topicsEl.innerHTML = `<p class="empty">No posts match “${esc(q)}”.</p>`;
+        }
+      }
+
+      async function build(actor) {
+        resultEl.hidden = true;
+        $("go").disabled = true;
+        try {
+          say("resolving handle…");
+          const did = await resolveDid(actor);
+          say("loading profile…");
+          PROFILE = await getProfile(did);
+          const posts = await authorPortfolio(did, PROFILE.handle, {
+            onStep: say,
+          });
+          if (!posts.length) {
+            say(
+              `@${PROFILE.handle} has no top-level posts to show (all replies/reposts, or a fresh account).`,
+              true,
+            );
+            $("go").disabled = false;
+            return;
+          }
+          ALL_POSTS = posts;
+          GROUPS = groupByTopic(posts);
+          statusEl.hidden = true;
+          renderProfile();
+          $("search").value = "";
+          renderTopics("");
+          resultEl.hidden = false;
+          document.title = `${PROFILE.displayName} — portfolio`;
+        } catch (e) {
+          say(
+            e && e.status === 400
+              ? `Couldn't find “${actor}”. Check the handle?`
+              : `Something went wrong: ${e && e.message ? e.message : e}`,
+            true,
+          );
+        } finally {
+          $("go").disabled = false;
+        }
+      }
+
+      // ── wiring ──────────────────────────────────────────────────────
+      $("form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = $("handle").value.trim();
+        if (!v) return;
+        const url = new URL(location);
+        url.searchParams.set("handle", v.replace(/^@/, ""));
+        history.replaceState(null, "", url);
+        build(v);
+      });
+
+      let searchTimer;
+      $("search").addEventListener("input", (e) => {
+        clearTimeout(searchTimer);
+        const q = e.target.value;
+        searchTimer = setTimeout(() => renderTopics(q), 120);
+      });
+
+      $("examples").addEventListener("click", (e) => {
+        const a = e.target.closest("a");
+        if (!a) return;
+        e.preventDefault();
+        const h = new URL(a.href).searchParams.get("handle");
+        $("handle").value = h;
+        const url = new URL(location);
+        url.searchParams.set("handle", h);
+        history.replaceState(null, "", url);
+        build(h);
+      });
+
+      // Boot: ?handle= in the URL, else wait for input (with a fun default hint).
+      const initial = new URLSearchParams(location.search).get("handle");
+      if (initial) {
+        $("handle").value = initial;
+        build(initial);
+      }
+    </script>
+  </body>
+</html>
