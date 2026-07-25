@@ -49,6 +49,11 @@ async function main() {
     const note = (process.env.BUILD_NOTE || "").trim();
     text = note ? `${note}\n\n${template}` : template;
     text = fitToLimit(text, template, 300);
+  } else if ((process.env.BUILD_ERROR || "").trim() === "usage_limit") {
+    // Not "your idea flopped" — the bot is out of its monthly build budget. Say so
+    // honestly instead of implying the request was the problem, so people know to
+    // come back rather than keep retrying against a dead wall.
+    text = `ah, i'm out of build budget for the month 😅 — this one's still in the queue and i'll get to it once i'm topped back up. thanks for the idea!`;
   } else {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }

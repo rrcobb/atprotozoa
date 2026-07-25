@@ -80,10 +80,15 @@ jobs:
           BRIEF: ${{ github.event.client_payload.brief }}
           AUTHOR: ${{ github.event.client_payload.authorHandle }}
         run: |
+          # Tee the CLI output so a later step can classify WHY a build failed
+          # (out-of-budget vs. the agent genuinely couldn't do it) and reply
+          # honestly. pipefail keeps the step's failure = claude's exit code, not
+          # tee's, so BUILD_OK still reflects the real build outcome.
+          set -o pipefail
           claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
             --max-turns 30 \
             --permission-mode bypassPermissions \
-            --allowedTools Edit,Read,Write,Bash,Glob,Grep
+            --allowedTools Edit,Read,Write,Bash,Glob,Grep 2>&1 | tee build-output.log
 
       # Read what the agent built (if anything). BUILD_RESULT is untracked; empty
       # or absent => nothing built => the reply step sends the honest failure.
@@ -96,6 +101,22 @@ jobs:
           else
             echo "name=" >> "$GITHUB_OUTPUT"
           fi
+
+      # Classify a failure so the reply can be honest about the cause. Right now the
+      # only case we special-case is the Anthropic spend cap (usage limit) — a "the
+      # bot is out of budget" state, not a "your idea flopped" one. Anything else
+      # falls through to the generic couldn't-build copy.
+      - name: classify failure
+        id: failure
+        if: always()
+        run: |
+          reason=""
+          if [ -f build-output.log ]; then
+            if grep -qi "reached your specified API usage limits" build-output.log; then
+              reason="usage_limit"
+            fi
+          fi
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
 
       # Read the agent's optional note — its own short line about what it built,
       # prepended to the success reply. Same mechanism as BUILD_RESULT: untracked,
@@ -128,6 +149,11 @@ jobs:
           REPLY_PARENT_CID: ${{ github.event.client_payload.replyParentCid }}
           BUILD_OK: ${{ steps.build.outcome == 'success' && steps.result.outputs.name != '' }}
           BUILD_RESULT: ${{ steps.result.outputs.name }}
+          # Why a build failed, when we can tell. "usage_limit" => the bot is out of
+          # its monthly budget; reply.mjs sends an honest out-of-budget line instead
+          # of the generic "couldn't build that one." Empty on success or an
+          # unclassified failure.
+          BUILD_ERROR: ${{ steps.failure.outputs.reason }}
           # The agent's optional note, prepended to the success reply (reply.mjs
           # fits the whole post to Bluesky's 300-grapheme limit).
           BUILD_NOTE: ${{ steps.note.outputs.text }}
