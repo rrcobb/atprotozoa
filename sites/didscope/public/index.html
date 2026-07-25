@@ -111,6 +111,14 @@
   .who .handle { font-weight: 700; }
   .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
 
+  .sunlabel {
+    text-align: center;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
   .glyph {
     font-size: 3.5rem;
     line-height: 1;
@@ -148,6 +156,42 @@
     margin-bottom: 1.4rem;
   }
   .rival b { color: var(--fg); }
+
+  .natal {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.2rem;
+    margin-bottom: 1.4rem;
+  }
+  .natal-block {
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--border);
+    margin-bottom: 1.1rem;
+  }
+  .natal-block:last-child { margin-bottom: 0; }
+  .natal-block.moon { border-left-color: #7fb8ff; }
+  .natal-block.moon .natal-label { color: #7fb8ff; }
+  .natal-block.rising { border-left-color: #ffd166; }
+  .natal-block.rising .natal-label { color: #ffd166; }
+  .natal-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.25rem;
+  }
+  .natal-name {
+    font-weight: 700;
+    font-size: 0.98rem;
+    margin-bottom: 0.1rem;
+  }
+  .natal-char {
+    color: var(--dim);
+    font-size: 0.72rem;
+    margin-bottom: 0.4rem;
+  }
+  .natal-blurb {
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
 
   .omen {
     border-top: 1px dashed var(--border);
@@ -223,8 +267,9 @@
   <div class="wrap">
     <h1>didscope</h1>
     <p class="tag">
-      Astrology, but it's the last character of your <code>did:plc</code>.
-      Equally scientific. Enter a Bluesky handle and receive your reading.
+      Astrology, but it's characters of your <code>did:plc</code>.
+      Equally scientific. Full natal chart: sun, moon, and rising, all
+      read off your identifier. Enter a Bluesky handle and receive your reading.
     </p>
 
     <form id="f">
@@ -244,12 +289,28 @@
         </div>
       </div>
 
+      <div class="sunlabel">☉ sun sign</div>
       <div class="glyph" id="glyph"></div>
       <div class="signname" id="signname"></div>
       <div class="signchar" id="signchar"></div>
 
       <div class="reading" id="reading"></div>
       <div class="rival" id="rival"></div>
+
+      <div class="natal">
+        <div class="natal-block moon">
+          <div class="natal-label">☾ moon sign</div>
+          <div class="natal-name" id="moonName"></div>
+          <div class="natal-char" id="moonChar"></div>
+          <div class="natal-blurb" id="moonBlurb"></div>
+        </div>
+        <div class="natal-block rising">
+          <div class="natal-label">↑ rising sign</div>
+          <div class="natal-name" id="risingName"></div>
+          <div class="natal-char" id="risingChar"></div>
+          <div class="natal-blurb" id="risingBlurb"></div>
+        </div>
+      </div>
 
       <div class="omen">
         <div class="label">today's omen</div>
@@ -313,13 +374,97 @@ const SIGNS = {
 };
 const ORDER = Object.keys(SIGNS);
 
-function signFor(ch) {
+// moon sign: read off the middle character of the DID's method-specific id.
+// governs the inner, unposted, 3am-notes-app version of you.
+const MOON_SIGNS = {
+  a: ["Moon in Screenshotted DMs", "What you actually feel lives in a group chat, never on main."],
+  b: ["Moon in Backlog", "You have fully processed this feeling. It is issue #4021. It will not be closed."],
+  c: ["Moon in Cold Open", "You rehearse the apology reply in your head more than you'll ever post it."],
+  d: ["Moon in Draft", "Forty-one unsent replies. All correct. None sent."],
+  e: ["Moon in Empty State", "When it's quiet you assume it's broken, not that it's fine."],
+  f: ["Moon in Feature Flag", "Your real feelings ship to 1% of your friends, dark-launched. Everyone else gets the old version."],
+  g: ["Moon in Ghost Read", "You saw it. You know you saw it. You will not confirm you saw it."],
+  h: ["Moon in Hard Refresh", "Every low mood gets treated like a caching bug. Sometimes it's just Tuesday."],
+  i: ["Moon in Incognito", "You lurk your own feelings in a private tab so the algorithm doesn't remember."],
+  j: ["Moon in Private Journal Repo", "You write it all down somewhere nobody, including future you, will ever read it."],
+  k: ["Moon in Keyboard Shortcut", "You have a reflex for closing the tab before anyone sees what you were reading."],
+  l: ["Moon in Localhost", "Nothing you feel is deployed. It only ever runs on your own machine."],
+  m: ["Moon in Muted Thread", "You didn't leave the conversation. You just stopped letting it reach you."],
+  n: ["Moon in Null", "Asked how you're doing, you return nothing, and everyone assumes that's fine."],
+  o: ["Moon in Open Tab, Unread", "The feeling has been sitting there for six days. You know exactly which one it is."],
+  p: ["Moon in Pending Review", "You wait for someone else to approve the feeling before you're allowed to have it."],
+  q: ["Moon in Quiet Mode", "Notifications off. Feelings on. Nobody outside can tell the difference."],
+  r: ["Moon in Retry Loop", "Same feeling, exponential backoff, still hasn't given up trying to resolve."],
+  s: ["Moon in Stack Trace", "You can point to the exact line where it started going wrong. You still haven't fixed it."],
+  t: ["Moon in Typing Indicator", "Three dots appear. They vanish. This happens for nine minutes. Nothing sent."],
+  u: ["Moon in Uptime", "You've been fine for 340 days straight, technically, if nobody checks the error logs."],
+  v: ["Moon in Version Control", "You keep every earlier draft of yourself, just in case you need to revert."],
+  w: ["Moon in Waitlist", "You are still, secretly, waiting to be let in on something. Anything."],
+  x: ["Moon in Uncaught Exception", "It surfaces exactly once, at the worst possible time, in front of everyone."],
+  y: ["Moon in Yesterday's Cache", "You're still running on how you felt about this a week ago. Nobody's told you it changed."],
+  z: ["Moon in Zombie Process", "Technically finished. Still holding the slot open. Somebody should really kill this."],
+  "2": ["Moon in Second Account", "Your real feelings post from an alt with eleven followers, all mutuals."],
+  "3": ["Moon in 3am Notes App", "Nothing written there has ever been read in daylight, by you or anyone else."],
+  "4": ["Moon in 404, Feelings Not Found", "Asked what's wrong, and technically, correctly, there is nothing at that address."],
+  "5": ["Moon in Five-Second Delay", "You feel it fine. It just takes a beat to reach your face."],
+  "6": ["Moon in Silent Failure", "It didn't crash. It just quietly stopped working days ago, and nobody noticed. Including you."],
+  "7": ["Moon in Lucky Rollback", "Whatever broke you, you reverted to before it happened. Mostly."],
+};
+
+// rising sign: read off the first character of the DID's method-specific id.
+// governs the public-facing, first-impression, screenshot-in-the-wild version of you.
+const RISING_SIGNS = {
+  a: ["Rising in Avatar Crop", "First impression: extremely serious profile picture. Second impression: it's a screenshot of a duck."],
+  b: ["Rising in Bio Link", "You lead with the link in bio before the personality. It's working, somehow."],
+  c: ["Rising in Clout-Adjacent", "You reply to big accounts fast enough that people assume you know them. You don't."],
+  d: ["Rising in Dark Mode Only", "Nobody has ever seen your feed in light mode. This is a personality trait now."],
+  e: ["Rising in Extremely Online", "Strangers can tell within one scroll. There's no hiding it, so you've stopped trying."],
+  f: ["Rising in Follow-Back", "You look approachable. You are not approachable. You just follow back."],
+  g: ["Rising in Good Faith Reply Guy", "You show up in every thread with a genuinely helpful, slightly unwanted comment."],
+  h: ["Rising in Handle Puns", "The handle alone gets a reaction before you've posted a single thing."],
+  i: ["Rising in Invite-Only Energy", "You give off exclusive-beta vibes despite having a completely public, ordinary account."],
+  j: ["Rising in Job Title in Bio", "People assume competence on sight. The bio is doing a lot of unpaid work."],
+  k: ["Rising in Known in Certain Circles", "Total stranger to most of the internet, minor celebrity to a specific forty people."],
+  l: ["Rising in Lurker Who Got Caught", "You liked one post at 2am and now everyone knows you were awake."],
+  m: ["Rising in Main Character Post", "Every profile visit starts with the one post that went a little too far, a little too well."],
+  n: ["Rising in No Bio, No Pfp", "Deliberately gives nothing away. Somehow that's more intriguing than a bio would be."],
+  o: ["Rising in Old Account Energy", "The join date alone earns you unearned credibility in every argument."],
+  p: ["Rising in Pinned Post Diplomat", "The pinned post explains you better than you ever could in conversation."],
+  q: ["Rising in Quote-Post Reflex", "First thing strangers see: you, adding context nobody requested."],
+  r: ["Rising in Reply-Guy Redeemed", "Used to be exhausting in mentions. Now it reads as charming. Growth."],
+  s: ["Rising in Suspiciously Normal", "No red flags in the first five posts. This itself is the red flag."],
+  t: ["Rising in Threadstarter", "You don't post, you announce threads. Everyone scrolls for the numbered list."],
+  u: ["Rising in Unverified but Trusted", "No badge, no checkmark, and yet somehow everyone just believes you."],
+  v: ["Rising in Vague Subpost", "First impression is always slightly cryptic and clearly about somebody specific."],
+  w: ["Rising in Welcoming Committee", "You're in the replies of every new account within the hour, being suspiciously nice."],
+  x: ["Rising in Exists Only in Screenshots", "Nobody follows you directly. Everyone has seen you quote-posted somewhere."],
+  y: ["Rising in Yells Into the Void, Gets Replies", "Posts like nobody's reading. Forty people are reading."],
+  z: ["Rising in Zero Posts, Full Following", "An account that follows 900 people and has posted exactly nothing. A mystery."],
+  "2": ["Rising in Second-Wave Adopter", "Joined right after the people who joined right after it launched. Perfect timing, actually."],
+  "3": ["Rising in Three-Post Streak", "Posts in bursts of exactly three, then vanishes for a week. Everyone's noticed. Nobody's said anything."],
+  "4": ["Rising in 4-Digit Follower Count", "Not famous. Not nobody. Permanently, precisely, in the middle."],
+  "5": ["Rising in Five-Word Bio", "Says almost nothing and it's somehow the most iconic bio you've read all week."],
+  "6": ["Rising in Sixth Reply in Every Thread", "Never first, never last, always exactly on time with the perfect line."],
+  "7": ["Rising in Lucky Handle", "Got the handle everyone wanted. Won't say how. Doesn't have to."],
+};
+
+function keyFor(ch, table) {
   const key = (ch || "").toLowerCase();
-  return SIGNS[key] ? key : ORDER[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % ORDER.length] || "a";
+  return table[key] ? key : ORDER[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % ORDER.length] || "a";
+}
+function signFor(ch) {
+  return keyFor(ch, SIGNS);
 }
 function rivalFor(key) {
   const i = ORDER.indexOf(key);
   return ORDER[(i + 16) % ORDER.length]; // opposite side of the wheel
+}
+
+// the DID's method-specific id (everything after "did:<method>:"), used to
+// read moon/rising off different positions than the sun's trailing char.
+function didUniquePart(did) {
+  const parts = did.split(":");
+  return parts.length > 2 ? parts.slice(2).join(":") : did;
 }
 
 function cleanHandle(raw) {
@@ -344,6 +489,12 @@ const els = {
   signchar: document.getElementById("signchar"),
   reading: document.getElementById("reading"),
   rival: document.getElementById("rival"),
+  moonName: document.getElementById("moonName"),
+  moonChar: document.getElementById("moonChar"),
+  moonBlurb: document.getElementById("moonBlurb"),
+  risingName: document.getElementById("risingName"),
+  risingChar: document.getElementById("risingChar"),
+  risingBlurb: document.getElementById("risingBlurb"),
   omen: document.getElementById("omen"),
   shareCanvas: document.getElementById("shareCanvas"),
   shareBluesky: document.getElementById("shareBluesky"),
@@ -383,10 +534,11 @@ function shareUrlFor(handle) {
   return "https://didscope.bisks.net/?h=" + encodeURIComponent(handle);
 }
 
-function shareText(profile, name, key, omenText) {
+function shareText(profile, name, key, moonName, risingName, omenText) {
   const omenBit = omenText ? ` Today's omen: “${omenText}”` : "";
   return (
-    `@${profile.handle}'s did:plc ends in “${key}” — ${name}.${omenBit}\n\n` +
+    `@${profile.handle}'s did:plc ends in “${key}” — ${name}. ` +
+    `${moonName}, ${risingName}.${omenBit}\n\n` +
     `read your own → ${shareUrlFor(profile.handle)}`
   );
 }
@@ -422,7 +574,7 @@ function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
 
 // draws a 1200x630 share card mirroring the on-page reading, so the
 // download/attach flow gets an image that matches what was just revealed.
-async function buildShareCard({ profile, did, lastChar, name, reading, omenText }) {
+async function buildShareCard({ profile, did, lastChar, name, reading, moonName, risingName, omenText }) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -479,14 +631,20 @@ async function buildShareCard({ profile, did, lastChar, name, reading, omenText 
 
   ctx.fillStyle = "#a996c4";
   ctx.font = `400 16px ${mono}`;
-  ctx.fillText("DID ends in “" + lastChar + "”", W / 2, cardY + 156);
+  ctx.fillText("DID ends in “" + lastChar + "”", W / 2, cardY + 150);
+
+  if (moonName && risingName) {
+    ctx.fillStyle = "#a996c4";
+    ctx.font = `400 14px ${mono}`;
+    ctx.fillText("☾ " + moonName + "   ↑ " + risingName, W / 2, cardY + 174);
+  }
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#ff5fd1";
-  ctx.fillRect(cardX + 48, cardY + 182, 4, 70);
+  ctx.fillRect(cardX + 48, cardY + 196, 4, 70);
   ctx.fillStyle = "#f2e9ff";
   ctx.font = `400 20px ${mono}`;
-  wrapCanvasText(ctx, reading, cardX + 68, cardY + 204, cardW - 136, 28);
+  wrapCanvasText(ctx, reading, cardX + 68, cardY + 218, cardW - 136, 28);
 
   if (omenText) {
     ctx.fillStyle = "#6ef2c9";
@@ -527,6 +685,14 @@ async function reveal(rawHandle) {
     const [name, reading] = SIGNS[key];
     const rivalKey = rivalFor(key);
 
+    const uniquePart = didUniquePart(did);
+    const risingChar = uniquePart.charAt(0) || lastChar;
+    const moonChar = uniquePart.charAt(Math.floor(uniquePart.length / 2)) || lastChar;
+    const risingKey = keyFor(risingChar, RISING_SIGNS);
+    const moonKey = keyFor(moonChar, MOON_SIGNS);
+    const [moonName, moonBlurb] = MOON_SIGNS[moonKey];
+    const [risingName, risingBlurb] = RISING_SIGNS[risingKey];
+
     els.avatar.src = profile.avatar || "";
     els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
     els.handleOut.textContent = "@" + profile.handle;
@@ -537,12 +703,19 @@ async function reveal(rawHandle) {
     els.reading.textContent = reading;
     els.rival.innerHTML = "Cosmically opposed to <b>" + SIGNS[rivalKey][0] + "</b> (ends in “" + rivalKey + "”). Try not to reply-guy them.";
 
+    els.moonName.textContent = moonName;
+    els.moonChar.textContent = "middle of DID is “" + moonChar + "”";
+    els.moonBlurb.textContent = moonBlurb;
+    els.risingName.textContent = risingName;
+    els.risingChar.textContent = "DID opens with “" + risingChar + "”";
+    els.risingBlurb.textContent = risingBlurb;
+
     setStatus("");
     els.card.classList.add("show");
 
     const rebuildShare = (omenText) => {
-      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText(profile, name, key, omenText));
-      buildShareCard({ profile, did, lastChar, name, reading, omenText });
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText(profile, name, key, moonName, risingName, omenText));
+      buildShareCard({ profile, did, lastChar, name, reading, moonName, risingName, omenText });
     };
     rebuildShare(null);
 
