@@ -31,7 +31,7 @@
         align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
-        padding: 14px 18px;
+        padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 14px max(18px, env(safe-area-inset-left));
         pointer-events: none;
         z-index: 5;
         font-weight: 700;
@@ -55,7 +55,7 @@
 
       .status {
         position: fixed;
-        left: 0; right: 0; bottom: 10px;
+        left: 0; right: 0; bottom: max(10px, env(safe-area-inset-bottom));
         text-align: center;
         font-size: 12px;
         opacity: 0.72;
@@ -63,6 +63,7 @@
         z-index: 5;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
       }
+      body.mobile .status { bottom: calc(150px + env(safe-area-inset-bottom)); }
       .status .dot {
         display: inline-block;
         width: 8px; height: 8px;
@@ -134,7 +135,7 @@
       /* eaten-post feed, bottom-left */
       .feed {
         position: fixed;
-        left: 14px; bottom: 34px;
+        left: max(14px, env(safe-area-inset-left)); bottom: 34px;
         width: min(340px, 62vw);
         display: flex;
         flex-direction: column-reverse;
@@ -142,6 +143,53 @@
         pointer-events: none;
         z-index: 4;
       }
+      body.mobile .feed { bottom: calc(150px + env(safe-area-inset-bottom)); width: min(240px, 52vw); }
+
+      /* ---- mobile touch controls ---- */
+      .mobileControls { display: none; }
+      body.mobile .mobileControls { display: block; }
+      .joystick {
+        position: fixed;
+        left: max(20px, env(safe-area-inset-left));
+        bottom: max(26px, env(safe-area-inset-bottom));
+        width: 116px; height: 116px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.07);
+        border: 2px solid rgba(107, 240, 255, 0.32);
+        pointer-events: auto;
+        touch-action: none;
+        z-index: 15;
+      }
+      .joystick .knob {
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 50px; height: 50px;
+        margin: -25px 0 0 -25px;
+        border-radius: 50%;
+        background: rgba(107, 240, 255, 0.55);
+        border: 2px solid rgba(107, 240, 255, 0.9);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+      }
+      .fireBtn {
+        position: fixed;
+        right: max(24px, env(safe-area-inset-right));
+        bottom: max(34px, env(safe-area-inset-bottom));
+        width: 76px; height: 76px;
+        border-radius: 50%;
+        border: none;
+        font-size: 26px;
+        font-family: inherit;
+        color: #2a0f04;
+        background: linear-gradient(180deg, #ffb37d, #d9691f);
+        box-shadow: 0 6px 0 #7c3a0f, 0 10px 22px rgba(0, 0, 0, 0.4);
+        pointer-events: auto;
+        touch-action: none;
+        z-index: 15;
+      }
+      .fireBtn:active { transform: translateY(4px); box-shadow: 0 2px 0 #7c3a0f, 0 6px 14px rgba(0, 0, 0, 0.4); }
+      #fineMobile { display: none; }
+      body.mobile #fineDesktop { display: none; }
+      body.mobile #fineMobile { display: block; }
       .feed .item {
         background: rgba(4, 16, 22, 0.66);
         border-left: 3px solid #6bf0ff;
@@ -176,6 +224,11 @@
 
     <div class="feed" id="feed"></div>
 
+    <div class="mobileControls">
+      <div class="joystick" id="joystick"><div class="knob" id="joyKnob"></div></div>
+      <button class="fireBtn" id="fireBtn" aria-label="fire">🔥</button>
+    </div>
+
     <div class="status"><span class="dot off" id="dot"></span><span id="statusText">loading @norvid-studies.bsky.social's archive…</span></div>
 
     <!-- start / game over -->
@@ -188,10 +241,14 @@
         duck. Outgrow rivals and they're lunch, but if they outgrow <i>you</i>,
         you're theirs.
       </p>
-      <p class="fine">
+      <p class="fine" id="fineDesktop">
         <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>WASD</kbd> to move ·
         <kbd>space</kbd> fires half your tweets at the nearest rival —
         catch the duck and he bursts into a hail of tweets
+      </p>
+      <p class="fine" id="fineMobile">
+        drag the left stick to move · tap the 🔥 button to fire half your tweets at
+        the nearest rival — catch the duck and he bursts into a hail of tweets
       </p>
       <button class="btn" id="startBtn">drop in</button>
       <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, v2 for @norvid-studies.bsky.social</div>
@@ -436,7 +493,51 @@
         keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key);
       });
 
+      // touch/coarse-pointer devices get an on-screen joystick + fire button
+      // instead of (or alongside) the keyboard
+      const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+      if (isTouch) document.body.classList.add("mobile");
+
+      let touchVec = null;
+      const joystick = document.getElementById("joystick");
+      const joyKnob = document.getElementById("joyKnob");
+      const fireBtn = document.getElementById("fireBtn");
+      const JOY_R = 44;
+      let joyPointerId = null, joyCenter = { x: 0, y: 0 };
+
+      joystick.addEventListener("pointerdown", (e) => {
+        joyPointerId = e.pointerId;
+        const rect = joystick.getBoundingClientRect();
+        joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        joystick.setPointerCapture(e.pointerId);
+        updateJoy(e);
+      });
+      joystick.addEventListener("pointermove", (e) => {
+        if (e.pointerId === joyPointerId) updateJoy(e);
+      });
+      function releaseJoy(e) {
+        if (e.pointerId !== joyPointerId) return;
+        joyPointerId = null;
+        touchVec = null;
+        joyKnob.style.transform = "translate(0, 0)";
+      }
+      joystick.addEventListener("pointerup", releaseJoy);
+      joystick.addEventListener("pointercancel", releaseJoy);
+      function updateJoy(e) {
+        const dx = e.clientX - joyCenter.x, dy = e.clientY - joyCenter.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const cl = Math.min(d, JOY_R);
+        joyKnob.style.transform = `translate(${(dx / d) * cl}px, ${(dy / d) * cl}px)`;
+        touchVec = d > 6 ? { x: dx / d, y: dy / d } : null;
+      }
+
+      fireBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        if (running) fireShot();
+      });
+
       function moveVector() {
+        if (touchVec) return touchVec;
         let dx = 0, dy = 0;
         if (keys.has("ArrowLeft") || keys.has("a")) dx -= 1;
         if (keys.has("ArrowRight") || keys.has("d")) dx += 1;
