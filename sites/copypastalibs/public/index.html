@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>copypastalibs — mad-libs from someone's own words — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://copypastalibs.bisks.net/" />
+    <meta property="og:title" content="copypastalibs — mad-libs from someone's own words" />
+    <meta
+      property="og:description"
+      content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="copypastalibs — mad-libs from someone's own words" />
+    <meta
+      name="twitter:description"
+      content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      label.field-label {
+        display: block; font-size: 0.68rem; text-transform: uppercase;
+        letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.4rem;
+      }
+
+      .feed-row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .feed-row input[type="text"] {
+        flex: 1; min-width: 12rem; font-family: var(--mono); font-size: 0.9rem;
+        color: var(--ink); background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 6px; padding: 0.6rem 0.75rem;
+      }
+      .feed-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
+
+      button {
+        font-family: var(--mono); font-size: 0.88rem; font-weight: 600;
+        color: #fff; background: var(--ink); border: none; border-radius: 6px;
+        padding: 0.6rem 1.1rem; cursor: pointer;
+      }
+      button:hover { background: var(--accent); }
+      button.ghost {
+        color: var(--ink); background: transparent; border: 1px solid var(--faint);
+        font-weight: 400;
+      }
+      button.ghost:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
+      button.small { font-size: 0.74rem; padding: 0.4rem 0.7rem; font-weight: 400; }
+
+      .feed-status { font-size: 0.78rem; color: var(--muted); margin: 0.9rem 0 0; min-height: 1.1rem; }
+      .pool-stats { font-size: 0.78rem; color: var(--muted); margin: 0.2rem 0 0; }
+      .pool-stats b { color: var(--ink); }
+      .pool-words {
+        font-size: 0.76rem; color: var(--muted); margin: 0.5rem 0 0; line-height: 1.7;
+      }
+      .pool-words span {
+        display: inline-block; background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.1rem 0.4rem; margin: 0 0.25rem 0.25rem 0;
+      }
+
+      .controls-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin: 2rem 0 1rem; flex-wrap: wrap; gap: 0.6rem;
+      }
+      .controls-row h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+
+      .cards { display: flex; flex-direction: column; gap: 1.25rem; }
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+        background: var(--faintbg);
+      }
+      .card-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 0.6rem; gap: 0.6rem; flex-wrap: wrap;
+      }
+      .card-title { font-weight: 600; font-size: 0.85rem; }
+      .card-buttons { display: flex; gap: 0.4rem; }
+      .card-text {
+        white-space: pre-wrap; background: var(--bg); border: 1px solid var(--ink);
+        border-radius: 4px; padding: 0.85rem 1rem; font-size: 0.9rem;
+      }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>copypastalibs <span class="slash">/</span> mad-libs from someone's own words</h1>
+        <p class="intro">
+          Enter a Bluesky handle. It pulls their recent posts off the public
+          feed, throws out "the," "and," and other filler, and keeps whatever
+          words they actually reach for a lot. Those words get stuffed back
+          into a rotating cast of classic internet copypastas, mad-libs
+          style — blanks filled from <b>their</b> vocabulary, not a
+          dictionary. Nothing is written back, nothing needs login.
+        </p>
+      </header>
+
+      <label class="field-label" for="feed-handle">bluesky handle</label>
+      <div class="feed-row">
+        <input type="text" id="feed-handle" placeholder="cee.wtf" value="cee.wtf" />
+        <button id="feed-go">learn their words</button>
+      </div>
+      <p class="feed-status" id="feed-status"></p>
+      <p class="pool-stats" id="pool-stats"></p>
+      <p class="pool-words" id="pool-words"></p>
+
+      <div class="controls-row">
+        <h2>the pastas</h2>
+        <button class="ghost" id="reroll-all">reroll all</button>
+      </div>
+      <div class="cards" id="cards"></div>
+
+      <footer>
+        part of <a href="https://bisks.net">bisks.net</a> — a little zoo of tiny atproto experiments
+      </footer>
+    </div>
+
+    <script>
+      // ── word pool: harvest + classify ───────────────────────────────────
+      const STOPWORDS = new Set(`
+        the a an and or but if of to in on at for with is was were are be been
+        being this that these those i you he she it we they my your his her
+        its our their me him us them not no do does did will would can could
+        should shall just so than then there here what which who whom when
+        where why how all any both each few more most other some such only
+        own same as from up down out about into over under again further once
+        also very really like im ive dont cant its thats youre theyre were
+        got get one two has have had am was been having ok okay yeah yes yep
+        nah lol lmao rt via too still even much many well now well going go
+        goes went back new one people time day today good bad thing things
+        gonna wanna gotta kinda sorta bit way ur u r your youre didnt doesnt
+        isnt arent wasnt werent wont wouldnt couldnt shouldnt hasnt havent
+        hadnt ill youll well theyll id youd hed shed wed theyd whats hows
+        thats heres theres reply replying quote quoted post posted posting
+        skeet bsky bluesky com www http https feed thread
+      `.trim().split(/\s+/));
+
+      const FALLBACK_WORDS = [
+        "gremlin", "waffle", "spreadsheet", "raccoon", "vibe", "cursed",
+        "goblin", "printer", "chaos", "wifi", "burrito", "static", "moss",
+        "puddle", "toaster", "swamp", "glitter", "pigeon", "vibes", "modem",
+      ];
+
+      function classify(word) {
+        if (word.length > 4 && /ly$/.test(word)) return "adv";
+        if (
+          (word.length > 4 && /(ful|ous|ive|less|able|ible|ish|al|ic)$/.test(word)) ||
+          (word.length > 3 && /y$/.test(word) && !/ly$/.test(word))
+        ) {
+          return "adj";
+        }
+        return "nv"; // noun/verb catch-all — most words land here
+      }
+
+      function extractFrequencies(posts) {
+        const freq = new Map();
+        for (const p of posts) {
+          const cleaned = p.text
+            .replace(/https?:\/\/\S+/g, " ")
+            .replace(/@[a-zA-Z0-9._-]+/g, " ");
+          const words = cleaned.toLowerCase().match(/[a-z]+/g) || [];
+          for (const w of words) {
+            if (w.length < 3 || w.length > 15) continue;
+            if (STOPWORDS.has(w)) continue;
+            freq.set(w, (freq.get(w) || 0) + 1);
+          }
+        }
+        return freq;
+      }
+
+      function buildPools(freq) {
+        const ranked = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 100);
+        const pools = { nv: [], adj: [], adv: [] };
+        for (const [word, count] of ranked) {
+          const bucket = classify(word);
+          const weight = Math.min(count, 4);
+          for (let i = 0; i < weight; i++) pools[bucket].push(word);
+        }
+        // top of the vocabulary list, shown to the user regardless of weighting
+        const topWords = ranked.slice(0, 24).map(([w]) => w);
+        return { pools, topWords, usableCount: ranked.length };
+      }
+
+      function padPools(pools) {
+        // if an account barely posts, or posts entirely in stopwords, keep
+        // blanks from breaking by topping every pool up with fallback words.
+        if (pools.nv.length < 8) pools.nv = pools.nv.concat(FALLBACK_WORDS);
+        if (pools.adj.length < 4) pools.adj = pools.adj.concat(pools.nv.slice(0, 8));
+        if (pools.adv.length < 4) pools.adv = pools.adv.concat(pools.adj.slice(0, 8));
+      }
+
+      // ── word-shape helpers (deliberately loose — wrongness is half the fun) ──
+      function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+      function pluralize(w) {
+        if (/(s|x|z|ch|sh)$/.test(w)) return w + "es";
+        if (/[^aeiou]y$/.test(w)) return w.slice(0, -1) + "ies";
+        return w + "s";
+      }
+
+      function gerund(w) {
+        if (/ie$/.test(w)) return w.slice(0, -2) + "ying";
+        if (/[^aeiou]e$/.test(w) && !/ee$/.test(w)) return w.slice(0, -1) + "ing";
+        return w + "ing";
+      }
+
+      function pastTense(w) {
+        if (/e$/.test(w)) return w + "d";
+        if (/[^aeiou]y$/.test(w)) return w.slice(0, -1) + "ied";
+        return w + "ed";
+      }
+
+      function fillBlank(kind, pools) {
+        switch (kind) {
+          case "noun": return pick(pools.nv);
+          case "plural_noun": return pluralize(pick(pools.nv));
+          case "verb": return pick(pools.nv);
+          case "verb_ing": return gerund(pick(pools.nv));
+          case "past_verb": return pastTense(pick(pools.nv));
+          case "adjective": return pick(pools.adj.length ? pools.adj : pools.nv);
+          case "adverb": {
+            if (pools.adv.length) return pick(pools.adv);
+            return pick(pools.adj.length ? pools.adj : pools.nv) + "ly";
+          }
+          case "exclamation": {
+            const all = pools.nv.concat(pools.adj, pools.adv);
+            return pick(all.length ? all : FALLBACK_WORDS);
+          }
+          default: return kind;
+        }
+      }
+
+      function fillTemplate(template, pools) {
+        const filled = template.replace(/\{(\w+)\}/g, (_, kind) => fillBlank(kind, pools));
+        return filled.length ? filled[0].toUpperCase() + filled.slice(1) : filled;
+      }
+
+      // ── the pastas ───────────────────────────────────────────────────────
+      const PASTAS = [
+        {
+          title: "the navy seal",
+          template: `What the {exclamation} did you just say about me, you {adjective} {noun}? I'll have you know I graduated top of my class in the {noun}s, and I've been involved in numerous secret raids on {plural_noun}, and I have over three hundred confirmed {plural_noun}. I am trained in {noun} warfare and I'm the top {noun} in the entire {adjective} armed forces. You are nothing to me but just another {noun}. I will {verb} you with {adjective} precision the likes of which has never been seen before on this Earth, mark my {adjective} words. You think you can get away with {verb_ing} that {noun} to me over the Internet? Think again, {noun}. As we speak I am contacting my secret network of {plural_noun} across the {noun}, and your {noun} is being traced right now so you better prepare for the {noun}, {noun}. The {noun} that wipes out the pathetic little thing you call your {noun}. You're {adjective} dead, {noun}. I can {verb} you in over seven hundred ways, and that's just with my bare {plural_noun}. Not only am I extensively trained in unarmed {noun}, but I have access to the entire {noun} of the {adjective} {noun} and I will use it to its full extent to {verb} your {adjective} {noun} off the face of the continent, you little {noun}. If only you could have known what {adjective} retribution your little {noun} comment was about to bring down upon you, maybe you would have {past_verb} your {adjective} tongue. But you didn't, and now you're {verb_ing}, you {adjective} {noun}. I will {verb} fury all over you and you will drown in it. You're {adjective} dead, {noun}boy.`,
+        },
+        {
+          title: "a person of culture",
+          template: `Ah, {noun}. I see you are a {noun} of {adjective} {noun} as well. I too like to {verb} my {plural_noun} in the {adjective} way before {verb_ing} them with {adjective} {noun} sauce, and then, without saying a {adjective} word, {verb} it and eat it.`,
+        },
+        {
+          title: "the linkedin thought leader",
+          template: `I was {verb_ing} my {noun} at 4am when a {adjective} {noun} walked up to me and asked for a {noun}. I had none to give. But I gave him something more valuable: {adjective} advice. "{noun} isn't about {plural_noun}," I told him, "it's about {verb_ing} your {adjective} {noun} until the {noun} believes in you." He {past_verb}. I {past_verb}. Neither of us will ever forget that {adjective} {noun} on {noun} street. This is {noun}. Repost if you agree. #{noun} #{adjective}{noun} #grindset`,
+        },
+        {
+          title: "the totally real free nitro",
+          template: `hey {noun}!! i just got a {adjective} amount of free {noun} from this {adjective} website, thought you'd want some too before it's {past_verb}. just {verb} your {noun} details and you'll get {adjective} {plural_noun} sent straight to your {noun}. don't tell {noun}, he's {verb_ing} for his own and there's only enough {noun} for {adjective} {plural_noun} like us. trust me {noun}, would i {verb} you???`,
+        },
+        {
+          title: "the pep talk",
+          template: `Listen up, {plural_noun}. Out there is a {adjective} {noun} that wants nothing more than to {verb} you, to {verb} your {adjective} dreams and leave you {verb_ing} in the {noun}. But I didn't {verb} four {adjective} {plural_noun} of practice to watch you {verb} now. When that {noun} steps onto the {noun}, I want you to {verb} like you've never {past_verb} before. I want {noun}. I want {adjective} {noun}. Now get out there and {adverb} {verb} that {adjective} {noun} into the ground!`,
+        },
+        {
+          title: "the among us callout",
+          template: `{noun} was {adjective}. {noun} says {noun} was in {noun} the whole {noun}. {noun} says {noun} is {adjective}. I saw {noun} vent near {noun}. {noun} is now {verb_ing} in {noun} and won't stop {verb_ing}. Emergency {noun} called. Only a {adjective} few of us remain. Wait — {noun} is {adjective} confirmed {noun}.`,
+        },
+      ];
+
+      // ── feed loading ──────────────────────────────────────────────────────
+      // Reads Bluesky's PUBLIC AppView anonymously (public.api.bsky.app,
+      // CORS *, no auth): resolveHandle, getProfile, getAuthorFeed. Copied
+      // from sites/erudifier/public/index.html — copy, don't abstract.
+      const PUB = "https://public.api.bsky.app/xrpc";
+
+      async function jget(url) {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }
+
+      async function resolveDid(actor) {
+        const a = (actor || "")
+          .trim()
+          .replace(/^@/, "")
+          .replace(/^at:\/\//, "")
+          .replace(/^https?:\/\/(bsky\.app\/profile\/)?/, "")
+          .split("/")[0];
+        if (!a) throw new Error("enter a handle");
+        if (a.startsWith("did:")) return a;
+        const d = await jget(
+          `${PUB}/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(a)}`,
+        );
+        if (!d.did) throw new Error(`couldn't resolve "${a}"`);
+        return d.did;
+      }
+
+      async function getHandle(did) {
+        const p = await jget(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`);
+        return p.handle || did;
+      }
+
+      async function fetchAuthorFeed(did, limit) {
+        const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
+        u.searchParams.set("actor", did);
+        u.searchParams.set("limit", String(limit));
+        const d = await jget(u.toString());
+        const posts = [];
+        for (const it of d.feed || []) {
+          if (it.reason) continue; // skip reposts, keep replies — more of their words
+          const rec = it.post && it.post.record;
+          if (!rec || typeof rec.text !== "string" || !rec.text.trim()) continue;
+          posts.push({ text: rec.text });
+        }
+        return posts;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+      }
+
+      const $feedHandle = document.getElementById("feed-handle");
+      const $feedGo = document.getElementById("feed-go");
+      const $feedStatus = document.getElementById("feed-status");
+      const $poolStats = document.getElementById("pool-stats");
+      const $poolWords = document.getElementById("pool-words");
+      const $cards = document.getElementById("cards");
+      const $rerollAll = document.getElementById("reroll-all");
+
+      let currentPools = null;
+
+      function renderCards() {
+        $cards.innerHTML = PASTAS.map((p, i) => `
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">${escapeHtml(p.title)}</span>
+              <div class="card-buttons">
+                <button class="ghost small" data-reroll="${i}">reroll</button>
+                <button class="ghost small" data-copy="${i}">copy</button>
+              </div>
+            </div>
+            <div class="card-text" id="card-text-${i}"></div>
+          </div>
+        `).join("");
+        fillAllCards();
+      }
+
+      function fillOneCard(i) {
+        const el = document.getElementById(`card-text-${i}`);
+        if (!el || !currentPools) return;
+        el.textContent = fillTemplate(PASTAS[i].template, currentPools);
+      }
+
+      function fillAllCards() {
+        PASTAS.forEach((_, i) => fillOneCard(i));
+      }
+
+      $cards.addEventListener("click", (e) => {
+        const rerollI = e.target.getAttribute("data-reroll");
+        const copyI = e.target.getAttribute("data-copy");
+        if (rerollI !== null) fillOneCard(Number(rerollI));
+        if (copyI !== null) {
+          const el = document.getElementById(`card-text-${copyI}`);
+          if (el) navigator.clipboard.writeText(el.textContent);
+        }
+      });
+
+      $rerollAll.addEventListener("click", () => {
+        if (currentPools) fillAllCards();
+      });
+
+      async function loadFeed() {
+        const raw = $feedHandle.value;
+        $poolStats.textContent = "";
+        $poolWords.textContent = "";
+        try {
+          $feedStatus.textContent = "resolving handle…";
+          const did = await resolveDid(raw);
+          const handle = await getHandle(did);
+          $feedStatus.textContent = `reading @${handle}'s recent posts…`;
+          const posts = await fetchAuthorFeed(did, 100);
+          if (!posts.length) {
+            $feedStatus.textContent = `@${handle} hasn't posted anything fetchable — nothing to learn from`;
+            return;
+          }
+          const freq = extractFrequencies(posts);
+          const { pools, topWords, usableCount } = buildPools(freq);
+          padPools(pools);
+          currentPools = pools;
+
+          $feedStatus.textContent = `learned from @${handle}'s feed:`;
+          $poolStats.innerHTML = `scanned <b>${posts.length}</b> posts, kept <b>${usableCount}</b> non-filler words`;
+          $poolWords.innerHTML = topWords.length
+            ? topWords.map((w) => `<span>${escapeHtml(w)}</span>`).join("")
+            : "";
+          renderCards();
+        } catch (e) {
+          $feedStatus.textContent = `couldn't load that — ${(e && e.message) || e}`;
+        }
+      }
+
+      $feedGo.addEventListener("click", loadFeed);
+      $feedHandle.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") loadFeed();
+      });
+
+      loadFeed();
+    </script>
+  </body>
+</html>
