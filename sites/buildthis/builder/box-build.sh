@@ -135,6 +135,20 @@ if grep -qiE "usage limit|rate limit|resets? at|reached your (usage|limit)" "$CL
   USAGE_LIMIT="1"
 fi
 
+# Distinguish "ran out of turns on a too-big ask" from a transient failure. Hitting
+# --max-turns is DETERMINISTIC: an identical retry produces the identical overrun,
+# so retrying just burns another full build (~15-20 min) and the queue behind it to
+# reach the same place. The CLI prints "Reached max turns" when it caps out. We treat
+# this as terminal (no requeue) with an honest, actionable reply ("too big to finish
+# in one pass — try breaking it up"), instead of silently retrying a doomed build.
+# Only transient failures (a crash, a network blip — no max-turns, no usage-limit)
+# are worth a retry. (cee.wtf's 10-min-EP ask is the motivating case: it overran
+# max-turns three times, ~50 min of silence, to reach a reply it could give in one.)
+MAX_TURNS_HIT=""
+if grep -qiE "reached max turns|max.?turns" "$CLAUDE_LOG" 2>/dev/null; then
+  MAX_TURNS_HIT="1"
+fi
+
 # Provenance: on a claimed build, stamp a committed manifest INTO the built site so
 # each site permanently carries who asked for it and why — the durable record the
 # KV event log (30-day TTL) isn't. Written before the push so it's part of the same
@@ -175,17 +189,21 @@ PUSHED="false"
 # Classify the outcome into a DISPOSITION the reply + queue act on:
 #   success    -> work landed on main. Reply "built it", retire the job.
 #   usage_limit-> out of budget. Reply honestly, REQUEUE (retry when budget resets).
+#   too_big    -> ran out of turns on a too-big ask. Terminal (no retry — a retry
+#                 overruns identically); honest "too big for one pass" reply.
 #   no_build   -> agent deliberately built nothing (note-only reaction). Reply the
 #                 note, retire — retrying would just re-react.
-#   incomplete -> agent worked but nothing landed (rc!=0, or claimed a result that
-#                 never got to main). REQUEUE up to MAX_ATTEMPTS, then give up with
-#                 an honest failure. This is the case favstar hit.
+#   incomplete -> agent worked but nothing landed for a TRANSIENT reason (a crash, a
+#                 blip — not max-turns, not usage-limit). REQUEUE up to MAX_ATTEMPTS,
+#                 since a retry might actually get through. This is the favstar case.
 ATTEMPT="${ATTEMPT:-1}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 if [ "$PUSHED" = "true" ]; then
   DISPOSITION="success"
 elif [ -n "$USAGE_LIMIT" ]; then
   DISPOSITION="usage_limit"
+elif [ -n "$MAX_TURNS_HIT" ]; then
+  DISPOSITION="too_big"
 elif [ "$BUILD_RC" -eq 0 ] && [ -z "$BUILD_RESULT" ]; then
   # Clean exit, no result claimed: the agent looked and chose not to build. If it
   # left a note that's the deliberate reaction; either way it's done, not retryable.
@@ -194,9 +212,11 @@ else
   DISPOSITION="incomplete"
 fi
 
-# Requeue decision. usage_limit always retries (budget will reset); incomplete
-# retries until attempts run out. On the final attempt an incomplete becomes a
-# terminal honest-failure reply so the requester isn't left hanging forever.
+# Requeue decision. usage_limit always retries (budget will reset); a TRANSIENT
+# incomplete retries until attempts run out. too_big does NOT retry — an identical
+# run overruns identically, so retrying just burns builds to reach the same reply.
+# On the final incomplete attempt it becomes a terminal honest-failure reply so the
+# requester isn't left hanging forever.
 REQUEUE="false"
 if [ "$DISPOSITION" = "usage_limit" ]; then
   REQUEUE="true"
@@ -250,6 +270,7 @@ REPLY_SKIP=""
 BUILD_OK="$PUSHED"
 BUILD_ERROR=""
 [ "$DISPOSITION" = "usage_limit" ] && BUILD_ERROR="usage_limit"
+[ "$DISPOSITION" = "too_big" ] && BUILD_ERROR="too_big"
 
 # Reply in-thread AND report the outcome to the event log — reply.mjs does both
 # (it owns the /outcome POST, keyed by MENTION_URI, with the reply text as the

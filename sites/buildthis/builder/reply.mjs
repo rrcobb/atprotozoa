@@ -54,6 +54,11 @@ async function main() {
     // honestly instead of implying the request was the problem, so people know to
     // come back rather than keep retrying against a dead wall.
     text = `ah, i'm out of build budget for the month 😅 — this one's still in the queue and i'll get to it once i'm topped back up. thanks for the idea!`;
+  } else if ((process.env.BUILD_ERROR || "").trim() === "too_big") {
+    // The ask overran the build's turn budget — too ambitious to finish in one pass.
+    // Honest + actionable (and not "it flopped"): the idea was good, just big. Nudge
+    // toward a smaller first slice, which the bot CAN land, rather than a dead retry.
+    text = `oof, that one's a big one — i ran out of runway before i could finish it in one pass 😅 got a smaller first slice in mind? i can build that and we grow it from there.`;
   } else if ((process.env.BUILD_NOTE || "").trim()) {
     // The agent deliberately didn't build (no BUILD_RESULT) but left a note — this
     // is the "no real site to build here" path: the tag was banter, a question, or
