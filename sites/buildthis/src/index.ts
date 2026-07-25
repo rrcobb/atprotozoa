@@ -77,6 +77,13 @@ export default {
       return handleNextJob(request, env);
     }
 
+    // The bot's own "what I've built, what's still waiting" page. Reads a
+    // once-a-day snapshot (see maybeRefreshDirectory) rather than recomputing
+    // live on every hit.
+    if (url.pathname === "/directory") {
+      return handleDirectoryPage(env);
+    }
+
     return env.ASSETS.fetch(request);
   },
 
@@ -84,6 +91,9 @@ export default {
   // failed tick should be visible in `wrangler tail`, and the next tick retries.
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runWatcher(env));
+    // Piggybacks on the same 2-min cron rather than adding a second trigger;
+    // maybeRefreshDirectory no-ops unless the cached snapshot is >24h old.
+    ctx.waitUntil(maybeRefreshDirectory(env));
   },
 };
 
@@ -293,6 +303,232 @@ async function handleLogsRead(env: Env): Promise<Response> {
       headers: cors,
     });
   }
+}
+
+// --- Directory + queue -------------------------------------------------------
+//
+// The bot's own "what have I actually shipped, what's still waiting" page at
+// /directory. Built from the same KV event log as /logs.json (see the Event log
+// section above), but summarized rather than shown tag-by-tag — a curated list
+// of built sites (with links) plus the requests still in flight. Recomputed at
+// most once a day: a toy directory doesn't need to be live, and gating a
+// recompute behind the existing 2-min watcher cron avoids a second trigger.
+
+const DIRECTORY_KEY = "directory-snapshot";
+const DIRECTORY_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+interface DirectoryEntry {
+  name: string;
+  url: string;
+  handle?: string;
+  at: string; // ISO — when this outcome landed
+}
+interface QueueEntry {
+  handle?: string;
+  text?: string;
+  at: string; // ISO — when the request came in
+}
+interface DirectorySnapshot {
+  computedAt: string;
+  built: DirectoryEntry[];
+  queue: QueueEntry[];
+}
+
+async function loadAllEvents(env: Env): Promise<LogEvent[]> {
+  const events: LogEvent[] = [];
+  const list = await env.STATE.list({ prefix: EVENT_PREFIX });
+  for (const k of list.keys) {
+    const raw = await env.STATE.get(k.name);
+    if (!raw) continue;
+    try {
+      events.push(JSON.parse(raw) as LogEvent);
+    } catch {
+      // skip a corrupt record rather than failing the whole computation
+    }
+  }
+  return events;
+}
+
+// Two buckets from the same event list: sites successfully built (deduped by
+// name, keeping the most recent outcome — a site edited twice shows once), and
+// the requests still open — accepted (mutual) but with no outcome yet, whether
+// still in flight or waiting on a failed dispatch to retry. A build that
+// finished and failed is neither: it's done, not queued, and it wasn't shipped.
+function computeDirectory(events: LogEvent[]): DirectorySnapshot {
+  const builtByName = new Map<string, DirectoryEntry>();
+  const queue: QueueEntry[] = [];
+
+  for (const e of events) {
+    if (e.outcome?.status === "success" && e.outcome.builtName) {
+      const entry: DirectoryEntry = {
+        name: e.outcome.builtName,
+        url: e.outcome.url || `https://${e.outcome.builtName.split("/")[0]}.bisks.net`,
+        handle: e.authorHandle,
+        at: e.outcome.at,
+      };
+      const prev = builtByName.get(entry.name);
+      if (!prev || prev.at < entry.at) builtByName.set(entry.name, entry);
+    } else if (e.mutual === true && !e.outcome) {
+      queue.push({ handle: e.authorHandle, text: e.text, at: e.firstSeen });
+    }
+  }
+
+  const built = [...builtByName.values()].sort((a, b) => (a.at < b.at ? 1 : -1)); // newest first
+  queue.sort((a, b) => (a.at < b.at ? -1 : 1)); // oldest first — it's a queue
+  return { computedAt: new Date().toISOString(), built, queue };
+}
+
+// Cron-driven: recompute and cache the snapshot once the previous one is more
+// than a day old. Best-effort — a failed refresh just leaves the old snapshot
+// in place (or, on the very first run, none at all; handleDirectoryPage falls
+// back to computing live in that case).
+async function maybeRefreshDirectory(env: Env): Promise<void> {
+  try {
+    const existing = await env.STATE.get(DIRECTORY_KEY);
+    if (existing) {
+      const snap = JSON.parse(existing) as DirectorySnapshot;
+      if (Date.now() - new Date(snap.computedAt).getTime() < DIRECTORY_REFRESH_MS) return;
+    }
+    const snap = computeDirectory(await loadAllEvents(env));
+    await env.STATE.put(DIRECTORY_KEY, JSON.stringify(snap));
+  } catch (err) {
+    console.error(`directory refresh failed: ${err}`);
+  }
+}
+
+async function handleDirectoryPage(env: Env): Promise<Response> {
+  let snap: DirectorySnapshot;
+  try {
+    const existing = await env.STATE.get(DIRECTORY_KEY);
+    snap = existing
+      ? (JSON.parse(existing) as DirectorySnapshot)
+      : computeDirectory(await loadAllEvents(env)); // no cron tick yet — compute once, live
+  } catch (err) {
+    console.error(`directory page failed: ${err}`);
+    snap = { computedAt: new Date().toISOString(), built: [], queue: [] };
+  }
+  return new Response(renderDirectoryPage(snap), {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+  });
+}
+
+function renderDirectoryPage(snap: DirectorySnapshot): string {
+  const builtRows = snap.built.length
+    ? snap.built
+        .map(
+          (b) => `<a class="card" href="${escHtml(b.url)}">
+          <h2>${escHtml(b.name)}</h2>
+          <p>${b.handle ? `asked for by @${escHtml(b.handle)} · ` : ""}${escHtml(fmtDay(b.at))}</p>
+        </a>`,
+        )
+        .join("\n")
+    : `<p class="empty">nothing shipped yet — tag <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> with an idea.</p>`;
+
+  const queueRows = snap.queue.length
+    ? snap.queue
+        .map(
+          (q) => `<div class="card queued">
+          <h2>${q.handle ? `@${escHtml(q.handle)}` : "someone"}</h2>
+          <p>${q.text ? escHtml(q.text) : "(no text)"}</p>
+          <p class="when">received ${escHtml(fmtDay(q.at))}</p>
+        </div>`,
+        )
+        .join("\n")
+    : `<p class="empty">queue's empty — every accepted request has either shipped or is done trying.</p>`;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>directory — buildthis.bisks.net</title>
+    <meta name="description" content="Every site the build bot has shipped, and what's still in the queue." />
+    <style>
+      :root {
+        --bg: #0d0a06; --card: #17130c; --ink: #e8dcc8; --muted: #9c8f78;
+        --accent: #c8922e; --link: #e0b23c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
+        background-color: var(--bg); color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      header h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.7rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; color: #e6e8ea;
+      }
+      header p { color: var(--muted); margin: 0 0 2rem; font-style: italic; }
+      section { margin-bottom: 2.5rem; }
+      section > h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1rem; color: var(--accent); margin: 0 0 0.9rem; letter-spacing: 0.02em;
+      }
+      .card {
+        display: block; background: var(--card); border: 1px solid #1f2226;
+        border-left: 4px solid var(--accent); border-radius: 10px;
+        padding: 0.9rem 1.1rem; margin-bottom: 0.7rem; color: inherit;
+        text-decoration: none; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      .card:hover h2 { color: var(--link); }
+      .card.queued { border-left-color: var(--muted); }
+      .card h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.05rem; margin: 0 0 0.3rem; font-weight: 700; color: #aeb4ba;
+      }
+      .card p { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
+      .card p:last-child { margin-bottom: 0; }
+      .card .when { font-size: 0.78rem; }
+      .empty { color: var(--muted); font-style: italic; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
+      footer a { color: var(--link); }
+      a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>directory</h1>
+        <p>everything I've shipped, and what's still waiting</p>
+      </header>
+      <main>
+        <section>
+          <h2>shipped (${snap.built.length})</h2>
+          ${builtRows}
+        </section>
+        <section>
+          <h2>queue (${snap.queue.length})</h2>
+          ${queueRows}
+        </section>
+      </main>
+      <footer>
+        snapshot from ${escHtml(fmtDay(snap.computedAt))} · refreshes once a day ·
+        <a href="/">buildthis</a> · full tag-by-tag history at
+        <a href="https://logs.bisks.net">logs.bisks.net</a>
+      </footer>
+    </div>
+  </body>
+</html>`;
+}
+
+// Compact, locale-stable, UTC day — a toy directory doesn't need per-viewer
+// timezones or full timestamps.
+function fmtDay(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // POST /outcome — the builder reports a finished build. Body:
