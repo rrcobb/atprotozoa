@@ -110,6 +110,21 @@ export function createMaster(ctx) {
     setVolume(v) {
       input.gain.linearRampToValueAtTime(v, ctx.currentTime + 0.05);
     },
+    // Fan the mixed bus out to a MediaStreamAudioDestination for recording a
+    // clip, without touching the speaker path. Call stop() when done to tear
+    // down the tap (the node it's connected to keeps working either way).
+    tapForRecording() {
+      const dest = ctx.createMediaStreamDestination();
+      comp.connect(dest);
+      return {
+        stream: dest.stream,
+        stop() {
+          try {
+            comp.disconnect(dest);
+          } catch {}
+        },
+      };
+    },
   };
 }
 
@@ -139,10 +154,17 @@ export function createVoice(ctx, master, { did, handle, bio, activity = 0.15 }) 
   const muteGain = ctx.createGain();
   muteGain.gain.value = 1;
 
+  // Tapped post-mute so a muted/soloed-out voice reads as silent to anything
+  // watching this analyser (the visualizer) without extra bookkeeping.
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.7;
+
   envGain.connect(brightFilter);
   brightFilter.connect(fader);
   fader.connect(muteGain);
   muteGain.connect(master.input);
+  muteGain.connect(analyser);
 
   // A quiet upper-octave shimmer, always present a little, scaled by posting
   // activity — the "high/mid frequencies from posting activity" bit.
@@ -340,6 +362,7 @@ export function createVoice(ctx, master, { did, handle, bio, activity = 0.15 }) 
     note,
     lfo,
     cycleSec,
+    analyser,
     setVolume(v) {
       fader.gain.linearRampToValueAtTime(v, ctx.currentTime + 0.05);
     },
