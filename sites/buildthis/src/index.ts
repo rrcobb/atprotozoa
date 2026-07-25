@@ -314,7 +314,10 @@ async function handleLogsRead(env: Env): Promise<Response> {
 // most once a day: a toy directory doesn't need to be live, and gating a
 // recompute behind the existing 2-min watcher cron avoids a second trigger.
 
-const DIRECTORY_KEY = "directory-snapshot";
+// Versioned so a snapshot-shape change (e.g. adding a field like `description`)
+// can't get stuck behind the 24h refresh window serving stale-shaped entries —
+// bump the suffix and the next hit recomputes live instead of waiting a day.
+const DIRECTORY_KEY = "directory-snapshot:v2";
 const DIRECTORY_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 interface DirectoryEntry {
