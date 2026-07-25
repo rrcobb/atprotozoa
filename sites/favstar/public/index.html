@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>favstar — your greatest hits on Bluesky</title>
+    <meta name="description" content="favstar for Bluesky: enter a handle and see that account's top 25 posts ranked by likes + reposts, gold/silver/bronze for the podium." />
+    <style>
+      :root {
+        --bg:#0d0b12; --panel:#16141d; --panel2:#1c1926; --ink:#f4f2f7;
+        --muted:#9b98a8; --faint:#2a2734; --accent:#8a7bff; --like:#ff5c8a;
+        --repost:#4bd6a8;
+        --gold:#e8c14b; --silver:#c7ccd6; --bronze:#d0894e;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #211c33, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:640px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; }
+      h1 .star { color:var(--gold); }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:56ch; }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#6c6979; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#fff; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:#ff6b6b; }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.4rem; }
+      .examples a { cursor:pointer; }
+
+      /* the profile header once loaded */
+      .profile { display:none; align-items:center; gap:0.75rem; margin:0.4rem 0 1.4rem;
+        padding-bottom:1.2rem; border-bottom:1px solid var(--faint); }
+      .profile.show { display:flex; }
+      .profile img { width:56px; height:56px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .profile .pname { font-weight:800; font-size:1.05rem; line-height:1.25; }
+      .profile .phandle { color:var(--muted); font-size:0.85rem; }
+      .profile .pcount { margin-left:auto; text-align:right; color:var(--muted);
+        font-size:0.78rem; font-family:var(--mono); line-height:1.4; }
+
+      .board { list-style:none; margin:0; padding:0; display:none; }
+      .board.show { display:block; }
+
+      /* a ranked post row */
+      .row { display:flex; gap:0.85rem; background:var(--panel); border:1px solid var(--faint);
+        border-radius:15px; padding:0.85rem 0.95rem; margin-bottom:0.7rem; align-items:flex-start;
+        animation:rowIn 0.4s ease both; }
+      @keyframes rowIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+
+      .rank { font-family:var(--mono); font-weight:800; font-size:1.05rem; line-height:1.1;
+        min-width:2.1rem; text-align:center; color:var(--muted); padding-top:0.15rem;
+        display:flex; flex-direction:column; align-items:center; gap:0.15rem; }
+      .rank .medal { font-size:1.35rem; }
+      .rank .num { font-size:0.95rem; }
+
+      /* podium tints */
+      .row.p1 { border-color:rgba(232,193,75,0.55); background:linear-gradient(180deg, rgba(232,193,75,0.09), var(--panel)); }
+      .row.p2 { border-color:rgba(199,204,214,0.45); background:linear-gradient(180deg, rgba(199,204,214,0.07), var(--panel)); }
+      .row.p3 { border-color:rgba(208,137,78,0.45); background:linear-gradient(180deg, rgba(208,137,78,0.08), var(--panel)); }
+      .row.p1 .rank { color:var(--gold); }
+      .row.p2 .rank { color:var(--silver); }
+      .row.p3 .rank { color:var(--bronze); }
+
+      .body { flex:1; min-width:0; }
+      .text { font-size:0.98rem; line-height:1.5; white-space:pre-wrap; overflow-wrap:break-word;
+        word-break:break-word; }
+      .postimg { margin-top:0.6rem; border-radius:11px; max-width:100%; max-height:280px;
+        border:1px solid var(--faint); display:block; }
+      .meta { display:flex; flex-wrap:wrap; gap:0.85rem; margin-top:0.65rem; color:var(--muted);
+        font-size:0.82rem; font-variant-numeric:tabular-nums; align-items:center; }
+      .meta .likes { color:var(--like); font-weight:700; }
+      .meta .reposts { color:var(--repost); font-weight:700; }
+      .meta .score { margin-left:auto; font-family:var(--mono); font-size:0.78rem;
+        color:var(--ink); background:var(--panel2); border:1px solid var(--faint);
+        border-radius:7px; padding:0.1rem 0.5rem; }
+      .meta a.permalink { color:var(--muted); }
+
+      .share { display:none; margin:0.4rem 0 1.6rem; }
+      .share.show { display:block; }
+      .share button { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.45rem 0.8rem;
+        cursor:pointer; }
+      .share button:hover { color:var(--ink); border-color:var(--accent); }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1><span class="star">★</span> favstar</h1>
+      <p class="sub">
+        Point it at any Bluesky account and it ranks their posts by how much the
+        room loved them — likes plus reposts. Your greatest hits, top 25, with a
+        gold / silver / bronze podium up top.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. mrcheeze.github.io" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">Rank</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="mrcheeze.github.io">mrcheeze</a> ·
+        <a data-h="gracekind.net">gracekind.net</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a> ·
+        <a data-h="bsky.app">bsky.app</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+        <div class="pcount" id="pcount"></div>
+      </div>
+
+      <div class="share" id="share">
+        <button id="copyLink">🔗 copy link to this leaderboard</button>
+      </div>
+
+      <ol class="board" id="board"></ol>
+
+      <p class="note">
+        Reads only public posts (Bluesky's anonymous AppView, <code>getAuthorFeed</code>,
+        up to ~600 recent originals). Score = likes + reposts; replies and reposts
+        by the account are skipped. Counts reflect what the AppView returns and can
+        lag the live app slightly. Nothing is posted or changed — it just reads.
+      </p>
+      <p class="credit">asked for by <a href="https://bsky.app/profile/mrcheeze.github.io">@mrcheeze.github.io</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+      const TOP_N = 25;
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const board = document.getElementById("board");
+      const profile = document.getElementById("profile");
+      const share = document.getElementById("share");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function timeAgo(iso) {
+        const then = new Date(iso).getTime();
+        if (!then) return "";
+        const s = Math.max(1, Math.floor((Date.now() - then) / 1000));
+        const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function embedImage(post) {
+        const e = post.embed;
+        if (!e) return null;
+        const t = e.$type || "";
+        if (t.includes("images#view") && e.images && e.images[0]) return e.images[0].thumb;
+        if (t.includes("recordWithMedia#view") && e.media && e.media.images && e.media.images[0])
+          return e.media.images[0].thumb;
+        if (t.includes("external#view") && e.external && e.external.thumb) return e.external.thumb;
+        if (t.includes("video#view") && e.thumbnail) return e.thumbnail;
+        return null;
+      }
+
+      function bskyLink(post) {
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      async function fetchFeed(actor) {
+        let cursor = null, items = [], pages = 0;
+        // Pull several pages so the leaderboard reflects a real body of work, not
+        // just the last day. Bounded so a prolific account can't page forever.
+        do {
+          const url = new URL(`${API}/app.bsky.feed.getAuthorFeed`);
+          url.searchParams.set("actor", actor);
+          url.searchParams.set("limit", "100");
+          url.searchParams.set("filter", "posts_no_replies");
+          if (cursor) url.searchParams.set("cursor", cursor);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(r.status === 400 ? "no such handle" : `feed error (${r.status})`);
+          const data = await r.json();
+          items = items.concat(data.feed || []);
+          cursor = data.cursor;
+          pages++;
+          statusEl.textContent = `reading the feed… ${items.length} posts`;
+        } while (cursor && pages < 8 && items.length < 700);
+        return items;
+      }
+
+      // Rank the account's own original posts by likes + reposts, top N.
+      function rank(items) {
+        const seen = new Set();
+        const originals = [];
+        for (const it of items) {
+          if (it.reason) continue;              // skip reposts by the account
+          const p = it.post;
+          if (!p || !p.record) continue;
+          if (p.record.reply) continue;          // skip replies
+          if (seen.has(p.uri)) continue;         // de-dupe across pages
+          seen.add(p.uri);
+          const score = (p.likeCount || 0) + (p.repostCount || 0);
+          originals.push({ post: p, score });
+        }
+        originals.sort((a, b) =>
+          b.score - a.score ||
+          (b.post.likeCount || 0) - (a.post.likeCount || 0) ||
+          new Date(b.post.record.createdAt) - new Date(a.post.record.createdAt));
+        return { top: originals.slice(0, TOP_N), total: originals.length };
+      }
+
+      const MEDALS = { 1:"🥇", 2:"🥈", 3:"🥉" };
+      function rowHTML(entry, i) {
+        const rank = i + 1;
+        const p = entry.post;
+        const rec = p.record || {};
+        const img = embedImage(p);
+        const likes = p.likeCount || 0;
+        const reposts = p.repostCount || 0;
+        const replies = p.replyCount || 0;
+        const podium = rank <= 3 ? ` p${rank}` : "";
+        const rankInner = rank <= 3
+          ? `<span class="medal">${MEDALS[rank]}</span>`
+          : `<span class="num">${rank}</span>`;
+        return `
+          <li class="row${podium}">
+            <div class="rank">${rankInner}</div>
+            <div class="body">
+              <div class="text">${esc(rec.text || "") || "<em style='color:var(--muted)'>(no text)</em>"}</div>
+              ${img ? `<img class="postimg" src="${esc(img)}" alt="" referrerpolicy="no-referrer" loading="lazy" />` : ""}
+              <div class="meta">
+                <span class="likes">♥ ${likes.toLocaleString()}</span>
+                <span class="reposts">🔁 ${reposts.toLocaleString()}</span>
+                <span>💬 ${replies.toLocaleString()}</span>
+                <span>· ${timeAgo(rec.createdAt)}</span>
+                <a class="permalink" href="${bskyLink(p)}" target="_blank" rel="noopener">open ↗</a>
+                <span class="score" title="likes + reposts">${entry.score.toLocaleString()} pts</span>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function renderProfile(author, total) {
+        const a = author || {};
+        document.getElementById("pavatar").src = a.avatar || "";
+        document.getElementById("pname").textContent = a.displayName || a.handle || "";
+        document.getElementById("phandle").textContent = "@" + (a.handle || "");
+        document.getElementById("pcount").innerHTML =
+          `${total.toLocaleString()} originals scanned<br>top ${Math.min(TOP_N, total)} shown`;
+        profile.classList.add("show");
+      }
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        const actor = rawHandle.trim().replace(/^@/, "");
+        statusEl.className = "status";
+        statusEl.textContent = "reading the feed…";
+        board.classList.remove("show");
+        profile.classList.remove("show");
+        share.classList.remove("show");
+        board.innerHTML = "";
+        try {
+          const items = await fetchFeed(actor);
+          const { top, total } = rank(items);
+          if (!top.length) throw new Error("no original posts to rank");
+          const author = top[0].post.author;
+          statusEl.textContent = "";
+          renderProfile(author, total);
+          board.innerHTML = top.map((e, i) => rowHTML(e, i)).join("");
+          board.classList.add("show");
+          share.classList.add("show");
+          const url = new URL(location.href);
+          url.searchParams.set("handle", actor);
+          history.replaceState(null, "", url);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't rank it: " + e.message;
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link to this leaderboard"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      // Deep-link support: ?handle=
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+  </body>
+</html>
