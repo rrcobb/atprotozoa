@@ -116,6 +116,36 @@
         padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 3px;
       }
 
+      /* loading indicators */
+      .progress {
+        height: 4px; border-radius: 2px; background: var(--faint);
+        overflow: hidden; margin: 0.3rem 0 0.6rem;
+      }
+      .progress-bar {
+        height: 100%; width: 0%; background: var(--accent);
+        transition: width 0.25s ease;
+      }
+      .spinner {
+        display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em;
+        border: 2px solid var(--faint); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -0.1em;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      canvas.is-loading { cursor: wait; opacity: 0.85; }
+      canvas.is-readonly { cursor: default; }
+
+      /* pending writes / errors */
+      .pending-box {
+        font-size: 0.8rem; margin-top: 0.6rem; padding: 0.5rem 0.7rem;
+        background: #fff8f6; border: 1px solid #f2d3cc; border-radius: 3px;
+      }
+      .pending-box.ok { background: #f7f7f7; border-color: var(--faint); color: var(--muted); }
+      .err-details {
+        white-space: pre-wrap; word-break: break-word; font-size: 0.74rem;
+        color: #7a2c1f; background: #fff; border: 1px solid #f2d3cc; border-radius: 3px;
+        padding: 0.5rem; margin: 0.4rem 0 0; max-height: 12rem; overflow: auto;
+      }
+
       footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
     </style>
   </head>
@@ -155,6 +185,7 @@
           <button id="copy-link" class="ghost tiny">copy link</button>
         </div>
         <p class="status" id="board-status"></p>
+        <div class="progress" id="board-progress" hidden><div class="progress-bar" id="board-progress-bar"></div></div>
         <div class="canvas-wrap">
           <canvas id="canvas" width="800" height="600"></canvas>
           <div id="text-editor-layer"></div>
@@ -175,6 +206,11 @@
           <div class="stickers" id="stickers"></div>
         </div>
         <p class="readonly-note" id="readonly-note" hidden></p>
+        <div class="pending-box ok" id="pending-box" hidden>
+          <p class="status" id="pending-summary" style="margin:0"></p>
+          <button class="ghost tiny" id="pending-details-toggle" type="button" hidden>show details</button>
+          <pre class="err-details" id="pending-details" hidden></pre>
+        </div>
       </section>
 
       <footer>
@@ -200,8 +236,133 @@
 
       const $ = (sel) => document.querySelector(sel);
       const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
       let session = null;
+
+      // --- loading progress bar ------------------------------------------------
+
+      function setProgress(pct) {
+        const wrap = $("#board-progress");
+        const bar = $("#board-progress-bar");
+        if (!wrap || !bar) return;
+        wrap.hidden = false;
+        bar.style.width = `${Math.min(100, pct)}%`;
+        if (pct >= 100) setTimeout(() => (wrap.hidden = true), 300);
+      }
+
+      // --- local-first pending writes ------------------------------------------
+      // Marks are queued to localStorage *before* the network write is attempted,
+      // so a reload (or a dead PDS) never loses a stroke — on the next board load
+      // any still-pending marks are redrawn from the queue and resubmitted.
+
+      function pendingKey(boardUri) {
+        return `paintmoot:pending:${session?.did || "anon"}:${boardUri}`;
+      }
+      function loadPending(boardUri) {
+        try {
+          return JSON.parse(localStorage.getItem(pendingKey(boardUri)) || "[]");
+        } catch {
+          return [];
+        }
+      }
+      function savePending(boardUri, list) {
+        localStorage.setItem(pendingKey(boardUri), JSON.stringify(list));
+      }
+      function addPending(boardUri, mark) {
+        const list = loadPending(boardUri);
+        list.push(mark);
+        savePending(boardUri, list);
+      }
+      function removePending(boardUri, clientId) {
+        savePending(boardUri, loadPending(boardUri).filter((m) => m.clientId !== clientId));
+      }
+
+      // Renders the "N marks pending sync" box: `state` is null (all synced),
+      // or { retrying: true, attempt, maxAttempts, delaySec } while backing off,
+      // or { failed: true, error } once retries are exhausted for this session
+      // (the mark stays queued and is retried again on the next page load).
+      function renderPendingBox(boardUri, state) {
+        const box = $("#pending-box");
+        const summary = $("#pending-summary");
+        const toggle = $("#pending-details-toggle");
+        const details = $("#pending-details");
+        const count = loadPending(boardUri).length;
+        if (!count) {
+          box.hidden = true;
+          toggle.hidden = true;
+          details.hidden = true;
+          return;
+        }
+        box.hidden = false;
+        const noun = `${count} mark${count === 1 ? "" : "s"}`;
+        if (state?.retrying) {
+          box.classList.remove("ok");
+          summary.innerHTML = `<span class="spinner"></span>${noun} not yet synced — retrying in ${state.delaySec}s (attempt ${state.attempt}/${state.maxAttempts})…`;
+        } else if (state?.failed) {
+          box.classList.remove("ok");
+          summary.textContent = `${noun} couldn't sync after several tries — saved locally, will retry when this board is reloaded.`;
+        } else {
+          box.classList.add("ok");
+          summary.innerHTML = `<span class="spinner"></span>${noun} syncing…`;
+        }
+        const errText = state?.error ? String(state.error.message || state.error) : "";
+        if (errText) {
+          toggle.hidden = false;
+          toggle.textContent = details.hidden ? "show details" : "hide details";
+          toggle.onclick = () => {
+            details.hidden = !details.hidden;
+            toggle.textContent = details.hidden ? "show details" : "hide details";
+          };
+          details.textContent = errText;
+        } else {
+          toggle.hidden = true;
+          details.hidden = true;
+        }
+      }
+
+      // Writes one mark with exponential backoff (1s, 2s, 4s, 8s, 16s). Leaves the
+      // mark in the pending queue (localStorage) until it actually succeeds —
+      // `flushPending` retries whatever's left on the next board load.
+      async function writeMarkWithRetry(boardUri, mark, maxAttempts = 5) {
+        const { clientId, ...markData } = mark;
+        let lastErr = null;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: MARK_COLLECTION,
+                record: { $type: MARK_COLLECTION, board: boardUri, ...markData },
+              }),
+            });
+            if (!res.ok) throw new Error(`createRecord failed (${res.status}): ${(await res.text()).slice(0, 500)}`);
+            removePending(boardUri, mark.clientId);
+            renderPendingBox(boardUri, null);
+            return true;
+          } catch (e) {
+            lastErr = e;
+            if (attempt < maxAttempts) {
+              const delaySec = Math.min(30, 2 ** (attempt - 1));
+              renderPendingBox(boardUri, { retrying: true, attempt: attempt + 1, maxAttempts, delaySec, error: e });
+              await sleep(delaySec * 1000);
+            }
+          }
+        }
+        console.error("failed to save mark after retries:", lastErr);
+        renderPendingBox(boardUri, { failed: true, error: lastErr });
+        return false;
+      }
+
+      // Resubmits every mark still sitting in the local pending queue for this
+      // board — covers the "closed the tab mid-retry" and "PDS was down" cases.
+      async function flushPending(boardUri) {
+        for (const mark of loadPending(boardUri)) {
+          await writeMarkWithRetry(boardUri, mark);
+        }
+      }
 
       async function boot() {
         try {
@@ -429,9 +590,13 @@
         const note = $("#readonly-note");
         toolbar.hidden = true;
         note.hidden = true;
+        $("#pending-box").hidden = true;
         titleEl.textContent = "";
         status.classList.remove("err");
         status.textContent = "loading board…";
+        canvas.classList.add("is-loading");
+        canvas.classList.remove("is-readonly");
+        setProgress(8);
 
         $("#copy-link").addEventListener("click", () => {
           navigator.clipboard?.writeText(location.href);
@@ -446,8 +611,11 @@
         } catch (e) {
           status.textContent = e.message;
           status.classList.add("err");
+          canvas.classList.remove("is-loading");
+          $("#board-progress").hidden = true;
           return;
         }
+        setProgress(25);
 
         let boardRec;
         try {
@@ -455,11 +623,14 @@
         } catch {
           status.textContent = "board not found — the link may be wrong, or the record was deleted.";
           status.classList.add("err");
+          canvas.classList.remove("is-loading");
+          $("#board-progress").hidden = true;
           return;
         }
         const board = boardRec.value;
         const boardUri = boardRec.uri;
         const ownerHandle = await resolveHandleForDid(ownerDid);
+        setProgress(45);
 
         titleEl.textContent = board.title || "untitled board";
         canvas.width = board.width;
@@ -473,6 +644,7 @@
         } catch {
           // owner has no reachable graph (rare) — still show their own marks
         }
+        setProgress(65);
 
         const viewerDid = session?.did || null;
         const canEdit = viewerDid === ownerDid || ownerMoots.some((m) => m.did === viewerDid);
@@ -488,14 +660,32 @@
         });
         let localMarks = marksPerRepo.flat().filter(Boolean);
         localMarks.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        setProgress(90);
+
+        // Local-first: fold in anything still queued from a previous visit
+        // (a reload before a write finished, or a PDS that was down) so it never
+        // just disappears — then quietly retry sending it.
+        const pendingMarks = canEdit ? loadPending(boardUri) : [];
+        if (pendingMarks.length) {
+          const seen = new Set(localMarks.map((m) => m.clientId).filter(Boolean));
+          for (const m of pendingMarks) if (!seen.has(m.clientId)) localMarks.push(m);
+        }
         redraw(ctx, board, localMarks);
 
         status.textContent =
           `${localMarks.length} mark${localMarks.length === 1 ? "" : "s"} · ` +
           `${contributors.length} contributor${contributors.length === 1 ? "" : "s"} scanned` +
           (contributors.length >= CONTRIBUTOR_CAP + 1 ? ` (capped at ${CONTRIBUTOR_CAP} moots)` : "");
+        setProgress(100);
+        canvas.classList.remove("is-loading");
+
+        if (pendingMarks.length) {
+          renderPendingBox(boardUri, null);
+          flushPending(boardUri);
+        }
 
         if (!canEdit) {
+          canvas.classList.add("is-readonly");
           note.hidden = false;
           if (viewerDid) {
             note.textContent = `you're not a moot of @${ownerHandle} — sign in as one of their mutual follows to draw here. read-only for now.`;
@@ -564,23 +754,14 @@
         state.onText = (x, y) => openTextEditor(canvas, x, y, state, (mark) => commitMark(mark));
 
         async function commitMark(mark) {
+          mark.clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           localMarks.push(mark);
-          try {
-            const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                repo: session.did,
-                collection: MARK_COLLECTION,
-                record: { $type: MARK_COLLECTION, board: boardUri, ...mark },
-              }),
-            });
-            if (!res.ok) throw new Error(await res.text());
-          } catch (e) {
-            console.error("failed to save mark:", e);
-            $("#board-status").textContent = "that mark didn't save (network/PDS error) — it's only visible to you until you retry.";
-            $("#board-status").classList.add("err");
-          }
+          // Local-first: queue to localStorage before the network write is even
+          // attempted, so the mark survives a reload or a dead PDS no matter
+          // what happens next.
+          addPending(boardUri, mark);
+          renderPendingBox(boardUri, null);
+          await writeMarkWithRetry(boardUri, mark);
         }
 
         attachInteraction(canvas, board, state, commitMark);
