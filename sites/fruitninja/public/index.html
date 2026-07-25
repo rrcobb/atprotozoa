@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🍉 firehose fruit ninja — slice the bluesky stream</title>
+    <meta
+      name="description"
+      content="Fruit Ninja played against the live Bluesky firehose. Real posts fly across the screen as fruit — slice them with your mouse or finger to score and read the post, but don't slice the bombs. Three lives, juicy splatter, combos."
+    />
+    <style>
+      :root {
+        --ink: #10241a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: radial-gradient(120% 120% at 50% 0%, #244d3a 0%, #10251b 55%, #071009 100%);
+        font-family: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+        color: #eafff2;
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #stage { position: fixed; inset: 0; display: block; cursor: crosshair; }
+
+      /* ---- hud ---- */
+      .hud {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px;
+        pointer-events: none;
+        z-index: 5;
+        font-weight: 700;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+      .hud .left { display: flex; align-items: center; gap: 14px; }
+      .score { font-size: clamp(26px, 6vw, 46px); line-height: 1; }
+      .score .n { color: #ffe14d; }
+      .best { font-size: 13px; opacity: 0.8; letter-spacing: 0.02em; }
+      .lives { font-size: clamp(20px, 5vw, 30px); letter-spacing: 2px; }
+      .lives .gone { opacity: 0.22; filter: grayscale(1); }
+      .status {
+        position: fixed;
+        left: 0; right: 0; bottom: 10px;
+        text-align: center;
+        font-size: 12px;
+        opacity: 0.72;
+        pointer-events: none;
+        z-index: 5;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+      }
+      .status .dot {
+        display: inline-block;
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #57ff9d;
+        box-shadow: 0 0 8px #57ff9d;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+      .status .dot.off { background: #ff5c5c; box-shadow: 0 0 8px #ff5c5c; }
+
+      /* ---- overlays ---- */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 24px;
+        text-align: center;
+        background: rgba(4, 14, 9, 0.72);
+        backdrop-filter: blur(3px);
+        z-index: 20;
+      }
+      .overlay.hidden { display: none; }
+      .overlay h1 {
+        margin: 0;
+        font-size: clamp(34px, 9vw, 74px);
+        line-height: 1.02;
+        letter-spacing: -0.01em;
+        text-shadow: 0 4px 0 #0a3a24, 0 8px 22px rgba(0, 0, 0, 0.6);
+      }
+      .overlay h1 .melon { color: #ff5d73; }
+      .overlay p { margin: 0; max-width: 40ch; font-size: 15px; line-height: 1.5; opacity: 0.92; }
+      .overlay .fine { font-size: 12.5px; opacity: 0.66; max-width: 46ch; }
+      .overlay .final { font-size: 22px; font-weight: 800; }
+      .overlay .final .n { color: #ffe14d; }
+      .btn {
+        pointer-events: auto;
+        cursor: pointer;
+        border: none;
+        border-radius: 999px;
+        padding: 15px 34px;
+        font-family: inherit;
+        font-weight: 800;
+        font-size: 19px;
+        color: #08160e;
+        background: linear-gradient(180deg, #7dff6b, #22c85a);
+        box-shadow: 0 6px 0 #128a38, 0 10px 24px rgba(0, 0, 0, 0.4);
+        transition: transform 0.06s ease, box-shadow 0.06s ease;
+      }
+      .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #128a38, 0 6px 14px rgba(0, 0, 0, 0.4); }
+      .credit { font-size: 12px; opacity: 0.6; }
+      .credit a { color: #9dffc4; }
+
+      /* sliced-post feed, bottom-left */
+      .feed {
+        position: fixed;
+        left: 14px; bottom: 34px;
+        width: min(340px, 62vw);
+        display: flex;
+        flex-direction: column-reverse;
+        gap: 6px;
+        pointer-events: none;
+        z-index: 4;
+      }
+      .feed .item {
+        background: rgba(6, 20, 13, 0.66);
+        border-left: 3px solid #57ff9d;
+        border-radius: 0 8px 8px 0;
+        padding: 5px 9px;
+        font-size: 12px;
+        line-height: 1.35;
+        animation: slidein 0.25s ease, fade 5s linear forwards;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      }
+      .feed .item .who { color: #9dffc4; font-weight: 700; }
+      @keyframes slidein { from { transform: translateX(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+      @keyframes fade { 0%, 84% { opacity: 1; } 100% { opacity: 0; } }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div class="hud">
+      <div class="left">
+        <div class="score">🍉 <span class="n" id="score">0</span></div>
+        <div class="best" id="best"></div>
+      </div>
+      <div class="lives" id="lives">❤️❤️❤️</div>
+    </div>
+
+    <div class="feed" id="feed"></div>
+
+    <div class="status"><span class="dot off" id="dot"></span><span id="statusText">connecting to the firehose…</span></div>
+
+    <!-- start / game over -->
+    <div class="overlay" id="startOverlay">
+      <h1>🍉 firehose <span class="melon">fruit ninja</span></h1>
+      <p>
+        The live Bluesky firehose, launched at you as fruit. Slice a post to score
+        and read it — but <b>don't slice the bombs</b> 💣. Every fruit is a real
+        post someone just published.
+      </p>
+      <button class="btn" id="startBtn">slice!</button>
+      <div class="fine">mouse or finger to slash · three lives · miss a fruit and it's fine, slice a bomb and it's not</div>
+      <div class="credit">a <a href="https://bisks.net">bisks.net</a> toy · @buildthis, for @thebadcode.com</div>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1>💥 sliced out</h1>
+      <div class="final">final: <span class="n" id="finalScore">0</span> · best: <span id="finalBest">0</span></div>
+      <p id="overBlurb"></p>
+      <button class="btn" id="againBtn">slice again</button>
+      <div class="credit">the firehose never stops. neither do you.</div>
+    </div>
+
+    <script>
+      // ------------------------------------------------------------------
+      // Firehose Fruit Ninja — live Bluesky posts flung across the screen as
+      // fruit. Slice to score + read; bombs cost a life. Pure client-side,
+      // no login, no server. Jetstream consumer copied from sites/candyland.
+      // ------------------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+
+      const cv = document.getElementById("stage");
+      const ctx = cv.getContext("2d");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const scoreEl = document.getElementById("score");
+      const bestEl = document.getElementById("best");
+      const livesEl = document.getElementById("lives");
+      const feedEl = document.getElementById("feed");
+      const startOverlay = document.getElementById("startOverlay");
+      const overOverlay = document.getElementById("overOverlay");
+      const startBtn = document.getElementById("startBtn");
+      const againBtn = document.getElementById("againBtn");
+      const finalScoreEl = document.getElementById("finalScore");
+      const finalBestEl = document.getElementById("finalBest");
+      const overBlurb = document.getElementById("overBlurb");
+
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+      // ---- fruit skins (juicy) --------------------------------------------
+      const FRUITS = [
+        { name: "watermelon", rind: "#2f9e44", flesh: "#ff5d73", pip: "#2a0a12", juice: "#ff6b81", r: 46 },
+        { name: "orange",     rind: "#e8590c", flesh: "#ffa94d", pip: "#c04b06", juice: "#ffb060", r: 38 },
+        { name: "lime",       rind: "#5c940d", flesh: "#c0eb75", pip: "#3f660a", juice: "#b2f24d", r: 34 },
+        { name: "grape",      rind: "#6741d9", flesh: "#b197fc", pip: "#4a2fa8", juice: "#a98bff", r: 30 },
+        { name: "lemon",      rind: "#f6c945", flesh: "#ffe66d", pip: "#c79a1e", juice: "#ffe14d", r: 34 },
+        { name: "berry",      rind: "#c2255c", flesh: "#ff8fb1", pip: "#7a1236", juice: "#ff6fa0", r: 30 },
+        { name: "kiwi",       rind: "#846320", flesh: "#94d82d", pip: "#20340a", juice: "#a7e63b", r: 32 },
+        { name: "plum",       rind: "#862e9c", flesh: "#e599f7", pip: "#5a1d6b", juice: "#d783f0", r: 34 },
+      ];
+
+      // ---- world state -----------------------------------------------------
+      let W = 0, H = 0, DPR = 1;
+      let running = false;
+      let score = 0;
+      let best = 0;
+      try { best = parseInt(localStorage.getItem("ffn_best") || "0", 10) || 0; } catch {}
+      let lives = 3;
+      let combo = 0;
+      let comboTimer = 0;
+      let shake = 0;
+      let last = 0;
+
+      const fruits = [];     // active flying objects
+      const bits = [];       // splatter halves + particles + droplets
+      const pops = [];       // floating score/combo text
+      const trail = [];      // blade points {x,y,t}
+
+      const postQueue = [];  // buffered {handle, text} from the firehose
+      const MAX_QUEUE = 120;
+
+      // firehose meter
+      let postCountWindow = 0;
+      let rate = 0;
+      let connected = false;
+
+      const GRAVITY = 900;   // px/s^2
+
+      // ---- layout ----------------------------------------------------------
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        cv.width = Math.floor(W * DPR);
+        cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px";
+        cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ---- firehose ingestion (jetstream) ----------------------------------
+      const SPAM = /#nowplaying|listen live|onelink\.to|🛒|shop now|buy now|prime members|amzn\.to/i;
+
+      function onPost(handle, text) {
+        postCountWindow++;
+        if (SPAM.test(text)) return;
+        const t = (text || "").replace(/\s+/g, " ").trim();
+        if (!t) return;
+        if (postQueue.length >= MAX_QUEUE) postQueue.shift();
+        postQueue.push({ handle: handle || "someone", text: t });
+      }
+
+      // ---- websocket (copied from candyland) -------------------------------
+      let ws = null;
+      let retry = 0;
+      function connect() {
+        try {
+          ws = new WebSocket(JETSTREAM);
+        } catch (e) {
+          scheduleReconnect();
+          return;
+        }
+        ws.onopen = () => {
+          retry = 0;
+          connected = true;
+          setStatus(true, "streaming posts…");
+        };
+        ws.onmessage = (ev) => {
+          let msg;
+          try { msg = JSON.parse(ev.data); } catch { return; }
+          const c = msg.commit;
+          if (
+            msg.kind === "commit" && c && c.operation === "create" &&
+            c.collection === "app.bsky.feed.post"
+          ) {
+            const did = msg.did || "";
+            // no handle in the raw firehose — show a short did tag as the author
+            const handle = did.startsWith("did:plc:") ? did.slice(8, 16) + "…" : (did || "someone");
+            onPost(handle, (c.record && c.record.text) || "");
+          }
+        };
+        ws.onclose = () => {
+          connected = false;
+          setStatus(false, "reconnecting…");
+          scheduleReconnect();
+        };
+        ws.onerror = () => { try { ws.close(); } catch {} };
+      }
+      function scheduleReconnect() {
+        retry = Math.min(retry + 1, 6);
+        setTimeout(connect, 400 * retry + rnd(400));
+      }
+      function setStatus(live, text) {
+        dot.classList.toggle("off", !live);
+        statusText.textContent = text;
+      }
+      // rate meter
+      setInterval(() => {
+        rate = postCountWindow;
+        postCountWindow = 0;
+        if (!connected) return;
+        setStatus(true, `${rate} posts/s · ${postQueue.length} in the barrel`);
+      }, 1000);
+      connect();
+
+      // ---- spawning fruit --------------------------------------------------
+      let spawnTimer = 0;
+
+      function nextPost() {
+        if (postQueue.length) return postQueue.shift();
+        // firehose hiccup — synthesize a filler so the game never stalls
+        return { handle: "the.firehose", text: pick([
+          "waiting for the next post…", "somebody say something on bluesky",
+          "the stream is quiet for a sec", "slice me anyway",
+        ]) };
+      }
+
+      function spawnFruit() {
+        // launch from the bottom, arcing up and across
+        const fromLeft = Math.random() < 0.5;
+        const x = fromLeft ? rnd(W * 0.32, W * 0.05) : rnd(W * 0.95, W * 0.68);
+        const y = H + 44;
+        const isBomb = Math.random() < 0.14;
+        const skin = pick(FRUITS);
+        const rBase = isBomb ? 36 : skin.r;
+        // aim the arc to peak comfortably on-screen
+        const peak = rnd(H * 0.22, H * 0.5);
+        const vy = -Math.sqrt(2 * GRAVITY * (H + 44 - peak));
+        const vx = (fromLeft ? 1 : -1) * rnd(110, 330);
+        const post = nextPost();
+        fruits.push({
+          x, y, vx, vy,
+          r: rBase,
+          bomb: isBomb,
+          skin,
+          spin: rnd(-2.4, 2.4),
+          rot: rnd(6.28),
+          sliced: false,
+          post,
+        });
+      }
+
+      // ---- slicing ---------------------------------------------------------
+      let pointerDown = false;
+      let px = 0, py = 0;
+
+      function pointerStart(x, y) {
+        pointerDown = true;
+        px = x; py = y;
+        trail.length = 0;
+        trail.push({ x, y, t: performance.now() });
+      }
+      function pointerMove(x, y) {
+        if (!pointerDown) return;
+        const now = performance.now();
+        trail.push({ x, y, t: now });
+        if (trail.length > 16) trail.shift();
+        if (running) sliceCheck(px, py, x, y);
+        px = x; py = y;
+      }
+      function pointerEnd() { pointerDown = false; }
+
+      // segment (ax,ay)-(bx,by) vs circle center (cx,cy) r
+      function segHitsCircle(ax, ay, bx, by, cx, cy, r) {
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy || 1;
+        let t = ((cx - ax) * dx + (cy - ay) * dy) / len2;
+        t = clamp(t, 0, 1);
+        const hx = ax + t * dx, hy = ay + t * dy;
+        const ddx = cx - hx, ddy = cy - hy;
+        return ddx * ddx + ddy * ddy <= r * r;
+      }
+
+      function sliceCheck(ax, ay, bx, by) {
+        const moved = Math.hypot(bx - ax, by - ay);
+        if (moved < 4) return;
+        const ang = Math.atan2(by - ay, bx - ax);
+        for (const f of fruits) {
+          if (f.sliced) continue;
+          if (segHitsCircle(ax, ay, bx, by, f.x, f.y, f.r * 0.92)) {
+            sliceFruit(f, ang);
+          }
+        }
+      }
+
+      function sliceFruit(f, ang) {
+        f.sliced = true;
+        if (f.bomb) {
+          // ouch
+          shake = 26;
+          combo = 0;
+          bombBurst(f.x, f.y);
+          loseLife();
+          floatText(f.x, f.y, "💣", "#ff5c5c");
+          return;
+        }
+        // score + combo
+        combo++;
+        comboTimer = 0.9;
+        const gain = 1 + Math.max(0, combo - 1);
+        score += gain;
+        scoreEl.textContent = score;
+        shake = Math.min(14, 6 + combo);
+        splatFruit(f, ang);
+        pushFeed(f.post);
+        const label = combo >= 2 ? `+${gain}  ×${combo}!` : `+${gain}`;
+        floatText(f.x, f.y - f.r, label, combo >= 3 ? "#ffe14d" : "#eafff2");
+      }
+
+      function loseLife() {
+        lives--;
+        renderLives();
+        if (lives <= 0) gameOver();
+      }
+      function renderLives() {
+        let s = "";
+        for (let i = 0; i < 3; i++) s += i < lives ? "❤️" : '<span class="gone">🖤</span>';
+        livesEl.innerHTML = s;
+      }
+
+      // ---- juice: splatter, halves, particles ------------------------------
+      function splatFruit(f, ang) {
+        const nx = Math.cos(ang + Math.PI / 2), ny = Math.sin(ang + Math.PI / 2);
+        // two halves fly apart perpendicular to the cut
+        for (const dir of [1, -1]) {
+          bits.push({
+            kind: "half", x: f.x, y: f.y,
+            vx: f.vx * 0.4 + nx * dir * rnd(60, 160),
+            vy: f.vy * 0.4 + ny * dir * rnd(-40, 90),
+            r: f.r, rot: f.rot, spin: dir * rnd(1.5, 4),
+            cut: ang, side: dir, skin: f.skin, life: 1.4, max: 1.4,
+          });
+        }
+        // juice droplets
+        const n = 14 + (Math.random() * 10 | 0);
+        for (let i = 0; i < n; i++) {
+          const a = rnd(6.28);
+          const sp = rnd(60, 320);
+          bits.push({
+            kind: "drop", x: f.x, y: f.y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
+            r: rnd(2, 6), color: f.skin.juice, life: rnd(0.5, 1.1), max: 1.1,
+          });
+        }
+      }
+
+      function bombBurst(x, y) {
+        for (let i = 0; i < 40; i++) {
+          const a = rnd(6.28), sp = rnd(80, 460);
+          bits.push({
+            kind: "drop", x, y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            r: rnd(2, 7), color: pick(["#ff6b3d", "#ffd43b", "#ff3d3d", "#555"]),
+            life: rnd(0.4, 0.9), max: 0.9,
+          });
+        }
+      }
+
+      function floatText(x, y, text, color) {
+        pops.push({ x, y, text, color, life: 0.9, max: 0.9, vy: -60 });
+      }
+
+      function pushFeed(post) {
+        const item = document.createElement("div");
+        item.className = "item";
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = "@" + post.handle + " ";
+        item.appendChild(who);
+        item.appendChild(document.createTextNode(post.text.slice(0, 140)));
+        feedEl.appendChild(item);
+        while (feedEl.children.length > 4) feedEl.removeChild(feedEl.firstChild);
+        setTimeout(() => item.remove(), 5200);
+      }
+
+      // ---- drawing helpers -------------------------------------------------
+      function drawWhole(f) {
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.rot);
+        // shadow
+        ctx.beginPath();
+        ctx.ellipse(0, f.r * 0.95, f.r * 0.8, f.r * 0.24, 0, 0, 7);
+        ctx.fillStyle = "rgba(0,0,0,0.28)";
+        ctx.fill();
+        if (f.bomb) { drawBomb(f.r); ctx.restore(); return; }
+        // rind
+        const g = ctx.createRadialGradient(-f.r * 0.3, -f.r * 0.3, f.r * 0.2, 0, 0, f.r);
+        g.addColorStop(0, lighten(f.skin.rind, 40));
+        g.addColorStop(1, f.skin.rind);
+        ctx.beginPath();
+        ctx.arc(0, 0, f.r, 0, 6.2832);
+        ctx.fillStyle = g;
+        ctx.fill();
+        // glossy highlight
+        ctx.beginPath();
+        ctx.ellipse(-f.r * 0.32, -f.r * 0.36, f.r * 0.3, f.r * 0.18, -0.6, 0, 6.2832);
+        ctx.fillStyle = "rgba(255,255,255,0.35)";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function drawBomb(r) {
+        const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.15, 0, 0, r);
+        g.addColorStop(0, "#4a4a4a");
+        g.addColorStop(1, "#111");
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, 6.2832);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(-r * 0.3, -r * 0.34, r * 0.26, r * 0.15, -0.6, 0, 6.2832);
+        ctx.fillStyle = "rgba(255,255,255,0.28)";
+        ctx.fill();
+        // fuse
+        ctx.strokeStyle = "#b98a3a";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.quadraticCurveTo(r * 0.5, -r * 1.4, r * 0.3, -r * 1.6);
+        ctx.stroke();
+        // spark
+        ctx.beginPath();
+        ctx.arc(r * 0.3, -r * 1.6, 4 + Math.sin(performance.now() / 60) * 1.5, 0, 6.2832);
+        ctx.fillStyle = pick(["#ffec99", "#ff922b", "#fff"]);
+        ctx.fill();
+      }
+
+      // draw a sliced half: a half-disc showing flesh + pips
+      function drawHalf(b) {
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.rot);
+        // orient the flat cut face along b.cut
+        ctx.rotate(b.cut);
+        const r = b.r;
+        // clip to a half
+        ctx.beginPath();
+        if (b.side > 0) ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2);
+        else ctx.arc(0, 0, r, Math.PI / 2, (3 * Math.PI) / 2);
+        ctx.closePath();
+        ctx.save();
+        ctx.clip();
+        // rind ring
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, 6.2832);
+        ctx.fillStyle = b.skin.rind;
+        ctx.fill();
+        // flesh
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.82, 0, 6.2832);
+        ctx.fillStyle = b.skin.flesh;
+        ctx.fill();
+        // pips
+        ctx.fillStyle = b.skin.pip;
+        for (let i = 0; i < 5; i++) {
+          const a = (b.side > 0 ? -0.9 : 2.2) + i * 0.45;
+          const rr = r * 0.5;
+          ctx.beginPath();
+          ctx.ellipse(Math.cos(a) * rr, Math.sin(a) * rr, 2.6, 4, a, 0, 6.2832);
+          ctx.fill();
+        }
+        ctx.restore();
+        // cut-face shine
+        ctx.beginPath();
+        ctx.moveTo(0, -r); ctx.lineTo(0, r);
+        ctx.strokeStyle = "rgba(255,255,255,0.4)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function lighten(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt;
+        r = clamp(r, 0, 255); g = clamp(g, 0, 255); b = clamp(b, 0, 255);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      // ---- update ----------------------------------------------------------
+      function update(dt) {
+        // spawn cadence — quickens gently with score
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) {
+          spawnFruit();
+          // occasional double toss
+          if (Math.random() < 0.25 + Math.min(0.3, score / 200)) spawnFruit();
+          spawnTimer = rnd(0.7, 1.4) - Math.min(0.5, score / 300);
+        }
+
+        for (const f of fruits) {
+          f.vy += GRAVITY * dt;
+          f.x += f.vx * dt;
+          f.y += f.vy * dt;
+          f.rot += f.spin * dt;
+        }
+        // cull: off bottom = missed (a missed fruit is fine, no penalty)
+        for (let i = fruits.length - 1; i >= 0; i--) {
+          if (fruits[i].sliced || fruits[i].y - fruits[i].r > H + 60) fruits.splice(i, 1);
+        }
+
+        for (const b of bits) {
+          b.vy += GRAVITY * dt * (b.kind === "half" ? 1 : 0.9);
+          b.x += b.vx * dt;
+          b.y += b.vy * dt;
+          if (b.kind === "half") b.rot += b.spin * dt;
+          b.life -= dt;
+        }
+        for (let i = bits.length - 1; i >= 0; i--) {
+          if (bits[i].life <= 0 || bits[i].y > H + 120) bits.splice(i, 1);
+        }
+
+        for (const p of pops) { p.y += p.vy * dt; p.life -= dt; }
+        for (let i = pops.length - 1; i >= 0; i--) if (pops[i].life <= 0) pops.splice(i, 1);
+
+        if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) combo = 0; }
+        if (shake > 0) shake = Math.max(0, shake - dt * 60);
+
+        // age blade trail
+        const now = performance.now();
+        while (trail.length && now - trail[0].t > 130) trail.shift();
+      }
+
+      // ---- render ----------------------------------------------------------
+      function render() {
+        ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        if (shake > 0.5) ctx.translate(rnd(-shake, shake) * 0.5, rnd(-shake, shake) * 0.5);
+
+        // droplets first (behind fruit)
+        for (const b of bits) {
+          if (b.kind !== "drop") continue;
+          ctx.globalAlpha = clamp(b.life / b.max, 0, 1);
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, b.r, 0, 6.2832);
+          ctx.fillStyle = b.color;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // halves
+        for (const b of bits) {
+          if (b.kind !== "half") continue;
+          ctx.globalAlpha = clamp(b.life / b.max, 0, 1);
+          drawHalf(b);
+        }
+        ctx.globalAlpha = 1;
+
+        // whole fruit
+        for (const f of fruits) if (!f.sliced) drawWhole(f);
+
+        // score pops
+        for (const p of pops) {
+          ctx.globalAlpha = clamp(p.life / p.max, 0, 1);
+          ctx.font = "800 26px 'Baloo 2', system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillStyle = p.color;
+          ctx.strokeStyle = "rgba(0,0,0,0.5)";
+          ctx.lineWidth = 4;
+          ctx.strokeText(p.text, p.x, p.y);
+          ctx.fillText(p.text, p.x, p.y);
+        }
+        ctx.globalAlpha = 1;
+
+        // blade trail
+        if (trail.length > 1) {
+          for (let i = 1; i < trail.length; i++) {
+            const a = i / trail.length;
+            ctx.beginPath();
+            ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+            ctx.lineTo(trail[i].x, trail[i].y);
+            ctx.strokeStyle = `rgba(255,255,255,${a * 0.85})`;
+            ctx.lineWidth = a * 9 + 1;
+            ctx.lineCap = "round";
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // ---- loop ------------------------------------------------------------
+      function frame(ts) {
+        const dt = Math.min(0.05, (ts - last) / 1000 || 0);
+        last = ts;
+        if (running) update(dt);
+        else {
+          // keep settling bits + fading trail alive on the menu
+          for (const b of bits) { b.vy += GRAVITY * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt; }
+          for (let i = bits.length - 1; i >= 0; i--) if (bits[i].life <= 0 || bits[i].y > H + 120) bits.splice(i, 1);
+          const now = performance.now();
+          while (trail.length && now - trail[0].t > 130) trail.shift();
+        }
+        render();
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      // ---- game control ----------------------------------------------------
+      const OVER_BLURBS = [
+        "the firehose kept flowing without you. it always does.",
+        "so many posts, unsliced. tragic.",
+        "a bomb got you. bluesky is a dangerous place.",
+        "you sliced the discourse into ribbons. respect.",
+      ];
+
+      function startGame() {
+        score = 0; lives = 3; combo = 0; comboTimer = 0; shake = 0;
+        fruits.length = 0; bits.length = 0; pops.length = 0;
+        spawnTimer = 0.3;
+        scoreEl.textContent = "0";
+        renderLives();
+        bestEl.textContent = best ? "best " + best : "";
+        startOverlay.classList.add("hidden");
+        overOverlay.classList.add("hidden");
+        running = true;
+      }
+
+      function gameOver() {
+        running = false;
+        if (score > best) {
+          best = score;
+          try { localStorage.setItem("ffn_best", String(best)); } catch {}
+        }
+        finalScoreEl.textContent = score;
+        finalBestEl.textContent = best;
+        overBlurb.textContent = pick(OVER_BLURBS);
+        overOverlay.classList.remove("hidden");
+      }
+
+      startBtn.addEventListener("click", startGame);
+      againBtn.addEventListener("click", startGame);
+      bestEl.textContent = best ? "best " + best : "";
+
+      // ---- input -----------------------------------------------------------
+      function coords(e) {
+        const r = cv.getBoundingClientRect();
+        const t = e.touches ? e.touches[0] : e;
+        return { x: t.clientX - r.left, y: t.clientY - r.top };
+      }
+      cv.addEventListener("mousedown", (e) => { const c = coords(e); pointerStart(c.x, c.y); });
+      window.addEventListener("mousemove", (e) => { const c = coords(e); pointerMove(c.x, c.y); });
+      window.addEventListener("mouseup", pointerEnd);
+      cv.addEventListener("touchstart", (e) => { e.preventDefault(); const c = coords(e); pointerStart(c.x, c.y); }, { passive: false });
+      cv.addEventListener("touchmove", (e) => { e.preventDefault(); const c = coords(e); pointerMove(c.x, c.y); }, { passive: false });
+      cv.addEventListener("touchend", (e) => { e.preventDefault(); pointerEnd(); }, { passive: false });
+    </script>
+  </body>
+</html>
