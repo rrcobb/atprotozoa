@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flame word art in space</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 40px 16px 60px;
+    background: radial-gradient(ellipse at 50% -10%, #1a0f2e 0%, #05030c 55%, #000 100%);
+    color: #f4e9ff;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(22px, 4vw, 34px);
+    background: linear-gradient(90deg, #ff5f2e, #ffb347, #fff3b0);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 30px rgba(255, 120, 40, 0.35);
+  }
+  p.sub {
+    margin: -8px 0 4px;
+    color: #b9a8d8;
+    max-width: 46ch;
+    font-size: 14px;
+  }
+  form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+  }
+  input[type="text"] {
+    background: #120b22;
+    border: 1px solid #4a2f6e;
+    color: #fff3e0;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 16px;
+    width: 260px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: #ff8a3d; box-shadow: 0 0 0 3px rgba(255, 138, 61, 0.2); }
+  button {
+    background: linear-gradient(135deg, #ff5f2e, #ffb347);
+    color: #200a00;
+    border: none;
+    font-weight: 700;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-size: 15px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  button:disabled { opacity: 0.55; cursor: progress; }
+  button:not(:disabled):hover { filter: brightness(1.08); }
+  #stage {
+    position: relative;
+    margin-top: 8px;
+  }
+  canvas {
+    display: block;
+    background: #000;
+    border-radius: 12px;
+    border: 1px solid #2c1c47;
+    box-shadow: 0 0 60px rgba(255, 100, 30, 0.12);
+  }
+  #status {
+    min-height: 20px;
+    font-size: 13px;
+    color: #c9b8ec;
+  }
+  #result {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  #result img {
+    border-radius: 12px;
+    border: 1px solid #2c1c47;
+    box-shadow: 0 0 60px rgba(255, 100, 30, 0.2);
+  }
+  #downloadLink {
+    display: inline-block;
+    background: #1c1030;
+    border: 1px solid #4a2f6e;
+    color: #ffd9a8;
+    text-decoration: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  #downloadLink:hover { border-color: #ff8a3d; }
+  footer {
+    margin-top: 20px;
+    font-size: 12px;
+    color: #6b5a8f;
+  }
+  footer a { color: #a98fe0; }
+</style>
+</head>
+<body>
+  <h1>flame word art in space</h1>
+  <p class="sub">type a word, hit the button, get back a tumbling flaming-text GIF adrift among the stars.</p>
+
+  <form id="form">
+    <input type="text" id="wordInput" maxlength="18" placeholder="e.g. BLAZE" autocomplete="off" value="BLAZE">
+    <button type="submit" id="genBtn">ignite &amp; generate GIF</button>
+  </form>
+
+  <div id="stage">
+    <canvas id="canvas" width="480" height="340"></canvas>
+  </div>
+  <div id="status"></div>
+
+  <div id="result">
+    <img id="resultImg" alt="generated flame word art gif">
+    <a id="downloadLink" download="flame-word-art.gif">download the gif</a>
+  </div>
+
+  <footer>rendered entirely in your browser &middot; <a href="https://flamewordart.bisks.net">flamewordart.bisks.net</a></footer>
+
+  <script src="gif.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    const STAR_COUNT = 140;
+    const stars = Array.from({ length: STAR_COUNT }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: Math.random() * 1.4 + 0.3,
+      phase: Math.random() * Math.PI * 2,
+      speed: Math.random() * 2 + 0.6,
+    }));
+
+    const NEBULAE = [
+      { x: W * 0.18, y: H * 0.22, r: 160, color: 'rgba(90, 40, 160, 0.25)' },
+      { x: W * 0.85, y: H * 0.75, r: 190, color: 'rgba(40, 70, 160, 0.2)' },
+      { x: W * 0.65, y: H * 0.15, r: 130, color: 'rgba(160, 40, 90, 0.18)' },
+    ];
+
+    const EMBER_COUNT = 26;
+    const embers = Array.from({ length: EMBER_COUNT }, (_, i) => ({
+      baseX: (Math.random() - 0.5) * 1,
+      xAmp: Math.random() * 14 + 4,
+      xFreq: Math.random() * 2 + 1,
+      speed: Math.random() * 0.6 + 0.5,
+      offset: Math.random(),
+      size: Math.random() * 2.2 + 1,
+      seed: i,
+    }));
+
+    function drawBackground(t) {
+      ctx.fillStyle = '#000005';
+      ctx.fillRect(0, 0, W, H);
+
+      for (const n of NEBULAE) {
+        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+        g.addColorStop(0, n.color);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      for (const s of stars) {
+        const twinkle = 0.5 + 0.5 * Math.sin(s.phase + t * Math.PI * 2 * s.speed);
+        ctx.globalAlpha = 0.25 + twinkle * 0.75;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function fitFontSize(text, maxWidth, maxSize) {
+      let size = maxSize;
+      ctx.save();
+      while (size > 14) {
+        ctx.font = `900 ${size}px 'Arial Black', Arial, sans-serif`;
+        if (ctx.measureText(text).width <= maxWidth) break;
+        size -= 2;
+      }
+      ctx.restore();
+      return size;
+    }
+
+    function drawFlameText(text, t, scaleX) {
+      const fontSize = fitFontSize(text, W * 0.8, 78);
+      const cx = W / 2, cy = H / 2 + 10;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(Math.max(Math.abs(scaleX), 0.04) * Math.sign(scaleX || 1), 1);
+      ctx.font = `900 ${fontSize}px 'Arial Black', Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      const flicker = Math.sin(t * Math.PI * 2 * 5) * 1.4;
+
+      const layers = [
+        { dy: 14 + flicker, color: 'rgba(120, 20, 0, 0.35)', blur: 30 },
+        { dy: 9 + flicker * 0.8, color: 'rgba(200, 50, 0, 0.55)', blur: 22 },
+        { dy: 5 + flicker * 0.6, color: 'rgba(255, 110, 0, 0.75)', blur: 14 },
+        { dy: 2 + flicker * 0.3, color: 'rgba(255, 170, 40, 0.9)', blur: 8 },
+      ];
+
+      for (const layer of layers) {
+        ctx.save();
+        ctx.shadowColor = layer.color;
+        ctx.shadowBlur = layer.blur;
+        ctx.fillStyle = layer.color;
+        ctx.fillText(text, 0, -Math.abs(layer.dy));
+        ctx.restore();
+      }
+
+      const grad = ctx.createLinearGradient(0, fontSize / 1.6, 0, -fontSize / 1.4);
+      grad.addColorStop(0, '#fff3b0');
+      grad.addColorStop(0.35, '#ffb347');
+      grad.addColorStop(0.7, '#ff5f2e');
+      grad.addColorStop(1, '#b8290a');
+
+      ctx.shadowColor = 'rgba(255, 150, 50, 0.9)';
+      ctx.shadowBlur = 18;
+      ctx.lineWidth = Math.max(fontSize * 0.05, 2);
+      ctx.strokeStyle = 'rgba(60, 10, 0, 0.8)';
+      ctx.strokeText(text, 0, 0);
+      ctx.fillStyle = grad;
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+
+      return fontSize;
+    }
+
+    function drawEmbers(t, fontSize) {
+      const cx = W / 2, cy = H / 2 + 10;
+      const spread = Math.min(W * 0.35, fontSize * 2.2);
+
+      for (const e of embers) {
+        const life = (t * e.speed + e.offset) % 1;
+        const x = cx + Math.sin(e.seed * 12.9 + t * Math.PI * 2 * e.xFreq) * e.xAmp + (e.seed / EMBER_COUNT - 0.5) * spread;
+        const y = cy - life * (H * 0.55) + fontSize * 0.15;
+        const alpha = Math.sin(life * Math.PI);
+        if (alpha <= 0.02) continue;
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = life < 0.5 ? '#ffdca0' : '#ff7a2e';
+        ctx.beginPath();
+        ctx.arc(x, y, e.size * (1 - life * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawFrame(text, t) {
+      drawBackground(t);
+      const angle = t * Math.PI * 2;
+      const scaleX = Math.cos(angle);
+      const fontSize = drawFlameText(text, t, scaleX);
+      drawEmbers(t, fontSize);
+    }
+
+    const form = document.getElementById('form');
+    const input = document.getElementById('wordInput');
+    const btn = document.getElementById('genBtn');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+    const resultImg = document.getElementById('resultImg');
+    const downloadLink = document.getElementById('downloadLink');
+
+    const FRAME_COUNT = 48;
+    const FRAME_DELAY = 55; // ms
+
+    drawFrame(input.value.trim().toUpperCase() || 'BLAZE', 0);
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim().toUpperCase();
+      if (!text) return;
+
+      btn.disabled = true;
+      result.style.display = 'none';
+      status.textContent = 'rendering frames…';
+
+      const gif = new GIF({
+        workers: 2,
+        quality: 8,
+        width: W,
+        height: H,
+        workerScript: 'gif.worker.js',
+      });
+
+      let frame = 0;
+      function addNextFrame() {
+        const t = frame / FRAME_COUNT;
+        drawFrame(text, t);
+        gif.addFrame(ctx, { copy: true, delay: FRAME_DELAY });
+        frame++;
+        status.textContent = `rendering frames… ${frame}/${FRAME_COUNT}`;
+        if (frame < FRAME_COUNT) {
+          setTimeout(addNextFrame, 0);
+        } else {
+          status.textContent = 'encoding gif…';
+          gif.render();
+        }
+      }
+
+      gif.on('progress', (p) => {
+        status.textContent = `encoding gif… ${Math.round(p * 100)}%`;
+      });
+
+      gif.on('finished', (blob) => {
+        const url = URL.createObjectURL(blob);
+        resultImg.src = url;
+        downloadLink.href = url;
+        downloadLink.download = `flame-${text.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.gif`;
+        result.style.display = 'flex';
+        status.textContent = 'done — behold.';
+        btn.disabled = false;
+      });
+
+      addNextFrame();
+    });
+  </script>
+</body>
+</html>
