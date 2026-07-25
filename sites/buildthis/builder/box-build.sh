@@ -82,13 +82,6 @@ git reset --hard origin/main
 git clean -fd
 rm -f BUILD_RESULT BUILD_NOTE
 
-# The SHA before the build. "did anything actually land on main?" is answered by
-# comparing this to origin/main AFTER the push — the real success signal, not just
-# "BUILD_RESULT exists". A build that writes files but never commits them (the
-# agent staged-and-left-it, or hit max-turns mid-commit) leaves main unchanged, and
-# that must NOT read as success. See the push + classify blocks below.
-BASE_SHA="$(git rev-parse HEAD)"
-
 echo "=== build (claude -p, same invocation as the Action) ==="
 # Sonnet for the builder (cheaper than Opus, near-Opus on this copy-a-site-and-edit
 # workload). Overridable via BUILDER_MODEL if we ever want to bump a build to Opus.
@@ -170,21 +163,24 @@ echo "=== push to main (PAT, so deploy.yml fires) ==="
 # the next build's reset) while the reply still promised it was live. `git status
 # --porcelain` catches all three states. We still gate on BUILD_RESULT so a genuine
 # no-build (note-only reaction) doesn't push an empty commit.
+# PUSHED is set true ONLY inside the branch that actually commits and successfully
+# pushes THIS build's work — not inferred from a HEAD-SHA delta. The SHA-delta
+# approach was fragile: a build that made nothing could still see HEAD != BASE_SHA
+# if the local ref moved for any reason during its ~10-min run, which read as a
+# false success (observed on cee.wtf's attempt-2: nothing built, yet pushed=true).
+# An explicit flag guarded on the push's own exit code is unambiguous.
+PUSHED="false"
 if [ -n "$BUILD_RESULT" ] && [ -n "$(git status --porcelain)" ]; then
   git add -A
   git commit -q -m "buildthis: ${BUILD_RESULT} (@${AUTHOR:-someone})"
-  git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main
+  if git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main; then
+    PUSHED="true"
+  else
+    echo "  push FAILED — not reporting success (build stays incomplete → retry)"
+  fi
 else
   echo "  nothing to push (no BUILD_RESULT or no changes)"
 fi
-
-# The real success signal: did main actually move? A build "succeeds" only if its
-# work is now on origin/main (so deploy.yml will ship it). Comparing HEAD to
-# BASE_SHA — not "does BUILD_RESULT exist" — is what stops a staged-but-uncommitted
-# build from being reported live when it never shipped.
-HEAD_SHA="$(git rev-parse HEAD)"
-PUSHED="false"
-[ "$HEAD_SHA" != "$BASE_SHA" ] && PUSHED="true"
 
 # Classify the outcome into a DISPOSITION the reply + queue act on:
 #   success    -> work landed on main. Reply "built it", retire the job.
