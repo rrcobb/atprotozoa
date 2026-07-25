@@ -267,6 +267,17 @@
         flex-wrap: wrap;
         justify-content: center;
       }
+      .share-actions a.share-post {
+        font-family: var(--mono);
+        font-size: 1rem;
+        padding: 10px 18px;
+        border: 1px solid var(--ink);
+        background: var(--ink);
+        color: var(--bg);
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+      }
       .share-hint {
         text-align: center;
         color: var(--muted);
@@ -350,12 +361,19 @@
           height="1350"
         ></canvas>
         <div class="share-actions">
-          <button id="shareDownload" type="button">⬇ download card</button>
-          <button id="shareBluesky" type="button">🦋 share on bluesky</button>
+          <a
+            id="shareBluesky"
+            class="share-post"
+            target="_blank"
+            rel="noopener"
+            >🦋 post to bluesky</a
+          >
+          <button id="shareDownload" type="button">⬇ download card image</button>
         </div>
         <p class="share-hint">
-          downloads a PNG; "share on bluesky" uses your device's share sheet
-          when it can attach the image, otherwise opens a pre-filled post.
+          "post to bluesky" opens a friendly pre-filled post (calls out your
+          polar-opposite moot); the download button is just the PNG if you'd
+          rather attach that instead.
         </p>
       </div>
 
@@ -569,6 +587,9 @@
             render(result);
             lastResult = result;
             share.hidden = false;
+            $("shareBluesky").href =
+              "https://bsky.app/intent/compose?text=" +
+              encodeURIComponent(shareText(result));
             setStatus("building your share card…");
             await buildShareCard(result);
             setStatus("");
@@ -579,6 +600,42 @@
           go.disabled = false;
           handle.disabled = false;
         }
+      }
+
+      // ── share text: a friendly pre-filled post, no image required ──────
+      // (clustercrawl does this well — a straight compose link with a
+      // personalized line beats an image the user has to download first.)
+
+      function farthestMoot(result) {
+        const self = result.plotted.find((p) => p.isSelf);
+        if (!self) return null;
+        let best = null;
+        let bestDist = -1;
+        for (const p of result.plotted) {
+          if (p.isSelf) continue;
+          const dx = p.x - self.x;
+          const dy = p.y - self.y;
+          const d = dx * dx + dy * dy;
+          if (d > bestDist) {
+            bestDist = d;
+            best = p;
+          }
+        }
+        return best;
+      }
+
+      function shareText(result) {
+        const self = result.plotted.find((p) => p.isSelf) || result.self;
+        const cellName =
+          self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
+        const opp = farthestMoot(result);
+        const oppLine = opp
+          ? ` my polar opposite: @${opp.handle} (${opp.cell != null ? CELLS[opp.cell].name : "too quiet to read"}).`
+          : "";
+        return (
+          `I'm ${cellName} on the network alignment chart 🧭${oppLine}\n\n` +
+          `plot your own network → https://alignment-chart.bisks.net`
+        );
       }
 
       // ── share card: a canvas snapshot of the grid, made to post ────────
@@ -748,34 +805,6 @@
           a.download = `alignment-chart-${who}.png`;
           a.click();
           URL.revokeObjectURL(a.href);
-        }, "image/png");
-      });
-
-      $("shareBluesky").addEventListener("click", () => {
-        if (!lastResult) return;
-        const self =
-          lastResult.plotted.find((p) => p.isSelf) || lastResult.self;
-        const cellName =
-          self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
-        const text =
-          `I'm ${cellName} on the network alignment chart 🧭\n\n` +
-          `plot your own network → https://alignment-chart.bisks.net`;
-        const canvas = $("shareCanvas");
-        canvas.toBlob(async (blob) => {
-          const file =
-            blob && new File([blob], "alignment-chart.png", { type: "image/png" });
-          if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-            try {
-              await navigator.share({ files: [file], text });
-              return;
-            } catch {
-              // user backed out of the share sheet — fall back to the compose link
-            }
-          }
-          window.open(
-            `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
-            "_blank",
-          );
         }, "image/png");
       });
 
