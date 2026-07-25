@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>birdflow / posts — posts per month vs. posts per user, 2026</title>
+    <meta
+      name="description"
+      content="Napkin-math posts/month and posts-per-user/month across microblogging sites in 2026, sized off estimated posting activity rather than self-reported MAU/DAU."
+    />
+    <style>
+      .viz-root {
+        color-scheme: light;
+        --surface-1: #fcfcfb;
+        --page: #f9f9f7;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --gridline: #e1e0d9;
+        --baseline: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --accent: #1a5fd0;
+
+        --series-x: #2a78d6;
+        --series-threads: #eb6834;
+        --series-bluesky: #1baf7a;
+        --series-mastodon: #eda100;
+        --series-tumblr: #e87ba4;
+        --series-neutral: #898781;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme="light"])) .viz-root {
+          color-scheme: dark;
+          --surface-1: #1a1a19;
+          --page: #0d0d0d;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --gridline: #2c2c2a;
+          --baseline: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --accent: #5b9bf0;
+
+          --series-x: #3987e5;
+          --series-threads: #d95926;
+          --series-bluesky: #199e70;
+          --series-mastodon: #c98500;
+          --series-tumblr: #d55181;
+          --series-neutral: #898781;
+        }
+      }
+      :root[data-theme="dark"] .viz-root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --page: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --gridline: #2c2c2a;
+        --baseline: #383835;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #5b9bf0;
+
+        --series-x: #3987e5;
+        --series-threads: #d95926;
+        --series-bluesky: #199e70;
+        --series-mastodon: #c98500;
+        --series-tumblr: #d55181;
+        --series-neutral: #898781;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--page);
+        color: var(--text-primary);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+
+      .crumb {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin: 0 0 0.9rem;
+      }
+      .crumb a { color: var(--accent); text-decoration: none; }
+      .crumb a:hover { text-decoration: underline; }
+
+      header h1 {
+        font-size: 1.5rem;
+        font-weight: 650;
+        margin: 0 0 0.4rem;
+      }
+      header p.sub {
+        color: var(--text-secondary);
+        margin: 0 0 1.75rem;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 62ch;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      button.pill {
+        font: inherit;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.4rem 0.85rem;
+        cursor: pointer;
+      }
+      button.pill:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+      button.pill[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); }
+
+      .chart-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem 1rem 0.75rem;
+      }
+
+      svg#bars { width: 100%; height: auto; display: block; }
+      .row-label {
+        font-size: 12px;
+        fill: var(--text-primary);
+      }
+      .row-value {
+        font-size: 11px;
+        fill: var(--text-secondary);
+      }
+      .axis-tick text {
+        font-size: 10px;
+        fill: var(--text-muted);
+      }
+      .axis-tick line, .axis-tick path {
+        stroke: var(--gridline);
+      }
+      rect.bar { cursor: pointer; transition: opacity 120ms ease; }
+      rect.bar.dim { opacity: 0.35; }
+
+      .tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface-1);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+        max-width: 240px;
+        z-index: 10;
+        opacity: 0;
+        transform: translateY(2px);
+        transition: opacity 100ms ease;
+      }
+      .tooltip.show { opacity: 1; }
+      .tooltip .t-title { font-weight: 600; margin-bottom: 0.15rem; }
+      .tooltip .t-sub { color: var(--text-secondary); }
+
+      .caption {
+        margin-top: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        max-width: 62ch;
+      }
+
+      table.flows {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+      }
+      table.flows caption { text-align: left; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 0.5rem; }
+      table.flows th, table.flows td {
+        text-align: left;
+        padding: 0.45rem 0.6rem;
+        border-bottom: 1px solid var(--gridline);
+      }
+      table.flows th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.flows td.num, table.flows th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      .table-wrap { display: none; }
+      .table-wrap.show { display: block; }
+      #chart-wrap.hide { display: none; }
+
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--gridline);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="viz-root">
+      <div class="wrap">
+        <p class="crumb"><a href="/">← birdflow: the sankey</a></p>
+
+        <header>
+          <h1>birdflow / posts</h1>
+          <p class="sub">
+            skeptical of a platform's claimed monthly (or daily) actives?
+            here's the same napkin-math exercise from the sankey's
+            perspective of <em>posting</em>, not headline user counts:
+            estimated posts/month, and posts per actually-posting user per
+            month, in 2026. <strong>Illustrative napkin-math, not sourced
+            analytics</strong> — the posting bases here are this page's own
+            estimate of who's actually active, not any platform's
+            self-reported MAU/DAU.
+          </p>
+        </header>
+
+        <div class="toolbar">
+          <button class="pill" id="theme-toggle" type="button" aria-pressed="false">🌗 theme: auto</button>
+          <button class="pill metric-pill" id="metric-posts" type="button" aria-pressed="true" data-metric="posts">posts / month</button>
+          <button class="pill metric-pill" id="metric-perUser" type="button" aria-pressed="false" data-metric="perUser">posts / user / month</button>
+          <button class="pill" id="view-toggle" type="button" aria-pressed="false">view as table</button>
+        </div>
+
+        <div class="chart-card">
+          <div id="chart-wrap">
+            <svg id="bars" viewBox="0 0 900 340" role="img" aria-label="Bar chart of estimated posts per month and posts per user per month by microblogging platform, 2026"></svg>
+          </div>
+          <div class="table-wrap" id="table-wrap"></div>
+        </div>
+
+        <p class="caption">
+          Reading it: bars rank platforms on whichever metric is selected.
+          "Posts / month" is total estimated post volume (millions).
+          "Posts / user / month" divides that by this page's estimate of the
+          <em>actually-posting</em> base — not the bigger claimed MAU/DAU —
+          so X's giant volume comes from a much smaller, very active crowd,
+          while Mastodon's tiny community posts at a much higher rate per
+          head. Hover a bar for both numbers, or flip to the table.
+        </p>
+
+        <footer>
+          built by <a href="https://bisks.net">@buildthis.bisks.net</a>, asked
+          for by @7778777.online · numbers are a vibe, not a citation · part of
+          the <a href="https://bisks.net">atprotozoa</a> zoo
+        </footer>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" role="status"></div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+      (function () {
+        var COLORS = {
+          x: "series-x",
+          threads: "series-threads",
+          bluesky: "series-bluesky",
+          mastodon: "series-mastodon",
+          tumblr: "series-tumblr",
+        };
+
+        // Illustrative 2026 napkin-math. "posters" is this page's own guess
+        // at the actually-posting base for each platform -- deliberately
+        // NOT the platform's self-reported MAU/DAU, since that's the number
+        // being doubted. postsPerMonth / posters = perUser.
+        var data = [
+          { id: "x", label: "X / Twitter", posters: 42, postsPerMonth: 2400 },
+          { id: "threads", label: "Threads", posters: 22, postsPerMonth: 420 },
+          { id: "bluesky", label: "Bluesky", posters: 5.2, postsPerMonth: 480 },
+          { id: "tumblr", label: "Tumblr", posters: 2.1, postsPerMonth: 150 },
+          { id: "mastodon", label: "Mastodon", posters: 0.35, postsPerMonth: 70 },
+        ].map(function (d) {
+          d.perUser = d.postsPerMonth / d.posters;
+          return d;
+        });
+
+        var root = document.querySelector(".viz-root");
+        function colorVar(key) {
+          return getComputedStyle(root).getPropertyValue("--" + COLORS[key]).trim();
+        }
+        function fmtM(v) {
+          return (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "M";
+        }
+        function fmtCount(v) {
+          return Math.round(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
+        }
+
+        var svg = d3.select("#bars");
+        var W = 900, H = 340;
+        var margin = { top: 12, right: 90, bottom: 10, left: 130 };
+        var innerW = W - margin.left - margin.right;
+        var rowH = (H - margin.top - margin.bottom) / data.length;
+        var barH = rowH * 0.56;
+
+        var tooltip = document.getElementById("tooltip");
+        function showTip(html, evt) {
+          tooltip.innerHTML = html;
+          tooltip.classList.add("show");
+          moveTip(evt);
+        }
+        function moveTip(evt) {
+          var x = evt.clientX + 14, y = evt.clientY + 14;
+          var rect = tooltip.getBoundingClientRect();
+          if (x + rect.width > window.innerWidth - 8) x = evt.clientX - rect.width - 14;
+          if (y + rect.height > window.innerHeight - 8) y = evt.clientY - rect.height - 14;
+          tooltip.style.left = x + "px";
+          tooltip.style.top = y + "px";
+        }
+        function hideTip() {
+          tooltip.classList.remove("show");
+        }
+
+        var gRows = svg.append("g");
+        var barSel, labelSel, valueSel, axisG;
+
+        var metric = "posts"; // "posts" | "perUser"
+
+        function metricValue(d) {
+          return metric === "posts" ? d.postsPerMonth : d.perUser;
+        }
+        function metricFmt(d) {
+          return metric === "posts" ? fmtM(d.postsPerMonth) : fmtCount(d.perUser) + "/mo";
+        }
+
+        function render() {
+          var sorted = data.slice().sort(function (a, b) { return metricValue(b) - metricValue(a); });
+          var maxVal = d3.max(sorted, metricValue) || 1;
+          var x = d3.scaleLinear().domain([0, maxVal]).nice().range([0, innerW]);
+
+          gRows.selectAll("*").remove();
+
+          var axis = d3.axisTop(x).ticks(5).tickSize(-(rowH * data.length - (rowH - barH)));
+          gRows
+            .append("g")
+            .attr("class", "axis-tick")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+            .call(axis)
+            .call(function (g) { g.select(".domain").remove(); });
+
+          var rowG = gRows
+            .selectAll("g.row")
+            .data(sorted, function (d) { return d.id; })
+            .join("g")
+            .attr("class", "row")
+            .attr("transform", function (d, i) {
+              return "translate(" + margin.left + "," + (margin.top + i * rowH + (rowH - barH) / 2) + ")";
+            });
+
+          barSel = rowG
+            .append("rect")
+            .attr("class", "bar")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("height", barH)
+            .attr("width", function (d) { return Math.max(1, x(metricValue(d))); })
+            .attr("fill", function (d) { return colorVar(d.id); })
+            .on("mousemove", function (evt, d) {
+              showTip(
+                '<div class="t-title">' + d.label + "</div>" +
+                '<div class="t-sub">~' + fmtM(d.postsPerMonth) + " posts/month</div>" +
+                '<div class="t-sub">~' + fmtCount(d.perUser) + " posts/user/month</div>" +
+                '<div class="t-sub">est. posting base: ~' + fmtM(d.posters) + "</div>",
+                evt
+              );
+              barSel.classed("dim", function (o) { return o !== d; });
+            })
+            .on("mouseleave", function () {
+              hideTip();
+              barSel.classed("dim", false);
+            });
+
+          rowG
+            .append("text")
+            .attr("class", "row-label")
+            .attr("x", -10)
+            .attr("y", barH / 2 - 4)
+            .attr("text-anchor", "end")
+            .text(function (d) { return d.label; });
+
+          rowG
+            .append("text")
+            .attr("class", "row-value")
+            .attr("x", function (d) { return Math.max(1, x(metricValue(d))) + 8; })
+            .attr("y", barH / 2 + 4)
+            .attr("text-anchor", "start")
+            .text(metricFmt);
+
+          renderTable();
+        }
+
+        function renderTable() {
+          var tableWrap = document.getElementById("table-wrap");
+          var rows = data
+            .slice()
+            .sort(function (a, b) { return metricValue(b) - metricValue(a); })
+            .map(function (d) {
+              return (
+                "<tr><td>" + d.label + "</td>" +
+                '<td class="num">' + fmtM(d.postsPerMonth) + "</td>" +
+                '<td class="num">' + fmtCount(d.perUser) + "</td>" +
+                '<td class="num">~' + fmtM(d.posters) + "</td></tr>"
+              );
+            })
+            .join("");
+          tableWrap.innerHTML =
+            '<table class="flows">' +
+            '<caption>Estimated posts/month, posts/user/month, and posting base, by platform — illustrative</caption>' +
+            "<thead><tr><th>Platform</th><th class=\"num\">Posts/mo</th><th class=\"num\">Posts/user/mo</th><th class=\"num\">Est. posting base</th></tr></thead>" +
+            "<tbody>" + rows + "</tbody>" +
+            "</table>";
+        }
+
+        render();
+
+        // metric toggle
+        var metricBtns = document.querySelectorAll(".metric-pill");
+        metricBtns.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            metric = btn.getAttribute("data-metric");
+            metricBtns.forEach(function (b) {
+              b.setAttribute("aria-pressed", String(b === btn));
+            });
+            render();
+          });
+        });
+
+        // view toggle
+        var chartWrap = document.getElementById("chart-wrap");
+        var tableWrap = document.getElementById("table-wrap");
+        var viewBtn = document.getElementById("view-toggle");
+        viewBtn.addEventListener("click", function () {
+          var showTable = !tableWrap.classList.contains("show");
+          tableWrap.classList.toggle("show", showTable);
+          chartWrap.classList.toggle("hide", showTable);
+          viewBtn.setAttribute("aria-pressed", String(showTable));
+          viewBtn.textContent = showTable ? "view as chart" : "view as table";
+        });
+
+        var themeBtn = document.getElementById("theme-toggle");
+        var stored = localStorage.getItem("birdflow-theme");
+        function applyTheme(t) {
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          } else {
+            document.documentElement.removeAttribute("data-theme");
+          }
+          themeBtn.textContent = "🌗 theme: " + (t || "auto");
+        }
+        applyTheme(stored);
+        themeBtn.addEventListener("click", function () {
+          var order = [null, "light", "dark"];
+          var cur = localStorage.getItem("birdflow-theme");
+          var next = order[(order.indexOf(cur) + 1) % order.length];
+          if (next) localStorage.setItem("birdflow-theme", next);
+          else localStorage.removeItem("birdflow-theme");
+          applyTheme(next);
+          location.reload();
+        });
+      })();
+    </script>
+  </body>
+</html>
