@@ -204,7 +204,8 @@
 
     <footer>
       click a card to pick it up, click a pile to drop it. double-click sends
-      a card home to its foundation. stock recycles when empty.
+      a card home to its foundation. stock recycles when empty. once every
+      card in the tableau is face up, double-click any card to auto-finish.
       built for <a href="https://bsky.app/profile/heartpunk.com" target="_blank" rel="noopener">@heartpunk.com</a>
       by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> &middot;
       <a href="https://bisks.net">bisks.net</a>
@@ -238,6 +239,7 @@
 
       let state = null;
       let selection = null; // { zone: 'tableau'|'waste'|'foundation', col, index }
+      let autoPlaying = false;
 
       function newGame() {
         selection = null;
@@ -264,6 +266,13 @@
       function setStatus(msg) {
         document.getElementById("status").textContent = msg;
       }
+      function updateStatusHint(defaultMsg) {
+        if (canAutoComplete()) {
+          setStatus("cascade's clear — double-click any card to finish it");
+        } else {
+          setStatus(defaultMsg);
+        }
+      }
       function tableauTop(col) {
         return state.tableau[col][state.tableau[col].length - 1];
       }
@@ -281,6 +290,10 @@
       }
       function isWon() {
         return Object.values(state.foundations).every((p) => p.length === 13);
+      }
+      function canAutoComplete() {
+        if (isWon()) return false;
+        return state.tableau.every((col) => col.every((c) => c.faceUp));
       }
 
       // ---------- rendering ----------
@@ -449,6 +462,7 @@
       }
 
       function handlePileClick(zone, col, cardIndex) {
+        if (autoPlaying) return;
         if (zone === "stock") {
           selection = null;
           if (state.stock.length) {
@@ -463,6 +477,7 @@
             }
           }
           render();
+          updateStatusHint("click a card, then click where it goes");
           return;
         }
 
@@ -505,13 +520,20 @@
         const ok = tryMoveTo(zone, col);
         selection = null;
         render();
-        setStatus(ok ? "nice" : "click a card, then click where it goes");
         if (ok && isWon()) {
+          setStatus("nice");
           setTimeout(startCascade, 250);
+        } else {
+          updateStatusHint(ok ? "nice" : "click a card, then click where it goes");
         }
       }
 
       function handleCardDoubleClick(zone, col) {
+        if (autoPlaying) return;
+        if (canAutoComplete()) {
+          runAutoComplete();
+          return;
+        }
         // try to auto-send the top card of this pile home
         let card;
         if (zone === "waste") card = state.waste[state.waste.length - 1];
@@ -526,7 +548,73 @@
         tryMoveTo("foundation", card.suit);
         selection = null;
         render();
-        if (isWon()) setTimeout(startCascade, 250);
+        if (isWon()) {
+          setStatus("nice");
+          setTimeout(startCascade, 250);
+        } else {
+          updateStatusHint("nice");
+        }
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function runAutoComplete() {
+        autoPlaying = true;
+        clearSelection();
+        setStatus("auto-completing…");
+        while (!isWon()) {
+          let moved = false;
+          for (let c = 0; c < 7; c++) {
+            const pile = state.tableau[c];
+            if (!pile.length) continue;
+            const card = pile[pile.length - 1];
+            if (card.faceUp && canFoundation(card, card.suit)) {
+              pile.pop();
+              state.foundations[card.suit].push(card);
+              moved = true;
+              render();
+              await sleep(70);
+            }
+          }
+          if (state.waste.length) {
+            const card = state.waste[state.waste.length - 1];
+            if (canFoundation(card, card.suit)) {
+              state.waste.pop();
+              state.foundations[card.suit].push(card);
+              moved = true;
+              render();
+              await sleep(70);
+            }
+          }
+          if (moved) continue;
+          if (state.stock.length) {
+            const card = state.stock.pop();
+            card.faceUp = true;
+            state.waste.push(card);
+            render();
+            await sleep(20);
+            continue;
+          }
+          if (state.waste.length) {
+            while (state.waste.length) {
+              const card = state.waste.pop();
+              card.faceUp = false;
+              state.stock.push(card);
+            }
+            render();
+            continue;
+          }
+          break; // stuck — shouldn't happen once every tableau card is face up
+        }
+        autoPlaying = false;
+        if (isWon()) {
+          setStatus("nice");
+          setTimeout(startCascade, 250);
+        } else {
+          updateStatusHint("click a card, then click where it goes");
+        }
       }
 
       document.getElementById("stock").addEventListener("click", () => handlePileClick("stock"));
@@ -549,6 +637,7 @@
       });
 
       document.getElementById("newgame").addEventListener("click", () => {
+        if (autoPlaying) return;
         stopCascade();
         newGame();
       });
