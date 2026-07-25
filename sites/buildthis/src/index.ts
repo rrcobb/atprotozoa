@@ -1015,15 +1015,41 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
       // skip a corrupt job rather than wedge the queue
     }
   }
-  // Oldest queued job first. Claimed jobs are skipped (a build in flight).
+  // Oldest queued job first. Claimed jobs are a build in flight — normally skipped.
   const queued = jobs
     .filter((j) => j.status === "queued")
     .sort((a, b) => (a.enqueuedAt < b.enqueuedAt ? -1 : 1));
-  const next = queued[0];
+
+  // Orphan reclaim (self-healing): a build that died mid-run (crash, box reboot, a
+  // SIGKILLed process) leaves its job stuck `claimed` forever — the box only serves
+  // `queued` jobs, so without this it would never be retried and the requester is
+  // left hanging (exactly the orphan /health flags). When there's nothing queued,
+  // reclaim the oldest claimed job that's been held longer than any real build could
+  // take (ORPHAN_AGE_MS): treat it as failed-in-flight and serve it as a fresh
+  // attempt. `attempts` still bounds it (the box gives up at MAX), so a genuinely
+  // wedged job can't loop forever. This makes death-mid-build recover on its own
+  // instead of needing a hand-requeue.
+  const now = Date.now();
+  let next: QueueJob | undefined = queued[0];
+  let reclaimed = false;
+  if (!next) {
+    const orphan = jobs
+      .filter((j) => j.status === "claimed" && j.claimedAt)
+      .filter((j) => now - new Date(j.claimedAt as string).getTime() > ORPHAN_AGE_MS)
+      .sort((a, b) => ((a.claimedAt as string) < (b.claimedAt as string) ? -1 : 1))[0];
+    if (orphan) {
+      next = orphan;
+      reclaimed = true;
+      console.warn(`reclaiming orphaned job ${orphan.mentionUri} (claimed ${orphan.claimedAt}, attempts ${orphan.attempts})`);
+    }
+  }
   if (!next) return new Response(null, { status: 204 });
 
+  // Reclaimed jobs count as another attempt (the prior claim died); fresh queued
+  // jobs keep their attempt count (this IS the attempt about to run).
   next.status = "claimed";
   next.claimedAt = new Date().toISOString();
+  if (reclaimed) next.attempts = (next.attempts ?? 1) + 1;
   await env.STATE.put(`${JOB_PREFIX}${next.mentionUri}`, JSON.stringify(next), {
     expirationTtl: JOB_TTL,
   });
