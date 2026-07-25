@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>keytags — bisks.net</title>
+    <meta
+      name="description"
+      content="Tag any atproto DID for yourself only. Each tag set is stored in your own PDS keyed by HMAC-SHA256(your secret, their DID) — a private key you type in and that never leaves your browser, so the record is public but unreadable to anyone without your key."
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.9rem; line-height: 1.7; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro code { background: #f5f5f5; padding: 0.05rem 0.3rem; border-radius: 3px; }
+
+      input[type="text"], input[type="password"] {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+      }
+      input::placeholder { color: #aaa; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border-color: var(--faint); }
+      button.ghost:hover { background: #f5f8ff; }
+      button.tiny { font-size: 0.72rem; padding: 0.25rem 0.5rem; }
+      button.danger { border-color: #c0392b; color: #c0392b; background: transparent; }
+      button.danger:hover { background: #fdf1ef; }
+      .status { font-size: 0.78rem; color: var(--muted); min-height: 1.2em; }
+      .err { color: #c0392b; }
+      a { color: var(--accent); }
+
+      .bar { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+      .bar input { flex: 1; min-width: 10rem; }
+      .panel-label {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 1.75rem 0 0.6rem; font-weight: 600;
+      }
+      .panel-label:first-of-type { margin-top: 0; }
+      .hint { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.6rem; }
+
+      .panel {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+      }
+
+      .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.7rem 0; }
+      .chip {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        border: 1px solid var(--accent); color: var(--accent);
+        border-radius: 999px; padding: 0.2rem 0.3rem 0.2rem 0.7rem;
+        font-size: 0.82rem;
+      }
+      .chip button {
+        border: none; background: none; color: var(--accent); padding: 0 0.35rem;
+        font-size: 0.9rem; line-height: 1; border-radius: 999px;
+      }
+      .chip button:hover { background: #e8f0ff; }
+      .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+      .entrylist { border-top: 1px solid var(--faint); margin-top: 0.5rem; }
+      .entryrow {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--faint);
+      }
+      .entryrow .hash {
+        font-size: 0.8rem; color: var(--muted); cursor: help;
+      }
+      .entryrow .tags { font-size: 0.85rem; flex: 1; }
+      .entryrow .tags .t {
+        display: inline-block; margin-right: 0.4rem; color: var(--ink);
+      }
+      .entryrow.match { background: #f5f8ff; border-radius: 4px; padding-left: 0.5rem; padding-right: 0.5rem; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">keytags</a></h1>
+        <span class="who" id="who"></span>
+      </header>
+
+      <p class="intro">
+        A private tag box for other atproto accounts, hiding in plain sight in
+        your own public repo. Tags are stored as a
+        <b>net.bisks.keytags.set</b> record, but the record key isn't the
+        target's DID — it's
+        <code>HMAC-SHA256(your secret, their DID)</code>. The secret is a
+        passphrase <b>you</b> type in below; it's never sent anywhere and
+        never saved, not even to this browser's storage. Without it, every
+        entry in your repo is an opaque hash next to a list of tags — nobody
+        (including future-you, if you forget the secret) can tell which is
+        which.
+      </p>
+
+      <div id="signin-box"></div>
+
+      <div id="app" hidden>
+        <div class="panel-label">your secret</div>
+        <p class="hint">
+          typed fresh each visit, kept only in this tab's memory — reload the
+          page and it's gone. the same secret + the same DID always hashes to
+          the same entry; a different secret makes the same DID unrecognizable.
+        </p>
+        <div class="bar">
+          <input id="secret" type="password" placeholder="a passphrase only you know" autocomplete="off" />
+        </div>
+
+        <div class="panel-label">tag someone</div>
+        <div class="bar">
+          <input id="target" type="text" placeholder="their handle or DID" />
+          <button id="load-go">load</button>
+        </div>
+        <p class="status" id="load-status"></p>
+
+        <div class="panel" id="editor" hidden>
+          <div class="hint" id="editor-who"></div>
+          <div class="chips" id="chips"></div>
+          <div class="bar">
+            <input id="new-tag" type="text" placeholder="add a tag, enter to add" />
+          </div>
+          <div class="bar">
+            <button id="save-go">save</button>
+            <button id="clear-go" class="danger">clear all tags</button>
+            <span class="status" id="save-status"></span>
+          </div>
+        </div>
+
+        <div class="panel-label">your raw entries</div>
+        <p class="hint">
+          everything in your <b>net.bisks.keytags.set</b> collection, exactly
+          as anyone else would see it: a hash and some tags, no DID in sight.
+        </p>
+        <div id="entries"></div>
+      </div>
+
+      <footer>
+        <a href="/">keytags</a> · part of <a href="https://bisks.net">bisks.net</a> ·
+        tags are <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+        records in your own repo — nothing lives on this server, including your secret.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+      import { resolveDid, resolveHandleForDid, getRecord, listRecords } from "./lib/atproto.js";
+      import { hmacHex } from "./lib/keytag.js";
+
+      const COLLECTION = "net.bisks.keytags.set";
+      const LIST_PAGES = 5; // up to 500 entries scanned for the raw list
+
+      const $ = (sel) => document.querySelector(sel);
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      let session = null;
+      let secret = ""; // in-memory only — never persisted, never sent to any server
+      let current = null; // { did, handle, hash, tags, existed }
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          console.error(e);
+        }
+        renderWho();
+        if (session) {
+          $("#app").hidden = false;
+          wire();
+          await renderEntries();
+        } else {
+          renderSignIn();
+        }
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `@${esc(session.handle)} · <a id="signout">sign out</a>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            location.reload();
+          });
+        } else {
+          who.textContent = "";
+        }
+      }
+
+      function renderSignIn() {
+        const box = $("#signin-box");
+        box.innerHTML = `
+          <div class="panel-label">sign in to manage your tags</div>
+          <div class="bar">
+            <input id="signin-handle" type="text" placeholder="your bluesky handle" />
+            <button id="signin-go">sign in with bluesky</button>
+          </div>
+          <p class="status err" id="signin-err"></p>
+        `;
+        $("#signin-go").addEventListener("click", async () => {
+          const h = $("#signin-handle").value.trim();
+          if (!h) return;
+          try {
+            await login(h);
+          } catch (e) {
+            $("#signin-err").textContent = e.message;
+          }
+        });
+      }
+
+      function wire() {
+        $("#secret").addEventListener("input", (e) => (secret = e.target.value));
+        $("#load-go").addEventListener("click", loadTarget);
+        $("#target").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") loadTarget();
+        });
+        $("#new-tag").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addTag();
+          }
+        });
+        $("#save-go").addEventListener("click", save);
+        $("#clear-go").addEventListener("click", () => {
+          if (!current) return;
+          current.tags = [];
+          renderChips();
+        });
+      }
+
+      async function loadTarget() {
+        const status = $("#load-status");
+        const editor = $("#editor");
+        editor.hidden = true;
+        current = null;
+        const raw = $("#target").value.trim();
+        if (!raw) return;
+        if (!secret) {
+          status.textContent = "type your secret above first — the hash depends on it.";
+          status.classList.add("err");
+          return;
+        }
+        status.classList.remove("err");
+        status.textContent = "resolving…";
+        let did, handle;
+        try {
+          did = await resolveDid(raw);
+          handle = await resolveHandleForDid(did);
+        } catch (e) {
+          status.textContent = e.message;
+          status.classList.add("err");
+          return;
+        }
+
+        const hash = await hmacHex(secret, did);
+        status.textContent = "checking your repo…";
+        let tags = [];
+        let existed = false;
+        try {
+          const rec = await getRecord(session.pdsUrl, session.did, COLLECTION, hash);
+          tags = rec.value?.tags || [];
+          existed = true;
+        } catch (e) {
+          if (e.status && e.status !== 400) {
+            // 400 = "record not found" on most PDSes; anything else is a real error
+            status.textContent = `couldn't check your repo: ${e.message}`;
+            status.classList.add("err");
+            return;
+          }
+        }
+
+        current = { did, handle, hash, tags: [...tags], existed };
+        status.textContent = `@${handle} → ${hash.slice(0, 12)}… (${tags.length} tag${tags.length === 1 ? "" : "s"} so far)`;
+        editor.hidden = false;
+        $("#editor-who").textContent = `tagging @${handle}`;
+        renderChips();
+      }
+
+      function renderChips() {
+        const box = $("#chips");
+        if (!current || !current.tags.length) {
+          box.innerHTML = `<span class="empty">no tags yet</span>`;
+        } else {
+          box.innerHTML = current.tags
+            .map((t, i) => `<span class="chip">${esc(t)}<button data-i="${i}" title="remove">×</button></span>`)
+            .join("");
+          box.querySelectorAll("button[data-i]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              current.tags.splice(Number(btn.dataset.i), 1);
+              renderChips();
+            });
+          });
+        }
+        highlightMatch();
+      }
+
+      function addTag() {
+        if (!current) return;
+        const input = $("#new-tag");
+        const t = input.value.trim();
+        input.value = "";
+        if (!t || current.tags.includes(t)) return;
+        current.tags.push(t);
+        renderChips();
+      }
+
+      async function save() {
+        if (!current) return;
+        const status = $("#save-status");
+        status.classList.remove("err");
+        status.textContent = "saving…";
+        try {
+          if (!current.tags.length) {
+            if (current.existed) {
+              const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.deleteRecord`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: current.hash }),
+              });
+              if (!res.ok) throw new Error(await res.text());
+              current.existed = false;
+            }
+            status.textContent = "no tags — nothing stored for this one.";
+          } else {
+            const record = { $type: COLLECTION, tags: current.tags, updatedAt: new Date().toISOString() };
+            const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: current.hash, record }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            current.existed = true;
+            status.textContent = "saved.";
+          }
+          await renderEntries();
+        } catch (e) {
+          console.error(e);
+          status.textContent = `didn't save: ${e.message.slice(0, 200)}`;
+          status.classList.add("err");
+        }
+      }
+
+      async function renderEntries() {
+        const box = $("#entries");
+        box.innerHTML = `<p class="empty">loading…</p>`;
+        let records = [];
+        try {
+          records = await listRecords(session.pdsUrl, session.did, COLLECTION, LIST_PAGES);
+        } catch (e) {
+          box.innerHTML = `<p class="status err">couldn't load your entries: ${esc(e.message)}</p>`;
+          return;
+        }
+        if (!records.length) {
+          box.innerHTML = `<p class="empty">nothing tagged yet.</p>`;
+          return;
+        }
+        box.innerHTML = `<div class="entrylist">${records
+          .map((r) => {
+            const rkey = r.uri.split("/").pop();
+            const tags = r.value?.tags || [];
+            return `<div class="entryrow" data-rkey="${esc(rkey)}">
+              <span class="hash" title="${esc(rkey)}">${esc(rkey.slice(0, 14))}…</span>
+              <span class="tags">${tags.map((t) => `<span class="t">${esc(t)}</span>`).join("") || `<span class="empty">no tags</span>`}</span>
+              <button class="danger tiny" data-del="${esc(rkey)}">delete</button>
+            </div>`;
+          })
+          .join("")}</div>`;
+        box.querySelectorAll("button[data-del]").forEach((btn) => {
+          btn.addEventListener("click", () => deleteEntry(btn.dataset.del));
+        });
+        highlightMatch();
+      }
+
+      function highlightMatch() {
+        document.querySelectorAll(".entryrow").forEach((row) => {
+          row.classList.toggle("match", !!current && row.dataset.rkey === current.hash);
+        });
+      }
+
+      async function deleteEntry(rkey) {
+        try {
+          const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.deleteRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          if (current && current.hash === rkey) {
+            current.tags = [];
+            current.existed = false;
+            renderChips();
+          }
+          await renderEntries();
+        } catch (e) {
+          console.error("delete failed:", e);
+        }
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
