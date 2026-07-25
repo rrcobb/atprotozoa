@@ -1,7 +1,11 @@
 name = "atprotozoa-didscope"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Pure static site — everything runs in the browser. Type a Bluesky handle,
+# Everything still runs client-side (see public/index.html) EXCEPT the OG/share
+# unfurl, which now has a small server surface: the Worker renders /s/<handle>
+# (src/index.ts) with per-handle og:title/og:description/og:url baked server-side,
+# then falls through to ASSETS for everything else. Type a Bluesky handle,
 # it resolves the DID (com.atproto.identity.resolveHandle, CORS *) and reads
 # a horoscope off the last character of the DID string — 32 hand-written
 # signs, a cosmic "rival" opposite on the wheel, and one real recent post of
@@ -9,7 +13,16 @@ compatibility_date = "2025-01-01"
 # @fromthewestmeadow.com after reading their whole feed: they'd pitched this
 # exact bit twice ("a website that ... calculates which zodiac sign
 # corresponds to each [DID's last] character") as a joke about atproto
-# astrology — this makes it real. No secrets, no server.
-assets = { directory = "./public" }
-
+# astrology — this makes it real. No secrets.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in buildthis/logs/wrangler.toml).
 routes = [{ pattern = "didscope.bisks.net", custom_domain = true }]
+
+# run_worker_first: /s/<handle> is dynamic (personalized OG tags per share), so
+# the Worker must run BEFORE the static-asset router, same as sites/logs.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
