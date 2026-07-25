@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>how it started / how it's going</title>
+    <meta name="description" content="Enter a Bluesky handle: see their most-liked post as 'how it started', then click to crack and shatter it away, revealing their most recent post as 'how it's going'." />
+    <style>
+      :root {
+        --bg:#0f0e13; --panel:#17161d; --ink:#f4f2f7; --muted:#9b98a8;
+        --faint:#2a2833; --accent:#7c6cff; --like:#ff5c8a; --started:#e8b84b;
+        --going:#4bd6a8;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1200px 600px at 50% -10%, #1c1a26, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.55;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:620px; margin:0 auto; padding:2.5rem 1.1rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.6rem; font-weight:800; letter-spacing:-0.01em; margin:1.25rem 0 0.3rem; }
+      h1 .s1 { color:var(--started); }
+      h1 .s2 { color:var(--going); }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.75rem; max-width:56ch; }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.9rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#6c6979; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.1rem; border:0; border-radius:11px; background:var(--accent);
+        color:#fff; font:inherit; font-weight:700; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.4rem; }
+      .status.err { color:#ff6b6b; }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.5rem; }
+      .examples a { cursor:pointer; }
+
+      /* the stage: how-it-started sits above how-it's-going in the same box */
+      .stage { position:relative; display:none; }
+      .stage.show { display:block; }
+
+      .label { font-family:var(--mono); font-size:0.78rem; letter-spacing:0.08em;
+        text-transform:uppercase; margin:0 0 0.5rem; display:flex; align-items:center; gap:0.5rem; }
+      .label.started { color:var(--started); }
+      .label.going { color:var(--going); }
+      .label .dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+
+      /* a rendered post card */
+      .card { background:var(--panel); border:1px solid var(--faint); border-radius:16px;
+        padding:1rem 1.1rem 1.05rem; }
+      .card .who { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.6rem; }
+      .card .avatar { width:40px; height:40px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .card .name { font-weight:700; font-size:0.95rem; line-height:1.2; }
+      .card .handle { color:var(--muted); font-size:0.82rem; }
+      .card .text { font-size:1.02rem; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
+      .card .postimg { margin-top:0.7rem; border-radius:12px; max-width:100%;
+        border:1px solid var(--faint); display:block; }
+      .card .meta { display:flex; flex-wrap:wrap; gap:0.9rem; margin-top:0.8rem; color:var(--muted);
+        font-size:0.82rem; font-variant-numeric:tabular-nums; align-items:center; }
+      .card .meta .likes { color:var(--like); font-weight:600; }
+      .card a.permalink { color:var(--muted); }
+
+      /* the started card is clickable */
+      .startedCard { position:relative; cursor:pointer; user-select:none;
+        transition:transform 0.12s ease, box-shadow 0.2s ease;
+        box-shadow:0 10px 40px -18px rgba(232,184,75,0.55); }
+      .startedCard:hover { transform:translateY(-2px); }
+      .startedCard .tap { position:absolute; top:0.7rem; right:0.9rem; font-size:0.72rem;
+        color:var(--started); font-family:var(--mono); letter-spacing:0.04em; opacity:0.9;
+        pointer-events:none; z-index:2; }
+
+      .goingWrap { margin-top:1.6rem; }
+      .goingCard { box-shadow:0 10px 40px -18px rgba(75,214,168,0.55); }
+
+      /* fragments overlay used during the shatter */
+      .shatter { position:absolute; inset:0; pointer-events:none; z-index:5; }
+      .shard { position:absolute; top:0; left:0; overflow:hidden; will-change:transform,opacity;
+        backface-visibility:hidden; }
+      .shard .inner { position:absolute; top:0; left:0; }
+      .crackline { position:absolute; inset:0; pointer-events:none; z-index:6; opacity:0; }
+      .crackline.flash { animation:crackflash 0.5s ease-out forwards; }
+      @keyframes crackflash { 0%{opacity:0} 14%{opacity:1} 100%{opacity:0} }
+
+      .reveal-in { animation:revealIn 0.55s cubic-bezier(.2,.9,.25,1) both; }
+      @keyframes revealIn {
+        from { opacity:0; transform:translateY(14px) scale(0.97); }
+        to { opacity:1; transform:none; }
+      }
+      .label-in { animation:revealIn 0.5s ease both; }
+
+      .replay { margin-top:1.4rem; font-family:var(--mono); font-size:0.8rem;
+        color:var(--muted); background:none; border:1px solid var(--faint); border-radius:9px;
+        padding:0.45rem 0.8rem; cursor:pointer; }
+      .replay:hover { color:var(--ink); border-color:var(--accent); }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1><span class="s1">how it started</span> / <span class="s2">how it's going</span></h1>
+      <p class="sub">
+        Point it at any Bluesky account. It shows their all-time most-liked post —
+        <b style="color:var(--started)">how it started</b>. Give it a tap and watch it
+        crack and fall away to reveal their most recent post —
+        <b style="color:var(--going)">how it's going</b>.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. gracekind.net" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">Show me</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="gracekind.net">gracekind.net</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a> ·
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="buildthis.bisks.net">buildthis</a>
+      </div>
+
+      <div class="stage" id="stage">
+        <p class="label started" id="startedLabel"><span class="dot"></span>how it started</p>
+        <div id="startedHost"></div>
+        <div class="goingWrap" id="goingWrap" style="display:none">
+          <p class="label going label-in"><span class="dot"></span>how it's going</p>
+          <div id="goingHost"></div>
+          <button class="replay" id="replay">↺ start over with another handle</button>
+        </div>
+      </div>
+
+      <p class="note">
+        Reads only public posts (Bluesky's anonymous AppView, <code>getAuthorFeed</code>).
+        "Most-liked" is the highest like-count post the feed returns; "most recent" is the
+        newest original post. Replies and reposts are skipped. Nothing is posted or changed —
+        it just reads. The shatter is pure CSS; no post is harmed.
+      </p>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const stage = document.getElementById("stage");
+      const startedHost = document.getElementById("startedHost");
+      const goingHost = document.getElementById("goingHost");
+      const goingWrap = document.getElementById("goingWrap");
+      const replay = document.getElementById("replay");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function timeAgo(iso) {
+        const then = new Date(iso).getTime();
+        if (!then) return "";
+        const s = Math.max(1, Math.floor((Date.now() - then) / 1000));
+        const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      // Pull an image URL out of a post's embed, if any (images or external thumb).
+      function embedImage(post) {
+        const e = post.embed;
+        if (!e) return null;
+        const t = e.$type || "";
+        if (t.includes("images#view") && e.images && e.images[0]) return e.images[0].thumb;
+        if (t.includes("recordWithMedia#view") && e.media && e.media.images && e.media.images[0])
+          return e.media.images[0].thumb;
+        if (t.includes("external#view") && e.external && e.external.thumb) return e.external.thumb;
+        if (t.includes("video#view") && e.thumbnail) return e.thumbnail;
+        return null;
+      }
+
+      function bskyLink(post) {
+        // at://did/app.bsky.feed.post/rkey  ->  bsky.app/profile/did/post/rkey
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      function cardHTML(post, kind) {
+        const a = post.author || {};
+        const rec = post.record || {};
+        const img = embedImage(post);
+        const likes = post.likeCount || 0;
+        const reposts = post.repostCount || 0;
+        const replies = post.replyCount || 0;
+        const avatar = a.avatar
+          ? `<img class="avatar" src="${esc(a.avatar)}" alt="" referrerpolicy="no-referrer" />`
+          : `<div class="avatar"></div>`;
+        const likeLine = kind === "started"
+          ? `<span class="likes">♥ ${likes.toLocaleString()} likes</span>`
+          : `<span>♥ ${likes.toLocaleString()}</span>`;
+        return `
+          <div class="card">
+            <div class="who">
+              ${avatar}
+              <div>
+                <div class="name">${esc(a.displayName || a.handle || "")}</div>
+                <div class="handle">@${esc(a.handle || "")}</div>
+              </div>
+            </div>
+            <div class="text">${esc(rec.text || "")}</div>
+            ${img ? `<img class="postimg" src="${esc(img)}" alt="" referrerpolicy="no-referrer" />` : ""}
+            <div class="meta">
+              ${likeLine}
+              <span>🔁 ${reposts.toLocaleString()}</span>
+              <span>💬 ${replies.toLocaleString()}</span>
+              <span>· ${timeAgo(rec.createdAt)}</span>
+              <a class="permalink" href="${bskyLink(post)}" target="_blank" rel="noopener"
+                onclick="event.stopPropagation()">open ↗</a>
+            </div>
+          </div>`;
+      }
+
+      async function fetchFeed(rawHandle) {
+        const actor = rawHandle.trim().replace(/^@/, "");
+        let cursor = null, items = [], pages = 0;
+        // Pull a few pages so "most-liked all time" isn't just the last day.
+        do {
+          const url = new URL(`${API}/app.bsky.feed.getAuthorFeed`);
+          url.searchParams.set("actor", actor);
+          url.searchParams.set("limit", "100");
+          url.searchParams.set("filter", "posts_no_replies");
+          if (cursor) url.searchParams.set("cursor", cursor);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(r.status === 400 ? "no such handle" : `feed error (${r.status})`);
+          const data = await r.json();
+          items = items.concat(data.feed || []);
+          cursor = data.cursor;
+          pages++;
+        } while (cursor && pages < 6 && items.length < 500);
+        return items;
+      }
+
+      // From feed items pick the top-liked original post and the newest original post.
+      function pickPosts(items) {
+        const originals = [];
+        for (const it of items) {
+          if (it.reason) continue; // skip reposts
+          const p = it.post;
+          if (!p || !p.record) continue;
+          if (p.record.reply) continue; // extra safety: skip replies
+          originals.push(p);
+        }
+        if (!originals.length) return null;
+        let top = originals[0], newest = originals[0];
+        for (const p of originals) {
+          if ((p.likeCount || 0) > (top.likeCount || 0)) top = p;
+          if (new Date(p.record.createdAt) > new Date(newest.record.createdAt)) newest = p;
+        }
+        return { top, newest, count: originals.length };
+      }
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = "reading the feed…";
+        stage.classList.remove("show");
+        goingWrap.style.display = "none";
+        startedHost.innerHTML = "";
+        goingHost.innerHTML = "";
+        resetStartedHost();
+        try {
+          const items = await fetchFeed(rawHandle);
+          const picked = pickPosts(items);
+          if (!picked) throw new Error("no original posts to show");
+          statusEl.textContent = "";
+          renderStarted(picked.top, picked.newest);
+          const url = new URL(location.href);
+          url.searchParams.set("handle", rawHandle.trim().replace(/^@/, ""));
+          history.replaceState(null, "", url);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't build it: " + e.message;
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      function resetStartedHost() {
+        startedHost.style.height = "";
+        startedHost.style.overflow = "";
+        startedHost.style.opacity = "";
+        startedHost.style.marginBottom = "";
+        startedHost.style.transition = "";
+        const lbl = document.getElementById("startedLabel");
+        lbl.style.opacity = "";
+        lbl.style.transition = "";
+      }
+
+      let cracked = false;
+      function renderStarted(top, newest) {
+        cracked = false;
+        startedHost.innerHTML = `
+          <div class="startedCard" id="startedCard">
+            <div class="tap">tap to see how it's going →</div>
+            ${cardHTML(top, "started")}
+          </div>`;
+        goingHost.innerHTML = cardHTML(newest, "going");
+        stage.classList.add("show");
+        const card = document.getElementById("startedCard");
+        card.addEventListener("click", () => shatter(card, newest));
+      }
+
+      // Shatter the started card into shards that tumble and fall, then reveal the going card.
+      function shatter(card, newest) {
+        if (cracked) return;
+        cracked = true;
+
+        const rect = card.getBoundingClientRect();
+        const W = rect.width, H = rect.height;
+
+        // Build a grid of shards; each shows the same card, clipped to its cell,
+        // via a positioned clone. Jitter the polygon so the breaks look organic.
+        const COLS = 5, ROWS = 6;
+        const overlay = document.createElement("div");
+        overlay.className = "shatter";
+
+        // Origin of the impact — where the crack radiates from (card center-ish).
+        const ox = W * (0.35 + Math.random() * 0.3);
+        const oy = H * (0.3 + Math.random() * 0.3);
+
+        const cardHTMLstr = card.querySelector(".card").outerHTML;
+
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            const x0 = (c / COLS) * W, x1 = ((c + 1) / COLS) * W;
+            const y0 = (r / ROWS) * H, y1 = ((r + 1) / ROWS) * H;
+            const jx = W / COLS * 0.28, jy = H / ROWS * 0.28;
+            const j = () => (Math.random() - 0.5);
+            // A quad cell with jittered corners -> irregular shard.
+            const pts = [
+              [x0 + j() * jx, y0 + j() * jy],
+              [x1 + j() * jx, y0 + j() * jy],
+              [x1 + j() * jx, y1 + j() * jy],
+              [x0 + j() * jx, y1 + j() * jy],
+            ];
+            const poly = pts.map((p) => `${p[0].toFixed(1)}px ${p[1].toFixed(1)}px`).join(", ");
+
+            const shard = document.createElement("div");
+            shard.className = "shard";
+            shard.style.width = W + "px";
+            shard.style.height = H + "px";
+            shard.style.clipPath = `polygon(${poly})`;
+
+            const inner = document.createElement("div");
+            inner.className = "inner";
+            inner.style.width = W + "px";
+            inner.innerHTML = cardHTMLstr;
+            shard.appendChild(inner);
+            overlay.appendChild(shard);
+
+            // Motion: fly away from the impact origin, tumble, fall under gravity.
+            const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+            const dx = cx - ox, dy = cy - oy;
+            const dist = Math.hypot(dx, dy) || 1;
+            const push = 26 + Math.random() * 34;
+            const tx = (dx / dist) * push + (Math.random() - 0.5) * 40;
+            const drop = 220 + Math.random() * 260 + (cy / H) * 160;
+            const rot = (Math.random() - 0.5) * 220;
+            const delay = dist / Math.max(W, H) * 90 + Math.random() * 40;
+
+            shard.animate(
+              [
+                { transform: "translate(0,0) rotate(0deg)", opacity: 1, offset: 0 },
+                { transform: `translate(${tx * 0.4}px, ${-14 - Math.random() * 22}px) rotate(${rot * 0.3}deg)`,
+                  opacity: 1, offset: 0.18 },
+                { transform: `translate(${tx}px, ${drop}px) rotate(${rot}deg)`, opacity: 0, offset: 1 },
+              ],
+              { duration: 1050 + Math.random() * 350, delay, easing: "cubic-bezier(.4,.05,.6,1)", fill: "forwards" }
+            );
+          }
+        }
+
+        // Crack flash overlay (radiating lines) drawn as SVG.
+        const crack = document.createElement("div");
+        crack.className = "crackline flash";
+        crack.innerHTML = crackSVG(W, H, ox, oy);
+        card.appendChild(crack);
+
+        // Freeze the started slot's height so it can collapse smoothly after the shards fall.
+        startedHost.style.height = startedHost.offsetHeight + "px";
+
+        // Drop the shards in and hide the intact card.
+        card.appendChild(overlay);
+        const realCard = card.querySelector(".card");
+        realCard.style.visibility = "hidden";
+        const tap = card.querySelector(".tap");
+        if (tap) tap.style.display = "none";
+
+        // Collapse the empty started slot after the shards have started falling.
+        setTimeout(() => {
+          startedHost.style.transition = "height 0.5s ease, opacity 0.5s ease, margin 0.5s ease";
+          startedHost.style.height = "0px";
+          startedHost.style.overflow = "hidden";
+          startedHost.style.opacity = "0";
+          startedHost.style.marginBottom = "0";
+          const lbl = document.getElementById("startedLabel");
+          lbl.style.transition = "opacity 0.4s ease";
+          lbl.style.opacity = "0.35";
+        }, 320);
+
+        // Reveal how-it's-going.
+        setTimeout(() => {
+          goingWrap.style.display = "block";
+          goingHost.firstElementChild?.classList.add("reveal-in");
+          goingWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 450);
+      }
+
+      function crackSVG(W, H, ox, oy) {
+        const spokes = 9;
+        let paths = "";
+        for (let i = 0; i < spokes; i++) {
+          const ang = (i / spokes) * Math.PI * 2 + Math.random() * 0.4;
+          let x = ox, y = oy, d = `M ${ox} ${oy}`;
+          const segs = 3 + Math.floor(Math.random() * 3);
+          for (let s = 0; s < segs; s++) {
+            const len = (Math.min(W, H) / segs) * (0.5 + Math.random() * 0.7);
+            x += Math.cos(ang + (Math.random() - 0.5) * 0.7) * len;
+            y += Math.sin(ang + (Math.random() - 0.5) * 0.7) * len;
+            d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+          }
+          paths += `<path d="${d}" stroke="rgba(255,255,255,0.9)" stroke-width="1.4" fill="none"/>`;
+          paths += `<path d="${d}" stroke="rgba(124,108,255,0.5)" stroke-width="3.2" fill="none"/>`;
+        }
+        return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+          style="position:absolute;inset:0">${paths}</svg>`;
+      }
+
+      form.addEventListener("submit", (e) => { e.preventDefault(); if (handleEl.value.trim()) run(handleEl.value); });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+      replay.addEventListener("click", () => { handleEl.value = ""; handleEl.focus();
+        stage.classList.remove("show"); goingWrap.style.display = "none"; });
+
+      // Deep-link support: ?handle=
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+  </body>
+</html>
