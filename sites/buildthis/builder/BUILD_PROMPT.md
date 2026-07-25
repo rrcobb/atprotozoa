@@ -16,9 +16,12 @@ a minimal-but-real version onto disk first (it renders, it's deployable), then k
 enriching it. Big, ambitious asks are welcome — you don't have to finish everything
 in one go. The harness always preserves and ships whatever you've built, so if you
 run low on turns, leave the tree in the best working state you can and stop; a live
-first pass that someone can continue beats nothing. You can commit + push as you go
-if you like, but you don't have to — the harness commits and pushes your work for
-you at the end regardless.
+first pass that someone can continue beats nothing.
+
+DON'T run `git commit` or `git push` yourself — just leave your work as edited files
+in the working tree. The harness commits and pushes everything for you at the end
+(it holds the credentials to push; you don't, so your own push would just fail and
+strand the work). Your only job is to get the files into a good state.
 
 When you've got something worth linking, write to a repo-root file called
 BUILD_RESULT naming it: a new site's subdomain (e.g. "weather-dice"), "<site>/<path>"

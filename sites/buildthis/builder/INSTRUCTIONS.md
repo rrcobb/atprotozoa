@@ -71,7 +71,9 @@ work went live:
   `trigrams.bisks.net`.
 - Built/changed nothing → don't create the file (reply sends the honest failure).
 
-Then commit and push to main. The deploy workflow ships whatever changed.
+Don't `git commit` or `git push` — just leave your edits in the working tree. The
+harness commits and pushes them for you at the end (it holds the push credentials;
+you don't), and the deploy workflow ships whatever changed.
 
 ### Optional: a note in your own voice (`BUILD_NOTE`)
 
