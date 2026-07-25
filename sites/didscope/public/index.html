@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>didscope — your DID is your horoscope</title>
 <meta name="description" content="Your last DID character was always going to determine your personality. Enter a handle and find out." />
+<meta property="og:title" content="didscope — your DID is your horoscope" />
+<meta property="og:description" content="Your last DID character was always going to determine your personality. Enter a handle and find out." />
+<meta property="og:url" content="https://didscope.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://didscope.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="didscope: a neon card reading a did:plc's last character as a zodiac sign, with a reading and today's omen." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="didscope — your DID is your horoscope" />
+<meta name="twitter:description" content="Your last DID character was always going to determine your personality. Enter a handle and find out." />
+<meta name="twitter:image" content="https://didscope.bisks.net/og.png" />
 <style>
   :root {
     --bg: #0b0710;
@@ -157,6 +169,46 @@
   }
   .omen .none { color: var(--dim); font-style: normal; }
 
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #c04cff);
+    color: #14041d;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
   footer {
     margin-top: 3rem;
     color: var(--dim);
@@ -202,6 +254,14 @@
       <div class="omen">
         <div class="label">today's omen</div>
         <blockquote id="omen">—</blockquote>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your sign</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
       </div>
     </div>
 
@@ -285,6 +345,9 @@ const els = {
   reading: document.getElementById("reading"),
   rival: document.getElementById("rival"),
   omen: document.getElementById("omen"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
 };
 
 function setStatus(msg, isErr) {
@@ -316,9 +379,132 @@ async function findOmen(did) {
   }
 }
 
-els.form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const handle = cleanHandle(els.input.value);
+function shareUrlFor(handle) {
+  return "https://didscope.bisks.net/?h=" + encodeURIComponent(handle);
+}
+
+function shareText(profile, name, key, omenText) {
+  const omenBit = omenText ? ` Today's omen: “${omenText}”` : "";
+  return (
+    `@${profile.handle}'s did:plc ends in “${key}” — ${name}.${omenBit}\n\n` +
+    `read your own → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+// draws a 1200x630 share card mirroring the on-page reading, so the
+// download/attach flow gets an image that matches what was just revealed.
+async function buildShareCard({ profile, did, lastChar, name, reading, omenText }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0b0710";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#3a1a52");
+  glow.addColorStop(1, "rgba(11,7,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff5fd1";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("didscope", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#f2e9ff";
+  ctx.font = `700 30px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 162);
+
+  ctx.strokeStyle = "#3a2650";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 230, cardW = W - 120, cardH = H - 290;
+  ctx.fillStyle = "#1c1128";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#6ef2c9";
+  ctx.font = `700 60px ${mono}`;
+  ctx.fillText(lastChar.toUpperCase(), W / 2, cardY + 78);
+
+  ctx.fillStyle = "#f2e9ff";
+  ctx.font = `800 32px ${mono}`;
+  ctx.fillText(name, W / 2, cardY + 128);
+
+  ctx.fillStyle = "#a996c4";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText("DID ends in “" + lastChar + "”", W / 2, cardY + 156);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff5fd1";
+  ctx.fillRect(cardX + 48, cardY + 182, 4, 70);
+  ctx.fillStyle = "#f2e9ff";
+  ctx.font = `400 20px ${mono}`;
+  wrapCanvasText(ctx, reading, cardX + 68, cardY + 204, cardW - 136, 28);
+
+  if (omenText) {
+    ctx.fillStyle = "#6ef2c9";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText("TODAY'S OMEN", cardX + 48, cardY + cardH - 66);
+    ctx.fillStyle = "#f2e9ff";
+    ctx.font = `italic 15px ${mono}`;
+    wrapCanvasText(ctx, "“" + omenText + "”", cardX + 48, cardY + cardH - 40, cardW - 96, 22);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6ef2c9";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("didscope.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
   if (!handle) { setStatus("enter a handle first.", true); return; }
 
   els.go.disabled = true;
@@ -354,17 +540,47 @@ els.form.addEventListener("submit", async (e) => {
     setStatus("");
     els.card.classList.add("show");
 
+    const rebuildShare = (omenText) => {
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText(profile, name, key, omenText));
+      buildShareCard({ profile, did, lastChar, name, reading, omenText });
+    };
+    rebuildShare(null);
+
     els.omen.textContent = "consulting recent posts...";
     findOmen(did).then((text) => {
       els.omen.textContent = text ? "“" + text + "”" : "no recent omens found. a silence is also an omen.";
       if (!text) els.omen.classList.add("none");
+      rebuildShare(text);
     });
   } catch (err) {
     setStatus("couldn't resolve that: " + err.message, true);
   } finally {
     els.go.disabled = false;
   }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
 });
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "didscope-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+const sharedHandle = new URLSearchParams(location.search).get("h");
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
 </script>
 </body>
 </html>
