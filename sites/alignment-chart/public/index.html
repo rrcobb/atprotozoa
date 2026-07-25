@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>network alignment chart — CHILL/HARSH × GOONING/MOGGING — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. We pull its network (mutuals + follows), read a few recent posts each, and plot everyone onto a 3×3 D&D-style alignment chart: CHILL↔HARSH on one axis, GOONING↔MOGGING on the other. It is a bit, not a classifier."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://alignment-chart.bisks.net/" />
+    <meta property="og:title" content="network alignment chart" />
+    <meta
+      property="og:description"
+      content="Plot a Bluesky handle's moots onto a 3×3 alignment grid — CHILL↔HARSH × GOONING↔MOGGING. Find yourself. Find your worst mutual. It's a bit."
+    />
+    <meta name="twitter:card" content="summary" />
+
+    <!-- Same plain house look as trigrams / moot-bingo: black on white, one
+         readable mono, blue accent — plus the four cardinal-axis colours and a
+         faint 3×3 grid. The grid is the hero, so it gets the room. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --chill: #1f8a4c;  /* green, cozy */
+        --harsh: #c0392b;  /* red, beef */
+        --mog: #7b4fd0;    /* purple, locked-in */
+        --goon: #d81e6a;   /* pink, down bad */
+        --self: #e0a400;   /* gold ring for "you" */
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 80px; }
+
+      header h1 {
+        font-size: 1.4rem;
+        margin: 0 0 6px;
+        letter-spacing: -0.01em;
+      }
+      header p { margin: 0 0 18px; color: var(--muted); max-width: 62ch; }
+      header .bit { color: var(--muted); font-style: italic; }
+
+      /* input row */
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 0 0 8px;
+      }
+      input[type="text"] {
+        flex: 1 1 260px;
+        min-width: 0;
+        font-family: var(--mono);
+        font-size: 1rem;
+        padding: 10px 12px;
+        border: 1px solid var(--ink);
+        background: var(--bg);
+        color: var(--ink);
+      }
+      button {
+        font-family: var(--mono);
+        font-size: 1rem;
+        padding: 10px 18px;
+        border: 1px solid var(--ink);
+        background: var(--ink);
+        color: var(--bg);
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.45; cursor: default; }
+      .try {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 0 0 22px;
+      }
+      .try a { cursor: pointer; }
+
+      .status { min-height: 1.4em; color: var(--muted); margin: 0 0 16px; }
+      .status.err { color: var(--harsh); }
+
+      /* ── the chart ─────────────────────────────────────────────── */
+      .chart-frame {
+        position: relative;
+        margin: 8px 0 10px;
+      }
+      /* axis labels around the grid */
+      .axis {
+        position: absolute;
+        font-size: 0.72rem;
+        letter-spacing: 0.14em;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        pointer-events: none;
+      }
+      .axis.top { top: -22px; left: 50%; transform: translateX(-50%); color: var(--mog); }
+      .axis.bottom { bottom: -22px; left: 50%; transform: translateX(-50%); color: var(--goon); }
+      .axis.left {
+        left: -14px; top: 50%;
+        transform: translateY(-50%) rotate(-90deg);
+        transform-origin: center;
+        color: var(--chill);
+      }
+      .axis.right {
+        right: -14px; top: 50%;
+        transform: translateY(-50%) rotate(90deg);
+        transform-origin: center;
+        color: var(--harsh);
+      }
+
+      .grid {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-rows: 1fr 1fr 1fr;
+        border: 2px solid var(--ink);
+        background: var(--faintbg);
+      }
+      .cell {
+        position: relative;
+        border: 1px solid var(--faint);
+        overflow: hidden;
+      }
+      .cell .cell-name {
+        position: absolute;
+        top: 5px; left: 7px; right: 7px;
+        font-size: 0.62rem;
+        line-height: 1.25;
+        color: var(--muted);
+        letter-spacing: 0.02em;
+        pointer-events: none;
+        opacity: 0.85;
+      }
+      .cell.mid { background: #fbfbfb; }
+
+      /* plotted dots live in one absolute overlay so they can sit anywhere,
+         not snapped to a cell */
+      .dots {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .dot {
+        position: absolute;
+        width: 26px;
+        height: 26px;
+        margin: -13px 0 0 -13px;
+        border-radius: 50%;
+        background-size: cover;
+        background-position: center;
+        background-color: var(--faint);
+        border: 1.5px solid var(--bg);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+        pointer-events: auto;
+        cursor: pointer;
+        transition: transform 0.12s ease;
+      }
+      .dot:hover { transform: scale(1.5); z-index: 40; }
+      .dot.self {
+        border: 2px solid var(--self);
+        box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--self);
+        z-index: 30;
+      }
+      .dot.empty { opacity: 0.42; filter: grayscale(0.6); }
+
+      .tooltip {
+        position: fixed;
+        z-index: 100;
+        background: var(--ink);
+        color: var(--bg);
+        padding: 6px 9px;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        max-width: 240px;
+        pointer-events: none;
+        border-radius: 3px;
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      .tooltip b { color: var(--self); }
+      .tooltip .cellname { color: #8fb4ff; }
+
+      /* legend + result list */
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 20px 0 8px;
+      }
+      .legend .sw {
+        display: inline-block;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+
+      .counts { color: var(--muted); font-size: 0.82rem; margin: 4px 0 26px; }
+
+      details.roster { margin-top: 8px; }
+      details.roster summary { cursor: pointer; color: var(--accent); }
+      .roster-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px 18px;
+        margin-top: 14px;
+      }
+      .rcol h3 {
+        font-size: 0.8rem;
+        margin: 0 0 6px;
+        border-bottom: 1px solid var(--faint);
+        padding-bottom: 3px;
+      }
+      .rcol ul { list-style: none; margin: 0; padding: 0; }
+      .rcol li {
+        font-size: 0.78rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rcol li a { text-decoration: none; }
+      @media (max-width: 620px) {
+        .roster-grid { grid-template-columns: 1fr; }
+        .cell .cell-name { font-size: 0.55rem; }
+        .dot { width: 20px; height: 20px; margin: -10px 0 0 -10px; }
+      }
+
+      footer {
+        margin-top: 54px;
+        padding-top: 16px;
+        border-top: 1px solid var(--faint);
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>network alignment chart</h1>
+        <p>
+          Type a Bluesky handle. We pull its network — mutuals first, widened to
+          follows — read a handful of each person's recent posts, and drop
+          everyone onto a 3×3 D&amp;D alignment grid.
+          <span class="bit"
+            >The classifier is a keyword vibe-check running in your browser. It is
+            a bit. Do not take your box personally.</span
+          >
+        </p>
+      </header>
+
+      <form id="form">
+        <input
+          id="handle"
+          type="text"
+          placeholder="handle.bsky.social  (or @handle, or a profile URL)"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        />
+        <button id="go" type="submit">plot the network</button>
+      </form>
+      <p class="try">
+        try:
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a> ·
+        <a data-h="bisks.net">bisks.net</a>
+      </p>
+
+      <p id="status" class="status"></p>
+
+      <div class="chart-frame" id="frame" hidden>
+        <span class="axis top">MOGGING ↑</span>
+        <span class="axis bottom">↓ GOONING</span>
+        <span class="axis left">CHILL ←</span>
+        <span class="axis right">→ HARSH</span>
+        <div class="grid" id="grid"></div>
+      </div>
+
+      <div id="legend" class="legend" hidden>
+        <span><span class="sw" style="background: var(--chill)"></span>chill</span>
+        <span><span class="sw" style="background: var(--harsh)"></span>harsh</span>
+        <span><span class="sw" style="background: var(--mog)"></span>mogging</span>
+        <span><span class="sw" style="background: var(--goon)"></span>gooning</span>
+        <span><span class="sw" style="background: var(--self)"></span>you (gold ring)</span>
+        <span style="opacity: 0.6">faded = too quiet to read, parked near center</span>
+      </div>
+      <p id="counts" class="counts"></p>
+
+      <details class="roster" id="roster" hidden>
+        <summary>see the roster (who landed in which box)</summary>
+        <div class="roster-grid" id="rosterGrid"></div>
+      </details>
+
+      <footer>
+        reads Bluesky's public AppView (getFollows / getFollowers /
+        getAuthorFeed) with no login. requested by
+        <a href="https://bsky.app/profile/antiali.as">@antiali.as</a> via
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        · one of the little sites at <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <div class="tooltip" id="tip"></div>
+
+    <script type="module">
+      import { plotNetwork, CELLS } from "./lib/network.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form");
+      const handle = $("handle");
+      const go = $("go");
+      const status = $("status");
+      const frame = $("frame");
+      const grid = $("grid");
+      const legend = $("legend");
+      const counts = $("counts");
+      const roster = $("roster");
+      const rosterGrid = $("rosterGrid");
+      const tip = $("tip");
+
+      // Build the nine labelled cells once.
+      function buildCells() {
+        grid.innerHTML = "";
+        for (let i = 0; i < 9; i++) {
+          const c = document.createElement("div");
+          c.className = "cell" + (i === 4 ? " mid" : "");
+          const label = document.createElement("div");
+          label.className = "cell-name";
+          label.textContent = CELLS[i].name;
+          c.appendChild(label);
+          grid.appendChild(c);
+        }
+        // one overlay for the dots, sitting on top of the cells
+        const dots = document.createElement("div");
+        dots.className = "dots";
+        dots.id = "dots";
+        grid.appendChild(dots);
+      }
+
+      function setStatus(msg, isErr = false) {
+        status.textContent = msg;
+        status.className = "status" + (isErr ? " err" : "");
+      }
+
+      // Map a score in [-1,1] on each axis to a % position in the grid, with a
+      // little inset so dots don't clip the border. x: -1=left(chill), +1=right.
+      // y: +1=top(mog), -1=bottom(goon).
+      function pos(x, y) {
+        const clamp = (v) => Math.max(-1, Math.min(1, v));
+        const left = ((clamp(x) + 1) / 2) * 92 + 4; // 4%..96%
+        const top = ((1 - clamp(y)) / 2) * 92 + 4;
+        return { left, top };
+      }
+
+      // Fan out dots that would otherwise stack exactly on top of each other
+      // (e.g. everyone parked at dead center). Deterministic per-index spiral.
+      function fanned(left, top, seen) {
+        const key = Math.round(left) + ":" + Math.round(top);
+        const n = seen.get(key) || 0;
+        seen.set(key, n + 1);
+        if (n === 0) return { left, top };
+        const ring = Math.ceil(Math.sqrt(n));
+        const ang = n * 2.399963; // golden angle
+        const r = ring * 2.2;
+        return {
+          left: Math.max(2, Math.min(98, left + r * Math.cos(ang))),
+          top: Math.max(2, Math.min(98, top + r * Math.sin(ang))),
+        };
+      }
+
+      function render(result) {
+        const dots = $("dots");
+        dots.innerHTML = "";
+        const seen = new Map();
+        // draw self last so its gold ring sits on top
+        const ordered = result.plotted
+          .slice()
+          .sort((a, b) => (a.isSelf ? 1 : 0) - (b.isSelf ? 1 : 0));
+
+        for (const p of ordered) {
+          // px/py carry the per-account jitter so identical scores don't stack;
+          // fanned() is a final guard for the rare exact-overlap after rounding.
+          const base = pos(p.px, p.py);
+          const { left, top } = fanned(base.left, base.top, seen);
+          const d = document.createElement("div");
+          d.className =
+            "dot" + (p.isSelf ? " self" : "") + (p.empty ? " empty" : "");
+          d.style.left = left + "%";
+          d.style.top = top + "%";
+          if (p.avatar) d.style.backgroundImage = `url("${p.avatar}")`;
+          d.addEventListener("mouseenter", (e) => showTip(e, p));
+          d.addEventListener("mousemove", moveTip);
+          d.addEventListener("mouseleave", hideTip);
+          d.addEventListener("click", () =>
+            window.open(`https://bsky.app/profile/${p.handle}`, "_blank"),
+          );
+          dots.appendChild(d);
+        }
+
+        const c = result.counts;
+        counts.textContent =
+          `plotted ${result.plotted.length} accounts from ${result.self.handle}'s ` +
+          `${result.kind} — ${c.follows} follows, ${c.followers} followers, ` +
+          `${c.mutuals} mutuals. hover a face; click to open the profile.`;
+        legend.hidden = false;
+        counts.hidden = false;
+
+        buildRoster(result.plotted);
+        roster.hidden = false;
+      }
+
+      function showTip(e, p) {
+        const box =
+          p.cell === null
+            ? "too quiet to read"
+            : `<span class="cellname">${CELLS[p.cell].name}</span> — ${CELLS[p.cell].flavor}`;
+        tip.innerHTML =
+          `${p.isSelf ? "<b>you · </b>" : ""}@${p.handle}<br>${box}`;
+        tip.style.opacity = "1";
+        moveTip(e);
+      }
+      function moveTip(e) {
+        const pad = 14;
+        let x = e.clientX + pad;
+        let y = e.clientY + pad;
+        if (x + 250 > window.innerWidth) x = e.clientX - 250;
+        if (y + 60 > window.innerHeight) y = e.clientY - 60;
+        tip.style.left = x + "px";
+        tip.style.top = y + "px";
+      }
+      function hideTip() {
+        tip.style.opacity = "0";
+      }
+
+      function buildRoster(plotted) {
+        // group by cell (null = quiet bucket at the end)
+        const byCell = Array.from({ length: 9 }, () => []);
+        const quiet = [];
+        for (const p of plotted) {
+          if (p.cell === null) quiet.push(p);
+          else byCell[p.cell].push(p);
+        }
+        rosterGrid.innerHTML = "";
+        // render in visual order: top row (0,1,2), mid (3,4,5), bottom (6,7,8)
+        for (let i = 0; i < 9; i++) {
+          const col = document.createElement("div");
+          col.className = "rcol";
+          const people = byCell[i];
+          col.innerHTML =
+            `<h3>${CELLS[i].name} (${people.length})</h3>` +
+            "<ul>" +
+            people
+              .map(
+                (p) =>
+                  `<li>${p.isSelf ? "★ " : ""}<a href="https://bsky.app/profile/${p.handle}" target="_blank">@${p.handle}</a></li>`,
+              )
+              .join("") +
+            "</ul>";
+          rosterGrid.appendChild(col);
+        }
+        if (quiet.length) {
+          const col = document.createElement("div");
+          col.className = "rcol";
+          col.innerHTML =
+            `<h3>too quiet to read (${quiet.length})</h3><ul>` +
+            quiet
+              .map(
+                (p) =>
+                  `<li><a href="https://bsky.app/profile/${p.handle}" target="_blank">@${p.handle}</a></li>`,
+              )
+              .join("") +
+            "</ul>";
+          rosterGrid.appendChild(col);
+        }
+      }
+
+      async function run(actor) {
+        go.disabled = true;
+        handle.disabled = true;
+        legend.hidden = true;
+        counts.hidden = true;
+        roster.hidden = true;
+        frame.hidden = false;
+        buildCells();
+        setStatus("resolving handle…");
+        try {
+          const result = await plotNetwork(actor, {
+            onStep: (s) => setStatus(s),
+            onProgress: (done, total) =>
+              setStatus(`reading recent posts… ${done}/${total}`),
+          });
+          if (!result.plotted.length) {
+            setStatus("no accounts to plot — is the handle right?", true);
+          } else {
+            setStatus("");
+            render(result);
+          }
+        } catch (err) {
+          setStatus(err.message || "something went wrong", true);
+        } finally {
+          go.disabled = false;
+          handle.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = handle.value.trim();
+        if (v) run(v);
+      });
+      document.querySelectorAll(".try a").forEach((a) =>
+        a.addEventListener("click", () => {
+          handle.value = a.dataset.h;
+          run(a.dataset.h);
+        }),
+      );
+
+      buildCells();
+    </script>
+  </body>
+</html>
