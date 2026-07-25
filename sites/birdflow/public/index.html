@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>birdflow — where microblogging's users went, 2022 → 2026</title>
+    <meta
+      name="description"
+      content="A sankey chart of active users flowing between microblogging sites, 2022 to 2026. Illustrative, not sourced data."
+    />
+    <style>
+      .viz-root {
+        color-scheme: light;
+        --surface-1: #fcfcfb;
+        --page: #f9f9f7;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --gridline: #e1e0d9;
+        --baseline: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --accent: #1a5fd0;
+
+        --series-x: #2a78d6;
+        --series-threads: #eb6834;
+        --series-bluesky: #1baf7a;
+        --series-mastodon: #eda100;
+        --series-tumblr: #e87ba4;
+        --series-neutral: #898781;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme="light"])) .viz-root {
+          color-scheme: dark;
+          --surface-1: #1a1a19;
+          --page: #0d0d0d;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --gridline: #2c2c2a;
+          --baseline: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --accent: #5b9bf0;
+
+          --series-x: #3987e5;
+          --series-threads: #d95926;
+          --series-bluesky: #199e70;
+          --series-mastodon: #c98500;
+          --series-tumblr: #d55181;
+          --series-neutral: #898781;
+        }
+      }
+      :root[data-theme="dark"] .viz-root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --page: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --gridline: #2c2c2a;
+        --baseline: #383835;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #5b9bf0;
+
+        --series-x: #3987e5;
+        --series-threads: #d95926;
+        --series-bluesky: #199e70;
+        --series-mastodon: #c98500;
+        --series-tumblr: #d55181;
+        --series-neutral: #898781;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--page);
+        color: var(--text-primary);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+
+      header h1 {
+        font-size: 1.5rem;
+        font-weight: 650;
+        margin: 0 0 0.4rem;
+      }
+      header p.sub {
+        color: var(--text-secondary);
+        margin: 0 0 1.75rem;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 62ch;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      button.pill {
+        font: inherit;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.4rem 0.85rem;
+        cursor: pointer;
+      }
+      button.pill:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+      button.pill[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); }
+
+      .chart-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem 1rem 0.75rem;
+      }
+
+      svg#sankey { width: 100%; height: auto; display: block; }
+      .node-label {
+        font-size: 12px;
+        fill: var(--text-primary);
+      }
+      .node-value {
+        font-size: 11px;
+        fill: var(--text-secondary);
+      }
+      .col-heading {
+        font-size: 11px;
+        fill: var(--text-muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      rect.node { stroke: var(--surface-1); stroke-width: 2px; cursor: pointer; }
+      path.link { cursor: pointer; transition: opacity 120ms ease; }
+      path.link.dim { opacity: 0.18; }
+
+      .tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface-1);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+        max-width: 240px;
+        z-index: 10;
+        opacity: 0;
+        transform: translateY(2px);
+        transition: opacity 100ms ease;
+      }
+      .tooltip.show { opacity: 1; }
+      .tooltip .t-title { font-weight: 600; margin-bottom: 0.15rem; }
+      .tooltip .t-sub { color: var(--text-secondary); }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+        margin: 1.1rem 0 0;
+        padding: 0.9rem 0 0.25rem;
+        border-top: 1px solid var(--gridline);
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+      }
+      .legend .item { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+      .caption {
+        margin-top: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        max-width: 62ch;
+      }
+
+      table.flows {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+      }
+      table.flows caption { text-align: left; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 0.5rem; }
+      table.flows th, table.flows td {
+        text-align: left;
+        padding: 0.45rem 0.6rem;
+        border-bottom: 1px solid var(--gridline);
+      }
+      table.flows th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.flows td.num, table.flows th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      table.flows tfoot td { font-weight: 600; border-bottom: none; border-top: 1px solid var(--baseline); }
+      .table-wrap { display: none; }
+      .table-wrap.show { display: block; }
+      #chart-wrap.hide { display: none; }
+
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--gridline);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="viz-root">
+      <div class="wrap">
+        <header>
+          <h1>birdflow</h1>
+          <p class="sub">
+            where microblogging's active users went, 2022 → 2026 — a sankey
+            of estimated monthly actives (millions) flowing from each site's
+            2022 crowd into wherever they ended up. <strong>Illustrative
+            napkin-math, not sourced analytics</strong> — built to tell the
+            story of the exodus/fragmentation, not to audit anyone's MAU count.
+          </p>
+        </header>
+
+        <div class="toolbar">
+          <button class="pill" id="theme-toggle" type="button" aria-pressed="false">🌗 theme: auto</button>
+          <button class="pill" id="view-toggle" type="button" aria-pressed="false">view as table</button>
+        </div>
+
+        <div class="chart-card">
+          <div id="chart-wrap">
+            <svg id="sankey" viewBox="0 0 900 560" role="img" aria-label="Sankey diagram of estimated microblogging active users flowing from 2022 platforms to 2026 platforms"></svg>
+          </div>
+          <div class="table-wrap" id="table-wrap"></div>
+
+          <div class="legend" id="legend"></div>
+        </div>
+
+        <p class="caption">
+          Reading it: left column is each site's estimated 2022 monthly-active
+          crowd (plus a "not yet posting" pool of people who join a
+          microblogging site for the first time by 2026, via Threads mostly).
+          Right column is where that crowd is estimated to be in 2026,
+          including a "left microblogging entirely" sink. Ribbon color =
+          the platform the users came <em>from</em>. Hover a ribbon or a
+          box for the number; tap the pill above for a plain table.
+        </p>
+
+        <footer>
+          built by <a href="https://bisks.net">@buildthis.bisks.net</a>, asked
+          for by @7778777.online · numbers are a vibe, not a citation · part of
+          the <a href="https://bisks.net">atprotozoa</a> zoo
+        </footer>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" role="status"></div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    <script>
+      (function () {
+        var COLORS = {
+          x: "series-x",
+          threads: "series-threads",
+          bluesky: "series-bluesky",
+          mastodon: "series-mastodon",
+          tumblr: "series-tumblr",
+          neutral: "series-neutral",
+        };
+
+        var NAMES = {
+          x: "X / Twitter",
+          threads: "Threads",
+          bluesky: "Bluesky",
+          mastodon: "Mastodon",
+          tumblr: "Tumblr",
+          neutral: "not yet / no longer posting",
+        };
+
+        // node id -> { label, color key, side }
+        var nodeDefs = [
+          { id: "tw22", label: "Twitter", side: 0, color: "x" },
+          { id: "tb22", label: "Tumblr", side: 0, color: "tumblr" },
+          { id: "md22", label: "Mastodon", side: 0, color: "mastodon" },
+          { id: "new22", label: "Not yet posting", side: 0, color: "neutral" },
+
+          { id: "x26", label: "X", side: 1, color: "x" },
+          { id: "th26", label: "Threads", side: 1, color: "threads" },
+          { id: "bs26", label: "Bluesky", side: 1, color: "bluesky" },
+          { id: "md26", label: "Mastodon", side: 1, color: "mastodon" },
+          { id: "tb26", label: "Tumblr", side: 1, color: "tumblr" },
+          { id: "left26", label: "Left microblogging", side: 1, color: "neutral" },
+        ];
+
+        // millions of estimated monthly actives, illustrative
+        var linkDefs = [
+          { source: "tw22", target: "x26", value: 190 },
+          { source: "tw22", target: "th26", value: 45 },
+          { source: "tw22", target: "bs26", value: 35 },
+          { source: "tw22", target: "md26", value: 8 },
+          { source: "tw22", target: "left26", value: 52 },
+
+          { source: "tb22", target: "tb26", value: 60 },
+          { source: "tb22", target: "th26", value: 15 },
+          { source: "tb22", target: "left26", value: 60 },
+
+          { source: "md22", target: "md26", value: 1.8 },
+          { source: "md22", target: "left26", value: 0.7 },
+
+          { source: "new22", target: "th26", value: 130 },
+          { source: "new22", target: "bs26", value: 25 },
+          { source: "new22", target: "x26", value: 20 },
+          { source: "new22", target: "md26", value: 3 },
+        ];
+
+        var root = document.querySelector(".viz-root");
+        function colorVar(key) {
+          return getComputedStyle(root).getPropertyValue("--" + COLORS[key]).trim();
+        }
+        function fmt(v) {
+          return (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "M";
+        }
+
+        var svg = d3.select("#sankey");
+        var W = 900, H = 560;
+        var margin = { top: 34, right: 190, bottom: 10, left: 190 };
+
+        var sankeyLayout = d3
+          .sankey()
+          .nodeId(function (d) { return d.id; })
+          .nodeWidth(16)
+          .nodePadding(18)
+          .nodeAlign(d3.sankeyLeft)
+          .extent([[margin.left, margin.top], [W - margin.right, H - margin.bottom]]);
+
+        var graph = sankeyLayout({
+          nodes: nodeDefs.map(function (d) { return Object.assign({}, d); }),
+          links: linkDefs.map(function (d) { return Object.assign({}, d); }),
+        });
+
+        var linkGen = d3.sankeyLinkHorizontal();
+
+        // column headings
+        svg
+          .append("text")
+          .attr("class", "col-heading")
+          .attr("x", margin.left)
+          .attr("y", 18)
+          .text("2022");
+        svg
+          .append("text")
+          .attr("class", "col-heading")
+          .attr("x", W - margin.right + 16)
+          .attr("y", 18)
+          .text("2026");
+
+        var tooltip = document.getElementById("tooltip");
+        function showTip(html, evt) {
+          tooltip.innerHTML = html;
+          tooltip.classList.add("show");
+          moveTip(evt);
+        }
+        function moveTip(evt) {
+          var x = evt.clientX + 14, y = evt.clientY + 14;
+          var rect = tooltip.getBoundingClientRect();
+          if (x + rect.width > window.innerWidth - 8) x = evt.clientX - rect.width - 14;
+          if (y + rect.height > window.innerHeight - 8) y = evt.clientY - rect.height - 14;
+          tooltip.style.left = x + "px";
+          tooltip.style.top = y + "px";
+        }
+        function hideTip() {
+          tooltip.classList.remove("show");
+        }
+
+        var linkSel = svg
+          .append("g")
+          .attr("fill", "none")
+          .selectAll("path")
+          .data(graph.links)
+          .join("path")
+          .attr("class", "link")
+          .attr("d", linkGen)
+          .attr("stroke", function (d) { return colorVar(d.source.color); })
+          .attr("stroke-opacity", 0.32)
+          .attr("stroke-width", function (d) { return Math.max(1, d.width); })
+          .on("mousemove", function (evt, d) {
+            showTip(
+              '<div class="t-title">' + d.source.label + " → " + d.target.label + "</div>" +
+              '<div class="t-sub">~' + fmt(d.value) + " estimated monthly actives</div>",
+              evt
+            );
+            linkSel.classed("dim", function (o) { return o !== d; });
+          })
+          .on("mouseleave", function () {
+            hideTip();
+            linkSel.classed("dim", false);
+          });
+
+        var nodeG = svg
+          .append("g")
+          .selectAll("g")
+          .data(graph.nodes)
+          .join("g");
+
+        nodeG
+          .append("rect")
+          .attr("class", "node")
+          .attr("x", function (d) { return d.x0; })
+          .attr("y", function (d) { return d.y0; })
+          .attr("height", function (d) { return Math.max(1, d.y1 - d.y0); })
+          .attr("width", function (d) { return d.x1 - d.x0; })
+          .attr("fill", function (d) { return colorVar(d.color); })
+          .on("mousemove", function (evt, d) {
+            showTip(
+              '<div class="t-title">' + d.label + "</div>" +
+              '<div class="t-sub">~' + fmt(d.value) + " total estimated monthly actives</div>",
+              evt
+            );
+            linkSel.classed("dim", function (o) { return o.source !== d && o.target !== d; });
+          })
+          .on("mouseleave", function () {
+            hideTip();
+            linkSel.classed("dim", false);
+          });
+
+        nodeG
+          .append("text")
+          .attr("class", "node-label")
+          .attr("x", function (d) { return d.side === 0 ? d.x0 - 10 : d.x1 + 10; })
+          .attr("y", function (d) { return (d.y0 + d.y1) / 2 - 4; })
+          .attr("text-anchor", function (d) { return d.side === 0 ? "end" : "start"; })
+          .text(function (d) { return d.label; });
+
+        nodeG
+          .append("text")
+          .attr("class", "node-value")
+          .attr("x", function (d) { return d.side === 0 ? d.x0 - 10 : d.x1 + 10; })
+          .attr("y", function (d) { return (d.y0 + d.y1) / 2 + 11; })
+          .attr("text-anchor", function (d) { return d.side === 0 ? "end" : "start"; })
+          .text(function (d) { return "~" + fmt(d.value); });
+
+        // legend
+        var legendKeys = ["x", "threads", "bluesky", "mastodon", "tumblr", "neutral"];
+        var legend = document.getElementById("legend");
+        legendKeys.forEach(function (key) {
+          var item = document.createElement("span");
+          item.className = "item";
+          var sw = document.createElement("span");
+          sw.className = "swatch";
+          sw.style.background = colorVar(key);
+          var label = document.createElement("span");
+          label.textContent = NAMES[key];
+          item.appendChild(sw);
+          item.appendChild(label);
+          legend.appendChild(item);
+        });
+
+        // table view
+        var tableWrap = document.getElementById("table-wrap");
+        var rows = linkDefs
+          .slice()
+          .sort(function (a, b) { return b.value - a.value; })
+          .map(function (l) {
+            var s = nodeDefs.filter(function (n) { return n.id === l.source; })[0];
+            var t = nodeDefs.filter(function (n) { return n.id === l.target; })[0];
+            return "<tr><td>" + s.label + " (2022)</td><td>" + t.label + " (2026)</td><td class=\"num\">" + fmt(l.value) + "</td></tr>";
+          })
+          .join("");
+        var total = linkDefs.reduce(function (a, l) { return a + l.value; }, 0);
+        tableWrap.innerHTML =
+          '<table class="flows">' +
+          '<caption>Estimated monthly actives (millions), by flow — illustrative</caption>' +
+          "<thead><tr><th>From</th><th>To</th><th class=\"num\">Est. actives</th></tr></thead>" +
+          "<tbody>" + rows + "</tbody>" +
+          '<tfoot><tr><td></td><td>Total</td><td class="num">' + fmt(total) + "</td></tr></tfoot>" +
+          "</table>";
+
+        // toggles
+        var chartWrap = document.getElementById("chart-wrap");
+        var viewBtn = document.getElementById("view-toggle");
+        viewBtn.addEventListener("click", function () {
+          var showTable = !tableWrap.classList.contains("show");
+          tableWrap.classList.toggle("show", showTable);
+          chartWrap.classList.toggle("hide", showTable);
+          legend.style.display = showTable ? "none" : "";
+          viewBtn.setAttribute("aria-pressed", String(showTable));
+          viewBtn.textContent = showTable ? "view as chart" : "view as table";
+        });
+
+        var themeBtn = document.getElementById("theme-toggle");
+        var stored = localStorage.getItem("birdflow-theme");
+        function applyTheme(t) {
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          } else {
+            document.documentElement.removeAttribute("data-theme");
+          }
+          themeBtn.textContent = "🌗 theme: " + (t || "auto");
+          // colors are read live via getComputedStyle at render time above,
+          // so a reload picks up the new theme; keep this button simple.
+        }
+        applyTheme(stored);
+        themeBtn.addEventListener("click", function () {
+          var order = [null, "light", "dark"];
+          var cur = localStorage.getItem("birdflow-theme");
+          var next = order[(order.indexOf(cur) + 1) % order.length];
+          if (next) localStorage.setItem("birdflow-theme", next);
+          else localStorage.removeItem("birdflow-theme");
+          applyTheme(next);
+          location.reload();
+        });
+      })();
+    </script>
+  </body>
+</html>
