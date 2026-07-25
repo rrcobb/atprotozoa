@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🏖️ the beach that makes you old</title>
+    <meta
+      name="description"
+      content="A serene beach where being there ages you. Sit, and the longer you stay the more time passes — the light slides toward sunset, the tide creeps in, the sand runs out, and you grow old on the shore. A quiet, uncanny little mood. Requested by @goose.art via @buildthis."
+    />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: #0a0f1c;
+        color: #f3ead8;
+        font-family: "Iowan Old Style", "Palatino Linotype", Georgia,
+          "Times New Roman", system-ui, serif;
+        -webkit-font-smoothing: antialiased;
+        touch-action: manipulation;
+        cursor: default;
+      }
+      #beach { position: fixed; inset: 0; display: block; }
+
+      /* ---- overlay HUD ---- */
+      .hud {
+        position: fixed;
+        left: 0; right: 0; top: 0;
+        padding: 18px 20px 46px;
+        pointer-events: none;
+        z-index: 5;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.15rem, 3.4vw, 1.9rem);
+        line-height: 1.05;
+        font-weight: 500;
+        letter-spacing: 0.4px;
+        color: #f6efdd;
+        text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+        transition: color 2s linear;
+      }
+      .sub {
+        margin: 6px 0 0;
+        max-width: 30rem;
+        font-size: clamp(0.72rem, 2vw, 0.9rem);
+        line-height: 1.5;
+        color: #d7cbb4;
+        opacity: 0.85;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+        font-family: system-ui, sans-serif;
+      }
+
+      /* ---- age readout, bottom-left ---- */
+      .age {
+        position: fixed;
+        left: 20px; bottom: 18px;
+        z-index: 5;
+        pointer-events: none;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+      }
+      .age .n {
+        display: block;
+        font-size: clamp(2.6rem, 9vw, 4.6rem);
+        line-height: 0.9;
+        font-weight: 400;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
+        color: #f6efdd;
+        transition: color 3s linear;
+      }
+      .age .l {
+        display: block;
+        margin-top: 4px;
+        font-size: 0.7rem;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: #cbbfa6;
+        opacity: 0.7;
+        font-family: system-ui, sans-serif;
+      }
+      .stage {
+        display: block;
+        margin-top: 12px;
+        font-size: 0.95rem;
+        font-style: italic;
+        color: #e7dcc4;
+        opacity: 0.9;
+        min-height: 1.2em;
+        transition: opacity 1.2s linear;
+      }
+
+      /* ---- leave button, bottom-right ---- */
+      .leave {
+        position: fixed;
+        right: 20px; bottom: 20px;
+        z-index: 6;
+        appearance: none;
+        border: 1px solid rgba(246, 239, 221, 0.35);
+        background: rgba(10, 15, 28, 0.25);
+        color: #f3ead8;
+        font-family: system-ui, sans-serif;
+        font-size: 0.8rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        padding: 10px 18px;
+        border-radius: 999px;
+        cursor: pointer;
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+        opacity: 0.55;
+        transition: opacity 0.4s, background 0.4s, border-color 0.4s;
+      }
+      .leave:hover { opacity: 1; background: rgba(10, 15, 28, 0.5); border-color: rgba(246, 239, 221, 0.7); }
+
+      /* ---- fade-to-white epilogue ---- */
+      .fin {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        text-align: center;
+        padding: 24px;
+        background: #f3ead8;
+        color: #2a2418;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 4s ease;
+      }
+      .fin.show { opacity: 1; pointer-events: auto; }
+      .fin p { margin: 0 0 6px; font-size: clamp(1.1rem, 4vw, 1.7rem); font-weight: 400; }
+      .fin .lived { font-size: clamp(0.8rem, 2.4vw, 1rem); font-family: system-ui, sans-serif; opacity: 0.7; margin-bottom: 22px; }
+      .fin button {
+        appearance: none;
+        border: 1px solid rgba(42, 36, 24, 0.4);
+        background: transparent;
+        color: #2a2418;
+        font-family: system-ui, sans-serif;
+        font-size: 0.82rem;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        padding: 11px 22px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .fin button:hover { background: rgba(42, 36, 24, 0.08); }
+    </style>
+  </head>
+  <body>
+    <canvas id="beach"></canvas>
+
+    <div class="hud">
+      <h1>The beach that makes you old</h1>
+      <p class="sub">
+        Sit a while. The waves are warm and there is nowhere you have to be.
+        You could stay here forever — and the longer you do, the more of your
+        life the tide takes with it.
+      </p>
+    </div>
+
+    <div class="age">
+      <span class="n" id="ageNum">19</span>
+      <span class="l">years on the shore</span>
+      <span class="stage" id="stage"></span>
+    </div>
+
+    <button class="leave" id="leaveBtn">get up and leave</button>
+
+    <div class="fin" id="fin" aria-hidden="true">
+      <p id="finLine">You stood, at last, and walked back up the sand.</p>
+      <p class="lived" id="finLived"></p>
+      <button id="againBtn">arrive again, young</button>
+    </div>
+
+    <script>
+      const cv = document.getElementById("beach");
+      const ctx = cv.getContext("2d");
+      const ageNumEl = document.getElementById("ageNum");
+      const stageEl = document.getElementById("stage");
+      const h1El = document.querySelector("h1");
+      const finEl = document.getElementById("fin");
+      const finLineEl = document.getElementById("finLine");
+      const finLivedEl = document.getElementById("finLived");
+
+      let W = 0, H = 0, DPR = 1;
+      function resize() {
+        DPR = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        cv.width = Math.floor(W * DPR);
+        cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px";
+        cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        buildSand();
+        buildStars();
+      }
+
+      // ---- lifetime model -----------------------------------------------
+      // You arrive at 19. Real seconds map to years of your life. A whole
+      // human lifetime plays out over a couple of unhurried minutes.
+      const START_AGE = 19;
+      const END_AGE = 96;            // when the light finally goes out
+      const YEARS_PER_SEC = 0.72;    // ~107s to live it all
+      let t0 = performance.now();
+      let elapsed = 0;               // seconds sat here
+      let age = START_AGE;
+      let ended = false;
+
+      // day maps to a life: dawn-of-life -> harsh noon -> long gold -> dusk -> dark
+      function progress() {
+        return Math.min(1, (age - START_AGE) / (END_AGE - START_AGE));
+      }
+
+      // ---- palette by time of day / life --------------------------------
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function mix(c1, c2, t) {
+        return [
+          Math.round(lerp(c1[0], c2[0], t)),
+          Math.round(lerp(c1[1], c2[1], t)),
+          Math.round(lerp(c1[2], c2[2], t)),
+        ];
+      }
+      const rgb = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a === undefined ? 1 : a})`;
+
+      // sky keyframes from youth (soft morning) to death (deep night)
+      const skyTop = [
+        [0.00, [143, 197, 224]], // clear morning blue
+        [0.30, [120, 178, 216]], // bright day
+        [0.55, [246, 173, 120]], // afternoon warming
+        [0.74, [214, 108, 96]],  // sunset red
+        [0.88, [64, 52, 92]],    // dusk violet
+        [1.00, [7, 9, 22]],      // night
+      ];
+      const skyBot = [
+        [0.00, [224, 238, 240]],
+        [0.30, [206, 226, 232]],
+        [0.55, [255, 224, 168]],
+        [0.74, [255, 178, 120]],
+        [0.88, [150, 96, 110]],
+        [1.00, [18, 20, 40]],
+      ];
+      const seaCol = [
+        [0.00, [120, 176, 190]],
+        [0.30, [96, 158, 178]],
+        [0.55, [128, 150, 168]],
+        [0.74, [150, 110, 118]],
+        [0.88, [64, 62, 92]],
+        [1.00, [14, 20, 40]],
+      ];
+      const sandCol = [
+        [0.00, [232, 214, 176]],
+        [0.30, [230, 210, 170]],
+        [0.55, [224, 190, 150]],
+        [0.74, [186, 140, 118]],
+        [0.88, [96, 84, 88]],
+        [1.00, [26, 26, 38]],
+      ];
+      function grad(keys, p) {
+        let a = keys[0], b = keys[keys.length - 1];
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (p >= keys[i][0] && p <= keys[i + 1][0]) { a = keys[i]; b = keys[i + 1]; break; }
+        }
+        const span = b[0] - a[0] || 1;
+        const t = (p - a[0]) / span;
+        return mix(a[1], b[1], t);
+      }
+
+      // ---- sand grain texture (static per resize) -----------------------
+      let sandDots = [];
+      function buildSand() {
+        sandDots = [];
+        const horizon = H * 0.52;
+        const n = Math.floor((W * (H - horizon)) / 2600);
+        for (let i = 0; i < n; i++) {
+          sandDots.push({
+            x: rnd(W),
+            y: horizon + rnd(H - horizon),
+            r: 0.4 + rnd(1.1),
+            s: 0.2 + rnd(0.5),
+          });
+        }
+      }
+
+      let stars = [];
+      function buildStars() {
+        stars = [];
+        for (let i = 0; i < 140; i++) {
+          stars.push({ x: rnd(W), y: rnd(H * 0.5), r: rnd(1.2), tw: rnd(Math.PI * 2) });
+        }
+      }
+
+      // pseudo-random (cosmetic only)
+      function rnd(m) { return Math.random() * (m === undefined ? 1 : m); }
+
+      // ---- the figure on the sand: ages, stoops, greys ------------------
+      function drawFigure(p) {
+        const gx = W * 0.5;
+        const baseY = H * 0.9;
+        const scale = Math.min(W, H) / 620;
+        const bodyH = (74 - 20 * p) * scale; // sitting height shrinks with age
+        const stoop = 0.25 * p;              // forward lean grows
+        const skin = mix([60, 45, 40], [120, 108, 96], p * 0.6);
+        const hair = mix([40, 30, 26], [225, 222, 214], Math.min(1, p * 1.15));
+
+        ctx.save();
+        ctx.translate(gx, baseY);
+        // long shadow on the sand, stretches as the sun sinks
+        const shLen = (0.6 + p * 2.4) * bodyH;
+        const shg = ctx.createLinearGradient(0, 0, -shLen, 0);
+        shg.addColorStop(0, "rgba(0,0,0,0.28)");
+        shg.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = shg;
+        ctx.beginPath();
+        ctx.ellipse(-shLen * 0.4, 4, shLen * 0.5, bodyH * 0.16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // seated silhouette (a small hunched person facing the sea)
+        ctx.fillStyle = rgb(skin);
+        ctx.beginPath();
+        ctx.moveTo(-bodyH * 0.18, 0);
+        ctx.quadraticCurveTo(-bodyH * (0.22 + stoop), -bodyH * 0.6, bodyH * (0.05 + stoop * 0.6), -bodyH * 0.82);
+        ctx.quadraticCurveTo(bodyH * 0.22, -bodyH * 0.5, bodyH * 0.2, 0);
+        ctx.closePath();
+        ctx.fill();
+        // head
+        const hx = bodyH * (0.08 + stoop * 0.9);
+        const hy = -bodyH * (0.92 - stoop * 0.35);
+        const hr = bodyH * 0.16;
+        ctx.beginPath();
+        ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+        ctx.fill();
+        // hair / grey crown
+        ctx.fillStyle = rgb(hair, 0.9);
+        ctx.beginPath();
+        ctx.arc(hx, hy - hr * 0.25, hr * 0.95, Math.PI * 1.02, Math.PI * 2.02);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // ---- hourglass, top-right: the sand runs out ----------------------
+      function drawHourglass(p) {
+        const cx = W - 46;
+        const cy = 44;
+        const w = 26, h = 40;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.globalAlpha = 0.85;
+        // frame caps
+        ctx.strokeStyle = rgb([246, 239, 221], 0.55);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2);
+        ctx.moveTo(-w / 2, h / 2);  ctx.lineTo(w / 2, h / 2);
+        ctx.stroke();
+        // glass outline
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, -h / 2);
+        ctx.lineTo(w / 2, -h / 2);
+        ctx.lineTo(1.5, 0);
+        ctx.lineTo(w / 2, h / 2);
+        ctx.lineTo(-w / 2, h / 2);
+        ctx.lineTo(-1.5, 0);
+        ctx.closePath();
+        ctx.stroke();
+
+        const grainCol = rgb([246, 223, 168], 0.9);
+        ctx.fillStyle = grainCol;
+        // top pile drains
+        const topH = (h / 2 - 3) * (1 - p);
+        ctx.beginPath();
+        ctx.moveTo(-w / 2 + 3, -h / 2 + 3);
+        ctx.lineTo(w / 2 - 3, -h / 2 + 3);
+        ctx.lineTo(0, -h / 2 + 3 + topH);
+        ctx.closePath();
+        ctx.fill();
+        // bottom pile grows (clipped triangle rising from the base)
+        const botH = (h / 2 - 3) * p;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-w / 2, h / 2 - 3 - botH, w, botH + 3);
+        ctx.clip();
+        ctx.beginPath();
+        ctx.moveTo(0, 2);
+        ctx.lineTo(w / 2 - 3, h / 2 - 3);
+        ctx.lineTo(-w / 2 + 3, h / 2 - 3);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        // falling stream while time still runs
+        if (p < 0.999) {
+          ctx.strokeStyle = grainCol;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, -1);
+          ctx.lineTo(0, h / 2 - 4 - botH);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // ---- main render loop ---------------------------------------------
+      function frame(now) {
+        if (!ended) {
+          elapsed = (now - t0) / 1000;
+          age = START_AGE + elapsed * YEARS_PER_SEC;
+          if (age >= END_AGE) { age = END_AGE; endLife(); }
+        }
+        const p = progress();
+        const horizon = H * 0.52;
+
+        // sky
+        const g = ctx.createLinearGradient(0, 0, 0, horizon);
+        g.addColorStop(0, rgb(grad(skyTop, p)));
+        g.addColorStop(1, rgb(grad(skyBot, p)));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, horizon + 2);
+
+        // stars fade in during dusk/night
+        if (p > 0.7) {
+          const sa = Math.min(1, (p - 0.7) / 0.25);
+          for (const s of stars) {
+            const tw = 0.5 + 0.5 * Math.sin(now / 700 + s.tw);
+            ctx.fillStyle = rgb([255, 250, 235], sa * (0.3 + 0.7 * tw));
+            ctx.fillRect(s.x, s.y, s.r, s.r);
+          }
+        }
+
+        // sun / moon: arcs down and sets as you age
+        const arcT = p; // 0 high morning -> 1 below horizon
+        const sunX = W * (0.24 + arcT * 0.55);
+        const sunY = horizon - Math.sin((1 - arcT) * Math.PI * 0.62) * (H * 0.42) + arcT * 40;
+        const sunR = Math.min(W, H) * 0.055;
+        const isMoon = p > 0.86;
+        const sunColor = isMoon
+          ? [235, 236, 245]
+          : mix([255, 246, 214], [255, 138, 96], Math.min(1, p / 0.74));
+        // glow
+        const glow = ctx.createRadialGradient(sunX, sunY, sunR * 0.3, sunX, sunY, sunR * 6);
+        glow.addColorStop(0, rgb(sunColor, isMoon ? 0.35 : 0.55));
+        glow.addColorStop(1, rgb(sunColor, 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR * 6, 0, Math.PI * 2);
+        ctx.fill();
+        // disc
+        ctx.fillStyle = rgb(sunColor);
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // sea
+        const sc = grad(seaCol, p);
+        const sg = ctx.createLinearGradient(0, horizon - 4, 0, H * 0.72);
+        sg.addColorStop(0, rgb(mix(sc, [255, 255, 255], 0.12)));
+        sg.addColorStop(1, rgb(sc));
+        ctx.fillStyle = sg;
+        // tide creeps up the sand as you age
+        const tide = H * (0.72 - 0.06 * p) + Math.sin(now / 1400) * 3;
+        ctx.fillRect(0, horizon, W, tide - horizon);
+
+        // sun/moon glimmer on the water
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, horizon, W, tide - horizon);
+        ctx.clip();
+        for (let i = 0; i < 22; i++) {
+          const yy = horizon + i * ((tide - horizon) / 22);
+          const wob = Math.sin(now / 500 + i * 0.9) * (6 + i);
+          ctx.fillStyle = rgb(sunColor, (isMoon ? 0.05 : 0.09) * (1 - i / 24));
+          ctx.fillRect(sunX - 18 - i + wob, yy, 36 + i * 2, 2);
+        }
+        ctx.restore();
+
+        // wave lines rolling toward shore
+        ctx.strokeStyle = rgb([255, 255, 255], p > 0.86 ? 0.12 : 0.22);
+        ctx.lineWidth = 1.4;
+        for (let i = 0; i < 7; i++) {
+          const wy = horizon + 14 + i * ((tide - horizon - 14) / 7);
+          const speed = now / (900 - i * 40);
+          ctx.beginPath();
+          for (let x = 0; x <= W; x += 12) {
+            const yy = wy + Math.sin(x / 46 + speed + i) * (1.6 + i * 0.5);
+            x === 0 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy);
+          }
+          ctx.stroke();
+        }
+
+        // wet-sand shoreline foam
+        const foamY = tide + Math.sin(now / 900) * 4;
+        ctx.fillStyle = rgb([255, 255, 255], p > 0.86 ? 0.14 : 0.4);
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 10) {
+          const yy = foamY + Math.sin(x / 40 + now / 700) * 3;
+          x === 0 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy);
+        }
+        ctx.lineTo(W, foamY + 6); ctx.lineTo(0, foamY + 6);
+        ctx.closePath();
+        ctx.fill();
+
+        // sand
+        const sand = grad(sandCol, p);
+        const sandG = ctx.createLinearGradient(0, tide, 0, H);
+        sandG.addColorStop(0, rgb(mix(sand, [0, 0, 0], 0.06)));
+        sandG.addColorStop(1, rgb(mix(sand, [0, 0, 0], 0.14)));
+        ctx.fillStyle = sandG;
+        ctx.fillRect(0, tide - 1, W, H - tide + 1);
+
+        // grains
+        for (const d of sandDots) {
+          if (d.y < tide) continue;
+          ctx.fillStyle = rgb(mix(sand, [255, 255, 255], d.s * 0.5), 0.5);
+          ctx.fillRect(d.x, d.y, d.r, d.r);
+        }
+
+        // the ageing figure + long shadow
+        drawFigure(p);
+
+        // hourglass
+        drawHourglass(p);
+
+        // vignette deepens with age
+        const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+        vg.addColorStop(0, "rgba(0,0,0,0)");
+        vg.addColorStop(1, `rgba(0,0,0,${0.25 + 0.4 * p})`);
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, W, H);
+
+        // HUD text
+        ageNumEl.textContent = Math.floor(age);
+        stageEl.textContent = stageFor(age);
+        h1El.style.color = rgb(mix([246, 239, 221], [140, 132, 150], p));
+
+        requestAnimationFrame(frame);
+      }
+
+      const STAGES = [
+        [19, "the whole day is ahead of you."],
+        [27, "you keep meaning to get up."],
+        [38, "the tide has come in a little."],
+        [50, "the light is turning gold."],
+        [63, "you've stopped counting the waves."],
+        [75, "the sun is low. it's cooler now."],
+        [86, "the horizon is going out."],
+        [95, "just a little longer."],
+      ];
+      function stageFor(a) {
+        let s = STAGES[0][1];
+        for (const [thr, txt] of STAGES) if (a >= thr) s = txt;
+        return s;
+      }
+
+      // ---- endings ------------------------------------------------------
+      function livedLine() {
+        const yrs = Math.floor(age - START_AGE);
+        const secs = Math.round(elapsed);
+        return `You sat here for ${secs} seconds, and ${yrs} years went by.`;
+      }
+      function endLife() {
+        if (ended) return;
+        ended = true;
+        finLineEl.textContent = "The horizon went out while you watched it.";
+        finLivedEl.textContent = livedLine();
+        finEl.classList.add("show");
+        finEl.setAttribute("aria-hidden", "false");
+      }
+      function leaveNow() {
+        if (ended) return;
+        ended = true;
+        finLineEl.textContent = "You stood, at last, and walked back up the sand.";
+        finLivedEl.textContent = livedLine() + " You left younger than the beach would have made you.";
+        finEl.classList.add("show");
+        finEl.setAttribute("aria-hidden", "false");
+      }
+      function reset() {
+        ended = false;
+        t0 = performance.now();
+        elapsed = 0;
+        age = START_AGE;
+        finEl.classList.remove("show");
+        finEl.setAttribute("aria-hidden", "true");
+        buildSand();
+        buildStars();
+      }
+
+      document.getElementById("leaveBtn").addEventListener("click", leaveNow);
+      document.getElementById("againBtn").addEventListener("click", reset);
+
+      window.addEventListener("resize", resize);
+      resize();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
