@@ -50,6 +50,15 @@ export default {
       return renderTimeline(env);
     }
 
+    // Every tag gets its own permanent page — @norvid-studies' "every @buildthis
+    // tag deserves to be a website." Built or not, each request has a URL here:
+    // /tag/<rkey>, where <rkey> is the mention post's record key. So even a tag
+    // that never became a site still becomes a little page.
+    const tagMatch = url.pathname.match(/^\/tag\/([a-z0-9]+)\/?$/i);
+    if (tagMatch) {
+      return renderTagPage(env, tagMatch[1]);
+    }
+
     // SECONDARY, deliberately separate from the tags timeline: a cross-microsite
     // stats page (requests + errors per site). Stubbed — see the TODO in
     // renderStats(). Kept as its own route so it never blends into the timeline.
@@ -61,21 +70,29 @@ export default {
   },
 };
 
-async function renderTimeline(env: Env): Promise<Response> {
+// Fetch the event log from the buildthis worker. Returns the events (newest
+// first, as the source orders them) or an error string — never throws.
+async function loadEvents(env: Env): Promise<{ events: LogEvent[]; error: string | null }> {
   const source = env.LOGS_SOURCE || DEFAULT_SOURCE;
-  let events: LogEvent[] = [];
-  let fetchError: string | null = null;
   try {
     const res = await fetch(source, { cf: { cacheTtl: 10 } as never });
-    if (!res.ok) {
-      fetchError = `log source returned ${res.status}`;
-    } else {
-      const j = (await res.json()) as { events?: LogEvent[] };
-      events = Array.isArray(j.events) ? j.events : [];
-    }
+    if (!res.ok) return { events: [], error: `log source returned ${res.status}` };
+    const j = (await res.json()) as { events?: LogEvent[] };
+    return { events: Array.isArray(j.events) ? j.events : [], error: null };
   } catch (err) {
-    fetchError = `couldn't reach the log source (${err})`;
+    return { events: [], error: `couldn't reach the log source (${err})` };
   }
+}
+
+// The record key (rkey) of a mention's at:// uri — the stable per-tag id we use
+// for /tag/<rkey> permalinks.
+function rkeyOf(uri: string): string | null {
+  const m = uri.match(/\/app\.bsky\.feed\.post\/([^/]+)$/);
+  return m ? m[1] : null;
+}
+
+async function renderTimeline(env: Env): Promise<Response> {
+  const { events, error: fetchError } = await loadEvents(env);
 
   const rows = events.map(renderEvent).join("\n");
   const body =
@@ -103,6 +120,9 @@ function renderEvent(e: LogEvent): string {
   const whenEl = postLink
     ? `<a class="when" href="${postLink}">${when}</a>`
     : `<span class="when">${when}</span>`;
+  // Every tag's own page — "every tag deserves a website."
+  const rkey = rkeyOf(e.mentionUri);
+  const tagLink = rkey ? `<a class="when tagperma" href="/tag/${rkey}">its page ↗</a>` : "";
 
   const chips: string[] = [];
   // Gate.
@@ -136,7 +156,7 @@ function renderEvent(e: LogEvent): string {
   const ask = e.text ? `<div class="ask">${esc(e.text)}</div>` : "";
 
   return `<article class="event">
-  <div class="head">${who} ${whenEl}</div>
+  <div class="head">${who} ${whenEl} ${tagLink}</div>
   ${ask}
   <div class="chips">${chips.join(" ")}</div>
   ${outcomeEl}
@@ -145,6 +165,43 @@ function renderEvent(e: LogEvent): string {
 
 function chip(label: string, kind: "ok" | "bad" | "muted"): string {
   return `<span class="chip ${kind}">${esc(label)}</span>`;
+}
+
+// One tag, its own page: /tag/<rkey>. Realizes "every tag deserves a website" —
+// every request has a permanent URL here whether or not it ever became a site.
+async function renderTagPage(env: Env, rkey: string): Promise<Response> {
+  const { events, error } = await loadEvents(env);
+  if (error !== null) {
+    return html(pageShell("tag — bisks.net", "tag", "", `<p class="empty">${esc(error)}</p>`), 502);
+  }
+  const e = events.find((ev) => rkeyOf(ev.mentionUri) === rkey);
+  if (!e) {
+    const body = `<p class="empty">no tag with id <code>${esc(rkey)}</code>. it may have aged out of the log, or never existed. <a href="/">back to the timeline</a>.</p>`;
+    return html(pageShell("tag not found — bisks.net", "tag", "not found", body), 404);
+  }
+
+  const handle = e.authorHandle ? `@${esc(e.authorHandle)}` : "someone";
+  const built = e.outcome?.status === "success" && e.outcome.url;
+  const sub = built
+    ? `${handle}'s tag → a website`
+    : e.outcome?.status === "failure"
+      ? `${handle}'s tag · didn't get built`
+      : `${handle}'s tag`;
+
+  // Reuse the timeline row as the detail body, plus a bigger call-out for the
+  // built site (or an honest "no site yet" line) so the page stands on its own.
+  const detail = renderEvent(e);
+  let banner = "";
+  if (built) {
+    banner = `<p class="tagbanner ok">this one became a site: <a href="${esc(e.outcome!.url!)}">${esc(e.outcome!.url!)}</a></p>`;
+  } else if (e.outcome?.status === "failure") {
+    banner = `<p class="tagbanner">this tag didn't become a site${e.outcome.replyText ? ` — the bot said: <em>${esc(e.outcome.replyText)}</em>` : "."}</p>`;
+  } else {
+    banner = `<p class="tagbanner">no site yet — this tag is still waiting on the bot.</p>`;
+  }
+
+  const body = `${banner}\n${detail}\n<p class="note"><a href="/">← all tags</a></p>`;
+  return html(pageShell(`tag — bisks.net`, "tag", sub, body));
 }
 
 // STUB (SECONDARY concern — kept separate from the tags timeline on purpose).
@@ -172,7 +229,7 @@ function renderStats(): Response {
 function page(body: string, count: number): string {
   const sub =
     count > 0
-      ? `${count} tag${count === 1 ? "" : "s"} · newest first`
+      ? `${count} tag${count === 1 ? "" : "s"} · newest first · every tag gets its own page`
       : "the build bot's tags and what became of them";
   return pageShell("logs — bisks.net", "logs", sub, body);
 }
@@ -214,6 +271,11 @@ function pageShell(title: string, h1: string, sub: string, body: string): string
   .chip.muted { color:var(--muted); }
   .outcome { margin-top:.5rem; font-size:.9rem; word-break:break-all; }
   .outcome .arrow { color:var(--muted); }
+  .tagperma { font-size:.72rem; }
+  .tagbanner { margin:0 0 1.5rem; padding:.9rem 1rem; border:1px solid var(--faint);
+    border-left:3px solid var(--muted); border-radius:4px; font-size:.9rem; color:var(--ink); }
+  .tagbanner.ok { border-left-color:var(--ok); }
+  .tagbanner em { color:var(--muted); font-style:italic; }
 
   .empty { color:var(--muted); padding:1.5rem 0; border-top:1px solid var(--ink); }
   .note { color:var(--muted); font-size:.85rem; }
@@ -242,8 +304,9 @@ ${body}
 </html>`;
 }
 
-function html(s: string): Response {
+function html(s: string, status = 200): Response {
   return new Response(s, {
+    status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-cache",
