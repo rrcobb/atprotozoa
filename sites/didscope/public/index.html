@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>didscope — your DID is your horoscope</title>
+<meta name="description" content="Your last DID character was always going to determine your personality. Enter a handle and find out." />
+<style>
+  :root {
+    --bg: #0b0710;
+    --bg2: #150c22;
+    --fg: #f2e9ff;
+    --dim: #a996c4;
+    --accent: #ff5fd1;
+    --accent2: #6ef2c9;
+    --card: #1c1128;
+    --border: #3a2650;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 20% -10%, #3a1a52 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 10%, #12324a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #c04cff);
+    color: #14041d;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -20px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .glyph {
+    font-size: 3.5rem;
+    line-height: 1;
+    text-align: center;
+    margin: 0.5rem 0 0.25rem;
+    color: var(--accent2);
+    text-shadow: 0 0 30px var(--accent2);
+  }
+  .signname {
+    text-align: center;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.15rem;
+  }
+  .signchar {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-bottom: 1.4rem;
+  }
+  .signchar b { color: var(--accent); }
+
+  .reading {
+    font-size: 1rem;
+    line-height: 1.55;
+    margin-bottom: 1.4rem;
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--accent);
+  }
+
+  .rival {
+    font-size: 0.85rem;
+    color: var(--dim);
+    margin-bottom: 1.4rem;
+  }
+  .rival b { color: var(--fg); }
+
+  .omen {
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+  }
+  .omen .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent2);
+    margin-bottom: 0.4rem;
+  }
+  .omen blockquote {
+    margin: 0;
+    font-style: italic;
+    color: var(--fg);
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .omen .none { color: var(--dim); font-style: normal; }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>didscope</h1>
+    <p class="tag">
+      Astrology, but it's the last character of your <code>did:plc</code>.
+      Equally scientific. Enter a Bluesky handle and receive your reading.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">reveal</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, an enemy's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="glyph" id="glyph"></div>
+      <div class="signname" id="signname"></div>
+      <div class="signchar" id="signchar"></div>
+
+      <div class="reading" id="reading"></div>
+      <div class="rival" id="rival"></div>
+
+      <div class="omen">
+        <div class="label">today's omen</div>
+        <blockquote id="omen">—</blockquote>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+
+// did:plc identifiers end in a base32-sortable char (a-z, 2-7). did:web and
+// other methods just end in whatever they end in — we read it regardless,
+// the horoscope doesn't discriminate by DID method.
+const SIGNS = {
+  a: ["The Lurker", "Thirty tabs open, eleven of them this app, logged out."],
+  b: ["The Backtester", "Up 4% on paper, down $600 in reality. Let it rip anyway."],
+  c: ["The Committer", "You push straight to main and you sleep fine. Actually fine."],
+  d: ["The Daemon", "You run in the background of everyone's life, invited or not."],
+  e: ["The Edge Case", "Nobody accounted for you and now the whole system is down."],
+  f: ["The Forkbomb", "One small idea, nine open terminals, none of them okay."],
+  g: ["The Ghostwriter", "Your documentation is always such AI slop. You know. You continue."],
+  h: ["The Harness", "Somewhere an agent is running unsupervised. It's you. It's fine."],
+  i: ["The Idempotent", "Can be run again and again with no new consequences. Enlightenment, or exhaustion."],
+  j: ["The Jailbreaker", "You've tried to get a customer-service chatbot to write Python. You'll try again."],
+  k: ["The Kimi Disciple", "Still waiting on the reset. Always waiting on the reset."],
+  l: ["The Loom", "Every persistent agent you build must use this word somewhere. Those are the rules."],
+  m: ["The Mutual", "Followed back out of guilt eleven months ago. Turned out great, actually."],
+  n: ["The Nerd-Sniped", "Went in to talk about computers. It's 4am. You're arguing about type systems."],
+  o: ["The OAuth Sufferer", "You have gone through hell, more than once, for a login button nobody asked for."],
+  p: ["The Prompt Engineer", "You've said “actually...” to a model more times today than to a person."],
+  q: ["The Quiet Quitter", "Turned off like-notifications months ago. Felt good. Would recommend."],
+  r: ["The Rate-Limited", "Waiting on a reset that is always about to come out."],
+  s: ["The Sleeve", "Money carved into little independent risk-managed pieces. Still losing it all, with structure."],
+  t: ["Top Chicken", "Extremely famous, once, within a group of forty people. You remember."],
+  u: ["Unhinged Slop", "A personal website nobody asked for, updated more than the actual job."],
+  v: ["The Vibe Coder", "You do not read the code. Have never read the code. Deadlines wait for no one."],
+  w: ["The Worker", "Deploys on push. Has never once regretted it. (Has regretted it.)"],
+  x: ["The Exploit", "Found the one input nobody validated. God help you, you used it."],
+  y: ["The Yak Shaver", "Meant to fix one small thing. That was four repos ago."],
+  z: ["Toxic Zig", "Got into something specifically because you heard it was toxic. No further questions."],
+  "2": ["Second-Order", "Already three moves ahead of a plan that doesn't have a first move yet."],
+  "3": ["The 3AM Committer", "Your best code and your worst decisions share a timestamp."],
+  "4": ["The 404", "Not remotely accessible via the internet. And yet, somehow, here."],
+  "5": ["Five-Turn Agent", "Had a budget. Do not have a budget anymore."],
+  "6": ["Sixth Sense Debugger", "Knew it was a race condition before you even opened the logs."],
+  "7": ["Lucky Deploy", "Worked first try. Has never fully trusted it since."],
+};
+const ORDER = Object.keys(SIGNS);
+
+function signFor(ch) {
+  const key = (ch || "").toLowerCase();
+  return SIGNS[key] ? key : ORDER[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % ORDER.length] || "a";
+}
+function rivalFor(key) {
+  const i = ORDER.indexOf(key);
+  return ORDER[(i + 16) % ORDER.length]; // opposite side of the wheel
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  glyph: document.getElementById("glyph"),
+  signname: document.getElementById("signname"),
+  signchar: document.getElementById("signchar"),
+  reading: document.getElementById("reading"),
+  rival: document.getElementById("rival"),
+  omen: document.getElementById("omen"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function findOmen(did) {
+  try {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 30, filter: "posts_no_replies" });
+    const posts = (feed.feed || [])
+      .map((f) => f.post.record && f.post.record.text)
+      .filter((t) => t && t.trim().length > 3);
+    if (!posts.length) return null;
+    return posts[Math.floor(Math.random() * posts.length)];
+  } catch (_) {
+    return null;
+  }
+}
+
+els.form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const handle = cleanHandle(els.input.value);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const lastChar = did.slice(-1);
+    const key = signFor(lastChar);
+    const [name, reading] = SIGNS[key];
+    const rivalKey = rivalFor(key);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.glyph.textContent = key.toUpperCase();
+    els.signname.textContent = name;
+    els.signchar.textContent = "DID ends in “" + lastChar + "”";
+    els.reading.textContent = reading;
+    els.rival.innerHTML = "Cosmically opposed to <b>" + SIGNS[rivalKey][0] + "</b> (ends in “" + rivalKey + "”). Try not to reply-guy them.";
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    els.omen.textContent = "consulting recent posts...";
+    findOmen(did).then((text) => {
+      els.omen.textContent = text ? "“" + text + "”" : "no recent omens found. a silence is also an omen.";
+      if (!text) els.omen.classList.add("none");
+    });
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
