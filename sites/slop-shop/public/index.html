@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SLOP SHOP — AI slop ad generator</title>
+    <meta name="description" content="Type any product. Get a crust-punk xerox ad flyer, sloppified and crustified. Post it straight to Bluesky." />
+    <style>
+      :root {
+        --bg: #121110;
+        --paper: #ece7da;
+        --ink: #161512;
+        --muted: #9a948a;
+        --riso: #ff2f92;
+        --riso2: #adff2f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--paper);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image:
+          radial-gradient(circle at 15% 10%, rgba(255,47,146,0.08), transparent 40%),
+          radial-gradient(circle at 85% 90%, rgba(173,255,47,0.06), transparent 45%);
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1.1rem 5rem; }
+      header { margin-bottom: 1.5rem; }
+      h1 {
+        font-family: Impact, "Arial Black", sans-serif;
+        font-size: clamp(2.2rem, 9vw, 3.6rem);
+        letter-spacing: 0.02em; margin: 0 0 0.3rem;
+        color: var(--paper);
+        text-shadow: 3px 3px 0 var(--riso), -2px -2px 0 var(--riso2);
+        transform: skewX(-3deg);
+      }
+      .tagline { color: var(--muted); font-size: 0.88rem; max-width: 52ch; margin: 0; }
+      .tagline b { color: var(--riso2); }
+
+      form.controls { margin: 1.5rem 0; display: grid; gap: 0.6rem; }
+      label.field { display: block; font-size: 0.72rem; letter-spacing: 0.06em;
+        text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
+      input[type="text"], textarea {
+        width: 100%; font-family: inherit; font-size: 0.92rem;
+        padding: 0.55rem 0.7rem; border: 2px solid var(--paper);
+        background: #1a1917; color: var(--paper); border-radius: 2px;
+      }
+      input[type="text"]::placeholder, textarea::placeholder { color: #6b665e; }
+      textarea { resize: vertical; min-height: 4.5em; }
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: inherit; font-size: 0.85rem; font-weight: 600;
+        padding: 0.6rem 1rem; border: 2px solid var(--paper);
+        background: var(--paper); color: var(--ink); border-radius: 2px;
+        cursor: pointer; letter-spacing: 0.02em;
+      }
+      button:hover { background: var(--riso2); border-color: var(--riso2); }
+      button:disabled { opacity: 0.35; cursor: default; background: var(--paper); border-color: var(--paper); }
+      button.primary { background: var(--riso); border-color: var(--riso); color: #fff; }
+      button.primary:hover { background: #ff5cae; border-color: #ff5cae; }
+      button.ghost { background: transparent; color: var(--paper); }
+      button.ghost:hover { background: rgba(255,255,255,0.08); border-color: var(--paper); }
+      button.small { font-size: 0.75rem; padding: 0.4rem 0.7rem; }
+
+      .stage { margin: 1.75rem 0 1rem; text-align: center; }
+      #flyer {
+        max-width: 100%; height: auto; width: 420px;
+        box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+        border-radius: 2px;
+      }
+      .empty {
+        border: 2px dashed #3a382f; border-radius: 3px; padding: 3rem 1rem;
+        color: var(--muted); font-size: 0.85rem; max-width: 420px; margin: 0 auto;
+      }
+
+      .adcopy { margin: 1rem 0; }
+      .status { font-size: 0.78rem; color: var(--muted); min-height: 1.2em; }
+      .status.err { color: #ff6b6b; }
+      .status.ok a { color: var(--riso2); }
+      .who { font-size: 0.78rem; color: var(--muted); }
+      .who a, .who span.h { color: var(--riso2); cursor: pointer; }
+
+      .signin { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .signin input { flex: 1; min-width: 12ch; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.76rem; }
+      footer a { color: var(--riso2); }
+      hr.rule { border: none; border-top: 1px dashed #35332b; margin: 2rem 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>SLOP SHOP</h1>
+        <p class="tagline">
+          type any product. get a <b>crust-punk xerox ad</b>, sloppified and
+          crustified. slap it on Bluesky before anyone thinks better of it.
+        </p>
+      </header>
+
+      <form class="controls" id="genForm">
+        <div>
+          <label class="field" for="product">the product</label>
+          <input id="product" type="text" placeholder="e.g. haunted fidget spinner, artisanal tap water, NFT of a rock" required />
+        </div>
+        <div>
+          <label class="field" for="pitch">extra pitch (optional)</label>
+          <input id="pitch" type="text" placeholder="e.g. now with 40% more vibes" />
+        </div>
+        <div class="row">
+          <button type="submit" class="primary">SLOPIFY IT</button>
+          <button type="button" id="rerollBtn" class="ghost small" disabled>reroll style</button>
+        </div>
+      </form>
+
+      <div class="stage">
+        <div id="stageEmpty" class="empty">your flyer renders here once you slopify something.</div>
+        <canvas id="flyer" width="900" height="1125" style="display:none"></canvas>
+      </div>
+
+      <div class="adcopy" id="adcopyBlock" style="display:none">
+        <label class="field" for="adcopy">post text (edit freely)</label>
+        <textarea id="adcopy" maxlength="300"></textarea>
+      </div>
+
+      <div class="row" id="actions" style="display:none">
+        <button type="button" id="downloadBtn" class="ghost small">download PNG</button>
+        <button type="button" id="intentBtn" class="ghost small">compose on bsky.app (manual attach)</button>
+        <button type="button" id="postBtn" class="primary small" disabled>post to Bluesky</button>
+      </div>
+
+      <hr class="rule" />
+
+      <div id="authArea">
+        <div class="who" id="who"></div>
+        <div class="signin" id="signinRow">
+          <input id="handle" type="text" placeholder="your bluesky handle" />
+          <button type="button" id="signinBtn" class="small">sign in with bluesky</button>
+        </div>
+        <p class="status">
+          signing in lets slop shop post the flyer to your own account with one
+          click (it writes an <code>app.bsky.feed.post</code> straight to your
+          PDS — nothing is stored on our end). skip it and use the manual
+          compose button instead if you'd rather attach it yourself.
+        </p>
+      </div>
+      <p class="status" id="postStatus"></p>
+
+      <footer>
+        no AI was harmed generating these ads — it's all cut-and-paste canvas
+        trickery, same as a real xerox flyer. part of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { uploadImage, firePost } from "./lib/post.js";
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+      // ---------------------------------------------------------------------
+      // random helpers
+      // ---------------------------------------------------------------------
+      const rnd = (min, max) => Math.random() * (max - min) + min;
+      const rndi = (min, max) => Math.floor(rnd(min, max + 1));
+      const pick = (arr) => arr[rndi(0, arr.length - 1)];
+
+      const RISO_COLORS = ["#ff2f92", "#adff2f", "#ff7a1a", "#33bbff", "#f5e400"];
+      const PAPER_TONES = ["#ece7da", "#e6e1d2", "#efe9dc", "#e2ddce"];
+      const HEADLINE_FONTS = [
+        "Impact, 'Arial Black', sans-serif",
+        "Georgia, serif",
+        "'Courier New', monospace",
+        "'Comic Sans MS', cursive",
+        "'Times New Roman', serif",
+        "'Arial Black', sans-serif",
+      ];
+
+      // ---------------------------------------------------------------------
+      // ad copy generator — the text that actually gets posted
+      // ---------------------------------------------------------------------
+      const OPENERS = ["ATTENTION EVERYONE", "URGENT TRANSMISSION", "LISTEN UP",
+        "BREAKING", "WAKE UP", "PSA", "IMPORTANT MESSAGE FROM THE GARAGE", "HEY YOU"];
+      const HYPE = ["quantum-powered", "artisanal", "blockchain-verified",
+        "hand-forged by robots", "ancient-alien-tech", "doomsday-proof",
+        "free-range", "gluten-free", "haunted (probably)", "cursed but in a good way",
+        "made from 100% vibes", "powered by group chat energy", "small-batch",
+        "ethically sourced from a dumpster"];
+      const CLAIMS = ["will change your DNA", "cures capitalism (results not guaranteed)",
+        "as endorsed by 9 out of 10 raccoons", "may or may not be sentient",
+        "comes with a free curse", "void where prohibited (everywhere)",
+        "as seen in a dream I had", "not a scam, probably", "banned in several dimensions",
+        "not evaluated by the FDA or anyone else"];
+      const CTAS = ["dm to purchase (we accept venmo, cash, or eye contact)",
+        "supplies limited to whatever's in the garage", "act now before we change our minds",
+        "quantities extremely limited (there is one)", "trade offers considered",
+        "first come first slopped", "no refunds, no regrets"];
+      const TAGS = ["#slopshop", "#AIslop", "#DIY", "#crustpunk"];
+
+      function genPrice() {
+        const was = rndi(19, 999) + 0.99;
+        const now = Math.max(0.66, was - rndi(10, 400));
+        return { was: was.toFixed(2), now: now.toFixed(2) };
+      }
+
+      function genAdCopy(product, pitch) {
+        const p = product.trim() || "this thing";
+        const price = genPrice();
+        let text = `${pick(OPENERS)}: introducing THE ${p.toUpperCase()} — ` +
+          `${pick(HYPE)} and ${pick(HYPE)}. ${pick(CLAIMS)}.` +
+          (pitch.trim() ? ` ${pitch.trim()}.` : "") +
+          ` was $${price.was}, now $${price.now}. ${pick(CTAS)}. ${TAGS.join(" ")}`;
+        if (text.length > 295) {
+          text = text.slice(0, 292).replace(/\s+\S*$/, "") + "…";
+        }
+        return text;
+      }
+
+      // ---------------------------------------------------------------------
+      // flyer canvas renderer
+      // ---------------------------------------------------------------------
+      function roughRectPath(ctx, x, y, w, h, jitter) {
+        const pts = [
+          [x, y], [x + w * 0.5, y], [x + w, y],
+          [x + w, y + h * 0.5], [x + w, y + h],
+          [x + w * 0.5, y + h], [x, y + h], [x, y + h * 0.5],
+        ];
+        ctx.beginPath();
+        pts.forEach(([px, py], i) => {
+          const jx = px + rnd(-jitter, jitter);
+          const jy = py + rnd(-jitter, jitter);
+          if (i === 0) ctx.moveTo(jx, jy); else ctx.lineTo(jx, jy);
+        });
+        ctx.closePath();
+      }
+
+      function drawBlob(ctx, cx, cy, r, points) {
+        ctx.beginPath();
+        for (let i = 0; i <= points; i++) {
+          const a = (i / points) * Math.PI * 2;
+          const rr = r * rnd(0.78, 1.12);
+          const x = cx + Math.cos(a) * rr;
+          const y = cy + Math.sin(a) * rr;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      }
+
+      function drawStar(ctx, cx, cy, rOuter, rInner, spikes) {
+        ctx.beginPath();
+        for (let i = 0; i < spikes * 2; i++) {
+          const r = i % 2 === 0 ? rOuter : rInner;
+          const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+          const x = cx + Math.cos(a) * r;
+          const y = cy + Math.sin(a) * r;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      }
+
+      function renderFlyer(canvas, product, pitch) {
+        const W = canvas.width, H = canvas.height;
+        const ctx = canvas.getContext("2d");
+        const ink = "#161512";
+        const riso = pick(RISO_COLORS);
+        const riso2 = pick(RISO_COLORS.filter((c) => c !== riso));
+        const paper = pick(PAPER_TONES);
+
+        ctx.clearRect(0, 0, W, H);
+
+        // paper background
+        ctx.fillStyle = paper;
+        ctx.fillRect(0, 0, W, H);
+
+        // grain speckle
+        for (let i = 0; i < 2200; i++) {
+          ctx.fillStyle = Math.random() < 0.5 ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)";
+          const r = rnd(0.4, 1.4);
+          ctx.beginPath();
+          ctx.arc(rnd(0, W), rnd(0, H), r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // vignette
+        const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.75);
+        vg.addColorStop(0, "rgba(0,0,0,0)");
+        vg.addColorStop(1, "rgba(0,0,0,0.28)");
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, W, H);
+
+        // rough border
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = ink;
+        roughRectPath(ctx, 22, 22, W - 44, H - 44, 4);
+        ctx.stroke();
+
+        // --- "product photo" placeholder ------------------------------------
+        const photoX = 60, photoY = 110, photoW = W - 120, photoH = 340;
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(photoX, photoY, photoW, photoH);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(photoX, photoY, photoW, photoH);
+        ctx.clip();
+        ctx.fillStyle = riso;
+        drawBlob(ctx, photoX + photoW / 2, photoY + photoH / 2, Math.min(photoW, photoH) * 0.42, 14);
+        ctx.fill();
+        // halftone dots over the blob
+        const step = 14;
+        for (let yy = photoY; yy < photoY + photoH; yy += step) {
+          for (let xx = photoX; xx < photoX + photoW; xx += step) {
+            const d = Math.hypot(xx - (photoX + photoW / 2), yy - (photoY + photoH / 2));
+            const maxD = Math.min(photoW, photoH) * 0.55;
+            const t = Math.min(1, d / maxD);
+            const rr = (1 - t) * 4.2 * rnd(0.7, 1.15);
+            if (rr <= 0.3) continue;
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+            ctx.beginPath();
+            ctx.arc(xx + step / 2, yy + step / 2, rr, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 5;
+        ctx.strokeRect(photoX, photoY, photoW, photoH);
+        // caption
+        ctx.save();
+        ctx.translate(photoX + photoW / 2, photoY + photoH - 20);
+        ctx.rotate(rnd(-0.03, 0.03));
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = "italic 16px " + HEADLINE_FONTS[2];
+        ctx.textAlign = "center";
+        ctx.fillText("[ ARTIST'S RENDERING — PRODUCT MAY NOT EXIST ]", 0, 0);
+        ctx.restore();
+        ctx.restore();
+
+        // --- ransom-note headline: product name -----------------------------
+        const headline = (product || "MYSTERY ITEM").toUpperCase();
+        let hx = 70, hy = photoY + photoH + 78;
+        const maxW = W - 140;
+        ctx.textBaseline = "alphabetic";
+        for (const ch of headline) {
+          if (ch === " ") { hx += 22; continue; }
+          const size = rndi(46, 68);
+          const font = pick(HEADLINE_FONTS);
+          ctx.font = `bold ${size}px ${font}`;
+          const cw = ctx.measureText(ch).width;
+          if (hx + cw + 20 > W - 70) { hx = 70; hy += 78; }
+          const chipStyle = pick(["paper", "ink", "riso"]);
+          ctx.save();
+          ctx.translate(hx + cw / 2 + 8, hy - size * 0.32);
+          ctx.rotate(rnd(-0.16, 0.16));
+          const padX = 8, padY = 6;
+          const chipW = cw + padX * 2, chipH = size * 0.78 + padY * 2;
+          if (chipStyle === "paper") { ctx.fillStyle = "#fff"; ctx.fillStyle = "#fff"; }
+          else if (chipStyle === "ink") { ctx.fillStyle = ink; }
+          else { ctx.fillStyle = riso2; }
+          ctx.fillRect(-chipW / 2, -chipH / 2, chipW, chipH);
+          ctx.fillStyle = chipStyle === "ink" ? "#fff" : ink;
+          ctx.font = `bold ${size}px ${font}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(ch, 0, 2);
+          ctx.restore();
+          hx += cw + 20;
+        }
+        hy += 30;
+
+        // --- tagline / hype line ---------------------------------------------
+        const hype = pick(HYPE).toUpperCase() + " · " + pick(CLAIMS).toUpperCase();
+        ctx.save();
+        ctx.translate(W / 2, hy + 46);
+        ctx.rotate(rnd(-0.02, 0.02));
+        ctx.font = `bold 22px ${HEADLINE_FONTS[0]}`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = riso;
+        ctx.fillText(hype, 2, 2);
+        ctx.fillStyle = ink;
+        ctx.fillText(hype, 0, 0);
+        ctx.restore();
+
+        if (pitch && pitch.trim()) {
+          ctx.save();
+          ctx.translate(W / 2, hy + 84);
+          ctx.font = `italic 17px Georgia, serif`;
+          ctx.textAlign = "center";
+          ctx.fillStyle = ink;
+          ctx.fillText(`"${pitch.trim()}"`, 0, 0);
+          ctx.restore();
+        }
+
+        // --- starburst badge ---------------------------------------------------
+        ctx.save();
+        ctx.translate(W - 128, 128);
+        ctx.rotate(rnd(-0.35, -0.1));
+        ctx.fillStyle = riso2;
+        drawStar(ctx, 0, 0, 92, 46, 10);
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = ink;
+        ctx.stroke();
+        ctx.fillStyle = ink;
+        ctx.font = `bold 22px ${HEADLINE_FONTS[0]}`;
+        ctx.textAlign = "center";
+        ctx.fillText(pick(["NEW!!", "LIMITED!!", "ACT NOW", "RARE!!", "WOW!!"]), 0, 6);
+        ctx.restore();
+
+        // --- price tag ----------------------------------------------------
+        const price = genPrice();
+        ctx.save();
+        ctx.translate(150, H - 210);
+        ctx.rotate(rnd(-0.08, 0.08));
+        ctx.fillStyle = ink;
+        ctx.fillRect(-90, -46, 180, 92);
+        ctx.fillStyle = "#fff";
+        ctx.font = `16px ${HEADLINE_FONTS[2]}`;
+        ctx.textAlign = "center";
+        ctx.fillText(`was $${price.was}`, 0, -16);
+        ctx.strokeStyle = "#ff6b6b";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-48, -21);
+        ctx.lineTo(48, -21);
+        ctx.stroke();
+        ctx.font = `bold 30px ${HEADLINE_FONTS[0]}`;
+        ctx.fillStyle = riso2;
+        ctx.fillText(`$${price.now}`, 0, 24);
+        ctx.restore();
+
+        // --- bottom bar: fake barcode + fine print -------------------------
+        const bx = W - 260, by = H - 150, bw = 170, bh = 46;
+        ctx.save();
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(bx, by, bw, bh);
+        let bxx = bx + 6;
+        while (bxx < bx + bw - 6) {
+          const w = rndi(1, 4);
+          ctx.fillStyle = ink;
+          ctx.fillRect(bxx, by + 6, w, bh - 12);
+          bxx += w + rndi(2, 5);
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.font = `11px ${HEADLINE_FONTS[2]}`;
+        ctx.fillStyle = ink;
+        ctx.textAlign = "left";
+        ctx.fillText("MADE IN THE GARAGE · NO REFUNDS · VOID WHERE PROHIBITED", 60, H - 60);
+        ctx.fillText("slop-shop.bisks.net", 60, H - 44);
+        ctx.restore();
+
+        // --- tape + staple marks --------------------------------------------
+        function tape(x, y, w, h, rot) {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(rot);
+          ctx.fillStyle = "rgba(228,214,180,0.55)";
+          ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.restore();
+        }
+        tape(70, 45, 130, 46, rnd(-0.5, -0.2));
+        tape(W - 70, H - 45, 130, 46, rnd(0.2, 0.5));
+        if (Math.random() < 0.6) tape(W - 80, 55, 100, 40, rnd(0.1, 0.4));
+
+        function staple(x, y, rot) {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(rot);
+          ctx.strokeStyle = "#8a8a8a";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(-10, -6); ctx.lineTo(10, -6);
+          ctx.moveTo(-10, 6); ctx.lineTo(10, 6);
+          ctx.moveTo(-10, -6); ctx.lineTo(-10, 6);
+          ctx.moveTo(10, -6); ctx.lineTo(10, 6);
+          ctx.stroke();
+          ctx.restore();
+        }
+        staple(46, 46, rnd(-0.3, 0.3));
+        staple(W - 46, 46, rnd(-0.3, 0.3));
+
+        // scanline pass
+        ctx.save();
+        ctx.globalAlpha = 0.035;
+        ctx.fillStyle = "#000";
+        for (let yy = 0; yy < H; yy += 3) ctx.fillRect(0, yy, W, 1);
+        ctx.restore();
+      }
+
+      // ---------------------------------------------------------------------
+      // wiring
+      // ---------------------------------------------------------------------
+      const canvas = $("flyer");
+      const stageEmpty = $("stageEmpty");
+      const adcopyBlock = $("adcopyBlock");
+      const adcopyEl = $("adcopy");
+      const actions = $("actions");
+      const postStatus = $("postStatus");
+      let currentProduct = "";
+      let currentPitch = "";
+      let session = null;
+
+      function showFlyer() {
+        stageEmpty.style.display = "none";
+        canvas.style.display = "block";
+        adcopyBlock.style.display = "block";
+        actions.style.display = "flex";
+        $("rerollBtn").disabled = false;
+      }
+
+      $("genForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        currentProduct = $("product").value;
+        currentPitch = $("pitch").value;
+        if (!currentProduct.trim()) return;
+        renderFlyer(canvas, currentProduct, currentPitch);
+        adcopyEl.value = genAdCopy(currentProduct, currentPitch);
+        showFlyer();
+        postStatus.textContent = "";
+        postStatus.className = "status";
+      });
+
+      $("rerollBtn").addEventListener("click", () => {
+        if (!currentProduct.trim()) return;
+        renderFlyer(canvas, currentProduct, currentPitch);
+        adcopyEl.value = genAdCopy(currentProduct, currentPitch);
+      });
+
+      $("downloadBtn").addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.download = `slop-${(currentProduct || "flyer").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}.png`;
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+      });
+
+      $("intentBtn").addEventListener("click", () => {
+        const text = adcopyEl.value || genAdCopy(currentProduct, currentPitch);
+        const url = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+        window.open(url, "_blank", "noopener");
+      });
+
+      // ---- auth ------------------------------------------------------------
+      function renderWho() {
+        const who = $("who");
+        const signinRow = $("signinRow");
+        if (session) {
+          who.innerHTML = `signed in as <span class="h">@${esc(session.handle)}</span> · <a id="signoutLink">sign out</a>`;
+          signinRow.style.display = "none";
+          $("signoutLink").onclick = async () => {
+            await clearSession();
+            session = null;
+            renderWho();
+            updatePostBtn();
+          };
+        } else {
+          who.textContent = "";
+          signinRow.style.display = "flex";
+        }
+      }
+      function updatePostBtn() {
+        $("postBtn").disabled = !session || canvas.style.display === "none";
+      }
+
+      $("signinBtn").addEventListener("click", async () => {
+        const h = $("handle").value.trim();
+        if (!h) return;
+        $("signinBtn").disabled = true;
+        try {
+          await login(h);
+        } catch (e) {
+          postStatus.textContent = e.message;
+          postStatus.className = "status err";
+          $("signinBtn").disabled = false;
+        }
+      });
+
+      $("postBtn").addEventListener("click", async () => {
+        if (!session) return;
+        const btn = $("postBtn");
+        btn.disabled = true;
+        btn.textContent = "posting…";
+        postStatus.textContent = "";
+        postStatus.className = "status";
+        try {
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const alt = `a crust-punk DIY ad flyer for "${currentProduct}"`;
+          const image = { blob: await uploadImage(session, bytes, "image/png"), alt };
+          const text = adcopyEl.value || genAdCopy(currentProduct, currentPitch);
+          const res = await firePost(session, { text, image });
+          const url = `https://bsky.app/profile/${session.did}/post/${res.uri.split("/").pop()}`;
+          postStatus.innerHTML = `posted! <a href="${url}" target="_blank">see it →</a>`;
+          postStatus.className = "status ok";
+        } catch (e) {
+          postStatus.textContent = e.message;
+          postStatus.className = "status err";
+        } finally {
+          btn.disabled = !session;
+          btn.textContent = "post to Bluesky";
+        }
+      });
+
+      // ---- boot --------------------------------------------------------------
+      (async () => {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          postStatus.textContent = e.message;
+          postStatus.className = "status err";
+        }
+        renderWho();
+        updatePostBtn();
+      })();
+
+      // keep the post button in sync whenever a flyer appears
+      const obs = new MutationObserver(updatePostBtn);
+      obs.observe(canvas, { attributes: true, attributeFilter: ["style"] });
+    </script>
+  </body>
+</html>
