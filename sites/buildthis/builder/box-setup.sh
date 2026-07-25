@@ -18,10 +18,12 @@ set -euo pipefail
 REPO_URL="${REPO_URL:-https://github.com/rrcobb/atprotozoa.git}"
 CHECKOUT="${CHECKOUT:-/opt/atprotozoa}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
+BUILDER_USER="${BUILDER_USER:-builder}"
 
 echo "=== apt deps ==="
 sudo apt-get update -y
-sudo apt-get install -y git curl ca-certificates
+# jq: the poll loop parses job JSON with it. curl/git/ca-certificates: the rest.
+sudo apt-get install -y git curl ca-certificates jq
 
 echo "=== node ${NODE_MAJOR} (nodesource) ==="
 if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt "$NODE_MAJOR" ]; then
@@ -37,16 +39,25 @@ echo "=== clone/refresh the repo at ${CHECKOUT} ==="
 if [ ! -d "$CHECKOUT/.git" ]; then
   sudo git clone "$REPO_URL" "$CHECKOUT"
 fi
-sudo chown -R "$USER":"$USER" "$CHECKOUT"
-git -C "$CHECKOUT" config user.name "buildthis"
-git -C "$CHECKOUT" config user.email "buildthis@bisks.net"
-# The push URL uses a PAT the same way the Action's checkout does (a PAT push
-# fires deploy.yml; GITHUB_TOKEN would not). The token itself lives in
-# /etc/buildthis/env as BUILDER_PAT and is injected at push time by box-build.sh,
-# NOT baked into the remote here — so it never lands in git config on disk.
 
-echo "=== install repo deps once (frozen) ==="
-( cd "$CHECKOUT" && pnpm install --frozen-lockfile )
+echo "=== unprivileged 'builder' user runs the builds ==="
+# `claude -p --permission-mode bypassPermissions` REFUSES to run as root (a
+# safety guard), and running an unattended agent as root is the wrong idea
+# anyway. So builds run as this dedicated unprivileged user, which owns the
+# checkout. It needs nothing but its own home + the checkout + read of the env.
+if ! id "$BUILDER_USER" >/dev/null 2>&1; then
+  sudo useradd -m -s /bin/bash "$BUILDER_USER"
+fi
+sudo chown -R "$BUILDER_USER":"$BUILDER_USER" "$CHECKOUT"
+sudo -u "$BUILDER_USER" git -C "$CHECKOUT" config user.name "buildthis"
+sudo -u "$BUILDER_USER" git -C "$CHECKOUT" config user.email "buildthis@bisks.net"
+# The push URL uses a PAT the same way the Action's checkout does (a PAT push
+# fires deploy.yml; GITHUB_TOKEN would not). The token lives in /etc/buildthis/env
+# as BUILDER_PAT and is injected at push time by box-build.sh, NOT baked into the
+# remote here — so it never lands in git config on disk.
+
+echo "=== install repo deps once (frozen), as builder ==="
+sudo -u "$BUILDER_USER" bash -lc "cd '$CHECKOUT' && pnpm install --frozen-lockfile"
 
 echo "=== secrets template at /etc/buildthis/env ==="
 sudo mkdir -p /etc/buildthis
@@ -77,17 +88,47 @@ BOT_APP_PASSWORD=
 OUTCOME_SECRET=
 QUEUE_TOKEN=
 ENVTEMPLATE
-  sudo chmod 600 /etc/buildthis/env
-  sudo chown root:root /etc/buildthis/env
   echo "  wrote template -> EDIT /etc/buildthis/env and fill in the blanks"
 else
   echo "  /etc/buildthis/env already exists — left untouched"
 fi
+# The env holds secrets but the unprivileged builder must read it. Root-owned,
+# group-readable by a dedicated group the builder is in (640) — not world-readable.
+sudo groupadd -f buildthis-env
+sudo usermod -aG buildthis-env "$BUILDER_USER"
+sudo chown root:buildthis-env /etc/buildthis/env
+sudo chmod 640 /etc/buildthis/env
+
+echo "=== systemd service: the poll loop, as builder, restart on crash/reboot ==="
+sudo tee /etc/systemd/system/buildthis-poll.service >/dev/null <<UNIT
+[Unit]
+Description=buildthis builder — poll the build queue and run builds
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${BUILDER_USER}
+Group=${BUILDER_USER}
+ExecStart=/bin/bash ${CHECKOUT}/sites/buildthis/builder/box-poll.sh
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable buildthis-poll >/dev/null 2>&1
+echo "  service installed + enabled (start it after the env is filled in)"
 
 echo
 echo "=== done. next: ==="
-echo "  1. Mint the subscription token:  claude setup-token"
+echo "  1. Mint the subscription token:  sudo -u ${BUILDER_USER} claude setup-token"
 echo "     (opens a URL to approve; prints an sk-ant-oat01-... token)"
 echo "  2. sudo \$EDITOR /etc/buildthis/env   (paste the token as CLAUDE_CODE_OAUTH_TOKEN,"
-echo "     plus BUILDER_PAT / BOT_APP_PASSWORD / OUTCOME_SECRET)"
-echo "  3. test a build by hand:  bash box-build.sh   (with a BRIEF set — see that script's header)"
+echo "     plus BUILDER_PAT / BOT_APP_PASSWORD / OUTCOME_SECRET / QUEUE_TOKEN)"
+echo "  3. start the builder:  sudo systemctl start buildthis-poll"
+echo "     watch it:           journalctl -u buildthis-poll -f"
