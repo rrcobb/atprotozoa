@@ -377,6 +377,7 @@
               selection.col === c &&
               i >= selection.index;
             const node = cardNode(card, { selected: sel });
+            node.dataset.index = i;
             node.style.top = top + "px";
             el.appendChild(node);
             top += card.faceUp ? OFFSET_UP : OFFSET_DOWN;
@@ -447,7 +448,7 @@
         return false;
       }
 
-      function handlePileClick(zone, col) {
+      function handlePileClick(zone, col, cardIndex) {
         if (zone === "stock") {
           selection = null;
           if (state.stock.length) {
@@ -474,8 +475,10 @@
           } else if (zone === "tableau") {
             const pile = state.tableau[col];
             if (pile.length) {
-              const top = pile[pile.length - 1];
-              if (top.faceUp) pickUp("tableau", col, pile.length - 1);
+              const idx =
+                cardIndex === null || cardIndex === undefined ? pile.length - 1 : cardIndex;
+              const card = pile[idx];
+              if (card && card.faceUp) pickUp("tableau", col, idx);
             }
           }
           return;
@@ -483,6 +486,17 @@
 
         // a selection is active
         if (selection.zone === zone && selection.col === col) {
+          if (
+            zone === "tableau" &&
+            cardIndex !== null &&
+            cardIndex !== undefined &&
+            cardIndex !== selection.index &&
+            state.tableau[col][cardIndex] &&
+            state.tableau[col][cardIndex].faceUp
+          ) {
+            pickUp("tableau", col, cardIndex);
+            return;
+          }
           clearSelection();
           setStatus("click a card, then click where it goes");
           return;
@@ -524,7 +538,9 @@
       tableauRow.addEventListener("click", (e) => {
         const pile = e.target.closest(".pile.tableau");
         if (!pile) return;
-        handlePileClick("tableau", Number(pile.dataset.col));
+        const cardEl = e.target.closest(".card");
+        const cardIndex = cardEl && cardEl.dataset.index !== undefined ? Number(cardEl.dataset.index) : null;
+        handlePileClick("tableau", Number(pile.dataset.col), cardIndex);
       });
       tableauRow.addEventListener("dblclick", (e) => {
         const pile = e.target.closest(".pile.tableau");
