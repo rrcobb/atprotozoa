@@ -4,7 +4,12 @@
 // hops the official app uses:
 //
 //   1. com.atproto.server.getServiceAuth on the user's PDS — mints a short-lived
-//      token scoped to app.bsky.video.uploadVideo, audienced to the video service.
+//      token scoped to app.bsky.video.uploadVideo. Audience is the user's OWN
+//      PDS DID, not video.bsky.app's — video.bsky.app validates the token
+//      against the issuing PDS (it forwards the finished blob back there), so
+//      an aud of "did:web:video.bsky.app" gets rejected with a 401 audience
+//      mismatch. PDS instances (official shards and self-hosted alike) use
+//      did:web keyed to their own hostname, so we can derive it from pdsUrl.
 //   2. POST the raw clip bytes to video.bsky.app with that token. Response is a
 //      job you poll until it's done, which gives back a blob ref.
 //   3. com.atproto.repo.createRecord with an app.bsky.embed.video embed carrying
@@ -16,15 +21,18 @@
 import { dpopFetch } from "./oauth.js";
 
 const VIDEO_SERVICE = "https://video.bsky.app";
-const VIDEO_SERVICE_DID = "did:web:video.bsky.app";
 
 function pdsXrpc(session, method) {
   return `${session.pdsUrl.replace(/\/$/, "")}/xrpc/${method}`;
 }
 
+function pdsDid(session) {
+  return `did:web:${new URL(session.pdsUrl).hostname}`;
+}
+
 async function getServiceAuthToken(session, lxm) {
   const url = new URL(pdsXrpc(session, "com.atproto.server.getServiceAuth"));
-  url.searchParams.set("aud", VIDEO_SERVICE_DID);
+  url.searchParams.set("aud", pdsDid(session));
   url.searchParams.set("lxm", lxm);
   url.searchParams.set("exp", String(Math.floor(Date.now() / 1000) + 5 * 60));
   const res = await dpopFetch(session, url.toString());
