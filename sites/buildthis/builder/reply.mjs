@@ -35,13 +35,22 @@ async function main() {
   const ok = process.env.BUILD_OK === "true";
   const result = (process.env.BUILD_RESULT || "").trim();
 
+  const partial = (process.env.BUILD_ERROR || "").trim() === "partial";
+
   let text;
   let url = null; // the built-site URL, if any, so we can link-facet it
   if (ok && result) {
     url = result.includes("/")
       ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
       : `https://${result}.bisks.net`;
-    const template = `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
+    // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —
+    // a build that got a real first pass live but ran out of turns before finishing.
+    // The partial's whole point is that the work is preserved and CONTINUABLE: the
+    // template invites a re-tag on this thread to keep building it (which runs as a
+    // normal edit against the now-live site — no special resume machinery).
+    const template = partial
+      ? `got a first pass up 🚧 — ${url}\n\nran out of runway before it's fully done; tag me on this thread to keep building it.`
+      : `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
     // Optional: the agent's own short line about what it built (or its answer to
     // an "explain <site>" ask), in its voice. Prepended to the template. The
     // tagger is always one of Rob's mutuals, so we trust the phrasing — the only
@@ -93,7 +102,7 @@ async function main() {
   // the outcome so /health and the timeline can flag a build that pushed but never
   // came up (a broken deploy) vs. one verified live.
   const liveVerified = process.env.LIVE_VERIFIED === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified });
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, partial });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -143,7 +152,7 @@ function fitToLimit(text, template, limit) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, partial = false }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -153,6 +162,8 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
   }
   const payload = {
     mentionUri,
+    // A partial IS a shipped, live outcome (status success), tagged `partial:true`
+    // so the timeline/directory can show it as a work-in-progress rather than done.
     status: ok && result ? "success" : "failure",
     builtName: result || undefined,
     url: url || undefined,
@@ -165,6 +176,8 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // Post-deploy liveness result (success builds only). false here on a success
     // means "pushed but the URL didn't serve in time" — a signal worth surfacing.
     liveVerified: ok && result ? liveVerified : undefined,
+    // Unfinished-but-live: a first pass shipped, continuable by re-tagging.
+    partial: partial || undefined,
   };
   try {
     const res = await fetch(endpoint, {

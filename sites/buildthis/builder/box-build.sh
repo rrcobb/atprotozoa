@@ -70,15 +70,26 @@ write_provenance() {
   echo "  wrote provenance $out"
 }
 
-echo "=== sync to origin/main (discard any local build leftovers) ==="
+echo "=== sync to origin/main ==="
 git fetch origin main
-git reset --hard origin/main
-# `git clean -fd` skips gitignored files, so BUILD_RESULT / BUILD_NOTE (both
-# gitignored) survive a clean and would leak into the next build. That leak posted
-# a prior build's note under a LATER, unrelated request (a failed build inherited
-# the previous build's BUILD_NOTE and replied it to the wrong thread). Clear the
-# scratch files explicitly, every build, before anything runs — never trust a
-# leftover from the last one.
+# Fast-forward to main, preserving anything already committed locally. Every build
+# now commits + pushes its work before finishing (see the preserve/push block), so
+# at the top of a normal build the tree is clean and a ff pull just advances it —
+# no --hard reset that would throw away committed work. The fallback: if the tree is
+# dirty (a build was SIGKILLed mid-edit and left uncommitted junk) or the pull can't
+# fast-forward, reset --hard to origin/main to guarantee a clean, current start.
+# Committed work is safe either way (it's on origin); only uncommitted leftovers,
+# which are by definition junk from an interrupted run, get discarded.
+if git pull --ff-only origin main; then
+  echo "  fast-forwarded to origin/main"
+else
+  echo "  ff pull failed (dirty tree or diverged) — hard-resetting to origin/main"
+  git reset --hard origin/main
+fi
+# `git clean -fd` removes untracked leftovers but SKIPS gitignored files, so
+# BUILD_RESULT / BUILD_NOTE (both gitignored) survive a clean and would leak into the
+# next build — a stale note once posted under a later, unrelated request. Clear the
+# scratch files explicitly, every build, before anything runs.
 git clean -fd
 rm -f BUILD_RESULT BUILD_NOTE
 
@@ -109,10 +120,12 @@ AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
 BUILD_RC=${PIPESTATUS[0]}
 set -e
 
-# Read what the agent built. Absent/empty BUILD_RESULT => nothing the agent chose
-# to claim as a build. The agent may instead leave a BUILD_NOTE (a friendly line
-# for a tag with nothing to build from) — reply.mjs posts that as the reply. Both
-# are gitignored, repo-root scratch files, cleared before the build above.
+# Read the agent's per-build scratch files. Both are gitignored, cleared before the
+# build above, and now ADVISORY — the harness preserves and reports work on its own
+# (see the derive + always-push blocks below), so a build whose agent forgot to write
+# these still ships correctly. BUILD_RESULT: the agent's name for what it built
+# (nicer than the derived name, and the only way to say "<site>/<path>"). BUILD_NOTE:
+# a line in the agent's voice for the reply.
 BUILD_RESULT=""
 [ -f BUILD_RESULT ] && BUILD_RESULT="$(head -n1 BUILD_RESULT | tr -d '[:space:]')"
 BUILD_NOTE=""
@@ -129,90 +142,102 @@ if grep -qiE "usage limit|rate limit|resets? at|reached your (usage|limit)" "$CL
 fi
 
 # Distinguish "ran out of turns on a too-big ask" from a transient failure. Hitting
-# --max-turns is DETERMINISTIC: an identical retry produces the identical overrun,
-# so retrying just burns another full build (~15-20 min) and the queue behind it to
-# reach the same place. The CLI prints "Reached max turns" when it caps out. We treat
-# this as terminal (no requeue) with an honest, actionable reply ("too big to finish
-# in one pass — try breaking it up"), instead of silently retrying a doomed build.
-# Only transient failures (a crash, a network blip — no max-turns, no usage-limit)
-# are worth a retry. (cee.wtf's 10-min-EP ask is the motivating case: it overran
-# max-turns three times, ~50 min of silence, to reach a reply it could give in one.)
+# Detect a --max-turns overrun. It's DETERMINISTIC (an identical rerun overruns
+# identically), so it's never worth a blind retry. What happens next depends on
+# whether real work got onto disk first (see the classify block): if it did, this is
+# a PARTIAL — a live first pass, continuable by re-tag; if nothing landed, it's a
+# terminal too_big. Either way, not a requeue. The CLI prints "Reached max turns"
+# when it caps out. (cee.wtf's 10-min-EP ask is the motivating case: it overran
+# three times, ~50 min of silence, and threw away real work each time.)
 MAX_TURNS_HIT=""
 if grep -qiE "reached max turns|max.?turns" "$CLAUDE_LOG" 2>/dev/null; then
   MAX_TURNS_HIT="1"
 fi
 
-# Provenance: on a claimed build, stamp a committed manifest INTO the built site so
-# each site permanently carries who asked for it and why — the durable record the
-# KV event log (30-day TTL) isn't. Written before the push so it's part of the same
-# commit. Only for a real site build (BUILD_RESULT names a site dir); a note-only
-# reaction or an explain-only reply has no site to stamp. `<site>/<path>` and a
-# plain `<site>` both stamp sites/<site>/.buildthis.json.
-if [ -n "$BUILD_RESULT" ]; then
-  SITE_DIR="sites/${BUILD_RESULT%%/*}"
-  if [ -d "$SITE_DIR" ]; then
-    write_provenance "$SITE_DIR/.buildthis.json"
-  fi
+# Did the build change anything on disk? This — not "did the agent write
+# BUILD_RESULT" — is the ground truth for "is there work to preserve". A max-turns
+# kill lands before the agent's final report, so work-happened and result-file-exists
+# diverge exactly when it matters most.
+CHANGED=""
+[ -n "$(git status --porcelain)" ] && CHANGED="1"
+
+# Derive the built site's name deterministically from the changed files, so the
+# harness can preserve + report a build the agent didn't get to name (e.g. killed
+# before writing BUILD_RESULT). A build touches sites/<name>/... (and often apex/ for
+# the gallery card); the site is the first changed sites/<name> dir. BUILD_RESULT
+# wins when the agent DID set it — it's nicer, and the only way to express
+# "<site>/<path>". DERIVED_NAME is empty if only apex/notes/root changed (no site
+# dir), in which case we fall back to BUILD_RESULT if present.
+DERIVED_NAME="$(git status --porcelain | sed -E 's/^...//; s/^"//' \
+  | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
+BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
+
+# Provenance: stamp who-asked-what into the built site so it permanently carries its
+# origin (the KV log has a 30-day TTL; git history doesn't). Written before the push
+# so it rides the same commit. Uses BUILT_NAME (agent's or derived), for a real site
+# dir only. Skipped when nothing changed or no site dir is identifiable.
+if [ -n "$CHANGED" ] && [ -n "$BUILT_NAME" ]; then
+  SITE_DIR="sites/${BUILT_NAME%%/*}"
+  [ -d "$SITE_DIR" ] && write_provenance "$SITE_DIR/.buildthis.json"
 fi
 
 echo "=== push to main (PAT, so deploy.yml fires) ==="
-# Push if the build produced ANY change — staged, unstaged, OR untracked (a brand
-# new site directory is entirely untracked). The old guard used `git diff --quiet`,
-# which sees only unstaged tracked changes, so a new site the agent staged-but-
-# -didn't-commit read as "nothing to push" and was silently dropped (then wiped by
-# the next build's reset) while the reply still promised it was live. `git status
-# --porcelain` catches all three states. We still gate on BUILD_RESULT so a genuine
-# no-build (note-only reaction) doesn't push an empty commit.
-# PUSHED is set true ONLY inside the branch that actually commits and successfully
-# pushes THIS build's work — not inferred from a HEAD-SHA delta. The SHA-delta
-# approach was fragile: a build that made nothing could still see HEAD != BASE_SHA
-# if the local ref moved for any reason during its ~10-min run, which read as a
-# false success (observed on cee.wtf's attempt-2: nothing built, yet pushed=true).
-# An explicit flag guarded on the push's own exit code is unambiguous.
+# PRESERVE, don't discard. If the build changed ANYTHING, commit + push it —
+# regardless of how the build ended. A max-turns overrun that got a real first pass
+# onto disk should land on main (live, and continuable by re-tagging), not be reset
+# away. There's no BUILD_RESULT gate: work is preserved on the fact that it exists,
+# not on the agent remembering to name it. `git status --porcelain` (via CHANGED)
+# catches staged, unstaged, and brand-new-untracked alike. PUSHED is set true only
+# on the push's own success — the unambiguous "it's on main now" signal.
 PUSHED="false"
-if [ -n "$BUILD_RESULT" ] && [ -n "$(git status --porcelain)" ]; then
+if [ -n "$CHANGED" ]; then
   git add -A
-  git commit -q -m "buildthis: ${BUILD_RESULT} (@${AUTHOR:-someone})"
+  git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"
   if git push -q "https://x-access-token:${BUILDER_PAT}@github.com/rrcobb/atprotozoa.git" HEAD:main; then
     PUSHED="true"
   else
-    echo "  push FAILED — not reporting success (build stays incomplete → retry)"
+    echo "  push FAILED — work is committed locally; will retry sync next build"
   fi
 else
-  echo "  nothing to push (no BUILD_RESULT or no changes)"
+  echo "  nothing changed — no commit (a note-only reaction or a build that made nothing)"
 fi
 
-# Classify the outcome into a DISPOSITION the reply + queue act on:
-#   success    -> work landed on main. Reply "built it", retire the job.
-#   usage_limit-> out of budget. Reply honestly, REQUEUE (retry when budget resets).
-#   too_big    -> ran out of turns on a too-big ask. Terminal (no retry — a retry
-#                 overruns identically); honest "too big for one pass" reply.
-#   no_build   -> agent deliberately built nothing (note-only reaction). Reply the
-#                 note, retire — retrying would just re-react.
-#   incomplete -> agent worked but nothing landed for a TRANSIENT reason (a crash, a
-#                 blip — not max-turns, not usage-limit). REQUEUE up to MAX_ATTEMPTS,
-#                 since a retry might actually get through. This is the favstar case.
+# Classify the outcome into a DISPOSITION the reply + queue act on. The key axis is
+# PUSHED (did real work land on main), because work is now always preserved:
+#   success    -> work landed AND the build finished cleanly. "built it 🎉".
+#   partial    -> work landed BUT the build ran out of turns mid-way. A real first
+#                 pass is live; it's just not done. Reply "first pass is up — tag me
+#                 to keep going", and retire (continuation is a fresh re-tag, not a
+#                 retry of this job). This is the preserve-WIP path — a big ask like
+#                 cee.wtf's EP lands a partial you can grow, instead of vanishing.
+#   usage_limit-> out of budget, nothing landed. Honest reply, REQUEUE (budget resets).
+#   too_big    -> ran out of turns AND got nothing coherent onto disk. Terminal, no
+#                 retry (an identical run overruns identically); honest "too big" reply.
+#   no_build   -> clean exit, nothing changed (a note-only reaction). Reply the note.
+#   incomplete -> nothing landed for a TRANSIENT reason (crash/blip — not max-turns,
+#                 not usage-limit). REQUEUE up to MAX_ATTEMPTS; a retry might get through.
 ATTEMPT="${ATTEMPT:-1}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
-if [ "$PUSHED" = "true" ]; then
+if [ "$PUSHED" = "true" ] && [ -n "$MAX_TURNS_HIT" ]; then
+  DISPOSITION="partial"
+elif [ "$PUSHED" = "true" ]; then
   DISPOSITION="success"
 elif [ -n "$USAGE_LIMIT" ]; then
   DISPOSITION="usage_limit"
 elif [ -n "$MAX_TURNS_HIT" ]; then
   DISPOSITION="too_big"
-elif [ "$BUILD_RC" -eq 0 ] && [ -z "$BUILD_RESULT" ]; then
-  # Clean exit, no result claimed: the agent looked and chose not to build. If it
-  # left a note that's the deliberate reaction; either way it's done, not retryable.
+elif [ "$BUILD_RC" -eq 0 ] && [ -z "$CHANGED" ]; then
+  # Clean exit, nothing changed: the agent looked and chose not to build. If it left
+  # a note that's the deliberate reaction; either way it's done, not retryable.
   DISPOSITION="no_build"
 else
   DISPOSITION="incomplete"
 fi
 
 # Requeue decision. usage_limit always retries (budget will reset); a TRANSIENT
-# incomplete retries until attempts run out. too_big does NOT retry — an identical
-# run overruns identically, so retrying just burns builds to reach the same reply.
-# On the final incomplete attempt it becomes a terminal honest-failure reply so the
-# requester isn't left hanging forever.
+# incomplete retries until attempts run out. partial / too_big / success / no_build
+# are all terminal for THIS job — a partial is continued by a NEW re-tag, not by
+# requeuing this one (that would just re-run and overrun again).
 REQUEUE="false"
 if [ "$DISPOSITION" = "usage_limit" ]; then
   REQUEUE="true"
@@ -228,11 +253,11 @@ fi
 # linking a 404. LIVE_VERIFIED is passed to reply.mjs → logged on the outcome, so
 # /health and the timeline can flag a build that pushed but never came up.
 LIVE_VERIFIED=""
-if [ "$DISPOSITION" = "success" ] && [ -n "$BUILD_RESULT" ]; then
+if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n "$BUILT_NAME" ]; then
   # <site> -> https://<site>.bisks.net ; <site>/<path> -> .../<path>
-  SITE_HOST="${BUILD_RESULT%%/*}"
+  SITE_HOST="${BUILT_NAME%%/*}"
   SITE_PATH=""
-  [ "$BUILD_RESULT" != "$SITE_HOST" ] && SITE_PATH="/${BUILD_RESULT#*/}"
+  [ "$BUILT_NAME" != "$SITE_HOST" ] && SITE_PATH="/${BUILT_NAME#*/}"
   LIVE_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
   echo "=== verify live: $LIVE_URL ==="
   # ~90s budget (deploy is usually <60s). 2xx/3xx = live. New custom domains can
@@ -250,7 +275,7 @@ if [ "$DISPOSITION" = "success" ] && [ -n "$BUILD_RESULT" ]; then
   [ "$LIVE_VERIFIED" = "true" ] || echo "  NOT verified live within ~90s (last=$CODE) — recorded, reply still sent"
 fi
 
-echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=$([ "$LIVE_VERIFIED" = "true" ] && echo y || echo n) disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
+echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=$([ "$LIVE_VERIFIED" = "true" ] && echo y || echo n) disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
 
 # When we're going to retry silently, don't post to the thread — a requeue isn't a
 # user-facing event, and "trying again" spam under every slow build would be noise.
@@ -259,21 +284,24 @@ echo "=== build rc=$BUILD_RC result='${BUILD_RESULT}' note?=$([ -n "$BUILD_NOTE"
 REPLY_SKIP=""
 [ "$REQUEUE" = "true" ] && REPLY_SKIP="1"
 
-# BUILD_OK is the reply's success/failure switch; it must track PUSHED (did it
-# really ship), not merely "a result file exists" — otherwise a dropped build still
-# gets the celebratory copy. BUILD_ERROR carries usage_limit so reply.mjs picks the
-# honest out-of-budget line.
-BUILD_OK="$PUSHED"
+# BUILD_OK gates the reply's celebratory vs. failure copy. Both success AND partial
+# shipped real, live work, so both are "ok" (partial gets its own "not finished, tag
+# to continue" wording via BUILD_ERROR below). BUILD_ERROR carries the sub-kind so
+# reply.mjs picks the right honest line. We pass BUILT_NAME as BUILD_RESULT so
+# reply.mjs's existing URL logic works whether the name was the agent's or derived.
+BUILD_OK="false"
+{ [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && BUILD_OK="true"
 BUILD_ERROR=""
 [ "$DISPOSITION" = "usage_limit" ] && BUILD_ERROR="usage_limit"
 [ "$DISPOSITION" = "too_big" ] && BUILD_ERROR="too_big"
+[ "$DISPOSITION" = "partial" ] && BUILD_ERROR="partial"
 
 # Reply in-thread AND report the outcome to the event log — reply.mjs does both
 # (it owns the /outcome POST, keyed by MENTION_URI, with the reply text as the
 # logged replyText). DISPOSITION/REQUEUE tell the worker whether to retire or
 # requeue the job. Same script the Action's reply step runs, same env contract.
 echo "=== reply + report outcome (reply.mjs) ==="
-BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILD_RESULT" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
+BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILT_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
   DISPOSITION="$DISPOSITION" REQUEUE="$REQUEUE" REPLY_SKIP="$REPLY_SKIP" \
   ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" LIVE_VERIFIED="$LIVE_VERIFIED" \
   BOT_IDENTIFIER="${BOT_IDENTIFIER}" BOT_APP_PASSWORD="${BOT_APP_PASSWORD}" \

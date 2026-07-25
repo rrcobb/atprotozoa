@@ -254,6 +254,10 @@ interface LogEvent {
     // served; false = it pushed but the URL didn't come up in time (worth a look);
     // undefined = not a success / older record from before the check existed.
     liveVerified?: boolean;
+    // A partial build: a real first pass shipped and is live, but the build ran out
+    // of turns before finishing. The site is continuable by re-tagging the thread.
+    // status is still "success" (it IS live); this flags it as work-in-progress.
+    partial?: boolean;
     at: string; // ISO
   };
 }
@@ -596,6 +600,8 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     requeue?: boolean;
     // Post-deploy liveness result (success only): did the built URL actually serve?
     liveVerified?: boolean;
+    // A partial (shipped-but-unfinished) build, continuable by re-tagging.
+    partial?: boolean;
   };
   try {
     body = await request.json();
@@ -628,6 +634,7 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       url: body.url || undefined,
       replyText: body.replyText || undefined,
       liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
+      partial: body.partial === true ? true : undefined,
       at: new Date().toISOString(),
     },
   });
