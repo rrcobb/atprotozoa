@@ -55,11 +55,15 @@ if [ ! -f /etc/buildthis/env ]; then
 # buildthis builder box secrets. Fill these in by hand. chmod 600, root-owned.
 # NONE of these belong in git.
 #
-# NOTE: there is deliberately NO ANTHROPIC_API_KEY here. Inference runs on Rob's
-# Claude Code SUBSCRIPTION login (`claude setup-token`, stored in ~/.claude.json),
-# not per-token API billing — that's the whole point of the persistent box. An
-# API key in this file would override the login and switch to API billing, so
-# box-build.sh unsets it defensively.
+# Inference runs on Rob's Claude Code SUBSCRIPTION, not per-token API billing —
+# that's the whole point of the persistent box. Auth is a headless OAuth token
+# minted once by `claude setup-token` (an sk-ant-oat01-... string), set below as
+# CLAUDE_CODE_OAUTH_TOKEN. Do NOT add an ANTHROPIC_API_KEY: it outranks the OAuth
+# token and would silently switch to API billing (box-build.sh unsets it too).
+
+# Claude Code subscription token (from `claude setup-token`). This IS the
+# inference auth — headless, on Rob's plan.
+CLAUDE_CODE_OAUTH_TOKEN=
 
 # Repo-scoped PAT (Contents:write) so the build's push fires deploy.yml.
 BUILDER_PAT=
@@ -82,7 +86,8 @@ fi
 
 echo
 echo "=== done. next: ==="
-echo "  1. LOG IN to Claude (subscription):  claude setup-token"
-echo "     (opens a URL to approve; stores a long-lived token in ~/.claude.json)"
-echo "  2. sudo \$EDITOR /etc/buildthis/env   (fill in the non-inference secrets)"
+echo "  1. Mint the subscription token:  claude setup-token"
+echo "     (opens a URL to approve; prints an sk-ant-oat01-... token)"
+echo "  2. sudo \$EDITOR /etc/buildthis/env   (paste the token as CLAUDE_CODE_OAUTH_TOKEN,"
+echo "     plus BUILDER_PAT / BOT_APP_PASSWORD / OUTCOME_SECRET)"
 echo "  3. test a build by hand:  bash box-build.sh   (with a BRIEF set — see that script's header)"

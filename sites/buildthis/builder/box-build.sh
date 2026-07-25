@@ -15,14 +15,20 @@
 #   export REPLY_PARENT_URI="at://…" REPLY_PARENT_CID="bafy…"
 #   bash box-build.sh
 #
-# Inference auth is Rob's Claude Code SUBSCRIPTION LOGIN, not an API key — the
-# whole reason the builds moved off the ephemeral GitHub Action onto a persistent
-# box (`claude setup-token` stores a long-lived credential in ~/.claude.json).
-# Do NOT set ANTHROPIC_API_KEY: if it's present, `claude` uses API billing and
-# IGNORES the login. So this script deliberately unsets it before the build.
+# Inference auth is Rob's Claude Code SUBSCRIPTION, via a headless OAuth token
+# (CLAUDE_CODE_OAUTH_TOKEN, minted once by `claude setup-token`, stored in
+# /etc/buildthis/env). This is the whole reason builds moved off the ephemeral
+# GitHub Action onto a persistent box: subscription billing, not per-token API.
+#
+# Claude Code's auth precedence (higher wins): ANTHROPIC_API_KEY > OAuth token >
+# interactive ~/.claude.json login. So an API key in the environment would
+# SILENTLY override the subscription token and switch to API billing — this
+# script unsets it defensively. (Note: `claude auth status` only reports the
+# interactive-login mode, so it says loggedIn:false even though the OAuth token
+# authenticates fine — don't guard on it.)
 #
 # Non-inference secrets come from the environment (source /etc/buildthis/env):
-#   BUILDER_PAT, BOT_IDENTIFIER, BOT_APP_PASSWORD, OUTCOME_SECRET
+#   CLAUDE_CODE_OAUTH_TOKEN, BUILDER_PAT, BOT_IDENTIFIER, BOT_APP_PASSWORD, OUTCOME_SECRET
 set -euo pipefail
 
 CHECKOUT="${CHECKOUT:-/opt/atprotozoa}"
@@ -31,16 +37,10 @@ cd "$BUILD_DIR"
 
 : "${BRIEF:?BRIEF is required (the build request text)}"
 : "${BUILDER_PAT:?source /etc/buildthis/env first}"
+: "${CLAUDE_CODE_OAUTH_TOKEN:?source /etc/buildthis/env first — run 'claude setup-token' to mint it}"
 
-# Guard: the box must be logged in to Claude (subscription), or every build 400s.
-# Fail loud here rather than discover it per-build. `claude setup-token` (run once
-# by Rob) populates this.
-if ! claude auth status 2>/dev/null | grep -q '"loggedIn": true'; then
-  echo "ERROR: claude is not logged in on this box. Run: claude setup-token" >&2
-  exit 1
-fi
-# Belt-and-suspenders: never let an API key leak in and silently switch billing
-# from the subscription to per-token API. The login is the intended auth.
+# Never let an API key silently outrank the subscription token and switch billing
+# to per-token API. Keep CLAUDE_CODE_OAUTH_TOKEN — that IS the auth.
 unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL
 
 echo "=== sync to origin/main (discard any local build leftovers) ==="
@@ -59,6 +59,7 @@ rm -f BUILD_RESULT
 # from "build flopped" afterwards, and still stream it live to the box's journal.
 CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
+CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
 AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
   claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
     --max-turns 30 \
