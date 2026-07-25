@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>moonbuggy — synth-powered lunar side-scroller</title>
+<meta name="description" content="Moon Patrol-style lunar buggy. Every beep, boop and crash synthesized on demand with the Web Audio API, plus real-time synth music. Swap between sensible, pastel and eye-destroying neon themes.">
+<style>
+  :root {
+    /* filled in by theme JS */
+    --sky-top: #05060f;
+    --sky-bot: #0a0e24;
+    --ground: #2a2340;
+    --ground-line: #6a5acd;
+    --star: #ffffff;
+    --buggy: #d8d8ff;
+    --buggy-2: #8fa2ff;
+    --wheel: #444;
+    --bullet: #ffd166;
+    --rock: #8a7f9c;
+    --mine: #ff5d73;
+    --crater: #060814;
+    --hud: #cfd4ff;
+    --accent: #7c6cff;
+    --panel: rgba(10,12,28,0.82);
+    --glow: 0px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #05060f;
+    color: var(--hud);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; padding: 12px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 960px);
+    aspect-ratio: 16 / 9;
+    max-height: 72vh;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08),
+                0 24px 60px rgba(0,0,0,0.55);
+  }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  /* overlays */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(3px);
+    padding: 20px; gap: 14px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(28px, 6vw, 54px);
+    letter-spacing: 2px;
+    color: var(--buggy);
+    text-shadow: 0 0 calc(14px + var(--glow)) var(--accent);
+  }
+  .overlay p { margin: 0; max-width: 44ch; line-height: 1.5; opacity: 0.9; }
+  .keys { font-size: 13px; opacity: 0.75; }
+  .keys b { color: var(--bullet); }
+  button.big {
+    font: inherit; font-size: 18px;
+    padding: 12px 26px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff; cursor: pointer;
+    box-shadow: 0 0 calc(12px + var(--glow)) var(--accent);
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.96); }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 8px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 13px; z-index: 4; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+  }
+  #hud .stat { line-height: 1.35; }
+  #hud .stat b { color: var(--bullet); }
+
+  /* controls bar */
+  #bar {
+    width: min(100%, 960px);
+    display: flex; flex-wrap: wrap; gap: 8px 12px;
+    align-items: center; justify-content: center;
+  }
+  .seg { display: inline-flex; align-items: center; gap: 6px; }
+  .seg label { font-size: 12px; opacity: 0.7; }
+  select, .toggle {
+    font: inherit; font-size: 13px;
+    background: rgba(255,255,255,0.06);
+    color: var(--hud);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 8px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  .toggle[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  a.credit { color: var(--accent); text-decoration: none; }
+  a.credit:hover { text-decoration: underline; }
+  .foot { font-size: 11px; opacity: 0.55; text-align: center; margin-top: 2px; }
+
+  /* touch buttons — only shown on coarse pointers */
+  #touch {
+    position: absolute; bottom: 10px; left: 10px; right: 10px;
+    display: none; justify-content: space-between; z-index: 4;
+  }
+  #touch button {
+    font: inherit; font-size: 20px;
+    width: 84px; height: 60px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.1);
+    color: var(--hud); backdrop-filter: blur(2px);
+  }
+  @media (pointer: coarse) { #touch { display: flex; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="hud">
+      <div class="stat">
+        SCORE <b id="score">0</b><br>
+        DIST <b id="dist">0</b>m
+      </div>
+      <div class="stat" style="text-align:right">
+        BUGGIES <b id="lives">◈◈◈</b><br>
+        BEST <b id="best">0</b>
+      </div>
+    </div>
+
+    <div id="touch">
+      <button id="tShoot">✦ FIRE</button>
+      <button id="tJump">▲ JUMP</button>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <h1>MOON&nbsp;BUGGY</h1>
+      <p>Drive the lunar surface. <b>Jump</b> craters, <b>shoot</b> the rocks and
+         mines before they wreck you. Every beep and boop is synthesized live —
+         so is the music.</p>
+      <p class="keys">
+        <b>&larr; &rarr;</b> throttle · <b>SPACE / &uarr;</b> jump · <b>Z / &darr;</b> fire ·
+        <b>P</b> pause · <b>M</b> mute
+      </p>
+      <button class="big" id="startBtn">▶ Start engine</button>
+    </div>
+
+    <div class="overlay hidden" id="pauseOverlay">
+      <h1>PAUSED</h1>
+      <p class="keys">press <b>P</b> to resume</p>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1>WRECKED</h1>
+      <p>Final score <b id="finalScore" style="color:var(--bullet)">0</b> ·
+         <b id="finalDist" style="color:var(--bullet)">0</b>m of moon behind you.</p>
+      <button class="big" id="againBtn">↻ Roll another buggy</button>
+    </div>
+  </div>
+
+  <div id="bar">
+    <div class="seg">
+      <label for="theme">theme</label>
+      <select id="theme"></select>
+    </div>
+    <button class="toggle" id="musicToggle" aria-pressed="true">♪ music</button>
+    <button class="toggle" id="sfxToggle" aria-pressed="true">♫ sfx</button>
+  </div>
+  <div class="foot">
+    lunar side-scroller · all audio synthesized in real time with the Web Audio API ·
+    built by <a class="credit" href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a class="credit" href="https://bsky.app/profile/heartpunk.com">@heartpunk.com</a>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
