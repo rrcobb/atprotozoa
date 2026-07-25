@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🐟 koi pond — the bluesky firehose as a pond of fish</title>
+    <meta
+      name="description"
+      content="The live Bluesky firehose as a calm koi pond. Every post is a fish; each new post makes its koi turn and dart. Accounts that post a lot grow into big, fat, lazy fish. Watch the water, drop some food, let it drift."
+    />
+    <style>
+      :root {
+        --deep: #0b3a4a;
+        --mid: #12586c;
+        --shallow: #1f8296;
+        --ink: #052733;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: #08303d;
+        font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman",
+          system-ui, serif;
+        color: #eaf7fb;
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+      }
+      #pond { position: fixed; inset: 0; display: block; cursor: crosshair; }
+
+      /* ---- header / hud ---- */
+      .hud {
+        position: fixed;
+        left: 0; right: 0; top: 0;
+        padding: 14px 18px 30px;
+        pointer-events: none;
+        z-index: 5;
+        background: linear-gradient(180deg, rgba(5, 39, 51, 0.6) 0%, rgba(5, 39, 51, 0) 100%);
+      }
+      .titlebar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.3rem, 4vw, 2.3rem);
+        line-height: 1;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+        color: #f4efe1;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+      }
+      .sub {
+        margin: 4px 0 0;
+        font-size: clamp(0.72rem, 2.2vw, 0.95rem);
+        color: #bfe7ef;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+        font-family: system-ui, sans-serif;
+      }
+      .sub b { color: #ffe6a8; font-weight: 600; }
+
+      .controls {
+        position: fixed;
+        right: 14px; bottom: 14px;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+        pointer-events: none;
+        font-family: system-ui, sans-serif;
+      }
+      .panel {
+        pointer-events: auto;
+        background: rgba(5, 39, 51, 0.55);
+        backdrop-filter: blur(7px);
+        border: 1px solid rgba(191, 231, 239, 0.28);
+        border-radius: 16px;
+        padding: 9px 13px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.4);
+        font-size: 0.82rem;
+      }
+      .panel label { display: flex; align-items: center; gap: 8px; white-space: nowrap; color: #d6f2f8; }
+      button {
+        font: inherit;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        background: rgba(255, 255, 255, 0.1);
+        color: #eaf7fb;
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-weight: 600;
+      }
+      button:hover { background: rgba(255, 255, 255, 0.18); }
+      button:active { transform: translateY(1px); }
+      button.feed {
+        background: linear-gradient(180deg, #ffd98a, #f2a93c);
+        border-color: rgba(255, 255, 255, 0.6);
+        color: #4a2c05;
+      }
+      button.feed:hover { filter: brightness(1.06); background: linear-gradient(180deg, #ffe09a, #f4b04a); }
+
+      /* live dot */
+      .live { display: inline-flex; align-items: center; gap: 6px; }
+      .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #7ff0b0; box-shadow: 0 0 9px #7ff0b0;
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+      .dot.off { background: #ff8b7b; box-shadow: 0 0 9px #ff8b7b; animation: none; }
+      @keyframes pulse { 50% { opacity: 0.4; transform: scale(0.75); } }
+
+      /* about card */
+      .about {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgba(4, 25, 33, 0.72);
+        backdrop-filter: blur(4px);
+        font-family: system-ui, sans-serif;
+      }
+      .about.show { display: grid; }
+      .about-card {
+        max-width: 500px;
+        background: linear-gradient(165deg, #0e4657, #0a3644);
+        border: 1px solid rgba(255, 230, 168, 0.4);
+        border-radius: 20px;
+        padding: 24px 26px;
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+        line-height: 1.6;
+      }
+      .about-card h2 { margin: 0 0 10px; font-size: 1.3rem; color: #ffe6a8; font-weight: 600; }
+      .about-card p { margin: 0 0 12px; font-size: 0.94rem; color: #dbeff4; }
+      .about-card a { color: #8fe0ff; }
+      .about-card .todo {
+        font-size: 0.84rem;
+        color: #a9cdd6;
+        border-left: 2px solid rgba(255, 230, 168, 0.4);
+        padding-left: 12px;
+        font-style: italic;
+      }
+      .about-card .close { display: block; margin: 8px 0 0 auto; }
+      .hint {
+        pointer-events: auto;
+        font-size: 0.74rem;
+        color: #bfe7ef;
+        text-decoration: underline dotted;
+        cursor: pointer;
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="pond"></canvas>
+
+    <div class="hud">
+      <div class="titlebar">
+        <h1>🐟 koi pond</h1>
+      </div>
+      <p class="sub">
+        the bluesky firehose, as a pond of fish — every post is a koi, every post makes
+        one <b>turn and dart</b>, and the <b>chattiest accounts grow fat and lazy</b> ·
+        <span class="live"><span class="dot" id="dot"></span><span id="status">filling the pond…</span></span>
+      </p>
+    </div>
+
+    <div class="controls">
+      <span class="hint" id="aboutBtn">what is this?</span>
+      <div class="panel">
+        <label>🐟 <span id="fishCount">0</span></label>
+        <button id="feed" class="feed" title="scatter food — or just click the water">feed 🍚</button>
+        <button id="pause">pause</button>
+      </div>
+    </div>
+
+    <div class="about" id="about">
+      <div class="about-card">
+        <h2>🪷 A koi pond fed by the firehose</h2>
+        <p>
+          Every post on the live
+          <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener"
+            >Bluesky firehose</a
+          >
+          becomes a koi. The moment a post lands, its fish <b>turns and darts</b> — a flick
+          of the tail, a ripple where it moved. So the whole pond is the shape of the
+          conversation: quiet, then a sudden flurry.
+        </p>
+        <p>
+          The more an account posts, the <b>bigger, fatter, and slower</b> its koi gets. The
+          chattiest handles on Bluesky end up as the great lazy carp drifting near the
+          bottom; a one-post account is a quick little fry. No login, no server, nothing
+          stored — just the real firehose, in water.
+        </p>
+        <p>
+          Hungry? <b>Click the water</b> (or hit <b>feed</b>) to scatter food — the fish will
+          drift over and nose at it.
+        </p>
+        <p class="todo">
+          TODO / nice-to-have: sign in with Bluesky (OAuth) and post from this page to feed
+          the pond with your own post. Shipped the watch-the-pond version first; the
+          post-to-feed hookup is stubbed for a later build.
+        </p>
+        <p style="font-size: 0.84rem; color: #a9cdd6">
+          Built by the
+          <a href="https://bisks.net" target="_blank" rel="noopener">@buildthis</a> bot after
+          @kumavis.me asked for "the firehose but every post is a koi in a pond; the chattiest
+          accounts are the fattest, laziest fish" (re-tagged by @caleb.jasik.xyz).
+        </p>
+        <button class="close" id="closeAbout">watch the pond</button>
+      </div>
+    </div>
+
+    <script>
+      // ======================================================================
+      // Koi Pond — the live Bluesky firehose as a pond of fish.
+      //   • each post = one koi; the post makes that koi turn and dart
+      //   • the more an account posts, the fatter/lazier its koi grows
+      //   • click the water to scatter food; fish drift over to nose at it
+      // Pure browser. No secrets, no server.
+      // ======================================================================
+
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+
+      const cv = document.getElementById("pond");
+      const ctx = cv.getContext("2d");
+      const dot = document.getElementById("dot");
+      const statusEl = document.getElementById("status");
+      const fishCountEl = document.getElementById("fishCount");
+      const feedBtn = document.getElementById("feed");
+      const pauseBtn = document.getElementById("pause");
+      const aboutBtn = document.getElementById("aboutBtn");
+      const aboutEl = document.getElementById("about");
+      const closeAbout = document.getElementById("closeAbout");
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // ---- world state -----------------------------------------------------
+      let W = 0, H = 0, DPR = 1;
+
+      const MAX_FISH = 90;          // pond capacity; oldest quiet fish retire past this
+      const fish = [];              // active koi
+      const fishByDid = new Map();  // did -> koi (so repeat posters grow the same fish)
+      const ripples = [];           // {x,y,r,max,life}
+      const food = [];              // {x,y,vy,wob,seed,life}
+      const pads = [];              // drifting lily pads
+
+      let paused = false;
+      let t = 0;                    // seconds
+
+      // firehose rate meter
+      let postCountWindow = 0;
+      let rate = 0;
+
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+      const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+
+      // Koi color schemes — a few recognizable varieties.
+      const KOI_KINDS = [
+        { body: "#f6f2e9", blotch: "#e8531f", name: "kohaku" },   // white + red
+        { body: "#f4b23c", blotch: "#e8871f", name: "yamabuki" }, // gold
+        { body: "#f6f2e9", blotch: "#1c1c1e", name: "shiro" },    // white + black
+        { body: "#f0efe6", blotch: "#e8531f", name: "sanke" },    // calico-ish
+        { body: "#e9622a", blotch: "#a83411", name: "hi" },       // solid orange
+        { body: "#d9dde0", blotch: "#3a3f45", name: "gin" },      // silvery
+      ];
+
+      // ---- layout ----------------------------------------------------------
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth;
+        H = window.innerHeight;
+        cv.width = Math.floor(W * DPR);
+        cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px";
+        cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        for (const f of fish) { f.x = clamp(f.x, 40, W - 40); f.y = clamp(f.y, 40, H - 40); }
+        seedPads();
+      }
+
+      function seedPads() {
+        pads.length = 0;
+        const n = clamp(Math.round((W * H) / 190000), 3, 9);
+        for (let i = 0; i < n; i++) {
+          pads.push({
+            x: rnd(W), y: rnd(H), r: rnd(46, 24),
+            drift: rnd(6.28), speed: rnd(0.06, 0.02), sway: rnd(6.28),
+            hue: rnd(150, 110),
+          });
+        }
+      }
+
+      // ---- koi -------------------------------------------------------------
+      function makeKoi(did) {
+        const kind = pick(KOI_KINDS);
+        const k = {
+          did,
+          posts: 1,
+          x: rnd(W * 0.85, W * 0.15),
+          y: rnd(H * 0.85, H * 0.15),
+          heading: rnd(6.28),
+          baseSpeed: rnd(34, 18),   // cruise px/s (recomputed by applyGrowth)
+          size: 12,                 // grows with post count
+          girth: 0.42,              // body roundness; grows with post count
+          wiggle: rnd(6.28),
+          kind,
+          // dart animation
+          dart: 0,                  // 0..1 impulse that decays
+          turnTo: null,             // target heading during a dart
+          // gentle wander target
+          goal: null,
+          spots: makeSpots(kind),
+          lastPost: t,
+        };
+        applyGrowth(k);
+        return k;
+      }
+
+      // Random blotch layout for a koi, in body-local coords (unit-ish).
+      function makeSpots(kind) {
+        const n = 2 + ((Math.random() * 3) | 0);
+        const spots = [];
+        for (let i = 0; i < n; i++) {
+          spots.push({
+            u: rnd(0.7, -0.55),   // along body (-tail .. +head)
+            v: rnd(0.5, -0.5),    // across body
+            r: rnd(0.55, 0.28),
+            c: kind.blotch,
+          });
+        }
+        return spots;
+      }
+
+      // Size/speed as a function of how much this account posts.
+      // Chattier -> fatter and slower (lazier). Diminishing so it stays a fish.
+      function applyGrowth(k) {
+        const p = k.posts;
+        k.size = 12 + 26 * (1 - 1 / (1 + p * 0.16));       // ~12 -> ~38
+        k.girth = 0.42 + 0.30 * (1 - 1 / (1 + p * 0.12));  // gets rounder/fatter
+        const laze = 1 - 0.55 * (1 - 1 / (1 + p * 0.10));  // 1 -> ~0.45
+        k.baseSpeed = (16 + rnd(10)) * laze;
+      }
+
+      // Retire the least-active, oldest fish to make room.
+      function retireOne() {
+        let idx = -1, worst = Infinity;
+        for (let i = 0; i < fish.length; i++) {
+          const f = fish[i];
+          const score = f.posts * 6 - (t - f.lastPost); // quiet + old = low score
+          if (score < worst) { worst = score; idx = i; }
+        }
+        if (idx >= 0) {
+          const f = fish[idx];
+          fishByDid.delete(f.did);
+          fish.splice(idx, 1);
+        }
+      }
+
+      // A post arrived for `did`: grow its koi (or spawn one) and make it dart.
+      function onPost(did) {
+        postCountWindow++;
+        let k = fishByDid.get(did);
+        if (!k) {
+          if (fish.length >= MAX_FISH) retireOne();
+          k = makeKoi(did);
+          fish.push(k);
+          fishByDid.set(k.did, k);
+          fishCountEl.textContent = fish.length;
+        } else {
+          k.posts++;
+          applyGrowth(k);
+        }
+        k.lastPost = t;
+
+        // The dart: pick a fresh heading and give it an impulse. Bigger/lazier
+        // fish dart less far — a fat carp just flicks; a fry bolts.
+        const laze = clamp(1 - (k.size - 12) / 30, 0.28, 1);
+        k.turnTo = rnd(6.28);
+        k.dart = 0.6 + rnd(0.4) * laze;
+        // ripple where it moved
+        addRipple(k.x, k.y, 8 + k.size * 0.5);
+      }
+
+      function addRipple(x, y, r0) {
+        if (ripples.length > 60) ripples.shift();
+        ripples.push({ x, y, r: r0 * 0.4, max: r0 + rnd(40, 20), life: 1 });
+      }
+
+      // ---- food (feeding) --------------------------------------------------
+      function dropFood(x, y, n = 1) {
+        for (let i = 0; i < n; i++) {
+          food.push({
+            x: x + rnd(14, -14),
+            y: y + rnd(10, -10),
+            vy: rnd(10, 3),
+            wob: rnd(6.28),
+            seed: rnd(6.28),
+            life: 14 + rnd(8), // seconds before it dissolves
+          });
+        }
+        addRipple(x, y, 16);
+      }
+
+      function scatterFood() {
+        // a handful across the pond
+        const n = 7 + ((Math.random() * 6) | 0);
+        for (let i = 0; i < n; i++) dropFood(rnd(W * 0.8, W * 0.2), rnd(H * 0.75, H * 0.2), 1);
+      }
+
+      // Nearest food pellet to a point, within range.
+      function nearestFood(x, y, range) {
+        let best = null, bd = range * range;
+        for (const p of food) {
+          const dx = p.x - x, dy = p.y - y, d = dx * dx + dy * dy;
+          if (d < bd) { bd = d; best = p; }
+        }
+        return best;
+      }
+
+      // ---- firehose --------------------------------------------------------
+      let ws = null;
+      let retry = 0;
+      function connect() {
+        try {
+          ws = new WebSocket(JETSTREAM);
+        } catch (e) {
+          scheduleReconnect();
+          return;
+        }
+        ws.onopen = () => {
+          retry = 0;
+          setStatus(true, "the pond is fed by the firehose");
+        };
+        ws.onmessage = (ev) => {
+          if (paused) return;
+          let msg;
+          try {
+            msg = JSON.parse(ev.data);
+          } catch {
+            return;
+          }
+          const c = msg.commit;
+          if (
+            msg.kind === "commit" && c && c.operation === "create" &&
+            c.collection === "app.bsky.feed.post" && msg.did
+          ) {
+            onPost(msg.did);
+          }
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          scheduleReconnect();
+        };
+        ws.onerror = () => {
+          try { ws.close(); } catch {}
+        };
+      }
+      function scheduleReconnect() {
+        retry = Math.min(retry + 1, 6);
+        setTimeout(connect, 400 * retry + rnd(400));
+      }
+      function setStatus(live, text) {
+        dot.classList.toggle("off", !live);
+        statusEl.textContent = text;
+      }
+
+      // rate meter — update the status line once a second
+      setInterval(() => {
+        rate = postCountWindow;
+        postCountWindow = 0;
+        if (dot.classList.contains("off")) return;
+        statusEl.textContent = paused
+          ? "paused"
+          : `${rate} posts/s rippling in · ${fish.length} koi`;
+      }, 1000);
+
+      // ---- koi drawing -----------------------------------------------------
+      function drawKoi(f) {
+        const s = f.size;
+        const wig = Math.sin(t * 3.4 + f.wiggle) * (0.25 + f.dart * 0.5);
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        ctx.rotate(f.heading);
+
+        // shadow on the pond floor (kept axis-aligned under the body)
+        ctx.save();
+        ctx.rotate(-f.heading);
+        ctx.globalAlpha = 0.16;
+        ctx.beginPath();
+        ctx.ellipse(3, 5, s * 1.15, s * f.girth * 1.2, 0, 0, 7);
+        ctx.fillStyle = "#02222c";
+        ctx.fill();
+        ctx.restore();
+
+        // pectoral fins (translucent, trailing)
+        ctx.globalAlpha = 0.42;
+        ctx.fillStyle = f.kind.body;
+        finShape(s * 0.1, s * f.girth * 0.9, s * 0.9, wig);
+        finShape(s * 0.1, -s * f.girth * 0.9, s * 0.9, -wig);
+        ctx.globalAlpha = 1;
+
+        // tail — sweeps with the wiggle, sweeps harder mid-dart
+        ctx.save();
+        ctx.translate(-s * 0.95, 0);
+        ctx.rotate(wig * 1.4);
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-s * 0.7, -s * f.girth * 0.9, -s * 1.15, -s * f.girth * 1.5);
+        ctx.quadraticCurveTo(-s * 0.9, 0, -s * 1.15, s * f.girth * 1.5);
+        ctx.quadraticCurveTo(-s * 0.7, s * f.girth * 0.9, 0, 0);
+        ctx.closePath();
+        ctx.fillStyle = f.kind.body;
+        ctx.fill();
+        ctx.restore();
+
+        // body — a plump ellipse, fatter for chatty fish
+        const bodyGrad = ctx.createLinearGradient(0, -s * f.girth, 0, s * f.girth);
+        bodyGrad.addColorStop(0, lighten(f.kind.body, 18));
+        bodyGrad.addColorStop(1, shade(f.kind.body, 14));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, s, s * f.girth, 0, 0, 7);
+        ctx.fillStyle = bodyGrad;
+        ctx.fill();
+
+        // blotches, clipped to the body
+        ctx.save();
+        ctx.clip();
+        for (const sp of f.spots) {
+          ctx.beginPath();
+          ctx.ellipse(sp.u * s, sp.v * s * f.girth, sp.r * s * 0.8, sp.r * s * f.girth, 0, 0, 7);
+          ctx.fillStyle = sp.c;
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // eye
+        ctx.beginPath();
+        ctx.arc(s * 0.62, -s * f.girth * 0.38, Math.max(1.4, s * 0.09), 0, 7);
+        ctx.fillStyle = "#10171b";
+        ctx.fill();
+
+        // sheen highlight along the back
+        ctx.globalAlpha = 0.28;
+        ctx.beginPath();
+        ctx.ellipse(-s * 0.1, -s * f.girth * 0.45, s * 0.7, s * f.girth * 0.28, 0, 0, 7);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        ctx.restore();
+
+        function finShape(px, py, len, curl) {
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.quadraticCurveTo(px - len * 0.5, py + curl * len * 0.9 + py * 0.4,
+                               px - len, py + curl * len);
+          ctx.quadraticCurveTo(px - len * 0.4, py + py * 0.2, px, py);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      // ---- color helpers ---------------------------------------------------
+      function lighten(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        const r = Math.min(255, (n >> 16) + amt);
+        const g = Math.min(255, ((n >> 8) & 255) + amt);
+        const b = Math.min(255, (n & 255) + amt);
+        return `rgb(${r},${g},${b})`;
+      }
+      function shade(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        const r = Math.max(0, (n >> 16) - amt);
+        const g = Math.max(0, ((n >> 8) & 255) - amt);
+        const b = Math.max(0, (n & 255) - amt);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      // ---- water backdrop --------------------------------------------------
+      function drawWater() {
+        // base gradient
+        const g = ctx.createRadialGradient(W * 0.4, H * 0.35, 20, W * 0.5, H * 0.5, Math.max(W, H) * 0.85);
+        g.addColorStop(0, "#1f8296");
+        g.addColorStop(0.55, "#12586c");
+        g.addColorStop(1, "#0b3a4a");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+
+        // slow caustic bands — soft moving light on the water
+        if (!reduceMotion) {
+          ctx.globalAlpha = 0.06;
+          ctx.fillStyle = "#bdf2ff";
+          for (let i = 0; i < 5; i++) {
+            const yy = ((t * 8 + i * H * 0.24) % (H + 120)) - 60;
+            const wob = Math.sin(t * 0.5 + i) * 40;
+            ctx.beginPath();
+            ctx.ellipse(W * 0.5 + wob, yy, W * 0.62, 40, 0, 0, 7);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      function drawPads() {
+        for (const p of pads) {
+          if (!paused) { p.drift += p.speed * 0.016; p.sway += 0.01; }
+          const x = p.x + Math.cos(p.drift) * 18;
+          const y = p.y + Math.sin(p.drift * 0.8) * 14;
+          ctx.save();
+          ctx.translate(x, y);
+          // shadow under pad
+          ctx.globalAlpha = 0.18;
+          ctx.beginPath();
+          ctx.ellipse(4, 6, p.r, p.r * 0.82, 0, 0, 7);
+          ctx.fillStyle = "#03242e";
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          // the pad — a disc with a notch
+          ctx.beginPath();
+          ctx.arc(0, 0, p.r, 0.5, 6.28 + 0.2);
+          ctx.lineTo(0, 0);
+          ctx.closePath();
+          const pg = ctx.createRadialGradient(-p.r * 0.3, -p.r * 0.3, 2, 0, 0, p.r);
+          pg.addColorStop(0, `hsl(${p.hue} 46% 42%)`);
+          pg.addColorStop(1, `hsl(${p.hue} 52% 26%)`);
+          ctx.fillStyle = pg;
+          ctx.fill();
+          // veins
+          ctx.globalAlpha = 0.35;
+          ctx.strokeStyle = `hsl(${p.hue} 40% 60%)`;
+          ctx.lineWidth = 1;
+          for (let a = 0.8; a < 6; a += 0.9) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(a) * p.r * 0.92, Math.sin(a) * p.r * 0.92);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+      }
+
+      // ---- main loop -------------------------------------------------------
+      let last = 0;
+      function frame(ts) {
+        const dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
+        last = ts;
+        if (!paused) t += dt;
+
+        drawWater();
+        drawPads();
+
+        // ---- ripples ----
+        for (let i = ripples.length - 1; i >= 0; i--) {
+          const r = ripples[i];
+          if (!paused) { r.r += (r.max - r.r) * dt * 1.6; r.life -= dt * 0.7; }
+          if (r.life <= 0) { ripples.splice(i, 1); continue; }
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, r.r, 0, 7);
+          ctx.strokeStyle = `rgba(220,248,255,${0.35 * r.life})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, r.r * 0.6, 0, 7);
+          ctx.strokeStyle = `rgba(220,248,255,${0.18 * r.life})`;
+          ctx.stroke();
+        }
+
+        // ---- food ----
+        for (let i = food.length - 1; i >= 0; i--) {
+          const p = food[i];
+          if (!paused) {
+            p.life -= dt;
+            p.wob += dt * 3;
+            // pellets sink slowly then settle
+            p.vy = Math.max(0, p.vy - dt * 6);
+            p.y += (p.vy + Math.sin(p.wob) * 2) * dt;
+          }
+          if (p.life <= 0) { food.splice(i, 1); continue; }
+          const a = Math.min(1, p.life / 3);
+          ctx.globalAlpha = a;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.6, 0, 7);
+          ctx.fillStyle = "#ffe6a0";
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        // ---- koi ----
+        // draw big/lazy fish first (they sit lower/behind), small darters on top
+        const order = fish.slice().sort((a, b) => b.size - a.size);
+        for (const f of order) {
+          if (!paused) updateKoi(f, dt);
+          drawKoi(f);
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      function updateKoi(f, dt) {
+        // dart impulse decays; while it's alive, turn toward turnTo and speed up
+        if (f.dart > 0) {
+          f.dart = Math.max(0, f.dart - dt * 1.8);
+          if (f.turnTo != null) {
+            f.heading = angleTo(f.heading, f.turnTo, dt * 6);
+          }
+        }
+
+        // hunger: if food is near, steer toward the nearest pellet
+        const target = nearestFood(f.x, f.y, 260);
+        if (target) {
+          const want = Math.atan2(target.y - f.y, target.x - f.x);
+          f.heading = angleTo(f.heading, want, dt * 2.4);
+          // eat it if close
+          if (Math.hypot(target.x - f.x, target.y - f.y) < f.size * 0.9) {
+            const idx = food.indexOf(target);
+            if (idx >= 0) food.splice(idx, 1);
+            addRipple(f.x, f.y, 10);
+            f.dart = Math.max(f.dart, 0.4); // happy little flick
+          }
+        } else {
+          // gentle wander — occasionally pick a new goal heading
+          if (f.goal == null || Math.random() < 0.004) f.goal = f.heading + rnd(1, -1);
+          f.heading = angleTo(f.heading, f.goal, dt * 0.5);
+        }
+
+        // steer away from the edges so nobody beaches
+        const margin = 60;
+        if (f.x < margin) f.heading = angleTo(f.heading, 0, dt * 3);
+        else if (f.x > W - margin) f.heading = angleTo(f.heading, Math.PI, dt * 3);
+        if (f.y < margin) f.heading = angleTo(f.heading, Math.PI / 2, dt * 3);
+        else if (f.y > H - margin) f.heading = angleTo(f.heading, -Math.PI / 2, dt * 3);
+
+        // speed: base cruise + dart boost. Fat fish cruise slow.
+        const boost = 1 + f.dart * 3.2;
+        const sp = f.baseSpeed * boost;
+        f.x += Math.cos(f.heading) * sp * dt;
+        f.y += Math.sin(f.heading) * sp * dt;
+        f.x = clamp(f.x, 16, W - 16);
+        f.y = clamp(f.y, 16, H - 16);
+      }
+
+      // rotate `from` toward `to` by at most `step` radians (shortest way)
+      function angleTo(from, to, step) {
+        let d = ((to - from + Math.PI) % (2 * Math.PI)) - Math.PI;
+        if (d < -Math.PI) d += 2 * Math.PI;
+        if (Math.abs(d) <= step) return to;
+        return from + Math.sign(d) * step;
+      }
+
+      // ---- interaction -----------------------------------------------------
+      function pondPoint(e) {
+        const r = cv.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+      }
+      cv.addEventListener("pointerdown", (e) => {
+        const { x, y } = pondPoint(e);
+        dropFood(x, y, 3 + ((Math.random() * 3) | 0));
+      });
+
+      feedBtn.addEventListener("click", scatterFood);
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        if (!dot.classList.contains("off"))
+          statusEl.textContent = paused ? "paused" : `${rate} posts/s rippling in · ${fish.length} koi`;
+      });
+      aboutBtn.addEventListener("click", () => aboutEl.classList.add("show"));
+      closeAbout.addEventListener("click", () => aboutEl.classList.remove("show"));
+      aboutEl.addEventListener("click", (e) => {
+        if (e.target === aboutEl) aboutEl.classList.remove("show");
+      });
+
+      window.addEventListener("resize", resize);
+      resize();
+      requestAnimationFrame(frame);
+      connect();
+    </script>
+  </body>
+</html>
