@@ -275,8 +275,10 @@
         you; the handle's <b>own posts</b> become item-cards dropped on the
         floor, rarer the more they got liked — and any post a mutual actually
         <span style="color:#ff6bb0">liked</span> drops as a healing potion.
-        Bump a monster to fight it in <span class="c">turn-based card combat</span>;
-        open the <span class="a">Deck</span> screen anytime to
+        Bump a monster to fight it in <span class="c">turn-based card combat</span> —
+        beat it and it drops loot too, sometimes a potion. Recovery between
+        floors is only partial, so hoard your healing. Between fights, open the
+        <span class="a">Deck</span> screen to
         <b>combine two collected cards into one stronger crafted card</b> — you'll
         need it, something big is guarding the bottom.
       </p>
@@ -498,9 +500,9 @@
         const seed = p.did || p.handle;
         const h = hashStr(seed);
         const baseHp = 8 + floor * 4 + (h % 7);
-        const baseAtk = 3 + floor + (h % 3);
+        const baseAtk = 4 + floor + (h % 3);
         const hpMult = isBoss ? 2.6 : 1;
-        const atkMult = isBoss ? 1.8 : 1;
+        const atkMult = isBoss ? 2 : 1;
         const label = p.displayName || p.handle || "wild process";
         return {
           handle: p.handle || "",
@@ -565,7 +567,7 @@
           const roll = rng();
           if (roll < 0.45) monsters.push({ ...spawnMonster(monsterPool, floor, rng, false), x: c.x, y: c.y });
           else if (roll < 0.68) items.push({ card: spawnItemCard(postPool, rng), x: c.x, y: c.y, taken: false });
-          else if (roll < 0.84 && potionPool.length) items.push({ card: spawnPotionCard(potionPool, rng), x: c.x, y: c.y, taken: false });
+          else if (roll < 0.87 && potionPool.length) items.push({ card: spawnPotionCard(potionPool, rng), x: c.x, y: c.y, taken: false });
         }
         let boss = null, stairs = null;
         const lastRoom = layout.rooms[layout.rooms.length - 1];
@@ -637,7 +639,8 @@
         player.y = floorState.start.y;
         if (n > 1) {
           player.maxHp += 4;
-          player.hp = player.maxHp;
+          const rest = Math.round(player.maxHp * 0.35);
+          player.hp = Math.min(player.maxHp, player.hp + rest);
         }
         log(`<span class="amber">— GEN ${n} / ${TOTAL_FLOORS} —</span>` + (n === TOTAL_FLOORS ? " something big is down here." : ""), "amber");
       }
@@ -803,21 +806,47 @@
         clog(`<b>${monster.isBoss ? "the guardian" : "a mutual"} blocks the way:</b> ${monster.name}.`, "mo");
         mapPanel.classList.add("hidden");
         combatEl.classList.add("on");
+        updateDeckButtons();
         renderCombat();
       }
       function endCombat() {
         combat = null;
         mapPanel.classList.remove("hidden");
         combatEl.classList.remove("on");
+        updateDeckButtons();
         renderAll();
+      }
+      function updateDeckButtons() {
+        const dis = !!combat;
+        deckBtn.disabled = dis;
+        deckBtn2.disabled = dis;
+        deckBtn.title = dis ? "can't forge mid-fight" : "";
+        deckBtn2.title = deckBtn.title;
+      }
+      function dropLoot(m, wasBoss) {
+        const havePotions = cluster.potions.length > 0;
+        const havePosts = cluster.posts.length > 0;
+        if (!havePotions && !havePosts) return;
+        const potionChance = wasBoss ? 0.75 : 0.4;
+        const wantPotion = havePotions && (!havePosts || rng() < potionChance);
+        const card = wantPotion ? spawnPotionCard(cluster.potions, rng) : spawnItemCard(cluster.posts, rng);
+        if (wasBoss) card.power = Math.round(card.power * 1.3);
+        deck.push(card);
+        drawPile.unshift(card.id);
+        if (card.kind === "potion") {
+          log(`<b style="color:${m.tint}">${m.name}</b> drops a <b style="color:#ff6bb0">${card.name}</b> <span class="amber">[${TIER_NAMES[card.tier]}]</span> — heals ${card.power}.`, "amber");
+        } else {
+          log(`<b style="color:${m.tint}">${m.name}</b> drops <b style="color:${TIER_COLORS[card.tier]}">${card.name}</b> <span class="amber">[${TIER_NAMES[card.tier]}]</span> — power ${card.power}.`, "amber");
+        }
       }
       function winCombat() {
         const m = combat.monster;
         m.alive = false;
         const wasBoss = m.isBoss;
-        player.hp = Math.min(player.maxHp, player.hp + 3);
+        player.hp = Math.min(player.maxHp, player.hp + 2);
         defeated.push(m.name);
         log(`defeated <b style="color:${m.tint}">${m.name}</b>.`, "good");
+        dropLoot(m, wasBoss);
         endCombat();
         if (wasBoss) showWin();
       }
@@ -826,6 +855,7 @@
         combat = null;
         mapPanel.classList.remove("hidden");
         combatEl.classList.remove("on");
+        updateDeckButtons();
         showLose();
       }
       function playCard(id) {
@@ -909,6 +939,7 @@
       // ── deck / forge modal ─────────────────────────────────────────────
       let craftSel = [];
       function openDeck() {
+        if (combat) return;
         craftSel = [];
         renderDeckModal();
         deckModal.classList.add("on");
