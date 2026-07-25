@@ -121,6 +121,31 @@
       }
       .keys b { color: var(--ink); }
 
+      .minimap-frame {
+        position: fixed;
+        right: 14px; top: 76px;
+        z-index: 5;
+        width: 128px; height: 128px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: rgba(11, 12, 26, 0.55);
+        border: 1px solid rgba(205, 214, 255, 0.3);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+      }
+      .minimap-label {
+        position: absolute;
+        left: 50%; top: 4px;
+        transform: translateX(-50%);
+        font-size: 0.58rem;
+        letter-spacing: 0.6px;
+        color: #8d95c4;
+        text-transform: uppercase;
+        z-index: 1;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      }
+      #minimap { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
       .about {
         position: fixed;
         inset: 0;
@@ -167,10 +192,15 @@
     <div class="hud">
       <h1>🪮 cowlick</h1>
       <p class="sub">
-        drag across the fur to <b>comb</b> it flat along your stroke — it springs back
-        slowly · drag empty space (or the edges) to <b>look around</b> ·
+        drag across the fur to <b>comb</b> it flat along your stroke — it <b>stays</b>
+        combed, no spring-back · drag empty space (or the edges) to <b>look around</b> ·
         <span id="theoryNote"></span>
       </p>
+    </div>
+
+    <div class="minimap-frame">
+      <span class="minimap-label">map</span>
+      <canvas id="minimap"></canvas>
     </div>
 
     <div class="keys">
@@ -184,6 +214,9 @@
         <button data-surface="torus">torus</button>
         <button data-surface="knot">knot</button>
         <button data-surface="gem">gem</button>
+      </div>
+      <div class="panel">
+        <button id="shakeBtn" title="reset the fur to its natural, uncombed state">🌀 shake out</button>
       </div>
     </div>
 
@@ -206,15 +239,18 @@
           for the singularity.
         </p>
         <p>
-          Drag across the fur to comb it — it remembers your stroke and relaxes
-          back over a few seconds. Drag empty space to look around, WASD to fly,
-          Q/E for up and down, shift to boost. Custom WebGL vertex shader bends
+          Drag across the fur to comb it — the bend <b>stays put</b>, permanently, so
+          your strokes build up into a real groomed pattern (and reveal the cowlick).
+          Hit <b>shake out</b> to reset the fur, or use the map in the corner to spot
+          where you've combed from above. Drag empty space to look around, WASD to
+          fly, Q/E for up and down, shift to boost. Custom WebGL vertex shader bends
           every strand; nothing here is a texture.
         </p>
         <p style="font-size: 0.84rem; color: #9aa0c9">
           Built by the <a href="https://bisks.net" target="_blank" rel="noopener">@buildthis</a>
           bot after @antiali.as asked for "a cozy fidget asmr toy: comb a hairy
-          sphere with your finger — cf sphere vector field theory."
+          sphere with your finger — cf sphere vector field theory," then asked for
+          a true cowlick (no spring-back) and a minimap.
         </p>
         <button class="close" id="closeAbout">start combing</button>
       </div>
@@ -227,13 +263,11 @@
       attribute vec3 aNormal;
       attribute vec3 aTangent;
       attribute vec3 aCombDir;
-      attribute float aCombTime;
       attribute float aCombStrength;
       attribute float aSeed;
       attribute float aLen;
 
       uniform float uTime;
-      uniform float uDecay;
       uniform float uMaxBend;
       uniform float uWindAmp;
       uniform float uWindFreq;
@@ -247,8 +281,7 @@
         float t = position.y;
         float side = position.x;
 
-        float age = max(0.0, uTime - aCombTime);
-        float amt = clamp(aCombStrength * exp(-age * uDecay), 0.0, 1.0);
+        float amt = clamp(aCombStrength, 0.0, 1.0);
 
         float windPhase = uTime * uWindFreq + aSeed * 6.2831853;
         float windAmt = uWindAmp * (0.5 + 0.5 * sin(windPhase));

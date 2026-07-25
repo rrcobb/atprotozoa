@@ -1,8 +1,9 @@
 // ======================================================================
 // cowlick — comb a hairy 3D surface with your finger/mouse.
-//   • drag across the fur to comb it flat along your stroke (bend decays
-//     back over a few seconds — a per-hair "vector field with memory")
+//   • drag across the fur to comb it flat along your stroke — the bend is
+//     permanent (no spring-back); "shake out" resets it
 //   • drag empty space to look around; WASD/QE fly the camera
+//   • a round top-down minimap tracks your position + grooming
 // Pure browser, three.js via CDN ESM import map. No secrets, no server.
 // ======================================================================
 
@@ -20,6 +21,8 @@ const aboutBtn = document.getElementById("aboutBtn");
 const aboutEl = document.getElementById("about");
 const closeAbout = document.getElementById("closeAbout");
 const surfacePanel = document.getElementById("surfacePanel");
+const shakeBtn = document.getElementById("shakeBtn");
+const minimapCanvas = document.getElementById("minimap");
 
 const HAIR_COUNT = window.innerWidth < 700 ? 2200 : 5200;
 const HAIR_HEIGHT_SEGS = 5;
@@ -80,7 +83,6 @@ const hairMaterial = new THREE.ShaderMaterial({
   side: THREE.DoubleSide,
   uniforms: {
     uTime: { value: 0 },
-    uDecay: { value: 0.35 },
     uMaxBend: { value: 1.45 },
     uWindAmp: { value: 0.05 },
     uWindFreq: { value: 0.35 },
@@ -96,6 +98,38 @@ const skinMaterial = new THREE.MeshStandardMaterial({
   roughness: 0.85,
   metalness: 0.05,
 });
+
+// ---- minimap: top-down view of the surface + a marker for the camera -----
+const MINIMAP_LAYER = 1;
+const minimapRenderer = new THREE.WebGLRenderer({ canvas: minimapCanvas, antialias: true, alpha: true });
+const minimapCam = new THREE.OrthographicCamera(-2, 2, 2, -2, 0.1, 40);
+minimapCam.position.set(0, 12, 0.0001);
+minimapCam.up.set(0, 0, -1);
+minimapCam.lookAt(0, 0, 0);
+minimapCam.layers.enable(MINIMAP_LAYER);
+
+const markerGeo = new THREE.BufferGeometry();
+markerGeo.setAttribute(
+  "position",
+  new THREE.Float32BufferAttribute([0, 0, -0.22, -0.11, 0, 0.13, 0.11, 0, 0.13], 3)
+);
+const markerMat = new THREE.MeshBasicMaterial({ color: 0xffd28a, depthTest: false });
+const marker = new THREE.Mesh(markerGeo, markerMat);
+marker.layers.set(MINIMAP_LAYER);
+marker.renderOrder = 999;
+scene.add(marker);
+
+function resizeMinimap() {
+  const cssSize = minimapCanvas.clientWidth || 128;
+  minimapRenderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  minimapRenderer.setSize(cssSize, cssSize, false);
+}
+
+function updateMinimap() {
+  marker.position.set(camPos.x, 0, camPos.z);
+  marker.rotation.y = yaw;
+  minimapRenderer.render(scene, minimapCam);
+}
 
 function buildHairGeometry(heightSegs) {
   const rows = heightSegs + 1;
@@ -120,7 +154,6 @@ let surfaceMesh = null;
 let hairMesh = null;
 let roots = null; // Float32Array, world-space hair roots (object space == world here)
 let combDirArr = null;
-let combTimeArr = null;
 let combStrengthArr = null;
 let brushRadius = 0.4;
 let elapsed = 0;
@@ -153,6 +186,14 @@ function setSurface(kind) {
   surfaceMesh = new THREE.Mesh(surfGeo, skinMaterial);
   scene.add(surfaceMesh);
 
+  surfGeo.computeBoundingSphere();
+  const mapExtent = surfGeo.boundingSphere.radius + 0.35;
+  minimapCam.left = -mapExtent;
+  minimapCam.right = mapExtent;
+  minimapCam.top = mapExtent;
+  minimapCam.bottom = -mapExtent;
+  minimapCam.updateProjectionMatrix();
+
   const sampler = new MeshSurfaceSampler(surfaceMesh).build();
 
   const count = HAIR_COUNT;
@@ -160,7 +201,6 @@ function setSurface(kind) {
   const normals = new Float32Array(count * 3);
   const tangents = new Float32Array(count * 3);
   combDirArr = new Float32Array(count * 3);
-  combTimeArr = new Float32Array(count).fill(-1e6);
   combStrengthArr = new Float32Array(count).fill(0);
   const seedArr = new Float32Array(count);
   const lenArr = new Float32Array(count);
@@ -185,7 +225,6 @@ function setSurface(kind) {
   geo.setAttribute("aNormal", new THREE.InstancedBufferAttribute(normals, 3));
   geo.setAttribute("aTangent", new THREE.InstancedBufferAttribute(tangents, 3));
   geo.setAttribute("aCombDir", new THREE.InstancedBufferAttribute(combDirArr, 3).setUsage(THREE.DynamicDrawUsage));
-  geo.setAttribute("aCombTime", new THREE.InstancedBufferAttribute(combTimeArr, 1).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("aCombStrength", new THREE.InstancedBufferAttribute(combStrengthArr, 1).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seedArr, 1));
   geo.setAttribute("aLen", new THREE.InstancedBufferAttribute(lenArr, 1));
@@ -334,17 +373,23 @@ function applyBrush(point, dir) {
     const d = Math.sqrt(d2);
     const falloff = 1 - d / brushRadius;
     combDirArr[i3] = dir.x; combDirArr[i3 + 1] = dir.y; combDirArr[i3 + 2] = dir.z;
-    combTimeArr[i] = elapsed;
     combStrengthArr[i] = Math.max(combStrengthArr[i] * 0.4, falloff);
     touched = true;
   }
   if (touched) {
     const geo = hairMesh.geometry;
     geo.attributes.aCombDir.needsUpdate = true;
-    geo.attributes.aCombTime.needsUpdate = true;
     geo.attributes.aCombStrength.needsUpdate = true;
   }
 }
+
+function shakeOut() {
+  if (!hairMesh) return;
+  combStrengthArr.fill(0);
+  const geo = hairMesh.geometry;
+  geo.attributes.aCombStrength.needsUpdate = true;
+}
+shakeBtn.addEventListener("click", shakeOut);
 
 // ---- surface switcher UI --------------------------------------------------
 surfacePanel.addEventListener("click", (e) => {
@@ -367,6 +412,7 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
+  resizeMinimap();
 }
 addEventListener("resize", resize);
 
@@ -381,6 +427,7 @@ function frame(ts) {
   hairMaterial.uniforms.uTime.value = elapsed;
 
   renderer.render(scene, camera);
+  updateMinimap();
   requestAnimationFrame(frame);
 }
 
