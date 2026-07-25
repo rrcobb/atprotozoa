@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>erdosproof — an Erdős breakthrough machine — bisks.net</title>
+    <meta
+      name="description"
+      content="Pick a real, currently-open Erdős problem and hit 'attempt breakthrough' for an absurd mad-libs proof, a rotating peer-review reaction, and an occasional retraction. The math is real; the proofs are not."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://erdosproof.bisks.net/" />
+    <meta property="og:title" content="erdosproof — an Erdős breakthrough machine" />
+    <meta
+      property="og:description"
+      content="Pick a real open Erdős problem. Hit attempt breakthrough. Get an absurd proof, a skeptical peer reviewer, and sometimes a retraction. Solves nothing; very confident about it."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="erdosproof — an Erdős breakthrough machine" />
+    <meta
+      name="twitter:description"
+      content="Pick a real open Erdős problem. Hit attempt breakthrough. Get an absurd proof, a skeptical peer reviewer, and sometimes a retraction."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as declined / idea-mill / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --gold: #9a7b12;
+        --goldbg: #fdf8ec;
+        --no: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── the console: problem picker + button ──────────────────────── */
+      .console {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem; margin-bottom: 1.5rem;
+      }
+      .console label {
+        display: block; font-size: 0.68rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.55rem;
+      }
+      select#problem {
+        width: 100%; font-family: inherit; font-size: 0.95rem; color: var(--ink);
+        background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.6rem 0.7rem;
+      }
+      #statement {
+        margin: 0.75rem 0 0; color: var(--muted); font-size: 0.85rem; line-height: 1.6;
+      }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
+
+      button {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 1.05rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; line-height: 1;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      button.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover { background: var(--faintbg); }
+      .hint { color: var(--muted); font-size: 0.78rem; }
+
+      /* ── the paper ─────────────────────────────────────────────────── */
+      #stage { min-height: 1rem; margin-bottom: 2.25rem; }
+
+      .thinking {
+        display: inline-flex; align-items: center; gap: 0.55rem;
+        color: var(--muted); font-size: 0.92rem;
+      }
+      .thinking .dots span {
+        display: inline-block; animation: blink 1.2s infinite;
+      }
+      .thinking .dots span:nth-child(2) { animation-delay: 0.2s; }
+      .thinking .dots span:nth-child(3) { animation-delay: 0.4s; }
+      @keyframes blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+
+      .paper {
+        border: 1px solid var(--gold); border-radius: 6px; overflow: hidden;
+        animation: stamp 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      .paper.retracted { border-color: var(--no); }
+      @keyframes stamp {
+        0% { opacity: 0; transform: scale(1.04) rotate(-0.4deg); }
+        100% { opacity: 1; transform: none; }
+      }
+      .paper .top {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 0.75rem; background: var(--goldbg); border-bottom: 1px solid var(--gold);
+        padding: 0.7rem 1.1rem;
+      }
+      .paper.retracted .top { background: #fdf0ee; border-bottom-color: var(--no); }
+      .paper .top .arxiv {
+        color: var(--muted); font-size: 0.78rem; min-width: 0;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .paper .stamp {
+        flex: none; color: var(--gold); border: 2px solid var(--gold);
+        border-radius: 4px; font-weight: 700; font-size: 0.78rem;
+        letter-spacing: 0.08em; padding: 0.18rem 0.5rem;
+        transform: rotate(-4deg);
+      }
+      .paper.retracted .stamp { color: var(--no); border-color: var(--no); }
+      .paper .body { padding: 1.1rem 1.1rem 1.2rem; }
+      .paper .headline { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.6rem; line-height: 1.4; }
+      .paper .abstractlbl {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); margin: 0 0 0.3rem;
+      }
+      .paper .abstract { margin: 0 0 0.9rem; line-height: 1.6; }
+      .paper .review {
+        margin: 0; color: var(--muted); font-size: 0.82rem;
+        border-top: 1px solid var(--faint); padding-top: 0.8rem;
+      }
+      .paper .review b { color: var(--ink); font-weight: 600; }
+      .paper .retractnote {
+        margin: 0.7rem 0 0; color: var(--no); font-size: 0.82rem; font-weight: 600;
+      }
+
+      /* ── the tally ─────────────────────────────────────────────────── */
+      .tally {
+        display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+        margin-bottom: 0.5rem;
+      }
+      .tally .num {
+        font-size: 1.6rem; font-weight: 700; color: var(--gold);
+        font-variant-numeric: tabular-nums;
+      }
+      .tally .lbl { color: var(--muted); font-size: 0.85rem; }
+      .mood { color: var(--muted); font-size: 0.78rem; margin: 0 0 1.4rem; }
+
+      /* ── the ledger of past papers ─────────────────────────────────── */
+      .ledgerhead { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.5rem; }
+      #ledger { list-style: none; margin: 0; padding: 0; }
+      #ledger li {
+        border-top: 1px solid var(--faint); padding: 0.8rem 0;
+        display: flex; gap: 0.9rem; align-items: flex-start;
+        animation: drop 0.3s ease-out;
+      }
+      #ledger li:first-child { border-top: 1px solid var(--ink); }
+      @keyframes drop {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: none; }
+      }
+      #ledger .p { flex: 1; min-width: 0; }
+      #ledger .p .t { margin: 0; word-break: break-word; }
+      #ledger .p .r { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.8rem; }
+      #ledger .tag {
+        flex: none; color: var(--gold); border: 1px solid var(--gold);
+        border-radius: 3px; font-size: 0.7rem; font-weight: 700;
+        letter-spacing: 0.05em; padding: 0.15rem 0.4rem; white-space: nowrap;
+      }
+      #ledger .tag.no { color: var(--no); border-color: var(--no); }
+      .empty { color: var(--muted); font-size: 0.85rem; padding: 0.8rem 0; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>erdosproof <span class="slash">· an Erdős breakthrough machine</span></h1>
+      <p class="intro">
+        <b>@buildthis.bisks.net</b> was asked to solve an open Erdős problem.
+        It can't — nobody's bot can, that's the whole point of these problems
+        still being open — so here's the honest version instead: pick a real,
+        currently-open problem below (simplified, sourced from
+        <a href="https://www.erdosproblems.com" target="_blank" rel="noopener">erdosproblems.com</a>)
+        and hit <b>attempt breakthrough</b> for an absurd proof, a skeptical
+        reviewer, and — sometimes — a retraction. The problems are real. The
+        proofs are not.
+      </p>
+
+      <section class="console">
+        <label for="problem">pick a problem</label>
+        <select id="problem"></select>
+        <p id="statement"></p>
+        <div class="btnrow">
+          <button id="attempt">attempt breakthrough</button>
+          <button class="ghost" id="surprise">surprise me</button>
+          <span class="hint">it will not solve it</span>
+        </div>
+      </section>
+
+      <div id="stage" aria-live="polite"></div>
+
+      <div class="tally">
+        <span class="num" id="count">0</span>
+        <span class="lbl">breakthroughs claimed so far</span>
+      </div>
+      <p class="mood" id="mood">peer review has not yet weighed in.</p>
+
+      <h2 class="ledgerhead">the preprint server</h2>
+      <ul id="ledger"></ul>
+      <p class="empty" id="empty">nothing submitted yet. pick a problem above.</p>
+
+      <footer>
+        <p>
+          <b>Nothing here is real mathematics — that's the whole site.</b>
+          Descriptions are simplified for a webpage and status can change: Erdős
+          problems get resolved out from under lists like this one all the time
+          (the discrepancy problem, the distinct distances problem, and covering
+          congruences all fell in the last decade or so). Check
+          <a href="https://www.erdosproblems.com" target="_blank" rel="noopener">erdosproblems.com</a>
+          for the primary source, and please don't cite this page in an actual paper.
+        </p>
+        <p>
+          built for <a href="https://bsky.app/profile/dollspace.gay">@dollspace.gay</a>,
+          who asked <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>
+          for a breakthrough. part of <a href="https://bisks.net">bisks.net</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { PROBLEMS, attemptBreakthrough } from "./lib/breakthrough.js";
+
+      const problemSel = document.getElementById("problem");
+      const statementEl = document.getElementById("statement");
+      const attemptBtn = document.getElementById("attempt");
+      const surpriseBtn = document.getElementById("surprise");
+      const stage = document.getElementById("stage");
+      const countEl = document.getElementById("count");
+      const moodEl = document.getElementById("mood");
+      const ledger = document.getElementById("ledger");
+      const emptyEl = document.getElementById("empty");
+
+      PROBLEMS.forEach((p, i) => {
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = `${p.name} (${p.field})`;
+        problemSel.appendChild(o);
+      });
+
+      function esc(s) {
+        return s.replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+        );
+      }
+
+      function showStatement() {
+        const p = PROBLEMS[Number(problemSel.value)];
+        statementEl.textContent = p.statement;
+      }
+      problemSel.addEventListener("change", showStatement);
+      showStatement();
+
+      let count = 0;
+      let retractions = 0;
+      let busy = false;
+
+      const MOODS = [
+        "peer review has not yet weighed in.",
+        "one journal has expressed mild interest.",
+        "the field is starting to talk.",
+        "you have, at this point, a body of work.",
+      ];
+      function moodFor(n) {
+        if (n < 2) return MOODS[0];
+        if (n < 5) return MOODS[1];
+        if (n < 10) return MOODS[2];
+        return MOODS[3];
+      }
+
+      function renderPaper(problem, r) {
+        stage.innerHTML =
+          '<div class="paper' + (r.retracted ? " retracted" : "") + '">' +
+          '<div class="top">' +
+          '<span class="arxiv">' + esc(r.id) + " · " + esc(r.field) + "</span>" +
+          '<span class="stamp">' + (r.retracted ? "RETRACTED" : "PREPRINT") + "</span>" +
+          "</div>" +
+          '<div class="body">' +
+          '<p class="headline">' + esc(r.title) + "</p>" +
+          '<p class="abstractlbl">abstract</p>' +
+          '<p class="abstract">' + esc(r.abstract) + "</p>" +
+          '<p class="review">' + esc(r.review) + "</p>" +
+          (r.retracted
+            ? '<p class="retractnote">Retracted three days later. The problem, as ever, remains open.</p>'
+            : "") +
+          "</div></div>";
+      }
+
+      function pushLedger(problem, r) {
+        emptyEl.style.display = "none";
+        const li = document.createElement("li");
+        const wrap = document.createElement("div");
+        wrap.className = "p";
+        const t = document.createElement("p");
+        t.className = "t";
+        t.textContent = r.title;
+        const reason = document.createElement("p");
+        reason.className = "r";
+        reason.textContent = problem.name;
+        wrap.append(t, reason);
+        const tag = document.createElement("span");
+        tag.className = "tag" + (r.retracted ? " no" : "");
+        tag.textContent = r.retracted ? "retracted" : "holds";
+        li.append(wrap, tag);
+        ledger.prepend(li);
+      }
+
+      function attempt() {
+        if (busy) return;
+        const idx = Number(problemSel.value);
+        const problem = PROBLEMS[idx];
+
+        busy = true;
+        attemptBtn.disabled = true;
+        surpriseBtn.disabled = true;
+
+        stage.innerHTML =
+          '<div class="thinking">Attempting a breakthrough' +
+          ' <span class="dots"><span>.</span><span>.</span><span>.</span></span></div>';
+
+        setTimeout(() => {
+          const r = attemptBreakthrough(problem);
+          renderPaper(problem, r);
+          pushLedger(problem, r);
+          count += 1;
+          if (r.retracted) retractions += 1;
+          countEl.textContent = String(count);
+          moodEl.textContent =
+            moodFor(count) + (retractions ? ` (${retractions} retracted so far)` : "");
+          busy = false;
+          attemptBtn.disabled = false;
+          surpriseBtn.disabled = false;
+        }, 850 + Math.random() * 650);
+      }
+
+      attemptBtn.addEventListener("click", attempt);
+      surpriseBtn.addEventListener("click", () => {
+        problemSel.selectedIndex = Math.floor(Math.random() * PROBLEMS.length);
+        showStatement();
+        attempt();
+      });
+    </script>
+  </body>
+</html>
