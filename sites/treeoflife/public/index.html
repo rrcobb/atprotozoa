@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tree of life — bisks.net</title>
+    <meta
+      name="description"
+      content="Every Bluesky DID hashes to a fixed species in a real taxonomy — the same species, for everyone, forever. Type a handle and see its network laid out as a kingdom-to-species tree of life."
+    />
+    <!-- Same plain house look as neighborhood / alignment-chart: black on
+         white, one readable mono, hairline rules, blue accent. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      form.hunt { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button.go {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button.go:hover:not(:disabled) { background: #000; }
+      button.go:disabled { opacity: 0.4; cursor: default; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.6rem 0 0; }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      .you {
+        display: none; margin: 1.8rem 0; padding: 1rem 1.1rem;
+        border: 1px solid var(--ink); border-radius: 5px; background: var(--faintbg);
+      }
+      .you.show { display: block; }
+      .you .yk { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      .you .yn { font-size: 1.15rem; font-weight: 700; margin: 0.2rem 0; }
+      .you .yb { font-style: italic; color: var(--muted); }
+      .you .yr { color: var(--muted); font-size: 0.82rem; margin-top: 0.3rem; }
+
+      .stats { color: var(--muted); font-size: 0.8rem; margin: 1.6rem 0 0.6rem; }
+
+      /* the tree itself: nested <details>, indented one step per rank */
+      .tree { margin: 0.5rem 0 0; font-size: 0.88rem; }
+      .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+      .tree > li { margin: 0; }
+      .node { margin: 0; }
+      .node > summary {
+        cursor: pointer; padding: 0.3rem 0.1rem; color: var(--ink);
+        list-style: none; display: flex; align-items: baseline; gap: 0.5rem;
+      }
+      .node > summary::-webkit-details-marker { display: none; }
+      .node > summary::before {
+        content: "▸"; color: var(--muted); font-size: 0.7rem;
+        transition: transform 0.1s ease; display: inline-block; width: 0.8em;
+      }
+      .node[open] > summary::before { transform: rotate(90deg); }
+      .rank { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      .name { font-weight: 600; }
+      .count { color: var(--accent); font-size: 0.78rem; }
+      .kids { margin-left: 1.05rem; padding-left: 0.7rem; border-left: 1px solid var(--faint); }
+
+      .leaf { margin-left: 1.05rem; padding: 0.35rem 0 0.35rem 0.7rem; border-left: 1px solid var(--faint); }
+      .leaf .binomial { font-style: italic; color: var(--muted); }
+      .people { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; margin: 0.35rem 0 0.15rem; }
+      .person {
+        display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none;
+        color: var(--ink); border: 1px solid var(--faint); border-radius: 12px;
+        padding: 0.1rem 0.55rem 0.1rem 0.15rem; font-size: 0.78rem; background: var(--bg);
+      }
+      .person:hover { border-color: var(--accent); color: var(--accent); }
+      .person img { width: 1.15rem; height: 1.15rem; border-radius: 50%; background: var(--faintbg); }
+      .person.self { border-color: var(--ink); font-weight: 700; }
+
+      .empty { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>tree of life <span class="slash">· a taxonomy of your network</span></h1>
+      <p class="intro">
+        Every Bluesky DID hashes to one fixed species out of a real, ~120-species
+        taxonomy — <b>the same species for everyone, forever</b>: no login, no
+        randomness, no per-visitor lookup, just a pure function of the DID. Type
+        a handle and see it — and its network — laid out as an actual
+        kingdom → phylum → class → order → family → genus → species tree.
+      </p>
+
+      <form class="hunt" id="form" autocomplete="off">
+        <label class="lbl" for="handle">a bluesky handle</label>
+        <div class="searchrow">
+          <input
+            type="text"
+            id="handle"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button class="go" id="go" type="submit">classify</button>
+        </div>
+        <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login.</p>
+      </form>
+
+      <div class="you" id="you">
+        <div class="yk">you are</div>
+        <div class="yn" id="youName"></div>
+        <div class="yb" id="youBinomial"></div>
+        <div class="yr" id="youRank"></div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+      <div id="treeHost"></div>
+
+      <footer>
+        stable species assignment is a straight hash of the DID into a fixed
+        table (see <code>lib/life.js</code>) — network built the same way as
+        <a href="https://neighborhood.bisks.net">neighborhood</a> (mutuals,
+        widened to follows for small accounts). sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { network, speciesForDid, buildTree } from "./lib/life.js";
+
+      const form = document.getElementById("form");
+      const input = document.getElementById("handle");
+      const msg = document.getElementById("msg");
+      const go = document.getElementById("go");
+      const you = document.getElementById("you");
+      const youName = document.getElementById("youName");
+      const youBinomial = document.getElementById("youBinomial");
+      const youRank = document.getElementById("youRank");
+      const stats = document.getElementById("stats");
+      const treeHost = document.getElementById("treeHost");
+
+      const initial = new URLSearchParams(location.search).get("h") || "";
+      if (initial) input.value = initial;
+
+      const RESTING = "reads Bluesky's public graph in your browser — no login.";
+
+      function personChip(p, isSelf) {
+        const a = document.createElement("a");
+        a.className = "person" + (isSelf ? " self" : "");
+        a.href = `https://bsky.app/profile/${p.handle}`;
+        a.target = "_blank";
+        a.rel = "noopener";
+        if (p.avatar) {
+          const img = document.createElement("img");
+          img.src = p.avatar;
+          img.alt = "";
+          img.loading = "lazy";
+          a.appendChild(img);
+        }
+        a.appendChild(document.createTextNode(p.displayName || p.handle));
+        return a;
+      }
+
+      function countOf(node) {
+        if (node.rank === "species") return node.people.length;
+        let n = 0;
+        for (const kid of node.children.values()) n += countOf(kid);
+        return n;
+      }
+
+      function renderNode(node, selfDid) {
+        if (node.rank === "species") {
+          const li = document.createElement("li");
+          const box = document.createElement("div");
+          box.className = "leaf";
+          const head = document.createElement("div");
+          head.innerHTML =
+            `<span class="name">${node.name}</span> ` +
+            `<span class="binomial">${node.binomial}</span> ` +
+            `<span class="count">×${node.people.length}</span>`;
+          box.appendChild(head);
+          const row = document.createElement("div");
+          row.className = "people";
+          for (const p of node.people) {
+            row.appendChild(personChip(p, p.did === selfDid));
+          }
+          box.appendChild(row);
+          li.appendChild(box);
+          return li;
+        }
+
+        const kids = [...node.children.values()].sort(
+          (a, b) => countOf(b) - countOf(a) || a.name.localeCompare(b.name),
+        );
+        const total = countOf(node);
+
+        const li = document.createElement("li");
+        const details = document.createElement("details");
+        details.className = "node";
+        details.open = node.rank === "root" || kids.length <= 3;
+        const summary = document.createElement("summary");
+        summary.innerHTML =
+          (node.rank !== "root" ? `<span class="rank">${node.rank}</span> ` : "") +
+          `<span class="name">${node.name}</span> ` +
+          `<span class="count">×${total}</span>`;
+        details.appendChild(summary);
+        const ul = document.createElement("ul");
+        ul.className = "kids";
+        for (const kid of kids) ul.appendChild(renderNode(kid, selfDid));
+        details.appendChild(ul);
+        li.appendChild(details);
+        return li;
+      }
+
+      async function run(handleRaw) {
+        const handle = handleRaw.trim();
+        if (!handle) {
+          input.focus();
+          return;
+        }
+        go.disabled = true;
+        msg.className = "msg";
+        you.classList.remove("show");
+        stats.textContent = "";
+        treeHost.replaceChildren();
+        try {
+          msg.textContent = `resolving @${handle.replace(/^@/, "")}…`;
+          const net = await network(handle, { onStep: (t) => (msg.textContent = t) });
+
+          const mySpecies = speciesForDid(net.did);
+          youName.textContent = `${mySpecies.common} — ${net.handle}`;
+          youBinomial.textContent = mySpecies.binomial;
+          youRank.textContent =
+            `${mySpecies.kingdom} › ${mySpecies.phylum} › ${mySpecies.class} › ` +
+            `${mySpecies.order} › ${mySpecies.family} › ${mySpecies.genus}`;
+          you.classList.add("show");
+
+          const people = net.pool.map((p) => ({ ...p }));
+          if (!people.length) {
+            treeHost.innerHTML =
+              '<p class="empty">no network to classify yet — follow a few people and come back.</p>';
+          } else {
+            const tree = buildTree(people);
+            const rootUl = document.createElement("ul");
+            rootUl.className = "tree";
+            rootUl.appendChild(renderNode(tree, net.did));
+            treeHost.replaceChildren(rootUl);
+          }
+
+          stats.textContent =
+            `${net.counts.pool} account${net.counts.pool === 1 ? "" : "s"} classified ` +
+            `(${net.kind}, from ${net.counts.follows} follows / ${net.counts.followers} followers)`;
+
+          msg.className = "msg ok";
+          msg.textContent = `classified @${net.handle}.`;
+        } catch (err) {
+          msg.className = "msg err";
+          msg.textContent =
+            err && err.message ? `couldn't do that — ${err.message}` : "couldn't classify that handle.";
+        } finally {
+          go.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+      input.addEventListener("input", () => {
+        msg.className = "msg";
+        msg.textContent = RESTING;
+      });
+
+      if (initial) run(initial);
+    </script>
+  </body>
+</html>
