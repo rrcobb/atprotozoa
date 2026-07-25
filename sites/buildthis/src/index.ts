@@ -1117,17 +1117,39 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   const recentWindow = events.slice(0, 20);
   let successes = 0,
     failures = 0;
-  const deadLinks: string[] = []; // recent successes the box couldn't verify live
+  // Candidates for the dead-link check: recent successes the box couldn't verify
+  // live at build time (liveVerified===false). But that's often just new-custom-
+  // -domain lag — the cert/DNS provisions a minute or two after the box's 90s
+  // window (favstar and mahjong-solitaire both did this, then came up fine). So we
+  // don't flag on the stored flag alone; we RE-PROBE the URL live below and only
+  // flag the ones STILL down. undefined liveVerified = older record from before the
+  // check existed — not a candidate.
+  const deadLinkCandidates: Array<{ name: string; url: string }> = [];
   for (const e of recentWindow) {
     if (e.outcome?.status === "success") {
       successes++;
-      // A success whose URL never served after deploy — a broken deploy the bot
-      // still linked. liveVerified===false is the explicit "checked and it wasn't
-      // up" (undefined = older record from before the check, don't flag those).
       if (e.outcome.liveVerified === false && e.outcome.builtName) {
-        deadLinks.push(e.outcome.builtName);
+        deadLinkCandidates.push({
+          name: e.outcome.builtName,
+          url: e.outcome.url || `https://${e.outcome.builtName.split("/")[0]}.bisks.net`,
+        });
       }
     } else if (e.outcome?.status === "failure") failures++;
+  }
+
+  // Re-probe each candidate live: a site that serves NOW has recovered (new-domain
+  // provisioning lag), so it isn't a real dead link. Only URLs still not serving are
+  // flagged. Bounded work — the candidate set is tiny (recent unverified successes).
+  const deadLinks: string[] = [];
+  for (const c of deadLinkCandidates) {
+    let live = false;
+    try {
+      const r = await fetch(c.url, { method: "GET", redirect: "manual" });
+      live = r.status >= 200 && r.status < 400;
+    } catch {
+      live = false; // couldn't reach it — treat as still down
+    }
+    if (!live) deadLinks.push(c.name);
   }
 
   // Roll up the issues. `ok` is false if any of these fire.
