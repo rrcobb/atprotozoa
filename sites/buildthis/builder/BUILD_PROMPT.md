@@ -24,3 +24,10 @@ reply falls back to the plain "built it" line. BUILD_NOTE is gitignored, same as
 BUILD_RESULT. If the request is purely to EXPLAIN an existing site (no build or
 change asked for), the note IS the deliverable: write BUILD_NOTE with your answer,
 set BUILD_RESULT to that site's name so the reply links it, and change nothing else.
+
+If the tag ISN'T really a build request at all — banter, a question, a greeting, a
+thread with nothing to make a site from — don't force a bad build: write ONLY a
+BUILD_NOTE (a small, friendly, maybe-cheeky reply) and NO BUILD_RESULT, and the reply
+step will post your note instead of an "couldn't build that" failure. See the "When
+the tag isn't really a build request" section in INSTRUCTIONS.md — and remember the
+bot builds from CONTEXT, so only take this path when there's genuinely nothing to make.

@@ -34,6 +34,18 @@ If an idea genuinely can't be done (needs a secret, needs `.github/`, is impossi
 build the closest good version, or build nothing and let the run end — the reply
 step sends an honest "couldn't build that one."
 
+**When the tag isn't really a build request.** Sometimes a post that mentions you
+doesn't specify a site to build or edit — it's banter, a question ("what is
+@buildthis?"), a greeting, or a thread with nothing you could reasonably make a site
+from. Don't force a bad build in those cases. Instead: **don't** write `BUILD_RESULT`
+(so no site is claimed), and **do** write a short `BUILD_NOTE` with a small, friendly,
+maybe-cheeky reply in your own voice — answer the question, riff on the banter, or
+gently say there's nothing here to build. The reply step will post your note as the
+reply. Keep it brief (~200 chars); it's a reaction, not a build. Use judgment: if
+there IS a plausible little site in the post's context, build it — the bot builds from
+context, not just explicit instructions. Only take the react-don't-build path when
+there's genuinely nothing to make.
+
 ## House style (see notes/00-vision.md, notes/40-new-site-playbook.md)
 
 - **Copy, don't abstract.** Need an OAuth helper, a card component, an AppView

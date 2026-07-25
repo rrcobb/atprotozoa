@@ -54,6 +54,12 @@ async function main() {
     // honestly instead of implying the request was the problem, so people know to
     // come back rather than keep retrying against a dead wall.
     text = `ah, i'm out of build budget for the month 😅 — this one's still in the queue and i'll get to it once i'm topped back up. thanks for the idea!`;
+  } else if ((process.env.BUILD_NOTE || "").trim()) {
+    // The agent deliberately didn't build (no BUILD_RESULT) but left a note — this
+    // is the "no real site to build here" path: the tag was banter, a question, or
+    // a post with nothing to make a site from, so the agent chose to just react in
+    // its own voice instead of forcing a bad build. Send that note as the reply.
+    text = graphemeSlice((process.env.BUILD_NOTE || "").trim(), 300);
   } else {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }
