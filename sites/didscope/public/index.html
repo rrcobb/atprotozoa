@@ -320,6 +320,7 @@
       <div class="share">
         <canvas id="shareCanvas" width="1200" height="630"></canvas>
         <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
           <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your sign</a>
           <button id="shareDownload" type="button">⬇ download card</button>
         </div>
@@ -497,9 +498,12 @@ const els = {
   risingBlurb: document.getElementById("risingBlurb"),
   omen: document.getElementById("omen"),
   shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
   shareDownload: document.getElementById("shareDownload"),
 };
+
+let lastShareText = "";
 
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
@@ -714,7 +718,8 @@ async function reveal(rawHandle) {
     els.card.classList.add("show");
 
     const rebuildShare = (omenText) => {
-      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText(profile, name, key, moonName, risingName, omenText));
+      lastShareText = shareText(profile, name, key, moonName, risingName, omenText);
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
       buildShareCard({ profile, did, lastChar, name, reading, moonName, risingName, omenText });
     };
     rebuildShare(null);
@@ -748,6 +753,34 @@ els.shareDownload.addEventListener("click", () => {
     URL.revokeObjectURL(a.href);
   }, "image/png");
 });
+
+// native share sheet (mobile mostly): hands the actual card image + text to
+// whatever the OS offers — Bluesky app, Messages, Instagram stories, etc —
+// so sharing isn't stuck behind a manual download-then-attach.
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "didscope-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "didscope" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
 
 const sharedHandle = new URLSearchParams(location.search).get("h");
 if (sharedHandle) {

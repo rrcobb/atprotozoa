@@ -58,6 +58,11 @@ there's genuinely nothing to make.
   idea in `public/` (+ `src/` only if it needs a server surface). Add a gallery card
   to `apex/public/index.html`.
 - **Keep it self-contained.** A site is a directory; don't import across sites.
+- **Default to shareable.** Give new sites a real OG/Twitter preview image and a
+  one-tap way to post the result to Bluesky — an intent-compose link at minimum,
+  a generated share-card image + `navigator.share` when there's a per-user result
+  worth showing off (see `sites/didscope`). Skip it only for sites with no
+  shareable "result" (a pure utility/tool page).
 
 ## Report what you built
 

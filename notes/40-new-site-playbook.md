@@ -41,6 +41,11 @@ site." This note is the recipe an agent (or you) follows to spin one up.
   route differ for a static site.
 - **Self-contained deps.** If a site needs an npm package, it declares it in its
   own `package.json`. Don't hoist deps to the root.
+- **Default to shareable.** OG/Twitter meta tags with a real preview image, plus
+  a one-tap way to post the result to Bluesky (intent-compose link at minimum;
+  a generated share-card image + native `navigator.share` where the site has a
+  per-user result worth showing off, see `sites/didscope`). Skip it only when
+  the site genuinely has no "result" to share (a pure tool/utility page).
 
 ## Barebones static template
 
