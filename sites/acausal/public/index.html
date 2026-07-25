@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>acausal thread viewer</title>
+    <meta name="description" content="Paste a Bluesky thread and see its acausal version: causality inverted, so each reply appears above and before the post it answers — effects before causes, timestamps running backwards. Started posting acausally." />
+    <style>
+      :root {
+        --bg:#05060a; --panel:#0c0e16; --panel2:#0a0c14; --ink:#e9e7f2;
+        --muted:#6f6d86; --faint:#1a1c28; --edge:#20223200;
+        --acc:#8b5cff; --acc2:#00e0c0; --warn:#ff4d6d; --gold:#e8b84b;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body {
+        background:
+          radial-gradient(900px 500px at 78% -8%, #17102b, transparent 70%),
+          radial-gradient(800px 600px at 10% 110%, #062521, transparent 70%),
+          var(--bg);
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.55;
+        -webkit-font-smoothing:antialiased; min-height:100vh;
+      }
+      .wrap { max-width:640px; margin:0 auto; padding:2.4rem 1.1rem 7rem; }
+      a { color:var(--acc); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.75rem; font-weight:800; letter-spacing:-0.02em; margin:1.2rem 0 0.35rem;
+        display:flex; align-items:baseline; gap:0.5rem; flex-wrap:wrap; }
+      h1 .glitch { position:relative; color:var(--ink); }
+      h1 .glitch::before, h1 .glitch::after {
+        content:"acausal"; position:absolute; left:0; top:0; width:100%; overflow:hidden;
+        clip-path:inset(0 0 0 0); pointer-events:none; }
+      h1 .glitch::before { color:var(--warn); transform:translate(-1.5px,0); opacity:0.55;
+        animation:gl1 3.4s infinite steps(1); }
+      h1 .glitch::after { color:var(--acc2); transform:translate(1.5px,0); opacity:0.5;
+        animation:gl2 2.7s infinite steps(1); }
+      @keyframes gl1 { 0%,92%,100%{clip-path:inset(0 0 100% 0)} 93%{clip-path:inset(10% 0 60% 0)}
+        95%{clip-path:inset(55% 0 20% 0)} 97%{clip-path:inset(30% 0 45% 0)} }
+      @keyframes gl2 { 0%,90%,100%{clip-path:inset(0 0 100% 0)} 91%{clip-path:inset(40% 0 30% 0)}
+        94%{clip-path:inset(70% 0 5% 0)} 98%{clip-path:inset(15% 0 65% 0)} }
+      h1 .tail { font-size:0.85rem; font-weight:500; color:var(--muted); font-family:var(--mono); }
+      .sub { color:var(--muted); font-size:0.93rem; margin:0 0 1.6rem; max-width:60ch; }
+      .sub b { color:var(--acc2); font-weight:600; }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.8rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#54526a; }
+      input:focus { outline:2px solid var(--acc); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px;
+        background:linear-gradient(135deg,var(--acc),#5a2fd0); color:#fff; font:inherit;
+        font-weight:700; cursor:pointer; letter-spacing:0.01em; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem;
+        font-family:var(--mono); }
+      .status.err { color:var(--warn); }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.7rem; }
+      .examples a { cursor:pointer; }
+
+      /* the thread, rendered acausally */
+      .thread { display:none; }
+      .thread.show { display:block; }
+
+      .banner { font-family:var(--mono); font-size:0.74rem; letter-spacing:0.11em;
+        text-transform:uppercase; color:var(--acc2); margin:0 0 1.1rem;
+        display:flex; align-items:center; gap:0.6rem; }
+      .banner .arrow { color:var(--warn); animation:pulse 2s ease-in-out infinite; }
+      @keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+      .chain { position:relative; }
+      /* the connective spine running down between cards */
+      .link { display:flex; align-items:center; gap:0.6rem; padding:0.5rem 0 0.5rem 0.4rem;
+        color:var(--muted); font-family:var(--mono); font-size:0.76rem; }
+      .link .spine { width:2px; align-self:stretch; margin-left:18px; min-height:26px;
+        background:repeating-linear-gradient(to top, var(--acc) 0 6px, transparent 6px 11px);
+        opacity:0.55; }
+      .link .verb { color:var(--warn); }
+      .link .verb b { color:var(--acc2); font-weight:600; }
+
+      .card { background:var(--panel); border:1px solid var(--faint); border-radius:16px;
+        padding:0.95rem 1.05rem 1rem; position:relative; overflow:hidden;
+        box-shadow:0 14px 40px -26px rgba(139,92,255,0.6); }
+      /* the acausal "wrongness": text ever so slightly mirrored feel via subtle skew on cause layer */
+      .card.cause { border-color:#2a2038; }
+      .card.effect { border-color:#20303a; box-shadow:0 14px 40px -26px rgba(0,224,192,0.5); }
+      .card .rank { position:absolute; top:0.55rem; right:0.75rem; font-family:var(--mono);
+        font-size:0.68rem; color:var(--muted); letter-spacing:0.06em; opacity:0.8; }
+      .card .who { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.55rem; }
+      .card .avatar { width:38px; height:38px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .card .name { font-weight:700; font-size:0.93rem; line-height:1.2; }
+      .card .handle { color:var(--muted); font-size:0.81rem; }
+      .card .text { font-size:1.0rem; line-height:1.5; white-space:pre-wrap; word-wrap:break-word;
+        overflow-wrap:anywhere; }
+      .card .postimg { margin-top:0.65rem; border-radius:12px; max-width:100%;
+        border:1px solid var(--faint); display:block; }
+      .card .meta { display:flex; flex-wrap:wrap; gap:0.85rem; margin-top:0.75rem; color:var(--muted);
+        font-size:0.8rem; font-variant-numeric:tabular-nums; align-items:center; }
+      .card .meta .when { color:var(--acc2); font-family:var(--mono); }
+      .card a.permalink { color:var(--muted); }
+
+      /* the countdown clock that runs backwards down the thread */
+      .role { position:absolute; top:0.55rem; left:0.85rem; font-family:var(--mono);
+        font-size:0.64rem; letter-spacing:0.09em; text-transform:uppercase; padding:0.12rem 0.4rem;
+        border-radius:6px; }
+      .role.cause { color:var(--warn); background:rgba(255,77,109,0.09); }
+      .role.effect { color:var(--acc2); background:rgba(0,224,192,0.09); }
+      .card.hasRole { padding-top:1.9rem; }
+
+      .fade-in { animation:fadeUp 0.5s cubic-bezier(.2,.9,.25,1) both; }
+      @keyframes fadeUp { from{opacity:0; transform:translateY(-10px)} to{opacity:1; transform:none} }
+
+      .outro { margin-top:1.6rem; font-family:var(--mono); font-size:0.78rem; color:var(--muted);
+        border-top:1px dashed var(--faint); padding-top:1rem; line-height:1.7; }
+      .replay { margin-top:1.3rem; font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.45rem 0.85rem;
+        cursor:pointer; }
+      .replay:hover { color:var(--ink); border-color:var(--acc); }
+
+      .note { margin-top:2.6rem; color:var(--muted); font-size:0.77rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; color:var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1><span class="glitch">acausal</span> <span class="tail">thread viewer</span></h1>
+      <p class="sub">
+        Paste a Bluesky thread. It shows you the <b>acausal</b> version — causality
+        inverted, so each reply appears <i>above</i> and <i>before</i> the post it
+        answers. Effects precede their causes. The clock runs backwards. Someone
+        started posting acausally, and this is what it looks like from the outside.
+      </p>
+
+      <form id="form">
+        <input id="uri" placeholder="bsky.app post URL, or at:// uri" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">Invert</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-u="EXAMPLE">the "started posting acausally" thread</a>
+      </div>
+
+      <div class="thread" id="thread">
+        <p class="banner"><span class="arrow">◄◄</span> reading effect → cause · time flows upward</p>
+        <div class="chain" id="chain"></div>
+        <div class="outro" id="outro"></div>
+        <button class="replay" id="replay">↺ invert another thread</button>
+      </div>
+
+      <p class="note">
+        Reads only public posts (Bluesky's anonymous AppView, <code>getPostThread</code>).
+        The thread is real; the ordering is a lie. It renders one path through the
+        conversation — from the last reply down to the first post — <b>upside down in
+        time</b>, so a reply is shown as the <i>cause</i> of the post it actually
+        answered. Nothing is posted or changed. No causality was harmed; it was merely
+        reversed.
+      </p>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+
+      // The default example IS the thread that spawned this toy: vgel tagging the
+      // bot with "started posting acausally", off norvid's deadpan "yeah i've started
+      // posting acausally". A real, live thread. If it ever 404s we fall back to a
+      // hand-rolled synthetic version so the page is never empty.
+      const EXAMPLE_URI =
+        "at://did:plc:zymiavmtif2rj5oklzyzslpu/app.bsky.feed.post/3mrfxapc6pc2f";
+
+      const form = document.getElementById("form");
+      const uriEl = document.getElementById("uri");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const thread = document.getElementById("thread");
+      const chain = document.getElementById("chain");
+      const outro = document.getElementById("outro");
+      const replay = document.getElementById("replay");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      // A time delta, but stated as if time runs backwards ("3h from now", "-2m").
+      function backwardsWhen(iso, refIso) {
+        const t = new Date(iso).getTime();
+        const ref = refIso ? new Date(refIso).getTime() : Date.now();
+        if (!t) return "—:—";
+        const s = Math.round((ref - t) / 1000); // positive = earlier than ref (further "up" the inverted clock)
+        const sign = s >= 0 ? "+" : "−";
+        const abs = Math.abs(s);
+        const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60],["s",1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(abs / secs);
+          if (v >= 1) return `t ${sign} ${v}${u}`;
+        }
+        return "t + 0s";
+      }
+
+      function embedImage(post) {
+        const e = post.embed;
+        if (!e) return null;
+        const t = e.$type || "";
+        if (t.includes("images#view") && e.images && e.images[0]) return e.images[0].thumb;
+        if (t.includes("recordWithMedia#view") && e.media && e.media.images && e.media.images[0])
+          return e.media.images[0].thumb;
+        if (t.includes("external#view") && e.external && e.external.thumb) return e.external.thumb;
+        if (t.includes("video#view") && e.thumbnail) return e.thumbnail;
+        return null;
+      }
+
+      function bskyLink(post) {
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      // Resolve a pasted bsky.app URL (handle or did) or an at:// uri to an at:// uri.
+      async function toAtUri(input) {
+        let s = (input || "").trim();
+        const m = s.match(/bsky\.app\/profile\/([^/]+)\/post\/([^/?#]+)/);
+        if (m) {
+          let did = m[1];
+          if (!did.startsWith("did:")) {
+            const r = await fetch(
+              `${API}/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(did)}`);
+            if (!r.ok) throw new Error("couldn't resolve that handle");
+            did = (await r.json()).did;
+          }
+          return `at://${did}/app.bsky.feed.post/${m[2]}`;
+        }
+        if (s.startsWith("at://")) return s;
+        throw new Error("paste a bsky.app post URL or an at:// uri");
+      }
+
+      // Fetch the thread and flatten it into a single causal path: from the true root
+      // down through the strongest reply chain to a leaf. That linear path is what we
+      // then invert. getPostThread gives us .parent (upward) and .replies (downward).
+      async function fetchChain(atUri) {
+        const url = new URL(`${API}/app.bsky.feed.getPostThread`);
+        url.searchParams.set("uri", atUri);
+        url.searchParams.set("depth", "40");
+        url.searchParams.set("parentHeight", "40");
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(r.status === 400 ? "no such post / thread" : `thread error (${r.status})`);
+        const data = await r.json();
+        let node = data.thread;
+        if (!node || node.notFound || node.blocked || !node.post) throw new Error("thread not found");
+
+        // Walk UP to the true root, collecting the ancestor chain (root .. this post).
+        const up = [];
+        let cur = node;
+        while (cur && cur.post) {
+          up.push(cur.post);
+          cur = cur.parent && cur.parent.post ? cur.parent : null;
+        }
+        up.reverse(); // now root-first, ending at the pasted post
+
+        // Walk DOWN from the pasted node, always taking the most-liked reply, to a leaf.
+        const down = [];
+        cur = node;
+        const seen = new Set(up.map((p) => p.uri));
+        while (cur && cur.replies && cur.replies.length) {
+          const kids = cur.replies.filter((k) => k && k.post && !seen.has(k.post.uri));
+          if (!kids.length) break;
+          kids.sort((a, b) => (b.post.likeCount || 0) - (a.post.likeCount || 0));
+          const next = kids[0];
+          down.push(next.post);
+          seen.add(next.post.uri);
+          cur = next;
+        }
+
+        // causal order: root … pasted post … deepest reply
+        const causal = up.concat(down);
+        return causal;
+      }
+
+      function cardHTML(post, role, idx, total) {
+        const a = post.author || {};
+        const rec = post.record || {};
+        const img = embedImage(post);
+        const likes = post.likeCount || 0;
+        const reposts = post.repostCount || 0;
+        const replies = post.replyCount || 0;
+        const avatar = a.avatar
+          ? `<img class="avatar" src="${esc(a.avatar)}" alt="" referrerpolicy="no-referrer" />`
+          : `<div class="avatar"></div>`;
+        const roleTag = role
+          ? `<span class="role ${role.cls}">${role.label}</span>` : "";
+        const rank = `#${idx + 1} of ${total} · inverted`;
+        return `
+          <div class="card ${role ? "hasRole " + role.cls : ""}">
+            ${roleTag}
+            <span class="rank">${rank}</span>
+            <div class="who">
+              ${avatar}
+              <div>
+                <div class="name">${esc(a.displayName || a.handle || "")}</div>
+                <div class="handle">@${esc(a.handle || "")}</div>
+              </div>
+            </div>
+            <div class="text">${esc(rec.text || "")}</div>
+            ${img ? `<img class="postimg" src="${esc(img)}" alt="" referrerpolicy="no-referrer" />` : ""}
+            <div class="meta">
+              <span class="when">${backwardsWhen(rec.createdAt, window.__ref)}</span>
+              <span>♥ ${likes.toLocaleString()}</span>
+              <span>🔁 ${reposts.toLocaleString()}</span>
+              <span>💬 ${replies.toLocaleString()}</span>
+              <a class="permalink" href="${bskyLink(post)}" target="_blank" rel="noopener">open ↗</a>
+            </div>
+          </div>`;
+      }
+
+      function renderInverted(causal) {
+        // Invert: the deepest reply is shown FIRST (as the cause); the root LAST (the effect).
+        const inv = causal.slice().reverse();
+        // Reference time = the LATEST post, so the backwards clock counts down from it.
+        window.__ref = causal[causal.length - 1]?.record?.createdAt || null;
+
+        chain.innerHTML = "";
+        let html = "";
+        for (let i = 0; i < inv.length; i++) {
+          const post = inv[i];
+          const first = i === 0, last = i === inv.length - 1;
+          let role = null;
+          if (inv.length > 1 && first) role = { cls: "cause", label: "the cause" };
+          else if (inv.length > 1 && last) role = { cls: "effect", label: "the effect" };
+          const cls = first ? "cause" : (last ? "effect" : "");
+          html += `<div class="fade-in" style="animation-delay:${i * 90}ms">${
+            cardHTML(post, role, i, inv.length).replace('class="card ', `class="card ${cls} `)
+          }</div>`;
+
+          // connective tissue between this card and the next-down (which it "caused")
+          if (i < inv.length - 1) {
+            const causer = post.author?.handle || "this reply";
+            const caused = inv[i + 1].author?.handle || "the post above it in time";
+            html += `
+              <div class="link fade-in" style="animation-delay:${i * 90 + 45}ms">
+                <div class="spine"></div>
+                <div class="verb">↑ <b>@${esc(causer)}</b>'s reply retroactively caused
+                  <b>@${esc(caused)}</b> to post it, moments later, going backwards</div>
+              </div>`;
+          }
+        }
+        chain.innerHTML = html;
+
+        const n = inv.length;
+        outro.textContent = n > 1
+          ? `${n} posts, un-happened in reverse. What you read as the ending was the beginning. The thread resolved before it started.`
+          : `A single post, with no cause and no effect — the purest acausal object. It simply is.`;
+        thread.classList.add("show");
+      }
+
+      let busy = false;
+      async function run(input) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = "inverting causality…";
+        thread.classList.remove("show");
+        chain.innerHTML = "";
+        try {
+          const isExample = input === "EXAMPLE";
+          let atUri = isExample ? EXAMPLE_URI : await toAtUri(input);
+          let causal;
+          try {
+            causal = await fetchChain(atUri);
+          } catch (e) {
+            if (isExample) { renderSyntheticExample(); statusEl.textContent = ""; setUrl("EXAMPLE"); return; }
+            throw e;
+          }
+          if (!causal || !causal.length) {
+            if (isExample) { renderSyntheticExample(); statusEl.textContent = ""; setUrl("EXAMPLE"); return; }
+            throw new Error("empty thread");
+          }
+          statusEl.textContent = "";
+          renderInverted(causal);
+          setUrl(isExample ? "EXAMPLE" : atUri);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't invert it: " + e.message;
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      function setUrl(val) {
+        const url = new URL(location.href);
+        if (val === "EXAMPLE") url.searchParams.delete("uri");
+        else url.searchParams.set("uri", val);
+        history.replaceState(null, "", url);
+      }
+
+      // If the live example post doesn't exist, hand-roll a small acausal thread so
+      // the toy still demonstrates itself. Written in norvid/vgel's key.
+      function renderSyntheticExample() {
+        const now = Date.now();
+        const mk = (h, name, text, mins, likes) => ({
+          uri: `at://did:plc:synthetic/app.bsky.feed.post/${h}${mins}`,
+          author: { handle: h, displayName: name, avatar: null },
+          record: { text, createdAt: new Date(now - mins * 60000).toISOString() },
+          likeCount: likes, repostCount: 0, replyCount: 0,
+        });
+        // causal order (oldest → newest)
+        const causal = [
+          mk("norvid-studies.bsky.social", "norvid", "how did you do the feed thing", 12, 41),
+          mk("someone.bsky.social", "a curious mutual", "wait how did you DO this. dark norvid wizardry", 8, 88),
+          mk("norvid-studies.bsky.social", "norvid", "yeah i've started posting acausally", 4, 512),
+          mk("vgel.me", "vgel", "@buildthis.bisks.net started posting acausally", 0, 203),
+        ];
+        renderInverted(causal);
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = uriEl.value.trim();
+        if (v) run(v);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { uriEl.value = ""; run(el.dataset.u); }));
+      replay.addEventListener("click", () => {
+        uriEl.value = ""; uriEl.focus();
+        thread.classList.remove("show");
+        setUrl("EXAMPLE");
+      });
+
+      // Deep-link: ?uri= . Default to the example thread when nothing is passed.
+      const qp = new URLSearchParams(location.search).get("uri");
+      if (qp) { uriEl.value = qp; run(qp); }
+      else run("EXAMPLE");
+    </script>
+  </body>
+</html>
