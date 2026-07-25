@@ -128,6 +128,7 @@
       #map .pl { color: var(--cyan); font-weight: 700; }
       #map .mo { font-weight: 700; }
       #map .it { font-weight: 700; }
+      #map .en { font-weight: 700; text-shadow: 0 0 5px currentColor; }
       #map .bo { font-weight: 700; text-shadow: 0 0 6px currentColor; }
 
       .dpad {
@@ -154,6 +155,11 @@
         letter-spacing: 0.07em; color: var(--muted); font-weight: 700;
       }
       .hpRow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; }
+      .statusRow { margin-top: 0.4rem; font-size: 0.68rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+      .statusRow .st {
+        padding: 0.1rem 0.35rem; border-radius: 2px; border: 1px solid var(--ink-dim); color: var(--ink);
+      }
+      .statusRow .st.debuff { color: var(--red); border-color: rgba(255,77,77,0.4); }
       .barTrack {
         flex: 1; height: 10px; background: #10150f; border: 1px solid var(--ink-dim);
         border-radius: 2px; overflow: hidden;
@@ -276,7 +282,10 @@
         floor, rarer the more they got liked — and any post a mutual actually
         <span style="color:#ff6bb0">liked</span> drops as a healing potion.
         Bump a monster to fight it in <span class="c">turn-based card combat</span> —
-        beat it and it drops loot too, sometimes a potion. Recovery between
+        beat it and it drops loot too, sometimes a potion. Some rooms hide a
+        <span style="color:#c76bff">?</span> tile — a random encounter, good
+        or bad, like your post hitting the For You feed or getting qt'd by a
+        bully — that buffs or debuffs you for a few turns. Recovery between
         floors is only partial, so hoard your healing. Between fights, open the
         <span class="a">Deck</span> screen to
         <b>combine two collected cards into one stronger crafted card</b> — you'll
@@ -345,6 +354,7 @@
                 <div class="barTrack"><div class="barFill" id="hpFill" style="width:100%"></div></div>
                 <span class="barNum" id="hpNum">0/0</span>
               </div>
+              <div class="statusRow" id="statusRow"></div>
             </div>
             <div class="box">
               <h3>floor</h3>
@@ -406,7 +416,7 @@
       const combatEl = $("combat"), cPortrait = $("cPortrait"), cName = $("cName"),
         cSub = $("cSub"), cHpFill = $("cHpFill"), cHpNum = $("cHpNum"), cLog = $("cLog"),
         handEl = $("hand"), endTurnBtn = $("endTurnBtn"), energyTxt = $("energyTxt");
-      const hpFill = $("hpFill"), hpNum = $("hpNum"), floorTxt = $("floorTxt");
+      const hpFill = $("hpFill"), hpNum = $("hpNum"), floorTxt = $("floorTxt"), statusRow = $("statusRow");
       const deckCount = $("deckCount"), deckBtn = $("deckBtn"), deckBtn2 = $("deckBtn2");
       const logEl = $("log"), newRunBtn = $("newRunBtn");
       const deckModal = $("deckModal"), deckGrid = $("deckGrid"), craftPreview = $("craftPreview"),
@@ -560,14 +570,15 @@
       }
 
       function populateFloor(layout, floor, monsterPool, postPool, potionPool, rng, isBossFloor) {
-        const monsters = [], items = [];
+        const monsters = [], items = [], encounters = [];
         const midRooms = layout.rooms.slice(1, layout.rooms.length - 1);
         for (const r of midRooms) {
           const c = centerOf(r);
           const roll = rng();
-          if (roll < 0.45) monsters.push({ ...spawnMonster(monsterPool, floor, rng, false), x: c.x, y: c.y });
-          else if (roll < 0.68) items.push({ card: spawnItemCard(postPool, rng), x: c.x, y: c.y, taken: false });
-          else if (roll < 0.87 && potionPool.length) items.push({ card: spawnPotionCard(potionPool, rng), x: c.x, y: c.y, taken: false });
+          if (roll < 0.4) monsters.push({ ...spawnMonster(monsterPool, floor, rng, false), x: c.x, y: c.y });
+          else if (roll < 0.6) items.push({ card: spawnItemCard(postPool, rng), x: c.x, y: c.y, taken: false });
+          else if (roll < 0.74 && potionPool.length) items.push({ card: spawnPotionCard(potionPool, rng), x: c.x, y: c.y, taken: false });
+          else if (roll < 0.88) encounters.push({ enc: pickEncounter(rng), x: c.x, y: c.y, taken: false });
         }
         let boss = null, stairs = null;
         const lastRoom = layout.rooms[layout.rooms.length - 1];
@@ -578,7 +589,95 @@
           stairs = { x: lc.x, y: lc.y };
         }
         const start = centerOf(layout.rooms[0]);
-        return { layout, monsters, items, boss, stairs, start };
+        return { layout, monsters, items, encounters, boss, stairs, start };
+      }
+
+      // ── random encounter tiles ────────────────────────────────────────
+      // a treasure-shaped "?" tile that's really a coin flip: good news from
+      // the cluster buffs you for a few turns, bad news debuffs you.
+      const ENCOUNTERS = [
+        { text: "your post hit the For You feed", mood: "good", effect: () => addStatus("regen", 2, 4) },
+        { text: "a mutual boosted you out of nowhere", mood: "good", effect: () => addStatus("power_up", 2, 3) },
+        { text: "found a good moot lurking in the replies", mood: "good", effect: () => healNow(6) },
+        { text: "someone's screenshot of you goes around a kind group chat", mood: "good", effect: () => bonusCard() },
+        { text: "your notifications are suspiciously calm today", mood: "good", effect: () => addStatus("regen", 1, 6) },
+        { text: "got qt'd by a bully", mood: "bad", effect: () => addStatus("power_down", 2, 3) },
+        { text: "you vaguepost and someone screenshots it", mood: "bad", effect: () => addStatus("vulnerable", 2, 3) },
+        { text: "the algorithm buries you and you keep scrolling anyway", mood: "bad", effect: () => damageNow(4) },
+        { text: "ratio'd into the ground", mood: "bad", effect: () => removeRandomCard() },
+        { text: "you doomscroll past your bedtime", mood: "bad", effect: () => addStatus("poison", 1, 4) },
+      ];
+      function pickEncounter(rng) {
+        return ENCOUNTERS[Math.floor(rng() * ENCOUNTERS.length)];
+      }
+      function addStatus(kind, amount, turns) {
+        player.statuses.push({ kind, amount, turnsLeft: turns });
+        const label = {
+          regen: `+${amount} hp/turn for ${turns} turns`,
+          poison: `-${amount} hp/turn for ${turns} turns`,
+          power_up: `+${amount} card power for ${turns} turns`,
+          power_down: `-${amount} card power for ${turns} turns`,
+          vulnerable: `+${amount} damage taken for ${turns} turns`,
+        }[kind];
+        return label || `${kind} x${turns}`;
+      }
+      function healNow(n) {
+        player.hp = Math.min(player.maxHp, player.hp + n);
+        return `+${n} hp`;
+      }
+      function damageNow(n) {
+        player.hp -= n;
+        return `-${n} hp`;
+      }
+      function bonusCard() {
+        const pool = cluster.posts.length ? cluster.posts : makeFillerPosts();
+        const card = spawnItemCard(pool, rng);
+        deck.push(card);
+        drawPile.unshift(card.id);
+        return `+ <b style="color:${TIER_COLORS[card.tier]}">${card.name}</b> card`;
+      }
+      function removeRandomCard() {
+        const pool = deck.filter((c) => !c.crafted);
+        if (!pool.length) return "but there was nothing left to lose";
+        const victim = pool[Math.floor(rng() * pool.length)];
+        removeCardEverywhere(victim.id);
+        return `lost <b>${victim.name}</b>`;
+      }
+      function triggerEncounter(enc) {
+        const detail = enc.effect();
+        const cls = enc.mood === "good" ? "good" : "mo";
+        log(`<span class="amber">encounter:</span> <b>${enc.text}</b> — ${detail}.`, cls);
+      }
+      function activeAmount(kind) {
+        return (player.statuses || []).filter((s) => s.kind === kind && s.turnsLeft > 0)
+          .reduce((a, s) => a + s.amount, 0);
+      }
+      function decrementStatuses() {
+        if (!player.statuses || !player.statuses.length) return;
+        for (const st of player.statuses) {
+          if (st.kind === "regen") player.hp = Math.min(player.maxHp, player.hp + st.amount);
+          else if (st.kind === "poison") player.hp -= st.amount;
+          st.turnsLeft--;
+        }
+        player.statuses = player.statuses.filter((st) => st.turnsLeft > 0);
+        renderSidebar();
+        if (combat) renderCombat();
+        if (player.hp <= 0 && !banner.classList.contains("on")) dieFrom({ name: "the feed" });
+      }
+      function modifiedPower(card) {
+        if (card.kind === "potion") return card.power;
+        const mod = activeAmount("power_up") - activeAmount("power_down");
+        return Math.max(1, card.power + mod);
+      }
+      function dieFrom(killer) {
+        killedBy = killer;
+        if (combat) {
+          combat = null;
+          mapPanel.classList.remove("hidden");
+          combatEl.classList.remove("on");
+          updateDeckButtons();
+        }
+        showLose();
       }
 
       // ── game state ─────────────────────────────────────────────────────
@@ -616,7 +715,7 @@
       function newRun(freshHandle) {
         const seedBase = (freshHandle ? cluster.handle : cluster.handle) + ":" + Math.random();
         rng = mulberry32(hashStr(seedBase));
-        player = { x: 0, y: 0, hp: 30, maxHp: 30 };
+        player = { x: 0, y: 0, hp: 30, maxHp: 30, statuses: [] };
         deck = starterDeck();
         drawPile = shuffle(deck.map((c) => c.id), rng);
         discardPile = [];
@@ -654,6 +753,10 @@
           const isPotion = it.card.kind === "potion";
           const col = isPotion ? "#ff6bb0" : TIER_COLORS[it.card.tier];
           overlay.set(it.x + "," + it.y, { ch: isPotion ? "♥" : "!", cls: "it" + (isPotion ? " pot" : ""), color: col });
+        }
+        for (const en of floorState.encounters) {
+          if (en.taken) continue;
+          overlay.set(en.x + "," + en.y, { ch: "?", cls: "en", color: "#c76bff" });
         }
         for (const m of floorState.monsters) {
           if (!m.alive) continue;
@@ -694,6 +797,11 @@
         hpNum.textContent = `${Math.max(0, player.hp)}/${player.maxHp}`;
         floorTxt.textContent = `GEN ${floorNum} / ${TOTAL_FLOORS}`;
         deckCount.textContent = deck.length;
+        const names = { regen: "regen", poison: "poison", power_up: "empowered", power_down: "weakened", vulnerable: "vulnerable" };
+        const debuffs = new Set(["poison", "power_down", "vulnerable"]);
+        statusRow.innerHTML = (player.statuses || [])
+          .map((st) => `<span class="st${debuffs.has(st.kind) ? " debuff" : ""}">${names[st.kind] || st.kind} ${st.turnsLeft}t</span>`)
+          .join("");
       }
 
       function renderAll() {
@@ -714,6 +822,9 @@
       function itemAt(x, y) {
         return floorState.items.find((it) => !it.taken && it.x === x && it.y === y);
       }
+      function encounterAt(x, y) {
+        return floorState.encounters.find((en) => !en.taken && en.x === x && en.y === y);
+      }
       function attemptMove(dx, dy) {
         if (combat || deckModal.classList.contains("on")) return;
         if (banner.classList.contains("on")) return;
@@ -732,15 +843,29 @@
             log(`picked up <b style="color:${TIER_COLORS[it.card.tier]}">${it.card.name}</b> <span class="amber">[${TIER_NAMES[it.card.tier]}]</span> — power ${it.card.power}.`);
           }
         }
+        const en = encounterAt(nx, ny);
+        if (en) {
+          en.taken = true;
+          triggerEncounter(en.enc);
+          if (player.hp <= 0) {
+            player.x = nx; player.y = ny;
+            dieFrom({ name: "the feed" });
+            renderAll();
+            return;
+          }
+        }
         if (floorState.stairs && nx === floorState.stairs.x && ny === floorState.stairs.y) {
           player.x = nx; player.y = ny;
+          decrementStatuses();
           renderAll();
-          if (floorNum < TOTAL_FLOORS) {
+          if (!banner.classList.contains("on") && floorNum < TOTAL_FLOORS) {
             setTimeout(() => { enterFloor(floorNum + 1); renderAll(); }, 120);
           }
           return;
         }
         player.x = nx; player.y = ny;
+        decrementStatuses();
+        if (banner.classList.contains("on")) { renderAll(); return; }
         moveMonsters();
         if (!combat) renderAll();
       }
@@ -851,12 +976,7 @@
         if (wasBoss) showWin();
       }
       function gameOver() {
-        killedBy = combat.monster;
-        combat = null;
-        mapPanel.classList.remove("hidden");
-        combatEl.classList.remove("on");
-        updateDeckButtons();
-        showLose();
+        dieFrom(combat.monster);
       }
       function playCard(id) {
         if (!combat || combat.energy <= 0) return;
@@ -867,16 +987,17 @@
         combat.energy--;
         hand.splice(idx, 1);
         discardPile.push(id);
+        const pw = modifiedPower(card);
         if (card.kind === "guard") {
-          combat.block += card.power;
-          clog(`<span class="you">you</span> brace with <b>${card.name}</b> — +${card.power} block.`, "you");
+          combat.block += pw;
+          clog(`<span class="you">you</span> brace with <b>${card.name}</b> — +${pw} block.`, "you");
         } else if (card.kind === "potion") {
           player.hp = Math.min(player.maxHp, player.hp + card.power);
           renderSidebar();
           clog(`<span class="you">you</span> down <b>${card.name}</b> — +${card.power} hp.`, "you");
         } else {
-          combat.monster.hp -= card.power;
-          clog(`<span class="you">you</span> hit ${combat.monster.name} with <b>${card.name}</b> for ${card.power}.`, "you");
+          combat.monster.hp -= pw;
+          clog(`<span class="you">you</span> hit ${combat.monster.name} with <b>${card.name}</b> for ${pw}.`, "you");
         }
         if (combat.monster.hp <= 0) { renderCombat(); winCombat(); return; }
         renderCombat();
@@ -885,12 +1006,15 @@
         if (!combat) return;
         hand.forEach((id) => discardPile.push(id));
         hand = [];
+        const vulnBonus = activeAmount("vulnerable");
         const m = combat.monster;
-        const dmg = Math.max(0, m.atk - combat.block);
+        const dmg = Math.max(0, m.atk - combat.block) + vulnBonus;
         player.hp -= dmg;
-        clog(`<span class="mo">${m.name}</span> hits you for ${dmg}.`, "mo");
+        clog(`<span class="mo">${m.name}</span> hits you for ${dmg}${vulnBonus ? ` (+${vulnBonus} vulnerable)` : ""}.`, "mo");
         combat.block = 0;
         if (player.hp <= 0) { renderSidebar(); gameOver(); return; }
+        decrementStatuses();
+        if (banner.classList.contains("on")) return;
         combat.energy = 3;
         ensureDraw(4);
         renderCombat();
