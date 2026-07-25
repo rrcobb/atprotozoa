@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>verdict — bisks.net</title>
+    <meta name="description" content="One post from your feed. Good or bad. Maybe beautiful." />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #1a7f37;
+        --bad: #c0392b;
+        --beautiful: #9b59b6;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.9rem; line-height: 1.7; max-width: 56ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 3px;
+      }
+      input[type="text"]::placeholder { color: #aaa; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.55rem 1rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border-color: var(--faint); }
+      button.ghost:hover { background: #f5f8ff; }
+      button.tiny { font-size: 0.75rem; padding: 0.35rem 0.6rem; }
+      button.good { border-color: var(--good); background: var(--good); }
+      button.good:hover { background: #14602a; }
+      button.bad { border-color: var(--bad); background: var(--bad); }
+      button.bad:hover { background: #9a2d21; }
+      button.beautiful { border-color: var(--beautiful); background: var(--beautiful); }
+      button.beautiful:hover { background: #7d4498; }
+      .status { font-size: 0.78rem; color: var(--muted); }
+      .err { color: var(--bad); }
+      a { color: var(--accent); }
+
+      .signin { max-width: 30rem; }
+      .signin .bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+      .signin input { flex: 1; }
+
+      .post {
+        border: 1px solid var(--faint); border-left: 3px solid var(--accent);
+        border-radius: 4px; padding: 1rem 1.1rem; margin-bottom: 1.25rem;
+      }
+      .post .by { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+      .post .by a { color: var(--muted); text-decoration: none; }
+      .post .by a:hover { color: var(--accent); }
+      .post .txt { white-space: pre-wrap; word-break: break-word; font-size: 0.98rem; }
+      .post .txt:empty::before { content: "(no text — media post)"; color: var(--muted); font-style: italic; }
+      .post img.embed { max-width: 100%; border-radius: 4px; margin-top: 0.7rem; display: block; }
+      .post .link { font-size: 0.78rem; margin-top: 0.6rem; }
+
+      .verdict-bar { display: flex; gap: 0.6rem; margin-bottom: 0.5rem; }
+      .verdict-bar button { flex: 1; }
+      .said { font-size: 0.85rem; padding: 0.6rem 0.8rem; border-radius: 4px; background: #f7f7f7; margin-bottom: 0.75rem; }
+      .said b.good-txt { color: var(--good); }
+      .said b.bad-txt { color: var(--bad); }
+      .beautiful-row { margin-bottom: 0.75rem; }
+      .beautiful-said { color: var(--beautiful); font-size: 0.85rem; }
+
+      .tally { font-size: 0.78rem; color: var(--muted); margin: 0.5rem 0 1.5rem; }
+      .tally b { color: var(--ink); }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">verdict</a></h1>
+        <span class="who" id="who"></span>
+      </header>
+      <p class="intro">
+        One post pulled from your timeline. Look at it. Decide: <b>good</b> or
+        <b>bad</b>. Then, if it moves you, one more button appears —
+        <b>and I think that's beautiful</b>. Every call gets written to your
+        own PDS as a little record, yours to keep.
+      </p>
+
+      <div id="app"></div>
+
+      <footer>
+        writes <code>net.bisks.verdict.judgment</code> records to your repo ·
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+
+      const COLLECTION = "net.bisks.verdict.judgment";
+      const APPVIEW = "https://api.bsky.app";
+
+      const app = document.getElementById("app");
+      const who = document.getElementById("who");
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const postUrl = (handleOrDid, uri) => `https://bsky.app/profile/${handleOrDid}/post/${uri.split("/").pop()}`;
+
+      let session = null;
+      let post = null;       // { uri, cid, authorDid, authorHandle, text, image }
+      let judgment = null;   // { uri, rkey, verdict, beautiful }
+      let tally = null;      // { good, bad } counts, best-effort
+
+      // ---- login gate --------------------------------------------------------
+      function loginView(msg) {
+        who.textContent = "";
+        app.innerHTML = `
+          <div class="signin">
+            ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
+            <div class="bar">
+              <input id="handle" type="text" placeholder="your bluesky handle" value="bisks.net" />
+              <button id="go">sign in with bluesky</button>
+            </div>
+            <p class="status">signed in, verdict reads a post from your timeline and
+            writes your call back to your own repo.</p>
+          </div>`;
+        document.getElementById("go").onclick = async () => {
+          const h = document.getElementById("handle").value.trim();
+          if (h) try { await login(h); } catch (e) { loginView(e.message); }
+        };
+      }
+      function signedInHeader() {
+        who.innerHTML = `@${esc(session.handle)} · <a id="out">sign out</a>`;
+        document.getElementById("out").onclick = async () => { await clearSession(); session = null; loginView(); };
+      }
+
+      // ---- fetching a post from the timeline ---------------------------------
+      // Reads go through the user's own PDS with the atproto-proxy header, which
+      // is how a DPoP session forwards app.bsky.* lexicon calls the PDS doesn't
+      // implement itself to the bsky appview — the same path the official app
+      // uses for getTimeline. Falls back to the signed-in user's own authored
+      // feed (a public, unauthenticated appview call) if that ever 4xxs.
+      async function fetchTimelinePost() {
+        const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/app.bsky.feed.getTimeline?limit=30`;
+        const res = await dpopFetch(session, url, {
+          headers: { "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+        });
+        if (!res.ok) throw new Error(`getTimeline failed (${res.status})`);
+        const j = await res.json();
+        return pickPost(j.feed || []);
+      }
+      async function fetchOwnFeedPost() {
+        const url = `${APPVIEW}/xrpc/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(session.did)}&limit=30&filter=posts_no_replies`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`getAuthorFeed failed (${res.status})`);
+        const j = await res.json();
+        return pickPost(j.feed || []);
+      }
+      function pickPost(feedItems) {
+        const posts = feedItems.map((it) => it.post).filter((p) => p && p.uri && p.cid);
+        if (!posts.length) return null;
+        const p = posts[Math.floor(Math.random() * posts.length)];
+        const img = p.embed?.images?.[0]?.thumb || p.embed?.media?.images?.[0]?.thumb || null;
+        return {
+          uri: p.uri,
+          cid: p.cid,
+          authorDid: p.author?.did || "",
+          authorHandle: p.author?.handle || p.author?.did || "",
+          text: p.record?.text || "",
+          image: img,
+        };
+      }
+
+      async function loadPost() {
+        const box = document.getElementById("postBox");
+        if (box) box.innerHTML = `<p class="status">pulling a post from your timeline…</p>`;
+        judgment = null;
+        try {
+          post = (await fetchTimelinePost()) || (await fetchOwnFeedPost());
+        } catch {
+          try { post = await fetchOwnFeedPost(); } catch (e) { post = null; }
+        }
+        renderPost();
+      }
+
+      // ---- lexicon record: create / amend ------------------------------------
+      async function pdsFetch(pathMethod, body) {
+        const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/${pathMethod}`;
+        const res = await dpopFetch(session, url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`${pathMethod} failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+        return res.json();
+      }
+
+      async function fireVerdict(verdict) {
+        const record = {
+          $type: COLLECTION,
+          subject: { uri: post.uri, cid: post.cid },
+          verdict,
+          createdAt: new Date().toISOString(),
+        };
+        const res = await pdsFetch("com.atproto.repo.createRecord", {
+          repo: session.did,
+          collection: COLLECTION,
+          record,
+        });
+        judgment = { uri: res.uri, rkey: res.uri.split("/").pop(), cid: res.cid, verdict, beautiful: false };
+        renderPost();
+      }
+
+      async function markBeautiful() {
+        const record = {
+          $type: COLLECTION,
+          subject: { uri: post.uri, cid: post.cid },
+          verdict: judgment.verdict,
+          beautiful: true,
+          createdAt: new Date().toISOString(),
+        };
+        const res = await pdsFetch("com.atproto.repo.putRecord", {
+          repo: session.did,
+          collection: COLLECTION,
+          rkey: judgment.rkey,
+          record,
+        });
+        judgment.beautiful = true;
+        judgment.cid = res.cid;
+        renderPost();
+      }
+
+      // ---- render --------------------------------------------------------------
+      function mainView() {
+        signedInHeader();
+        app.innerHTML = `<div id="postBox"></div>`;
+        loadPost();
+        loadTally();
+      }
+
+      function renderPost() {
+        const box = document.getElementById("postBox");
+        if (!box) return;
+        if (!post) {
+          box.innerHTML = `
+            <p class="err">couldn't find a post to judge — your timeline might be
+            empty, or the appview proxy hiccuped.</p>
+            <button id="retry">try again</button>`;
+          document.getElementById("retry").onclick = loadPost;
+          return;
+        }
+        const said = judgment
+          ? `<div class="said">you said this is <b class="${judgment.verdict}-txt">${judgment.verdict}</b>${judgment.beautiful ? ` · <span class="beautiful-said">and beautiful ✦</span>` : ""}</div>`
+          : "";
+        const verdictBar = judgment
+          ? ""
+          : `<div class="verdict-bar">
+               <button class="good" id="vgood">and that's good</button>
+               <button class="bad" id="vbad">and that's bad</button>
+             </div>`;
+        const beautifulRow = judgment && !judgment.beautiful
+          ? `<div class="beautiful-row"><button class="beautiful tiny" id="vbeautiful">and I think that's beautiful</button></div>`
+          : "";
+        const nextRow = judgment
+          ? `<div><button class="ghost tiny" id="next">next post →</button></div>`
+          : `<div class="status">skip: <a id="skip">next post →</a></div>`;
+
+        box.innerHTML = `
+          <div class="post">
+            <div class="by"><a href="${postUrl(post.authorHandle, post.uri)}" target="_blank">@${esc(post.authorHandle)}</a></div>
+            <div class="txt">${esc(post.text)}</div>
+            ${post.image ? `<img class="embed" src="${post.image}" alt="" />` : ""}
+          </div>
+          ${said}
+          ${verdictBar}
+          ${beautifulRow}
+          <p class="status" id="fireErr"></p>
+          ${nextRow}
+          <p class="tally" id="tallyLine"></p>`;
+        renderTally();
+
+        if (!judgment) {
+          document.getElementById("vgood").onclick = () => cast("good");
+          document.getElementById("vbad").onclick = () => cast("bad");
+          document.getElementById("skip").onclick = (e) => { e.preventDefault(); loadPost(); };
+        } else {
+          if (document.getElementById("vbeautiful")) {
+            document.getElementById("vbeautiful").onclick = async (e) => {
+              const btn = e.target;
+              btn.disabled = true; btn.textContent = "marking…";
+              try { await markBeautiful(); }
+              catch (err) { btn.disabled = false; btn.textContent = "and I think that's beautiful"; showErr(err.message); }
+            };
+          }
+          document.getElementById("next").onclick = loadPost;
+        }
+      }
+
+      async function cast(verdict) {
+        const errEl = document.getElementById("fireErr");
+        errEl.textContent = "";
+        const btn = document.getElementById(verdict === "good" ? "vgood" : "vbad");
+        btn.disabled = true;
+        try {
+          await fireVerdict(verdict);
+        } catch (e) {
+          btn.disabled = false;
+          showErr(e.message);
+        }
+      }
+      function showErr(msg) {
+        const errEl = document.getElementById("fireErr");
+        if (errEl) errEl.innerHTML = `<span class="err">${esc(msg)}</span>`;
+      }
+
+      // ---- tally: best-effort count of past verdicts --------------------------
+      async function loadTally() {
+        try {
+          const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords` +
+            `?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(COLLECTION)}&limit=100`;
+          const res = await dpopFetch(session, url);
+          if (!res.ok) return;
+          const j = await res.json();
+          const recs = (j.records || []).map((r) => r.value);
+          tally = { good: recs.filter((r) => r.verdict === "good").length, bad: recs.filter((r) => r.verdict === "bad").length };
+          renderTally();
+        } catch {}
+      }
+      function renderTally() {
+        const el = document.getElementById("tallyLine");
+        if (!el || !tally) return;
+        el.innerHTML = `so far: <b>${tally.good}</b> good · <b>${tally.bad}</b> bad`;
+      }
+
+      // ---- boot ----------------------------------------------------------------
+      (async () => {
+        try { session = (await completeLoginIfCallback()) || (await getSession()); }
+        catch (e) { loginView(e.message); return; }
+        if (session) mainView();
+        else loginView();
+      })();
+    </script>
+  </body>
+</html>
