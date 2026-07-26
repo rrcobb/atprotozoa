@@ -1,0 +1,33 @@
+name = "atprotozoa-ratioed"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @goose.art asked for a dashboard of the most ratioed posts on Bluesky in the
+# last hour. "Ratioed" = a post whose replies badly outnumber its likes — the
+# room showed up to argue, not to applaud.
+#
+# The Worker watches the live firehose (Jetstream) for root-level posts, queues
+# each one for a stats check a few minutes later (via the public, unauthenticated
+# AppView — no login, no secret needed), and scores replyCount vs likeCount. All
+# of that lives in ONE Durable Object (name "global") holding the check queue +
+# the rolling ~1 hour leaderboard, same shape as sites/the-place's Canvas DO.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join that
+# table, so a routes line below [assets] silently becomes assets.routes (same
+# gotcha called out in sites/logs, sites/didscope, sites/the-place).
+routes = [{ pattern = "ratioed.bisks.net", custom_domain = true }]
+
+# / and /api/* are dynamic (the leaderboard changes constantly) — the Worker
+# must run before the static-asset router would serve a stale index.html.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/", "/api/*"]
+
+[[durable_objects.bindings]]
+name = "TRACKER"
+class_name = "RatioTracker"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RatioTracker"]

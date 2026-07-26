@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ratioed — the most ratioed posts on Bluesky, live</title>
+    <meta
+      name="description"
+      content="A live dashboard of the most ratioed posts on Bluesky in the last hour — replies badly outnumbering likes. The worst offender's avatar gets a dunce cap."
+    />
+    <meta property="og:title" content="ratioed — the most ratioed posts on Bluesky" />
+    <meta
+      property="og:description"
+      content="A live dashboard of the most ratioed posts on Bluesky in the last hour. The worst offender's avatar gets a dunce cap."
+    />
+    <meta name="twitter:card" content="summary" />
+    <style>
+      /* Strictly grayscale, as asked — no color anywhere, no emoji anywhere. */
+      :root {
+        --bg: #d9d9d9;
+        --panel: #ececec;
+        --panel2: #f4f4f4;
+        --ink: #171717;
+        --muted: #5c5c5c;
+        --faint: #bdbdbd;
+        --line: #a8a8a8;
+        --dark: #2b2b2b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--ink); }
+      a:hover { color: var(--muted); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 {
+        font-size: 1.85rem; font-weight: 800; letter-spacing: -0.01em;
+        margin: 0 0 0.3rem;
+      }
+      .sub {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.65;
+        max-width: 58ch; margin: 0 0 1.4rem;
+      }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--line);
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%; background: var(--faint);
+        transition: background 0.3s;
+      }
+      .dot.live { background: var(--dark); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+
+      /* ---- the spotlight: #1, dunce cap and all ---- */
+      .spotlight {
+        display: none;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 1.5rem 1.4rem;
+        margin-bottom: 2rem;
+        align-items: center;
+        gap: 1.2rem;
+      }
+      .spotlight.show { display: flex; }
+      .spotlight .avwrap {
+        position: relative; flex: none; width: 74px; height: 74px;
+      }
+      .spotlight .avwrap img {
+        width: 74px; height: 74px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 1px solid var(--line); display: block;
+      }
+      .dunce {
+        position: absolute; top: -30px; left: 6px; width: 42px; height: 50px;
+        transform: rotate(-14deg); pointer-events: none;
+      }
+      .spotlight .who { flex: 1; min-width: 0; }
+      .spotlight .label {
+        font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); font-weight: 700; margin-bottom: 0.25rem;
+      }
+      .spotlight .name { font-size: 1.15rem; font-weight: 800; line-height: 1.3; }
+      .spotlight .handle { color: var(--muted); font-size: 0.85rem; }
+      .spotlight .stats {
+        text-align: right; font-size: 0.8rem; color: var(--muted);
+        flex: none; line-height: 1.7;
+      }
+      .spotlight .stats b { color: var(--ink); font-size: 1rem; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--line);
+      }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; gap: 0.9rem; padding: 1rem 0;
+        border-top: 1px solid var(--line); align-items: flex-start;
+        animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .rank {
+        font-weight: 800; font-size: 0.95rem; color: var(--muted);
+        min-width: 1.6rem; padding-top: 0.15rem;
+      }
+      .avatar {
+        width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 1px solid var(--line); flex: none;
+      }
+      .body { flex: 1; min-width: 0; }
+      .who2 { font-size: 0.82rem; margin-bottom: 0.3rem; }
+      .who2 .n { font-weight: 700; }
+      .who2 .h { color: var(--muted); }
+      .text {
+        font-size: 0.94rem; line-height: 1.5; white-space: pre-wrap;
+        overflow-wrap: break-word; word-break: break-word; margin: 0 0 0.5rem;
+      }
+      .postimg {
+        max-width: 100%; max-height: 220px; border-radius: 8px;
+        border: 1px solid var(--line); display: block; margin: 0 0 0.55rem;
+        filter: grayscale(1);
+      }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.8rem; color: var(--muted);
+        font-size: 0.78rem; font-variant-numeric: tabular-nums; align-items: center;
+      }
+      .meta .replies { font-weight: 800; color: var(--ink); }
+      .meta .score {
+        margin-left: auto; font-size: 0.72rem; background: var(--panel2);
+        border: 1px solid var(--line); border-radius: 6px; padding: 0.1rem 0.5rem;
+      }
+      .meta a.perma { color: var(--muted); text-decoration: none; }
+      .meta a.perma:hover { color: var(--ink); text-decoration: underline; }
+      .ratiobar { width: 44px; height: 5px; border-radius: 3px; background: var(--faint); overflow: hidden; flex: none; }
+      .ratiobar > i { display: block; height: 100%; background: var(--dark); }
+
+      .share { margin: 1.8rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--dark); }
+
+      footer {
+        margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7;
+      }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>ratioed</h1>
+        <p class="sub">
+          The most ratioed posts on Bluesky in the last hour — posts where the
+          replies badly outnumber the likes. Sampled live off the firehose,
+          each post's numbers checked a few minutes after it goes up. The
+          current worst offender gets the cap.
+        </p>
+      </header>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span id="trackingText"></span>
+      </div>
+
+      <div class="spotlight" id="spotlight">
+        <div class="avwrap">
+          <img id="spAvatar" alt="" referrerpolicy="no-referrer" />
+          <svg class="dunce" viewBox="0 0 60 70" aria-hidden="true">
+            <polygon points="30,2 6,58 54,58" fill="#333333" stroke="#141414" stroke-width="2" />
+            <rect x="3" y="50" width="54" height="11" rx="4" fill="#575757" stroke="#141414" stroke-width="1.5" />
+            <circle cx="30" cy="4" r="4.5" fill="#cfcfcf" stroke="#141414" stroke-width="1.5" />
+          </svg>
+        </div>
+        <div class="who">
+          <div class="label">most ratioed right now</div>
+          <div class="name" id="spName"></div>
+          <div class="handle" id="spHandle"></div>
+        </div>
+        <div class="stats">
+          <div><b id="spReplies"></b> replies</div>
+          <div><b id="spLikes"></b> likes</div>
+        </div>
+      </div>
+
+      <div class="empty" id="empty" style="display:none">
+        Nothing's been properly ratioed in the last hour yet. The tracker
+        checks each post's numbers about six minutes after it's posted, so
+        right after a deploy — or during a quiet stretch — this list can sit
+        empty for a bit. Check back shortly.
+      </div>
+
+      <ol class="board" id="board"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=ratioed.bisks.net" target="_blank" rel="noopener">share this dashboard</a>
+      </div>
+
+      <footer>
+        Sampled from the live firehose via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        — root-level posts only, a fraction of the total stream, not every
+        post on the network. Score = replies ÷ (likes + 1); a post needs at
+        least 3 replies and more replies than likes to qualify. Numbers are a
+        snapshot taken once a post is checked, then refreshed each time it's
+        near the top — not a full live tally.
+        asked for by <a href="https://bsky.app/profile/goose.art">@goose.art</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const trackingText = document.getElementById("trackingText");
+      const spotlight = document.getElementById("spotlight");
+      const empty = document.getElementById("empty");
+      const board = document.getElementById("board");
+      const shareLink = document.getElementById("shareLink");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(handle, rkey) {
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+
+      function rowHTML(e, i) {
+        const ratio = e.likeCount > 0 ? e.replyCount / e.likeCount : e.replyCount;
+        const pct = Math.max(4, Math.min(100, Math.round((ratio / 8) * 100)));
+        const img = e.imgThumb
+          ? `<img class="postimg" src="${esc(e.imgThumb)}" alt="" referrerpolicy="no-referrer" loading="lazy" />`
+          : "";
+        return `
+          <li class="row">
+            <div class="rank">${i + 1}</div>
+            <img class="avatar" src="${esc(e.avatar || "")}" alt="" referrerpolicy="no-referrer" />
+            <div class="body">
+              <div class="who2">
+                <span class="n">${esc(e.displayName || e.handle)}</span>
+                <span class="h">@${esc(e.handle)}</span>
+              </div>
+              <p class="text">${esc(e.text) || "<em>(no text)</em>"}</p>
+              ${img}
+              <div class="meta">
+                <span class="replies">${e.replyCount.toLocaleString()} replies</span>
+                <span>${e.likeCount.toLocaleString()} likes</span>
+                <span>${timeAgo(e.createdAt)}</span>
+                <a class="perma" href="${postUrl(e.handle, e.rkey)}" target="_blank" rel="noopener">open ↗</a>
+                <span class="ratiobar"><i style="width:${pct}%"></i></span>
+                <span class="score" title="replies ÷ (likes + 1)">${e.score.toFixed(1)}×</span>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function render(data) {
+        const lb = data.leaderboard || [];
+        trackingText.textContent = `tracking ${data.tracking || 0} posts from the last ${data.windowMinutes || 60} min`;
+
+        if (!lb.length) {
+          spotlight.classList.remove("show");
+          empty.style.display = "";
+          board.innerHTML = "";
+          return;
+        }
+        empty.style.display = "none";
+
+        const top = lb[0];
+        document.getElementById("spAvatar").src = top.avatar || "";
+        document.getElementById("spName").textContent = top.displayName || top.handle;
+        document.getElementById("spHandle").textContent = "@" + top.handle;
+        document.getElementById("spReplies").textContent = top.replyCount.toLocaleString();
+        document.getElementById("spLikes").textContent = top.likeCount.toLocaleString();
+        spotlight.classList.add("show");
+
+        board.innerHTML = lb.map((e, i) => rowHTML(e, i)).join("");
+
+        const shareText = `most ratioed on Bluesky right now: @${top.handle} — ${top.replyCount} replies, ${top.likeCount} likes. ratioed.bisks.net`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const r = await fetch("/api/leaderboard", { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          dot.classList.add("live");
+          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 15000);
+    </script>
+  </body>
+</html>
