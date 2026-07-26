@@ -123,7 +123,10 @@ const overBody = document.getElementById("over-body");
 const overTip = document.getElementById("over-tip");
 const againBtn = document.getElementById("again-btn");
 const shareBtn = document.getElementById("share-btn");
+const shareNativeBtn = document.getElementById("share-native");
 const jumpBtn = document.getElementById("t-jump");
+const shareCanvas = document.getElementById("share-canvas");
+const shareCtx = shareCanvas.getContext("2d");
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2);
 canvas.width = VIEW_W * dpr;
@@ -215,9 +218,10 @@ function currentScroll() {
   return Math.min(BASE_SCROLL + running_dist * RAMP_PER_PX, BASE_SCROLL + MAX_SCROLL_BONUS);
 }
 
-function crash(handle) {
+function crash(moot) {
   running = false;
   cancelAnimationFrame(rafId);
+  const handle = moot.handle;
   const did = cluster.did;
   const best = getBest(did);
   const newBest = score > best;
@@ -238,7 +242,121 @@ function crash(handle) {
   shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
   overOverlay.classList.remove("hidden");
+
+  buildShareCard({ handle, weapon, meters, score, newBest }).then(() => {
+    lastShareText = shareText;
+    if (canShareFiles()) shareNativeBtn.hidden = false;
+  });
 }
+
+// ---- share card -------------------------------------------------------
+// A second, offscreen canvas snapshot of the actual run (real terrain seed,
+// real avatars) for navigator.share/download — separate from #board so we
+// can size it to OG proportions without touching the live game canvas.
+let lastShareText = "";
+const SHARE_W = 1200, SHARE_H = 630;
+const SHARE_SCALE = SHARE_W / VIEW_W;
+
+function loadImgCORS(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard({ handle, weapon, meters, score, newBest }) {
+  const camX = player.dist - PLAYER_SCREEN_X;
+  const sx = (wx) => (wx - camX) * SHARE_SCALE;
+  const sy = (wy) => wy * SHARE_SCALE;
+
+  // Re-fetch the player + culprit avatars CORS-safe so toBlob() isn't tainted
+  // (the live game's <img>s were loaded without crossOrigin).
+  const [pImg, mImg] = await Promise.all([
+    loadImgCORS(playerImg && playerImg.src),
+    loadImgCORS(mootPool.find((m) => m.handle === handle)?.img?.src),
+  ]);
+
+  shareCtx.clearRect(0, 0, SHARE_W, SHARE_H);
+  const g = shareCtx.createLinearGradient(0, 0, 0, SHARE_H);
+  g.addColorStop(0, "#1b1233");
+  g.addColorStop(0.55, "#2c1a3f");
+  g.addColorStop(1, "#3a2140");
+  shareCtx.fillStyle = g;
+  shareCtx.fillRect(0, 0, SHARE_W, SHARE_H);
+
+  shareCtx.beginPath();
+  shareCtx.moveTo(0, SHARE_H);
+  for (let wx = camX; wx <= camX + VIEW_W; wx += 6) {
+    shareCtx.lineTo(sx(wx), sy(terrainY(wx)));
+  }
+  shareCtx.lineTo(SHARE_W, SHARE_H);
+  shareCtx.closePath();
+  shareCtx.fillStyle = "#161022";
+  shareCtx.fill();
+  shareCtx.beginPath();
+  let started = false;
+  for (let wx = camX; wx <= camX + VIEW_W; wx += 6) {
+    const px = sx(wx), py = sy(terrainY(wx));
+    if (!started) { shareCtx.moveTo(px, py); started = true; }
+    else shareCtx.lineTo(px, py);
+  }
+  shareCtx.strokeStyle = "#ffb454";
+  shareCtx.lineWidth = 4;
+  shareCtx.lineJoin = "round";
+  shareCtx.stroke();
+
+  drawAvatar(shareCtx, sx(player.dist), sy(player.y), PLAYER_R * SHARE_SCALE * 0.85, {
+    img: pImg, hue: playerHue, initial: playerInitial, ring: "#ffd166",
+  });
+  drawAvatar(shareCtx, sx(player.dist) + 130, sy(player.y) - 40, ROCK_R * SHARE_SCALE * 0.85, {
+    img: mImg, hue: hue(handle), initial: handle[0]?.toUpperCase() || "?", ring: "rgba(255,127,127,0.9)",
+  });
+
+  shareCtx.textAlign = "left";
+  shareCtx.fillStyle = "#f1ece2";
+  shareCtx.font = "700 44px ui-monospace, monospace";
+  shareCtx.fillText(`@${cluster.handle}`, 56, 90);
+  shareCtx.fillStyle = "#9089a3";
+  shareCtx.font = "20px ui-monospace, monospace";
+  shareCtx.fillText(
+    `rode ${meters}m, dodged ${score} moots before @${handle} (${weapon}) closed the case`,
+    56,
+    128,
+  );
+  if (newBest) {
+    shareCtx.fillStyle = "#ffb454";
+    shareCtx.font = "700 18px ui-monospace, monospace";
+    shareCtx.fillText("new best", 56, 156);
+  }
+  shareCtx.fillStyle = "#ffb454";
+  shareCtx.font = "700 22px ui-monospace, monospace";
+  shareCtx.textAlign = "right";
+  shareCtx.fillText("mootrider.bisks.net", SHARE_W - 56, SHARE_H - 40);
+}
+
+function canShareFiles() {
+  if (!navigator.canShare) return false;
+  try {
+    const probe = new File(["x"], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+
+shareNativeBtn.addEventListener("click", () => {
+  shareCanvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const file = new File([blob], `mootrider-${cluster.handle}.png`, { type: "image/png" });
+    try {
+      await navigator.share({ files: [file], text: lastShareText, title: "mootrider" });
+    } catch {}
+  }, "image/png");
+});
 
 function tryJump() {
   if (!running || !player.grounded) return;
@@ -278,7 +396,7 @@ function update(dt) {
     const dy = r.y - player.y;
     if (Math.hypot(dx, dy) < PLAYER_R + ROCK_R - HIT_SLOP) {
       r.passed = true;
-      crash(r.moot.handle);
+      crash(r.moot);
       return;
     }
     if (r.x < player.dist - PLAYER_R) {
@@ -379,34 +497,34 @@ function drawTerrain(camX) {
   ctx.stroke();
 }
 
-function drawAvatar(cx, cy, radius, opts) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.clip();
+function drawAvatar(ctx2, cx, cy, radius, opts) {
+  ctx2.save();
+  ctx2.beginPath();
+  ctx2.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx2.clip();
   if (imgReady(opts.img)) {
-    ctx.drawImage(opts.img, cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx2.drawImage(opts.img, cx - radius, cy - radius, radius * 2, radius * 2);
   } else {
-    ctx.fillStyle = `hsl(${opts.hue} 55% 42%)`;
-    ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.font = `${Math.round(radius)}px ui-monospace, monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(opts.initial || "?", cx, cy + 1);
+    ctx2.fillStyle = `hsl(${opts.hue} 55% 42%)`;
+    ctx2.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+    ctx2.fillStyle = "rgba(255,255,255,0.92)";
+    ctx2.font = `${Math.round(radius)}px ui-monospace, monospace`;
+    ctx2.textAlign = "center";
+    ctx2.textBaseline = "middle";
+    ctx2.fillText(opts.initial || "?", cx, cy + 1);
   }
-  ctx.restore();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius + 1.2, 0, Math.PI * 2);
-  ctx.strokeStyle = opts.ring || "rgba(255,255,255,0.2)";
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  ctx2.restore();
+  ctx2.beginPath();
+  ctx2.arc(cx, cy, radius + 1.2, 0, Math.PI * 2);
+  ctx2.strokeStyle = opts.ring || "rgba(255,255,255,0.2)";
+  ctx2.lineWidth = 2;
+  ctx2.stroke();
 }
 
 function drawRock(r, camX) {
   const sx = r.x - camX;
   if (sx < -30 || sx > VIEW_W + 30) return;
-  drawAvatar(sx, r.y, ROCK_R, {
+  drawAvatar(ctx, sx, r.y, ROCK_R, {
     img: r.moot.img,
     hue: r.moot.hue,
     initial: r.moot.initial,
@@ -481,7 +599,7 @@ function drawPlayer() {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
-  drawAvatar(sx, sy, PLAYER_R, {
+  drawAvatar(ctx, sx, sy, PLAYER_R, {
     img: playerImg,
     hue: playerHue,
     initial: playerInitial,
