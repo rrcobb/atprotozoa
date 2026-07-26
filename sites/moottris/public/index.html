@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>moottris — tetris played with your moots' star signs — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. Every falling piece is one of your moots (mutuals): its shape comes from the zodiac sign of their account's birthday, its fall speed from how many posts they've made in the last 48 hours. Clear four lines at once and the stars do something about it."
+    />
+    <style>
+      :root {
+        --bg: #0c0a14;
+        --panel: #16121f;
+        --ink: #f1ece2;
+        --muted: #9089a3;
+        --faint: #2a2438;
+        --accent: #c792ff;
+        --accent-dim: #5a3f7a;
+        --warn: #ff7f7f;
+        --gold: #ffd166;
+        --paper: #f7f2e7;
+        --paperline: #e6dcc4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        -webkit-user-select: none; user-select: none;
+        touch-action: manipulation;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+      header h1 {
+        font-size: 1.5rem; margin: 0 0 0.35rem; font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      header h1 span { color: var(--accent); }
+      header p { color: var(--muted); margin: 0 0 1rem; font-size: 0.87rem; max-width: 58ch; }
+
+      .legend {
+        display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        padding: 0.6rem 0.8rem; margin-bottom: 1.5rem; font-size: 0.74rem; color: var(--muted);
+      }
+      .legend b { color: var(--ink); }
+      .legend .item { white-space: nowrap; }
+
+      form#load-form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+      #handle-input {
+        flex: 1; font-family: var(--mono); font-size: 0.9rem; color: var(--ink);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      #handle-input:focus { outline: none; border-color: var(--accent-dim); }
+      form#load-form button {
+        font-family: var(--mono); font-size: 0.85rem; color: #1c0a2b;
+        background: var(--accent); border: none; border-radius: 6px;
+        padding: 0 1rem; cursor: pointer; font-weight: 600;
+      }
+      form#load-form button:hover { filter: brightness(1.08); }
+      form#load-form button:disabled { opacity: 0.5; cursor: default; }
+
+      #status { min-height: 1.2rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 1.25rem; }
+      #status.error { color: var(--warn); }
+
+      #game[hidden] { display: none; }
+
+      #hud {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        padding: 0.6rem 0.8rem; margin-bottom: 0.6rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        font-size: 0.8rem; color: var(--muted);
+      }
+      #hud b { color: var(--ink); }
+      #hud .accent { color: var(--accent); }
+      #hud .spacer { flex: 1; }
+      #retro-badge {
+        display: none; color: #1c0a2b; background: var(--gold);
+        padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 700;
+        font-size: 0.72rem; letter-spacing: 0.03em;
+      }
+      #retro-badge.on { display: inline-block; animation: pulse 0.6s infinite alternate; }
+      @keyframes pulse { from { filter: brightness(1); } to { filter: brightness(1.4); } }
+
+      #layout { display: flex; gap: 0.7rem; align-items: flex-start; }
+      #stage {
+        position: relative; flex: 1; min-width: 0;
+        border-radius: 8px; overflow: hidden;
+        background: #000;
+        box-shadow: 0 0 0 1px var(--faint);
+      }
+      #board { display: block; width: 100%; height: auto; }
+
+      #side {
+        width: 108px; flex: none; display: flex; flex-direction: column; gap: 0.55rem;
+      }
+      .side-card {
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        padding: 0.5rem; text-align: center;
+      }
+      .side-card .lbl { font-size: 0.65rem; color: var(--muted); margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      #next-canvas { display: block; margin: 0 auto; background: #000; border-radius: 6px; }
+      .side-card .who { font-size: 0.68rem; color: var(--ink); margin-top: 0.3rem; overflow-wrap: anywhere; }
+      .side-card .who .sign { color: var(--accent); }
+      .side-card .who .speed { color: var(--muted); }
+
+      .overlay {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 0.8rem; text-align: center; padding: 1.5rem;
+        background: rgba(12,10,20,0.9); backdrop-filter: blur(2px);
+        z-index: 5;
+      }
+      .overlay.hidden { display: none; }
+      .overlay h2 { margin: 0; font-size: 1.25rem; color: var(--accent); }
+      .overlay p { margin: 0; color: var(--muted); max-width: 42ch; font-size: 0.85rem; }
+      .overlay button {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+        color: #1c0a2b; background: var(--accent); border: none;
+        border-radius: 999px; padding: 0.6rem 1.4rem; cursor: pointer;
+      }
+      .overlay button:hover { filter: brightness(1.08); }
+      .overlay .keys { color: var(--muted); font-size: 0.75rem; }
+      .overlay .keys b { color: var(--ink); }
+
+      .casefile {
+        background: var(--paper); color: #1c1c1c; border: 1px solid var(--paperline);
+        border-radius: 6px; padding: 0.9rem 1.1rem; max-width: 38ch;
+        font-size: 0.82rem; line-height: 1.6; text-align: left;
+      }
+      .casefile .h {
+        font-weight: 700; letter-spacing: 0.05em; color: #6a2fa3;
+        font-size: 0.78rem; margin-bottom: 0.35rem;
+      }
+      .casefile b { color: #1c1c1c; }
+      .casefile .tip { margin-top: 0.5rem; color: #6b5a2a; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+      .overlay a.share {
+        font-family: var(--mono); font-size: 0.8rem; color: var(--ink);
+        background: transparent; border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.55rem 1.1rem; text-decoration: none;
+      }
+      .overlay a.share:hover { border-color: var(--accent-dim); }
+
+      #touch {
+        display: none; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 0.7rem;
+      }
+      #touch button {
+        font-family: var(--mono); font-size: 1rem; color: #1c0a2b;
+        background: var(--accent); border: none; border-radius: 10px;
+        padding: 0.7rem 1rem; font-weight: 700; min-width: 2.6rem;
+      }
+      #touch button:active { filter: brightness(0.9); }
+      #touch .gap { flex: 1; max-width: 1.2rem; }
+      @media (pointer: coarse) { #touch { display: flex; } }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span>moot</span>tris</h1>
+        <p>
+          type a Bluesky handle. every falling piece is one of your moots
+          (mutuals, widened to follows if there aren't enough) — its shape
+          comes from the zodiac sign of their account's birthday, its fall
+          speed from how many posts they've made in the last 48 hours. clear
+          four lines at once and something happens to the sky.
+        </p>
+      </header>
+
+      <div class="legend">
+        <span class="item">♌ Sun → <b>O</b></span>
+        <span class="item">♋ Moon → <b>I</b></span>
+        <span class="item">♊♍ Mercury → <b>S</b></span>
+        <span class="item">♉♎ Venus → <b>T</b></span>
+        <span class="item">♈♏ Mars → <b>Z</b></span>
+        <span class="item">♐♓ Jupiter → <b>L</b></span>
+        <span class="item">♑♒ Saturn → <b>J</b></span>
+      </div>
+
+      <form id="load-form">
+        <input id="handle-input" placeholder="handle.bsky.social" value="isolyth.dev" autocomplete="off" />
+        <button id="load-btn" type="submit">chart it</button>
+      </form>
+      <div id="status"></div>
+
+      <div id="game" hidden>
+        <div id="hud">
+          <span>score <b id="score">0</b></span>
+          <span>best <b id="best" class="accent">0</b></span>
+          <span>lines <b id="lines">0</b></span>
+          <span class="spacer"></span>
+          <span id="retro-badge">☿ RETROGRADE</span>
+          <span id="board-meta"></span>
+        </div>
+
+        <div id="layout">
+          <div id="stage">
+            <canvas id="board"></canvas>
+
+            <div class="overlay" id="start-overlay">
+              <h2>chart's drawn</h2>
+              <p id="start-copy">the board is stocked with your moots.</p>
+              <button id="start-btn">▶ begin</button>
+              <p class="keys"><b>← →</b> move · <b>↑</b> rotate · <b>↓</b> soft drop · <b>space</b> hard drop</p>
+            </div>
+
+            <div class="overlay hidden" id="over-overlay">
+              <div class="casefile">
+                <div class="h">READING COMPLETE</div>
+                <div id="over-body">your chart filled up.</div>
+                <div class="tip" id="over-tip"></div>
+              </div>
+              <div class="row">
+                <button id="again-btn">↻ redraw</button>
+                <a id="share-btn" class="share" href="#" target="_blank" rel="noopener">share reading</a>
+              </div>
+            </div>
+          </div>
+
+          <div id="side">
+            <div class="side-card">
+              <div class="lbl">next</div>
+              <canvas id="next-canvas" width="88" height="88"></canvas>
+              <div class="who" id="next-who">—</div>
+            </div>
+            <div class="side-card">
+              <div class="lbl">falling</div>
+              <div class="who" id="cur-who">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="touch">
+          <button id="t-left">◀</button>
+          <button id="t-rotate">↻</button>
+          <button id="t-right">▶</button>
+          <div class="gap"></div>
+          <button id="t-down">▼</button>
+          <button id="t-drop">⤓</button>
+        </div>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a> · public AppView
+        reads only, nothing written · moots-graph logic copied from
+        <a href="https://mootrider.bisks.net">mootrider</a>, by way of
+        <a href="https://pacmoot.bisks.net">pacmoot</a> and
+        <a href="https://mootdrone.bisks.net">mootdrone</a>, all the way back
+        to <a href="https://simcluster.bisks.net">simcluster</a> · zodiac
+        signs are read off each account's <code>createdAt</code> (its closest
+        thing to a birthday) · canvas + vanilla JS, no build step
+      </footer>
+    </div>
+
+    <script type="module" src="game.js"></script>
+  </body>
+</html>
