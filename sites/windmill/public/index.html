@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Windmill — the Animal Farm economy game</title>
-<meta name="description" content="Run Manor Farm's economy for sixteen seasons. Play Barter (no credit, no bank) or Credit (borrow, set interest rates, ride the boom-bust cycle). See what credit actually does to a market.">
+<meta name="description" content="Barter mode or Credit mode. Build the windmill, set the interest rate, and find out the hard way what leverage does to a farm.">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="Windmill — the Animal Farm economy game">
@@ -169,6 +169,20 @@
     box-shadow: 3px 3px 0 rgba(36,27,18,.25); font-weight:bold;
   }
 
+  #shareCanvas{
+    display:block; width:100%; height:auto;
+    border:2px solid var(--ink); border-radius:4px;
+    box-shadow: 4px 4px 0 rgba(36,27,18,.18);
+    margin-bottom: 14px;
+  }
+  .recap-banner{
+    background: var(--gold); color: var(--ink);
+    border: 2px solid var(--ink); border-radius:4px;
+    padding: 10px 14px; margin-bottom: 16px; font-size:.9rem;
+    box-shadow: 4px 4px 0 rgba(36,27,18,.18);
+  }
+  h3.chart-heading{ margin: 18px 0 6px; }
+
   footer{ text-align:center; font-size:.78rem; opacity:.55; margin-top: 22px; }
   footer a{ color: inherit; }
   .hidden{ display:none !important; }
@@ -184,6 +198,7 @@
 
   <!-- INTRO / MODE SELECT -->
   <section id="screen-intro" class="card">
+    <div id="recapBanner" class="recap-banner hidden"></div>
     <h2>Choose your system</h2>
     <p>You run the farm's economy after the Rebellion. Split the herd's labor between the fields and the windmill, sell grain at market, and get through sixteen seasons in one piece. Two ways to play:</p>
 
@@ -262,11 +277,19 @@
       <div class="sub">final score · <span id="endModeLabel">barter</span> mode</div>
     </div>
     <p id="endSummary"></p>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="actions">
+      <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your season</a>
+      <button class="ghost" id="shareNative" type="button" style="display:none;">📤 share card</button>
+      <button class="ghost" id="shareDownload" type="button">⬇ download card</button>
+    </div>
+
+    <h3 class="chart-heading">Season chart</h3>
     <canvas id="chart" width="600" height="180"></canvas>
     <p id="compareNote" style="font-size:.88rem; opacity:.8;"></p>
 
     <div class="actions">
-      <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your season</a>
       <button class="secondary" id="btnTryOther">Try the other mode</button>
       <button class="ghost" id="btnReplay">Play again</button>
     </div>
@@ -334,9 +357,13 @@
     endSummary: document.getElementById('endSummary'),
     compareNote: document.getElementById('compareNote'),
     chart: document.getElementById('chart'),
+    shareCanvas: document.getElementById('shareCanvas'),
     shareBluesky: document.getElementById('shareBluesky'),
+    shareNative: document.getElementById('shareNative'),
+    shareDownload: document.getElementById('shareDownload'),
     btnTryOther: document.getElementById('btnTryOther'),
     btnReplay: document.getElementById('btnReplay'),
+    recapBanner: document.getElementById('recapBanner'),
   };
 
   var MODE_TEXT = {
@@ -350,6 +377,22 @@
   function fmt(n){
     n = Math.round(n);
     return n.toLocaleString('en-US');
+  }
+
+  // Compact result encoding shared with src/index.ts (the Worker decodes the
+  // same shape to stamp per-result og:title/description onto /r/<code>), so a
+  // shared link's unfurl card shows the actual score instead of one generic
+  // card for every share.
+  function encodeResult(o){
+    var b64 = btoa(JSON.stringify(o));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function decodeResult(str){
+    try{
+      var b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      return JSON.parse(atob(b64));
+    }catch(e){ return null; }
   }
 
   function newState(mode){
@@ -613,11 +656,109 @@
 
     drawChart(state.history);
 
-    var url = 'https://windmill.bisks.net/';
+    var resultCode = encodeResult({ m: state.mode.charAt(0), s: score, c: state.crashes, w: Math.floor(state.windmill) });
+    var url = 'https://windmill.bisks.net/r/' + resultCode;
     var text = (state.mode === 'credit' ? '🏦 Credit mode' : '🌾 Barter mode') + ' — score ' + fmt(score) +
       (state.mode === 'credit' && state.crashes > 0 ? ', survived ' + state.crashes + ' bank collapse(s)' : '') +
       ', windmill ' + Math.floor(state.windmill) + '% built.\n\nRun Manor Farm\'s economy yourself: ' + url;
     els.shareBluesky.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text);
+
+    buildShareCard(state, score);
+    wireShareButtons(state, score, text);
+  }
+
+  // propaganda-poster share card, mirrors og-gen.mjs's palette so the
+  // downloaded/attached image matches the site's static OG card look.
+  function buildShareCard(s, score){
+    var canvas = els.shareCanvas;
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    var serif = 'Georgia, serif';
+
+    ctx.clearRect(0, 0, W, H);
+    var bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#f0e6d2');
+    bg.addColorStop(1, '#e2d5b0');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#241b12';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, W - 10, H - 10);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#8f1b1b';
+    ctx.font = '700 68px ' + serif;
+    ctx.fillText('WINDMILL', 60, 120);
+    ctx.fillStyle = '#241b12';
+    ctx.font = '22px ' + serif;
+    ctx.globalAlpha = 0.75;
+    ctx.fillText('the Animal Farm economy game', 62, 155);
+    ctx.globalAlpha = 1;
+
+    var isCredit = s.mode === 'credit';
+    ctx.fillStyle = isCredit ? '#8f1b1b' : '#3c5a34';
+    ctx.font = '700 30px ' + serif;
+    ctx.fillText((isCredit ? '🏦 Credit mode' : '🌾 Barter mode'), 60, 220);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#241b12';
+    ctx.font = '700 22px ' + serif;
+    ctx.globalAlpha = 0.65;
+    ctx.fillText('FINAL SCORE', W / 2, 300);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#8f1b1b';
+    ctx.font = '700 108px ' + serif;
+    ctx.fillText(fmt(score), W / 2, 400);
+
+    var chips = ['Windmill ' + Math.floor(s.windmill) + '% built'];
+    if (isCredit) chips.push(s.crashes > 0 ? 'Bank collapsed ' + s.crashes + '×' : 'Bank held steady');
+    else chips.push('No debt, no bust');
+    ctx.font = '22px ' + serif;
+    ctx.fillStyle = '#241b12';
+    ctx.fillText(chips.join('   ·   '), W / 2, 450);
+
+    ctx.textAlign = 'left';
+    ctx.font = '700 24px ' + serif;
+    ctx.fillStyle = '#b8902f';
+    ctx.fillText('windmill.bisks.net', 60, H - 46);
+    ctx.textAlign = 'right';
+    ctx.globalAlpha = 0.6;
+    ctx.font = '18px ' + serif;
+    ctx.fillStyle = '#241b12';
+    ctx.fillText('sixteen seasons · two systems', W - 60, H - 46);
+    ctx.globalAlpha = 1;
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try{
+      var probe = new File([''], 'probe.png', { type: 'image/png' });
+      return navigator.canShare({ files: [probe] });
+    }catch(e){ return false; }
+  }
+
+  function wireShareButtons(s, score, shareText){
+    els.shareDownload.onclick = function(){
+      els.shareCanvas.toBlob(function(blob){
+        if (!blob) return;
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'windmill-' + s.mode + '-' + Math.round(score) + '.png';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, 'image/png');
+    };
+    if (canShareFiles()){
+      els.shareNative.style.display = '';
+      els.shareNative.onclick = function(){
+        els.shareCanvas.toBlob(async function(blob){
+          if (!blob) return;
+          var file = new File([blob], 'windmill-' + s.mode + '-' + Math.round(score) + '.png', { type: 'image/png' });
+          try{ await navigator.share({ files: [file], text: shareText, title: 'Windmill' }); }
+          catch(e){ /* cancelled — no-op */ }
+        }, 'image/png');
+      };
+    }
   }
 
   function drawChart(history){
@@ -679,6 +820,23 @@
     syncReadouts();
     renderGame();
   });
+
+  // /r/<code> — someone's shared result link. Decode it client-side (the
+  // Worker already used the same code to stamp the og:title/description for
+  // the unfurl) and turn it into a friendly "beat this" banner on the intro
+  // screen instead of silently ignoring the path.
+  var pathMatch = location.pathname.match(/^\/r\/([^/]+)\/?$/);
+  if (pathMatch) {
+    var shared = decodeResult(decodeURIComponent(pathMatch[1]));
+    if (shared && typeof shared.s === 'number') {
+      var modeName = shared.m === 'c' ? '🏦 Credit' : '🌾 Barter';
+      els.recapBanner.textContent = 'A friend\'s ' + modeName + ' run scored ' + fmt(shared.s) +
+        ' (windmill ' + (shared.w || 0) + '% built' +
+        (shared.m === 'c' && shared.c ? ', ' + shared.c + ' bank collapse(s)' : '') +
+        '). Pick a system below and see if you can beat it.';
+      els.recapBanner.classList.remove('hidden');
+    }
+  }
 
 })();
 </script>
