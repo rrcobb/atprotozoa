@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mechpilot — your handle, piloting a mech</title>
+<meta name="description" content="Enter a Bluesky handle and get a real mech-pilot trading card: a procedurally built mech, a callsign, and stats pulled from the account itself — followers, posts, and sortie tempo." />
+<meta property="og:title" content="mechpilot — your handle, piloting a mech" />
+<meta property="og:description" content="Enter a Bluesky handle and get a real mech-pilot trading card: a procedurally built mech, a callsign, and stats pulled from the account itself — followers, posts, and sortie tempo." />
+<meta property="og:url" content="https://mechpilot.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://mechpilot.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="mechpilot: a mech-pilot trading card built from a Bluesky handle, with a callsign, class, and stat bars." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mechpilot — your handle, piloting a mech" />
+<meta name="twitter:description" content="Enter a Bluesky handle and get a real mech-pilot trading card: a procedurally built mech, a callsign, and stats pulled from the account itself — followers, posts, and sortie tempo." />
+<meta name="twitter:image" content="https://mechpilot.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070a10;
+    --bg2: #0d131c;
+    --fg: #e8f1fb;
+    --dim: #7d90a8;
+    --accent: #ffb238;
+    --accent2: #4ce0ff;
+    --card: #0f151d;
+    --border: #263243;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #16324a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #3a2a12 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #ff7a3d);
+    color: #1a0f04;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .result { display: none; }
+  .result.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  #cardCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 14px;
+    box-shadow: 0 0 60px -20px var(--accent2);
+    margin-bottom: 0.9rem;
+  }
+
+  .readout {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.82rem;
+    line-height: 1.6;
+    margin-bottom: 1.1rem;
+  }
+  .readout b { color: var(--fg); }
+  .readout .rank { color: var(--accent); font-weight: 700; }
+
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #ff7a3d);
+    color: #1a0f04;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>mechpilot</h1>
+    <p class="tag">
+      Every Bluesky handle is secretly a mech pilot. Enter one and this
+      builds their card — a procedurally assembled mech, a callsign, a
+      pilot class, and stats read straight off the account: followers,
+      posts, sortie tempo, veteran level.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">deploy</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, a rival's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="result" class="result">
+      <canvas id="cardCanvas" width="640" height="900"></canvas>
+      <p class="readout" id="readout"></p>
+
+      <div class="share-actions">
+        <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your card</a>
+        <button id="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+
+// ---- pilot flavor: class + callsign, derived from the DID -----------------
+// Same hashStr/deriveFlavor as src/index.ts (server needs the same two
+// strings for personalized og:title/description on /s/<handle> — kept as a
+// deliberately duplicated copy, not a shared module, per house style).
+const CLASSES = [
+  { key: "VANGUARD",    tagline: "close-quarters melee frame",  weapon: "arc blade",     hull: "#8a2f2f", panel: "#3a1414", stance: "normal" },
+  { key: "INTERCEPTOR", tagline: "high-speed strike frame",      weapon: "twin blasters", hull: "#1c6e8c", panel: "#0d2e3a", stance: "narrow" },
+  { key: "JUGGERNAUT",  tagline: "heavy siege frame",            weapon: "shock cannon",  hull: "#7a5f1c", panel: "#3a2f0d", stance: "wide"   },
+  { key: "WRAITH",      tagline: "stealth infiltration frame",   weapon: "twin blades",   hull: "#4a2a6e", panel: "#20123a", stance: "narrow" },
+  { key: "ARTILLERY",   tagline: "long-range fire support",      weapon: "railgun",       hull: "#2a6e3a", panel: "#123a1c", stance: "wide"   },
+  { key: "WARDEN",      tagline: "frontline defense frame",      weapon: "barrier hammer",hull: "#3a4a5f", panel: "#1a232c", stance: "wide"   },
+];
+const ACCENTS = ["#4ce0ff", "#ff4c6e", "#ffd24c", "#7cff4c", "#c94cff", "#4cffcf", "#ff8a4c", "#ffffff"];
+const CALL_ADJ = [
+  "IRON", "NULL", "GHOST", "CRIMSON", "SILENT", "ROGUE", "LAST", "ASH",
+  "NEON", "HOLLOW", "STORM", "RUST", "PALE", "GRIM", "LONE", "FERAL",
+];
+const CALL_NOUN = [
+  "WOLF", "VIPER", "FALCON", "COMET", "ANVIL", "REAPER", "HORNET", "WRAITH",
+  "MANTIS", "JACKAL", "TALON", "ECHO", "CINDER", "RAVEN", "SPECTER", "LYNX",
+];
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function didUniquePart(did) {
+  const parts = did.split(":");
+  return parts.length > 2 ? parts.slice(2).join(":") : did;
+}
+
+function deriveFlavor(did) {
+  const uid = didUniquePart(did);
+  const h = hashStr(uid);
+  const cls = CLASSES[h % CLASSES.length];
+  const accent = ACCENTS[(h >>> 3) % ACCENTS.length];
+  const adj = CALL_ADJ[(h >>> 4) % CALL_ADJ.length];
+  const noun = CALL_NOUN[(h >>> 9) % CALL_NOUN.length];
+  const antennae = 1 + ((h >>> 13) % 2); // 1 or 2
+  const serial = uid.replace(/[^a-z0-9]/gi, "").slice(-4).toUpperCase().padStart(4, "0");
+  return { cls, accent, callsign: `${adj} ${noun}`, antennae, serial };
+}
+
+// ---- stats: real account data, mapped onto mech-pilot readouts -----------
+function scaleLog(value, cap) {
+  const v = Math.max(0, value || 0);
+  const s = Math.log10(v + 1) / Math.log10(cap + 1);
+  return Math.max(1, Math.min(99, Math.round(s * 99)));
+}
+function scaleLinear(value, cap) {
+  return Math.max(1, Math.min(99, Math.round(((value || 0) / cap) * 99)));
+}
+function rankFor(avg) {
+  if (avg >= 85) return "S";
+  if (avg >= 70) return "A";
+  if (avg >= 55) return "B";
+  if (avg >= 35) return "C";
+  return "D";
+}
+
+function computeStats(profile) {
+  const followers = profile.followersCount || 0;
+  const follows = profile.followsCount || 0;
+  const posts = profile.postsCount || 0;
+  const createdAt = profile.createdAt ? new Date(profile.createdAt) : null;
+  const ageDays = createdAt && !isNaN(createdAt) ? Math.max(1, (Date.now() - createdAt.getTime()) / 86400000) : 180;
+  const postsPerDay = posts / ageDays;
+
+  const ARM = scaleLog(followers, 5000);   // community at your back
+  const FIRE = scaleLog(posts, 5000);       // total ordinance fired
+  const SYNC = scaleLog(follows, 2000);     // neural bonds formed
+  const SPD = scaleLinear(postsPerDay, 4.5);  // sortie tempo / reflexes
+
+  const avg = (ARM + FIRE + SYNC + SPD) / 4;
+  const rank = rankFor(avg);
+  const lv = Math.max(1, Math.min(99, Math.round(ageDays / 10)));
+
+  return { ARM, FIRE, SYNC, SPD, rank, lv, ageDays: Math.round(ageDays) };
+}
+
+// ---- networking ------------------------------------------------------------
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+// cdn.bsky.app sends no CORS headers, so a direct crossOrigin fetch of an
+// avatar always fails and taints the canvas — route it through our own
+// /api/avatar proxy (src/index.ts) instead, which re-serves it with
+// access-control-allow-origin: *.
+function proxiedAvatarUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname === "cdn.bsky.app") {
+      return "/api/avatar?u=" + encodeURIComponent(rawUrl);
+    }
+  } catch (_) {}
+  return rawUrl;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+// ---- drawing helpers --------------------------------------------------------
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+}
+function polyPath(ctx, pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+// Draws the mech itself, centered on groundX at groundY (feet touch down
+// there), inside roughly a 600x530 box above that point (that's ground to
+// antenna-tip at scale 1 — callers pass `scale` to fit whatever art viewport
+// they've got). Shape/weapon/stance come from the pilot class; the avatar is
+// clipped into the head as the cockpit visor; everything is built from plain
+// rects/polys/circles — no external art assets.
+function drawMech(ctx, groundX, groundY, scale, cls, accent, avatarImg, handle, antennae) {
+  // All the coordinates below are written for a groundpoint at the origin —
+  // shift there and let the canvas transform handle both the translate and
+  // the scale, instead of threading a scale factor through every magic number.
+  ctx.save();
+  ctx.translate(groundX, groundY);
+  ctx.scale(scale, scale);
+  groundX = 0;
+  groundY = 0;
+
+  const stanceGap = cls.stance === "narrow" ? 34 : cls.stance === "wide" ? 58 : 45;
+  const hull = cls.hull, panel = cls.panel;
+
+  // ground glow
+  const glow = ctx.createRadialGradient(groundX, groundY, 4, groundX, groundY, 130);
+  glow.addColorStop(0, accent + "55");
+  glow.addColorStop(1, accent + "00");
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.ellipse(groundX, groundY, 130, 22, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // legs (upper+lower as one tapered shape, knee joint circle)
+  [-1, 1].forEach((side) => {
+    const fx = groundX + side * stanceGap;
+    ctx.fillStyle = panel;
+    roundRectPath(ctx, fx - 20, groundY - 26, 40, 26, 6);
+    ctx.fill(); // foot
+    ctx.fillStyle = hull;
+    polyPath(ctx, [
+      [fx - 22, groundY - 26], [fx + 22, groundY - 26],
+      [fx + 16, groundY - 230], [fx - 16, groundY - 230],
+    ]);
+    ctx.fill(); // leg
+    ctx.fillStyle = panel;
+    ctx.beginPath();
+    ctx.arc(fx, groundY - 130, 13, 0, Math.PI * 2);
+    ctx.fill(); // knee
+    ctx.fillStyle = accent + "cc";
+    roundRectPath(ctx, fx - 10, groundY - 22, 20, 6, 3);
+    ctx.fill(); // foot thruster glow
+  });
+
+  // hips
+  ctx.fillStyle = panel;
+  roundRectPath(ctx, groundX - 70, groundY - 265, 140, 38, 10);
+  ctx.fill();
+
+  // torso (trapezoid hull)
+  const tTop = groundY - 425, tBot = groundY - 258;
+  ctx.fillStyle = hull;
+  polyPath(ctx, [
+    [groundX - 80, tTop + 25], [groundX + 80, tTop + 25],
+    [groundX + 95, tBot], [groundX - 95, tBot],
+  ]);
+  ctx.fill();
+  ctx.strokeStyle = panel;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // chest vents
+  ctx.strokeStyle = panel;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(groundX, tTop + 40);
+  ctx.lineTo(groundX, tBot - 10);
+  ctx.stroke();
+
+  // core light
+  ctx.save();
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(groundX, tTop + 95, 16, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // shoulders + arms + weapon, per class
+  const shoulderY = tTop + 30;
+  [-1, 1].forEach((side) => {
+    const sx = groundX + side * 105;
+    // pad
+    ctx.fillStyle = panel;
+    if (cls.key === "JUGGERNAUT" || cls.key === "WARDEN") {
+      roundRectPath(ctx, sx - side * 8 - 32, shoulderY - 30, 64, 58, 10);
+      ctx.fill();
+    } else if (cls.key === "INTERCEPTOR") {
+      polyPath(ctx, [[sx - 30, shoulderY - 10], [sx + side * 46, shoulderY - 34], [sx + side * 46, shoulderY + 6], [sx - 30, shoulderY + 22]]);
+      ctx.fill();
+    } else if (cls.key === "VANGUARD" && side === 1) {
+      polyPath(ctx, [[sx - 26, shoulderY - 28], [sx + 40, shoulderY - 44], [sx + 46, shoulderY + 10], [sx - 26, shoulderY + 26]]);
+      ctx.fill();
+    } else if (cls.key === "ARTILLERY" && side === 1) {
+      roundRectPath(ctx, sx - 30, shoulderY - 40, 90, 70, 8);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(sx, shoulderY, 26, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // arm
+    const handX = sx + side * 18;
+    const handY = shoulderY + 130;
+    ctx.fillStyle = hull;
+    polyPath(ctx, [
+      [sx - 16, shoulderY], [sx + 16, shoulderY],
+      [handX + 14, handY], [handX - 14, handY],
+    ]);
+    ctx.fill();
+    ctx.fillStyle = panel;
+    ctx.beginPath();
+    ctx.arc(handX, handY, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // weapon on the right arm (or shield on the left for WARDEN)
+    ctx.fillStyle = panel;
+    if (side === 1) {
+      if (cls.key === "VANGUARD") {
+        polyPath(ctx, [[handX - 6, handY - 10], [handX + 14, handY - 130], [handX + 22, handY - 130], [handX + 10, handY - 6]]);
+        ctx.fillStyle = accent;
+        ctx.fill();
+      } else if (cls.key === "INTERCEPTOR") {
+        roundRectPath(ctx, handX - 4, handY - 60, 14, 60, 4);
+        ctx.fill();
+        roundRectPath(ctx, handX + 14, handY - 48, 12, 48, 4);
+        ctx.fill();
+      } else if (cls.key === "JUGGERNAUT") {
+        roundRectPath(ctx, handX - 4, handY - 20, 70, 30, 8);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(handX + 66, handY - 5, 15, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (cls.key === "WRAITH") {
+        polyPath(ctx, [[handX - 4, handY - 4], [handX + 60, handY - 70], [handX + 68, handY - 62], [handX + 8, handY + 4]]);
+        ctx.fillStyle = accent;
+        ctx.fill();
+      } else if (cls.key === "ARTILLERY") {
+        roundRectPath(ctx, handX - 6, handY - 25, 130, 26, 6);
+        ctx.fill();
+        roundRectPath(ctx, handX + 100, handY - 34, 14, 44, 3);
+        ctx.fill();
+      } else if (cls.key === "WARDEN") {
+        roundRectPath(ctx, handX - 14, handY - 90, 30, 60, 6);
+        ctx.fill();
+        roundRectPath(ctx, handX - 30, handY - 100, 62, 26, 8);
+        ctx.fill();
+      }
+    } else if (cls.key === "WARDEN") {
+      ctx.fillStyle = panel;
+      ctx.beginPath();
+      ctx.arc(handX, handY - 10, 34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+    }
+  });
+
+  // head + cockpit visor (avatar clipped inside)
+  const headCX = groundX, headCY = tTop - 20, headR = 54;
+  ctx.fillStyle = panel;
+  ctx.beginPath();
+  ctx.arc(headCX, headCY, headR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = hull;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  const visorW = 82, visorH = 40, visorX = headCX - visorW / 2, visorY = headCY - visorH / 2 + 4;
+  ctx.save();
+  roundRectPath(ctx, visorX, visorY, visorW, visorH, 12);
+  ctx.clip();
+  if (avatarImg) {
+    ctx.drawImage(avatarImg, visorX, visorY, visorW, visorH);
+    ctx.fillStyle = accent + "22";
+    ctx.fillRect(visorX, visorY, visorW, visorH);
+  } else {
+    ctx.fillStyle = "#0b0f14";
+    ctx.fillRect(visorX, visorY, visorW, visorH);
+    ctx.fillStyle = accent;
+    ctx.font = "700 26px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText((handle || "?").charAt(0).toUpperCase(), headCX, visorY + visorH / 2 + 1);
+    ctx.textBaseline = "alphabetic";
+  }
+  ctx.restore();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2;
+  roundRectPath(ctx, visorX, visorY, visorW, visorH, 12);
+  ctx.stroke();
+
+  // antennae
+  for (let i = 0; i < antennae; i++) {
+    const ax = headCX + (antennae === 1 ? 0 : (i === 0 ? -22 : 22));
+    const tipX = ax + (antennae === 1 ? 0 : (i === 0 ? -10 : 10));
+    ctx.strokeStyle = panel;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(ax, headCY - headR + 6);
+    ctx.lineTo(tipX, headCY - headR - 28);
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.arc(tipX, headCY - headR - 28, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function statBar(ctx, x, y, w, h, label, value, accent) {
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9fb2c8";
+  ctx.font = "700 16px ui-monospace, monospace";
+  ctx.fillText(label, x, y + h - 4);
+  const barX = x + 62, barW = w - 62 - 40;
+  ctx.fillStyle = "#1a2230";
+  roundRectPath(ctx, barX, y, barW, h - 10, 5);
+  ctx.fill();
+  ctx.fillStyle = accent;
+  roundRectPath(ctx, barX, y, Math.max(6, (barW * value) / 99), h - 10, 5);
+  ctx.fill();
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#e8f1fb";
+  ctx.font = "700 16px ui-monospace, monospace";
+  ctx.fillText(String(value), x + w, y + h - 4);
+}
+
+function rankColors(rank) {
+  switch (rank) {
+    case "S": return ["#ffd24c", "#fff3c9"];
+    case "A": return ["#c9d6e8", "#f2f6fb"];
+    case "B": return ["#c98a4c", "#f0c896"];
+    case "C": return ["#5f7185", "#8fa3ba"];
+    default:  return ["#3a4553", "#5f6b7a"];
+  }
+}
+
+// Full 640x900 trading card: frame, mech art, stat bars, footer strip.
+function drawCard(canvas, { profile, cls, accent, callsign, antennae, serial, stats, avatarImg }) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  const [rankHi] = rankColors(stats.rank);
+
+  // outer frame
+  ctx.fillStyle = "#050810";
+  roundRectPath(ctx, 0, 0, W, H, 22);
+  ctx.fill();
+  ctx.strokeStyle = rankHi;
+  ctx.lineWidth = 4;
+  roundRectPath(ctx, 6, 6, W - 12, H - 12, 18);
+  ctx.stroke();
+
+  // inner background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, cls.panel);
+  bg.addColorStop(1, "#05070c");
+  ctx.fillStyle = bg;
+  roundRectPath(ctx, 16, 16, W - 32, H - 32, 14);
+  ctx.fill();
+
+  // header
+  ctx.textAlign = "left";
+  ctx.fillStyle = accent;
+  ctx.font = "800 15px " + mono;
+  ctx.fillText("LV " + stats.lv, 36, 52);
+  ctx.textAlign = "right";
+  ctx.fillStyle = rankHi;
+  ctx.font = "800 20px " + mono;
+  ctx.fillText(stats.rank + "-RANK", W - 36, 54);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#f2f7fd";
+  ctx.font = "800 30px " + mono;
+  ctx.fillText(callsign, W / 2, 88);
+  ctx.fillStyle = accent;
+  ctx.font = "700 15px " + mono;
+  ctx.fillText(cls.key + " · " + cls.weapon, W / 2, 112);
+
+  // art viewport
+  const vpX = 34, vpY = 132, vpW = W - 68, vpH = 486;
+  ctx.fillStyle = "#080b11";
+  roundRectPath(ctx, vpX, vpY, vpW, vpH, 10);
+  ctx.fill();
+  ctx.save();
+  roundRectPath(ctx, vpX, vpY, vpW, vpH, 10);
+  ctx.clip();
+  // faint scanlines
+  ctx.strokeStyle = "rgba(255,255,255,0.03)";
+  ctx.lineWidth = 1;
+  for (let ly = vpY; ly < vpY + vpH; ly += 6) {
+    ctx.beginPath();
+    ctx.moveTo(vpX, ly);
+    ctx.lineTo(vpX + vpW, ly);
+    ctx.stroke();
+  }
+  drawMech(ctx, vpX + vpW / 2, vpY + vpH - 34, cls, accent, avatarImg, profile.handle, antennae);
+  ctx.restore();
+  // HUD corner brackets
+  ctx.strokeStyle = rankHi;
+  ctx.lineWidth = 3;
+  const cl = 22;
+  [[vpX, vpY, 1, 1], [vpX + vpW, vpY, -1, 1], [vpX, vpY + vpH, 1, -1], [vpX + vpW, vpY + vpH, -1, -1]].forEach(([cx, cy, dx, dy]) => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + dy * cl);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx + dx * cl, cy);
+    ctx.stroke();
+  });
+
+  // stat block
+  let sy = vpY + vpH + 30;
+  const sx = 46, sw = W - 92, sh = 34, gap = 12;
+  statBar(ctx, sx, sy, sw, sh, "ARM", stats.ARM, "#7cc2ff"); sy += sh + gap;
+  statBar(ctx, sx, sy, sw, sh, "SPD", stats.SPD, "#7cff9f"); sy += sh + gap;
+  statBar(ctx, sx, sy, sw, sh, "FIRE", stats.FIRE, "#ff8a6e"); sy += sh + gap;
+  statBar(ctx, sx, sy, sw, sh, "SYNC", stats.SYNC, "#e08aff");
+
+  // footer
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9fb2c8";
+  ctx.font = "700 16px " + mono;
+  ctx.fillText("@" + profile.handle, 36, H - 34);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#5f7185";
+  ctx.font = "600 13px " + mono;
+  ctx.fillText("NO. " + serial + "  ·  mechpilot.bisks.net", W - 36, H - 34);
+}
+
+// ---- page wiring ------------------------------------------------------------
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  result: document.getElementById("result"),
+  canvas: document.getElementById("cardCanvas"),
+  readout: document.getElementById("readout"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function shareUrlFor(handle) {
+  return "https://mechpilot.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.result.classList.remove("show");
+  setStatus("scanning " + handle + " for pilot data...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const { cls, accent, callsign, antennae, serial } = deriveFlavor(did);
+    const stats = computeStats(profile);
+    const avatarImg = await loadImg(proxiedAvatarUrl(profile.avatar));
+
+    drawCard(els.canvas, { profile, cls, accent, callsign, antennae, serial, stats, avatarImg });
+
+    els.readout.innerHTML =
+      `<b>${callsign}</b> — ${cls.key} <span class="rank">${stats.rank}-RANK</span><br>` +
+      `ARM ${stats.ARM} · SPD ${stats.SPD} · FIRE ${stats.FIRE} · SYNC ${stats.SYNC} · LV ${stats.lv}`;
+
+    setStatus("");
+    els.result.classList.add("show");
+
+    lastShareText =
+      `@${profile.handle} reporting for duty as "${callsign}" — ${cls.key} class, ${stats.rank}-rank. ` +
+      `ARM ${stats.ARM} SPD ${stats.SPD} FIRE ${stats.FIRE} SYNC ${stats.SYNC}.\n\n` +
+      `build your own → ${shareUrlFor(handle)}`;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.canvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.input.value || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "mechpilot-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.input.value || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "mechpilot-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "mechpilot" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (current share links) or the older ?h=<handle> both auto-reveal on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+</body>
+</html>

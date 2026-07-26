@@ -1,0 +1,27 @@
+name = "atprotozoa-mechpilot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Everything runs client-side (public/index.html): resolve a handle, pull
+# real stats off the profile, and draw a procedural mech-pilot card on a
+# <canvas>. Two small server jobs, same shape as sites/didscope +
+# sites/mootrider:
+#   - /s/<handle> renders the static shell with per-person og:title/description
+#     baked in server-side, so every share gets its own link-preview cache
+#     entry instead of one generic one (og:image itself stays the static
+#     public/og.png sample card — Workers have no native canvas/SVG
+#     rasterizer to generate a real one per person server-side).
+#   - /api/avatar proxies cdn.bsky.app (which sends no CORS headers of its
+#     own), so the share-card canvas can draw the real avatar into the
+#     cockpit without tainting the canvas and breaking download/native-share.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "mechpilot.bisks.net", custom_domain = true }]
+
+# run_worker_first: both /s/<handle> and /api/avatar are dynamic, so the
+# Worker must run BEFORE the static-asset router picks it up.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
