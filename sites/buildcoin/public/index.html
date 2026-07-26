@@ -68,8 +68,36 @@
   }
   button.secondary:hover { border-color: var(--ink); }
 
+  button:disabled { cursor: wait; opacity: 0.85; }
+
   .cashout-result {
     margin-top: 1rem; font-size: 0.85rem; color: var(--red); min-height: 1.4em;
+  }
+
+  .cashout-loading {
+    margin-top: 1rem; display: none;
+  }
+  .cashout-loading.on { display: block; }
+  .cashout-loading .step {
+    font-size: 0.8rem; color: var(--muted); min-height: 1.3em;
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  }
+  .spinner {
+    width: 0.85em; height: 0.85em; border-radius: 50%;
+    border: 2px solid var(--faint); border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite; flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bar {
+    height: 6px; border-radius: 3px; background: var(--faint);
+    margin: 0.5rem 0 0.35rem; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; width: 0%; background: var(--accent);
+    transition: width 0.35s ease;
+  }
+  .cashout-loading .pct {
+    font-size: 0.72rem; color: var(--muted);
   }
 
   .stats {
@@ -123,6 +151,11 @@
     <div class="balance-label">your holdings — mined, not bought, never sold</div>
     <button id="mine">⛏ mine</button>
     <button class="secondary" id="cashout">cash out</button>
+    <div class="cashout-loading" id="cashout-loading">
+      <div class="bar"><div class="bar-fill" id="cashout-bar"></div></div>
+      <div class="pct" id="cashout-pct">0%</div>
+      <div class="step"><div class="spinner"></div><span id="cashout-step">initializing withdrawal…</span></div>
+    </div>
     <div class="cashout-result" id="cashout-result"></div>
   </div>
 
@@ -179,6 +212,12 @@
   var rejectionsEl = document.getElementById("rejections");
   var logEl = document.getElementById("log");
   var cashoutResultEl = document.getElementById("cashout-result");
+  var cashoutBtn = document.getElementById("cashout");
+  var mineBtn = document.getElementById("mine");
+  var cashoutLoadingEl = document.getElementById("cashout-loading");
+  var cashoutBarEl = document.getElementById("cashout-bar");
+  var cashoutPctEl = document.getElementById("cashout-pct");
+  var cashoutStepEl = document.getElementById("cashout-step");
 
   function load() {
     try {
@@ -257,13 +296,59 @@
     "declined: your cash-out request was itself mined for BUILD instead.",
   ];
 
-  document.getElementById("cashout").addEventListener("click", function () {
-    state.rejections += 1;
-    var msg = REJECTIONS[Math.floor(Math.random() * REJECTIONS.length)];
-    cashoutResultEl.textContent = msg;
-    log("cash-out attempt #" + state.rejections + " — " + msg);
-    save();
-    render();
+  var CASHOUT_STEPS = [
+    { pct: 4, wait: 550, text: "initializing withdrawal…" },
+    { pct: 11, wait: 700, text: "verifying you are, in fact, a person." },
+    { pct: 19, wait: 650, text: "resolving DNS for a bank that does not exist." },
+    { pct: 28, wait: 900, text: "converting BUILD → USD at today's rate (undefined)." },
+    { pct: 37, wait: 550, text: "negotiating a SWIFT code BUILD does not have." },
+    { pct: 46, wait: 750, text: "checking vibes-backed reserve ratio." },
+    { pct: 55, wait: 650, text: "escalating to a human who is also a bot." },
+    { pct: 63, wait: 800, text: "re-simply-connecting your funds to a point." },
+    { pct: 70, wait: 600, text: "consulting legal about \"vibes-backed securities.\"" },
+    { pct: 76, wait: 850, text: "waiting on a wire transfer that was never sent." },
+    { pct: 82, wait: 700, text: "double-checking the double-check." },
+    { pct: 88, wait: 900, text: "compliance review (this step is fake)." },
+    { pct: 93, wait: 1100, text: "almost there. definitely almost there." },
+    { pct: 99, wait: 1600, text: "still almost there. this is normal." },
+    { pct: 99, wait: 1400, text: "reticulating splines. wrong app, continuing anyway." },
+  ];
+
+  function runCashoutLoader(i, done) {
+    if (i >= CASHOUT_STEPS.length) return done();
+    var step = CASHOUT_STEPS[i];
+    cashoutBarEl.style.width = step.pct + "%";
+    cashoutPctEl.textContent = step.pct + "%";
+    cashoutStepEl.textContent = step.text;
+    setTimeout(function () { runCashoutLoader(i + 1, done); }, step.wait);
+  }
+
+  cashoutBtn.addEventListener("click", function () {
+    cashoutBtn.disabled = true;
+    mineBtn.disabled = true;
+    cashoutResultEl.textContent = "";
+    cashoutLoadingEl.classList.add("on");
+    cashoutBarEl.style.width = "0%";
+    cashoutPctEl.textContent = "0%";
+
+    runCashoutLoader(0, function () {
+      cashoutBarEl.style.width = "100%";
+      cashoutPctEl.textContent = "100%";
+      cashoutStepEl.textContent = "finalizing…";
+
+      setTimeout(function () {
+        state.rejections += 1;
+        var msg = REJECTIONS[Math.floor(Math.random() * REJECTIONS.length)];
+        cashoutResultEl.textContent = msg;
+        log("cash-out attempt #" + state.rejections + " — " + msg);
+        save();
+        render();
+
+        cashoutLoadingEl.classList.remove("on");
+        cashoutBtn.disabled = false;
+        mineBtn.disabled = false;
+      }, 500);
+    });
   });
 
   render();
