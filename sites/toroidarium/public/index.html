@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>toroidarium — your moots, swimming on a wraparound tank</title>
+<meta name="description" content="Enter a Bluesky handle. Its mutuals become fish in a toroidal aquarium — no walls, exit right and re-enter left, exit the bottom and re-enter the top. Feed them. Click one to see who it is." />
+<meta property="og:title" content="toroidarium — your moots, swimming on a wraparound tank" />
+<meta property="og:description" content="Enter a Bluesky handle. Its mutuals become fish in a toroidal aquarium — no walls, exit right and re-enter left, exit the bottom and re-enter the top. Feed them. Click one to see who it is." />
+<meta property="og:url" content="https://toroidarium.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://toroidarium.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="toroidarium: colorful fish swimming in a dark aquarium, with dashed gold seams at the left/right edges showing where fish wrap around." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="toroidarium — your moots, swimming on a wraparound tank" />
+<meta name="twitter:description" content="Enter a Bluesky handle. Its mutuals become fish in a toroidal aquarium — no walls, exit right and re-enter left, exit the bottom and re-enter the top." />
+<meta name="twitter:image" content="https://toroidarium.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #04121a;
+    --bg2: #0b2530;
+    --fg: #eaf6fb;
+    --dim: #7fb2c4;
+    --accent: #34e0c4;
+    --accent2: #ffd166;
+    --card: #0b2530;
+    --border: #1c4a5c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #123648 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #0e3a3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 4rem; }
+  .wrap { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), #7fd8ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.75rem; line-height: 1.55; max-width: 60ch; }
+  .tag code { color: var(--accent2); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #1aa88f); color: #04121a; border: none;
+    border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); font-weight: 600; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1.5rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff9a8a; }
+
+  .tank-section { display: none; }
+  .tank-section.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .tankbar {
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.6rem;
+    font-size: 0.82rem; color: var(--dim);
+  }
+  .tankbar label { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .tankbar .count { margin-left: auto; }
+  .tankbar b { color: var(--fg); }
+
+  .tankwrap {
+    position: relative; width: 100%; border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--border); box-shadow: 0 0 60px -25px var(--accent);
+    background: var(--bg2); touch-action: none;
+  }
+  #tank { display: block; width: 100%; cursor: crosshair; }
+
+  .tooltip {
+    position: absolute; display: none; max-width: 240px; background: rgba(4, 18, 26, 0.95);
+    border: 1px solid var(--accent); border-radius: 10px; padding: 0.6rem 0.75rem;
+    font-size: 0.82rem; pointer-events: none; z-index: 5;
+  }
+  .tooltip.show { display: block; }
+  .tooltip .th { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.15rem; }
+  .tooltip img { width: 26px; height: 26px; border-radius: 50%; }
+  .tooltip .handle { font-weight: 700; color: var(--accent2); }
+  .tooltip .dn { color: var(--dim); font-size: 0.74rem; }
+
+  .legend { color: var(--dim); font-size: 0.76rem; margin: 0.6rem 0 0; line-height: 1.5; }
+  .legend .you { color: var(--accent2); font-weight: 700; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.5rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), #1aa88f); color: #04121a; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>toroidarium</h1>
+    <p class="tag">
+      Enter a Bluesky handle. We find its <b>moots</b> (mutuals — follows ∩
+      followers) and drop them into a fish tank with no walls: swim off the
+      right edge and you re-enter on the left, swim off the bottom and you
+      re-enter at the top. One continuous, wraparound surface — a torus, not
+      a box. Feed them. Click a fish to see who it is.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">dive in</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, an enemy's.</p>
+
+    <p id="status" class="status"></p>
+
+    <section id="tankSection" class="tank-section">
+      <div class="tankbar">
+        <button id="feedBtn" type="button" class="ghost">🍚 feed</button>
+        <label><input id="labelsBox" type="checkbox" checked /> labels</label>
+        <span class="count" id="count"></span>
+      </div>
+
+      <div class="tankwrap" id="tankWrap">
+        <canvas id="tank"></canvas>
+        <div class="tooltip" id="tooltip">
+          <div class="th"><img id="ttAvatar" alt="" /><span class="handle" id="ttHandle"></span></div>
+          <div class="dn" id="ttName"></div>
+        </div>
+      </div>
+
+      <p class="legend">
+        <span class="you">◉ gold-ringed fish</span> is the account itself.
+        others are its moots, sized roughly by how early they turned up in the
+        mutuals list. click any fish for its handle; click empty water to
+        dismiss.
+      </p>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the tank</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script type="module">
+import { moots } from "./lib/moots.js";
+
+const MAX_FISH = 34;
+const TAU = Math.PI * 2;
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  section: document.getElementById("tankSection"),
+  feedBtn: document.getElementById("feedBtn"),
+  labelsBox: document.getElementById("labelsBox"),
+  count: document.getElementById("count"),
+  tankWrap: document.getElementById("tankWrap"),
+  canvas: document.getElementById("tank"),
+  tooltip: document.getElementById("tooltip"),
+  ttAvatar: document.getElementById("ttAvatar"),
+  ttHandle: document.getElementById("ttHandle"),
+  ttName: document.getElementById("ttName"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+const ctx = els.canvas.getContext("2d");
+
+let W = 880, H = 520, DPR = Math.min(window.devicePixelRatio || 1, 2);
+let fish = [];
+let foods = [];
+let bubbles = [];
+let lastShareText = "";
+let currentHandle = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function hashHue(str) {
+  let h = 0;
+  for (const c of str) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+function initials(name) {
+  return (name || "?").replace(/^@/, "").slice(0, 2).toUpperCase();
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+// ── canvas sizing ───────────────────────────────────────────────────────
+function resize() {
+  const rect = els.tankWrap.getBoundingClientRect();
+  const newW = Math.max(280, Math.round(rect.width));
+  const newH = Math.round(Math.min(560, Math.max(300, newW * 0.58)));
+  if (newW === W && newH === H) return;
+  const sx = newW / W, sy = newH / H;
+  if (fish.length) {
+    for (const f of fish) { f.x *= sx; f.y *= sy; }
+    for (const b of foods) { b.x *= sx; b.y *= sy; }
+    for (const b of bubbles) { b.x *= sx; b.y *= sy; }
+  }
+  W = newW; H = newH;
+  els.canvas.width = Math.round(W * DPR);
+  els.canvas.height = Math.round(H * DPR);
+  els.canvas.style.width = W + "px";
+  els.canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(resize, 120);
+});
+
+function seedBubbles() {
+  bubbles = [];
+  for (let i = 0; i < 22; i++) {
+    bubbles.push({
+      x: Math.random() * W, y: Math.random() * H,
+      r: 1.5 + Math.random() * 3.5, vy: -0.15 - Math.random() * 0.35,
+      drift: (Math.random() - 0.5) * 0.4, phase: Math.random() * TAU,
+    });
+  }
+}
+
+// ── fish ────────────────────────────────────────────────────────────────
+function makeFish(profile, isSelf) {
+  const r = isSelf ? 24 : 12 + Math.random() * 7;
+  const angle = Math.random() * TAU;
+  const speed = isSelf ? 0.45 : 0.35 + Math.random() * 0.55;
+  const f = {
+    did: profile.did, handle: profile.handle, displayName: profile.displayName,
+    avatarUrl: profile.avatar, img: null, isSelf,
+    x: Math.random() * W, y: Math.random() * H,
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+    speed, r, hue: hashHue(profile.handle || profile.did || String(Math.random())),
+    highlightUntil: 0,
+  };
+  loadImg(profile.avatar).then((img) => { f.img = img; });
+  return f;
+}
+
+function stockTank(self, pool) {
+  fish = [makeFish(self, true)];
+  const n = Math.min(pool.length, MAX_FISH);
+  for (let i = 0; i < n; i++) fish.push(makeFish(pool[i], false));
+  foods = [];
+  seedBubbles();
+}
+
+function steerToward(f, tx, ty, accel) {
+  const dx = tx - f.x, dy = ty - f.y;
+  const d = Math.hypot(dx, dy) || 1;
+  f.vx += (dx / d) * accel;
+  f.vy += (dy / d) * accel;
+  const sp = Math.hypot(f.vx, f.vy) || 1;
+  const cap = f.speed * 1.8;
+  if (sp > cap) { f.vx = (f.vx / sp) * cap; f.vy = (f.vy / sp) * cap; }
+}
+
+function update(now) {
+  for (const food of foods) {
+    if (food.eaten) { food.life -= 1; continue; }
+    food.life -= 1;
+    let nearest = null, nd = 260;
+    for (const f of fish) {
+      const d = Math.hypot(f.x - food.x, f.y - food.y);
+      if (d < nd) { nd = d; nearest = f; }
+    }
+    if (nearest) {
+      steerToward(nearest, food.x, food.y, 0.06);
+      if (Math.hypot(nearest.x - food.x, nearest.y - food.y) < nearest.r + 4) {
+        food.eaten = true;
+        food.life = Math.min(food.life, 18);
+      }
+    }
+  }
+  foods = foods.filter((b) => b.life > 0);
+  const hungry = foods.some((b) => !b.eaten);
+
+  for (const f of fish) {
+    if (!hungry) {
+      const turn = (Math.random() - 0.5) * 0.22;
+      const cos = Math.cos(turn), sin = Math.sin(turn);
+      const nvx = f.vx * cos - f.vy * sin, nvy = f.vx * sin + f.vy * cos;
+      f.vx = nvx; f.vy = nvy;
+      const sp = Math.hypot(f.vx, f.vy) || 1;
+      f.vx = (f.vx / sp) * f.speed;
+      f.vy = (f.vy / sp) * f.speed;
+    }
+    f.x += f.vx;
+    f.y += f.vy;
+    if (f.x < -f.r) f.x = W + f.r;
+    if (f.x > W + f.r) f.x = -f.r;
+    if (f.y < -f.r) f.y = H + f.r;
+    if (f.y > H + f.r) f.y = -f.r;
+  }
+
+  for (const b of bubbles) {
+    b.y += b.vy;
+    b.x += Math.sin(now / 900 + b.phase) * b.drift;
+    if (b.y < -6) { b.y = H + 6; b.x = Math.random() * W; }
+    if (b.x < -6) b.x = W + 6;
+    if (b.x > W + 6) b.x = -6;
+  }
+}
+
+// ── rendering ──────────────────────────────────────────────────────────
+function drawFishBody(f) {
+  const r = f.r;
+  ctx.beginPath();
+  ctx.moveTo(-r * 1.55, 0);
+  ctx.lineTo(-r * 2.5, -r * 0.85);
+  ctx.lineTo(-r * 2.5, r * 0.85);
+  ctx.closePath();
+  ctx.fillStyle = `hsl(${f.hue} 62% 40%)`;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, r * 0.66, 0, 0, TAU);
+  ctx.fillStyle = `hsl(${f.hue} 62% 56%)`;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(r * 0.1, -r * 0.5);
+  ctx.quadraticCurveTo(r * 0.6, -r * 0.95, r * 0.5, -r * 0.1);
+  ctx.closePath();
+  ctx.fillStyle = `hsl(${f.hue} 62% 40%)`;
+  ctx.globalAlpha = 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  if (f.img) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(r * 0.15, 0, r * 0.82, 0, TAU);
+    ctx.clip();
+    ctx.drawImage(f.img, r * 0.15 - r * 0.82, -r * 0.82, r * 1.64, r * 1.64);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "rgba(4,18,26,0.55)";
+    ctx.font = `700 ${Math.max(8, r * 0.55)}px ui-monospace, monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(initials(f.displayName || f.handle), r * 0.15, 1);
+  }
+
+  ctx.beginPath();
+  ctx.arc(r * 0.68, -r * 0.12, r * 0.09, 0, TAU);
+  ctx.fillStyle = "#04121a";
+  ctx.fill();
+}
+
+function drawOffsets(pos, size, dim) {
+  const offs = [0];
+  if (pos < size) offs.push(dim);
+  if (pos > dim - size) offs.push(-dim);
+  return offs;
+}
+
+function drawFish(f, now) {
+  const angle = Math.atan2(f.vy, f.vx);
+  const oxs = drawOffsets(f.x, f.r * 2, W);
+  const oys = drawOffsets(f.y, f.r * 2, H);
+  for (const ox of oxs) {
+    for (const oy of oys) {
+      ctx.save();
+      ctx.translate(f.x + ox, f.y + oy);
+      ctx.rotate(angle);
+      drawFishBody(f);
+      ctx.restore();
+      if (f.isSelf) {
+        ctx.save();
+        ctx.translate(f.x + ox, f.y + oy);
+        ctx.beginPath();
+        ctx.arc(0, 0, f.r * 1.35, 0, TAU);
+        ctx.strokeStyle = "#ffd166";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (f.highlightUntil > now) {
+        const t = (f.highlightUntil - now) / 1500;
+        ctx.save();
+        ctx.translate(f.x + ox, f.y + oy);
+        ctx.beginPath();
+        ctx.arc(0, 0, f.r * 1.6 + Math.sin(now / 80) * 2, 0, TAU);
+        ctx.strokeStyle = `rgba(52,224,196,${0.35 + t * 0.5})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+}
+
+function render(now) {
+  ctx.clearRect(0, 0, W, H);
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "#0b2530");
+  grad.addColorStop(1, "#04121a");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(255,209,102,0.25)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath(); ctx.moveTo(2, 8); ctx.lineTo(2, H - 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W - 2, 8); ctx.lineTo(W - 2, H - 8); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const b of bubbles) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, TAU);
+    ctx.strokeStyle = "rgba(234,246,251,0.25)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+
+  for (const food of foods) {
+    if (food.eaten) continue;
+    ctx.beginPath();
+    ctx.arc(food.x, food.y, 4, 0, TAU);
+    ctx.fillStyle = "#ffd166";
+    ctx.shadowColor = "#ffd166";
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  for (const f of fish) drawFish(f, now);
+
+  if (els.labelsBox.checked) {
+    ctx.font = "600 11px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    for (const f of fish) {
+      const label = f.isSelf ? "you" : "@" + f.handle;
+      const y = f.y + f.r + 13;
+      const w = ctx.measureText(label).width + 8;
+      ctx.fillStyle = "rgba(4,18,26,0.72)";
+      ctx.fillRect(f.x - w / 2, y - 11, w, 15);
+      ctx.fillStyle = f.isSelf ? "#ffd166" : "#eaf6fb";
+      ctx.fillText(label, f.x, y);
+    }
+  }
+}
+
+let raf = null;
+function loop(t) {
+  update(t || 0);
+  render(t || 0);
+  raf = requestAnimationFrame(loop);
+}
+
+// ── interaction ────────────────────────────────────────────────────────
+function canvasPoint(evt) {
+  const rect = els.canvas.getBoundingClientRect();
+  const cx = (evt.clientX ?? evt.touches?.[0]?.clientX) - rect.left;
+  const cy = (evt.clientY ?? evt.touches?.[0]?.clientY) - rect.top;
+  return { x: (cx / rect.width) * W, y: (cy / rect.height) * H };
+}
+
+els.canvas.addEventListener("click", (evt) => {
+  const p = canvasPoint(evt);
+  let best = null, bd = Infinity;
+  for (const f of fish) {
+    for (const ox of [0, -W, W]) {
+      for (const oy of [0, -H, H]) {
+        const d = Math.hypot(f.x + ox - p.x, f.y + oy - p.y);
+        if (d < bd) { bd = d; best = f; }
+      }
+    }
+  }
+  if (best && bd < best.r * 1.9 + 12) {
+    best.highlightUntil = performance.now() + 1500;
+    els.ttAvatar.src = best.avatarUrl || "";
+    els.ttAvatar.style.visibility = best.avatarUrl ? "visible" : "hidden";
+    els.ttHandle.textContent = best.isSelf ? "you · @" + best.handle : "@" + best.handle;
+    els.ttName.textContent = best.displayName && best.displayName !== best.handle ? best.displayName : "";
+    const rect = els.canvas.getBoundingClientRect();
+    const sx = rect.width / W, sy = rect.height / H;
+    els.tooltip.style.left = Math.min(rect.width - 250, best.x * sx + 14) + "px";
+    els.tooltip.style.top = Math.max(0, best.y * sy - 40) + "px";
+    els.tooltip.classList.add("show");
+    els.tooltip.onclick = () => window.open("https://bsky.app/profile/" + best.handle, "_blank", "noopener");
+  } else {
+    els.tooltip.classList.remove("show");
+  }
+});
+
+els.feedBtn.addEventListener("click", () => {
+  for (let i = 0; i < 5; i++) {
+    foods.push({
+      x: 40 + Math.random() * (W - 80), y: 40 + Math.random() * (H - 80),
+      life: 420, eaten: false,
+    });
+  }
+});
+
+// ── loading a handle ──────────────────────────────────────────────────
+function shareUrlFor(handle) {
+  return "https://toroidarium.bisks.net/?h=" + encodeURIComponent(handle);
+}
+
+function buildShareText(handle, count) {
+  return (
+    `@${handle}'s toroidarium: ${count} moots swimming on a wraparound tank, no walls. ` +
+    `stock your own → ${shareUrlFor(handle)}`
+  );
+}
+
+async function buildShareCard(handle, count) {
+  const canvas = els.shareCanvas;
+  const cctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  cctx.clearRect(0, 0, w, h);
+  const grad = cctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, "#0b2530");
+  grad.addColorStop(1, "#04121a");
+  cctx.fillStyle = grad;
+  cctx.fillRect(0, 0, w, h);
+
+  const tankH = h - 190;
+  cctx.drawImage(els.canvas, 0, 0, els.canvas.width, els.canvas.height, 0, 150, w, tankH);
+
+  cctx.textAlign = "left";
+  cctx.fillStyle = "#34e0c4";
+  cctx.font = "800 48px ui-monospace, monospace";
+  cctx.fillText("toroidarium", 48, 82);
+
+  cctx.fillStyle = "#eaf6fb";
+  cctx.font = "600 22px ui-monospace, monospace";
+  cctx.fillText(`@${handle} — ${count} moots on a wraparound tank`, 48, 122);
+
+  cctx.fillStyle = "#7fb2c4";
+  cctx.font = "600 20px ui-monospace, monospace";
+  cctx.fillText("toroidarium.bisks.net", 48, h - 36);
+}
+
+async function reveal(rawHandle) {
+  const handle = (rawHandle || "").trim().replace(/^@/, "");
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.section.classList.remove("show");
+  els.tooltip.classList.remove("show");
+  setStatus("finding " + handle + "'s moots...");
+  if (raf) { cancelAnimationFrame(raf); raf = null; }
+
+  try {
+    const result = await moots(handle, { onStep: (msg) => setStatus(msg) });
+    setStatus("");
+    currentHandle = result.handle || handle;
+
+    resize();
+    stockTank(result.self, result.pool);
+    els.section.classList.add("show");
+    resize();
+
+    const shown = Math.min(result.pool.length, MAX_FISH);
+    els.count.innerHTML =
+      `<b>${shown}</b> of ${result.counts.mutuals} moot${result.counts.mutuals === 1 ? "" : "s"}` +
+      (result.kind !== "moots" ? " (widened with follows)" : "") + " in the tank";
+
+    lastShareText = buildShareText(currentHandle, result.counts.mutuals);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+    if (!raf) raf = requestAnimationFrame(loop);
+
+    setTimeout(() => buildShareCard(currentHandle, result.counts.mutuals), 600);
+  } catch (err) {
+    setStatus("couldn't stock the tank: " + (err?.message || err), true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  buildShareCard(currentHandle, Math.max(0, fish.length - 1)).then(() => {
+    els.shareCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "toroidarium-" + (currentHandle || "tank").replace(/[^a-z0-9.-]/gi, "_") + ".png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) { return false; }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "toroidarium.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "toroidarium" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+
+resize();
+
+const sharedHandle = new URLSearchParams(location.search).get("h");
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+</body>
+</html>
