@@ -317,10 +317,16 @@ const chipDlss = document.getElementById("chip-dlss");
 const chipFsr = document.getElementById("chip-fsr");
 
 // ---- three.js scene -----------------------------------------------------
-const nativeDpr = Math.min(window.devicePixelRatio || 1, 2);
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// perf note: this used to run antialias:true (wasted — EffectComposer's final
+// pass is a full-screen blit, native MSAA on the canvas buys almost nothing
+// there) alongside a 2048px soft shadow map and a full-res bloom mip chain, at
+// up to 2x device pixel ratio. On a weaker/mobile GPU that combo is enough to
+// trip a driver timeout (TDR), which on Chromium kills the shared GPU process
+// — and every other tab's WebGL context with it. Trimmed all four below.
+const nativeDpr = Math.min(window.devicePixelRatio || 1, 1.5);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const BG = new THREE.Color(0x08050c);
@@ -341,7 +347,7 @@ scene.add(new THREE.HemisphereLight(0x6a5aa8, 0x0a0812, 0.7));
 const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
 sun.position.set(40, 55, 25);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.left = -70;
 sun.shadow.camera.right = 70;
 sun.shadow.camera.top = 60;
@@ -1089,11 +1095,52 @@ function handleResize() {
   renderer.setPixelRatio(nativeDpr * dlssScale);
   renderer.setSize(w, h, false);
   composer.setSize(w, h);
-  bloomPass.setSize(w, h);
+  // bloom's mip-chain blur is expensive and reads as identical at half res
+  // (it's a blur — nobody notices the downsample), so give it half the pixels.
+  bloomPass.setSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener("resize", handleResize);
+// debounce resize: dragging/rotating fires a burst of events, and each one
+// reallocates full-size GPU render targets (composer + bloom) — coalescing
+// to one per frame avoids a reallocation storm mid-resize.
+let resizeQueued = false;
+window.addEventListener("resize", () => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    handleResize();
+  });
+});
+
+// stop pushing frames at a backgrounded tab — a hidden canvas still burning
+// GPU cycles is exactly the kind of sustained load that helped tip a driver
+// into a timeout/crash last time.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (rafId) cancelAnimationFrame(rafId);
+  } else if (running) {
+    lastT = performance.now();
+    rafId = requestAnimationFrame(loop);
+  }
+});
+
+// if the GPU drops the context (driver crash/timeout), three.js quietly
+// no-ops further renders — which leaves the player staring at a frozen
+// canvas with no way out short of reloading. Do that reload for them instead
+// of limping along on a dead context.
+canvas.addEventListener(
+  "webglcontextlost",
+  (e) => {
+    e.preventDefault();
+    running = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    setStatus("the GPU dropped the context — reloading…", true);
+    window.location.reload();
+  },
+  false,
+);
 
 // ---- loading a network ----------------------------------------------------
 async function loadNetwork(actor) {
