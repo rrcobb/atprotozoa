@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lava lamp — your skeets, floating on their likes</title>
+    <meta name="description" content="Point it at a Bluesky handle: a dozen or so of their posts float up or sink down depending on how many likes they got, bangers and flops mixed together, cycling forever." />
+    <meta property="og:title" content="lava lamp — your skeets, floating on their likes" />
+    <meta property="og:description" content="A dozen of a handle's posts drift in a lava lamp — likes decide who floats and who sinks. Bangers and flops, cycling forever." />
+    <meta property="og:image" content="https://lavalamp.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A glowing orange-and-magenta lava lamp full of glassy blobs, each with a scrap of post text peeking past its edge." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://lavalamp.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="lava lamp — your skeets, floating on their likes" />
+    <meta name="twitter:description" content="A dozen of a handle's posts drift in a lava lamp — likes decide who floats and who sinks." />
+    <meta name="twitter:image" content="https://lavalamp.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0a070c;
+        --panel: #17121c;
+        --faint: #2b2334;
+        --ink: #f4eef8;
+        --muted: #a698ad;
+        --accent: #ff6a3d;
+        --glass-top: #2a1030;
+        --glass-bot: #170a1c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(1200px 620px at 50% -14%, #241226, var(--bg));
+        color: var(--ink); font-family: var(--sans); font-size: 16px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased; min-height: 100vh;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2.2rem 1.05rem 5rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); }
+
+      h1 { font-size: 1.9rem; font-weight: 900; letter-spacing: -0.02em; margin: 1.1rem 0 0.25rem; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.4rem; max-width: 54ch; }
+
+      form { display: flex; gap: 0.55rem; margin-bottom: 0.6rem; }
+      input { flex: 1; font: inherit; padding: 0.65rem 0.75rem; border: 1px solid var(--faint);
+        border-radius: 11px; background: var(--panel); color: var(--ink); min-width: 0; }
+      input::placeholder { color: #6e6277; }
+      input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      .go { padding: 0.65rem 1.15rem; border: 0; border-radius: 11px; background: var(--accent);
+        color: #1a0a08; font: inherit; font-weight: 800; cursor: pointer; }
+      .go:disabled { opacity: 0.5; cursor: default; }
+
+      .status { color: var(--muted); font-size: 0.85rem; min-height: 1.4rem; margin-bottom: 0.5rem; }
+      .status.err { color: #ff6b6b; }
+      .examples { color: var(--muted); font-size: 0.82rem; margin-bottom: 1.3rem; }
+      .examples a { cursor: pointer; }
+
+      .profile { display: none; align-items: center; gap: 0.65rem; margin: 0.2rem 0 1rem; }
+      .profile.show { display: flex; }
+      .profile img { width: 40px; height: 40px; border-radius: 50%; background: var(--faint); object-fit: cover; flex: none; }
+      .profile .pname { font-weight: 800; font-size: 0.95rem; line-height: 1.2; }
+      .profile .phandle { color: var(--muted); font-size: 0.8rem; }
+
+      /* ── the lamp ─────────────────────────────────────────────── */
+      .lampwrap { display: none; flex-direction: column; align-items: center; margin: 0.4rem 0 1.4rem; }
+      .lampwrap.show { display: flex; }
+
+      .cap { width: 132px; height: 22px; border-radius: 10px 10px 4px 4px;
+        background: linear-gradient(180deg, #d9d0c8, #8b8078 60%, #55504c);
+        border: 1px solid #2c2824; box-shadow: 0 2px 0 rgba(0,0,0,0.4) inset; position: relative; z-index: 2; }
+      .cap.bot { border-radius: 4px 4px 14px 14px; height: 28px;
+        background: linear-gradient(180deg, #6b625b, #b3a89c 40%, #776d64); }
+
+      .lamp {
+        position: relative; width: 240px; height: 400px; overflow: hidden;
+        border-radius: 120px / 60px;
+        background: linear-gradient(180deg, var(--glass-top), var(--glass-bot) 55%, #120a16);
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 0 60px rgba(255,106,61,0.18), inset 0 0 40px rgba(255,106,61,0.08),
+          inset 0 -60px 90px rgba(255,140,60,0.12);
+        margin-top: -4px;
+      }
+      .lamp::before {
+        /* soft glow rising from the base, like the bulb underneath */
+        content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 55%;
+        background: radial-gradient(140px 120px at 50% 100%, rgba(255,150,60,0.35), transparent 70%);
+        pointer-events: none; z-index: 1;
+      }
+      .lamp::after {
+        /* glass highlight */
+        content: ""; position: absolute; top: 0; left: 14%; width: 22%; height: 100%;
+        background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02) 40%, transparent 70%);
+        border-radius: 50%; pointer-events: none; z-index: 3;
+      }
+
+      .blob {
+        position: absolute; display: flex; align-items: center; justify-content: center;
+        border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%;
+        cursor: pointer; z-index: 2;
+        animation: rise var(--rise-dur, 1.6s) cubic-bezier(.22,.85,.3,1.1) both,
+                   morph var(--morph-dur, 9s) ease-in-out infinite var(--rise-dur, 1.6s),
+                   bob var(--bob-dur, 8s) ease-in-out infinite var(--rise-dur, 1.6s);
+      }
+      .blob.leaving { animation: sink 0.85s ease-in forwards !important; }
+      .blob .glow {
+        position: absolute; inset: 0; border-radius: inherit;
+        background: radial-gradient(circle at 35% 30%, var(--c1), var(--c2) 70%);
+        box-shadow: 0 0 18px 2px color-mix(in srgb, var(--c2) 55%, transparent),
+          inset 0 0 14px rgba(255,255,255,0.18);
+        opacity: 0.92;
+      }
+      .blob .peek {
+        position: relative; z-index: 2; white-space: nowrap; font-size: 0.72rem;
+        font-weight: 700; color: #fff8ec; text-shadow: 0 1px 3px rgba(0,0,0,0.75), 0 0 10px rgba(0,0,0,0.4);
+        padding: 0 0.15rem; pointer-events: none; letter-spacing: -0.01em;
+      }
+      .blob .likes {
+        position: absolute; bottom: -1.1rem; left: 50%; transform: translateX(-50%);
+        font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
+        white-space: nowrap; opacity: 0; transition: opacity 0.2s;
+      }
+      .blob:hover .likes { opacity: 1; }
+      .blob:hover .glow { filter: brightness(1.15); }
+
+      @keyframes rise {
+        from { transform: translateY(60px) scale(0.5); opacity: 0; }
+        to { transform: translateY(0) scale(1); opacity: 1; }
+      }
+      @keyframes sink {
+        from { transform: translateY(0) scale(1); opacity: 1; }
+        to { transform: translateY(50px) scale(0.4); opacity: 0; }
+      }
+      @keyframes bob {
+        0%, 100% { margin-left: 0; margin-top: 0; }
+        25% { margin-left: var(--dx1, 8px); margin-top: -10px; }
+        50% { margin-left: 0; margin-top: -18px; }
+        75% { margin-left: var(--dx2, -8px); margin-top: -8px; }
+      }
+      @keyframes morph {
+        0%, 100% { border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%; }
+        33% { border-radius: 58% 42% 45% 55% / 44% 56% 48% 52%; }
+        66% { border-radius: 42% 58% 52% 48% / 58% 42% 44% 56%; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .blob { animation: rise 0.4s ease both !important; }
+      }
+
+      .share { display: none; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
+      .share.show { display: flex; }
+      .share a, .share button { font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: none; border: 1px solid var(--faint); border-radius: 9px; padding: 0.42rem 0.75rem;
+        cursor: pointer; }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); text-decoration: none; }
+
+      .note { margin-top: 1.8rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      code { font-family: var(--mono); font-size: 0.9em; }
+      .credit { margin-top: 0.8rem; color: var(--muted); font-size: 0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🌋 lava lamp</h1>
+      <p class="sub">
+        Enter a handle and a dozen or so of their posts drift inside the lamp —
+        the more likes a post got, the higher it floats; the fewer, the lower
+        it sinks. A random mix of bangers and total flops, always. The first
+        few words of each poke out past its blob. They cycle out for fresh
+        ones every few seconds.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. catblanketflower.yuwakisa.com" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">Light it</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="catblanketflower.yuwakisa.com">catblanketflower</a> ·
+        <a data-h="bsky.app">bsky.app</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+      </div>
+
+      <div class="lampwrap" id="lampwrap">
+        <div class="cap top"></div>
+        <div class="lamp" id="lamp"></div>
+        <div class="cap bot"></div>
+      </div>
+
+      <div class="share" id="share">
+        <a id="shareIntent" target="_blank" rel="noopener">🦋 share this lamp</a>
+        <button id="copyLink">🔗 copy link</button>
+      </div>
+
+      <p class="note">
+        Reads only public posts (Bluesky's anonymous AppView, <code>getAuthorFeed</code>,
+        up to a few hundred recent originals). Height is likes on a log scale
+        relative to that account's own pool — replies and reposts by the
+        account are skipped. Nothing is posted or changed, it just reads and
+        floats. Hover a blob for its like count, click to open the post.
+      </p>
+      <p class="credit">a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> toy, asked for by <a href="https://bsky.app/profile/catblanketflower.yuwakisa.com">@catblanketflower.yuwakisa.com</a> · <a href="https://bisks.net">bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+      const SHOWN_COUNT = 12;
+      const SWAP_MS = 5200;
+      const PALETTE = [
+        ["#ff6a3d", "#ffb648"],
+        ["#ff3d77", "#ff8a5c"],
+        ["#c23df0", "#ff6ad5"],
+        ["#ff4d4d", "#ffb347"],
+        ["#ff8a00", "#ffd23f"],
+        ["#e0218a", "#ff6a3d"],
+        ["#ff5c5c", "#ffdc60"],
+      ];
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const profile = document.getElementById("profile");
+      const lampwrap = document.getElementById("lampwrap");
+      const lamp = document.getElementById("lamp");
+      const share = document.getElementById("share");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function bskyLink(post) {
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      function hashInt(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+        return h;
+      }
+
+      function firstWords(text) {
+        const clean = (text || "").replace(/\s+/g, " ").trim();
+        if (!clean) return "🖼 (no text)";
+        const words = clean.split(" ");
+        const take = words.slice(0, 5).join(" ");
+        return take.length < clean.length ? take + "…" : take;
+      }
+
+      async function fetchFeed(actor) {
+        let cursor = null, items = [], pages = 0;
+        do {
+          const url = new URL(`${API}/app.bsky.feed.getAuthorFeed`);
+          url.searchParams.set("actor", actor);
+          url.searchParams.set("limit", "100");
+          url.searchParams.set("filter", "posts_no_replies");
+          if (cursor) url.searchParams.set("cursor", cursor);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(r.status === 400 ? "no such handle" : `feed error (${r.status})`);
+          const data = await r.json();
+          items = items.concat(data.feed || []);
+          cursor = data.cursor;
+          pages++;
+          statusEl.textContent = `warming up the lamp… ${items.length} posts read`;
+        } while (cursor && pages < 5 && items.length < 400);
+        return items;
+      }
+
+      // The account's own original posts, deduped, with a like count.
+      function toPool(items) {
+        const seen = new Set();
+        const pool = [];
+        for (const it of items) {
+          if (it.reason) continue; // skip reposts by the account
+          const p = it.post;
+          if (!p || !p.record) continue;
+          if (p.record.reply) continue; // skip replies
+          if (seen.has(p.uri)) continue;
+          seen.add(p.uri);
+          pool.push({
+            uri: p.uri,
+            text: p.record.text || "",
+            likeCount: p.likeCount || 0,
+            createdAt: p.record.createdAt,
+            author: p.author,
+            post: p,
+          });
+        }
+        return pool;
+      }
+
+      // A stable 0..1 "buoyancy" per post, on a log scale across the whole
+      // pool, so a post's height doesn't jump around as other blobs cycle.
+      function buoyancyMap(pool) {
+        const vals = pool.map((p) => Math.log1p(p.likeCount));
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const span = max - min || 1;
+        const map = new Map();
+        pool.forEach((p, i) => map.set(p.uri, (vals[i] - min) / span));
+        return map;
+      }
+
+      // Weighted pick: a rough thirds-split between top likes, bottom likes,
+      // and anywhere — "a random mix of bangers and total flops."
+      function weightedPick(byLikes, excludeUris) {
+        const avail = byLikes.filter((p) => !excludeUris.has(p.uri));
+        const n = avail.length;
+        if (!n) return null;
+        const r = Math.random();
+        let idx;
+        if (r < 0.38) idx = Math.floor(Math.random() * Math.min(5, n));
+        else if (r < 0.76) idx = n - 1 - Math.floor(Math.random() * Math.min(5, n));
+        else idx = Math.floor(Math.random() * n);
+        return avail[idx];
+      }
+
+      let pool = [], byLikes = [], buoyancy = new Map();
+      let shown = new Map(); // uri -> { post, el }
+      let swapTimer = null;
+
+      function paletteFor(uri) {
+        return PALETTE[hashInt(uri) % PALETTE.length];
+      }
+
+      function spawnBlob(entry) {
+        const p = entry.post;
+        const b = buoyancy.get(entry.uri) ?? 0.5;
+        const size = Math.round(46 + b * 56 + (Math.random() * 10 - 5));
+        const bottomPct = (6 + b * 76 + (Math.random() * 5 - 2.5)).toFixed(1);
+        const leftPct = (8 + Math.random() * 78).toFixed(1);
+        const [c1, c2] = paletteFor(entry.uri);
+        const dx1 = (6 + Math.random() * 10).toFixed(0) + "px";
+        const dx2 = (-6 - Math.random() * 10).toFixed(0) + "px";
+        const bobDur = (6.5 + Math.random() * 3.5).toFixed(1) + "s";
+        const morphDur = (7 + Math.random() * 5).toFixed(1) + "s";
+        const riseDelay = (Math.random() * 0.6).toFixed(2) + "s";
+
+        const el = document.createElement("a");
+        el.className = "blob";
+        el.href = bskyLink(p);
+        el.target = "_blank";
+        el.rel = "noopener";
+        el.title = `${entry.text || "(no text)"} — ♥ ${entry.likeCount.toLocaleString()}`;
+        el.style.setProperty("--c1", c1);
+        el.style.setProperty("--c2", c2);
+        el.style.setProperty("--dx1", dx1);
+        el.style.setProperty("--dx2", dx2);
+        el.style.setProperty("--bob-dur", bobDur);
+        el.style.setProperty("--morph-dur", morphDur);
+        el.style.setProperty("--rise-dur", "1.6s");
+        el.style.width = size + "px";
+        el.style.height = size + "px";
+        el.style.left = leftPct + "%";
+        el.style.bottom = bottomPct + "%";
+        el.style.animationDelay = `${riseDelay}, ${riseDelay}, ${riseDelay}`;
+        el.innerHTML = `<span class="glow"></span><span class="peek">${esc(firstWords(entry.text))}</span><span class="likes">♥ ${entry.likeCount.toLocaleString()}</span>`;
+        lamp.appendChild(el);
+        shown.set(entry.uri, { post: entry, el });
+      }
+
+      function removeBlob(uri) {
+        const s = shown.get(uri);
+        if (!s) return;
+        shown.delete(uri);
+        s.el.classList.add("leaving");
+        s.el.style.pointerEvents = "none";
+        setTimeout(() => s.el.remove(), 900);
+      }
+
+      function swapOneBlob() {
+        if (pool.length <= shown.size) return; // nothing new to bring in
+        const uris = [...shown.keys()];
+        if (!uris.length) return;
+        const outUri = uris[Math.floor(Math.random() * uris.length)];
+        const next = weightedPick(byLikes, new Set(shown.keys()));
+        if (!next) return;
+        removeBlob(outUri);
+        spawnBlob(next);
+      }
+
+      function startLamp() {
+        clearInterval(swapTimer);
+        swapTimer = setInterval(swapOneBlob, SWAP_MS);
+      }
+
+      function renderProfile(author) {
+        const a = author || {};
+        document.getElementById("pavatar").src = a.avatar || "";
+        document.getElementById("pname").textContent = a.displayName || a.handle || "";
+        document.getElementById("phandle").textContent = "@" + (a.handle || "");
+        profile.classList.add("show");
+      }
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        clearInterval(swapTimer);
+        const actor = rawHandle.trim().replace(/^@/, "");
+        statusEl.className = "status";
+        statusEl.textContent = "warming up the lamp…";
+        profile.classList.remove("show");
+        lampwrap.classList.remove("show");
+        share.classList.remove("show");
+        lamp.innerHTML = "";
+        shown = new Map();
+        try {
+          const items = await fetchFeed(actor);
+          pool = toPool(items);
+          if (!pool.length) throw new Error("no original posts to float");
+          byLikes = [...pool].sort((a, b) => b.likeCount - a.likeCount);
+          buoyancy = buoyancyMap(pool);
+          statusEl.textContent = "";
+          renderProfile(pool[0].author);
+          lampwrap.classList.add("show");
+          share.classList.add("show");
+
+          const excl = new Set();
+          const n = Math.min(SHOWN_COUNT, pool.length);
+          for (let i = 0; i < n; i++) {
+            const pick = weightedPick(byLikes, excl);
+            if (!pick) break;
+            excl.add(pick.uri);
+            spawnBlob(pick);
+          }
+          startLamp();
+
+          const url = new URL(location.href);
+          url.searchParams.set("handle", actor);
+          history.replaceState(null, "", url);
+          document.getElementById("shareIntent").href =
+            `https://bsky.app/intent/compose?text=${encodeURIComponent(`my skeets, as a lava lamp 🌋 ${url.toString()}`)}`;
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't light it: " + e.message;
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      const qp = new URLSearchParams(location.search).get("handle");
+      const DEFAULT_HANDLE = "catblanketflower.yuwakisa.com";
+      if (qp) { handleEl.value = qp; run(qp); }
+      else { handleEl.value = DEFAULT_HANDLE; run(DEFAULT_HANDLE); }
+    </script>
+  </body>
+</html>
