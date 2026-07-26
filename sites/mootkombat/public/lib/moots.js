@@ -165,13 +165,20 @@ async function fetchHitTweet(did, fallbackHandle) {
 
 // picks LADDER_SIZE fighters spread across the sorted-by-followers moot
 // list, ascending, always ending on the single biggest moot (final boss).
+// Each bucket picks a random moot from within its (still-ascending) slice
+// rather than a fixed evenly-spaced index, so re-rolling the same handle
+// gives a different ladder lineup each run while keeping the difficulty
+// curve intact.
 function pickLadder(sorted) {
   if (sorted.length <= LADDER_SIZE) return sorted;
   const boss = sorted[sorted.length - 1];
   const rest = sorted.slice(0, -1);
+  const bucketCount = LADDER_SIZE - 1;
   const picks = [];
-  for (let i = 0; i < LADDER_SIZE - 1; i++) {
-    const idx = Math.floor((i * rest.length) / (LADDER_SIZE - 1));
+  for (let i = 0; i < bucketCount; i++) {
+    const lo = Math.floor((i * rest.length) / bucketCount);
+    const hi = Math.max(lo + 1, Math.floor(((i + 1) * rest.length) / bucketCount));
+    const idx = lo + Math.floor(Math.random() * (hi - lo));
     picks.push(rest[Math.min(idx, rest.length - 1)]);
   }
   // de-dupe adjacent repeats from small rest lists
