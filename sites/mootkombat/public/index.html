@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>moot kombat — stick-figure fighter vs your moot ladder — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle. Fight your way up a ladder of its moots (mutuals), smallest follower count first, biggest moot last as the final boss. Stick-figure canvas fighting, WASD/arrows + punch/kick/block. Each moot opens with a taunt: their own highest-liked skeet. One retry per moot."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mootkombat.bisks.net/" />
+    <meta property="og:title" content="moot kombat" />
+    <meta
+      property="og:description"
+      content="Stick-figure fighter, best of one, up a ladder of your Bluesky moots — smallest follower count first, your biggest moot as the final boss. Each fighter talks trash with their own highest-liked skeet."
+    />
+    <meta property="og:image" content="https://mootkombat.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://mootkombat.bisks.net/og.png" />
+
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+
+    <style>
+      :root {
+        --bg: #0a0710;
+        --panel: #150f20;
+        --panel2: #1d1530;
+        --ink: #f3ecff;
+        --muted: #9a86b8;
+        --faint: #2e2148;
+        --accent: #ff2e63;
+        --accent-dim: #a01f43;
+        --player: #26e0c9;
+        --gold: #ffd23f;
+        --good: #3ddc84;
+        --bad: #ff4d4d;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(900px 500px at 50% -8%, #241436, var(--bg));
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 {
+        font-size: 1.7rem; font-weight: 800; margin: 0;
+        letter-spacing: 0.03em; text-transform: uppercase;
+        color: var(--accent);
+        text-shadow: 2px 2px 0 var(--accent-dim);
+      }
+      h1 .slash { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: normal; text-shadow: none; font-size: 0.9rem; }
+      .intro {
+        color: var(--muted); margin: 0.6rem 0 2rem; font-size: 0.88rem;
+        line-height: 1.7; max-width: 66ch;
+      }
+      .intro b { color: var(--ink); font-weight: 700; }
+      .intro .p { color: var(--player); }
+      .intro .a { color: var(--accent); }
+
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl {
+        display: block; font-size: 0.76rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 4px; background: var(--panel); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      button { font-family: inherit; cursor: pointer; }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.go {
+        font-size: 0.9rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--accent); background: var(--accent); color: #1a0510;
+        border-radius: 4px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+      }
+      button.go:hover:not(:disabled) { background: #ff5a80; }
+      button.ghost {
+        font-size: 0.82rem; padding: 0.5rem 0.85rem;
+        border: 1px solid var(--faint); background: transparent; color: var(--ink);
+        border-radius: 4px;
+      }
+      button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+      /* ── game shell ───────────────────────────────────────────────────── */
+      #game { display: none; margin-top: 0.5rem; }
+      #game.on { display: block; }
+
+      .ladder-track {
+        display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;
+        border: 1px solid var(--faint); border-radius: 6px;
+        background: var(--panel); padding: 0.7rem 0.8rem; margin-bottom: 1rem;
+      }
+      .ladder-track .rung {
+        width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 2px solid var(--faint); flex: none;
+        opacity: 0.45; filter: grayscale(0.6);
+      }
+      .ladder-track .rung.done { border-color: var(--good); opacity: 0.75; filter: none; }
+      .ladder-track .rung.now { border-color: var(--gold); opacity: 1; filter: none; transform: scale(1.15); }
+      .ladder-track .arrow { color: var(--muted); font-size: 0.8rem; }
+      .ladder-track .label { margin-left: auto; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+
+      /* ── pre-fight taunt screen ──────────────────────────────────────── */
+      .prefight {
+        display: none; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--panel); padding: 1.4rem 1.3rem; margin-bottom: 1rem;
+        text-align: center;
+      }
+      .prefight.on { display: block; }
+      .prefight .rung-tag {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin-bottom: 0.6rem;
+      }
+      .prefight .rung-tag.boss { color: var(--gold); font-weight: 800; }
+      .prefight .portrait {
+        width: 84px; height: 84px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 3px solid var(--accent); margin-bottom: 0.7rem;
+      }
+      .prefight .name { font-weight: 800; font-size: 1.15rem; }
+      .prefight .handle { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.5rem; }
+      .prefight .diffbar {
+        max-width: 260px; margin: 0.5rem auto 0.9rem; height: 8px; border-radius: 4px;
+        background: var(--faint); overflow: hidden;
+      }
+      .prefight .diffbar .fill { height: 100%; background: linear-gradient(90deg, var(--good), var(--gold), var(--accent)); }
+      .prefight .difflabel { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+      .taunt {
+        position: relative; max-width: 480px; margin: 0 auto 1.2rem;
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 0.8rem 1rem; font-size: 0.9rem; line-height: 1.5; color: var(--ink);
+      }
+      .taunt::after {
+        content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+        border-width: 9px 8px 0; border-style: solid; border-color: var(--panel2) transparent transparent;
+      }
+      .prefight .retries { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.9rem; }
+      .prefight .retries b { color: var(--gold); }
+
+      /* ── arena ────────────────────────────────────────────────────────── */
+      .arena-wrap { display: none; }
+      .arena-wrap.on { display: block; }
+      .bars { display: flex; gap: 0.8rem; margin-bottom: 0.4rem; }
+      .bar { flex: 1; position: relative; }
+      .bar .name {
+        font-size: 0.72rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;
+        color: var(--muted);
+      }
+      .bar.player .name { color: var(--player); }
+      .bar.opp .name { color: var(--accent); text-align: right; flex-direction: row-reverse; }
+      .bar .track { height: 14px; border-radius: 3px; background: var(--faint); overflow: hidden; border: 1px solid var(--faint); }
+      .bar .fill { height: 100%; width: 100%; transition: width 0.15s ease; }
+      .bar.player .fill { background: var(--player); }
+      .bar.opp .fill { background: var(--accent); }
+
+      #canvas {
+        display: block; width: 100%; max-width: 800px; margin: 0 auto;
+        background: linear-gradient(180deg, #1a1128 0%, #120b1c 70%, #0d0815 100%);
+        border: 1px solid var(--faint); border-radius: 8px; touch-action: none;
+      }
+      .controls-hint { text-align: center; font-size: 0.72rem; color: var(--muted); margin: 0.5rem 0; }
+      .controls-hint kbd {
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 3px;
+        padding: 0.05rem 0.35rem; color: var(--ink); font-family: inherit;
+      }
+
+      .touch { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; }
+      .touch .side { display: flex; gap: 0.5rem; }
+      .touch button {
+        width: 52px; height: 52px; border-radius: 50%; font-size: 1.3rem;
+        border: 1px solid var(--faint); background: var(--panel2); color: var(--ink);
+        touch-action: manipulation; user-select: none;
+      }
+      .touch button:active { background: var(--accent); border-color: var(--accent); }
+      @media (min-width: 720px) { .touch { display: none; } }
+
+      /* ── result overlays ─────────────────────────────────────────────── */
+      .result-overlay {
+        display: none; text-align: center; border-radius: 8px; padding: 1.3rem;
+        margin-top: 0.8rem; border: 1px solid var(--faint); background: var(--panel);
+      }
+      .result-overlay.on { display: block; }
+      .result-overlay h2 { margin: 0 0 0.4rem; font-size: 1.4rem; letter-spacing: 0.02em; }
+      .result-overlay.win h2 { color: var(--good); }
+      .result-overlay.lose h2 { color: var(--bad); }
+      .result-overlay p { color: var(--muted); margin: 0 0 1rem; font-size: 0.86rem; }
+      .result-overlay .actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+
+      /* ── end cards ────────────────────────────────────────────────────── */
+      .endcard {
+        display: none; border-radius: 8px; padding: 1.6rem 1.4rem; margin-top: 1rem; text-align: center;
+      }
+      .endcard.on { display: block; }
+      .endcard.victory { background: #1e2a10; border: 1px solid var(--gold); }
+      .endcard.defeat { background: #2a0d14; border: 1px solid var(--bad); }
+      .endcard h2 { margin: 0 0 0.5rem; font-size: 1.6rem; letter-spacing: 0.02em; }
+      .endcard.victory h2 { color: var(--gold); }
+      .endcard.defeat h2 { color: var(--bad); }
+      .endcard p { color: var(--muted); margin: 0 0 1.1rem; font-size: 0.88rem; }
+      .endcard .actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+      .endcard .actions a.share, .endcard .actions button.share {
+        border: 1px solid var(--gold); background: transparent; color: var(--gold);
+        border-radius: 4px; padding: 0.5rem 0.85rem; font-size: 0.82rem; text-decoration: none;
+        font-weight: 700;
+      }
+      .endcard .actions a.share:hover, .endcard .actions button.share:hover { background: var(--gold); color: #241a04; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>MOOT KOMBAT <span class="slash">· fight your way up your own moot ladder</span></h1>
+      <p class="intro">
+        Type a Bluesky handle. It builds a ladder out of its <b>moots</b> (mutuals),
+        smallest follower count first, its single <b class="a">biggest moot last</b>
+        as the final boss. Each fighter's difficulty is <b>log-scaled</b> from their
+        followers vs yours — punching up costs more. Every bout opens with the
+        moot's own highest-liked skeet as a taunt. Stick figures, one round each,
+        <b class="p">you get exactly one retry per moot</b> if you're KO'd — lose
+        the retry and the run's over.
+      </p>
+
+      <form class="finder" id="form" autocomplete="off">
+        <label class="lbl">a bluesky handle</label>
+        <div class="searchrow">
+          <input type="text" id="handle" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+          <button class="go" id="play" type="submit">build my ladder</button>
+        </div>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public graph and feeds in your browser — no login.</p>
+
+      <section id="game">
+        <div class="ladder-track" id="ladderTrack"></div>
+
+        <div class="prefight" id="prefight">
+          <div class="rung-tag" id="rungTag"></div>
+          <img class="portrait" id="oppPortrait" alt="" />
+          <div class="name" id="oppName"></div>
+          <div class="handle" id="oppHandle"></div>
+          <div class="diffbar"><div class="fill" id="diffFill" style="width:0%"></div></div>
+          <div class="difflabel" id="diffLabel"></div>
+          <div class="taunt" id="tauntBubble">…</div>
+          <div class="retries" id="retriesLabel"></div>
+          <button class="go" id="fightBtn">FIGHT</button>
+        </div>
+
+        <div class="arena-wrap" id="arenaWrap">
+          <div class="bars">
+            <div class="bar player">
+              <div class="name"><span id="playerBarName">you</span><span id="playerHp">100</span></div>
+              <div class="track"><div class="fill" id="playerFill"></div></div>
+            </div>
+            <div class="bar opp">
+              <div class="name"><span id="oppHp">100</span><span id="oppBarName">moot</span></div>
+              <div class="track"><div class="fill" id="oppFill"></div></div>
+            </div>
+          </div>
+          <canvas id="canvas" width="800" height="340"></canvas>
+          <div class="controls-hint">
+            <kbd>A</kbd>/<kbd>D</kbd> or <kbd>←</kbd>/<kbd>→</kbd> move ·
+            <kbd>J</kbd> punch · <kbd>K</kbd> kick · hold <kbd>L</kbd> block
+          </div>
+          <div class="touch" id="touch">
+            <div class="side">
+              <button data-k="left">◀</button>
+              <button data-k="right">▶</button>
+            </div>
+            <div class="side">
+              <button data-k="block">🛡</button>
+              <button data-k="punch">👊</button>
+              <button data-k="kick">🦵</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-overlay" id="resultOverlay">
+          <h2 id="resultTitle"></h2>
+          <p id="resultText"></p>
+          <div class="actions" id="resultActions"></div>
+        </div>
+      </section>
+
+      <div class="endcard victory" id="victoryCard">
+        <h2>LADDER CLEARED</h2>
+        <p id="victoryMsg"></p>
+        <div class="actions">
+          <button class="go" id="victoryReplay">run it back</button>
+          <a class="share" id="victoryShare" href="#" target="_blank" rel="noopener">share on bluesky</a>
+          <button class="share" id="victoryShareNative" hidden>share card</button>
+          <button class="ghost" id="victoryNew">try a different handle</button>
+        </div>
+      </div>
+
+      <div class="endcard defeat" id="defeatCard">
+        <h2>RUN OVER</h2>
+        <p id="defeatMsg"></p>
+        <div class="actions">
+          <button class="go" id="defeatReplay">run it back</button>
+          <a class="share" id="defeatShare" href="#" target="_blank" rel="noopener">share on bluesky</a>
+          <button class="share" id="defeatShareNative" hidden>share card</button>
+          <button class="ghost" id="defeatNew">try a different handle</button>
+        </div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+
+      <footer>
+        moots are mutuals — the follow-back set, borrowed from
+        <a href="https://moot-bingo.bisks.net">moot bingo</a>. taunts are each
+        moot's real highest-liked skeet, pulled live from Bluesky's public
+        AppView, no login. sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module" src="./fighter.js"></script>
+  </body>
+</html>
