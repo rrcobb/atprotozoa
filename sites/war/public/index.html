@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>war — bisks.net</title>
+    <meta
+      name="description"
+      content="Single-player WAR against the computer. Sign in with Bluesky to keep score and resume your game — it's all stored in your own PDS. Buildthis-eligible players can propose house-rule changes, FLUXX-style."
+    />
+    <meta property="og:title" content="war — bisks.net" />
+    <meta property="og:description" content="Single-player WAR, atproto-native. Score and game state live in your own PDS; buildthis-eligible players can change the house rules." />
+    <meta property="og:image" content="https://war.bisks.net/og.png" />
+    <meta property="og:url" content="https://war.bisks.net" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://war.bisks.net/og.png" />
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --felt: #0b3d24;
+        --felt2: #0f4d2c;
+        --ink: #eafff0;
+        --dim: #8fc9a6;
+        --faint: #175231;
+        --gold: #e0b23c;
+        --red: #e0574c;
+        --card-bg: #fbf8f0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 700px at 20% -10%, var(--felt2) 0%, var(--felt) 60%);
+        background-color: var(--felt);
+        color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 560px; margin: 0 auto; padding: 1.75rem 1rem 5rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+      }
+      h1 { font-size: 1.5rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+      h1 a { color: inherit; text-decoration: none; }
+      .who { font-size: 0.8rem; color: var(--dim); }
+      .who a { color: var(--gold); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--dim); margin: 0 0 1.5rem; font-size: 0.88rem; line-height: 1.7; }
+      .intro b { color: var(--ink); }
+
+      section.panel {
+        background: rgba(0, 0, 0, 0.15);
+        border: 1px solid var(--faint); border-radius: 12px;
+        padding: 1rem 1.1rem; margin-bottom: 1rem;
+      }
+      .panel-label {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--dim); margin: 0 0 0.7rem; font-weight: 700;
+      }
+
+      input[type="text"], input[type="password"], select, textarea {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.55rem 0.65rem; border: 1px solid var(--faint);
+        background: #06210f; color: var(--ink); border-radius: 6px;
+        width: 100%;
+      }
+      textarea { resize: vertical; min-height: 3.5rem; }
+      input::placeholder, textarea::placeholder { color: #4f7c62; }
+      label.field { display: block; margin-bottom: 0.7rem; font-size: 0.82rem; color: var(--dim); }
+      label.field span { display: block; margin-bottom: 0.3rem; }
+
+      button {
+        font-family: inherit; font-size: 0.88rem; font-weight: 700; padding: 0.65rem 1rem;
+        border: 1px solid var(--gold); background: var(--gold); color: #201400;
+        border-radius: 8px; cursor: pointer;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--gold); }
+      button.ghost:hover { background: rgba(224, 178, 60, 0.1); }
+      button.danger { border-color: var(--red); color: var(--red); background: transparent; }
+      button.danger:hover { background: rgba(224, 87, 76, 0.12); }
+      button.tiny { font-size: 0.72rem; padding: 0.35rem 0.6rem; }
+      button.block { width: 100%; }
+      button.big { width: 100%; font-size: 1.05rem; padding: 1rem; }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+      .status { font-size: 0.8rem; color: var(--dim); min-height: 1.2em; margin-top: 0.4rem; }
+      .err { color: var(--red); }
+      a { color: var(--gold); }
+
+      .scoreline { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: 0.95rem; }
+      .scoreline .n { font-weight: 800; font-size: 1.2rem; color: var(--ink); }
+      .scoreline .l { color: var(--dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+      .scoreitem { display: flex; flex-direction: column; }
+
+      .ruleset-summary { font-size: 0.85rem; color: var(--ink); margin: 0 0 0.6rem; line-height: 1.8; }
+      .ruleset-summary .src {
+        display: inline-block; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase;
+        color: var(--felt); background: var(--gold); border-radius: 999px; padding: 0.1rem 0.55rem;
+        margin-left: 0.4rem;
+      }
+      .ruleset-chip { display: inline-block; background: rgba(255,255,255,0.06); border-radius: 6px; padding: 0.15rem 0.5rem; margin: 0.15rem 0.25rem 0.15rem 0; }
+      .hint { font-size: 0.78rem; color: var(--dim); margin: 0 0 0.6rem; }
+      details.rules-form { margin-top: 0.75rem; }
+      details.rules-form summary { cursor: pointer; color: var(--gold); font-size: 0.85rem; font-weight: 700; }
+      details.rules-form .body { margin-top: 0.8rem; }
+
+      .table { display: flex; justify-content: space-around; align-items: center; gap: 1rem; margin: 0.5rem 0 1rem; }
+      .seat { text-align: center; flex: 1; }
+      .seat .label { font-size: 0.72rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.4rem; }
+      .cardface {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 5rem; height: 7rem; border-radius: 8px; background: var(--card-bg);
+        color: #111; font-weight: 800; font-size: 1.8rem; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+      }
+      .cardface.red { color: var(--red); }
+      .cardface.empty { background: rgba(255,255,255,0.06); box-shadow: none; color: var(--dim); font-size: 0.85rem; font-weight: 400; }
+      .seat .count { margin-top: 0.5rem; font-size: 0.82rem; color: var(--dim); }
+      .vs { font-size: 1.1rem; color: var(--dim); }
+
+      .log { max-height: 8rem; overflow-y: auto; font-size: 0.78rem; color: var(--dim); border-top: 1px dashed var(--faint); padding-top: 0.5rem; }
+      .log div { padding: 0.15rem 0; }
+      .log div:first-child { color: var(--ink); }
+
+      .result-banner { text-align: center; padding: 0.75rem 0 0.25rem; }
+      .result-banner h2 { margin: 0 0 0.3rem; font-size: 1.3rem; }
+      .result-banner.win h2 { color: var(--gold); }
+      .result-banner.lose h2 { color: var(--red); }
+      .result-banner p { color: var(--dim); margin: 0 0 0.75rem; font-size: 0.85rem; }
+
+      .empty-note { color: var(--dim); font-size: 0.85rem; font-style: italic; }
+      footer { margin-top: 2.5rem; color: var(--dim); font-size: 0.78rem; text-align: center; }
+      footer a { color: var(--gold); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">war</a></h1>
+        <span class="who" id="who"></span>
+      </header>
+
+      <p class="intro">
+        Classic single-player <b>WAR</b> against the computer — flip a card,
+        higher rank wins the pile, ties go to <b>war</b>. Sign in with Bluesky
+        and your score + in-progress game live in <b>your own PDS</b>
+        (<code>net.bisks.war.state</code>), so it follows you across
+        reloads. Buildthis-eligible players (<a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>'s
+        mutuals) can propose house-rule changes, FLUXX-style — each written to
+        <b>your own</b> <code>net.bisks.war.ruleset</code> record, since
+        atproto only lets you write your own repo.
+      </p>
+
+      <div id="signin-box"></div>
+
+      <div id="app" hidden></div>
+
+      <footer>
+        <a href="/">war</a> · part of <a href="https://bisks.net">bisks.net</a> ·
+        score, rules and game state are plain
+        <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+        records in your own repo
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+      import { resolvePds, getRecord } from "./lib/atproto.js";
+      import { DEFAULT_RULES, RULES_CATALOG, normalizeRules, makeDeck, shuffle, deal, playRound } from "./lib/warengine.js";
+
+      const ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"; // @bisks.net — the admin
+      const APPVIEW = "https://public.api.bsky.app";
+      const STATE_COLLECTION = "net.bisks.war.state";
+      const STATE_RKEY = "self";
+      const RULESET_COLLECTION = "net.bisks.war.ruleset";
+      const RULESET_RKEY = "current";
+      const LOG_LINES = 30; // cap so the PDS record doesn't grow unbounded across a long game
+
+      const $ = (sel, root = document) => root.querySelector(sel);
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      let session = null;
+      let eligible = false;
+      let isAdmin = false;
+      let state = null; // net.bisks.war.state value
+      let ruleset = null; // { rules, source } — source: "you" | "admin" | "default"
+      let autoplayTimer = null;
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          console.error(e);
+        }
+        renderWho();
+        if (session) {
+          $("#signin-box").innerHTML = "";
+          $("#app").hidden = false;
+          $("#app").innerHTML = `<p class="empty-note">loading your game…</p>`;
+          $("#app").addEventListener("click", onAppClick);
+          $("#app").addEventListener("submit", onAppSubmit);
+          try {
+            await loadEverything();
+          } catch (e) {
+            console.error(e);
+            $("#app").innerHTML = `<p class="status err">couldn't load your game: ${esc(e.message)}</p>`;
+            return;
+          }
+          render();
+        } else {
+          renderSignIn();
+        }
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `@${esc(session.handle)} · <a id="signout">sign out</a>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            location.reload();
+          });
+        } else {
+          who.textContent = "";
+        }
+      }
+
+      function renderSignIn() {
+        const box = $("#signin-box");
+        box.innerHTML = `
+          <section class="panel">
+            <div class="panel-label">sign in to play</div>
+            <label class="field"><span>your bluesky handle</span>
+              <input id="signin-handle" type="text" placeholder="you.bsky.social" autocomplete="username" />
+            </label>
+            <button class="block" id="signin-go">sign in with bluesky</button>
+            <p class="status err" id="signin-err"></p>
+          </section>
+        `;
+        $("#signin-go").addEventListener("click", async () => {
+          const h = $("#signin-handle").value.trim();
+          if (!h) return;
+          try {
+            await login(h);
+          } catch (e) {
+            $("#signin-err").textContent = e.message;
+          }
+        });
+        $("#signin-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("#signin-go").click();
+        });
+      }
+
+      // --- eligibility ------------------------------------------------------
+
+      async function checkEligible(did) {
+        if (did === ROB_DID) return true;
+        try {
+          const u = new URL(`${APPVIEW}/xrpc/app.bsky.graph.getRelationships`);
+          u.searchParams.set("actor", ROB_DID);
+          u.searchParams.append("others", did);
+          const r = await fetch(u);
+          if (!r.ok) return false;
+          const j = await r.json();
+          const rel = j.relationships?.[0];
+          return Boolean(rel?.following && rel?.followedBy);
+        } catch {
+          return false;
+        }
+      }
+
+      // --- PDS: score + game state -------------------------------------------
+
+      function freshState() {
+        return {
+          $type: STATE_COLLECTION,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          gamesPlayed: 0,
+          current: null,
+          lastResult: null,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      async function loadState() {
+        try {
+          const rec = await getRecord(session.pdsUrl, session.did, STATE_COLLECTION, STATE_RKEY);
+          return { ...freshState(), ...rec.value };
+        } catch (e) {
+          // 400 = "record not found" on most PDSes — a genuinely fresh player.
+          // Anything else is a real error: surface it rather than silently
+          // handing back an empty state that a later save could overwrite
+          // real progress with.
+          if (e.status && e.status !== 400) throw e;
+          return freshState();
+        }
+      }
+
+      async function saveState() {
+        state.updatedAt = new Date().toISOString();
+        const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: STATE_COLLECTION, rkey: STATE_RKEY, record: state }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }
+
+      // --- PDS: house ruleset --------------------------------------------------
+      //
+      // Effective rules for a fresh game: your own net.bisks.war.ruleset record
+      // if you've ever proposed one, else Rob's own copy (the shared baseline
+      // new players fork from), else the hardcoded defaults. Once you propose a
+      // change it's written to YOUR repo, not Rob's — atproto only lets you
+      // write your own — so from then on your games use your own copy.
+
+      async function loadRuleset() {
+        try {
+          const rec = await getRecord(session.pdsUrl, session.did, RULESET_COLLECTION, RULESET_RKEY);
+          return { rules: normalizeRules(rec.value), source: "you", history: rec.value?.history || [] };
+        } catch (e) {
+          if (e.status && e.status !== 400) throw e; // real error, not just "you haven't set one"
+        }
+        try {
+          const robPds = await resolvePds(ROB_DID);
+          if (robPds) {
+            const rec = await getRecord(robPds, ROB_DID, RULESET_COLLECTION, RULESET_RKEY);
+            return { rules: normalizeRules(rec.value), source: "admin", history: rec.value?.history || [] };
+          }
+        } catch {
+          // Rob hasn't set one either, or the read failed — either way the
+          // hardcoded default is a safe fallback (unlike loadState, there's
+          // no risk of overwriting anything by falling back here).
+        }
+        return { rules: { ...DEFAULT_RULES }, source: "default", history: [] };
+      }
+
+      async function saveRuleset(newRules, note) {
+        const history = [
+          { by: session.handle, note: note || "", at: new Date().toISOString() },
+          ...(ruleset.history || []),
+        ].slice(0, 10);
+        const record = {
+          $type: RULESET_COLLECTION,
+          ...newRules,
+          history,
+          updatedAt: new Date().toISOString(),
+        };
+        const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: RULESET_COLLECTION, rkey: RULESET_RKEY, record }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        ruleset = { rules: newRules, source: "you", history };
+      }
+
+      async function loadEverything() {
+        [eligible, state, ruleset] = await Promise.all([checkEligible(session.did), loadState(), loadRuleset()]);
+        isAdmin = session.did === ROB_DID;
+      }
+
+      // --- game actions --------------------------------------------------------
+
+      function dealNewGame() {
+        const rules = { ...ruleset.rules };
+        const deck = shuffle(makeDeck(rules));
+        const [player, computer] = deal(deck);
+        state.current = { rules, player, computer, round: 0, log: [], final: null, startedAt: new Date().toISOString() };
+        state.lastResult = null;
+      }
+
+      function flipOnce() {
+        if (!state.current) return false;
+        const { player, computer, rules } = state.current;
+        const { events, gameOver, final } = playRound(player, computer, rules);
+        state.current.round++;
+        state.current.final = final;
+        state.current.log = [...events.slice().reverse(), ...state.current.log].slice(0, LOG_LINES);
+
+        let over = gameOver;
+        if (!over && rules.roundCap !== "none" && state.current.round >= Number(rules.roundCap)) {
+          const pl = player.length, cl = computer.length;
+          over = pl === cl ? { winner: "draw", reason: "round-cap-tie" } : { winner: pl > cl ? "player" : "computer", reason: "round-cap" };
+        }
+
+        if (over) {
+          if (over.winner === "player") state.wins++;
+          else if (over.winner === "computer") state.losses++;
+          else state.draws++;
+          state.gamesPlayed++;
+          state.lastResult = {
+            winner: over.winner,
+            reason: over.reason,
+            playerCards: player.length,
+            computerCards: computer.length,
+            rounds: state.current.round,
+            rules,
+            at: new Date().toISOString(),
+          };
+          state.current = null;
+          stopAutoplay();
+        }
+        return Boolean(over);
+      }
+
+      function stopAutoplay() {
+        if (autoplayTimer) {
+          clearInterval(autoplayTimer);
+          autoplayTimer = null;
+        }
+      }
+
+      // --- rendering -------------------------------------------------------------
+
+      function render() {
+        const app = $("#app");
+        app.innerHTML = [renderScore(), renderRules(), renderGame()].join("\n");
+      }
+
+      function renderScore() {
+        return `
+          <section class="panel">
+            <div class="panel-label">your score</div>
+            <div class="scoreline">
+              <div class="scoreitem"><span class="n">${state.wins}</span><span class="l">wins</span></div>
+              <div class="scoreitem"><span class="n">${state.losses}</span><span class="l">losses</span></div>
+              <div class="scoreitem"><span class="n">${state.draws || 0}</span><span class="l">draws</span></div>
+              <div class="scoreitem"><span class="n">${state.gamesPlayed}</span><span class="l">played</span></div>
+            </div>
+            <div class="btnrow">
+              <button class="ghost tiny" data-action="reset-score">reset my score &amp; game</button>
+            </div>
+          </section>`;
+      }
+
+      function ruleLabel(key, value) {
+        const cat = RULES_CATALOG.find((c) => c.key === key);
+        const opt = cat?.options.find((o) => o.value === value);
+        return opt ? opt.label : value;
+      }
+
+      function renderRules() {
+        const r = ruleset.rules;
+        const srcLabel = ruleset.source === "you" ? "your rules" : ruleset.source === "admin" ? "@bisks.net's defaults" : "built-in defaults";
+        const chips = RULES_CATALOG.map((c) => `<span class="ruleset-chip">${esc(c.label)}: ${esc(ruleLabel(c.key, r[c.key]))}</span>`).join("");
+
+        let form = "";
+        if (eligible) {
+          const fields = RULES_CATALOG.map(
+            (c) => `
+            <label class="field">
+              <span>${esc(c.label)}${c.hint ? ` — ${esc(c.hint)}` : ""}</span>
+              <select name="${c.key}">
+                ${c.options.map((o) => `<option value="${esc(o.value)}" ${o.value === r[c.key] ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+              </select>
+            </label>`,
+          ).join("");
+          form = `
+            <details class="rules-form">
+              <summary>propose a rule change (applies to your own games)</summary>
+              <div class="body">
+                <form id="rules-form">
+                  ${fields}
+                  <label class="field"><span>note (optional — why the change?)</span>
+                    <textarea name="note" placeholder="aces are getting out of hand"></textarea>
+                  </label>
+                  <button class="block" type="submit">save my house rules</button>
+                  <p class="status" id="rules-status"></p>
+                </form>
+                ${isAdmin ? `<div class="btnrow"><button class="danger tiny" data-action="reset-rules-admin">reset @bisks.net's default rules</button></div>` : ""}
+              </div>
+            </details>`;
+        } else {
+          form = `<p class="hint">only <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>'s mutuals can change the house rules — sign in as one to propose a change.</p>`;
+        }
+
+        return `
+          <section class="panel">
+            <div class="panel-label">house rules</div>
+            <p class="ruleset-summary">${chips}<span class="src">${esc(srcLabel)}</span></p>
+            ${form}
+          </section>`;
+      }
+
+      function cardHtml(card, label) {
+        if (!card) return `<span class="cardface empty">${esc(label || "—")}</span>`;
+        const red = card.suit === "♥" || card.suit === "♦";
+        return `<span class="cardface${red ? " red" : ""}">${esc(card.label)}</span>`;
+      }
+
+      function renderGame() {
+        if (state.lastResult && !state.current) return renderResult();
+        if (!state.current) {
+          return `
+            <section class="panel">
+              <div class="panel-label">new game</div>
+              <p class="hint">a fresh 52-card deck (or 54 with jokers), split evenly — no decisions, just flip and see who wars harder.</p>
+              <button class="big" data-action="deal">deal</button>
+            </section>`;
+        }
+
+        const g = state.current;
+        const final = g.final;
+        return `
+          <section class="panel">
+            <div class="table">
+              <div class="seat">
+                <div class="label">you (${g.player.length})</div>
+                ${cardHtml(final?.player)}
+              </div>
+              <div class="vs">vs</div>
+              <div class="seat">
+                <div class="label">computer (${g.computer.length})</div>
+                ${cardHtml(final?.computer)}
+              </div>
+            </div>
+            <div class="btnrow">
+              <button class="big" data-action="flip">flip</button>
+            </div>
+            <div class="btnrow">
+              <button class="ghost tiny" data-action="autoplay-toggle">${autoplayTimer ? "stop autoplay" : "autoplay"}</button>
+              <span class="hint" style="margin:0;align-self:center;">round ${g.round}</span>
+            </div>
+            <div class="log">
+              ${g.log.length ? g.log.map((l) => `<div>${esc(l)}</div>`).join("") : `<div class="empty-note">flip to begin</div>`}
+            </div>
+          </section>`;
+      }
+
+      function renderResult() {
+        const r = state.lastResult;
+        const cls = r.winner === "player" ? "win" : r.winner === "computer" ? "lose" : "";
+        const title = r.winner === "player" ? "you won! 🎉" : r.winner === "computer" ? "the computer won" : "draw";
+        const shareText = `I just ${r.winner === "player" ? "won" : r.winner === "computer" ? "lost" : "drew"} a game of WAR against the computer on war.bisks.net — ${r.playerCards}-${r.computerCards} after ${r.rounds} rounds (${ruleLabel("warCards", r.rules.warCards)} wars, aces ${r.rules.aceRank}). My record: ${state.wins}W-${state.losses}L.`;
+        const shareUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}`;
+        return `
+          <section class="panel">
+            <div class="result-banner ${cls}">
+              <h2>${title}</h2>
+              <p>${r.playerCards} cards to ${r.computerCards}, after ${r.rounds} round${r.rounds === 1 ? "" : "s"}${r.reason === "war-bust" ? " (war bust)" : ""}</p>
+              <div class="btnrow" style="justify-content:center;">
+                <button data-action="deal">play again</button>
+                <a class="ghost" style="text-decoration:none;display:inline-flex;align-items:center;padding:0.65rem 1rem;border:1px solid var(--gold);border-radius:8px;font-weight:700;" href="${shareUrl}" target="_blank" rel="noopener">share on bluesky</a>
+              </div>
+            </div>
+          </section>`;
+      }
+
+      // --- events -------------------------------------------------------------
+
+      async function onAppClick(e) {
+        const btn = e.target.closest("[data-action]");
+        if (!btn) return;
+        const action = btn.dataset.action;
+        try {
+          if (action === "deal") {
+            dealNewGame();
+            await saveState();
+            render();
+          } else if (action === "flip") {
+            const over = flipOnce();
+            await saveState();
+            render();
+            if (over) return;
+          } else if (action === "autoplay-toggle") {
+            if (autoplayTimer) {
+              stopAutoplay();
+              render();
+            } else {
+              autoplayTimer = setInterval(async () => {
+                const over = flipOnce();
+                try {
+                  await saveState();
+                } catch (e) {
+                  console.error(e);
+                }
+                render();
+                if (over) stopAutoplay();
+              }, 850);
+              render();
+            }
+          } else if (action === "reset-score") {
+            stopAutoplay();
+            state = freshState();
+            await saveState();
+            render();
+          } else if (action === "reset-rules-admin") {
+            btn.disabled = true;
+            await saveRuleset({ ...DEFAULT_RULES }, "reset to defaults by admin");
+            render();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      async function onAppSubmit(e) {
+        if (e.target.id !== "rules-form") return;
+        e.preventDefault();
+        const status = $("#rules-status");
+        status.classList.remove("err");
+        status.textContent = "saving…";
+        const fd = new FormData(e.target);
+        const newRules = normalizeRules(Object.fromEntries(RULES_CATALOG.map((c) => [c.key, fd.get(c.key)])));
+        const note = (fd.get("note") || "").toString().slice(0, 300);
+        try {
+          await saveRuleset(newRules, note);
+          status.textContent = "saved — your future games use these rules.";
+          render();
+        } catch (err) {
+          console.error(err);
+          status.textContent = `didn't save: ${err.message.slice(0, 200)}`;
+          status.classList.add("err");
+        }
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
