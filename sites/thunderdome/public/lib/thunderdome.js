@@ -1,7 +1,7 @@
 // thunderdome.js — turn a Bluesky handle into two rosters of skeets for the
 // arena: the handle's own posts, and a pool pulled from a handful of its
-// moots (mutuals). Also holds the match math: odds, and a weighted-random
-// best-of-3 sim. Reads Bluesky's PUBLIC AppView anonymously
+// moots (mutuals). Also holds the match math: a weighted-random single-draw
+// bout, odds kept secret from the crowd. Reads Bluesky's PUBLIC AppView anonymously
 // (public.api.bsky.app, CORS *, no auth): resolveHandle, getProfile,
 // getFollows, getFollowers, getAuthorFeed. Graph logic copied+trimmed from
 // moot-bingo/lib/moots.js; feed logic copied+trimmed from
@@ -185,29 +185,14 @@ export async function buildArena(actor, { onStep } = {}) {
 
 // ── the match math ──────────────────────────────────────────────────────
 
-// Single-game win probability for A vs B, Laplace-smoothed so a 0-like post
-// still has a fighting chance instead of a guaranteed loss.
+// Win probability for A vs B, Laplace-smoothed so a 0-like post still has a
+// fighting chance instead of a guaranteed loss. Never shown to the crowd —
+// the bout is decided by it, but the number itself stays secret.
 export function gameProb(likesA, likesB) {
   return (likesA + 1) / (likesA + likesB + 2);
 }
 
-// Best-of-3 (first to 2 wins) match probability for A, given the single-game
-// win prob p — i.e. P(win ≥ 2 of 3).
-export function matchProb(p) {
-  return p * p * (3 - 2 * p);
-}
-
-// Play out a best-of-3 with single-game win prob p for "a". Returns
-// { winner: "a"|"b", games: ["a"|"b", ...] } — 2 or 3 entries.
+// One random draw for the whole bout, weighted by p. Returns "a" or "b".
 export function playMatch(p) {
-  const games = [];
-  let a = 0,
-    b = 0;
-  while (a < 2 && b < 2) {
-    const win = Math.random() < p;
-    games.push(win ? "a" : "b");
-    if (win) a++;
-    else b++;
-  }
-  return { winner: a === 2 ? "a" : "b", games };
+  return Math.random() < p ? "a" : "b";
 }

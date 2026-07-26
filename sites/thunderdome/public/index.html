@@ -6,7 +6,7 @@
     <title>skeet thunderdome — bet wasteland dollars on your own posts — bisks.net</title>
     <meta
       name="description"
-      content="Enter a Bluesky handle. One of its own skeets faces off against a random skeet from one of its moots, best-of-3, decided randomly weighted by likes. Bet 10/25/50/100% of a $1,000 wasteland-dollar bankroll on every bout. Winner defends the pit next round. Bust at $0, retire at $100,000."
+      content="Enter a Bluesky handle. One of its own skeets faces off against a random skeet from one of its moots, decided by a single secret-odds draw. Bet 10/25/50/100% of a $1,000 wasteland-dollar bankroll on every bout. Winner defends the pit next round. Bust at $0, retire at $10,000."
     />
 
     <meta property="og:type" content="website" />
@@ -14,7 +14,7 @@
     <meta property="og:title" content="skeet thunderdome" />
     <meta
       property="og:description"
-      content="Two skeets enter, one skeet leaves. Bet wasteland dollars on best-of-3 grudge matches between a handle's own posts and its moots' posts — weighted by likes, decided by chance."
+      content="Two skeets enter, one skeet leaves. Bet wasteland dollars on grudge matches between a handle's own posts and its moots' posts — weighted by likes, decided by chance, odds kept secret."
     />
     <meta name="twitter:card" content="summary" />
 
@@ -164,9 +164,6 @@
         content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1.4rem;
         background: linear-gradient(transparent, var(--panel));
       }
-      .fighter .likes { color: var(--gold); font-size: 0.8rem; font-weight: 700; margin-bottom: 0.5rem; }
-      .fighter .odds { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.7rem; }
-      .fighter .odds b { color: var(--ink); }
       .fighter a.permalink { color: var(--muted); font-size: 0.72rem; text-decoration: none; }
       .fighter a.permalink:hover { color: var(--accent); text-decoration: underline; }
 
@@ -187,14 +184,6 @@
         background: var(--panel); padding: 0.9rem 1.1rem; display: none;
       }
       .scoreboard.on { display: block; }
-      .scoreboard .games { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
-      .scoreboard .g {
-        font-size: 0.78rem; padding: 0.3rem 0.55rem; border-radius: 4px;
-        border: 1px solid var(--faint); color: var(--muted); opacity: 0.3;
-        transition: opacity .2s ease, color .2s ease, border-color .2s ease;
-      }
-      .scoreboard .g.shown.a { color: var(--accent); border-color: var(--accent); opacity: 1; }
-      .scoreboard .g.shown.b { color: var(--gold); border-color: var(--gold); opacity: 1; }
       .scoreboard .verdict { font-size: 0.95rem; font-weight: 700; min-height: 1.3rem; }
       .scoreboard .verdict.win { color: var(--good); }
       .scoreboard .verdict.lose { color: var(--bad); }
@@ -245,13 +234,14 @@
       <h1>skeet thunderdome <span class="slash">· two skeets enter, one skeet leaves</span></h1>
       <p class="intro">
         Type a Bluesky handle. Each round, one of its own skeets fights a random
-        skeet from one of its <b>moots</b> (mutuals) — best of 3, each game a coin
-        flip weighted by like count. Odds shown up front. You start with
-        <b>W$1,000</b> wasteland dollars and every round you <b>must</b> bet
-        10%, 25%, 50%, or 100% of the bankroll on one side. Win the bet and
-        the pot <span class="g">grows</span>; lose and it <span class="r">shrinks</span>.
-        The bout's winner stays on as defending champion for the next round.
-        Bust at <b>W$0</b> or retire at <b>W$100,000</b>.
+        skeet from one of its <b>moots</b> (mutuals) — a single secret draw,
+        weighted by like count, decides the winner. No odds, no like counts —
+        you're betting blind. You start with <b>W$1,000</b> wasteland dollars
+        and every round you <b>must</b> bet 10%, 25%, 50%, or 100% of the
+        bankroll on one side. Win the bet and the pot <span class="g">grows</span>;
+        lose and it <span class="r">shrinks</span>. The bout's winner stays on
+        as defending champion for the next round. Bust at <b>W$0</b> or retire
+        at <b>W$10,000</b>.
       </p>
 
       <form class="finder" id="form" autocomplete="off">
@@ -275,7 +265,7 @@
             <span class="bankroll" id="bankroll">W$1,000</span>
           </div>
           <div class="round">round <b id="roundNum">1</b> — <span id="whoHandle"></span>'s pit</div>
-          <div class="goal">bust at W$0 · retire at W$100,000</div>
+          <div class="goal">bust at W$0 · retire at W$10,000</div>
         </div>
 
         <div class="arena" id="arena">
@@ -283,7 +273,6 @@
         </div>
 
         <div class="scoreboard" id="scoreboard">
-          <div class="games" id="games"></div>
           <div class="verdict" id="verdict"></div>
           <div class="payout" id="payout"></div>
         </div>
@@ -318,14 +307,15 @@
 
       <footer>
         moots are mutuals — the follow-back set, borrowed from
-        <a href="https://moot-bingo.bisks.net">moot bingo</a>. odds and posts
-        are pulled live from Bluesky's public AppView, no login. sibling of
+        <a href="https://moot-bingo.bisks.net">moot bingo</a>. posts are pulled
+        live from Bluesky's public AppView, no login; the odds are pulled too
+        but you'll never see them. sibling of
         <a href="https://bisks.net">bisks.net</a>.
       </footer>
     </div>
 
     <script type="module">
-      import { buildArena, gameProb, matchProb, playMatch } from "./lib/thunderdome.js";
+      import { buildArena, gameProb, playMatch } from "./lib/thunderdome.js";
 
       const form = document.getElementById("form");
       const input = document.getElementById("handle");
@@ -340,7 +330,6 @@
       const whoHandleEl = document.getElementById("whoHandle");
       const arenaEl = document.getElementById("arena");
       const scoreboardEl = document.getElementById("scoreboard");
-      const gamesEl = document.getElementById("games");
       const verdictEl = document.getElementById("verdict");
       const payoutEl = document.getElementById("payout");
       const nextWrap = document.getElementById("nextWrap");
@@ -354,7 +343,7 @@
 
       const START = 1000;
       const BUST = 0;
-      const JACKPOT = 100000;
+      const JACKPOT = 10000;
       const BET_FRACS = [0.1, 0.25, 0.5, 1];
 
       let arena = null; // { self, yours, moots }
@@ -387,14 +376,12 @@
           yoursPost = pick(arena.yours);
           mootPost = pick(arena.moots);
         }
-        const p = gameProb(yoursPost.likeCount, mootPost.likeCount); // P(yours wins a game)
-        const oddsYours = Math.round(matchProb(p) * 100);
-        const oddsMoot = 100 - oddsYours;
-        pending = { yoursPost, mootPost, p, oddsYours, oddsMoot };
+        const p = gameProb(yoursPost.likeCount, mootPost.likeCount); // P(yours wins) — never shown to the crowd
+        pending = { yoursPost, mootPost, p };
         renderRound();
       }
 
-      function fighterCard(side, post, odds) {
+      function fighterCard(side, post) {
         const isChamp = champion && champion.side === side && round > 1;
         const label = side === "yours" ? shortHandle(arena.self.handle) + " (yours)" : shortHandle(post.author.handle) + " (moot)";
         const div = document.createElement("div");
@@ -411,8 +398,6 @@
             </div>
           </div>
           <div class="text">${escapeHtml(post.text)}</div>
-          <div class="likes">${post.likeCount} like${post.likeCount === 1 ? "" : "s"}</div>
-          <div class="odds"><b>${odds}%</b> to win the bout</div>
           <a class="permalink" href="${post.url}" target="_blank" rel="noopener">view skeet →</a>
           <div class="bets"></div>
         `;
@@ -438,15 +423,14 @@
         bankrollEl.textContent = fmt(bankroll);
         bankrollEl.className = "bankroll";
         arenaEl.innerHTML = "";
-        arenaEl.appendChild(fighterCard("yours", pending.yoursPost, pending.oddsYours));
+        arenaEl.appendChild(fighterCard("yours", pending.yoursPost));
         const vs = document.createElement("div");
         vs.className = "vs";
         vs.textContent = "VS";
         arenaEl.appendChild(vs);
-        arenaEl.appendChild(fighterCard("moot", pending.mootPost, pending.oddsMoot));
+        arenaEl.appendChild(fighterCard("moot", pending.mootPost));
 
         scoreboardEl.className = "scoreboard";
-        gamesEl.innerHTML = "";
         verdictEl.textContent = "";
         verdictEl.className = "verdict";
         payoutEl.textContent = "";
@@ -463,27 +447,15 @@
         setBetsDisabled(true);
 
         const { yoursPost, mootPost, p } = pending;
-        const result = playMatch(p); // "a" = yours, "b" = moot
-        const matchWinnerSide = result.winner === "a" ? "yours" : "moot";
+        const winner = playMatch(p); // "a" = yours, "b" = moot — the odds behind it stay hidden
+        const matchWinnerSide = winner === "a" ? "yours" : "moot";
 
         scoreboardEl.className = "scoreboard on";
-        gamesEl.innerHTML = "";
-        for (let i = 0; i < result.games.length; i++) {
-          const g = document.createElement("div");
-          g.className = "g";
-          g.textContent = `game ${i + 1}`;
-          gamesEl.appendChild(g);
-        }
-        const slots = Array.from(gamesEl.children);
+        verdictEl.textContent = "the pit decides…";
+        verdictEl.className = "verdict";
+        payoutEl.textContent = "";
 
-        let aWins = 0, bWins = 0;
-        for (let i = 0; i < result.games.length; i++) {
-          await delay(650);
-          const w = result.games[i];
-          if (w === "a") aWins++; else bWins++;
-          slots[i].classList.add("shown", w);
-          slots[i].textContent = `game ${i + 1}: ${w === "a" ? shortHandle(arena.self.handle) : shortHandle(mootPost.author.handle)} (${aWins}-${bWins})`;
-        }
+        await delay(1100);
 
         const betWon = side === matchWinnerSide;
         bankroll += betWon ? amount : -amount;
@@ -496,7 +468,7 @@
 
         verdictEl.className = "verdict " + (betWon ? "win" : "lose");
         const winnerLabel = matchWinnerSide === "yours" ? shortHandle(arena.self.handle) + "'s skeet" : shortHandle(mootPost.author.handle) + "'s skeet";
-        verdictEl.textContent = `${winnerLabel} wins the bout, ${Math.max(aWins, bWins)}-${Math.min(aWins, bWins)}.`;
+        verdictEl.textContent = `${winnerLabel} takes the bout.`;
         payoutEl.textContent = betWon
           ? `you bet on the winner — +${fmt(amount)}`
           : `you bet on the loser — -${fmt(amount)}`;
@@ -541,7 +513,7 @@
           bustMsg.textContent = `${shortHandle(arena.self.handle)}'s pit closes with W$0 left, after ${round} round${round === 1 ? "" : "s"}. the wasteland is unforgiving.`;
         } else {
           jackpotCard.className = "endcard jackpot on";
-          jackpotMsg.textContent = `${shortHandle(arena.self.handle)}'s pit hit W$100,000 after ${round} round${round === 1 ? "" : "s"} and retired undefeated. legendary.`;
+          jackpotMsg.textContent = `${shortHandle(arena.self.handle)}'s pit hit W$10,000 after ${round} round${round === 1 ? "" : "s"} and retired undefeated. legendary.`;
         }
       }
 
