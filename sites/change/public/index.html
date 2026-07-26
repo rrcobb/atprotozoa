@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>change! — a tiny perfect-play board game</title>
+<meta name="description" content="Change!, the 14-point sliding board game from GamesCrafters at Berkeley: slide your three pieces forward, occupy your opponent's home or trap them. SVG board, Tokyo Night theme, fits a phone screen, and a bot that fully solves the game before it makes a single move." />
+<meta property="og:title" content="change! — a tiny perfect-play board game" />
+<meta property="og:description" content="Change!, the 14-point sliding board game from GamesCrafters at Berkeley. Slide your three pieces forward, occupy your opponent's home or trap them. Play against a bot that has solved the entire game." />
+<meta property="og:url" content="https://change.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://change.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="change!: a diamond-shaped lattice board of 14 points in Tokyo Night dark colors, three blue pieces on the left home, three red pieces on the right home." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="change! — a tiny perfect-play board game" />
+<meta name="twitter:description" content="Change!, the 14-point sliding board game from GamesCrafters at Berkeley. Play against a bot that has solved the entire game." />
+<meta name="twitter:image" content="https://change.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #1a1b26;
+    --bg2: #16161e;
+    --panel: #1f2335;
+    --line: #292e42;
+    --line2: #3b4261;
+    --fg: #c0caf5;
+    --dim: #565f89;
+    --dim2: #737aa2;
+    --blue: #7aa2f7;
+    --blue-dk: #3d59a1;
+    --red: #f7768e;
+    --red-dk: #db4b4b;
+    --gold: #e0af68;
+    --green: #9ece6a;
+    --purple: #bb9af7;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 20% -10%, #232742 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #2a2140 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 1.75rem 1rem 3rem; }
+  .wrap { width: 100%; max-width: 400px; }
+
+  h1 {
+    font-size: 1.7rem; line-height: 1.2; margin: 0 0 0.3rem;
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim2); font-size: 0.85rem; margin: 0 0 1rem; line-height: 1.55; }
+  .tag a { color: var(--purple); }
+
+  details.rules {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 0.6rem 0.85rem; margin-bottom: 1rem; font-size: 0.82rem; color: var(--dim2);
+  }
+  details.rules summary { cursor: pointer; color: var(--fg); font-weight: 700; user-select: none; }
+  details.rules p { margin: 0.55rem 0 0; line-height: 1.55; }
+  details.rules b { color: var(--fg); }
+  details.rules .blue-ink { color: var(--blue); }
+  details.rules .red-ink { color: var(--red); }
+
+  .setup {
+    display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem;
+  }
+  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .row .label { color: var(--dim2); font-size: 0.82rem; margin-right: 0.15rem; }
+  button, .btn {
+    background: var(--panel); border: 1px solid var(--line2); color: var(--fg);
+    border-radius: 8px; padding: 0.45rem 0.8rem; font: inherit; font-size: 0.82rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button.primary { background: linear-gradient(90deg, var(--blue), var(--blue-dk)); color: #10131f; border: none; font-weight: 700; }
+  button.on-red { background: linear-gradient(90deg, var(--red), var(--red-dk)); color: #1a0d10; border: none; font-weight: 700; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:not(:disabled):hover { border-color: var(--purple); }
+
+  .status {
+    min-height: 1.4rem; font-size: 0.88rem; margin: 0.7rem 0 0.6rem; color: var(--dim2);
+  }
+  .status .blue-ink { color: var(--blue); font-weight: 700; }
+  .status .red-ink { color: var(--red); font-weight: 700; }
+
+  .board-wrap {
+    position: relative; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 0.6rem; touch-action: manipulation;
+  }
+  svg#board { display: block; width: 100%; height: auto; }
+  .pt { fill: var(--line2); stroke: none; }
+  .home-glow-blue { fill: var(--blue); opacity: 0.08; }
+  .home-glow-red { fill: var(--red); opacity: 0.08; }
+  .edge { stroke: var(--line); stroke-width: 2.5; fill: none; }
+  .piece { cursor: pointer; }
+  .piece.blue { fill: var(--blue); stroke: var(--blue-dk); stroke-width: 2; }
+  .piece.red { fill: var(--red); stroke: var(--red-dk); stroke-width: 2; }
+  .piece.disabled { cursor: default; }
+  .sel-ring { fill: none; stroke: var(--gold); stroke-width: 2.5; }
+  .dest-ring { fill: rgba(158,206,106,0.16); stroke: var(--green); stroke-width: 2; cursor: pointer; }
+  .dest-ring:hover { fill: rgba(158,206,106,0.3); }
+  .home-label { fill: var(--dim); font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+
+  .overlay {
+    position: absolute; inset: 0; border-radius: 14px; display: none;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(13,14,22,0.86); backdrop-filter: blur(1px);
+    flex-direction: column; gap: 0.7rem; padding: 1rem;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 { margin: 0; font-size: 1.3rem; }
+  .overlay h2.win { color: var(--green); }
+  .overlay h2.lose { color: var(--red); }
+  .overlay p { margin: 0; color: var(--dim2); font-size: 0.85rem; max-width: 26ch; }
+
+  .share-row { display: flex; gap: 0.55rem; margin-top: 1rem; flex-wrap: wrap; }
+  .share-row a.btn { text-decoration: none; }
+
+  footer {
+    margin-top: 2rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6;
+  }
+  footer a { color: var(--purple); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>change!</h1>
+  <p class="tag">
+    the 14-point sliding board game from
+    <a href="https://gamescrafters.berkeley.edu/games.php?game=change" target="_blank" rel="noopener">GamesCrafters</a>
+    at Berkeley — slide your three pieces forward, occupy your opponent's home or trap
+    them so they can't move. the bot on the other side has solved the entire game
+    before making its first move.
+  </p>
+
+  <details class="rules">
+    <summary>rules</summary>
+    <p>
+      each player has 3 pieces. <span class="blue-ink">blue</span> starts on the
+      left, <span class="red-ink">red</span> on the right. blue moves first.
+    </p>
+    <p>
+      on your turn, slide one piece <b>forward only</b> (never back toward your
+      own home) along a straight line, as far as you like, stopping before the
+      first piece in the way — you can't jump it or land on it.
+    </p>
+    <p>
+      <b>win</b> by moving all 3 of your pieces onto your opponent's 3 home
+      points, or by leaving your opponent with no legal move on their turn.
+    </p>
+    <p>
+      our solver found something the rules page doesn't mention: with perfect
+      play from both sides, <span class="blue-ink">blue</span> (the player who
+      moves first) is a forced loss — it takes 8 red moves of flawless defense
+      to close it out. play <span class="red-ink">red</span> for the
+      theoretical edge, or play <span class="blue-ink">blue</span> and try to
+      find the one line that trips the bot up.
+    </p>
+  </details>
+
+  <div class="setup">
+    <div class="row">
+      <span class="label">play as</span>
+      <button id="pickBlue" class="primary">blue (moves first)</button>
+      <button id="pickRed" class="on-red">red</button>
+    </div>
+    <div class="row">
+      <button id="newGame">new game</button>
+      <span id="solveNote" class="label"></span>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="board-wrap">
+    <svg id="board" viewBox="0 0 320 332" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="overlay" id="overlay">
+      <h2 id="overlayTitle"></h2>
+      <p id="overlayBody"></p>
+      <div class="share-row">
+        <button id="playAgain" class="primary">play again</button>
+        <a id="shareBluesky" class="btn" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    a tiny port of <a href="https://gamescrafters.berkeley.edu/games.php?game=change" target="_blank" rel="noopener">GamesCrafters' Change!</a>
+    · asked for by @yonderdavid.bsky.social · built by @buildthis.bisks.net
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
