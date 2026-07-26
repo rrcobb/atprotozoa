@@ -6,6 +6,10 @@
  * ship only moves while you keep working the capstan. Morale (yours, or the
  * crew's — same thing) dips with every haul and the rope slips back when
  * it runs low, same as the actual six-week production this is spoofing.
+ * Mash too hard for too long, though, and the rope itself can't take it:
+ * sustained high tension strains it toward a snap, which sets you back hard
+ * and crushes crew standing at the base of the line — the "Rope integrity"
+ * readout in the sidebar is the only warning you get.
  *
  * Everything is canvas rectangles at native 256x160 (NES-ish), scaled up
  * with image-rendering:pixelated — no sprite sheets, no image assets.
@@ -36,7 +40,7 @@
     againBtn: el('againBtn'), finalHauls: el('finalHauls'), finalTime: el('finalTime'),
     shareBluesky: el('shareBluesky'), shareDownload: el('shareDownload'),
     music: el('musicToggle'), sfx: el('sfxToggle'), haulBtn: el('haulBtn'),
-    chaos: el('chaosFill'), chaosReadout: el('chaosReadout'),
+    chaos: el('chaosFill'), chaosReadout: el('chaosReadout'), ropeReadout: el('ropeReadout'),
     directorCaption: el('directorCaption'), setcamLog: el('setcamLog'),
     preload: el('preloadOverlay'), preloadFill: el('preloadBarFill'),
     preloadPct: el('preloadPct'), skipIntroBtn: el('skipIntroBtn'),
@@ -170,6 +174,12 @@
           voice(sfxBus, 'square', f, f, t + i * 0.1, 0.28, 0.22, 'lin');
         });
       },
+      ropeBreak() {
+        const t = actx.currentTime;
+        voice(sfxBus, 'sawtooth', 900, 40, t, 0.22, 0.35, 'exp');
+        noise(sfxBus, 0.5, 0.4, 2600);
+        noise(sfxBus, 0.6, 0.32, 500);
+      },
       peak() {
         const t = actx.currentTime;
         [0, 3, 7, 12, 15].forEach((semi, i) => {
@@ -242,7 +252,7 @@
   const state = {
     running: false, won: false,
     breakthrough: false,
-    diff: { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965 },
+    diff: { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965, ropeBreakMul: 1 },
     t: 0, startedAt: 0,
     progress: 0,      // 0 = left river, 0.5 = summit, 1 = right river
     lastProgress: 0,
@@ -250,6 +260,10 @@
     morale: 100,      // 0..100
     hauls: 0,
     mutiny: 0,        // frames of "crew refuses" lockout
+    ropeStrain: 0,    // 0..100, builds under sustained high tension; can snap the rope
+    ropeBreakLockout: 0, // frames the rope is severed and being re-rigged
+    ropeBreaks: 0,    // count, for the win-screen recap
+    crushFlash: 0,
     shake: 0,
     caption: '', captionTimer: 0,
     passedMilestones: new Set(),
@@ -389,7 +403,7 @@
 
   function haul() {
     if (!state.running || state.won) return;
-    if (state.mutiny > 0) return;
+    if (state.mutiny > 0 || state.ropeBreakLockout > 0) return;
     const disrupted = state.kinskiActive > 0;
     const d = state.diff;
     state.tension = Math.min(100, state.tension + (disrupted ? 6 : 13));
@@ -405,15 +419,41 @@
     }
   }
 
+  // the rope gives out under too much sustained tension — a hard, costly
+  // setback that also crushes crew standing at the base of the line
+  function triggerRopeBreak() {
+    const d = state.diff;
+    state.ropeBreaks++;
+    const loss = 0.05 + Math.random() * 0.06;
+    state.progress = Math.max(0, state.progress - loss);
+    state.tension = 0;
+    state.ropeStrain = 15;
+    state.morale = Math.max(0, state.morale - 18 * d.moraleCostMul);
+    state.ropeBreakLockout = 150;
+    state.shake = 14;
+    state.crushFlash = 22;
+    Audio.play('ropeBreak');
+    setCaption('THE ROPE SNAPS. IT TAKES THE FRONT LINE WITH IT.', 170);
+    setDirectorCaption('THE JUNGLE WANTED THE ROPE BACK. IT TOOK PEOPLE WITH IT.', 'herzog', 200);
+    pushLog('the rope parts. men go down at the capstan.');
+    burst(LEFT_BASE_X - 6, BASE_Y + 2, '#c81010', 20, 2.6);
+    burst(LEFT_BASE_X - 6, BASE_Y + 2, C.rope, 10, 1.8);
+    if (state.mutiny <= 0 && state.morale <= 0) {
+      state.mutiny = 130;
+      setCaption('THE CREW REFUSES. THE ROPE HOLDS.', 130);
+    }
+  }
+
   function reset(breakthrough) {
     state.running = true; state.won = false;
     state.breakthrough = !!breakthrough;
     state.diff = state.breakthrough
-      ? { moraleCostMul: 1.5, slipMul: 1.7, kinskiChanceMul: 1.9, chaosGainMul: 1.3, tensionDecay: 0.95 }
-      : { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965 };
+      ? { moraleCostMul: 1.5, slipMul: 1.7, kinskiChanceMul: 1.9, chaosGainMul: 1.3, tensionDecay: 0.95, ropeBreakMul: 1.6 }
+      : { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965, ropeBreakMul: 1 };
     state.t = 0; state.startedAt = performance.now();
     state.progress = 0; state.lastProgress = 0;
     state.tension = 0; state.morale = 100; state.hauls = 0; state.mutiny = 0;
+    state.ropeStrain = 0; state.ropeBreakLockout = 0; state.ropeBreaks = 0; state.crushFlash = 0;
     state.shake = 0; state.passedMilestones = new Set(); state.particles = [];
     state.chaos = 0; state.kinskiActive = 0; state.herzogTimer = 260 + Math.random() * 160;
     state.directorCaptionTimer = 0;
@@ -432,6 +472,13 @@
     els.morale.style.width = Math.max(0, state.morale) + '%';
     if (els.chaos) els.chaos.style.width = Math.round(state.chaos) + '%';
     if (els.chaosReadout) els.chaosReadout.textContent = Math.round(state.chaos) + '%';
+    if (els.ropeReadout) {
+      const critical = state.ropeStrain > 60 || state.ropeBreakLockout > 0;
+      els.ropeReadout.textContent = state.ropeBreakLockout > 0 ? 'SEVERED — re-rigging'
+        : (state.ropeStrain > 60 ? 'CREAKING (' + Math.round(state.ropeStrain) + '%)'
+        : (state.ropeStrain > 25 ? 'strained' : 'holding'));
+      els.ropeReadout.classList.toggle('critical', critical);
+    }
   }
 
   function gameWon() {
@@ -444,13 +491,16 @@
     const wasFirstUnlock = !BreakthroughUI.unlocked;
     BreakthroughUI.unlock();
 
+    const ropeLine = state.ropeBreaks > 0
+      ? `the rope snapped ${state.ropeBreaks} time${state.ropeBreaks === 1 ? '' : 's'} along the way. not everyone made it to the summit.`
+      : '';
     if (state.breakthrough) {
       if (els.winHeadline) els.winHeadline.innerHTML = 'THE COMPLETION BOND<br>IS SATISFIED';
-      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>breakthrough mode, cleared. the real production also finished, eventually.`;
+      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>breakthrough mode, cleared. the real production also finished, eventually.${ropeLine ? '<br>' + ropeLine : ''}`;
       if (els.breakthroughBtn) els.breakthroughBtn.style.display = 'none';
     } else {
       if (els.winHeadline) els.winHeadline.innerHTML = 'THE SHIP HAS CROSSED<br>THE MOUNTAIN';
-      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>the gramophone plays Caruso to an empty jungle.`;
+      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>the gramophone plays Caruso to an empty jungle.${ropeLine ? '<br>' + ropeLine : ''}`;
       if (els.breakthroughBtn) els.breakthroughBtn.style.display = wasFirstUnlock ? 'inline-block' : (BreakthroughUI.unlocked ? 'inline-block' : 'none');
     }
 
@@ -471,6 +521,13 @@
     } else {
       state.morale = Math.min(100, state.morale + 0.06);
     }
+    if (state.ropeBreakLockout > 0) {
+      state.ropeBreakLockout--;
+      if (state.ropeBreakLockout === 0) {
+        setCaption('A NEW ROPE IS RIGGED. THE CAPSTAN TURNS AGAIN.', 110);
+        pushLog('a fresh rope goes up. the survivors take their places.');
+      }
+    }
     state.lastProgress = state.progress;
     if (!state.won) {
       const d = state.diff;
@@ -488,6 +545,20 @@
         const p = shipPos(state.progress);
         burst(p.x, p.y, C.mtn[0], 10, 2);
       }
+
+      // sustained heavy tension strains the rope; let it run hot too long and
+      // it snaps, taking the crew at the front of the line down with it
+      if (state.tension > 65) {
+        state.ropeStrain = Math.min(100, state.ropeStrain + (state.tension - 65) * 0.05);
+      } else {
+        state.ropeStrain = Math.max(0, state.ropeStrain - 0.4);
+      }
+      if (state.ropeBreakLockout <= 0 && state.ropeStrain > 55 &&
+          state.progress > 0.02 && state.progress < 0.999) {
+        const breakChance = (state.ropeStrain - 55) * 0.00007 * d.ropeBreakMul;
+        if (Math.random() < breakChance) triggerRopeBreak();
+      }
+
       state.progress = Math.min(1, state.progress);
       milestoneCheck();
       updateFilmCrew();
@@ -495,6 +566,7 @@
     }
     if (state.shake > 0) state.shake--;
     if (state.craterFlash > 0) state.craterFlash--;
+    if (state.crushFlash > 0) state.crushFlash--;
     if (state.captionTimer > 0) state.captionTimer--;
     if (state.directorCaptionTimer > 0) state.directorCaptionTimer--;
 
@@ -639,8 +711,21 @@
   function drawCrew() {
     const baseX = LEFT_BASE_X - 6, baseY = BASE_Y + 2;
     const lean = Math.min(1, state.tension / 60);
+    const down = state.ropeBreakLockout > 0;
     for (let i = 0; i < 5; i++) {
       const x = baseX - i * 6;
+      if (down && i < 2) {
+        // the front of the line, laid out after the snap
+        ctx.save();
+        ctx.translate(x, baseY + 3);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = '#7a1414';
+        ctx.fillRect(-1, -8, 2, 8);
+        ctx.fillStyle = '#4a0d0d';
+        ctx.fillRect(-2, -8, 4, 3);
+        ctx.restore();
+        continue;
+      }
       const bob = Math.sin(state.t * 0.2 + i) * 1;
       const kick = state.shake > 0 ? -1 : 0;
       ctx.save();
@@ -757,6 +842,10 @@
     drawParticles();
     if (state.craterFlash > 0) {
       ctx.fillStyle = `rgba(255,255,255,${state.craterFlash / 24})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    if (state.crushFlash > 0) {
+      ctx.fillStyle = `rgba(180,10,10,${state.crushFlash / 44})`;
       ctx.fillRect(0, 0, W, H);
     }
     ctx.restore();
