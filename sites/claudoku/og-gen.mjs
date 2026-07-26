@@ -121,7 +121,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <g transform="translate(${boardX},${boardY})">${boardSvg}</g>
 
   <text x="${W - 74}" y="588" text-anchor="end" font-family="JetBrains Mono"
-    font-size="16" fill="${TEAL}">claudoku.bisks.net</text>
+    font-size="16" fill="${TEAL}">bisks.net/games/claudoku</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

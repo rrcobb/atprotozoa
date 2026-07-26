@@ -77,7 +77,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="96" font-family="JetBrains Mono" font-weight="800" font-size="62" fill="${INK}">MOOT <tspan fill="${ACCENT}">KOMBAT</tspan></text>
   <text x="64" y="134" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">fight your way up a ladder of your own moots — biggest one last</text>
 
-  <text x="${W - 64}" y="${H - 82}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">mootkombat.bisks.net</text>
+  <text x="${W - 64}" y="${H - 82}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">bisks.net/games/mootkombat</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

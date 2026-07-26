@@ -116,7 +116,7 @@ function buildShareText(winner) {
   } else {
     text = "A bot that had already solved the entire game of Change! just beat me. ";
   }
-  text += "play at https://change.bisks.net";
+  text += "play at https://bisks.net/games/change";
   return text;
 }
 

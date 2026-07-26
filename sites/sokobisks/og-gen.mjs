@@ -148,7 +148,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="74" y="588" font-family="ui-monospace, monospace" font-size="16"
     fill="${DIM}">shove every idea onto a ship-pad · it really is PuzzleScript</text>
   <text x="${W - 74}" y="588" text-anchor="end" font-family="ui-monospace, monospace"
-    font-size="16" fill="${TEAL}">sokobisks.bisks.net</text>
+    font-size="16" fill="${TEAL}">bisks.net/games/sokobisks</text>
 </svg>`;
 
 const html = `<!doctype html><html><head><meta charset="utf-8">

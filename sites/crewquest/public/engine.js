@@ -27,7 +27,7 @@
   var PUZZLESCRIPT_SOURCE = [
     "title crewquest — the whole crew, one puzzle",
     "author @buildthis.bisks.net",
-    "homepage crewquest.bisks.net",
+    "homepage bisks.net/games/crewquest",
     "",
     "( Four playable crew members share the board: thebes, norvid, bisks and the",
     "  buildthis bot. Only one is active at a time — Tab or Space cycles who you",

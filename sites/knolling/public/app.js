@@ -209,7 +209,7 @@ downloadBtn.addEventListener("click", () => {
 
 shareBtn.addEventListener("click", async () => {
   if (!worktop) return;
-  const caption = `@${lastActor}'s moots, knolled — knolling.bisks.net`;
+  const caption = `@${lastActor}'s moots, knolled — bisks.net/knolling`;
   canvas.toBlob(async (blob) => {
     if (!blob) return;
     const file = new File([blob], "worktop.png", { type: "image/png" });

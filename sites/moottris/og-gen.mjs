@@ -117,7 +117,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   ${legendSvg}
 
-  <text x="64" y="590" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">moottris.bisks.net</text>
+  <text x="64" y="590" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">bisks.net/games/moottris</text>
 
   ${boardSvg}
 </svg>`;

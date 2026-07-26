@@ -1007,7 +1007,7 @@ function drawShareCard(won, rung) {
   shareCtx.textAlign = "right";
   shareCtx.fillStyle = "#ffd23f";
   shareCtx.font = "700 24px ui-monospace, monospace";
-  shareCtx.fillText("mootkombat.bisks.net", SW - 56, SH - 44);
+  shareCtx.fillText("bisks.net/games/mootkombat", SW - 56, SH - 44);
 }
 
 function drawShareAvatar(c, cx, cy, r, url, color, label) {
@@ -1037,7 +1037,7 @@ function drawShareAvatar(c, cx, cy, r, url, color, label) {
 function wireShare(card, text, rung, won) {
   const shareA = card.querySelector('[id$="Share"]');
   const shareNative = card.querySelector('[id$="ShareNative"]');
-  const shareText = `${text} — mootkombat.bisks.net`;
+  const shareText = `${text} — bisks.net/games/mootkombat`;
   shareA.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
   // give avatars a beat to finish loading before we snapshot

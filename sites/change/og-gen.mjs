@@ -110,7 +110,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="${H - 48}" font-family="JetBrains Mono, monospace" font-size="17"
     fill="${DIM}">Tokyo Night · SVG board · fits a phone screen</text>
   <text x="${W - 64}" y="${H - 48}" text-anchor="end" font-family="JetBrains Mono, monospace"
-    font-size="17" fill="${PURPLE}">change.bisks.net</text>
+    font-size="17" fill="${PURPLE}">bisks.net/games/change</text>
 
   <rect x="${OX - 60}" y="${OY - 10}" width="${(280 - 40) * SCALE + 120}" height="${(292 - 40) * SCALE + 20}"
     rx="20" fill="${PANEL}" stroke="${LINE}" stroke-width="1.5"/>

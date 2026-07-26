@@ -174,6 +174,55 @@ There are ~80+ more pre-existing sites still on subdomains (most with a
 one batch, not the whole migration. A future agent picking this up should
 grep `custom_domain = true` across `sites/*/wrangler.toml` for what's left.
 
+## Clustering related sites under a shared path segment
+
+Later the same day (2026-07-26), a mutual asked to keep migrating subdomains
+to paths and, where there's "sensible clusters" (their example: trigrams,
+games), to group them under a shared segment instead of flat
+`bisks.net/<name>`. Introduced the first such cluster: `bisks.net/games/<name>`.
+Migrated 12 game sites straight from their old `<name>.bisks.net` custom
+domain onto the new cluster path (skipping the flat `bisks.net/<name>` stop
+entirely): pacmoot, mootkombat, moottris, moot-bingo, grand-moot-auto,
+sokobisks, crewquest, thunderdome, blackice, change, biskshow, and claudoku.
+Same time, continued the plain flat-path migration for 10 more non-game
+sites: alignment-chart, seismograph, immortals, knolling, oblique, invocation,
+verbs, verdict, treeoflife, and erdosproof.
+
+Same template as before (`main = "src/index.ts"` prefix-stripping Worker,
+`routes` on the shared zone) — the only difference for a clustered site is
+`PREFIX`/`routes` use `/games/<name>` instead of `/<name>`. Two extra classes
+of self-reference turned up in this batch that the first batch's "simplest
+case" picks didn't hit, worth checking for in future migrations:
+
+- **Client-side path routing.** `immortals` reads a handle out of
+  `location.pathname` (`immortals.bisks.net/<handle>`) and `pushState`s new
+  URLs the same way — both needed a `MOUNT` constant threaded through so they
+  strip/prepend the new mount prefix instead of assuming they own the domain
+  root. `verdict`'s OAuth flow (`client-metadata.json`, `oauth.js`) had the
+  same problem one level worse — `CLIENT_ID`/`REDIRECT_URI` are computed from
+  `location.origin`, which silently drops the path, so the OAuth client
+  metadata's `redirect_uris` had to be updated too, not just the JS.
+- **Cross-site sibling links.** Sites in the same theme link to each other by
+  old subdomain in their own footers/credits (e.g. `mootkombat` → `moot-bingo`,
+  `grand-moot-auto`/`moottris`/`mootrider` → `pacmoot`, `puzzlelove` →
+  `sokobisks`). Grepping only each site's *own* directory for its *own* old
+  domain misses these; after a batch lands, grep the whole `sites/` tree for
+  every migrated name's old `<name>.bisks.net` string to catch what other
+  sites still point at it. (Left `og-gen.mjs` OG-image-generator scripts and
+  `.buildthis.json` build-history records with the old domain string in a
+  couple of spots — those aren't served/live, just re-run-on-demand tooling
+  and historical logs, so lower priority than anything actually served.)
+
+apex and wheelhouse's gallery mirrors were updated for all 22. Still ~60+
+sites on subdomains after this batch (down from ~80+) — future batches should
+keep grepping `custom_domain = true` for what's left, and keep an eye out for
+more clusters as they emerge (e.g. the trigram-family sites — trigrams,
+trigruessr, trigramonopoly, neighborhood — are already conceptually one
+family, though trigrams itself already spans multiple paths under its own
+site rather than needing a cluster segment). `mootrider` (has a Durable
+Object) and `war` (has OAuth with a hardcoded-origin client) were
+deliberately skipped this batch as higher-risk; worth a dedicated pass.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).

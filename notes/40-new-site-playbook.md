@@ -60,6 +60,21 @@ one thing every new site's `src/index.ts` needs now, even a purely static one.
 6. **Link it from the apex gallery** (`apex/public/`) so it shows up on the
    landing page. Add an entry; the gallery is intentionally just a list.
 
+## Clusters: grouping related sites under a shared path segment
+
+Most sites mount flat at `bisks.net/<name>`. When a new site is clearly a
+member of an existing family — right now that's just games — mount it one
+level deeper instead: `bisks.net/games/<name>`, with routes
+`{ pattern = "bisks.net/games/<name>", zone_name = "bisks.net" }` +
+`.../games/<name>/*`, and `PREFIX = "/games/<name>"` in `src/index.ts`. Same
+template as the barebones site below, just a longer prefix. See
+`notes/20-deploy.md` ("Clustering related sites under a shared path segment")
+for the games cluster's current membership and the two gotchas that came up
+migrating existing sites into it (client-side path routing that assumes it
+owns the domain root, and sibling sites linking to each other by old
+subdomain). Don't invent a new cluster for a single site — it's worth doing
+once there's a real handful that belong together, the way games did.
+
 ## Conventions that keep this one-shottable
 
 - **Directory name = site name = subdomain.** `sites/foo` → `atprotozoa-foo` →

@@ -1,4 +1,4 @@
-// oauth.js — browser-side atproto OAuth (public client), for verdict.bisks.net.
+// oauth.js — browser-side atproto OAuth (public client), for bisks.net/verdict.
 //
 // Copied and trimmed from paintmoot/public/lib/oauth.js (same repo), itself
 // adapted from mino.mobi's airchat/oauth/flow.js. Public client:
@@ -22,9 +22,14 @@ import {
   jwtExp,
 } from "./oauth-jwt.js";
 
-const ORIGIN = location.origin; // https://verdict.bisks.net (or localhost in dev)
-export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
-export const REDIRECT_URI = `${ORIGIN}/`; // must be listed in client-metadata.json
+const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
+// Mounted at bisks.net/verdict — location.origin alone drops the path, so the
+// mount prefix has to be appended by hand for any absolute URL this site
+// writes about itself (see notes/40-new-site-playbook.md, "Why paths, not
+// subdomains").
+const MOUNT = "/verdict";
+export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
+export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE = "atproto transition:generic";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
@@ -312,8 +317,8 @@ export async function completeLoginIfCallback() {
   };
   await idbSet("current", session);
   // Land back on whatever page (board or home) the user started the login
-  // from, not the bare redirect_uri "/" the auth server sent us to.
-  history.replaceState({}, "", s.returnTo || "/");
+  // from, not the bare redirect_uri MOUNT + "/" the auth server sent us to.
+  history.replaceState({}, "", s.returnTo || `${MOUNT}/`);
   return session;
 }
 

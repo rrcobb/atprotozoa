@@ -170,7 +170,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="600" font-family="ui-monospace, monospace" font-size="16"
     fill="${MUTED}">draw a moot · daub the card · five in a row is a bingo</text>
   <text x="${W - 64}" y="600" text-anchor="end" font-family="ui-monospace, monospace"
-    font-size="16" fill="${ACCENT}">moot-bingo.bisks.net</text>
+    font-size="16" fill="${ACCENT}">bisks.net/games/moot-bingo</text>
 </svg>`;
 
 const html = `<!doctype html><html><head><meta charset="utf-8">

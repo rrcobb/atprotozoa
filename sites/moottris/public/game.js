@@ -314,7 +314,7 @@ function buildShareCard() {
 
   sctx.fillStyle = "#ffd166";
   sctx.font = `700 20px ${mono}`;
-  sctx.fillText("moottris.bisks.net", 60, 590);
+  sctx.fillText("bisks.net/games/moottris", 60, 590);
 
   // mini render of the actual final board, right-aligned
   if (grid) {
@@ -375,7 +375,7 @@ function gameOver() {
 
   const shareText =
     `scored ${score} on moottris, cleared ${lines} lines with my moots as ` +
-    `the falling pieces — zodiac shapes, posting-speed gravity. moottris.bisks.net`;
+    `the falling pieces — zodiac shapes, posting-speed gravity. bisks.net/games/moottris`;
   shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
   lastShareText = shareText;
   buildShareCard();

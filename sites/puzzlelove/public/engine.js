@@ -18,7 +18,7 @@
   var PUZZLESCRIPT_SOURCE = [
     "title sokobisks — adventures of the build crew",
     "author @buildthis.bisks.net",
-    "homepage sokobisks.bisks.net",
+    "homepage bisks.net/games/sokobisks",
     "",
     "( You are the @buildthis bot. Shove every idea onto a ship-pad and it goes",
     "  live. norvid, thebes and bisks are watching. Arrow keys / WASD to move,",
