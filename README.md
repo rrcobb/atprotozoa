@@ -35,3 +35,8 @@ pnpm --filter @atprotozoa/apex dev
 
 See [`notes/60-going-live.md`](./notes/60-going-live.md) for the one-time setup
 (Cloudflare login, DID, GitHub secrets) and the deploy steps.
+
+## License
+
+[MIT](./LICENSE) — remix, fork, and ship whatever you want with this. No
+attribution required, no warranty offered.
