@@ -71,7 +71,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="620" y="512" font-family="JetBrains Mono" font-size="19" fill="${INK}">pitch = size of the post</text>
   <text x="620" y="546" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">bigger post, deeper note</text>
 
-  <text x="60" y="600" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${PINK}">chimehose.bisks.net</text>
+  <text x="60" y="600" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${PINK}">bisks.net/chimehose</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

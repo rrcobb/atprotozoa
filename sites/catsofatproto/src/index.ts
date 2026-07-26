@@ -14,6 +14,11 @@ interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
 
+// Mounted at bisks.net/catsofatproto/ — catsofatproto.bisks.net never had its
+// own custom domain (the zone's custom-domain cap, see notes/20-deploy.md), so
+// this Worker claims a path route on the already-live bisks.net zone instead.
+const PREFIX = "/catsofatproto";
+
 const CDN = "https://cdn.bsky.app";
 
 const VARIANTS: Record<string, string> = {
@@ -62,6 +67,7 @@ async function handleImg(url: URL): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    url.pathname = url.pathname.slice(PREFIX.length) || "/";
 
     if (url.pathname.startsWith("/img/")) {
       if (request.method === "OPTIONS") {
@@ -77,6 +83,6 @@ export default {
       }
     }
 
-    return env.ASSETS.fetch(request);
+    return env.ASSETS.fetch(new Request(url, request));
   },
 };

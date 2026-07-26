@@ -62,7 +62,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="322" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">profile: real bio, real posts, real</text>
   <text x="60" y="348" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">avatar, real follows.</text>
 
-  <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">stanquiz.bisks.net</text>
+  <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">bisks.net/games/stanquiz</text>
 
   <!-- right: sample result card -->
   <rect x="660" y="80" width="480" height="470" rx="18" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>

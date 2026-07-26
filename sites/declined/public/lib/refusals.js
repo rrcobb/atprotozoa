@@ -1,4 +1,4 @@
-// refusals.js — the excuse engine for declined.bisks.net
+// refusals.js — the excuse engine for bisks.net/declined
 //
 // The anti-@buildthis. Every idea gets declined; this module invents the reason.
 // Refusals are combinatorial (a verdict line + an excuse, sometimes garnished

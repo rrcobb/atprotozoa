@@ -60,7 +60,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   ${rows}
 
   <text x="${pad}" y="${H - 46}" font-family="JetBrains Mono" font-size="19" fill="${ACCENT2}">in the vein of Brian Eno's Music for Airports — not a cover of it</text>
-  <text x="${pad}" y="${H - 16}" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${ACCENT}">code-for-airports.bisks.net</text>
+  <text x="${pad}" y="${H - 16}" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${ACCENT}">bisks.net/code-for-airports</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

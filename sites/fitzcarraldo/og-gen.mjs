@@ -126,7 +126,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect x="0" y="0" width="${W}" height="${H}" fill="rgba(10,5,15,0.16)"/>
   <text x="600" y="90" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="58" fill="#fff8ec" stroke="#000" stroke-width="6" paint-order="stroke" style="letter-spacing:1px">YAHOO! FITZCARRALDO</text>
   <text x="600" y="130" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="#ffe14d" stroke="#000" stroke-width="4" paint-order="stroke">haul the ship over the mountain — in full Nintendo fidelity</text>
-  <text x="600" y="600" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#fff8ec" stroke="#000" stroke-width="4" paint-order="stroke">fitzcarraldo.bisks.net</text>
+  <text x="600" y="600" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#fff8ec" stroke="#000" stroke-width="4" paint-order="stroke">bisks.net/games/fitzcarraldo</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

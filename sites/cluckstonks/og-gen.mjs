@@ -94,7 +94,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="820" y="470" font-family="JetBrains Mono" font-weight="700" font-size="30" fill="${ACCENT}">98.7% BUY confidence</text>
   <text x="820" y="510" font-family="JetBrains Mono" font-size="22" fill="${MUTED}">$RIR · Rhode Island Red Inc.</text>
 
-  <text x="80" y="576" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${UP}">cluckstonks.bisks.net</text>
+  <text x="80" y="576" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${UP}">bisks.net/cluckstonks</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

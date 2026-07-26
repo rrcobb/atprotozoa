@@ -151,7 +151,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   ${glowTitle}
   <text x="64" y="228" font-family="JetBrains Mono" font-weight="800" font-size="76" letter-spacing="4" fill="${INK}">LOST HIGHWAY</text>
   <text x="66" y="264" font-family="JetBrains Mono" font-size="18" letter-spacing="3" fill="${RED}">A NIGHT DRIVE, AFTER DAVID LYNCH</text>
-  <text x="66" y="312" font-family="JetBrains Mono" font-weight="700" font-size="21" fill="${AMBER}">lost-highway.bisks.net</text>
+  <text x="66" y="312" font-family="JetBrains Mono" font-weight="700" font-size="21" fill="${AMBER}">bisks.net/games/lost-highway</text>
   ${taglineSvg}
 </svg>`;
 

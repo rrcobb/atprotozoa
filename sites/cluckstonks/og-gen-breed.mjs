@@ -1,5 +1,5 @@
 // Generates public/breed/og.png — the Open Graph preview card for CluckBreed
-// (cluckstonks.bisks.net/breed), the "spend your stock gains breeding
+// (bisks.net/cluckstonks/breed), the "spend your stock gains breeding
 // vacation chickens" page. Same rendering approach as og-gen.mjs: a static
 // SVG scene rasterised with @resvg/resvg-js, no browser needed.
 //
@@ -73,7 +73,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="820" y="440" font-family="JetBrains Mono" font-weight="700" font-size="30" fill="${ACCENT}">612 / 700 fitness</text>
   <text x="820" y="480" font-family="JetBrains Mono" font-size="22" fill="${MUTED}">gen 3 · Silkie-Sebright</text>
 
-  <text x="80" y="600" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${SEA}">cluckstonks.bisks.net/breed</text>
+  <text x="80" y="600" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${SEA}">bisks.net/cluckstonks/breed</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

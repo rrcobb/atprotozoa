@@ -423,7 +423,7 @@
     els.finalIdentity.textContent = state.identity;
     els.finalDist.textContent = Math.floor(state.dist);
     els.finalQuote.textContent = CRASH_QUOTES[Math.floor(Math.random() * CRASH_QUOTES.length)];
-    const shareText = `${state.identity} made it ${Math.floor(state.dist)}m down the lost highway before ${collidedType === 'mystery' ? 'someone standing in the road' : 'the oncoming lights'} caught up. \u{1F3AE} lost-highway.bisks.net`;
+    const shareText = `${state.identity} made it ${Math.floor(state.dist)}m down the lost highway before ${collidedType === 'mystery' ? 'someone standing in the road' : 'the oncoming lights'} caught up. \u{1F3AE} bisks.net/games/lost-highway`;
     els.shareBtn.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText);
     els.over.classList.remove('hidden');
     updateHud();

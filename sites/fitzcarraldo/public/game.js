@@ -505,7 +505,7 @@
     }
 
     const modeTag = state.breakthrough ? ' on BREAKTHROUGH MODE' : '';
-    const text = `I hauled Fitzcarraldo's ship over the mountain in ${state.hauls} hauls (${secs.toFixed(1)}s)${modeTag} at fitzcarraldo.bisks.net`;
+    const text = `I hauled Fitzcarraldo's ship over the mountain in ${state.hauls} hauls (${secs.toFixed(1)}s)${modeTag} at bisks.net/games/fitzcarraldo`;
     els.shareBluesky.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text);
     els.win.classList.remove('hidden');
     burst(shipPos(1).x, shipPos(1).y, C.note, 30, 3);
