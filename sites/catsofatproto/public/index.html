@@ -122,10 +122,15 @@
         display: block;
         animation: fade 0.35s ease both;
       }
+      .tile.history { opacity: 0.88; }
       @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
       .tile img {
         display: block; width: 100%; height: auto;
         background: var(--faint);
+      }
+      .tile .imgBtn {
+        display: block; width: 100%; padding: 0; margin: 0; border: 0;
+        background: none; cursor: zoom-in;
       }
       .tile .cap {
         padding: 0.55rem 0.65rem 0.65rem;
@@ -150,6 +155,41 @@
         margin: 0.25rem 0 0; color: var(--muted); font-size: 0.7rem;
         line-height: 1.4; max-height: 2.8em; overflow: hidden;
       }
+      .tile .earlyTag {
+        color: var(--muted); font-size: 0.65rem; margin-left: 0.4rem;
+      }
+      .tile .tileActions {
+        display: flex; gap: 0.65rem; margin-top: 0.4rem;
+      }
+      .tile .tileActions a {
+        color: var(--accent2); font-family: var(--mono); font-size: 0.68rem;
+        text-decoration: none;
+      }
+      .tile .tileActions a:hover { text-decoration: underline; }
+
+      .lightbox {
+        position: fixed; inset: 0; background: rgba(8, 6, 4, 0.88);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 0.9rem; padding: 2rem 1rem; z-index: 50;
+      }
+      .lightbox[hidden] { display: none; }
+      .lightbox img {
+        max-width: 92vw; max-height: 74vh; border-radius: 10px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+      .lbCap {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        justify-content: center; font-family: var(--mono); font-size: 0.78rem;
+        color: var(--muted);
+      }
+      .lbCap a { color: var(--accent2); text-decoration: none; }
+      .lbCap a:hover { text-decoration: underline; }
+      .lbClose {
+        position: fixed; top: 1rem; right: 1.1rem; width: 2.2rem; height: 2.2rem;
+        border-radius: 50%; border: 1px solid var(--faint); background: var(--panel);
+        color: var(--ink); font-size: 1.05rem; cursor: pointer; line-height: 1;
+      }
+      .lbClose:hover { border-color: var(--muted); }
 
       .empty {
         color: var(--muted); font-family: var(--mono); font-size: 0.82rem;
@@ -181,7 +221,8 @@
         small vision model — <a href="https://github.com/tensorflow/tfjs-models/tree/master/mobilenet" target="_blank" rel="noopener">MobileNet</a>,
         loaded and run entirely in your browser — looks at the photo itself and
         only lets it through if it actually thinks it's looking at a cat. Nothing
-        is stored; this is just what's flying past right now.
+        is sent to a server; a handful of your last finds are kept in your
+        browser so the grid isn't empty on a reload, but that's it.
       </p>
 
       <div class="controls">
@@ -195,6 +236,16 @@
 
       <main id="grid"></main>
       <div class="empty" id="emptyMsg">waiting for the first cat to scroll past…</div>
+
+      <div class="lightbox" id="lightbox" hidden>
+        <button class="lbClose" id="lbClose" type="button" aria-label="close">✕</button>
+        <img id="lbImg" alt="" />
+        <div class="lbCap">
+          <span id="lbHandle"></span>
+          <a id="lbPost" href="#" target="_blank" rel="noopener">view post ↗</a>
+          <a id="lbShare" href="#" target="_blank" rel="noopener">share this cat ↗</a>
+        </div>
+      </div>
 
       <footer>
         firehose via <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">jetstream</a>
@@ -305,38 +356,114 @@
       }
 
       // ---- rendering ------------------------------------------------------
+      function shareIntentUrl(item) {
+        return (
+          "https://bsky.app/intent/compose?text=" +
+          encodeURIComponent("spotted on cats of atproto 🐾 " + postUrl(item.did, item.rkey))
+        );
+      }
+
       let shownCount = 0;
-      function render(item) {
+      function render(item, opts) {
+        opts = opts || {};
         emptyMsg.style.display = "none";
-        const a = document.createElement("a");
-        a.className = "tile";
-        a.href = postUrl(item.did, item.rkey);
-        a.target = "_blank";
-        a.rel = "noopener";
+        const tile = document.createElement("div");
+        tile.className = "tile" + (opts.history ? " history" : "");
 
         const whyHtml =
           item.reason === "vision"
             ? `<span class="why vision">🔍 ${escapeHtml(item.visionLabel)} · ${Math.round(item.visionProb * 100)}%</span>`
             : `<span class="why">📝 caption match</span>`;
-        const altHtml = item.alt
-          ? `<p class="alt">${escapeHtml(item.alt)}</p>`
-          : "";
+        const earlyHtml = opts.history ? `<span class="earlyTag">seen earlier</span>` : "";
+        const altHtml = item.alt ? `<p class="alt">${escapeHtml(item.alt)}</p>` : "";
 
-        a.innerHTML =
+        tile.innerHTML =
+          `<button class="imgBtn" type="button" aria-label="view full size">` +
           `<img src="${cdnUrl("feed_thumbnail", item.did, item.cid)}" loading="lazy" alt="${escapeHtml(item.alt || "cat photo")}" />` +
+          `</button>` +
           `<div class="cap">` +
           `<div class="who"><span class="avatar"></span><span class="handle">resolving…</span></div>` +
           whyHtml +
+          earlyHtml +
           altHtml +
+          `<div class="tileActions">` +
+          `<a class="postLink" href="${postUrl(item.did, item.rkey)}" target="_blank" rel="noopener">post ↗</a>` +
+          `<a class="shareLink" href="${shareIntentUrl(item)}" target="_blank" rel="noopener">share ↗</a>` +
+          `</div>` +
           `</div>`;
 
-        grid.prepend(a);
-        fillAuthor(a, item.did);
+        tile.querySelector(".imgBtn").addEventListener("click", () => openLightbox(tile, item));
+
+        grid.prepend(tile);
+        fillAuthor(tile, item.did);
         shownCount++;
         updateStats();
 
         while (grid.childElementCount > MAX_TILES) {
           grid.removeChild(grid.lastElementChild);
+        }
+
+        if (opts.save !== false) saveHistory(item);
+      }
+
+      // ---- lightbox ---------------------------------------------------------
+      const lightbox = document.getElementById("lightbox");
+      const lbImg = document.getElementById("lbImg");
+      const lbHandle = document.getElementById("lbHandle");
+      const lbPost = document.getElementById("lbPost");
+      const lbShare = document.getElementById("lbShare");
+      const lbClose = document.getElementById("lbClose");
+
+      function openLightbox(tile, item) {
+        lbImg.src = cdnUrl("feed_fullsize", item.did, item.cid);
+        lbImg.alt = item.alt || "cat photo";
+        const handleEl = tile.querySelector(".handle");
+        lbHandle.textContent = handleEl ? handleEl.textContent : "";
+        lbPost.href = postUrl(item.did, item.rkey);
+        lbShare.href = shareIntentUrl(item);
+        lightbox.hidden = false;
+        document.body.style.overflow = "hidden";
+      }
+      function closeLightbox() {
+        lightbox.hidden = true;
+        lbImg.src = "";
+        document.body.style.overflow = "";
+      }
+      lbClose.addEventListener("click", closeLightbox);
+      lightbox.addEventListener("click", (e) => {
+        if (e.target === lightbox) closeLightbox();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !lightbox.hidden) closeLightbox();
+      });
+
+      // ---- recent-finds history (localStorage) -------------------------------
+      // Keeps a rolling window of recent finds so a reload isn't a blank grid.
+      // Nothing leaves the browser for this — it's the same localStorage the
+      // page already reads/writes for nothing else.
+      const STORAGE_KEY = "catsofatproto:recent";
+      const STORAGE_MAX = 30;
+      const STORAGE_TTL_MS = 2 * 60 * 60 * 1000; // stale finds aren't worth resurrecting
+
+      function loadHistory() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return [];
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) return [];
+          const cutoff = Date.now() - STORAGE_TTL_MS;
+          return arr.filter((it) => it && typeof it.ts === "number" && it.ts >= cutoff);
+        } catch {
+          return [];
+        }
+      }
+      function saveHistory(item) {
+        try {
+          const arr = loadHistory();
+          arr.unshift(Object.assign({}, item, { ts: Date.now() }));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(arr.slice(0, STORAGE_MAX)));
+        } catch {
+          // storage full/unavailable/private-mode — not fatal, just skip persisting
         }
       }
 
@@ -465,7 +592,10 @@
       loadVision();
 
       // ---- firehose ---------------------------------------------------------
-      const seen = new Set(); // did:rkey already processed
+      // did:rkey:imageIndex already processed — a post can carry several photos
+      // and each gets its own shot at the grid (the caption may only describe
+      // some of them; the rest still get a vision check).
+      const seen = new Set();
       function handlePost(evt) {
         const commit = evt.commit;
         if (!commit || commit.operation !== "create") return;
@@ -474,25 +604,32 @@
         const images = extractImages(rec);
         if (!images.length) return;
 
-        const key = evt.did + ":" + commit.rkey;
-        if (seen.has(key)) return;
-        seen.add(key);
-        if (seen.size > 5000) seen.clear(); // bound memory over a long-running tab
-
-        photosSeen++;
-        if (photosSeen % 5 === 0) updateStats();
-
         const text = typeof rec.text === "string" ? rec.text : "";
-        const img = images[0];
-        const hay = (img.alt || "") + " " + text;
-        const item = { did: evt.did, rkey: commit.rkey, cid: img.cid, alt: img.alt || "", text };
 
-        if (TEXT_CAT_RE.test(hay)) {
-          item.reason = "caption";
-          if (!paused) render(item);
-        } else {
-          enqueueVision(item);
-        }
+        images.forEach((img, i) => {
+          const key = evt.did + ":" + commit.rkey + ":" + i;
+          if (seen.has(key)) return;
+          seen.add(key);
+
+          photosSeen++;
+          if (photosSeen % 5 === 0) updateStats();
+
+          const hay = (img.alt || "") + " " + text;
+          const item = { did: evt.did, rkey: commit.rkey, cid: img.cid, alt: img.alt || "", text };
+
+          if (TEXT_CAT_RE.test(hay)) {
+            item.reason = "caption";
+            if (!paused) render(item);
+          } else {
+            enqueueVision(item);
+          }
+        });
+
+        if (seen.size > 5000) seen.clear(); // bound memory over a long-running tab
+      }
+
+      for (const it of loadHistory().slice().reverse()) {
+        render(it, { save: false, history: true });
       }
 
       function setStatus(live, msg) {
