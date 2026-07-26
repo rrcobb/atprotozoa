@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>padmoot — bisks.net</title>
+    <meta
+      name="description"
+      content="A social synthesizer / beat pad on atproto. Play drum machine + synth voices on selectable controller layouts (MPC, Launchpad, TR-909), save your beat to your own PDS or export it as JSON/WAV to disk, and jam on patterns your moots made."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="padmoot — a social beat pad on atproto" />
+    <meta
+      property="og:description"
+      content="Finger-drum on an MPC grid, a Launchpad session grid, or a TR-909 strip — same beat underneath. Save it to your PDS, export JSON/WAV to disk, or share it."
+    />
+    <meta property="og:image" content="https://padmoot.bisks.net/og.png" />
+    <meta property="og:url" content="https://padmoot.bisks.net" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="padmoot — a social beat pad on atproto" />
+    <meta
+      name="twitter:description"
+      content="Finger-drum on an MPC grid, a Launchpad session grid, or a TR-909 strip — same beat underneath. Save it to your PDS, export JSON/WAV to disk, or share it."
+    />
+    <meta name="twitter:image" content="https://padmoot.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0d0d10; --ink: #f1f0ec; --muted: #8a8890; --faint: #232228;
+        --accent: #ff7a3d; --accent2: #4dd6c0; --card: #17161b; --border: #2c2b32;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.1rem;
+      }
+      h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 1.4rem; font-size: 0.88rem; line-height: 1.7; max-width: 66ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--accent2); }
+
+      input[type="text"], input[type="number"], select {
+        font-family: inherit; font-size: 0.88rem;
+        padding: 0.45rem 0.6rem; border: 1px solid var(--border);
+        background: var(--card); color: var(--ink); border-radius: 4px;
+      }
+      input[type="text"]::placeholder { color: #55535c; }
+      button {
+        font-family: inherit; font-size: 0.82rem; padding: 0.48rem 0.85rem;
+        border: 1px solid var(--border); background: var(--ink); color: #111;
+        border-radius: 4px; cursor: pointer; font-weight: 600;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.ghost.active { background: var(--accent); border-color: var(--accent); color: #1a0f08; }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.55rem; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #1a0f08; }
+      button.play { background: var(--accent2); border-color: var(--accent2); color: #06231d; }
+      button.play.playing { background: #ff4d4d; border-color: #ff4d4d; color: #2a0505; }
+      .status { font-size: 0.78rem; color: var(--muted); }
+      .err { color: #ff8a70; }
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      .panel-label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 1.6rem 0 0.6rem; font-weight: 600;
+      }
+      .panel-label:first-of-type { margin-top: 0; }
+      .card {
+        border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+        padding: 1rem 1.1rem; margin-bottom: 1rem;
+      }
+
+      /* transport / meta bar */
+      .transport {
+        display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: center;
+      }
+      .transport label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.72rem; color: var(--muted); }
+      #f-title { min-width: 12rem; }
+      #f-bpm { width: 4.5rem; }
+      #f-swing { width: 7rem; }
+      .layout-picker { display: flex; gap: 0.4rem; margin-left: auto; }
+      .step-indicator { font-size: 0.74rem; color: var(--muted); min-width: 5.5rem; }
+
+      /* pad surface container */
+      .pad-surface { margin: 1rem 0; }
+
+      /* --- MPC layout: Akai-style 4x4 finger-drum grid --- */
+      .layout-mpc {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem;
+        background: #1b1a1f; border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem;
+        max-width: 420px;
+      }
+      .mpc-pad {
+        aspect-ratio: 1; background: linear-gradient(155deg, #2b2a30, #1f1e23);
+        border: 1px solid #3a3940; border-radius: 8px; color: #c9c7cf;
+        font-weight: 700; font-size: 0.78rem; display: flex; align-items: center;
+        justify-content: center; text-align: center; padding: 0.4rem;
+        box-shadow: inset 0 -3px 0 rgba(0,0,0,0.4);
+        transition: transform 0.05s ease, background 0.08s ease;
+        touch-action: manipulation; user-select: none;
+      }
+      .mpc-pad:active, .mpc-pad.hit {
+        background: linear-gradient(155deg, var(--accent), #c85a26); color: #1a0f08;
+        transform: translateY(1px); box-shadow: inset 0 -1px 0 rgba(0,0,0,0.5), 0 0 14px rgba(255,122,61,0.6);
+      }
+
+      /* --- Launchpad layout: Novation-style session grid --- */
+      .launchpad-bankbar { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
+      .launchpad-grid {
+        display: flex; flex-direction: column; gap: 0.35rem; background: #101014;
+        border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem;
+      }
+      .launchpad-row { display: flex; align-items: center; gap: 0.4rem; }
+      .launchpad-row-label { width: 5.2rem; font-size: 0.68rem; color: var(--muted); flex-shrink: 0; }
+      .launchpad-cell {
+        width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 4px;
+        background: #201f26; border: 1px solid #34333b;
+      }
+      .launchpad-cell.beat { border-color: #4a4952; }
+      .launchpad-cell.on { background: var(--accent2); border-color: var(--accent2); box-shadow: 0 0 8px rgba(77,214,192,0.55); }
+      .launchpad-cell.playhead { outline: 2px solid #fff; outline-offset: 1px; }
+
+      /* --- TR909 layout: Roland-style lit strip per track --- */
+      .layout-tr909 { display: flex; flex-direction: column; gap: 0.55rem; }
+      .tr909-row {
+        display: flex; align-items: center; gap: 0.6rem; background: #17161b;
+        border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; flex-wrap: wrap;
+      }
+      .tr909-head { display: flex; align-items: center; gap: 0.4rem; width: 100%; max-width: 13.5rem; flex-shrink: 0; }
+      .tr909-voice { flex: 1; min-width: 0; font-size: 0.76rem; padding: 0.3rem 0.4rem; }
+      .tr909-knob { width: 3.2rem; accent-color: var(--accent); }
+      .tr909-strip { display: flex; gap: 0.25rem; flex: 1; min-width: 16rem; }
+      .tr909-cell {
+        flex: 1; height: 1.9rem; padding: 0; border-radius: 3px;
+        background: #201f26; border: 1px solid #34333b;
+      }
+      .tr909-cell.beat { border-color: #55535c; }
+      .tr909-cell.on { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px rgba(255,122,61,0.55); }
+      .tr909-cell.playhead { outline: 2px solid #fff; outline-offset: 1px; }
+      .tr909-add { align-self: flex-start; }
+
+      /* action bar */
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.8rem; }
+      .remix-note {
+        font-size: 0.78rem; color: var(--muted); background: var(--faint);
+        border-radius: 4px; padding: 0.5rem 0.7rem; margin-bottom: 0.7rem;
+      }
+
+      /* browse */
+      .patternlist { border-top: 1px solid var(--border); }
+      .patternrow {
+        display: flex; justify-content: space-between; gap: 1rem;
+        padding: 0.6rem 0; border-bottom: 1px solid var(--border);
+        text-decoration: none; color: inherit;
+      }
+      .patternrow:hover .ptitle { color: var(--accent); }
+      .ptitle { font-weight: 600; }
+      .pmeta { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+      .by-group { margin-bottom: 1rem; }
+      .by-group h3 { font-size: 0.85rem; margin: 0 0 0.3rem; color: var(--muted); font-weight: 600; }
+      .by-group h3 a { color: inherit; }
+      .empty { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+      #file-import { display: none; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">padmoot</a></h1>
+        <span class="who" id="who"></span>
+      </header>
+
+      <p class="intro">
+        A <b>social synthesizer / beat pad</b> for atproto. Same pattern underneath,
+        three controller skins on top: an <b>MPC</b> finger-drumming grid, a
+        <b>Launchpad</b> session grid, and a <b>TR-909</b> step strip — switch any
+        time, nothing you've made is lost. Save your beat as a
+        <b>net.bisks.padmoot.pattern</b> record in your own PDS, export it to disk
+        as JSON or a real WAV, or jam on a pattern one of your moots made and save
+        your own remix.
+      </p>
+
+      <div id="signin-box"></div>
+      <div class="remix-note" id="remix-note" hidden></div>
+
+      <div class="card">
+        <div class="transport">
+          <label>title <input id="f-title" type="text" placeholder="untitled beat" /></label>
+          <label>bpm <input id="f-bpm" type="number" min="40" max="220" value="120" /></label>
+          <label>swing <input id="f-swing" type="range" min="0" max="0.6" step="0.02" value="0" /></label>
+          <button id="btn-play" class="play">▶ play</button>
+          <button id="btn-record" class="ghost tiny" title="arm recording (MPC view)">● record</button>
+          <span class="step-indicator" id="step-indicator"></span>
+          <div class="layout-picker">
+            <button class="ghost tiny" data-layout="mpc">MPC</button>
+            <button class="ghost tiny" data-layout="launchpad">Launchpad</button>
+            <button class="ghost tiny" data-layout="tr909">TR-909</button>
+          </div>
+        </div>
+
+        <div class="pad-surface" id="pad-surface"></div>
+
+        <div class="actions">
+          <button id="btn-save" class="primary">save to your PDS</button>
+          <button id="btn-save-copy" class="ghost tiny" hidden>save a copy instead</button>
+          <button id="btn-export-json" class="ghost">save JSON to disk</button>
+          <button id="btn-export-wav" class="ghost">export WAV to disk</button>
+          <button id="btn-import" class="ghost">load JSON from disk</button>
+          <input id="file-import" type="file" accept="application/json,.json" />
+          <a id="btn-share" class="ghost" style="text-decoration:none; display:inline-flex; align-items:center; opacity:0.4; pointer-events:none;" target="_blank" rel="noopener">share on bluesky</a>
+          <button id="btn-new" class="ghost tiny">new pattern</button>
+        </div>
+        <p class="status" id="pad-status"></p>
+      </div>
+
+      <div class="panel-label">look up a handle's patterns</div>
+      <div class="row">
+        <input id="lookup-handle" type="text" placeholder="a bluesky handle" style="flex:1; min-width:12rem;" />
+        <button id="lookup-go" class="ghost">look up</button>
+      </div>
+      <p class="status" id="browse-status"></p>
+      <div id="browse-results"></div>
+
+      <footer>
+        <a href="/">padmoot</a> · part of <a href="https://bisks.net">bisks.net</a> ·
+        beats are <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+        records — nothing lives on this server, and every sound is synthesized live, no samples.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+      import { resolveDid, resolveHandleForDid, resolvePds, getRecord, listRecords, getFollows, mapLimit } from "./lib/atproto.js";
+      import { playVoice, VOICES } from "./lib/audio.js";
+      import { Sequencer, STEPS, createEmptyPattern, createDefaultTracks, MPC_PADS } from "./lib/sequencer.js";
+      import { renderMpc, renderLaunchpad, renderTr909, highlightStep, flashMpcPadForTrack, ensureTrackForPad } from "./lib/pads.js";
+      import { renderPatternToWavBlob } from "./lib/wav.js";
+
+      const PATTERN_COLLECTION = "net.bisks.padmoot.pattern";
+
+      const $ = (sel) => document.querySelector(sel);
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      const clampNum = (v, lo, hi, dflt) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+      };
+      const slugify = (s) => (s || "beat").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "beat";
+      const downloadBlob = (blob, filename) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      };
+
+      let session = null;
+      let pattern = createEmptyPattern();
+      let loadedFrom = null; // { ownerDid, rkey, uri } when this pattern came from a PDS record
+      let ctx = null;
+      let master = null;
+      let recordArmed = false;
+      let currentStep = -1;
+
+      function getCtx() {
+        if (!ctx) {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          master = ctx.createGain();
+          master.gain.value = 0.9;
+          master.connect(ctx.destination);
+        }
+        if (ctx.state === "suspended") ctx.resume();
+        return ctx;
+      }
+
+      function normalizePattern(v) {
+        const tracks = Array.isArray(v?.tracks) && v.tracks.length
+          ? v.tracks.slice(0, 24).map((t) => ({
+              voice: VOICES.includes(t?.voice) ? t.voice : "kick",
+              steps: Array.from({ length: STEPS }, (_, i) => !!(t?.steps && t.steps[i])),
+              volume: clampNum(t?.volume, 0, 1, 0.85),
+              tone: clampNum(t?.tone, 0, 1, 0.5),
+            }))
+          : createDefaultTracks();
+        return {
+          title: String(v?.title || "untitled beat").slice(0, 120),
+          bpm: clampNum(v?.bpm, 40, 220, 120),
+          swing: clampNum(v?.swing, 0, 0.6, 0),
+          layout: ["mpc", "launchpad", "tr909"].includes(v?.layout) ? v.layout : "mpc",
+          tracks,
+          remixOf: typeof v?.remixOf === "string" ? v.remixOf : undefined,
+        };
+      }
+
+      const sequencer = new Sequencer({
+        getPattern: () => pattern,
+        onScheduleStep: (track, trackIndex, time) => {
+          playVoice(ctx, master, track.voice, time, { volume: track.volume, tone: track.tone });
+          if (pattern.layout === "mpc") flashMpcPadForTrack($("#pad-surface"), MPC_PADS, track);
+        },
+        onVisualStep: (step) => {
+          currentStep = step;
+          if (pattern.layout !== "mpc") highlightStep($("#pad-surface"), step);
+          $("#step-indicator").textContent = sequencer.playing ? `step ${step + 1}/${STEPS}` : "";
+        },
+      });
+
+      // --- boot -----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          console.error(e);
+        }
+        renderWho();
+        renderSignInBox();
+
+        const params = new URLSearchParams(location.search);
+        const owner = params.get("owner");
+        const rkey = params.get("rkey");
+        if (owner && rkey) {
+          await loadPatternFromPds(owner, rkey);
+        }
+        renderAll();
+        wireStaticControls();
+
+        $("#lookup-handle").value = session?.handle || "";
+        if (session) lookup(session.handle);
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `@${esc(session.handle)} · <a id="signout">sign out</a>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            session = null;
+            location.reload();
+          });
+        } else {
+          who.textContent = "";
+        }
+      }
+
+      function renderSignInBox() {
+        const box = $("#signin-box");
+        if (session) {
+          box.innerHTML = "";
+          return;
+        }
+        box.innerHTML = `
+          <div class="row" style="margin-bottom: 1rem;">
+            <input id="signin-handle" type="text" placeholder="your bluesky handle" />
+            <button id="signin-go" class="ghost">sign in to save to your PDS</button>
+            <span class="status err" id="signin-err"></span>
+          </div>
+        `;
+        $("#signin-go").addEventListener("click", async () => {
+          const h = $("#signin-handle").value.trim();
+          if (!h) return;
+          try {
+            await login(h);
+          } catch (e) {
+            $("#signin-err").textContent = e.message;
+          }
+        });
+      }
+
+      async function loadPatternFromPds(ownerDid, rkey) {
+        setPadStatus("loading pattern…");
+        try {
+          const pds = await resolvePds(ownerDid);
+          if (!pds) throw new Error("couldn't resolve that pattern's PDS");
+          const rec = await getRecord(pds, ownerDid, PATTERN_COLLECTION, rkey);
+          pattern = normalizePattern(rec.value);
+          loadedFrom = { ownerDid, rkey, uri: rec.uri };
+          const handle = await resolveHandleForDid(ownerDid);
+          renderRemixNote(handle);
+          setPadStatus("");
+        } catch (e) {
+          setPadStatus(`couldn't load that pattern: ${e.message}`, true);
+          pattern = createEmptyPattern();
+          loadedFrom = null;
+          history.replaceState({}, "", "/");
+        }
+      }
+
+      function renderRemixNote(ownerHandle) {
+        const note = $("#remix-note");
+        if (!loadedFrom) {
+          note.hidden = true;
+          return;
+        }
+        note.hidden = false;
+        const mine = session?.did === loadedFrom.ownerDid;
+        note.textContent = mine
+          ? `playing your own saved pattern — edits will update it when you save.`
+          : `playing @${ownerHandle}'s pattern — hit play, mess with it, and "save" will save your remix as a new pattern under your own account.`;
+      }
+
+      // --- rendering --------------------------------------------------------------
+
+      function renderAll() {
+        $("#f-title").value = pattern.title;
+        $("#f-bpm").value = pattern.bpm;
+        $("#f-swing").value = pattern.swing;
+        document.querySelectorAll(".layout-picker button").forEach((b) => {
+          b.classList.toggle("active", b.dataset.layout === pattern.layout);
+        });
+        renderPadSurface();
+        renderSaveButtons();
+        renderShareLink();
+      }
+
+      let launchpadBank = 0;
+
+      function renderPadSurface() {
+        const el = $("#pad-surface");
+        if (pattern.layout === "mpc") {
+          renderMpc(el, MPC_PADS, { onTap: handlePadTap });
+        } else if (pattern.layout === "launchpad") {
+          renderLaunchpad(el, pattern.tracks, launchpadBank, {
+            onToggleStep: (ti, step) => { pattern.tracks[ti].steps[step] = !pattern.tracks[ti].steps[step]; renderPadSurface(); },
+            onBankChange: (b) => { launchpadBank = b; renderPadSurface(); },
+          });
+        } else {
+          renderTr909(el, pattern.tracks, VOICES, {
+            onToggleStep: (ti, step) => { pattern.tracks[ti].steps[step] = !pattern.tracks[ti].steps[step]; renderPadSurface(); },
+            onVoiceChange: (ti, voice) => { pattern.tracks[ti].voice = voice; },
+            onVolumeChange: (ti, v) => { pattern.tracks[ti].volume = v; },
+            onToneChange: (ti, v) => { pattern.tracks[ti].tone = v; },
+            onClearTrack: (ti) => { pattern.tracks[ti].steps.fill(false); renderPadSurface(); },
+            onAddTrack: () => { pattern.tracks.push({ voice: "kick", steps: new Array(STEPS).fill(false), volume: 0.85, tone: 0.5 }); renderPadSurface(); },
+          });
+        }
+        $("#btn-record").classList.toggle("active", recordArmed);
+        $("#btn-record").hidden = pattern.layout !== "mpc";
+      }
+
+      function handlePadTap(pad) {
+        const audioCtx = getCtx();
+        if (sequencer.playing && recordArmed) {
+          const idx = ensureTrackForPad(pattern.tracks, pad);
+          const track = pattern.tracks[idx];
+          const step = currentStep < 0 ? 0 : currentStep;
+          track.steps[step] = true;
+          playVoice(audioCtx, master, track.voice, audioCtx.currentTime, { volume: track.volume, tone: track.tone });
+        } else {
+          const existing = pattern.tracks.find((t) => {
+            if (t.voice !== pad.voice) return false;
+            if (pad.voice !== "stab") return true;
+            return Math.abs((t.tone ?? 0.5) - (pad.tone ?? 0.5)) < 0.001;
+          });
+          const t = existing || { voice: pad.voice, volume: 0.85, tone: pad.tone ?? 0.5 };
+          playVoice(audioCtx, master, t.voice, audioCtx.currentTime, { volume: t.volume, tone: t.tone });
+        }
+      }
+
+      function renderSaveButtons() {
+        const btn = $("#btn-save");
+        const copyBtn = $("#btn-save-copy");
+        if (!session) {
+          btn.textContent = "sign in to save to your PDS";
+          copyBtn.hidden = true;
+          return;
+        }
+        const isMine = loadedFrom && loadedFrom.ownerDid === session.did;
+        btn.textContent = isMine ? "update this pattern" : "save to your PDS";
+        copyBtn.hidden = !isMine;
+      }
+
+      function renderShareLink() {
+        const a = $("#btn-share");
+        if (!loadedFrom) {
+          a.style.opacity = "0.4";
+          a.style.pointerEvents = "none";
+          a.removeAttribute("href");
+          return;
+        }
+        const url = `${location.origin}/?owner=${encodeURIComponent(loadedFrom.ownerDid)}&rkey=${encodeURIComponent(loadedFrom.rkey)}`;
+        const text = `made a beat on padmoot 🥁 "${pattern.title}" @ ${pattern.bpm}bpm — jam on it: ${url}`;
+        a.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+        a.style.opacity = "1";
+        a.style.pointerEvents = "auto";
+      }
+
+      function setPadStatus(msg, isErr) {
+        const el = $("#pad-status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      // --- controls ---------------------------------------------------------------
+
+      function wireStaticControls() {
+        $("#f-title").addEventListener("input", (e) => { pattern.title = e.target.value; renderShareLink(); });
+        $("#f-bpm").addEventListener("input", (e) => { pattern.bpm = clampNum(e.target.value, 40, 220, 120); });
+        $("#f-swing").addEventListener("input", (e) => { pattern.swing = clampNum(e.target.value, 0, 0.6, 0); });
+
+        $("#btn-play").addEventListener("click", () => {
+          const audioCtx = getCtx();
+          if (sequencer.playing) {
+            sequencer.stop();
+            $("#btn-play").classList.remove("playing");
+            $("#btn-play").textContent = "▶ play";
+            $("#step-indicator").textContent = "";
+            if (pattern.layout !== "mpc") highlightStep($("#pad-surface"), -1);
+          } else {
+            sequencer.start(audioCtx);
+            $("#btn-play").classList.add("playing");
+            $("#btn-play").textContent = "■ stop";
+          }
+        });
+
+        $("#btn-record").addEventListener("click", () => {
+          recordArmed = !recordArmed;
+          $("#btn-record").classList.toggle("active", recordArmed);
+        });
+
+        document.querySelectorAll(".layout-picker button").forEach((b) => {
+          b.addEventListener("click", () => {
+            pattern.layout = b.dataset.layout;
+            document.querySelectorAll(".layout-picker button").forEach((x) => x.classList.toggle("active", x === b));
+            renderPadSurface();
+          });
+        });
+
+        $("#btn-new").addEventListener("click", () => {
+          pattern = createEmptyPattern();
+          loadedFrom = null;
+          history.replaceState({}, "", "/");
+          renderRemixNote();
+          renderAll();
+          setPadStatus("");
+        });
+
+        $("#btn-export-json").addEventListener("click", () => {
+          const data = { $type: PATTERN_COLLECTION, ...pattern, createdAt: new Date().toISOString() };
+          downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), `${slugify(pattern.title)}.padmoot.json`);
+        });
+
+        $("#btn-import").addEventListener("click", () => $("#file-import").click());
+        $("#file-import").addEventListener("change", async (e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (!file) return;
+          try {
+            const data = JSON.parse(await file.text());
+            pattern = normalizePattern(data);
+            loadedFrom = null;
+            history.replaceState({}, "", "/");
+            renderRemixNote();
+            renderAll();
+            setPadStatus(`loaded "${pattern.title}" from disk.`);
+          } catch (e) {
+            setPadStatus(`couldn't read that file: ${e.message}`, true);
+          }
+        });
+
+        $("#btn-export-wav").addEventListener("click", async () => {
+          setPadStatus("rendering wav…");
+          try {
+            const blob = await renderPatternToWavBlob(pattern, 2);
+            downloadBlob(blob, `${slugify(pattern.title)}.wav`);
+            setPadStatus("wav downloaded — two loops of the pattern.");
+          } catch (e) {
+            setPadStatus(`couldn't render wav: ${e.message}`, true);
+          }
+        });
+
+        $("#btn-save").addEventListener("click", () => saveToPds(false));
+        $("#btn-save-copy").addEventListener("click", () => saveToPds(true));
+
+        $("#lookup-go").addEventListener("click", () => {
+          const h = $("#lookup-handle").value.trim();
+          if (h) lookup(h);
+        });
+        $("#lookup-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("#lookup-go").click();
+        });
+      }
+
+      async function saveToPds(forceCopy) {
+        if (!session) {
+          document.getElementById("signin-handle")?.focus();
+          return;
+        }
+        setPadStatus("saving…");
+        try {
+          const record = {
+            $type: PATTERN_COLLECTION,
+            title: pattern.title || "untitled beat",
+            bpm: pattern.bpm,
+            swing: pattern.swing,
+            layout: pattern.layout,
+            tracks: pattern.tracks,
+            createdAt: new Date().toISOString(),
+          };
+          const isMine = loadedFrom && loadedFrom.ownerDid === session.did;
+          if (!isMine && loadedFrom) record.remixOf = loadedFrom.uri;
+          else if (pattern.remixOf) record.remixOf = pattern.remixOf;
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          let res, rkey;
+          if (isMine && !forceCopy) {
+            rkey = loadedFrom.rkey;
+            res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ repo: session.did, collection: PATTERN_COLLECTION, rkey, record }),
+            });
+          } else {
+            res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ repo: session.did, collection: PATTERN_COLLECTION, record }),
+            });
+          }
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 300)}`);
+          const j = await res.json();
+          rkey = rkey || j.uri.split("/").pop();
+          loadedFrom = { ownerDid: session.did, rkey, uri: j.uri };
+          history.replaceState({}, "", `/?owner=${encodeURIComponent(session.did)}&rkey=${encodeURIComponent(rkey)}`);
+          renderRemixNote(session.handle);
+          renderSaveButtons();
+          renderShareLink();
+          setPadStatus(isMine && !forceCopy ? "updated on your PDS." : "saved to your PDS.");
+        } catch (e) {
+          setPadStatus(`save failed: ${e.message}`, true);
+        }
+      }
+
+      // --- browse -------------------------------------------------------------
+
+      const FOLLOW_SCAN_CAP = 40;
+
+      function renderPatternList(records) {
+        if (!records.length) return `<p class="empty">no patterns yet.</p>`;
+        return `<div class="patternlist">${records
+          .map((r) => {
+            const rkey = r.uri.split("/").pop();
+            const owner = r.uri.split("/")[2];
+            const v = r.value;
+            return `<a class="patternrow" href="/?owner=${encodeURIComponent(owner)}&rkey=${encodeURIComponent(rkey)}">
+              <span class="ptitle">${esc(v.title || "untitled beat")}</span>
+              <span class="pmeta">${esc(v.layout || "mpc")} · ${v.bpm || 120}bpm</span>
+            </a>`;
+          })
+          .join("")}</div>`;
+      }
+
+      async function lookup(handleInput) {
+        const status = $("#browse-status");
+        const results = $("#browse-results");
+        results.innerHTML = "";
+        status.classList.remove("err");
+        status.textContent = `resolving @${handleInput}…`;
+        let did, pdsUrl;
+        try {
+          did = await resolveDid(handleInput);
+          pdsUrl = await resolvePds(did);
+          if (!pdsUrl) throw new Error("couldn't resolve their PDS");
+        } catch (e) {
+          status.textContent = e.message;
+          status.classList.add("err");
+          return;
+        }
+        const handle = handleInput.replace(/^@/, "");
+
+        status.textContent = `loading @${handle}'s patterns…`;
+        const ownPatterns = await listRecords(pdsUrl, did, PATTERN_COLLECTION, null, 3);
+
+        results.innerHTML = `
+          <div class="by-group">
+            <h3>@${esc(handle)}'s patterns</h3>
+            ${renderPatternList(ownPatterns)}
+          </div>
+          <div class="by-group" id="follows-group">
+            <h3>patterns from people @${esc(handle)} follows</h3>
+            <p class="empty">scanning…</p>
+          </div>
+        `;
+
+        status.textContent = `scanning up to ${FOLLOW_SCAN_CAP} follows for patterns…`;
+        const follows = await getFollows(did, FOLLOW_SCAN_CAP);
+        const withPatterns = (
+          await mapLimit(follows, 6, async (f) => {
+            const pds = await resolvePds(f.did);
+            if (!pds) return null;
+            const recs = await listRecords(pds, f.did, PATTERN_COLLECTION, null, 1);
+            return recs.length ? { who: f, patterns: recs } : null;
+          })
+        ).filter(Boolean);
+
+        const followsGroup = $("#follows-group");
+        if (!followsGroup) return;
+        if (!withPatterns.length) {
+          followsGroup.innerHTML = `<h3>patterns from people @${esc(handle)} follows</h3><p class="empty">none of the ${follows.length} follows scanned have a pattern yet.</p>`;
+        } else {
+          followsGroup.innerHTML = `<h3>patterns from people @${esc(handle)} follows</h3>` +
+            withPatterns.map((g) => `
+              <div class="pmeta" style="margin-top:0.5rem">@${esc(g.who.handle)}</div>
+              ${renderPatternList(g.patterns)}
+            `).join("");
+        }
+        status.textContent = `done — checked @${handle} + ${follows.length} follows (capped at ${FOLLOW_SCAN_CAP}).`;
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
