@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>breathing walls — a visual simulation, not a how-to</title>
+    <meta name="description" content="An interactive visual & sound piece that plays with the imagery people describe from psychedelic experiences — breathing surfaces, trailing color, crawling pattern, time gone soft. Art, not instructions: no dosing, no synthesis, none of that here." />
+    <meta property="og:title" content="breathing walls" />
+    <meta property="og:description" content="Move your mouse, turn up the intensity, watch the walls breathe. A visual simulation of the imagery in trip reports — art, not a how-to." />
+    <meta property="og:image" content="https://breathingwalls.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A dark canvas of breathing, color-cycling petal shapes radiating from a center point, purple to orange to teal." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://breathingwalls.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="breathing walls" />
+    <meta name="twitter:description" content="An interactive visual simulation of trip-report imagery. Art, not instructions." />
+    <meta name="twitter:image" content="https://breathingwalls.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #060309;
+        --panel: rgba(15, 8, 22, 0.72);
+        --faint: rgba(255, 255, 255, 0.12);
+        --ink: #f5eefc;
+        --muted: #b6a6c9;
+        --accent: #ff6ad5;
+        --accent2: #6ae0ff;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow-x: hidden; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--sans);
+        -webkit-font-smoothing: antialiased; min-height: 100vh;
+      }
+      a { color: var(--accent2); }
+      canvas#field { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; touch-action: none; }
+
+      .wrap { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 1.6rem 1.05rem 4rem; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { text-decoration: underline; }
+
+      .hero { margin: 3.5rem 0 1.4rem; padding: 1.1rem 1.2rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 16px; backdrop-filter: blur(6px); }
+      h1 { font-size: 1.9rem; font-weight: 900; letter-spacing: -0.02em; margin: 0 0 0.4rem;
+        background: linear-gradient(100deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0; max-width: 56ch; line-height: 1.55; }
+
+      .note { margin: 0.9rem 0 0; padding: 0.75rem 0.9rem; border-radius: 10px;
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem; line-height: 1.6; }
+      .note b { color: var(--ink); }
+      .note a { color: var(--accent2); }
+
+      .controls { display: flex; flex-wrap: wrap; gap: 0.9rem 1.4rem; align-items: center;
+        margin: 1.3rem 0; padding: 0.9rem 1.1rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 14px; backdrop-filter: blur(6px); }
+      .ctl { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; color: var(--muted); }
+      .ctl input[type="range"] { width: 150px; accent-color: var(--accent); }
+      .ctl.row { flex-direction: row; align-items: center; gap: 0.5rem; }
+      button.toggle { font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; }
+      button.toggle[aria-pressed="true"] { background: linear-gradient(100deg, var(--accent), var(--accent2));
+        color: #170a1c; border-color: transparent; font-weight: 700; }
+      button.toggle:hover { border-color: var(--accent); }
+
+      .fragment { min-height: 3.4rem; margin: 0.3rem 0 1.6rem; padding: 0.9rem 1.1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 14px;
+        backdrop-filter: blur(6px); font-style: italic; color: var(--ink); font-size: 0.98rem;
+        line-height: 1.6; opacity: 0; transition: opacity 1.1s ease; }
+      .fragment.show { opacity: 1; }
+      .fragment .src { display: block; margin-top: 0.5rem; font-style: normal; font-family: var(--mono);
+        font-size: 0.68rem; color: var(--muted); }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
+      .share a, .share button { font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none; }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); }
+
+      .resources { margin-top: 2rem; padding: 1rem 1.2rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 14px; backdrop-filter: blur(6px);
+        color: var(--muted); font-size: 0.8rem; line-height: 1.75; }
+      .resources b { color: var(--ink); }
+      .resources a { color: var(--accent2); }
+      .credit { margin-top: 1.3rem; color: var(--muted); font-size: 0.76rem; }
+      code { font-family: var(--mono); font-size: 0.9em; color: var(--accent2); }
+
+      @media (prefers-reduced-motion: reduce) {
+        canvas#field { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="field" aria-hidden="true"></canvas>
+
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+
+      <div class="hero">
+        <h1>breathing walls</h1>
+        <p class="sub">
+          A generative visual and sound piece built out of the imagery people
+          reach for again and again in trip reports — walls that breathe,
+          color that trails behind motion, pattern that crawls when you stop
+          looking straight at it, time that stretches. Move your mouse or
+          finger across it, turn the intensity up, click to send out a ripple.
+        </p>
+        <div class="note">
+          <b>What this is:</b> a piece of generative web art — canvas
+          animation, some math, a synthesized drone. <b>What this isn't:</b> a
+          simulation of an actual drug, a dosing guide, or a synthesis recipe.
+          That part of the ask isn't something this bot will build — if you
+          want real information about LSD, its chemistry, or safer use, see
+          the resources at the bottom of the page instead of a bot-built site.
+        </div>
+      </div>
+
+      <div class="controls">
+        <label class="ctl">
+          intensity
+          <input type="range" id="intensity" min="0" max="100" value="42" />
+        </label>
+        <label class="ctl">
+          speed
+          <input type="range" id="speed" min="0" max="100" value="50" />
+        </label>
+        <label class="ctl row">
+          <button class="toggle" id="kaleido" aria-pressed="false" type="button">kaleidoscope</button>
+        </label>
+        <label class="ctl row">
+          <button class="toggle" id="sound" aria-pressed="false" type="button">🔊 drone</button>
+        </label>
+      </div>
+
+      <div class="fragment" id="fragment"><span id="fragText"></span><span class="src" id="fragSrc"></span></div>
+
+      <div class="share">
+        <a id="shareIntent" target="_blank" rel="noopener">🦋 share this</a>
+        <button id="copyLink">🔗 copy link</button>
+      </div>
+
+      <div class="resources">
+        <b>If you came here for the real thing:</b> this bot doesn't publish
+        chemical synthesis instructions or dosing/usage guidance for
+        controlled substances, built request or not — that's a hard line, not
+        a judgment call about the topic. For actual harm-reduction
+        information, written by people who know what they're talking about:
+        <a href="https://erowid.org/" target="_blank" rel="noopener">Erowid</a>'s
+        experience vaults and substance data, and
+        <a href="https://dancesafe.org/" target="_blank" rel="noopener">DanceSafe</a>
+        for testing and safety info. This page is the closest thing a
+        generative-art bot can responsibly make instead.
+      </div>
+
+      <p class="credit">a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> toy, asked for by <a href="https://bsky.app/profile/fubarchitect.com">@fubarchitect.com</a> · <a href="https://bisks.net">bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      const canvas = document.getElementById("field");
+      const ctx = canvas.getContext("2d");
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+      function resize() {
+        W = window.innerWidth; H = window.innerHeight;
+        canvas.width = W * DPR; canvas.height = H * DPR;
+        canvas.style.width = W + "px"; canvas.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ── pointer, drifting toward center when idle ──────────────────────
+      let px = W / 2, py = H / 2, targetX = W / 2, targetY = H / 2;
+      let idleT = 0;
+      window.addEventListener("pointermove", (e) => {
+        targetX = e.clientX; targetY = e.clientY; idleT = 0;
+      });
+      window.addEventListener("pointerdown", (e) => spawnRipple(e.clientX, e.clientY));
+
+      // ── ripples from clicks ─────────────────────────────────────────
+      const ripples = [];
+      function spawnRipple(x, y) {
+        ripples.push({ x, y, r: 0, born: performance.now() });
+      }
+
+      // ── controls ─────────────────────────────────────────────────────
+      const intensityEl = document.getElementById("intensity");
+      const speedEl = document.getElementById("speed");
+      const kaleidoBtn = document.getElementById("kaleido");
+      const soundBtn = document.getElementById("sound");
+      if (reducedMotion) intensityEl.value = 12;
+      let kaleido = false;
+      kaleidoBtn.addEventListener("click", () => {
+        kaleido = !kaleido;
+        kaleidoBtn.setAttribute("aria-pressed", String(kaleido));
+      });
+
+      // ── petals: rings of shapes whose radius breathes with a sine wave,
+      // hue cycling continuously, layered so they drift past each other ──
+      const RINGS = 7;
+      const PETALS_PER_RING = 9;
+
+      function draw(t) {
+        const intensity = intensity_norm();
+        const speed = speed_norm();
+        idleT += 1;
+        if (idleT > 40) {
+          targetX += (W / 2 - targetX) * 0.01;
+          targetY += (H / 2 - targetY) * 0.01;
+        }
+        px += (targetX - px) * 0.06;
+        py += (targetY - py) * 0.06;
+
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = `rgba(6,3,9,${reducedMotion ? 1 : 0.16})`;
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalCompositeOperation = "lighter";
+
+        const wedges = kaleido ? 8 : 1;
+        const cx = kaleido ? W / 2 : px;
+        const cy = kaleido ? H / 2 : py;
+        const baseHue = (t * 0.012 * (0.3 + speed)) % 360;
+
+        for (let w = 0; w < wedges; w++) {
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate((w / wedges) * Math.PI * 2);
+          if (kaleido && w % 2 === 1) ctx.scale(1, -1);
+          drawWedge(t, intensity, speed, baseHue, kaleido ? px - cx : 0, kaleido ? py - cy : 0);
+          ctx.restore();
+        }
+
+        // ripples
+        const now = performance.now();
+        for (let i = ripples.length - 1; i >= 0; i--) {
+          const r = ripples[i];
+          const age = (now - r.born) / 1000;
+          if (age > 2.6) { ripples.splice(i, 1); continue; }
+          const rad = age * (180 + intensity * 260);
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+          ctx.strokeStyle = `hsla(${(baseHue + 160) % 360}, 90%, 65%, ${Math.max(0, 0.5 - age * 0.2)})`;
+          ctx.lineWidth = 2 + intensity * 4;
+          ctx.stroke();
+        }
+
+        requestAnimationFrame(draw);
+      }
+
+      function drawWedge(t, intensity, speed, baseHue, offX, offY) {
+        for (let ring = 0; ring < RINGS; ring++) {
+          const ringT = ring / RINGS;
+          const baseR = 40 + ringT * Math.max(W, H) * 0.52;
+          const petals = PETALS_PER_RING + ring;
+          for (let p = 0; p < petals; p++) {
+            const ang = (p / petals) * Math.PI * 2 + ring * 0.35 + t * 0.00035 * (0.4 + speed) * (ring % 2 === 0 ? 1 : -1);
+            const breathe = Math.sin(t * 0.0016 * (0.5 + speed) + ring * 1.3 + p * 0.5) * (14 + intensity * 46);
+            const r = baseR + breathe;
+            const size = (10 + ringT * 34) * (0.6 + intensity * 0.9);
+            const x = Math.cos(ang) * r + offX * (1 - ringT);
+            const y = Math.sin(ang) * r + offY * (1 - ringT);
+            const hue = (baseHue + ring * 24 + p * (360 / petals)) % 360;
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, size);
+            grad.addColorStop(0, `hsla(${hue}, 95%, 70%, ${0.5 + intensity * 0.35})`);
+            grad.addColorStop(1, `hsla(${(hue + 40) % 360}, 90%, 55%, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            const wobble = 1 + Math.sin(t * 0.002 + p) * 0.18 * intensity;
+            ctx.ellipse(x, y, size * wobble, size * (2 - wobble), ang, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      function intensity_norm() { return Number(intensityEl.value) / 100; }
+      function speed_norm() { return Number(speedEl.value) / 100; }
+
+      requestAnimationFrame(draw);
+
+      // ── ambient drone (Web Audio API): a few slow, detuned oscillators
+      // through a lowpass filter whose cutoff drifts — turned on by hand,
+      // never autoplays ──────────────────────────────────────────────────
+      let audioCtx = null, droneNodes = null, soundOn = false;
+      function startDrone() {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const master = audioCtx.createGain();
+        master.gain.value = 0;
+        master.connect(audioCtx.destination);
+        master.gain.linearRampToValueAtTime(0.09, audioCtx.currentTime + 1.4);
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 800;
+        filter.connect(master);
+
+        const freqs = [110, 165, 220.5, 277.2];
+        const oscs = freqs.map((f, i) => {
+          const o = audioCtx.createOscillator();
+          o.type = i % 2 === 0 ? "sine" : "triangle";
+          o.frequency.value = f;
+          const g = audioCtx.createGain();
+          g.gain.value = 0.6 / freqs.length;
+          o.connect(g); g.connect(filter);
+          o.start();
+          return o;
+        });
+
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.value = 0.05;
+        const lfoGain = audioCtx.createGain();
+        lfoGain.gain.value = 500;
+        lfo.connect(lfoGain);
+        lfoGain.connect(filter.frequency);
+        lfo.start();
+
+        droneNodes = { master, filter, oscs, lfo };
+      }
+      function stopDrone() {
+        if (!droneNodes) return;
+        const { master, oscs, lfo } = droneNodes;
+        master.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.8);
+        setTimeout(() => { oscs.forEach((o) => o.stop()); lfo.stop(); }, 900);
+        droneNodes = null;
+      }
+      soundBtn.addEventListener("click", () => {
+        soundOn = !soundOn;
+        soundBtn.setAttribute("aria-pressed", String(soundOn));
+        soundBtn.textContent = soundOn ? "🔇 drone" : "🔊 drone";
+        if (soundOn) startDrone(); else stopDrone();
+      });
+
+      // ── cycling atmospheric fragments — visual/sensory description only,
+      // written for this piece, no dosing or how-to content ──────────────
+      const FRAGMENTS = [
+        "The wallpaper isn't moving, except it's breathing in slow, even pulls, like it's asleep and you're watching its chest rise.",
+        "Sound arrives with a color attached to it now — a car horn is a streak of orange across the room.",
+        "You look away from a pattern and it keeps going without you, tracing itself in the dark behind your eyes.",
+        "Time isn't passing so much as pooling. Ten minutes and one minute feel like the same-sized room.",
+        "Every edge has a faint rainbow fringe, like the world's slightly out of focus in a way that's also somehow sharper.",
+        "The trail behind your hand when you wave it doesn't fade — it hangs there a beat too long, a little comet.",
+        "A thought arrives, and then arrives again from a different angle, and you get to hold both at once.",
+        "The ceiling has texture it didn't have this morning, and the texture is very interested in you.",
+        "You laugh, and the laugh keeps rippling outward after your mouth has already stopped.",
+        "Nothing about the room changed. Everything about how you're reading it did.",
+      ];
+      const fragText = document.getElementById("fragText");
+      const fragSrc = document.getElementById("fragSrc");
+      const fragEl = document.getElementById("fragment");
+      let fragIdx = -1;
+      function nextFragment() {
+        let i = fragIdx;
+        while (i === fragIdx) i = Math.floor(Math.random() * FRAGMENTS.length);
+        fragIdx = i;
+        fragEl.classList.remove("show");
+        setTimeout(() => {
+          fragText.textContent = "“" + FRAGMENTS[fragIdx] + "”";
+          fragSrc.textContent = "— generated for this piece, not an excerpt of anything real";
+          fragEl.classList.add("show");
+        }, 350);
+      }
+      nextFragment();
+      setInterval(nextFragment, 6500);
+
+      // ── share ────────────────────────────────────────────────────────
+      const url = "https://breathingwalls.bisks.net/";
+      document.getElementById("shareIntent").href =
+        `https://bsky.app/intent/compose?text=${encodeURIComponent(`breathing walls 🌀 a generative visual/sound piece, not a how-to — ${url}`)}`;
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(url);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+    </script>
+  </body>
+</html>
