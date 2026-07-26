@@ -17,6 +17,18 @@ treat that as the exception, not the default.
    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
    ```
    No auth, no worker, works everywhere.
+
+   **The `shareText` itself must contain the actual URL back to the site** —
+   not just an og:title/description on the page the link points to. If the
+   composed post is only "look what I got: '...'" with no URL in the visible
+   text, anyone who sees it shared (a screenshot, a quote-post, a reply
+   thread) has no way to find the tool at all — happened for real on
+   dial-a-mutual, where a shared "dialed @x and got: ..." post read as
+   confusing out-of-context text because the link wasn't in the string being
+   shared. Build the URL into the `shareText` string before it's
+   `encodeURIComponent`-ed, budget its length against the 300-grapheme cap
+   (see `sites/dial-a-mutual/public/index.html`'s `buildShareText`), don't
+   rely on the intent page or unfurl card to carry it.
 3. **A generated share-card image**, when there's a per-user result worth
    showing off (a reading, a score, a match, a generated thing — not just "you
    used the tool"). Draw it client-side to a `<canvas>`, offer a download, and
