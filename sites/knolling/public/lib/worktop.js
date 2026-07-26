@@ -64,7 +64,7 @@ const HANDLE_R = 9; // drawn radius
 const HANDLE_HIT_R = 20; // hit-test radius — generous, this is the touch target
 const HANDLE_GAP = 24; // px beyond the object's own half-height
 
-export function createWorktop(canvas, { W, H, onHover, onClick, onHold }) {
+export function createWorktop(canvas, { W, H, onHover, onHold }) {
   const ctx = canvas.getContext("2d");
   let items = [];
   let knolled = false;
@@ -342,7 +342,7 @@ export function createWorktop(canvas, { W, H, onHover, onClick, onHold }) {
     const nextDid = hit ? hit.did : null;
     if (nextDid !== hoverDid) { hoverDid = nextDid; draw(); }
     const selItem = selectedDid ? items.find((i) => i.did === selectedDid) : null;
-    canvas.style.cursor = hit ? "pointer" : (selItem && hitTestHandle(x, y, selItem) ? "grab" : "default");
+    canvas.style.cursor = hit ? "grab" : (selItem && hitTestHandle(x, y, selItem) ? "grab" : "default");
     if (onHover) onHover(hit, e.clientX, e.clientY);
   });
   canvas.addEventListener("pointerleave", () => {
@@ -359,11 +359,6 @@ export function createWorktop(canvas, { W, H, onHover, onClick, onHold }) {
   }
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
-  canvas.addEventListener("click", (e) => {
-    const { x, y } = toLogical(e.clientX, e.clientY);
-    const hit = hitTest(x, y);
-    if (hit && onClick) onClick(hit);
-  });
 
   resize();
 

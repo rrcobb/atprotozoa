@@ -46,10 +46,6 @@ function showTooltip(item, clientX, clientY) {
   tooltip.style.top = clientY - stageRect.top + 10 + "px";
 }
 
-function openProfile(item) {
-  window.open(`https://bsky.app/profile/${item.handle}`, "_blank", "noopener");
-}
-
 // caption + voiceover — fires while an object is actively held (mid-drag).
 let held = false;
 let holdToken = 0;
@@ -98,7 +94,7 @@ async function onHold(item) {
   }
   const myToken = ++holdToken;
   captionEl.hidden = false;
-  captionEl.innerHTML = `<b>@${esc(item.handle)}</b><span class="caption-text">reaching for their latest…</span>`;
+  captionEl.innerHTML = `<a class="caption-handle" href="https://bsky.app/profile/${esc(item.handle)}" target="_blank" rel="noopener">@${esc(item.handle)}</a><span class="caption-text">reaching for their latest…</span>`;
   let post;
   try {
     post = await latestPost(item.did);
@@ -107,7 +103,7 @@ async function onHold(item) {
   }
   if (myToken !== holdToken) return; // superseded by a newer grab
   const text = post.text || "(no recent posts)";
-  captionEl.innerHTML = `<b>@${esc(item.handle)}</b><span class="caption-text">${esc(text)}</span>`;
+  captionEl.innerHTML = `<a class="caption-handle" href="https://bsky.app/profile/${esc(item.handle)}" target="_blank" rel="noopener">@${esc(item.handle)}</a><span class="caption-text">${esc(text)}</span>`;
   if (voiceToggle.checked && post.text) speak(post.text);
 }
 
@@ -116,7 +112,6 @@ function ensureWorktop() {
   worktop = createWorktop(canvas, {
     W, H,
     onHover: showTooltip,
-    onClick: openProfile,
     onHold,
   });
   return worktop;
