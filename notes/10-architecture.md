@@ -25,9 +25,10 @@ atprotozoa/
 Each site is a **Worker with static assets** (the `assets` binding), not a Pages
 project. Reasons:
 
-- **One Worker per site, one subdomain per site.** A Worker maps cleanly to
-  `<name>.bisks.net` via a route/custom domain. Pages gives one project per repo
-  connection, which fights the "tons of tiny sites" goal.
+- **One Worker per site, one path per site.** A Worker maps cleanly to
+  `bisks.net/<name>` via a plain (non-custom-domain) Route on the shared zone.
+  Pages gives one project per repo connection, which fights the "tons of tiny
+  sites" goal.
 - **Server surface when we want it.** atproto experiments routinely need a little
   server: an OAuth callback, a CORS-dodging proxy to a PDS or AppView, a cron
   trigger, a Durable Object for firehose state. Workers give each site that for
@@ -41,11 +42,15 @@ a trivial (or absent) fetch handler. The overhead is one `wrangler.toml`.
 
 Minimum viable site = a directory under `sites/` with:
 
-- `wrangler.toml` — name, `main` (if it has server code), `assets` dir, the
-  custom-domain route (`<name>.bisks.net`).
+- `wrangler.toml` — name, `main`, `assets` dir, a path Route on the shared zone
+  (`bisks.net/<name>` + `bisks.net/<name>/*`).
 - `public/` — static files (at least `index.html`).
-- `src/index.ts` — optional. Present when the site has server-side behavior;
-  omit `main` from wrangler.toml for pure-static sites.
+- `src/index.ts` — a fetch handler is required even for a static site now: it
+  strips the `/<name>` mount prefix before handing the request to the ASSETS
+  binding (the assets directory has no idea it's not living at the domain
+  root). See `notes/40-new-site-playbook.md` for the copyable template. (Sites
+  still on their own `<name>.bisks.net` custom domain can omit `main` and stay
+  pure-static, since they don't need prefix-stripping.)
 - `package.json` — so pnpm treats it as a workspace member and `wrangler` deps
   resolve. Kept minimal.
 

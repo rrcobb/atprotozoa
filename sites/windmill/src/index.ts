@@ -1,4 +1,5 @@
-// windmill Worker — windmill.bisks.net
+// windmill Worker — mounted at bisks.net/windmill/ (see
+// notes/40-new-site-playbook.md).
 //
 // The game itself is entirely client-side (public/index.html runs the whole
 // sixteen-season sim). The one thing that needed a server: shared results. A
@@ -7,13 +8,19 @@
 // unfurls as one identical generic card forever (same problem sites/didscope
 // hit, see notes/45-sharing-and-virality.md).
 //
-// Fix: /r/<code> is a distinct URL per result. <code> is a URL-safe base64
-// blob of {m: 'b'|'c', s: score, c: crashes, w: windmill%} — the client
-// encodes it in finishGame() (public/index.html, encodeResult/decodeResult).
-// The Worker decodes the same shape (no game logic to replay, the result is
-// already computed) and stamps a personalized og:title/description/url onto
-// the same static shell before serving it. Falls through to ASSETS for
-// everything else (/, /og.png, /fonts/*).
+// Fix: /windmill/r/<code> is a distinct URL per result. <code> is a URL-safe
+// base64 blob of {m: 'b'|'c', s: score, c: crashes, w: windmill%} — the
+// client encodes it in finishGame() (public/index.html,
+// encodeResult/decodeResult). The Worker decodes the same shape (no game
+// logic to replay, the result is already computed) and stamps a
+// personalized og:title/description/url onto the same static shell before
+// serving it.
+//
+// Every request first gets its "/windmill" mount prefix stripped; what's
+// left is matched against /r/<code> and otherwise falls through to ASSETS
+// for everything else (/, /og.png, /fonts/*). ASSETS.fetch always sees the
+// un-prefixed path — the assets directory has no idea it isn't living at
+// the domain root.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -57,7 +64,9 @@ function esc(s: string): string {
 const GENERIC_TITLE = "Windmill — the Animal Farm economy game";
 const GENERIC_DESC =
   "Barter mode or Credit mode. Build the windmill, set the interest rate, and find out the hard way what leverage does to a farm.";
-const GENERIC_OG_URL = "https://windmill.bisks.net/";
+const GENERIC_OG_URL = "https://bisks.net/windmill/";
+
+const PREFIX = "/windmill";
 
 async function renderResult(env: Env, request: Request, code: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -73,7 +82,7 @@ async function renderResult(env: Env, request: Request, code: string): Promise<R
   if (result.m === "c") descBits.push(result.c > 0 ? `survived ${result.c} bank collapse(s)` : "the Bank held steady");
   else descBits.push("no debt, no bust");
   const desc = `${descBits.join(", ")}. Run Manor Farm's economy yourself and see what credit does to a market.`;
-  const ogUrl = `https://windmill.bisks.net/r/${encodeURIComponent(code)}`;
+  const ogUrl = `https://bisks.net/windmill/r/${encodeURIComponent(code)}`;
 
   const stamped = html
     .split(GENERIC_TITLE).join(esc(title))
@@ -88,10 +97,13 @@ async function renderResult(env: Env, request: Request, code: string): Promise<R
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const path = url.pathname.slice(PREFIX.length) || "/";
 
-    const m = url.pathname.match(/^\/r\/([^/]+)\/?$/);
+    const m = path.match(/^\/r\/([^/]+)\/?$/);
     if (m) return renderResult(env, request, m[1]);
 
-    return env.ASSETS.fetch(request);
+    const assetUrl = new URL(request.url);
+    assetUrl.pathname = path;
+    return env.ASSETS.fetch(new Request(assetUrl, request));
   },
 };

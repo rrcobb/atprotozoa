@@ -82,7 +82,7 @@ const svg = `
   <text x="66" y="512" font-family="JetBrains Mono" font-size="21" fill="${DIM}">a whimsical 2:09 music video —</text>
   <text x="66" y="540" font-family="JetBrains Mono" font-size="21" fill="${DIM}">chase the laser, ignore the humans</text>
 
-  <text x="66" y="590" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${ACCENT2}">lasercats.bisks.net</text>
+  <text x="66" y="590" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${ACCENT2}">bisks.net/lasercats</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

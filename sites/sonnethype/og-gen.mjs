@@ -52,7 +52,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="600" y="430" text-anchor="middle" font-family="JetBrains Mono" font-size="21" fill="${DIM}">the hype video, produced by the model itself</text>
 
-  <text x="600" y="585" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${GREEN}">sonnethype.bisks.net</text>
+  <text x="600" y="585" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${GREEN}">bisks.net/sonnethype</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

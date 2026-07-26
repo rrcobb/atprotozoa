@@ -67,7 +67,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="316" font-family="JetBrains Mono" font-size="17" fill="${DIM}">TR-909 strip — same beat underneath.</text>
   <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Save it to your PDS, or export to disk.</text>
 
-  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">padmoot.bisks.net</text>
+  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">bisks.net/padmoot</text>
 
   ${pads}
 </svg>`;

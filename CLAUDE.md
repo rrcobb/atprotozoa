@@ -20,9 +20,13 @@ buys isn't worth the ceremony here.
 
 - **Copy, don't abstract.** New sites copy from existing ones; no shared package
   across sites. See `notes/10-architecture.md` and `notes/00-vision.md`.
-- **One site = one directory = one Worker = one subdomain.** `sites/<name>` →
-  `atprotozoa-<name>` → `<name>.bisks.net`. See `notes/40-new-site-playbook.md`.
+- **One site = one directory = one Worker = one path.** `sites/<name>` →
+  `atprotozoa-<name>` → `bisks.net/<name>`. A dedicated `<name>.bisks.net`
+  subdomain is the exception now, not the default — the zone hit a
+  Cloudflare custom-domain cap (see `notes/20-deploy.md`), so new sites mount
+  as a path route on the already-provisioned `bisks.net` zone instead of
+  requesting a new hostname. See `notes/40-new-site-playbook.md`.
 - **Views within a site are paths**, not subdomains (e.g.
-  `trigrams.bisks.net/firehose`).
+  `bisks.net/trigrams/firehose`).
 
 Start with `notes/` — `00-vision.md` first.

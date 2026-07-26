@@ -72,7 +72,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="440" y="440" font-family="JetBrains Mono" font-size="21" fill="${INK}" opacity="0.65">sixteen seasons · one windmill · two systems</text>
 
-  <text x="440" y="560" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${GOLD}">windmill.bisks.net</text>
+  <text x="440" y="560" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${GOLD}">bisks.net/windmill</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

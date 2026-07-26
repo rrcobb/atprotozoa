@@ -2,22 +2,21 @@ name = "atprotozoa-windmill"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table, so a routes line below [assets] silently becomes assets.routes
-# (same gotcha noted in sites/didscope/wrangler.toml and buildthis/logs).
-routes = [{ pattern = "windmill.bisks.net", custom_domain = true }]
+# Path-mounted at bisks.net/windmill — windmill.bisks.net never provisioned
+# (the zone's custom-domain cap, see notes/20-deploy.md), so this Worker
+# claims a path route on the already-live bisks.net zone instead of a
+# dedicated custom domain. See notes/40-new-site-playbook.md ("Why paths,
+# not subdomains"). routes MUST stay above [assets] — in TOML, keys after a
+# table header join that table, so a routes line below [assets] silently
+# becomes assets.routes.
+routes = [
+  { pattern = "bisks.net/windmill", zone_name = "bisks.net" },
+  { pattern = "bisks.net/windmill/*", zone_name = "bisks.net" },
+]
 
-# workers_dev fallback: windmill.bisks.net never got a DNS record on its first
-# deploy — the zone's custom-domain cap documented in notes/20-deploy.md (same
-# failure as sites/lasercats, sites/pvnp, sites/sonnethype, sites/padmoot;
-# confirmed still unresolved 2026-07-26 when someone reported the hostname
-# dead). Custom-domain route creation failing shouldn't also block the
-# workers.dev route, so this gives a working link in the meantime — drop it
-# once the custom domain is actually live.
-workers_dev = true
-
-# run_worker_first: /r/<code> is dynamic (personalized OG tags per shared
-# result), so the Worker must run before the static-asset router.
+# run_worker_first: /windmill/r/<code> is dynamic (personalized OG tags per
+# shared result), and every request needs the "/windmill" mount prefix
+# stripped before it reaches the ASSETS binding.
 [assets]
 directory = "./public"
 binding = "ASSETS"
