@@ -31,9 +31,46 @@ export interface Env {
   LEADERBOARD: DurableObjectNamespace;
 }
 
+// bsky.app's avatar CDN sends no Access-Control-Allow-Origin, so a
+// crossOrigin="anonymous" <img> fetch of it always fails — which means the
+// share-card canvas (built with real avatars, see game.js buildShareCard)
+// silently fell back to plain colored initials. This same-origin proxy lets
+// the client draw the real avatar without tainting the canvas. Locked to
+// cdn.bsky.app (where every AppView-served avatar URL already points) so
+// this can't be used as an open image proxy.
+const AVATAR_HOST = "cdn.bsky.app";
+
+async function proxyAvatar(request: Request): Promise<Response> {
+  const target = new URL(request.url).searchParams.get("u") || "";
+  let parsed: URL;
+  try {
+    parsed = new URL(target);
+  } catch {
+    return new Response("bad url", { status: 400 });
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== AVATAR_HOST) {
+    return new Response("host not allowed", { status: 400 });
+  }
+  const upstream = await fetch(parsed.toString());
+  if (!upstream.ok || !upstream.body) {
+    return new Response("upstream error", { status: 502 });
+  }
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      "content-type": upstream.headers.get("content-type") || "image/jpeg",
+      "cache-control": "public, max-age=86400",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/api/avatar") {
+      return proxyAvatar(request);
+    }
     if (url.pathname.startsWith("/api/")) {
       const id = env.LEADERBOARD.idFromName("global");
       const stub = env.LEADERBOARD.get(id);

@@ -361,7 +361,11 @@ function loadImgCORS(url) {
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = url;
+    // cdn.bsky.app sends no CORS headers, so a crossOrigin="anonymous" fetch
+    // of it directly always fails — route it through our own same-origin
+    // proxy (src/index.ts /api/avatar) instead, so the share canvas isn't
+    // tainted and toBlob()/toDataURL() actually work.
+    img.src = "/api/avatar?u=" + encodeURIComponent(url);
   });
 }
 
