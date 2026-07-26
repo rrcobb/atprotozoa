@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chimehose — listen to the atproto firehose</title>
+    <meta
+      name="description"
+      content="A live sonification of the Bluesky firehose. Every new post rings a bell; every deleted post plucks a string. Pitch tracks the size of the post — bigger posts, deeper notes. A riff on Hatnote's Listen to Wikipedia, aimed at atproto."
+    />
+    <meta property="og:title" content="chimehose" />
+    <meta
+      property="og:description"
+      content="Listen to the atproto firehose. Bells for new posts, string plucks for deleted ones, pitch set by how big the post is — the bigger the edit, the deeper the note."
+    />
+    <meta property="og:image" content="https://chimehose.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="chimehose: a dark card with a gold bell for additions and a blue plucked string for subtractions, radiating rings, over 'listen to the atproto firehose'."
+    />
+    <meta property="og:url" content="https://chimehose.bisks.net" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="chimehose — listen to the atproto firehose" />
+    <meta
+      name="twitter:description"
+      content="Bells for new posts, string plucks for deletions, pitch by size — bigger edit, deeper note."
+    />
+    <meta name="twitter:image" content="https://chimehose.bisks.net/og.png" />
+    <!-- bisks.net house style, dark variant: one readable mono, hairline
+         separators, two accent colors doing double duty as the sound legend
+         (gold = bell/addition, blue = pluck/subtraction). -->
+    <style>
+      :root {
+        --bg: #05060a;
+        --panel: #0c0f18;
+        --ink: #eaf2fb;
+        --muted: #7f93ac;
+        --faint: rgba(234, 242, 251, 0.12);
+        --gold: #ffd166;
+        --blue: #6ec8ff;
+        --accent: #ff7ab8;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 1.3rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
+      }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 span.g { color: var(--gold); }
+      header h1 span.b { color: var(--blue); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #333; transition: background 0.3s;
+      }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 60ch;
+      }
+      .intro b.g { color: var(--gold); font-weight: 600; }
+      .intro b.b { color: var(--blue); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* start overlay: audio needs a user gesture before it can make sound */
+      .start-row { margin: 0 0 1.5rem; }
+      #startBtn {
+        font-family: var(--mono); font-size: 0.95rem; font-weight: 600;
+        color: var(--bg); background: var(--accent); border: none;
+        border-radius: 6px; padding: 0.65rem 1.3rem; cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      #startBtn:hover { opacity: 0.85; }
+      #startBtn.playing {
+        background: none; color: var(--ink); border: 1px solid var(--faint);
+      }
+
+      /* the ripple canvas: each event pops a ring, gold for bells, blue for plucks */
+      .stage {
+        position: relative; width: 100%; height: 220px;
+        background: var(--panel); border: 1px solid var(--faint);
+        border-radius: 10px; overflow: hidden; margin: 0 0 1.25rem;
+      }
+      .stage canvas { width: 100%; height: 100%; display: block; }
+
+      .controls {
+        display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+        margin: 0 0 1.25rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .controls label { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .controls input[type="range"] { accent-color: var(--accent); }
+      .stat { display: inline-flex; align-items: center; gap: 0.35rem; }
+      .stat .n { color: var(--ink); font-weight: 600; }
+      .stat.g .n { color: var(--gold); }
+      .stat.b .n { color: var(--blue); }
+      .spacer { flex: 1 1 auto; }
+      #shareLink {
+        color: var(--accent); text-decoration: none; font-size: 0.78rem;
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.25rem 0.6rem;
+      }
+      #shareLink:hover { border-color: var(--accent); }
+
+      /* the ticker: a scroll of recent events, newest first, plain text rows */
+      .ticker { margin: 0; padding: 0; list-style: none; }
+      .ticker li {
+        padding: 0.5rem 0; border-top: 1px solid var(--faint);
+        font-size: 0.82rem; color: var(--muted);
+        display: flex; align-items: baseline; gap: 0.5rem;
+        animation: fade 0.25s ease both;
+      }
+      .ticker li:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .ticker .icon { flex: none; width: 1.4em; }
+      .ticker .icon.g { color: var(--gold); }
+      .ticker .icon.b { color: var(--blue); }
+      .ticker .who { color: var(--ink); }
+      .ticker .meta { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">chime<span class="g">h</span><span class="b">ose</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">not connected</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        The atproto firehose, sonified. Every new post rings a
+        <b class="g">bell</b>; every deleted post plucks a
+        <b class="b">string</b>. The pitch tracks how big the post's record
+        is — the bigger it is, the deeper the note. A riff on Hatnote's
+        <a href="http://listen.hatnote.com/" target="_blank" rel="noopener">Listen to Wikipedia</a>,
+        pointed at the Bluesky firehose instead of Wikipedia's recent-changes
+        feed, per <b>@mfzx.net</b>'s aside that it'd be neat to do this with
+        the firehose. One honest gap from the original: a
+        <em>delete</em> event on the firehose carries no record, so we don't
+        always know how big a deleted post was — when we do (because we saw
+        it created recently), the pluck uses its real size; otherwise it
+        plays a neutral middle note and says so in the log below. Nothing is
+        recorded or sent anywhere; the whole thing runs live in your browser.
+      </p>
+
+      <div class="start-row">
+        <button id="startBtn">▶ start listening</button>
+      </div>
+
+      <div class="stage">
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <label title="master volume">
+          vol
+          <input id="volume" type="range" min="0" max="100" value="70" />
+        </label>
+        <span class="stat g" title="bells rung this session">🔔 <span class="n" id="addCount">0</span></span>
+        <span class="stat b" title="strings plucked this session">🪕 <span class="n" id="delCount">0</span></span>
+        <span class="spacer"></span>
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      </div>
+
+      <ul class="ticker" id="ticker"></ul>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · concept via <a href="http://listen.hatnote.com/" target="_blank" rel="noopener">Hatnote's Listen to Wikipedia</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- config --------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_TICKER = 40;
+      // A record's approximate JSON byte size, capped — beyond this, edits
+      // all sound "as deep as it gets" rather than needing an ever-bigger
+      // cap that would make ordinary posts sound identical anyway.
+      const SIZE_CAP = 1800;
+      // A pentatonic scale spanning four octaves (C2..A5) so any size maps
+      // onto a note that's still musically consonant with the others,
+      // instead of a raw frequency sweep that would sound like a siren.
+      const SCALE = [
+        65.41, 73.42, 82.41, 98.0, 110.0, 130.81, 146.83, 164.81, 196.0,
+        220.0, 261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25,
+        783.99, 880.0,
+      ];
+      // How many recently-created posts we remember (uri -> byte size) so a
+      // delete that follows soon after can be sonified with its real size.
+      const SIZE_CACHE_MAX = 4000;
+
+      // ---- dom -------------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const startBtn = document.getElementById("startBtn");
+      const volumeInput = document.getElementById("volume");
+      const addCountEl = document.getElementById("addCount");
+      const delCountEl = document.getElementById("delCount");
+      const ticker = document.getElementById("ticker");
+      const shareLink = document.getElementById("shareLink");
+      const canvas = document.getElementById("canvas");
+      const ctx2d = canvas.getContext("2d");
+
+      shareLink.href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent(
+          "listening to the atproto firehose sonified — bells for new posts, string plucks for deletions, pitch set by post size 🔔🪕\n\nchimehose.bisks.net",
+        );
+
+      // ---- size -> pitch ---------------------------------------------------
+      // Bigger record => lower index into SCALE => deeper note.
+      function pitchForSize(bytes) {
+        const capped = Math.min(Math.max(bytes, 0), SIZE_CAP);
+        const t = capped / SIZE_CAP; // 0 (tiny) .. 1 (big)
+        const idx = Math.round((1 - t) * (SCALE.length - 1));
+        return SCALE[idx];
+      }
+      const NEUTRAL_FREQ = SCALE[Math.floor(SCALE.length / 2)];
+
+      function recordBytes(rec) {
+        try {
+          return new TextEncoder().encode(JSON.stringify(rec)).length;
+        } catch {
+          return 200;
+        }
+      }
+
+      // uri -> byte size, insertion-ordered so the oldest falls off first.
+      const sizeCache = new Map();
+      function rememberSize(uri, bytes) {
+        sizeCache.set(uri, bytes);
+        while (sizeCache.size > SIZE_CACHE_MAX) {
+          sizeCache.delete(sizeCache.keys().next().value);
+        }
+      }
+
+      // ---- audio engine ------------------------------------------------------
+      let actx = null;
+      let masterGain = null;
+
+      function impulseResponse(c, seconds, decay) {
+        const rate = c.sampleRate;
+        const length = Math.max(1, Math.floor(rate * seconds));
+        const impulse = c.createBuffer(2, length, rate);
+        for (let ch = 0; ch < 2; ch++) {
+          const data = impulse.getChannelData(ch);
+          for (let i = 0; i < length; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+          }
+        }
+        return impulse;
+      }
+
+      function initAudio() {
+        if (actx) return;
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+
+        masterGain = actx.createGain();
+        masterGain.gain.value = Number(volumeInput.value) / 100;
+
+        const dry = actx.createGain();
+        dry.gain.value = 0.82;
+        const wet = actx.createGain();
+        wet.gain.value = 0.22;
+        const convolver = actx.createConvolver();
+        convolver.buffer = impulseResponse(actx, 1.8, 2.2);
+
+        const comp = actx.createDynamicsCompressor();
+        comp.threshold.value = -18;
+        comp.knee.value = 22;
+        comp.ratio.value = 3.5;
+        comp.attack.value = 0.003;
+        comp.release.value = 0.25;
+
+        masterGain.connect(dry);
+        masterGain.connect(convolver);
+        convolver.connect(wet);
+        dry.connect(comp);
+        wet.connect(comp);
+        comp.connect(actx.destination);
+      }
+
+      volumeInput.addEventListener("input", () => {
+        if (masterGain) {
+          masterGain.gain.linearRampToValueAtTime(
+            Number(volumeInput.value) / 100,
+            actx.currentTime + 0.05,
+          );
+        }
+      });
+
+      // Bell: a two-oscillator FM hit (carrier + a slightly-detuned partial
+      // modulating its frequency), struck once and left to ring out. Same
+      // idea as a struck bell/chime — inharmonic partials, fast attack, long
+      // exponential decay.
+      function playBell(freq) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.01;
+        const carrier = actx.createOscillator();
+        carrier.type = "sine";
+        carrier.frequency.value = freq * 2;
+        const modulator = actx.createOscillator();
+        modulator.type = "sine";
+        modulator.frequency.value = freq * 2.76;
+        const modGain = actx.createGain();
+        modGain.gain.value = freq * 1.3;
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
+
+        const env = actx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(0.5, t + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + 1.7);
+
+        carrier.connect(env);
+        env.connect(masterGain);
+
+        carrier.start(t);
+        modulator.start(t);
+        carrier.stop(t + 1.8);
+        modulator.stop(t + 1.8);
+      }
+
+      // Pluck: a simplified Karplus-Strong plucked string — a short noise
+      // burst runs once through a delay tuned to the note's period, with a
+      // damped feedback loop (delay -> lowpass -> gain -> back into the
+      // delay) so each pass around the loop decays and darkens, the way a
+      // real plucked string does.
+      function playPluck(freq) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.01;
+        const period = 1 / freq;
+        const burstLen = Math.max(1, Math.ceil(actx.sampleRate * period));
+        const buf = actx.createBuffer(1, burstLen, actx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < burstLen; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / burstLen);
+        }
+        const noise = actx.createBufferSource();
+        noise.buffer = buf;
+
+        const delay = actx.createDelay(1);
+        delay.delayTime.value = period;
+        const damp = actx.createBiquadFilter();
+        damp.type = "lowpass";
+        damp.frequency.value = Math.min(freq * 6, 8000);
+        const feedback = actx.createGain();
+        feedback.gain.value = 0.978;
+
+        const outGain = actx.createGain();
+        outGain.gain.setValueAtTime(0.55, t);
+        outGain.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+
+        noise.connect(delay);
+        delay.connect(damp);
+        damp.connect(feedback);
+        feedback.connect(delay); // feedback loop: this is the "string"
+        delay.connect(outGain);
+        outGain.connect(masterGain);
+
+        noise.start(t);
+        noise.stop(t + period * 1.2);
+        setTimeout(
+          () => {
+            try {
+              feedback.disconnect();
+              delay.disconnect();
+              outGain.disconnect();
+            } catch {}
+          },
+          1900,
+        );
+      }
+
+      // ---- ripple visual -----------------------------------------------------
+      let ripples = [];
+      let dpr = Math.max(1, window.devicePixelRatio || 1);
+      function resizeCanvas() {
+        dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = canvas.clientWidth * dpr;
+        canvas.height = canvas.clientHeight * dpr;
+      }
+      window.addEventListener("resize", resizeCanvas);
+
+      function spawnRipple(kind, magnitude01) {
+        const w = canvas.clientWidth || 1;
+        const h = canvas.clientHeight || 1;
+        ripples.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: 0,
+          maxR: 24 + magnitude01 * 90,
+          kind, // "add" | "del"
+          born: performance.now(),
+        });
+        if (ripples.length > 200) ripples.shift();
+      }
+
+      function drawLoop() {
+        requestAnimationFrame(drawLoop);
+        if (!canvas.width || !canvas.height) resizeCanvas();
+        ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        ctx2d.clearRect(0, 0, w, h);
+        ctx2d.fillStyle = "rgba(12,15,24,1)";
+        ctx2d.fillRect(0, 0, w, h);
+
+        const now = performance.now();
+        ripples = ripples.filter((r) => now - r.born < 1400);
+        for (const r of ripples) {
+          const life = (now - r.born) / 1400;
+          const radius = r.maxR * Math.min(1, life * 1.6);
+          const alpha = Math.max(0, 1 - life);
+          ctx2d.beginPath();
+          ctx2d.arc(r.x, r.y, radius, 0, Math.PI * 2);
+          ctx2d.lineWidth = 2;
+          ctx2d.strokeStyle =
+            r.kind === "add"
+              ? `rgba(255, 209, 102, ${alpha})`
+              : `rgba(110, 200, 255, ${alpha})`;
+          ctx2d.stroke();
+        }
+      }
+
+      // ---- ticker + stats ---------------------------------------------------
+      let addCount = 0;
+      let delCount = 0;
+
+      function pushTicker({ kind, did, sizeLabel }) {
+        const li = document.createElement("li");
+        const icon = kind === "add" ? "🔔" : "🪕";
+        const iconClass = kind === "add" ? "g" : "b";
+        li.innerHTML =
+          `<span class="icon ${iconClass}">${icon}</span>` +
+          `<span class="who">${did.slice(0, 24)}…</span>` +
+          `<span class="meta">${sizeLabel}</span>`;
+        ticker.prepend(li);
+        while (ticker.childElementCount > MAX_TICKER) {
+          ticker.removeChild(ticker.lastElementChild);
+        }
+      }
+
+      // ---- firehose handling -------------------------------------------------
+      function handleCommit(evt) {
+        const commit = evt.commit;
+        if (!commit) return;
+        const uri = `at://${evt.did}/app.bsky.feed.post/${commit.rkey}`;
+
+        if (commit.operation === "create") {
+          const rec = commit.record;
+          if (!rec) return;
+          const bytes = recordBytes(rec);
+          rememberSize(uri, bytes);
+          const freq = pitchForSize(bytes);
+          const vis = Math.min(bytes, SIZE_CAP) / SIZE_CAP;
+          playBell(freq);
+          spawnRipple("add", vis);
+          addCount++;
+          addCountEl.textContent = addCount;
+          pushTicker({ kind: "add", did: evt.did, sizeLabel: `+${bytes}B` });
+        } else if (commit.operation === "delete") {
+          const known = sizeCache.get(uri);
+          sizeCache.delete(uri);
+          const freq = known != null ? pitchForSize(known) : NEUTRAL_FREQ;
+          const vis = known != null ? Math.min(known, SIZE_CAP) / SIZE_CAP : 0.35;
+          playPluck(freq);
+          spawnRipple("del", vis);
+          delCount++;
+          delCountEl.textContent = delCount;
+          pushTicker({
+            kind: "del",
+            did: evt.did,
+            sizeLabel: known != null ? `−${known}B` : "size unknown",
+          });
+        }
+      }
+
+      // ---- websocket ----------------------------------------------------------
+      let ws = null;
+      let reconnectDelay = 1000;
+      let listening = false;
+
+      function setStatus(msg, live) {
+        statusText.textContent = msg;
+        dot.classList.toggle("live", !!live);
+      }
+
+      function connect() {
+        setStatus("connecting…", false);
+        ws = new WebSocket(JETSTREAM);
+
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus("live", true);
+        };
+
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handleCommit(evt);
+        };
+
+        ws.onclose = () => {
+          if (!listening) return;
+          setStatus("reconnecting…", false);
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          try {
+            ws.close();
+          } catch {}
+          ws = null;
+        }
+        setStatus("not connected", false);
+      }
+
+      startBtn.addEventListener("click", async () => {
+        if (!listening) {
+          initAudio();
+          if (actx.state === "suspended") await actx.resume();
+          listening = true;
+          startBtn.textContent = "■ stop";
+          startBtn.classList.add("playing");
+          connect();
+        } else {
+          listening = false;
+          startBtn.textContent = "▶ start listening";
+          startBtn.classList.remove("playing");
+          disconnect();
+        }
+      });
+
+      // Pause the socket when the tab is hidden (but only if we were live);
+      // resume on return. Audio is silent anyway while hidden in most
+      // browsers, so this just saves the connection.
+      document.addEventListener("visibilitychange", () => {
+        if (!listening) return;
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      resizeCanvas();
+      drawLoop();
+    </script>
+  </body>
+</html>
