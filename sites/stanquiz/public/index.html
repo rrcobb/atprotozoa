@@ -193,13 +193,15 @@
       <header>
         <h1><span class="stan">stan</span><span class="quiz">quiz</span></h1>
         <p class="tagline">
-          20 questions, <b>zero jokey ones</b> — every question is a real,
-          checkable fact pulled live off <b>@cee.wtf</b>'s actual public
-          Bluesky profile: their real bio, their real avatar, real posts,
-          real follows, real account age. Answer honestly and get a real
-          number for how much of a stan you actually are.
+          20 questions, <b>zero jokey ones</b>, and no "plug in any handle"
+          template underneath — this quiz is built specifically about
+          <b>@cee.wtf</b>: their real bio, real avatar, real posts, real
+          follows, real account age pulled live off their actual public
+          profile, plus a hardcoded pool of real things they've actually
+          said to this bot across past build threads. Answer honestly and
+          get a real number for how much of a stan you actually are.
         </p>
-        <p class="fineprint">reads Bluesky's public API in your browser — no login, nothing written anywhere.</p>
+        <p class="fineprint">reads Bluesky's public API in your browser, plus this bot's own build history — no login, nothing written anywhere.</p>
       </header>
 
       <div class="target-card" id="targetCard" style="display:none"></div>
@@ -207,14 +209,6 @@
       <form class="finder" id="startForm" autocomplete="off">
         <button class="solid" id="startGo" type="submit">quiz me on @cee.wtf</button>
       </form>
-
-      <details class="switcher">
-        <summary>quiz about a different account instead →</summary>
-        <form class="finder" id="switchForm" autocomplete="off">
-          <input type="text" id="handleInput" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
-          <button type="submit">quiz me on them</button>
-        </form>
-      </details>
 
       <p class="msg" id="msg"></p>
 
@@ -238,16 +232,19 @@
           <a class="ghost" id="shareBluesky" href="#" target="_blank" rel="noopener"><button class="solid" type="button">share on Bluesky</button></a>
           <button class="ghost" id="shareDownload" type="button">download share card</button>
           <button class="ghost" id="shareNative" type="button" style="display:none">share…</button>
-          <button class="ghost" id="playAgain" type="button">try another account</button>
+          <button class="ghost" id="playAgain" type="button">play again</button>
         </div>
         <canvas id="shareCanvas" width="1200" height="630"></canvas>
       </div>
 
       <footer>
-        every question's answer lives in the subject's real public profile —
-        bio, posts, avatar, follows, followers, account age — fetched live
-        from Bluesky's public AppView. no login, nothing stored. graph
-        reading borrows from <a href="https://simclustered.bisks.net">simclustered</a>
+        most questions' answers live in @cee.wtf's real public profile — bio,
+        posts, avatar, follows, followers, account age — fetched live from
+        Bluesky's public AppView. the "real thing they said to this bot"
+        questions instead come from a small hardcoded pool of actual quotes
+        pulled from this bot's own build history — the one part of the quiz
+        that couldn't work for a different handle. no login, nothing stored.
+        graph reading borrows from <a href="https://simclustered.bisks.net">simclustered</a>
         · sibling of <a href="https://bisks.net">bisks.net</a>.
       </footer>
     </div>
@@ -256,14 +253,12 @@
       import { loadSubject } from "./lib/subject.js";
       import { buildQuiz, tierFor, TARGET_COUNT } from "./lib/quiz.js";
 
-      const DEFAULT_HANDLE = "cee.wtf";
+      const SUBJECT_HANDLE = "cee.wtf";
 
       const els = {
         targetCard: document.getElementById("targetCard"),
         startForm: document.getElementById("startForm"),
         startGo: document.getElementById("startGo"),
-        switchForm: document.getElementById("switchForm"),
-        handleInput: document.getElementById("handleInput"),
         msg: document.getElementById("msg"),
         quizArea: document.getElementById("quizArea"),
         qCounter: document.getElementById("qCounter"),
@@ -298,6 +293,7 @@
         avatar: "spot the real avatar",
         banner: "spot the real banner",
         estimate: "estimate the real numbers",
+        lore: "a real thing they said to this bot",
         fact: "atproto facts",
       };
 
@@ -606,13 +602,10 @@
         questions = await buildQuiz(subject, subject.profile.handle, { onStep: step });
         if (!questions.length) {
           els.msg.className = "msg err";
-          els.msg.textContent = "couldn't build a quiz from that account — try a different handle.";
+          els.msg.textContent = "couldn't build a quiz right now — try reloading.";
           els.startGo.disabled = false;
           return;
         }
-        try {
-          history.replaceState(null, "", `?h=${encodeURIComponent(subject.profile.handle)}`);
-        } catch {}
         els.msg.className = "msg ok";
         els.msg.textContent = `loaded @${subject.profile.handle} — ${questions.length} questions, all real.`;
         els.startForm.style.display = "none";
@@ -623,18 +616,10 @@
 
       els.startForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        start(DEFAULT_HANDLE);
-      });
-      els.switchForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const h = els.handleInput.value.trim();
-        if (h) start(h);
-        else els.handleInput.focus();
+        start(SUBJECT_HANDLE);
       });
 
-      const qp = new URLSearchParams(location.search);
-      const qh = qp.get("h");
-      start(qh || DEFAULT_HANDLE);
+      start(SUBJECT_HANDLE);
     </script>
   </body>
 </html>

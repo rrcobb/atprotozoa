@@ -8,6 +8,14 @@
 // Adapted from simclustered's lib/quiz.js, which asks the same style of
 // question about the quiz-taker's OWN graph instead of a fixed subject
 // (copy, don't abstract).
+//
+// One category here — "lore" — is deliberately NOT genericizable: it's a
+// hardcoded pool of real things @cee.wtf has actually said to this bot
+// (see lib/lore.js), not something derived from whatever profile you plug
+// in. Every other category still works for any handle; this one only
+// fires for the fixed subject stanquiz is actually built about.
+
+import { CEE_QUOTES, DECOY_QUOTES } from "./lore.js";
 
 export const TARGET_COUNT = 20;
 
@@ -235,6 +243,26 @@ function bioWordQuestion(id, name, target, subjectBio, decoyChunks) {
   };
 }
 
+// which of three real quotes is a real thing the subject actually said to
+// this bot — hardcoded lore, not derived from the live profile at all
+function loreQuestion(id, name, realQuote, decoyPool) {
+  const picks = sample(decoyPool, 2);
+  if (picks.length < 2) return null;
+  const options = shuffle([
+    { label: truncate(realQuote, 160), correct: true },
+    { label: truncate(picks[0], 160), correct: false },
+    { label: truncate(picks[1], 160), correct: false },
+  ]);
+  return {
+    id,
+    kind: "choice",
+    category: "lore",
+    prompt: `Which of these did @${name} actually say to buildthis?`,
+    options: options.map((o) => ({ label: o.label })),
+    correctIndex: options.findIndex((o) => o.correct),
+  };
+}
+
 function imageGuessQuestion(id, category, prompt, realUrl, decoyUrls, shape) {
   const picks = sample(decoyUrls.filter((u) => u && u !== realUrl), 2);
   if (picks.length < 2) return null;
@@ -343,6 +371,18 @@ export async function buildQuiz(subject, name, { onStep } = {}) {
   if (subject.profile.createdAt) {
     const days = Math.floor((Date.parse(new Date().toISOString()) - Date.parse(subject.profile.createdAt)) / 86400000);
     questions.push(bucketChoiceQuestion(next(), `How long has @${name} actually been on Bluesky?`, days, AGE_BUCKETS));
+  }
+
+  // 9) lore — real things @cee.wtf actually said to this bot, up to 6.
+  // Only for the fixed subject this site is built about; not something a
+  // "plug in any handle" version of this quiz could ever produce.
+  if (name === "cee.wtf") {
+    const loreWant = Math.min(6, CEE_QUOTES.length);
+    for (const quote of sample(CEE_QUOTES, loreWant)) {
+      const q = loreQuestion(next(), name, quote, DECOY_QUOTES);
+      if (q) questions.push(q);
+      else id--;
+    }
   }
 
   // fill any shortfall (thin accounts) with plain, verifiable atproto facts
