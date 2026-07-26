@@ -16,6 +16,7 @@ const SELECTION_KEY = "mootdrone:last-selection";
 
 const form = document.getElementById("load-form");
 const input = document.getElementById("handle-input");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
 const statusEl = document.getElementById("status");
 const board = document.getElementById("board");
 const tracksEl = document.getElementById("tracks");
@@ -444,6 +445,7 @@ function openSignInModal() {
       </div>
     </div>`;
   document.body.appendChild(bg);
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.querySelector('#signin-handle'));
   const close = () => bg.remove();
   bg.querySelector("#signin-cancel").onclick = close;
   bg.onclick = (e) => {

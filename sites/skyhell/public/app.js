@@ -257,6 +257,7 @@ function renderSnoop() {
     </div>
     <div id="snoop-result"></div>
   `;
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.querySelector('#snoop-handle'));
   const result = document.getElementById("snoop-result");
   document.getElementById("snoop-go").addEventListener("click", async () => {
     const handle = document.getElementById("snoop-handle").value.trim();

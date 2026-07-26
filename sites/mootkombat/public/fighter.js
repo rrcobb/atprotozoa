@@ -9,6 +9,7 @@ import { buildLadder } from "./lib/moots.js";
 // ── DOM ────────────────────────────────────────────────────────────────
 const form = document.getElementById("form");
 const input = document.getElementById("handle");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
 const msg = document.getElementById("msg");
 const playBtn = document.getElementById("play");
 const finder = document.querySelector("form.finder");

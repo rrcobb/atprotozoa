@@ -13,6 +13,7 @@ const W = 1000, H = 640;
 
 const form = document.getElementById("load-form");
 const input = document.getElementById("handle-input");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
 const statusEl = document.getElementById("status");
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("worktop");

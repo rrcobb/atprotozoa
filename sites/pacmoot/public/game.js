@@ -179,6 +179,7 @@ function drawAvatar(ctx, entity, radius, opts) {
 // ---- game state -----------------------------------------------------------
 const form = document.getElementById("load-form");
 const input = document.getElementById("handle-input");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
 const loadBtn = document.getElementById("load-btn");
 const statusEl = document.getElementById("status");
 const gameEl = document.getElementById("game");
