@@ -86,6 +86,10 @@ const overBody = document.getElementById("over-body");
 const overTip = document.getElementById("over-tip");
 const againBtn = document.getElementById("again-btn");
 const shareBtn = document.getElementById("share-btn");
+const shareCanvas = document.getElementById("share-canvas");
+const sctx = shareCanvas.getContext("2d");
+const shareNativeBtn = document.getElementById("share-native-btn");
+const shareDownloadBtn = document.getElementById("share-download-btn");
 const tLeft = document.getElementById("t-left");
 const tRight = document.getElementById("t-right");
 const tRotate = document.getElementById("t-rotate");
@@ -116,6 +120,7 @@ let shakeUntil = 0;
 let cosmicUntil = 0;
 let rafId = null;
 let lastT = 0;
+let lastShareText = "";
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg || "";
@@ -237,6 +242,120 @@ function triggerCosmic() {
   showBanner(["✦ COSMIC ALIGNMENT ✦", "MERCURY IN RETROGRADE"]);
 }
 
+function wrapText(c, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let ly = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && c.measureText(test).width > maxWidth) {
+      c.fillText(line, x, ly);
+      line = w;
+      ly += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) c.fillText(line, x, ly);
+  return ly;
+}
+
+// Snapshot the final board into shareCanvas — a real per-run result card
+// (not a generic static one), for the "share image" / "save image" buttons.
+function buildShareCard() {
+  const W = shareCanvas.width, H = shareCanvas.height;
+  const mono = "ui-monospace, monospace";
+  sctx.clearRect(0, 0, W, H);
+  const bg = sctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#150f24");
+  bg.addColorStop(1, "#0a0812");
+  sctx.fillStyle = bg;
+  sctx.fillRect(0, 0, W, H);
+  const glow = sctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "rgba(199,146,255,0.28)");
+  glow.addColorStop(1, "rgba(199,146,255,0)");
+  sctx.fillStyle = glow;
+  sctx.fillRect(0, 0, W, H);
+
+  sctx.textAlign = "left";
+  sctx.fillStyle = "#c792ff";
+  sctx.font = `800 52px ${mono}`;
+  sctx.fillText("moottris", 60, 96);
+
+  sctx.fillStyle = "#f1ece2";
+  sctx.font = `700 26px ${mono}`;
+  sctx.fillText(`@${cluster?.handle || "?"}'s chart`, 60, 140);
+
+  sctx.fillStyle = "#ffd166";
+  sctx.font = `800 76px ${mono}`;
+  sctx.fillText(String(score), 60, 244);
+  sctx.fillStyle = "#9089a3";
+  sctx.font = `600 18px ${mono}`;
+  sctx.fillText("points", 60, 270);
+
+  sctx.fillStyle = "#f1ece2";
+  sctx.font = `700 22px ${mono}`;
+  sctx.fillText(`${lines} line${lines === 1 ? "" : "s"} cleared`, 60, 320);
+
+  const who = current?.moot;
+  if (who) {
+    sctx.fillStyle = "#9089a3";
+    sctx.font = `16px ${mono}`;
+    wrapText(
+      sctx,
+      `filled up with @${who.handle} (${who.glyph} ${who.sign}) still falling.`,
+      60,
+      360,
+      560,
+      24,
+    );
+  }
+
+  sctx.fillStyle = "#ffd166";
+  sctx.font = `700 20px ${mono}`;
+  sctx.fillText("moottris.bisks.net", 60, 590);
+
+  // mini render of the actual final board, right-aligned
+  if (grid) {
+    const cell = Math.min(300 / COLS, (H - 100) / ROWS);
+    const boardW = cell * COLS;
+    const boardH = cell * ROWS;
+    const bx = W - boardW - 70;
+    const by = (H - boardH) / 2;
+    sctx.fillStyle = "#000";
+    sctx.fillRect(bx, by, boardW, boardH);
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cellData = grid[r][c];
+        if (!cellData) continue;
+        const pad = 1.5;
+        const s = cell - pad * 2;
+        const x = bx + c * cell + pad;
+        const y = by + r * cell + pad;
+        roundRect(sctx, x, y, s, s, 3);
+        sctx.fillStyle = cellData.color;
+        sctx.fill();
+        sctx.lineWidth = 1;
+        sctx.strokeStyle = "rgba(255,255,255,0.35)";
+        roundRect(sctx, x, y, s, s, 3);
+        sctx.stroke();
+      }
+    }
+  }
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+const shareFilesSupported = canShareFiles();
+if (shareFilesSupported) shareNativeBtn.style.display = "";
+
 function gameOver() {
   running = false;
   if (rafId) cancelAnimationFrame(rafId);
@@ -257,6 +376,8 @@ function gameOver() {
     `scored ${score} on moottris, cleared ${lines} lines with my moots as ` +
     `the falling pieces — zodiac shapes, posting-speed gravity. moottris.bisks.net`;
   shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+  lastShareText = shareText;
+  buildShareCard();
 
   overOverlay.classList.remove("hidden");
 }
@@ -522,6 +643,35 @@ function startGame() {
 
 startBtn.addEventListener("click", startGame);
 againBtn.addEventListener("click", startGame);
+
+shareDownloadBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `moottris-${cluster?.handle || "chart"}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
+});
+
+if (shareFilesSupported) {
+  shareNativeBtn.addEventListener("click", () => {
+    shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `moottris-${cluster?.handle || "chart"}.png`, {
+        type: "image/png",
+      });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "moottris" });
+      } catch {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
 
 // ---- input ------------------------------------------------------------
 window.addEventListener("keydown", (e) => {
