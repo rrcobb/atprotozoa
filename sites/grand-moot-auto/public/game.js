@@ -1067,7 +1067,7 @@ function endGame() {
   overCopy.textContent = newBest
     ? `recruited ${score} moots — new best. the cops never caught you (or you shook them off).`
     : `recruited ${score} moots. best is still ${best}.`;
-  const shareText = `just recruited ${score} of my moots in grand moot auto — cops, a strip club, a blimp, and real bloom now. still not literally GTA 6. https://grand-moot-auto.bisks.net`;
+  const shareText = `just recruited ${score} of my moots in grand moot auto — cops, a strip club, a blimp, and real bloom now. still not literally GTA 6. https://bisks.net/games/grand-moot-auto`;
   shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
   overOverlay.classList.remove("hidden");
 }
