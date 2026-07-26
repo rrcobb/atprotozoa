@@ -11,6 +11,13 @@
  * with image-rendering:pixelated — no sprite sheets, no image assets.
  * Audio is a small Web Audio engine in the same spirit as sites/moonbuggy:
  * a looped work-chant bassline plus synthesized SFX, nothing pre-recorded.
+ *
+ * On the near bank, three more figures watch: Herzog (calm, dry
+ * one-liners on a timer), Kinski (erratic — his tantrums spike a "chaos"
+ * meter, blunt your hauls while active, and force a Herzog-called "cut"
+ * mutiny-lockout if chaos maxes out), and Wenders' camera, silently
+ * logging every beat of it to the sidebar as a live documentary feed —
+ * the in-universe footage that becomes "Burden of Dreams."
  */
 (function () {
   'use strict';
@@ -28,7 +35,11 @@
     start: el('startOverlay'), win: el('winOverlay'), startBtn: el('startBtn'),
     againBtn: el('againBtn'), finalHauls: el('finalHauls'), finalTime: el('finalTime'),
     shareBluesky: el('shareBluesky'), shareDownload: el('shareDownload'),
-    music: el('musicToggle'), sfx: el('sfxToggle'), haulBtn: el('haulBtn')
+    music: el('musicToggle'), sfx: el('sfxToggle'), haulBtn: el('haulBtn'),
+    chaos: el('chaosFill'), chaosReadout: el('chaosReadout'),
+    directorCaption: el('directorCaption'), setcamLog: el('setcamLog'),
+    preload: el('preloadOverlay'), preloadFill: el('preloadBarFill'),
+    preloadPct: el('preloadPct'), skipIntroBtn: el('skipIntroBtn')
   };
 
   // ---------------------------------------------------------------------
@@ -100,6 +111,19 @@
           voice(sfxBus, 'triangle', f, f, t + i * 0.06, 0.16, 0.22, 'lin');
         });
       },
+      kinski() {
+        const t = actx.currentTime;
+        voice(sfxBus, 'sawtooth', 500, 90, t, 0.5, 0.28, 'exp');
+        voice(sfxBus, 'square', 620, 140, t + 0.03, 0.4, 0.2, 'exp');
+        noise(sfxBus, 0.45, 0.3, 2200);
+      },
+      cut() {
+        const t = actx.currentTime;
+        [7, 4, 0].forEach((semi, i) => {
+          const f = ROOT * 2 * Math.pow(2, semi / 12);
+          voice(sfxBus, 'square', f, f, t + i * 0.1, 0.28, 0.22, 'lin');
+        });
+      },
       peak() {
         const t = actx.currentTime;
         [0, 3, 7, 12, 15].forEach((semi, i) => {
@@ -159,7 +183,9 @@
     path: '#2c2115', rope: '#e8d9a8',
     hull: '#7a1f1f', hullDark: '#5a1414', deck: '#c99a52', trim: '#f2e3b8',
     smoke: '#d8d8d8', capstan: '#8a6a3a', crew: '#3a2a1e', crewShirt: '#dcd2b8',
-    fitz: '#f4f0e2', fitzHat: '#e0d8c0', note: '#ffe9a8'
+    fitz: '#f4f0e2', fitzHat: '#e0d8c0', note: '#ffe9a8',
+    filmcam: '#222222', herzogShirt: '#7a6a45', herzogSkin: '#d9a97a', herzogHat: '#c9b98a',
+    kinskiShirt: '#33302a', kinskiSkin: '#d9a97a', kinskiHair: '#f2e14d'
   };
 
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -180,7 +206,14 @@
     caption: '', captionTimer: 0,
     passedMilestones: new Set(),
     particles: [],
-    craterFlash: 0
+    craterFlash: 0,
+    // Kinski chaos meter, Herzog's dry commentary, Wenders' documentary log
+    chaos: 0,               // 0..100, Kinski's erratic threat to the shoot
+    kinskiActive: 0,        // frames of an active tantrum
+    herzogTimer: 300,       // frames until Herzog's next unprompted line
+    directorCaption: '', directorSpeaker: '', directorCaptionTimer: 0,
+    docLog: [],
+    preload: 0, preloadDone: false
   };
 
   function shipPos(p) {
@@ -214,12 +247,15 @@
           Audio.play('peak');
           state.craterFlash = 12;
           setCaption('THE SHIP CRESTS THE MOUNTAIN.', 200);
+          pushLog('the ship crests the mountain.');
         } else if (m < 0.5) {
           Audio.play('milestone');
           setCaption(pickClimbLine(), 130);
+          pushLog('crew hauls on, up the flank.');
         } else {
           Audio.play('milestone');
           setCaption(pickDescentLine(), 130);
+          pushLog('descent begins on the far slope.');
         }
       }
     }
@@ -239,6 +275,63 @@
   const pickClimbLine = () => CLIMB_LINES[Math.floor(Math.random() * CLIMB_LINES.length)];
   const pickDescentLine = () => DESCENT_LINES[Math.floor(Math.random() * DESCENT_LINES.length)];
 
+  // ---------------------------------------------------------------------
+  // Herzog directs, Kinski threatens to ruin the shoot, Wenders films it
+  // all for "Burden of Dreams" — a running commentary layer on top of the
+  // haul mechanic. Kinski's tantrums temporarily blunt your hauls and push
+  // up a "chaos" meter; let it max out and Herzog calls cut, freezing the
+  // crew same as a morale mutiny.
+  // ---------------------------------------------------------------------
+  const HERZOG_LINES = [
+    'THE JUNGLE DOES NOT APPLAUD. IT ONLY WAITS.',
+    'THIS IS NOT A METAPHOR. THE SHIP IS ACTUALLY ON THE MOUNTAIN.',
+    'THE ROPE IS HONEST. LITTLE ELSE HERE IS.',
+    'SOMEWHERE A PRODUCER ASKS ABOUT THE BUDGET. I DO NOT ANSWER.',
+    'WE FILM WHAT IS REAL, EVEN WHEN REAL IS A BAD IDEA.',
+    'THE CREW ASKS HOW MUCH FARTHER. I SAY NOTHING.',
+    'A MOUNTAIN HAS NO OPINION OF US. IT IS A RELIEF.'
+  ];
+  const KINSKI_LINES = [
+    'KINSKI SCREAMS THAT THE ROPE IS BENEATH HIM.',
+    'KINSKI THREATENS TO SWIM HOME.',
+    'KINSKI HURLS A BOOT AT THE SOUND CART.',
+    'KINSKI DEMANDS A DIFFERENT MOUNTAIN, IMMEDIATELY.',
+    'KINSKI ACCUSES THE CAPSTAN OF DISRESPECT.'
+  ];
+  const KINSKI_RESOLVE_LINES = [
+    'HE HAS STOPPED SCREAMING. FOR NOW.',
+    'THE SET QUIETS. THE RIVER DOES NOT CARE EITHER WAY.',
+    'PRODUCTION RESUMES, SOMEHOW.'
+  ];
+  const pickHerzog = () => HERZOG_LINES[Math.floor(Math.random() * HERZOG_LINES.length)];
+  const pickKinski = () => KINSKI_LINES[Math.floor(Math.random() * KINSKI_LINES.length)];
+  const pickKinskiResolve = () => KINSKI_RESOLVE_LINES[Math.floor(Math.random() * KINSKI_RESOLVE_LINES.length)];
+
+  function setDirectorCaption(msg, speaker, dur) {
+    state.directorCaption = msg;
+    state.directorSpeaker = speaker;
+    state.directorCaptionTimer = dur || 140;
+    if (els.directorCaption) {
+      els.directorCaption.textContent = (speaker === 'kinski' ? 'KINSKI: ' : 'HERZOG: ') + msg;
+      els.directorCaption.className = 'speaker-' + speaker;
+    }
+  }
+
+  function timecode() {
+    const secs = Math.floor(state.t / 60);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function pushLog(text) {
+    state.docLog.push({ t: timecode(), text });
+    if (state.docLog.length > 6) state.docLog.shift();
+    if (els.setcamLog) {
+      els.setcamLog.innerHTML = state.docLog.slice().reverse()
+        .map(e => '<li><span class="tc">' + e.t + '</span>' + e.text + '</li>').join('');
+    }
+  }
+
   function burst(x, y, color, n, spread) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = (spread || 1.6) * (0.4 + Math.random());
@@ -249,8 +342,9 @@
   function haul() {
     if (!state.running || state.won) return;
     if (state.mutiny > 0) return;
-    state.tension = Math.min(100, state.tension + 13);
-    state.morale = Math.max(0, state.morale - 0.7);
+    const disrupted = state.kinskiActive > 0;
+    state.tension = Math.min(100, state.tension + (disrupted ? 6 : 13));
+    state.morale = Math.max(0, state.morale - (disrupted ? 1.1 : 0.7));
     state.hauls++;
     state.shake = 3;
     Audio.play('haul');
@@ -268,6 +362,10 @@
     state.progress = 0; state.lastProgress = 0;
     state.tension = 0; state.morale = 100; state.hauls = 0; state.mutiny = 0;
     state.shake = 0; state.passedMilestones = new Set(); state.particles = [];
+    state.chaos = 0; state.kinskiActive = 0; state.herzogTimer = 260 + Math.random() * 160;
+    state.directorCaptionTimer = 0;
+    state.docLog = [];
+    pushLog('camera rolling. Herzog says nothing yet.');
     setCaption('THE RIVER FALLS BEHIND YOU.', 140);
     updateHud();
   }
@@ -279,6 +377,8 @@
     const secs = state.running ? (performance.now() - state.startedAt) / 1000 : 0;
     els.time.textContent = secs.toFixed(1) + 's';
     els.morale.style.width = Math.max(0, state.morale) + '%';
+    if (els.chaos) els.chaos.style.width = Math.round(state.chaos) + '%';
+    if (els.chaosReadout) els.chaosReadout.textContent = Math.round(state.chaos) + '%';
   }
 
   function gameWon() {
@@ -291,6 +391,8 @@
     els.shareBluesky.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text);
     els.win.classList.remove('hidden');
     burst(shipPos(1).x, shipPos(1).y, C.note, 30, 3);
+    setDirectorCaption('IT IS FINISHED. NOW WE WAIT FOR THE JUNGLE TO RECLAIM IT.', 'herzog', 220);
+    pushLog('the shoot wraps. Wenders keeps rolling for the credits.');
   }
 
   function update() {
@@ -319,14 +421,55 @@
       }
       state.progress = Math.min(1, state.progress);
       milestoneCheck();
+      updateFilmCrew();
       if (state.progress >= 1) gameWon();
     }
     if (state.shake > 0) state.shake--;
     if (state.craterFlash > 0) state.craterFlash--;
     if (state.captionTimer > 0) state.captionTimer--;
+    if (state.directorCaptionTimer > 0) state.directorCaptionTimer--;
 
     for (const p of state.particles) { p.x += p.vx; p.y += p.vy; p.vy += 0.08; p.life--; }
     state.particles = state.particles.filter(p => p.life > 0);
+  }
+
+  // Kinski's tantrums, Herzog's dry commentary, and the chaos meter they
+  // drive between them — separate from the haul/morale loop so it reads as
+  // its own subplot happening alongside the climb.
+  function updateFilmCrew() {
+    if (state.kinskiActive > 0) {
+      state.kinskiActive--;
+      if (state.kinskiActive === 0) {
+        state.chaos = Math.max(0, state.chaos - 20);
+        setDirectorCaption(pickKinskiResolve(), 'herzog', 110);
+        pushLog('the set quiets, briefly.');
+      }
+    } else {
+      state.chaos = Math.max(0, state.chaos - 0.03);
+      if (state.t > 90 && state.mutiny <= 0 && Math.random() < 0.0009) {
+        state.kinskiActive = 100;
+        state.chaos = Math.min(100, state.chaos + 35);
+        state.shake = 8;
+        Audio.play('kinski');
+        setDirectorCaption(pickKinski(), 'kinski', 150);
+        pushLog('Kinski erupts. Wenders zooms in.');
+        const cam = { x: 250, y: BASE_Y };
+        burst(cam.x, cam.y - 8, '#ff5a5a', 10, 2);
+      } else if (state.herzogTimer > 0) {
+        state.herzogTimer--;
+        if (state.herzogTimer === 0) {
+          setDirectorCaption(pickHerzog(), 'herzog', 170);
+          state.herzogTimer = 340 + Math.random() * 260;
+        }
+      }
+    }
+    if (state.chaos >= 100 && state.mutiny <= 0) {
+      state.mutiny = Math.max(state.mutiny, 160);
+      state.chaos = 55;
+      Audio.play('cut');
+      setDirectorCaption('HERZOG CALLS CUT. THE SHOOT STOPS COLD.', 'herzog', 160);
+      pushLog('"Cut!" Herzog calls a halt.');
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -443,6 +586,46 @@
     }
   }
 
+  function drawFilmCrew() {
+    // Wenders' camera, watching from the near bank; Herzog beside it, calm;
+    // Kinski beside him, not calm — jitters harder mid-tantrum.
+    const y = BASE_Y + 2;
+    ctx.strokeStyle = C.filmcam; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(228, y + 2); ctx.lineTo(232, y - 6);
+    ctx.moveTo(236, y + 2); ctx.lineTo(232, y - 6);
+    ctx.moveTo(232, y + 2); ctx.lineTo(232, y - 6);
+    ctx.stroke();
+    ctx.fillStyle = C.filmcam;
+    ctx.fillRect(228, y - 10, 8, 5);
+    ctx.fillStyle = state.t % 20 < 10 ? '#ff2222' : '#661111';
+    ctx.fillRect(235, y - 9, 2, 2);
+
+    ctx.save();
+    ctx.translate(242, y);
+    ctx.fillStyle = C.herzogShirt; ctx.fillRect(-2, -8, 4, 8);
+    ctx.fillStyle = C.herzogSkin; ctx.fillRect(-2, -10, 4, 2);
+    ctx.fillStyle = C.herzogHat; ctx.fillRect(-3, -11, 6, 2);
+    ctx.restore();
+
+    const mad = state.kinskiActive > 0;
+    const jitterX = mad ? (Math.random() - 0.5) * 3 : Math.sin(state.t * 0.15) * 0.6;
+    const jitterY = mad ? (Math.random() - 0.5) * 2 : 0;
+    ctx.save();
+    ctx.translate(250 + jitterX, y + jitterY);
+    ctx.fillStyle = C.kinskiShirt; ctx.fillRect(-2, -8, 4, 8);
+    ctx.fillStyle = mad ? '#e05a3a' : C.kinskiSkin; ctx.fillRect(-2, -10, 4, 2);
+    ctx.fillStyle = mad ? '#ffffff' : C.kinskiHair;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 2, -10);
+      ctx.lineTo(i * 2 - 1, -13 - (mad ? Math.random() * 3 : 0));
+      ctx.lineTo(i * 2 + 1, -10);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawShip(p) {
     ctx.save();
     ctx.translate(p.x, p.y + (state.shake ? (Math.random() - 0.5) * 2 : 0));
@@ -499,6 +682,7 @@
     const p = shipPos(state.progress);
     drawRope(p);
     drawCrew();
+    drawFilmCrew();
     drawShip(p);
     drawParticles();
     if (state.craterFlash > 0) {
@@ -516,8 +700,26 @@
     draw();
     if (els.caption) els.caption.style.opacity = state.captionTimer > 0 ? '1' : '0';
     if (els.caption && state.captionTimer > 0) els.caption.textContent = state.caption;
+    if (els.directorCaption) els.directorCaption.style.opacity = state.directorCaptionTimer > 0 ? '1' : '0';
+    if (!state.preloadDone) advancePreload();
     requestAnimationFrame(frame);
   }
+
+  // a fake Flash Player preloader — pure period-authentic theater, the
+  // "content" behind it (the start overlay) is already fully loaded.
+  function advancePreload() {
+    state.preload++;
+    const pct = Math.min(100, Math.round((state.preload / 90) * 100));
+    if (els.preloadFill) els.preloadFill.style.width = pct + '%';
+    if (els.preloadPct) els.preloadPct.textContent = 'loading fitzcarraldo.swf — ' + pct + '%';
+    if (pct >= 100) finishPreload();
+  }
+  function finishPreload() {
+    if (state.preloadDone) return;
+    state.preloadDone = true;
+    if (els.preload) els.preload.classList.add('hidden');
+  }
+  if (els.skipIntroBtn) els.skipIntroBtn.addEventListener('click', finishPreload);
 
   function startGame() {
     Audio.init(); Audio.resume();
@@ -530,15 +732,18 @@
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') {
       e.preventDefault();
+      if (!state.preloadDone) return;
       if (!state.running && !state.won) startGame();
       else haul();
     }
   });
   canvas.addEventListener('pointerdown', () => {
+    if (!state.preloadDone) return;
     if (!state.running && !state.won) startGame(); else haul();
   });
   els.haulBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (!state.preloadDone) return;
     if (!state.running && !state.won) startGame(); else haul();
   });
   els.startBtn.addEventListener('click', startGame);
