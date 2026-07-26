@@ -229,3 +229,36 @@ deliberately skipped this batch as higher-risk; worth a dedicated pass.
 2. Route/custom_domain set to `<sitename>.bisks.net`.
 3. `wrangler deploy` once locally to confirm it comes up.
 4. Commit → CI takes over from there.
+
+## Chrome "deceptive site" / Safe Browsing warnings on a brand-new custom domain
+
+2026-07-26: a mutual reported Chrome showing a "deceptive site ahead" warning on
+`solvers.bisks.net` right after its first deploy and asked for it to be fixed. Audited
+`sites/solvers` end to end (`public/index.html`, `public/magnetostatics/index.html`,
+`solver.js`, the compiled `pkg/magnetostatics.wasm`) looking for anything that would
+legitimately trip Safe Browsing: no forms or credential collection, no `eval`/obfuscated
+JS, no brand impersonation, no hidden iframes or redirects, no autodownloads. The only
+non-self-referential outbound links are to `bsky.app` (share intent) and `github.com`
+(source link) — both plain `<a>` tags, nothing dynamic. Found nothing in-app that
+explains the warning.
+
+This matches a well-documented false-positive class for brand-new Cloudflare-hosted
+custom domains, unrelated to page content:
+
+- **Shared-IP reputation** — Cloudflare terminates many customers' domains on the same
+  anycast IPs; if any other tenant on that IP gets reported for phishing/malware, Safe
+  Browsing can flag the whole IP block, catching unrelated innocent sites (see the
+  Cloudflare Community threads on "deceptive site alert" / "false positive suspected
+  phishing on my own Worker").
+- **Newly-observed-domain heuristics** — a custom domain that got its cert and first
+  traffic within the last day or so statistically resembles a throwaway phishing
+  domain to Safe Browsing's classifier, independent of what's actually on it. This
+  self-resolves as the domain ages, or can be sped up with a manual review.
+
+Neither is fixable by editing site code — it's the same shape of blocker as the
+custom-domain-cap issue above: this build agent has no browser/Google account access,
+so it can't file Google's "report a detection problem" / Search Console review request.
+That needs someone with domain-owner access to submit the review at
+`https://safebrowsing.google.com/safebrowsing/report_error/`. Worth checking again in a
+day or two even without filing anything — reputation-based false positives on new
+domains often clear on their own.
