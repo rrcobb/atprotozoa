@@ -232,7 +232,6 @@ export async function buildQuiz(graph, { onStep } = {}) {
   if (onStep) onStep("rounding up a few reference accounts…");
   const decoyAccounts = await fallbackAccounts(usedDids);
 
-  const decoyPoolForWhich = [...graph.followsOnly, ...graph.followedByOnly, ...decoyAccounts];
   const followPool = [...graph.moots, ...graph.followsOnly]; // real, actual follows
 
   const questions = [];
@@ -248,11 +247,18 @@ export async function buildQuiz(graph, { onStep } = {}) {
   for (const c of yesnoPicks) questions.push(yesnoQuestion(next(), c));
 
   // 2) which-of-three — up to 5, prefer real moots as the target, fall back
-  //    to plain follows if there aren't enough moots to ask about
+  //    to plain follows if there aren't enough moots to ask about. Decoys
+  //    must come from people who genuinely AREN'T target's relationship —
+  //    a followsOnly decoy for a "which do you follow" question would also
+  //    be a real follow, making the question multi-correct.
   const whichTargets = sample(graph.moots.length >= 3 ? graph.moots : followPool, 5);
   for (const t of whichTargets) {
-    const verb = graph.moots.includes(t) ? "have as a mutual (moot)" : "follow";
-    const q = whichQuestion(next(), t, decoyPoolForWhich, verb);
+    const isMoot = graph.moots.includes(t);
+    const verb = isMoot ? "have as a mutual (moot)" : "follow";
+    const decoyPool = isMoot
+      ? [...graph.followsOnly, ...graph.followedByOnly, ...decoyAccounts] // none of these are moots
+      : [...graph.followedByOnly, ...decoyAccounts]; // none of these are people they follow
+    const q = whichQuestion(next(), t, decoyPool, verb);
     if (q) questions.push(q);
     else id--;
   }
