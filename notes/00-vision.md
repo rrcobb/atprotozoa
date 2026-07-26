@@ -48,6 +48,11 @@ unserious.
    the firehose / Jetstream, querying the AppView, signing in with Bluesky OAuth,
    writing records to a PDS. Not every site needs it, but it's the house style.
 
+6. **Built to be shared, by default.** Most sites should ship with a real OG
+   preview and a one-tap way to post the result to Bluesky — not bolted on after
+   someone asks, but part of the first pass. See `notes/45-sharing-and-virality.md`.
+   The exception is a pure utility page with no per-user result to show off.
+
 ## What lives here
 
 - `notes/` — these docs. Architecture, conventions, deploy, identity.
