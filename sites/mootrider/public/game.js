@@ -24,6 +24,13 @@ const HIT_SLOP = 3; // a little forgiveness on collisions
 
 const ROCK_GAP = [300, 480];
 const CHICK_GAP = [560, 950];
+// The hill steepens the longer a run goes: rocks pack tighter, the bonus
+// chicken gets rarer. Ramps linearly from the values above to these over
+// DIFFICULTY_DIST world-px (~900m), then holds — "slowly increasing", not
+// a wall.
+const ROCK_GAP_HARD = [175, 300];
+const CHICK_GAP_HARD = [700, 1300];
+const DIFFICULTY_DIST = 9000;
 const MAX_MOOTS = 10;
 
 function hashInt(str) {
@@ -36,6 +43,17 @@ function hue(str) {
 }
 function rand(lo, hi) {
   return lo + Math.random() * (hi - lo);
+}
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+function difficultyT() {
+  return Math.min(player.dist / DIFFICULTY_DIST, 1);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
 }
 function loadImg(url) {
   if (!url) return null;
@@ -121,12 +139,14 @@ const overOverlay = document.getElementById("over-overlay");
 const overNum = document.getElementById("over-num");
 const overBody = document.getElementById("over-body");
 const overTip = document.getElementById("over-tip");
+const overRank = document.getElementById("over-rank");
 const againBtn = document.getElementById("again-btn");
 const shareBtn = document.getElementById("share-btn");
 const shareNativeBtn = document.getElementById("share-native");
 const jumpBtn = document.getElementById("t-jump");
 const shareCanvas = document.getElementById("share-canvas");
 const shareCtx = shareCanvas.getContext("2d");
+const leaderboardList = document.getElementById("leaderboard-list");
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2);
 canvas.width = VIEW_W * dpr;
@@ -177,6 +197,72 @@ function nextFileNum(did) {
   return n;
 }
 
+// ---- global leaderboard -------------------------------------------------
+// The tiny server surface: a single Durable Object (src/index.ts) holding
+// everyone's best run. localStorage best/file-count above stay per-browser
+// flavor text; this is the actual public board.
+function renderLeaderboard(list) {
+  if (!list || !list.length) {
+    leaderboardList.innerHTML = '<li class="empty">no case files yet — be the first name in the ledger.</li>';
+    return;
+  }
+  leaderboardList.innerHTML = list
+    .map((e, i) => {
+      const mine = !!(cluster && e.did === cluster.did);
+      const label = e.displayName || e.handle || "?";
+      const avatar = e.avatar
+        ? `<img src="${escapeHtml(e.avatar)}" alt="" loading="lazy" />`
+        : `<span class="ph" style="background:hsl(${hue(e.did)} 55% 42%)">${escapeHtml(label[0]?.toUpperCase() || "?")}</span>`;
+      const closedBy = e.culprit ? ` title="case closed by @${escapeHtml(e.culprit)}"` : "";
+      return (
+        `<li class="${mine ? "mine" : ""}"${closedBy}>` +
+        `<span class="rank">#${i + 1}</span>` +
+        `<span class="pfp">${avatar}</span>` +
+        `<span class="name">@${escapeHtml(e.handle)}</span>` +
+        `<span class="stat">${e.score} dodged</span>` +
+        `<span class="stat muted">${e.meters}m</span>` +
+        `</li>`
+      );
+    })
+    .join("");
+}
+
+async function loadLeaderboard() {
+  try {
+    const r = await fetch("/api/leaderboard");
+    if (!r.ok) return;
+    const data = await r.json();
+    renderLeaderboard(data.leaderboard);
+  } catch {
+    // no board yet / offline — leave whatever's already rendered
+  }
+}
+
+async function submitScore({ score, meters, culprit }) {
+  if (!cluster) return null;
+  try {
+    const r = await fetch("/api/score", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        did: cluster.did,
+        handle: cluster.handle,
+        displayName: (cluster.self && cluster.self.displayName) || cluster.handle,
+        avatar: (cluster.self && cluster.self.avatar) || "",
+        score,
+        meters,
+        culprit,
+      }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    renderLeaderboard(data.leaderboard);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 function pickMoot() {
   return mootPool[Math.floor(Math.random() * mootPool.length)];
 }
@@ -200,13 +286,16 @@ function spawnChicken(x) {
 
 function ensureSpawns() {
   const horizon = player.dist + VIEW_W + 260;
+  const t = difficultyT();
+  const rockGap = [lerp(ROCK_GAP[0], ROCK_GAP_HARD[0], t), lerp(ROCK_GAP[1], ROCK_GAP_HARD[1], t)];
+  const chickGap = [lerp(CHICK_GAP[0], CHICK_GAP_HARD[0], t), lerp(CHICK_GAP[1], CHICK_GAP_HARD[1], t)];
   while (nextRockX < horizon) {
     spawnRock(nextRockX);
-    nextRockX += rand(ROCK_GAP[0], ROCK_GAP[1]);
+    nextRockX += rand(rockGap[0], rockGap[1]);
   }
   while (nextChickX < horizon) {
     spawnChicken(nextChickX);
-    nextChickX += rand(CHICK_GAP[0], CHICK_GAP[1]);
+    nextChickX += rand(chickGap[0], chickGap[1]);
   }
 }
 
@@ -241,11 +330,19 @@ function crash(moot) {
     `took me out. dodged ${score}. mootrider.bisks.net`;
   shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
+  overRank.textContent = "";
   overOverlay.classList.remove("hidden");
 
   buildShareCard({ handle, weapon, meters, score, newBest }).then(() => {
     lastShareText = shareText;
     if (canShareFiles()) shareNativeBtn.hidden = false;
+  });
+
+  submitScore({ score, meters, culprit: handle }).then((data) => {
+    if (!data || !data.rank) return;
+    overRank.textContent = data.personalBest
+      ? `new personal best — #${data.rank} on the board.`
+      : `rank #${data.rank} on the board — your best still stands above this one.`;
   });
 }
 
@@ -745,4 +842,5 @@ form.addEventListener("submit", (e) => {
   loadNetwork(actor);
 });
 
+loadLeaderboard();
 if (input.value.trim()) loadNetwork(input.value.trim());

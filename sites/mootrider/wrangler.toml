@@ -1,17 +1,38 @@
 name = "atprotozoa-mootrider"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Pure static site — everything runs in the browser. Type a Bluesky handle
-# and it reads the public AppView (getFollows / getFollowers / a
-# getProfiles batch, all anonymous, CORS *) to pull that handle's moots
-# (mutuals, widened to follows if too small — moots-graph logic copied
-# from pacmoot/lib/cluster.js, itself from mootdrone, itself from
+# Client is still the whole game: type a Bluesky handle and it reads the
+# public AppView (getFollows / getFollowers / a getProfiles batch, all
+# anonymous, CORS *) to pull that handle's moots (mutuals, widened to
+# follows if too small — moots-graph logic copied from
+# pacmoot/lib/cluster.js, itself from mootdrone, itself from
 # clustercrawl, itself from simcluster: copy, don't abstract). Then it's
 # Line Rider: your own avatar sleds down a procedurally-generated hill
-# track that scrolls forever, your moots' avatars sit on the slope as
-# obstacles to jump over, and every so often a top chicken (a CluckTrade
-# escapee, see cluckstonks.bisks.net) rolls through as a free bonus.
-# Canvas + vanilla JS, no server, no build step.
-assets = { directory = "./public" }
-
+# track that scrolls forever and slowly steepens (gaps tighten, the bonus
+# chicken gets rarer), your moots' avatars sit on the slope as obstacles
+# to jump over, and every so often a top chicken (a CluckTrade escapee,
+# see cluckstonks.bisks.net) rolls through as a free bonus.
+#
+# The one server bit: a tiny Durable Object (src/index.ts) holds a global
+# top-scores leaderboard so runs are comparable across everyone who's
+# played, not just localStorage-per-browser. Single instance ("global"),
+# same shape as sites/ratioed's tracker DO — one writer, no races.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header
+# join that table, so a routes line below [assets] silently becomes
+# assets.routes (gotcha called out in sites/ratioed/sites/logs/etc).
 routes = [{ pattern = "mootrider.bisks.net", custom_domain = true }]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[durable_objects.bindings]]
+name = "LEADERBOARD"
+class_name = "Leaderboard"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Leaderboard"]
