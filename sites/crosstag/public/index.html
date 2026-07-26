@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>crosstag — bisks.net</title>
+    <meta name="description" content="every reply where two Bluesky accounts have tagged each other, laid out as one scrolling timeline." />
+    <meta property="og:title" content="crosstag" />
+    <meta property="og:description" content="type two Bluesky handles, see the whole history of them tagging each other." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <!-- bisks.net house style: plain, black on white, one readable mono,
+         hairline-separated entries. Copied from trigrams/public/tagged. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --accent-b: #b0472e; /* second account's accent, for the alternating rail */
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header { margin-bottom: 1.5rem; }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      .intro {
+        color: var(--muted); margin: 0.75rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 56ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      .bar {
+        display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.65rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink);
+        border-radius: 3px; max-width: 14rem; flex: 1; min-width: 9rem;
+      }
+      input[type="text"]::placeholder { color: #aaa; }
+      .vs { color: var(--muted); font-size: 0.85rem; }
+      button {
+        font-family: inherit; font-size: 0.85rem;
+        padding: 0.5rem 0.9rem; border: 1px solid var(--ink);
+        background: var(--ink); color: var(--bg); border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost {
+        background: var(--bg); color: var(--ink);
+      }
+      button.ghost:hover { background: var(--faint); }
+      .status { font-size: 0.78rem; color: var(--muted); width: 100%; }
+
+      .who {
+        display: flex; align-items: center; gap: 0.6rem; margin-bottom: 2rem;
+        font-size: 0.85rem; flex-wrap: wrap;
+      }
+      .who img {
+        width: 22px; height: 22px; border-radius: 50%; vertical-align: middle;
+        background: var(--faint);
+      }
+      .who a { color: inherit; text-decoration: none; font-weight: 600; }
+      .who a:hover { color: var(--accent); }
+      .who .x { color: var(--muted); }
+
+      .card {
+        padding: 1rem 0 1rem 0.85rem;
+        border-top: 1px solid var(--faint);
+        border-left: 3px solid var(--faint);
+        animation: fade 0.25s ease both;
+      }
+      .card:first-child { border-top: none; }
+      .card.a { border-left-color: var(--accent); }
+      .card.b { border-left-color: var(--accent-b); }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+      .card .by {
+        display: flex; align-items: center; gap: 0.45rem;
+        font-size: 0.82rem; color: var(--muted); margin-bottom: 0.4rem;
+      }
+      .card .by img {
+        width: 18px; height: 18px; border-radius: 50%; background: var(--faint);
+      }
+      .card .by a { color: inherit; text-decoration: none; font-weight: 600; }
+      .card .by a:hover { color: var(--accent); }
+      .card .by time { color: var(--muted); }
+      .card .by .replytag {
+        color: var(--accent); font-size: 0.74rem;
+      }
+      .card .by .replytag a { color: inherit; font-weight: 400; }
+      .card .by .replytag a:hover { text-decoration: underline; }
+
+      .card .body {
+        margin: 0 0 0.45rem; word-break: break-word; font-size: 0.94rem;
+        white-space: pre-wrap;
+      }
+      .card .body b { color: var(--accent); font-weight: 600; }
+      .card a.perma {
+        font-size: 0.78rem; color: var(--muted); text-decoration: none;
+      }
+      .card a.perma:hover { color: var(--accent); text-decoration: underline; }
+
+      .err { color: #c0392b; }
+      .empty { color: var(--muted); font-size: 0.9rem; margin-top: 1rem; }
+
+      .share {
+        margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--faint);
+        display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;
+      }
+      .share a {
+        font-size: 0.82rem; color: var(--bg); background: var(--accent);
+        text-decoration: none; padding: 0.45rem 0.8rem; border-radius: 3px;
+      }
+      .share a:hover { background: #1449a3; }
+      .share .link {
+        font-size: 0.78rem; color: var(--muted);
+      }
+      .share .link a { color: var(--accent); background: none; padding: 0; }
+      .share .link a:hover { text-decoration: underline; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">crosstag</a></h1>
+        <p class="intro">
+          type two Bluesky handles. <b>crosstag</b> pulls every post where the
+          first account replies and tags the second, and every post where the
+          second replies and tags the first — via <code>searchPosts</code>'s
+          <code>author</code> + <code>mentions</code> filters, both
+          directions — merges them into one chronological timeline, and marks
+          which ones are replies (vs. a bare mention). The whole back-and-forth
+          of two accounts @-ing each other, in order.
+        </p>
+      </header>
+
+      <div id="app"></div>
+
+      <footer>
+        reads run client-side against Bluesky's public AppView
+        (<a href="https://docs.bsky.app/docs/api/app-bsky-feed-search-posts">searchPosts</a>,
+        no login) · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveProfile, scanCrosstags, postUrl } from "./lib/bsky.js";
+
+      const app = document.getElementById("app");
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+
+      function highlightMention(text, handle) {
+        const escaped = escapeHtml(text);
+        const esc = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        try {
+          return escaped.replace(
+            new RegExp("(@" + esc + "\\b)", "gi"),
+            "<b>$1</b>",
+          );
+        } catch {
+          return escaped;
+        }
+      }
+
+      function timeAgo(iso) {
+        if (!iso) return "";
+        const ms = Date.parse(iso);
+        if (Number.isNaN(ms)) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [
+          ["y", 31536000], ["mo", 2592000], ["d", 86400],
+          ["h", 3600], ["m", 60], ["s", 1],
+        ];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return `${v}${u} ago`;
+        }
+        return "just now";
+      }
+
+      function render() {
+        app.innerHTML = `
+          <div class="bar">
+            <input id="h1" type="text" placeholder="first handle" />
+            <span class="vs">×</span>
+            <input id="h2" type="text" placeholder="second handle" />
+            <button id="go">crosstag</button>
+          </div>
+          <div class="status" id="status"></div>
+          <div id="who" class="who" style="display:none"></div>
+          <div id="results"></div>
+          <div id="shareBar"></div>`;
+
+        const h1 = document.getElementById("h1");
+        const h2 = document.getElementById("h2");
+        const go = () => {
+          const a = h1.value.trim();
+          const b = h2.value.trim();
+          if (a && b) run(a, b);
+        };
+        document.getElementById("go").onclick = go;
+        [h1, h2].forEach((el) =>
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") go();
+          }),
+        );
+        return { h1, h2 };
+      }
+
+      function avatarImg(profile) {
+        const src = profile.avatar || "";
+        return src
+          ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />`
+          : `<img src="data:image/svg+xml,${encodeURIComponent(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><rect width="22" height="22" fill="%23e4e4e4"/></svg>',
+            )}" alt="" />`;
+      }
+
+      function renderCard(container, post, a, b) {
+        const author = post.authorDid === a.did ? a : b;
+        const other = post.authorDid === a.did ? b : a;
+        const card = document.createElement("article");
+        card.className = "card " + (post.authorDid === a.did ? "a" : "b");
+        const reply = post.isReply
+          ? `<span class="replytag">↳ <a href="${escapeHtml(
+              postUrl(post.parentUri || ""),
+            )}" target="_blank" rel="noopener">reply</a></span>`
+          : `<span class="replytag">mention</span>`;
+        card.innerHTML = `
+          <p class="by">
+            ${avatarImg(author)}
+            <a href="https://bsky.app/profile/${escapeHtml(author.handle)}" target="_blank" rel="noopener">${escapeHtml(author.displayName)}</a>
+            <time title="${escapeHtml(post.createdAt || "")}">${timeAgo(post.createdAt)}</time>
+            ${reply}
+          </p>
+          <p class="body">${highlightMention(post.text, other.handle)}</p>
+          <a class="perma" href="${escapeHtml(postUrl(post.uri))}" target="_blank" rel="noopener">view post →</a>`;
+        container.appendChild(card);
+      }
+
+      async function run(input1, input2) {
+        const btn = document.getElementById("go");
+        const status = document.getElementById("status");
+        const who = document.getElementById("who");
+        const results = document.getElementById("results");
+        const shareBar = document.getElementById("shareBar");
+        btn.disabled = true;
+        results.innerHTML = "";
+        shareBar.innerHTML = "";
+        who.style.display = "none";
+        status.innerHTML = "resolving both handles…";
+
+        let a, b;
+        try {
+          [a, b] = await Promise.all([resolveProfile(input1), resolveProfile(input2)]);
+        } catch (e) {
+          status.innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        who.style.display = "flex";
+        who.innerHTML = `
+          ${avatarImg(a)}<a href="https://bsky.app/profile/${escapeHtml(a.handle)}" target="_blank" rel="noopener">@${escapeHtml(a.handle)}</a>
+          <span class="x">×</span>
+          ${avatarImg(b)}<a href="https://bsky.app/profile/${escapeHtml(b.handle)}" target="_blank" rel="noopener">@${escapeHtml(b.handle)}</a>`;
+
+        let doneA = 0, doneB = 0;
+        const reportStatus = () =>
+          (status.textContent = `scanning… ${doneA} from @${a.handle}, ${doneB} from @${b.handle}`);
+
+        let postsAtoB, postsBtoA;
+        try {
+          [postsAtoB, postsBtoA] = await Promise.all([
+            scanCrosstags(a.did, b.did, {
+              onPage: (_, n) => { doneA = n; reportStatus(); },
+            }),
+            scanCrosstags(b.did, a.did, {
+              onPage: (_, n) => { doneB = n; reportStatus(); },
+            }),
+          ]);
+        } catch (e) {
+          status.innerHTML = `<span class="err">scan failed: ${escapeHtml(e.message)}</span>`;
+          btn.disabled = false;
+          return;
+        }
+
+        const all = [...postsAtoB, ...postsBtoA].sort(
+          (x, y) => Date.parse(x.createdAt || 0) - Date.parse(y.createdAt || 0),
+        );
+
+        if (all.length === 0) {
+          status.textContent = "done · no crosstags found.";
+          results.innerHTML = `<p class="empty">nobody's tagged the other, ever — or at least not since search's lookback. try swapping who's first, or a different pair.</p>`;
+          btn.disabled = false;
+          return;
+        }
+
+        for (const post of all) renderCard(results, post, a, b);
+        const replies = all.filter((p) => p.isReply).length;
+        status.textContent = `done · ${all.length} crosstag${all.length === 1 ? "" : "s"} (${replies} in replies, ${all.length - replies} bare mentions)`;
+
+        const url = new URL(location.href);
+        url.searchParams.set("a", a.handle);
+        url.searchParams.set("b", b.handle);
+        history.replaceState(null, "", url.toString());
+
+        const shareText = `@${a.handle} and @${b.handle} have tagged each other ${all.length} time${all.length === 1 ? "" : "s"} — the whole history:`;
+        shareBar.innerHTML = `
+          <div class="share">
+            <a href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText + " " + url.toString())}" target="_blank" rel="noopener">share to Bluesky</a>
+            <span class="link">or copy: <a href="${escapeHtml(url.toString())}">${escapeHtml(url.toString())}</a></span>
+          </div>`;
+
+        btn.disabled = false;
+      }
+
+      const { h1, h2 } = render();
+      const params = new URLSearchParams(location.search);
+      const pa = params.get("a");
+      const pb = params.get("b");
+      if (pa && pb) {
+        h1.value = pa;
+        h2.value = pb;
+        run(pa, pb);
+      }
+    </script>
+  </body>
+</html>
