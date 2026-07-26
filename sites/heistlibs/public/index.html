@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>heistlibs — Jimothy & Moo Deng's heist script generator — bisks.net</title>
+    <meta
+      name="description"
+      content="A mad-libs heist film script generator that shoehorns Jimothy (a short-spined raccoon) and Moo Deng (an unbothered pygmy hippo) into every classic heist-movie cliche, plus a crude MS-Paint-style movie poster to go with it."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://heistlibs.bisks.net/" />
+    <meta property="og:title" content="heistlibs — Jimothy & Moo Deng's heist script generator" />
+    <meta
+      property="og:description"
+      content="One raccoon with a famously short spine. One unbothered pygmy hippo. One last job, generated fresh every time — with a rudimentary movie poster to match."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="heistlibs — Jimothy & Moo Deng's heist script generator" />
+    <meta
+      name="twitter:description"
+      content="One raccoon with a famously short spine. One unbothered pygmy hippo. One last job, generated fresh every time."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. The garish stuff is deliberately contained to
+         the poster canvas. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      button, a.btn {
+        font-family: var(--mono); font-size: 0.88rem; font-weight: 600;
+        color: #fff; background: var(--ink); border: none; border-radius: 6px;
+        padding: 0.65rem 1.1rem; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover, a.btn:hover { background: var(--accent); }
+      button.ghost, a.btn.ghost {
+        color: var(--ink); background: transparent; border: 1px solid var(--faint);
+        font-weight: 400;
+      }
+      button.ghost:hover, a.btn.ghost:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
+      button.small, a.btn.small { font-size: 0.76rem; padding: 0.4rem 0.7rem; font-weight: 400; }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      .again-row { margin: 0 0 2.25rem; }
+      .again-row button { font-size: 1rem; padding: 0.8rem 1.4rem; }
+
+      .cast {
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--faintbg);
+        padding: 0.85rem 1rem; font-size: 0.82rem; color: var(--muted);
+        margin-bottom: 1.5rem; line-height: 1.7;
+      }
+      .cast b { color: var(--ink); }
+
+      /* ── poster ─────────────────────────────────────────────────────── */
+      .poster-wrap {
+        display: flex; flex-direction: column; align-items: center; gap: 0.85rem;
+        margin-bottom: 2.5rem;
+      }
+      #poster {
+        width: 100%; max-width: 380px; height: auto;
+        border: 1px solid var(--ink); border-radius: 4px;
+        image-rendering: pixelated; image-rendering: crisp-edges;
+        display: block;
+      }
+      .poster-caption {
+        font-size: 0.74rem; color: var(--muted); text-align: center; max-width: 40ch;
+      }
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+
+      .controls-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin: 2rem 0 1rem; flex-wrap: wrap; gap: 0.6rem;
+      }
+      .controls-row h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+
+      .cards { display: flex; flex-direction: column; gap: 1.25rem; }
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+        background: var(--faintbg);
+      }
+      .card-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 0.6rem; gap: 0.6rem; flex-wrap: wrap;
+      }
+      .card-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      .card-buttons { display: flex; gap: 0.4rem; }
+      .card-text {
+        white-space: pre-wrap; background: var(--bg); border: 1px solid var(--ink);
+        border-radius: 4px; padding: 0.85rem 1rem; font-size: 0.9rem;
+      }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>heistlibs <span class="slash">/</span> Jimothy &amp; Moo Deng's heist script generator</h1>
+        <p class="intro">
+          A mad-libs generator that mashes up every heist-movie cliche — the
+          reassembled crew, the impossible vault, the countdown, the
+          double-cross, the getaway — and shoehorns in the same two "actors"
+          every time: <b>Jimothy</b>, a famously short-spined raccoon, and
+          <b>Moo Deng</b>, an unbothered pygmy hippo with a bite force nobody
+          wants to test. Every job comes with a rudimentary movie poster,
+          drawn fresh, that looks like it escaped MS Paint in 1998.
+        </p>
+      </header>
+
+      <div class="again-row">
+        <button id="again">🎬 one more job</button>
+      </div>
+
+      <p class="cast" id="cast"></p>
+
+      <div class="poster-wrap">
+        <canvas id="poster" width="800" height="1120"></canvas>
+        <p class="poster-caption">rendered at 400×560, blown up with smoothing off — every pixel earned its jaggedness</p>
+        <div class="share-row">
+          <button class="ghost small" id="download">download poster</button>
+          <a class="btn small" id="shareBsky" href="#" target="_blank" rel="noopener">share to bluesky</a>
+          <button class="ghost small" id="shareNative" style="display:none;">share…</button>
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <h2>the script</h2>
+        <div class="card-buttons">
+          <button class="ghost small" id="copyAll">copy full script</button>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+
+      <footer>
+        part of <a href="https://bisks.net">bisks.net</a> — a little zoo of tiny atproto experiments
+      </footer>
+    </div>
+
+    <script>
+      // ── word pools — deliberately silly, occasionally heist-appropriate ──
+      function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+      function randInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+      function pickTwoDistinct(arr) {
+        const a = pick(arr);
+        let b = pick(arr);
+        let guard = 0;
+        while (b === a && guard++ < 10) b = pick(arr);
+        return [a, b];
+      }
+
+      const TARGETS = [
+        { full: "the First National Bank of Nowhere Special", short: "BANK" },
+        { full: "the Yolk County Natural History Museum", short: "MUSEUM" },
+        { full: "Duke's Casino & Reptile Lounge", short: "CASINO" },
+        { full: "a Brinks truck full of scratch-off tickets", short: "ARMORED TRUCK" },
+        { full: "the Sultan of Whichever's private petting zoo", short: "ZOO" },
+        { full: "the Louvre's least-guarded broom closet", short: "LOUVRE" },
+        { full: "a Wells Fargo vault under a Reno parking garage", short: "VAULT" },
+        { full: "the world's second-largest ball of twine (fully insured)", short: "TWINE" },
+        { full: "a wine cellar owned by a man known only as 'The Baron'", short: "CELLAR" },
+        { full: "the vault beneath a regional Cracker Barrel", short: "CRACKER BARREL" },
+      ];
+      const MACGUFFINS = [
+        "the Ruby of Kandahar", "a flash drive containing the mayor's browser history",
+        "forty pounds of gold bullion stamped 'PROPERTY OF NOBODY'",
+        "the original recipe for the secret sauce", "a briefcase of blackmail Polaroids",
+        "the last known bottle of 1997 ranch dip", "a cursed emerald the exact size of a fist",
+        "the deed to the moon", "seven hundred thousand dollars in unmarked, oddly damp bills",
+        "a single, perfect, unclaimed lottery ticket",
+      ];
+      const OBSTACLES = [
+        "a laser grid nobody bothered to angle correctly",
+        "a retina scanner that also, inexplicably, checks vibes",
+        "an army of guard dogs on a suspiciously predictable feeding schedule",
+        "a twelve-foot vault door with the code taped inside the manager's desk",
+        "motion sensors calibrated for anything taller than a hippo",
+        "a security team that takes its coffee break at the worst possible moment",
+        "one extremely judgmental parrot",
+        "a night guard who has seen this exact movie and is not falling for it",
+        "pressure-sensitive floor tiles laid out like a hopscotch court",
+        "a silent alarm wired to absolutely nothing, on purpose, as a bluff",
+      ];
+      const LOC_NOUNS = [
+        "a Golden Corral", "a defunct Blockbuster", "the DMV", "a self-storage facility",
+        "a regional airport baggage claim", "a Bass Pro Shops", "a strip-mall nail salon",
+        "an IHOP that never closes", "a Buffalo Wild Wings", "a church rummage sale",
+      ];
+      const LOCS = [
+        "Reno", "Macau", "Zurich", "Monte Carlo", "Antwerp",
+        "a Denny's parking lot in Duluth", "an off-brand casino boat",
+        "a truck stop outside Amarillo", "the tri-county fairgrounds", "Atlantic City",
+      ];
+      const ADJECTIVES = [
+        "suspicious", "glittering", "over-engineered", "criminally underpaid",
+        "allegedly legal", "extremely damp", "inexplicably flammable",
+        "freshly laminated", "morally gray", "structurally dubious",
+        "unnecessarily loud", "aggressively normal", "deeply unqualified",
+        "surprisingly load-bearing", "vaguely illegal", "off-brand",
+      ];
+      const NOUNS = [
+        "cocktail napkin", "laminated blueprint", "disco ball", "church bell",
+        "forklift", "kazoo", "inflatable kiddie pool", "trash compactor",
+        "vending machine", "folding chair", "traffic cone", "karaoke machine",
+        "shopping cart", "lava lamp", "ceiling fan",
+      ];
+      const JIMOTHY_ROLES = [
+        "the safecracker", "the getaway driver", "the lookout",
+        "the master of disguise", "the self-appointed explosives expert",
+        "the guy who talks to the pigeons", "the inside man (technically inside the walls)",
+        "the vent specialist", "the guy holding the blueprint upside down",
+      ];
+      const MOODENG_ROLES = [
+        "the muscle", "the mastermind", "the distraction", "the moral compass",
+        "the loose cannon", "the getaway captain, aquatic jobs only",
+        "the emotional support hippo", "the one everyone is afraid to correct",
+      ];
+      const MOODENG_ACTIONS = [
+        "headbutting the vending machine out of the way",
+        "sitting on the nearest guard, decisively",
+        "yawning with genuinely alarming commitment",
+        "refusing to move, for reasons that become clear later",
+        "eating what may or may not have been evidence",
+        "doing the ear thing that always, somehow, works",
+        "making unbroken eye contact with a security camera until it looks away first",
+      ];
+      const MOODENG_ACTIONS2 = [
+        "sitting on it", "headbutting it into the next room",
+        "staring at it until it reconsiders its life choices",
+        "eating the part of it that seemed important",
+        "hip-checking it through a drywall she was not supposed to know was load-bearing",
+        "ignoring it completely, which somehow also works",
+      ];
+      const RATINGS = [
+        "Rated PG for Mild Peril and Excessive Snacking",
+        "Rated PG-13 for One (1) Hippo-Related Property Crime",
+        "Rated R for Reckless Raccoon Behavior",
+        "Not Yet Rated — the board couldn't stop laughing",
+        "Rated PG for Thematic Elements and a Genuinely Concerning Bite Force",
+      ];
+      const YEARS_OR_JOBS = ["years", "heists", "'legitimate business ventures'", "group chats", "restraining orders"];
+
+      const PALETTES = [
+        { bg: "#fff200", bg2: "#ff2fb0", title: ["#ff2fb0", "#0033cc", "#00a651"], stamp: "#0033cc" },
+        { bg: "#00e05a", bg2: "#2b2bff", title: ["#fff200", "#ff2fb0", "#ffffff"], stamp: "#ff2fb0" },
+        { bg: "#ff5b00", bg2: "#ffe600", title: ["#2b2bff", "#ffffff", "#ff2fb0"], stamp: "#2b2bff" },
+        { bg: "#00c2ff", bg2: "#fff200", title: ["#ff2fb0", "#2b2bff", "#ffffff"], stamp: "#ff5b00" },
+      ];
+
+      function fmtCountdown(sec) {
+        if (sec < 60) return sec + " seconds";
+        const m = Math.floor(sec / 60), r = sec % 60;
+        return r ? `${m} minute${m === 1 ? "" : "s"} and ${r} seconds` : `${m} minute${m === 1 ? "" : "s"}`;
+      }
+
+      const TITLE_TEMPLATES = [
+        (s) => `THE ${s.target.short} JOB`,
+        () => `SNOUT & SPINE`,
+        () => `ONE LAST SQUEAK`,
+        () => `TOOTH, CLAW & HIPPO LAW`,
+        () => `RACCOON. HIPPO. ONE LAST JOB.`,
+        (s) => `${s.countdown} SECONDS OF CHAOS`,
+        (s) => `THE ${s.location.toUpperCase()} SCORE`,
+        () => `MOO DENG & THE ${pick(ADJECTIVES).toUpperCase()} HEIST`,
+        () => `SHORT SPINE, LONG CON`,
+        () => `THE HIPPO HAS THE BAG`,
+        (s) => `JIMOTHY & MOO DENG: ${s.target.short} OR BUST`,
+      ];
+      const TAGLINE_TEMPLATES = [
+        (s) => `One raccoon. One hippo. ${s.countdown} seconds. Zero good decisions.`,
+        () => `They said it couldn't be done by a rodent with a short spine and a hippo who doesn't listen. They were almost right.`,
+        (s) => `This time, it's ${s.jimothyRole.replace(/^the /, "")} versus ${s.obstacle}.`,
+        () => `Every heist needs a plan. This one has a hippo instead.`,
+        (s) => `${s.rating.split(" — ")[0]}. Coming to a dumpster near you.`,
+        () => `He fits through anything. She fits through nothing, and does it anyway.`,
+        () => `The vault has never met anyone quite like them. It still hasn't, really.`,
+      ];
+
+      const SCENES = [
+        {
+          title: "the crew",
+          build(s) {
+            return `It's been ${randInt(2, 17)} ${pick(YEARS_OR_JOBS)} since the last job. Everyone swore they were done. Then a ${pick(ADJECTIVES)} envelope shows up with photos of ${s.target.full}, and the old crew reassembles for one more run. JIMOTHY THE RACCOON — famously short-spined, professionally twitchy, able to fit through any gap narrower than a mail slot — is pulled out of a dumpster behind ${pick(LOC_NOUNS)} and signed on as ${s.jimothyRole}. MOO DENG, a ${pick(ADJECTIVES)} pygmy hippo with a bite force nobody in this crew has ever volunteered to test, is found wallowing in a kiddie pool and named ${s.mooDengRole}. Somebody says "one last job." Nobody remembers who. Jimothy chitters. Moo Deng squeaks once, which the whole crew has long since agreed means yes.`;
+          },
+        },
+        {
+          title: "the target",
+          build(s) {
+            return `The mark: ${s.target.full}, home to ${s.macguffin}, guarded by ${s.obstacle} and, allegedly, ${s.obstacle2}. Word is nobody's cracked it since a crew tried back in ${randInt(1990, 2023)} and is still doing ${pick(ADJECTIVES)} community service in ${pick(LOCS)}. It's ${pick(ADJECTIVES)}. It's borderline suicidal. Jimothy has already found the ventilation shaft. Moo Deng has already found the snack table.`;
+          },
+        },
+        {
+          title: "the plan",
+          build(s) {
+            return `The plan, drawn in ${pick(ADJECTIVES)} marker on a ${pick(NOUNS)}: Jimothy goes in through the vents at ${randInt(1, 11)}:${String(randInt(0, 59)).padStart(2, "0")} sharp, playing ${s.jimothyRole} past ${s.obstacle}. Moo Deng, playing ${s.mooDengRole}, is on standby for ${pick(MOODENG_ACTIONS)}. They have exactly ${fmtCountdown(s.countdown)} between guard rotations. "It's simple," says whoever is holding the marker. It is not simple. Nothing involving a raccoon and a hippo has ever been simple.`;
+          },
+        },
+        {
+          title: "the job",
+          build(s) {
+            return `${fmtCountdown(s.countdown)} on the clock and counting down. Jimothy is inside the walls, stuffing ${s.macguffin} into a ${pick(NOUNS)} with paws too small for the job and a spine too short to care. Moo Deng is exactly where Moo Deng said Moo Deng would be, which is to say: unclear, but load-bearing. An alarm — ${pick(ADJECTIVES)}, ${pick(ADJECTIVES)} — goes off anyway. Nobody panics. Someone panics. It's Jimothy.`;
+          },
+        },
+        {
+          title: "the complication",
+          build(s) {
+            return `Of course there's a complication: ${s.obstacle2} was never supposed to be there, and now it is, standing directly between the crew and the door. Moo Deng considers this for exactly one second before ${pick(MOODENG_ACTIONS2)}. It is not in the plan. It works anyway. Jimothy, ${pick(ADJECTIVES)} and covered in ${pick(NOUNS)} residue, makes a break for the exit with ${s.macguffin} clutched against his famously short spine.`;
+          },
+        },
+        {
+          title: "the getaway",
+          build(s) {
+            return `They clear ${pick(LOCS)} with ${fmtCountdown(randInt(4, 55))} to spare, Moo Deng at the wheel of a ${pick(NOUNS)} built for a creature roughly one-tenth her size, Jimothy hanging out the window screeching directions nobody asked for. Behind them: sirens, chaos, a ${pick(ADJECTIVES)} security guard filing a report nobody will believe involves a raccoon and a hippo. Ahead: retirement, again, for real this time, probably not.\n\n"${s.tagline}"`;
+          },
+        },
+      ];
+
+      function generateState() {
+        const [obstacle, obstacle2] = pickTwoDistinct(OBSTACLES);
+        const s = {
+          target: pick(TARGETS),
+          macguffin: pick(MACGUFFINS),
+          obstacle,
+          obstacle2,
+          location: pick(LOCS),
+          jimothyRole: pick(JIMOTHY_ROLES),
+          mooDengRole: pick(MOODENG_ROLES),
+          countdown: randInt(45, 300),
+          rating: pick(RATINGS),
+          palette: pick(PALETTES),
+        };
+        s.title = pick(TITLE_TEMPLATES)(s);
+        s.tagline = pick(TAGLINE_TEMPLATES)(s);
+        return s;
+      }
+
+      // ── poster: drawn small, blown up with smoothing off for that
+      // chunky, over-zoomed MS Paint look ──────────────────────────────
+      function wrapLines(ctx, text, maxWidth) {
+        const words = text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = w;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function drawWobblyRect(ctx, x, y, w, h, jitter) {
+        ctx.lineWidth = 7;
+        ctx.strokeStyle = "#000000";
+        const pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+        for (let pass = 0; pass < 3; pass++) {
+          ctx.beginPath();
+          pts.forEach((p, i) => {
+            const jx = p[0] + (Math.random() - 0.5) * jitter;
+            const jy = p[1] + (Math.random() - 0.5) * jitter;
+            if (i === 0) ctx.moveTo(jx, jy);
+            else ctx.lineTo(jx, jy);
+          });
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+
+      function drawHippo(ctx, x, y, sc) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(sc, sc);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "#000000";
+        ctx.fillStyle = "#b9a7c9";
+        ctx.beginPath(); ctx.ellipse(0, 0, 68, 44, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        [[-42, 28], [-14, 33], [14, 33], [42, 28]].forEach(([lx, ly]) => {
+          ctx.fillRect(lx - 8, ly, 16, 22);
+          ctx.strokeRect(lx - 8, ly, 16, 22);
+        });
+        ctx.beginPath(); ctx.ellipse(66, -6, 30, 25, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(52, -28, 8, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(80, -28, 8, 8, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#ff6b8a";
+        ctx.beginPath(); ctx.ellipse(90, 4, 17, 11, 0, 0, Math.PI); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(80, 4, 6, 8); ctx.strokeRect(80, 4, 6, 8);
+        ctx.fillRect(92, 4, 6, 8); ctx.strokeRect(92, 4, 6, 8);
+        ctx.fillStyle = "#000000";
+        ctx.beginPath(); ctx.ellipse(76, -14, 3, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(96, -8, 2, 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(101, -6, 2, 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+
+      function drawRaccoon(ctx, x, y, sc) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(sc, sc);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#000000";
+        // note: the whole gag is that the body reads short/stubby next to a
+        // proportionally large head and tail — that's the "short spine".
+        ctx.fillStyle = "#8a8a8a";
+        ctx.beginPath(); ctx.ellipse(0, 14, 22, 24, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, -22, 22, 20, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-18, -36); ctx.lineTo(-8, -52); ctx.lineTo(-2, -34); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(18, -36); ctx.lineTo(8, -52); ctx.lineTo(2, -34); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#2a2a2a";
+        ctx.beginPath(); ctx.ellipse(0, -24, 20, 9, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath(); ctx.ellipse(-8, -24, 4, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(8, -24, 4, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#000000";
+        ctx.beginPath(); ctx.ellipse(-8, -24, 2, 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(8, -24, 2, 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, -12, 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+        let stripe = 0;
+        for (let t = 0; t <= 1; t += 0.12) {
+          const tx = 22 + t * 58;
+          const ty = 22 - t * 8 + Math.sin(t * Math.PI) * 22;
+          ctx.fillStyle = stripe % 2 === 0 ? "#8a8a8a" : "#2a2a2a";
+          ctx.beginPath(); ctx.ellipse(tx, ty, 10, 7, t * 0.6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          stripe++;
+        }
+        ctx.restore();
+      }
+
+      function drawPoster(state) {
+        const OW = 400, OH = 560;
+        const off = document.createElement("canvas");
+        off.width = OW; off.height = OH;
+        const ctx = off.getContext("2d");
+        const pal = state.palette;
+
+        ctx.fillStyle = pal.bg;
+        ctx.fillRect(0, 0, OW, OH);
+        ctx.fillStyle = pal.bg2;
+        ctx.beginPath();
+        ctx.moveTo(0, OH);
+        ctx.lineTo(OW, OH * 0.4);
+        ctx.lineTo(OW, OH);
+        ctx.closePath();
+        ctx.fill();
+
+        drawWobblyRect(ctx, 8, 8, OW - 16, OH - 16, 5);
+
+        // title, word-wrapped, alternating garish colors, hard offset shadow
+        ctx.font = "italic 900 34px 'Comic Sans MS', 'Chalkboard SE', cursive";
+        ctx.textAlign = "center";
+        const lines = wrapLines(ctx, state.title, OW - 60);
+        let ty = 82;
+        lines.forEach((line, i) => {
+          const color = pal.title[i % pal.title.length];
+          ctx.fillStyle = "#000000";
+          ctx.fillText(line, OW / 2 + 3, ty + 3);
+          ctx.fillStyle = color;
+          ctx.fillText(line, OW / 2, ty);
+          ty += 40;
+        });
+
+        drawRaccoon(ctx, OW * 0.32, OH * 0.52, 1.15);
+        drawHippo(ctx, OW * 0.68, OH * 0.58, 1.1);
+
+        ctx.fillStyle = "#000000";
+        ctx.font = "bold 11px 'Comic Sans MS', cursive";
+        ctx.textAlign = "center";
+        ctx.fillText("STARRING A RACCOON WITH A SUSPICIOUSLY SHORT SPINE", OW / 2, OH - 196);
+        ctx.fillText("AND A HIPPO WHO CANNOT BE REASONED WITH", OW / 2, OH - 182);
+
+        // coffee stain, because every good poster mockup has one
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = "#6b3d1a";
+        ctx.beginPath(); ctx.ellipse(52, OH - 130, 26, 22, 0.1, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#6b3d1a";
+        ctx.stroke();
+        ctx.restore();
+
+        // tagline banner, rotated, dashed border
+        ctx.save();
+        ctx.translate(OW / 2, OH - 62);
+        ctx.rotate(-0.03);
+        ctx.fillStyle = "#fff200";
+        ctx.fillRect(-168, -30, 336, 58);
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(-168, -30, 336, 58);
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#000000";
+        ctx.font = "bold 12px 'Comic Sans MS', cursive";
+        ctx.textAlign = "center";
+        const tlLines = wrapLines(ctx, state.tagline, 300).slice(0, 3);
+        let tly = -30 + 58 / 2 - ((tlLines.length - 1) * 15) / 2 + 4;
+        tlLines.forEach((l) => { ctx.fillText(l, 0, tly); tly += 15; });
+        ctx.restore();
+
+        // rating stamp, rotated corner box
+        ctx.save();
+        ctx.translate(OW - 52, 28);
+        ctx.rotate(0.14);
+        ctx.strokeStyle = pal.stamp;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-42, -14, 84, 28);
+        ctx.fillStyle = pal.stamp;
+        ctx.font = "bold 7px 'Courier New', monospace";
+        ctx.textAlign = "center";
+        const ratingLines = wrapLines(ctx, state.rating.toUpperCase(), 76);
+        let ry = -4;
+        ratingLines.slice(0, 3).forEach((l) => { ctx.fillText(l, 0, ry); ry += 9; });
+        ctx.restore();
+
+        // final blit: scale up with smoothing OFF for the chunky pixel look
+        const canvas = document.getElementById("poster");
+        const vctx = canvas.getContext("2d");
+        vctx.imageSmoothingEnabled = false;
+        vctx.clearRect(0, 0, canvas.width, canvas.height);
+        vctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+      }
+
+      // ── DOM wiring ─────────────────────────────────────────────────────
+      const $cast = document.getElementById("cast");
+      const $cards = document.getElementById("cards");
+      const $again = document.getElementById("again");
+      const $download = document.getElementById("download");
+      const $shareBsky = document.getElementById("shareBsky");
+      const $shareNative = document.getElementById("shareNative");
+      const $copyAll = document.getElementById("copyAll");
+
+      let state = null;
+
+      function renderCast() {
+        $cast.innerHTML = `<b>${state.title}</b> — ${state.rating}<br>` +
+          `Jimothy plays <b>${state.jimothyRole}</b>. Moo Deng plays <b>${state.mooDengRole}</b>. ` +
+          `The target is ${state.target.full}.`;
+      }
+
+      function sceneText(i) {
+        return SCENES[i].build(state);
+      }
+
+      function renderCards() {
+        $cards.innerHTML = SCENES.map((sc, i) => `
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">${sc.title}</span>
+              <div class="card-buttons">
+                <button class="ghost small" data-reroll="${i}">reroll</button>
+                <button class="ghost small" data-copy="${i}">copy</button>
+              </div>
+            </div>
+            <div class="card-text" id="card-text-${i}">${escapeHtml(sceneText(i))}</div>
+          </div>
+        `).join("");
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+      }
+
+      function fullScriptText() {
+        return `${state.title}\n${state.rating}\n\n` +
+          SCENES.map((sc) => `— ${sc.title.toUpperCase()} —\n${document.getElementById("card-text-" + SCENES.indexOf(sc)).textContent}`).join("\n\n");
+      }
+
+      function updateShare() {
+        const shareText = `${state.title} — ${state.tagline} (made at heistlibs.bisks.net)`;
+        $shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      function newJob() {
+        state = generateState();
+        renderCast();
+        renderCards();
+        drawPoster(state);
+        updateShare();
+      }
+
+      $again.addEventListener("click", newJob);
+
+      $cards.addEventListener("click", (e) => {
+        const rerollI = e.target.getAttribute("data-reroll");
+        const copyI = e.target.getAttribute("data-copy");
+        if (rerollI !== null) {
+          const el = document.getElementById("card-text-" + rerollI);
+          if (el) el.textContent = sceneText(Number(rerollI));
+        }
+        if (copyI !== null) {
+          const el = document.getElementById("card-text-" + copyI);
+          if (el) navigator.clipboard.writeText(el.textContent);
+        }
+      });
+
+      $copyAll.addEventListener("click", () => {
+        navigator.clipboard.writeText(fullScriptText());
+      });
+
+      $download.addEventListener("click", () => {
+        const canvas = document.getElementById("poster");
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "heistlibs-" + state.target.short.toLowerCase().replace(/\s+/g, "-") + ".png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $shareNative.style.display = "";
+        $shareNative.addEventListener("click", () => {
+          const canvas = document.getElementById("poster");
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "heistlibs-poster.png", { type: "image/png" });
+            try {
+              await navigator.share({
+                files: [file],
+                text: `${state.title} — ${state.tagline} (made at heistlibs.bisks.net)`,
+                title: "heistlibs",
+              });
+            } catch (_) {
+              // user cancelled the share sheet — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      newJob();
+    </script>
+  </body>
+</html>
