@@ -280,6 +280,67 @@
     border-top: 1px solid var(--rule); text-align: center;
   }
   footer a { color: var(--link); }
+
+  /* ---- generic period-portal modal (mail/chat/auctions/anecdotes/guestbook) ---- */
+  #modalOverlay {
+    position: fixed; inset: 0; background: rgba(20,10,5,0.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 6vh 12px; z-index: 50; overflow-y: auto;
+  }
+  #modalOverlay.hidden { display: none; }
+  .modalbox {
+    background: var(--panel); border: 3px solid var(--purple);
+    max-width: 460px; width: 100%; box-shadow: 4px 4px 0 rgba(0,0,0,0.3);
+  }
+  .modalhead {
+    background: var(--purple); color: #fff; font-family: Arial, sans-serif;
+    font-weight: bold; font-size: 13px; padding: 6px 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modalhead button {
+    background: #fff; color: var(--purple-dark); border: 1px solid #000;
+    font-family: Arial, sans-serif; font-weight: bold; font-size: 11px;
+    width: 20px; height: 20px; cursor: pointer; line-height: 1;
+  }
+  .modalbody { padding: 12px 14px; font-size: 13px; line-height: 1.6; }
+  .modalbody h4 { margin: 0 0 6px; font-size: 12px; color: var(--purple-dark); }
+  .modalbody .anecdote, .modalbody .lot, .modalbody .chatline { margin-bottom: 10px; }
+  .modalbody .anecdote b, .modalbody .lot b { display: block; font-size: 12px; }
+  .modalbody .chatline .who { font-weight: bold; }
+  .modalbody .chatline .who.herzog { color: #1a5fd0; }
+  .modalbody .chatline .who.kinski { color: #d4145a; }
+  .modalbody .chatline .who.wenders { color: #2e9c4a; }
+  .modalbody .lot .bid { color: #666; font-size: 11px; }
+  #gbForm { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  #gbForm input, #gbForm textarea {
+    font-family: Arial, sans-serif; font-size: 13px; padding: 5px 6px;
+    border: 2px inset #999; width: 100%;
+  }
+  #gbForm textarea { resize: vertical; min-height: 44px; }
+  #gbForm button {
+    align-self: flex-start; font-family: Arial, sans-serif; font-weight: bold;
+    font-size: 12px; padding: 5px 12px; background: var(--purple); color: #fff;
+    border: 1px solid var(--purple-dark); cursor: pointer;
+  }
+  #gbEntries { list-style: none; margin: 0; padding: 0; border-top: 1px dashed var(--rule); padding-top: 8px; }
+  #gbEntries li { margin-bottom: 8px; font-size: 12px; }
+  #gbEntries .gbname { font-weight: bold; }
+  #gbEntries .gbwhen { color: #888; font-size: 10px; }
+  #gbNote { font-size: 10px; color: #777; margin: -4px 0 8px; }
+
+  /* ---- breakthrough mode ---- */
+  #breakthroughRow { margin-top: 10px; }
+  #breakthroughToggle {
+    font-family: var(--pixel); font-size: 8px;
+    background: #222; color: #666; border: 1px solid #555;
+    padding: 6px 9px; cursor: not-allowed; letter-spacing: 0.5px;
+  }
+  #breakthroughToggle.unlocked { color: #ff5a5a; border-color: #ff5a5a; cursor: pointer; }
+  #breakthroughToggle.unlocked[aria-pressed="true"] { background: #ff5a5a; color: #000; }
+  #breakthroughHint { font-size: 8px; color: #888; margin-top: 4px; font-family: var(--pixel); line-height: 1.6; }
+  body.breakthrough-mode canvas#game { border-color: #ff5a5a; }
+  body.breakthrough-mode #gamebox { border-color: #d4145a; }
+  body.breakthrough-mode #moraleFill { background: #d4145a; }
 </style>
 </head>
 <body>
@@ -302,12 +363,12 @@
 <nav id="topnav">
   <a href="#directory">Directory</a><span class="sep">|</span>
   <a href="#gamebox">Y! Games</a><span class="sep">|</span>
-  <a href="#">Y! Mail</a><span class="sep">|</span>
-  <a href="#">Y! Jungle Chat</a><span class="sep">|</span>
-  <a href="#">Y! Rubber Auctions</a><span class="sep">|</span>
+  <a href="#" id="navMail">Y! Mail</a><span class="sep">|</span>
+  <a href="#" id="navChat">Y! Jungle Chat</a><span class="sep">|</span>
+  <a href="#" id="navAuctions">Y! Rubber Auctions</a><span class="sep">|</span>
   <a href="https://en.wikipedia.org/wiki/Fitzcarraldo" target="_blank" rel="noopener">Y! Movies</a><span class="sep">|</span>
-  <a href="#">Y! Weather: Iquitos</a><span class="sep">|</span>
-  <a href="#">More…</a>
+  <a href="#sidebar" id="navWeather">Y! Weather: Iquitos</a><span class="sep">|</span>
+  <a href="#" id="navMore">More…</a>
 </nav>
 
 <div id="layout">
@@ -338,17 +399,22 @@
              crew stops cold. Wim Wenders is filming all of it for
              "Burden of Dreams," logged live in the sidebar.</p>
           <button class="pixelbtn" id="startBtn">▶ START HAULING</button>
+          <div id="breakthroughRow">
+            <button id="breakthroughToggle" type="button" aria-pressed="false" disabled>⛰ BREAKTHROUGH MODE</button>
+            <div id="breakthroughHint">cross once to unlock</div>
+          </div>
         </div>
 
         <div class="overlay hidden" id="winOverlay">
-          <h2>THE SHIP HAS CROSSED<br>THE MOUNTAIN</h2>
-          <p><b id="finalHauls">0</b> hauls · <b id="finalTime">0.0s</b><br>
+          <h2 id="winHeadline">THE SHIP HAS CROSSED<br>THE MOUNTAIN</h2>
+          <p id="winBody"><b id="finalHauls">0</b> hauls · <b id="finalTime">0.0s</b><br>
              the gramophone plays Caruso to an empty jungle.</p>
           <div class="share-row">
             <a id="shareBluesky" target="_blank" rel="noopener">🦋 share the crossing</a>
             <button id="shareDownload" type="button">⬇ save the frame</button>
           </div>
           <button class="pixelbtn" id="againBtn">↻ HAUL AGAIN</button>
+          <button class="pixelbtn" id="breakthroughBtn" style="display:none;background:#ff5a5a">⛰ TRY BREAKTHROUGH MODE</button>
         </div>
 
         <div class="overlay" id="preloadOverlay">
@@ -370,11 +436,11 @@
       <div class="cat"><b>Arts &amp; Humanities</b>
         <ul><li>Opera &amp; Gramophone Recordings</li><li>Silent &amp; Auteur Film</li><li>Obsession as an Art Form</li></ul></div>
       <div class="cat"><b>Business &amp; Rubber</b>
-        <ul><li>Amazon Rubber Boom, 1879–1912</li><li>Steamship Financing</li><li>Y! Rubber Auctions <span class="newbadge">NEW!</span></li></ul></div>
+        <ul><li>Amazon Rubber Boom, 1879–1912</li><li>Steamship Financing</li><li><a href="#" id="dirAuctions">Y! Rubber Auctions</a> <span class="newbadge">NEW!</span></li></ul></div>
       <div class="cat"><b>Entertainment</b>
         <ul><li><a href="https://en.wikipedia.org/wiki/Fitzcarraldo" target="_blank" rel="noopener">Fitzcarraldo (1982)</a></li>
             <li><a href="https://en.wikipedia.org/wiki/Burden_of_Dreams" target="_blank" rel="noopener">Burden of Dreams (making-of)</a></li>
-            <li>Klaus Kinski, On-Set Anecdotes <span class="newbadge">NEW!</span></li>
+            <li><a href="#" id="dirKinski">Klaus Kinski, On-Set Anecdotes</a> <span class="newbadge">NEW!</span></li>
             <li>Wim Wenders, On Filming the Filming</li></ul></div>
       <div class="cat"><b>Health</b>
         <ul><li>Tropical Medicine FAQ</li><li>Malaria Prevention</li><li>Rope-Burn First Aid</li></ul></div>
@@ -425,8 +491,8 @@
 
     <div class="box webring">
       <h3>Auteur Webring</h3>
-      « <a href="#">prev site</a> · <a href="#">random</a> · <a href="#">next site</a> »
-      <p style="margin:6px 0 0">member of the <a href="#">New German Cinema Webring</a></p>
+      « <a href="#" id="webringPrev">prev site</a> · <a href="#" id="webringRandom">random</a> · <a href="#" id="webringNext">next site</a> »
+      <p style="margin:6px 0 0">member of the <a href="https://bisks.net" target="_blank" rel="noopener">New German Cinema Webring</a> · a <a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a> production</p>
     </div>
 
     <div class="box">
@@ -434,11 +500,18 @@
       <ul class="plainlist">
         <li>💬 Fitzcarraldo Fan Club (1,204 members)</li>
         <li>💬 "I Also Moved a Boat Once" Support Group</li>
-        <li>📖 <a href="#">Sign the Guestbook</a></li>
-        <li>📖 <a href="#">View the Guestbook</a></li>
+        <li>📖 <a href="#" id="guestbookSignLink">Sign the Guestbook</a></li>
+        <li>📖 <a href="#" id="guestbookViewLink">View the Guestbook</a></li>
       </ul>
     </div>
   </aside>
+</div>
+
+<div class="hidden" id="modalOverlay">
+  <div class="modalbox">
+    <div class="modalhead"><span id="modalTitle"></span><button id="modalClose" type="button">✕</button></div>
+    <div class="modalbody" id="modalBody"></div>
+  </div>
 </div>
 
 <footer>
@@ -470,6 +543,7 @@
     document.getElementById('hitcounter').textContent = String(n).padStart(7, '0');
   })();
 </script>
+<script src="portal.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

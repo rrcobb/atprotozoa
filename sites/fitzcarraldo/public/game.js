@@ -39,8 +39,54 @@
     chaos: el('chaosFill'), chaosReadout: el('chaosReadout'),
     directorCaption: el('directorCaption'), setcamLog: el('setcamLog'),
     preload: el('preloadOverlay'), preloadFill: el('preloadBarFill'),
-    preloadPct: el('preloadPct'), skipIntroBtn: el('skipIntroBtn')
+    preloadPct: el('preloadPct'), skipIntroBtn: el('skipIntroBtn'),
+    breakthroughToggle: el('breakthroughToggle'), breakthroughHint: el('breakthroughHint'),
+    breakthroughBtn: el('breakthroughBtn'), winHeadline: el('winHeadline'), winBody: el('winBody')
   };
+
+  // ---------------------------------------------------------------------
+  // Breakthrough Mode — a harder replay, unlocked after the first crossing.
+  // Persisted locally; nothing here talks to a server.
+  // ---------------------------------------------------------------------
+  const BT_KEY = 'fitzcarraldo.breakthroughUnlocked';
+  const BreakthroughUI = (function () {
+    let unlocked = false;
+    let selected = false;
+    try { unlocked = localStorage.getItem(BT_KEY) === '1'; } catch (e) {}
+
+    function refresh() {
+      const btn = els.breakthroughToggle;
+      if (!btn) return;
+      btn.disabled = !unlocked;
+      btn.classList.toggle('unlocked', unlocked);
+      btn.setAttribute('aria-pressed', String(selected && unlocked));
+      if (els.breakthroughHint) {
+        els.breakthroughHint.textContent = unlocked
+          ? (selected ? 'ON — harder haul, angrier Kinski' : 'cross once already; toggle it on for the hard version')
+          : 'cross once to unlock';
+      }
+      document.body.classList.toggle('breakthrough-mode', unlocked && selected);
+    }
+    function unlock() {
+      if (unlocked) return;
+      unlocked = true;
+      try { localStorage.setItem(BT_KEY, '1'); } catch (e) {}
+      refresh();
+    }
+    function toggle() {
+      if (!unlocked) return;
+      selected = !selected;
+      refresh();
+    }
+    function forceOn() {
+      if (!unlocked) return;
+      selected = true;
+      refresh();
+    }
+    refresh();
+    return { unlock, toggle, forceOn, refresh, get unlocked() { return unlocked; }, get selected() { return selected; } };
+  })();
+  if (els.breakthroughToggle) els.breakthroughToggle.addEventListener('click', () => BreakthroughUI.toggle());
 
   // ---------------------------------------------------------------------
   // Audio — one AudioContext, synthesized only, lazily created on the
@@ -195,6 +241,8 @@
   // ---------------------------------------------------------------------
   const state = {
     running: false, won: false,
+    breakthrough: false,
+    diff: { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965 },
     t: 0, startedAt: 0,
     progress: 0,      // 0 = left river, 0.5 = summit, 1 = right river
     lastProgress: 0,
@@ -343,8 +391,9 @@
     if (!state.running || state.won) return;
     if (state.mutiny > 0) return;
     const disrupted = state.kinskiActive > 0;
+    const d = state.diff;
     state.tension = Math.min(100, state.tension + (disrupted ? 6 : 13));
-    state.morale = Math.max(0, state.morale - (disrupted ? 1.1 : 0.7));
+    state.morale = Math.max(0, state.morale - (disrupted ? 1.1 : 0.7) * d.moraleCostMul);
     state.hauls++;
     state.shake = 3;
     Audio.play('haul');
@@ -356,8 +405,12 @@
     }
   }
 
-  function reset() {
+  function reset(breakthrough) {
     state.running = true; state.won = false;
+    state.breakthrough = !!breakthrough;
+    state.diff = state.breakthrough
+      ? { moraleCostMul: 1.5, slipMul: 1.7, kinskiChanceMul: 1.9, chaosGainMul: 1.3, tensionDecay: 0.95 }
+      : { moraleCostMul: 1, slipMul: 1, kinskiChanceMul: 1, chaosGainMul: 1, tensionDecay: 0.965 };
     state.t = 0; state.startedAt = performance.now();
     state.progress = 0; state.lastProgress = 0;
     state.tension = 0; state.morale = 100; state.hauls = 0; state.mutiny = 0;
@@ -365,8 +418,8 @@
     state.chaos = 0; state.kinskiActive = 0; state.herzogTimer = 260 + Math.random() * 160;
     state.directorCaptionTimer = 0;
     state.docLog = [];
-    pushLog('camera rolling. Herzog says nothing yet.');
-    setCaption('THE RIVER FALLS BEHIND YOU.', 140);
+    pushLog(state.breakthrough ? 'camera rolling. Herzog looks unusually tense.' : 'camera rolling. Herzog says nothing yet.');
+    setCaption(state.breakthrough ? 'BREAKTHROUGH MODE. NO ONE IS EASY ON YOU.' : 'THE RIVER FALLS BEHIND YOU.', 140);
     updateHud();
   }
 
@@ -387,7 +440,22 @@
     Audio.play('win');
     els.finalHauls.textContent = state.hauls;
     els.finalTime.textContent = secs.toFixed(1) + 's';
-    const text = `I hauled Fitzcarraldo's ship over the mountain in ${state.hauls} hauls (${secs.toFixed(1)}s) at fitzcarraldo.bisks.net`;
+
+    const wasFirstUnlock = !BreakthroughUI.unlocked;
+    BreakthroughUI.unlock();
+
+    if (state.breakthrough) {
+      if (els.winHeadline) els.winHeadline.innerHTML = 'THE COMPLETION BOND<br>IS SATISFIED';
+      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>breakthrough mode, cleared. the real production also finished, eventually.`;
+      if (els.breakthroughBtn) els.breakthroughBtn.style.display = 'none';
+    } else {
+      if (els.winHeadline) els.winHeadline.innerHTML = 'THE SHIP HAS CROSSED<br>THE MOUNTAIN';
+      if (els.winBody) els.winBody.innerHTML = `<b id="finalHauls">${state.hauls}</b> hauls · <b id="finalTime">${secs.toFixed(1)}s</b><br>the gramophone plays Caruso to an empty jungle.`;
+      if (els.breakthroughBtn) els.breakthroughBtn.style.display = wasFirstUnlock ? 'inline-block' : (BreakthroughUI.unlocked ? 'inline-block' : 'none');
+    }
+
+    const modeTag = state.breakthrough ? ' on BREAKTHROUGH MODE' : '';
+    const text = `I hauled Fitzcarraldo's ship over the mountain in ${state.hauls} hauls (${secs.toFixed(1)}s)${modeTag} at fitzcarraldo.bisks.net`;
     els.shareBluesky.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text);
     els.win.classList.remove('hidden');
     burst(shipPos(1).x, shipPos(1).y, C.note, 30, 3);
@@ -405,11 +473,12 @@
     }
     state.lastProgress = state.progress;
     if (!state.won) {
+      const d = state.diff;
       state.progress += state.tension * 0.000028;
-      state.tension *= 0.965;
+      state.tension *= d.tensionDecay;
 
       // the rope slips when morale runs low — a small, punishing-but-forgiving setback
-      const slipChance = state.morale < 35 ? 0.01 : (state.morale < 60 ? 0.003 : 0.0006);
+      const slipChance = (state.morale < 35 ? 0.01 : (state.morale < 60 ? 0.003 : 0.0006)) * d.slipMul;
       if (state.progress > 0.02 && state.progress < 0.999 && Math.random() < slipChance) {
         const loss = 0.01 + Math.random() * 0.02;
         state.progress = Math.max(0, state.progress - loss);
@@ -445,10 +514,11 @@
         pushLog('the set quiets, briefly.');
       }
     } else {
+      const d = state.diff;
       state.chaos = Math.max(0, state.chaos - 0.03);
-      if (state.t > 90 && state.mutiny <= 0 && Math.random() < 0.0009) {
+      if (state.t > 90 && state.mutiny <= 0 && Math.random() < 0.0009 * d.kinskiChanceMul) {
         state.kinskiActive = 100;
-        state.chaos = Math.min(100, state.chaos + 35);
+        state.chaos = Math.min(100, state.chaos + 35 * d.chaosGainMul);
         state.shake = 8;
         Audio.play('kinski');
         setDirectorCaption(pickKinski(), 'kinski', 150);
@@ -721,12 +791,12 @@
   }
   if (els.skipIntroBtn) els.skipIntroBtn.addEventListener('click', finishPreload);
 
-  function startGame() {
+  function startGame(forceBreakthrough) {
     Audio.init(); Audio.resume();
     if (Audio.musicOn) Audio.startMusic();
     els.start.classList.add('hidden');
     els.win.classList.add('hidden');
-    reset();
+    reset(forceBreakthrough || BreakthroughUI.selected);
   }
 
   document.addEventListener('keydown', (e) => {
@@ -746,8 +816,14 @@
     if (!state.preloadDone) return;
     if (!state.running && !state.won) startGame(); else haul();
   });
-  els.startBtn.addEventListener('click', startGame);
-  els.againBtn.addEventListener('click', startGame);
+  els.startBtn.addEventListener('click', () => startGame());
+  els.againBtn.addEventListener('click', () => startGame());
+  if (els.breakthroughBtn) {
+    els.breakthroughBtn.addEventListener('click', () => {
+      BreakthroughUI.forceOn();
+      startGame(true);
+    });
+  }
 
   els.shareDownload.addEventListener('click', () => {
     canvas.toBlob((blob) => {
