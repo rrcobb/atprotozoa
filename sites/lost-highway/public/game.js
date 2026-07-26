@@ -23,7 +23,17 @@
     let ctx = null, master = null, musicBus = null, sfxBus = null;
     let musicOn = true, sfxOn = true;
     let droneTimer = null, droneStep = 0;
-    let engineOsc = null, engineGain = null, engineFilter = null;
+    let engineOsc = null, engineGain = null, engineFilter = null, engineDist = null;
+    let griteCurve = null, stabCurve = null;
+
+    function distortionCurve(amount) {
+      const n = 4096, curve = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = (i * 2) / n - 1;
+        curve[i] = ((3 + amount) * x * 20 * Math.PI / 180) / (Math.PI + amount * Math.abs(x));
+      }
+      return curve;
+    }
 
     function ensure() {
       if (ctx) return;
@@ -33,11 +43,17 @@
       musicBus = ctx.createGain(); musicBus.gain.value = musicOn ? 0.5 : 0; musicBus.connect(master);
       sfxBus = ctx.createGain(); sfxBus.gain.value = sfxOn ? 0.9 : 0; sfxBus.connect(master);
 
+      griteCurve = distortionCurve(22);
+      stabCurve = distortionCurve(46);
+
+      // engine hum, routed through a mild waveshaper for an industrial, gritty
+      // edge under the drive — a nod to the soundtrack's Nine Inch Nails side.
       engineOsc = ctx.createOscillator(); engineOsc.type = 'sawtooth';
       engineOsc.frequency.value = 44;
       engineFilter = ctx.createBiquadFilter(); engineFilter.type = 'lowpass'; engineFilter.frequency.value = 220;
+      engineDist = ctx.createWaveShaper(); engineDist.curve = griteCurve; engineDist.oversample = '2x';
       engineGain = ctx.createGain(); engineGain.gain.value = 0;
-      engineOsc.connect(engineFilter); engineFilter.connect(engineGain); engineGain.connect(sfxBus);
+      engineOsc.connect(engineFilter); engineFilter.connect(engineDist); engineDist.connect(engineGain); engineGain.connect(sfxBus);
       engineOsc.start();
     }
     function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
@@ -78,6 +94,22 @@
 
     const rnd = (a, b) => a + Math.random() * (b - a);
 
+    // a distorted low pulse + metallic hiss — the industrial layer under
+    // every glitch and mystery-man scare, more NIN than Badalamenti.
+    function industrialHit(bus, t0, peak) {
+      const o = ctx.createOscillator(); o.type = 'square';
+      o.frequency.setValueAtTime(rnd(55, 90), t0);
+      o.frequency.exponentialRampToValueAtTime(26, t0 + 0.4);
+      const dist = ctx.createWaveShaper(); dist.curve = stabCurve; dist.oversample = '4x';
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.42);
+      o.connect(dist); dist.connect(g); g.connect(bus);
+      o.start(t0); o.stop(t0 + 0.45);
+      noise(bus, 0.16, peak * 0.6, 6200, 2600);
+    }
+
     const SFX = {
       pickup() { // VHS tape — a cold two-tone phone-ring blip
         const t = ctx.currentTime;
@@ -95,11 +127,17 @@
           voice(sfxBus, 'sine', f, f, t + i * 0.05, 0.2, 0.14, 'lin');
         });
       },
-      glitch() { // onset of an identity glitch — static + a discordant stab
+      glitch() { // onset of an identity glitch — static, a discordant stab, industrial grit
         const t = ctx.currentTime;
         noise(sfxBus, 0.35, 0.4, 4200, 800);
         voice(sfxBus, 'sawtooth', rnd(90, 140), rnd(40, 70), t, 0.5, 0.22, 'exp');
         voice(sfxBus, 'sawtooth', rnd(90, 140) * 1.5, rnd(40, 70) * 1.4, t + 0.02, 0.45, 0.16, 'exp');
+        industrialHit(sfxBus, t + 0.01, 0.32);
+      },
+      mysteryScare() { // the close-up face flash — a cold stab, no warmth
+        const t = ctx.currentTime;
+        industrialHit(sfxBus, t, 0.4);
+        voice(sfxBus, 'square', rnd(700, 900), rnd(160, 220), t + 0.02, 0.35, 0.14, 'exp');
       },
       crash() {
         const t = ctx.currentTime;
@@ -131,9 +169,50 @@
       });
       droneStep++;
     }
+
+    // a smoky jazz sax lead, wandering a minor-blues scale over the drone —
+    // late-night lounge noir drifting in and out through the static.
+    const SAX_SCALE = [0, 3, 5, 6, 7, 10, 12];
+    function saxNote(bus, freq, t0, dur, peak) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(freq * 0.94, t0);
+      o.frequency.exponentialRampToValueAtTime(freq, t0 + 0.07);
+      const vib = ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.2 + Math.random();
+      const vibGain = ctx.createGain(); vibGain.gain.value = freq * 0.013;
+      vib.connect(vibGain); vibGain.connect(o.frequency);
+      vib.start(t0); vib.stop(t0 + dur + 0.15);
+
+      const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.Q.value = 4;
+      filt.frequency.setValueAtTime(freq * 2.4, t0);
+      filt.frequency.exponentialRampToValueAtTime(freq * 1.3, t0 + dur);
+
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.06);
+      g.gain.exponentialRampToValueAtTime(peak * 0.55, t0 + dur * 0.65);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+      o.connect(filt); filt.connect(g); g.connect(bus);
+      o.start(t0); o.stop(t0 + dur + 0.18);
+    }
+    function scheduleSaxPhrase(time) {
+      if (Math.random() < 0.35) return; // sparse — smoky, not wall-to-wall
+      const root = 220; // A3, a fifth above the drone root
+      const notes = 2 + Math.floor(Math.random() * 3);
+      let t = time + rnd(0.4, 1.3);
+      for (let i = 0; i < notes; i++) {
+        const semi = SAX_SCALE[Math.floor(Math.random() * SAX_SCALE.length)];
+        const freq = root * Math.pow(2, semi / 12);
+        const dur = rnd(0.4, 0.95);
+        saxNote(musicBus, freq, t, dur, 0.11 + Math.random() * 0.05);
+        t += dur * rnd(0.75, 1.2);
+      }
+    }
     function droneTick() {
       if (!ctx) return;
-      scheduleDrone(ctx.currentTime + 0.05);
+      const t = ctx.currentTime + 0.05;
+      scheduleDrone(t);
+      scheduleSaxPhrase(t);
       droneTimer = setTimeout(droneTick, 3600);
     }
     function startMusic() { ensure(); if (droneTimer) return; droneStep = 0; droneTick(); }
@@ -220,7 +299,9 @@
     'WHOEVER YOU SAY I AM, THAT’S WHO I AM',
     'WE’VE MET BEFORE, HAVEN’T WE?',
     "THERE'S NO SUCH THING AS A BAD COINCIDENCE",
-    'CALL ME'
+    'CALL ME',
+    'RIGHT NOW I AM AT YOUR HOUSE',
+    'TIME DOES STRANGE THINGS ON THE LOST HIGHWAY'
   ];
   const CRASH_QUOTES = [
     '— a voice on the intercom',
@@ -241,6 +322,7 @@
     glitching: false, glitchT: 0,
     reversed: false, reverseUntil: 0,
     nextGlitchDist: 700,
+    mysteryFlash: 0,
     noiseCanvas: document.createElement('canvas'),
     noiseCtx: null
   };
@@ -272,7 +354,8 @@
     state.milestone = 400;
     state.glitching = false; state.glitchT = 0;
     state.reversed = false; state.reverseUntil = 0;
-    state.nextGlitchDist = 600 + Math.random() * 300;
+    state.nextGlitchDist = 380 + Math.random() * 260;
+    state.mysteryFlash = 0;
     updateHud();
   }
 
@@ -287,9 +370,9 @@
     const roll = Math.random();
     const laneX = (Math.random() * 2 - 1) * (ROAD_HALF - 130);
     let type;
-    if (roll < 0.46) type = 'headlight';
-    else if (roll < 0.68) type = 'mystery';
-    else type = 'tape';
+    if (roll < 0.30) type = 'headlight';
+    else if (roll < 0.62) type = 'mystery';   // more mystery man
+    else type = 'tape';                        // more vhs tapes
     state.obstacles.push({ type, x: laneX, z: SPAWN_Z + Math.random() * 300, prevZ: SPAWN_Z + 400, resolved: false, spin: Math.random() * Math.PI * 2 });
   }
 
@@ -310,9 +393,9 @@
   }
 
   function triggerGlitch() {
-    state.glitching = true; state.glitchT = 34;
+    state.glitching = true; state.glitchT = 46;
     state.identity = state.identity === 'FRED' ? 'PETE' : 'FRED';
-    state.reversed = true; state.reverseUntil = state.t + 130;
+    state.reversed = true; state.reverseUntil = state.t + 170;
     els.quoteBanner.textContent = GLITCH_QUOTES[Math.floor(Math.random() * GLITCH_QUOTES.length)];
     els.quoteBanner.style.transition = 'none';
     els.quoteBanner.style.opacity = '1';
@@ -321,6 +404,11 @@
       els.quoteBanner.style.opacity = '0';
     });
     Audio.play('glitch');
+    // more mystery man: about a third of glitches, his face fills the screen
+    if (Math.random() < 0.38) {
+      state.mysteryFlash = 20;
+      Audio.play('mysteryScare');
+    }
     updateHud();
   }
 
@@ -368,10 +456,11 @@
 
     if (state.dist >= state.nextGlitchDist) {
       triggerGlitch();
-      state.nextGlitchDist = state.dist + 650 + Math.random() * 500;
+      state.nextGlitchDist = state.dist + 420 + Math.random() * 380;
     }
     if (state.glitchT > 0) state.glitchT--; else state.glitching = false;
     if (state.reversed && state.t > state.reverseUntil) state.reversed = false;
+    if (state.mysteryFlash > 0) state.mysteryFlash--;
 
     // steering
     const dir = state.reversed ? -1 : 1;
@@ -513,6 +602,7 @@
     ctx2d.fillRect(0, 0, W, H);
 
     if (state.glitching) {
+      drawWarpStreaks();
       drawNoise(0.14 + Math.random() * 0.1);
       if (state.t % 5 < 2) {
         ctx2d.fillStyle = 'rgba(255,255,255,0.05)';
@@ -525,6 +615,44 @@
       ctx2d.textAlign = 'center';
       ctx2d.fillText('— REVERSED —', CENTER_X, HORIZON_Y - 14);
     }
+    if (state.mysteryFlash > 0) drawMysteryFlash(state.mysteryFlash);
+  }
+
+  // time-warp streaks radiating from the vanishing point — the road tearing loose
+  function drawWarpStreaks() {
+    ctx2d.save();
+    ctx2d.strokeStyle = 'rgba(242,240,230,0.16)';
+    for (let i = 0; i < 16; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const len = 60 + Math.random() * 300;
+      const x1 = CENTER_X + Math.cos(ang) * 24, y1 = HORIZON_Y + Math.sin(ang) * 24;
+      const x2 = CENTER_X + Math.cos(ang) * len, y2 = HORIZON_Y + Math.sin(ang) * len;
+      ctx2d.lineWidth = 1 + Math.random() * 1.8;
+      ctx2d.beginPath(); ctx2d.moveTo(x1, y1); ctx2d.lineTo(x2, y2); ctx2d.stroke();
+    }
+    ctx2d.restore();
+  }
+
+  // the mystery man's face, close and pale, filling the screen for a beat
+  function drawMysteryFlash(t) {
+    const D = 20, elapsed = D - t;
+    const a = Math.min(1, elapsed / 5, (D - elapsed) / 9 + 0.05);
+    ctx2d.save();
+    ctx2d.globalAlpha = Math.max(0, Math.min(0.92, a));
+    ctx2d.fillStyle = '#050505';
+    ctx2d.fillRect(0, 0, W, H);
+    ctx2d.fillStyle = 'rgba(224,218,204,0.9)';
+    ctx2d.beginPath();
+    ctx2d.arc(CENTER_X, H * 0.5, H * 0.26, 0, Math.PI * 2);
+    ctx2d.fill();
+    ctx2d.fillStyle = '#050505';
+    ctx2d.beginPath(); ctx2d.arc(CENTER_X - H * 0.09, H * 0.46, H * 0.032, 0, Math.PI * 2); ctx2d.fill();
+    ctx2d.beginPath(); ctx2d.arc(CENTER_X + H * 0.09, H * 0.46, H * 0.032, 0, Math.PI * 2); ctx2d.fill();
+    ctx2d.font = `bold ${Math.round(H * 0.024)}px ui-monospace, monospace`;
+    ctx2d.textAlign = 'center';
+    ctx2d.fillStyle = 'rgba(179,18,42,0.85)';
+    ctx2d.fillText('WE’VE MET BEFORE, HAVEN’T WE?', CENTER_X, H * 0.72);
+    ctx2d.restore();
   }
 
   function drawObstacle(o) {
