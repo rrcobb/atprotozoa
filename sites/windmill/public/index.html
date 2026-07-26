@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Windmill — the Animal Farm economy game</title>
+<meta name="description" content="Run Manor Farm's economy for sixteen seasons. Play Barter (no credit, no bank) or Credit (borrow, set interest rates, ride the boom-bust cycle). See what credit actually does to a market.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Windmill — the Animal Farm economy game">
+<meta property="og:description" content="Barter mode or Credit mode. Build the windmill, set the interest rate, and find out the hard way what leverage does to a farm.">
+<meta property="og:image" content="https://windmill.bisks.net/og.png">
+<meta property="og:url" content="https://windmill.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Windmill — the Animal Farm economy game">
+<meta name="twitter:description" content="Barter mode or Credit mode. Build the windmill, set the interest rate, and find out the hard way what leverage does to a farm.">
+<meta name="twitter:image" content="https://windmill.bisks.net/og.png">
+
+<style>
+  :root{
+    --cream:#f0e6d2;
+    --paper:#e7dcc0;
+    --ink:#241b12;
+    --red:#8f1b1b;
+    --red-dark:#6b1212;
+    --gold:#b8902f;
+    --green:#3c5a34;
+    --line: rgba(36,27,18,.25);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--cream);
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(143,27,27,.06), transparent 40%),
+      radial-gradient(circle at 90% 30%, rgba(60,90,52,.08), transparent 45%);
+    color: var(--ink);
+    font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+    min-height: 100vh;
+    display:flex; justify-content:center;
+    padding: 24px 14px 60px;
+  }
+  .wrap{ width:100%; max-width: 640px; }
+  header.top{ text-align:center; margin-bottom: 18px; }
+  header.top h1{
+    font-family: Georgia, serif;
+    font-size: 2rem;
+    letter-spacing: .5px;
+    margin: 0 0 4px;
+    color: var(--red-dark);
+    text-shadow: 1px 1px 0 rgba(0,0,0,.08);
+  }
+  header.top p{ margin:0; opacity:.75; font-size:.95rem; }
+
+  .card{
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    box-shadow: 5px 5px 0 rgba(36,27,18,.18);
+    border-radius: 4px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .banner{
+    background: var(--red);
+    color: var(--cream);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 10px 16px;
+    font-weight: bold;
+    text-align:center;
+    box-shadow: 4px 4px 0 rgba(36,27,18,.18);
+    margin-bottom: 16px;
+  }
+  .banner small{ display:block; font-weight:normal; opacity:.9; margin-top:2px; }
+
+  h2{ margin-top:0; font-size:1.25rem; color: var(--red-dark); }
+  h3{ margin: 0 0 8px; font-size: 1rem; color: var(--green); }
+  p{ line-height:1.5; }
+
+  .mode-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin: 14px 0; }
+  @media (max-width: 520px){ .mode-grid{ grid-template-columns: 1fr; } }
+  .mode-card{
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 14px;
+    background: var(--cream);
+    cursor: pointer;
+    transition: transform .1s ease;
+  }
+  .mode-card:hover{ transform: translateY(-2px); }
+  .mode-card.selected{
+    background: var(--gold);
+    color: var(--ink);
+    box-shadow: 4px 4px 0 rgba(36,27,18,.25);
+  }
+  .mode-card h3{ margin-bottom:6px; }
+  .mode-card p{ font-size: .88rem; margin: 0; }
+
+  button{
+    font-family: inherit;
+    font-size: 1rem;
+    background: var(--red);
+    color: var(--cream);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 10px 18px;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 rgba(36,27,18,.25);
+  }
+  button:active{ transform: translate(2px,2px); box-shadow: 1px 1px 0 rgba(36,27,18,.25); }
+  button.secondary{ background: var(--green); }
+  button.ghost{ background: var(--paper); color: var(--ink); }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  button:disabled:active{ transform:none; box-shadow: 3px 3px 0 rgba(36,27,18,.25); }
+
+  .stat-grid{
+    display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom: 12px;
+  }
+  @media (max-width: 480px){ .stat-grid{ grid-template-columns: repeat(2, 1fr); } }
+  .stat{
+    background: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 10px;
+    text-align:center;
+  }
+  .stat .label{ font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; opacity:.65; }
+  .stat .value{ font-size:1.15rem; font-weight:bold; color: var(--red-dark); }
+
+  .meter{ height: 10px; border:1px solid var(--ink); border-radius:5px; overflow:hidden; background: var(--cream); }
+  .meter > span{ display:block; height:100%; background: var(--green); }
+  .meter.risk > span{ background: var(--red); }
+
+  label.field{ display:block; margin: 14px 0 6px; font-size:.9rem; }
+  input[type=range]{ width:100%; }
+  .slider-row{ display:flex; justify-content:space-between; font-size:.78rem; opacity:.7; }
+
+  .loan-row{ display:flex; gap:8px; margin-top: 8px; flex-wrap:wrap; }
+  .loan-row input[type=number]{
+    width: 100px; font-family:inherit; font-size:1rem;
+    border:2px solid var(--ink); border-radius:4px; padding:6px 8px; background: var(--cream); color:var(--ink);
+  }
+
+  .log{
+    background: var(--ink);
+    color: var(--cream);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: .85rem;
+    max-height: 140px;
+    overflow-y: auto;
+    margin-bottom: 14px;
+  }
+  .log div{ padding: 2px 0; border-bottom: 1px dashed rgba(240,230,210,.15); }
+  .log div:last-child{ border-bottom:none; }
+
+  .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 14px; }
+
+  canvas#chart{ width:100%; height: 180px; display:block; background: var(--cream); border:1px solid var(--line); border-radius:4px; }
+
+  .end-score{ text-align:center; margin: 10px 0 18px; }
+  .end-score .num{ font-size: 2.6rem; font-weight:bold; color: var(--red-dark); }
+  .end-score .sub{ opacity:.7; font-size:.9rem; }
+
+  .share-post{
+    display:inline-flex; align-items:center; gap:6px;
+    background: #1185fe; color:#fff; text-decoration:none;
+    padding: 10px 16px; border-radius:4px; border:2px solid var(--ink);
+    box-shadow: 3px 3px 0 rgba(36,27,18,.25); font-weight:bold;
+  }
+
+  footer{ text-align:center; font-size:.78rem; opacity:.55; margin-top: 22px; }
+  footer a{ color: inherit; }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>🐖 Windmill</h1>
+    <p>Manor Farm's economy, sixteen seasons, two systems. All animals are equal — some just carry more debt than others.</p>
+  </header>
+
+  <!-- INTRO / MODE SELECT -->
+  <section id="screen-intro" class="card">
+    <h2>Choose your system</h2>
+    <p>You run the farm's economy after the Rebellion. Split the herd's labor between the fields and the windmill, sell grain at market, and get through sixteen seasons in one piece. Two ways to play:</p>
+
+    <div class="mode-grid">
+      <div class="mode-card" data-mode="barter" id="cardBarter">
+        <h3>🌾 Barter</h3>
+        <p>No bank, no loans, no interest. You build the windmill only with grain-credits you've actually earned. Slower. Can't go bust.</p>
+      </div>
+      <div class="mode-card" data-mode="credit" id="cardCredit">
+        <h3>🏦 Credit</h3>
+        <p>Napoleon opens the Bank of Animal Farm. Borrow to build faster, set the interest rate yourself — and watch what happens when the debt outruns the harvest.</p>
+      </div>
+    </div>
+
+    <p id="modeDetail" style="min-height:2.5em; font-style:italic; opacity:.8;">Pick a mode above to see how it plays.</p>
+
+    <button id="btnStart" disabled>Begin the first season</button>
+    <button class="ghost" id="btnHow" style="margin-left:8px;">How it works</button>
+
+    <div id="howBox" class="hidden" style="margin-top:14px; font-size:.9rem; border-top:1px dashed var(--line); padding-top:12px;">
+      <p><strong>Each season</strong> you set one slider — how much of the herd's labor goes to farming grain versus building the windmill — and, in Credit mode, this season's interest rate. Grain not sold spoils a little each season (animals hate hoarding). Windmill materials cost credits; if you can't afford them, the build stalls.</p>
+      <p><strong>In Credit mode</strong>, borrowing lets you buy more materials than your harvest alone would allow — but debt compounds at whatever rate you set, and if debt grows faster than the farm's real output, risk builds. Push it far enough and the Bank calls in the loan all at once. Sound familiar?</p>
+      <p>Score = final grain + credits − debt + windmill progress, at season 16.</p>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="screen-game" class="card hidden">
+    <div class="banner" id="seasonBanner">Season 1 / 16<small id="modeLabel">Barter mode</small></div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="label">Grain</div><div class="value" id="statGrain">0</div></div>
+      <div class="stat"><div class="label">Credits</div><div class="value" id="statCredits">0</div></div>
+      <div class="stat"><div class="label">Price / grain</div><div class="value" id="statPrice">1.00</div></div>
+      <div class="stat"><div class="label">Windmill</div><div class="value" id="statWindmill">0%</div></div>
+      <div class="stat" id="debtStat"><div class="label">Debt</div><div class="value" id="statDebt">0</div></div>
+      <div class="stat" id="riskStatBox"><div class="label">Bank risk</div><div class="value" id="statRisk">0%</div></div>
+    </div>
+
+    <div id="riskMeterBox" style="margin-bottom:14px;">
+      <div class="meter risk"><span id="riskMeter" style="width:0%"></span></div>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <label class="field">Labor: farming ⟷ windmill construction (<span id="laborReadout">50 / 50</span>)</label>
+    <input type="range" id="laborSlider" min="0" max="100" value="30">
+    <div class="slider-row"><span>🌾 all farming</span><span>🏗️ all building</span></div>
+
+    <label class="field">Grain to sell at market this season (<span id="sellReadout">40%</span>)</label>
+    <input type="range" id="sellSlider" min="0" max="100" value="40">
+    <div class="slider-row"><span>hoard it</span><span>sell it all</span></div>
+
+    <div id="creditControls" class="hidden">
+      <label class="field">Interest rate the Bank sets this season (<span id="rateReadout">5%</span>)</label>
+      <input type="range" id="rateSlider" min="0" max="30" value="5">
+      <div class="slider-row"><span>0% (free money)</span><span>30% (miserly)</span></div>
+
+      <div class="loan-row">
+        <input type="number" id="loanAmount" placeholder="amount" min="0" step="10">
+        <button class="secondary" id="btnBorrow">Borrow</button>
+        <button class="ghost" id="btnRepay">Repay</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="btnEndSeason">End season →</button>
+    </div>
+  </section>
+
+  <!-- END -->
+  <section id="screen-end" class="card hidden">
+    <h2 id="endTitle">Sixteen seasons later…</h2>
+    <div class="end-score">
+      <div class="num" id="endScore">0</div>
+      <div class="sub">final score · <span id="endModeLabel">barter</span> mode</div>
+    </div>
+    <p id="endSummary"></p>
+    <canvas id="chart" width="600" height="180"></canvas>
+    <p id="compareNote" style="font-size:.88rem; opacity:.8;"></p>
+
+    <div class="actions">
+      <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your season</a>
+      <button class="secondary" id="btnTryOther">Try the other mode</button>
+      <button class="ghost" id="btnReplay">Play again</button>
+    </div>
+  </section>
+
+  <footer>
+    Manor Farm, by way of George Orwell. Built by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · part of <a href="https://bisks.net">bisks.net</a>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var MAX_SEASONS = 16;
+  var LABOR_TOTAL = 10;
+  var BASE_YIELD = 9;
+  var MATERIAL_COST_PER_POINT = 25;
+  var SPOILAGE_RATE = 0.05;
+
+  var els = {
+    cardBarter: document.getElementById('cardBarter'),
+    cardCredit: document.getElementById('cardCredit'),
+    modeDetail: document.getElementById('modeDetail'),
+    btnStart: document.getElementById('btnStart'),
+    btnHow: document.getElementById('btnHow'),
+    howBox: document.getElementById('howBox'),
+
+    screenIntro: document.getElementById('screen-intro'),
+    screenGame: document.getElementById('screen-game'),
+    screenEnd: document.getElementById('screen-end'),
+
+    seasonBanner: document.getElementById('seasonBanner'),
+    modeLabel: document.getElementById('modeLabel'),
+    statGrain: document.getElementById('statGrain'),
+    statCredits: document.getElementById('statCredits'),
+    statPrice: document.getElementById('statPrice'),
+    statWindmill: document.getElementById('statWindmill'),
+    statDebt: document.getElementById('statDebt'),
+    statRisk: document.getElementById('statRisk'),
+    debtStat: document.getElementById('debtStat'),
+    riskStatBox: document.getElementById('riskStatBox'),
+    riskMeterBox: document.getElementById('riskMeterBox'),
+    riskMeter: document.getElementById('riskMeter'),
+    log: document.getElementById('log'),
+
+    laborSlider: document.getElementById('laborSlider'),
+    laborReadout: document.getElementById('laborReadout'),
+    sellSlider: document.getElementById('sellSlider'),
+    sellReadout: document.getElementById('sellReadout'),
+
+    creditControls: document.getElementById('creditControls'),
+    rateSlider: document.getElementById('rateSlider'),
+    rateReadout: document.getElementById('rateReadout'),
+    loanAmount: document.getElementById('loanAmount'),
+    btnBorrow: document.getElementById('btnBorrow'),
+    btnRepay: document.getElementById('btnRepay'),
+    btnEndSeason: document.getElementById('btnEndSeason'),
+
+    endTitle: document.getElementById('endTitle'),
+    endScore: document.getElementById('endScore'),
+    endModeLabel: document.getElementById('endModeLabel'),
+    endSummary: document.getElementById('endSummary'),
+    compareNote: document.getElementById('compareNote'),
+    chart: document.getElementById('chart'),
+    shareBluesky: document.getElementById('shareBluesky'),
+    btnTryOther: document.getElementById('btnTryOther'),
+    btnReplay: document.getElementById('btnReplay'),
+  };
+
+  var MODE_TEXT = {
+    barter: "Barter: every material costs grain you already earned. No debt exists, so there's nothing to collapse — but nothing to leverage, either. Growth is capped by the harvest.",
+    credit: "Credit: the Bank will lend you credits that don't exist yet. Borrow low-interest money to out-build the harvest — just remember the loan comes due, with interest, whether the windmill is finished or not."
+  };
+
+  var chosenMode = null;
+  var state = null;
+
+  function fmt(n){
+    n = Math.round(n);
+    return n.toLocaleString('en-US');
+  }
+
+  function newState(mode){
+    return {
+      mode: mode,
+      season: 1,
+      grain: 100,
+      credits: 150,
+      debt: mode === 'credit' ? 0 : 0,
+      rate: 5,
+      price: 1.0,
+      windmill: 0,
+      risk: 0,
+      crashes: 0,
+      history: [],
+      log: []
+    };
+  }
+
+  function syncReadouts(){
+    var v = +els.laborSlider.value;
+    els.laborReadout.textContent = (100 - v) + ' / ' + v;
+    els.sellReadout.textContent = els.sellSlider.value + '%';
+    els.rateReadout.textContent = els.rateSlider.value + '%';
+  }
+
+  function pushLog(msg){
+    state.log.unshift(msg);
+    state.log = state.log.slice(0, 30);
+    renderLog();
+  }
+
+  function renderLog(){
+    els.log.innerHTML = state.log.map(function(m){ return '<div>' + m + '</div>'; }).join('');
+  }
+
+  // ---------- Intro screen ----------
+  function selectMode(mode){
+    chosenMode = mode;
+    els.cardBarter.classList.toggle('selected', mode === 'barter');
+    els.cardCredit.classList.toggle('selected', mode === 'credit');
+    els.modeDetail.textContent = MODE_TEXT[mode];
+    els.btnStart.disabled = false;
+  }
+  els.cardBarter.addEventListener('click', function(){ selectMode('barter'); });
+  els.cardCredit.addEventListener('click', function(){ selectMode('credit'); });
+  els.btnHow.addEventListener('click', function(){ els.howBox.classList.toggle('hidden'); });
+
+  els.btnStart.addEventListener('click', function(){
+    state = newState(chosenMode);
+    els.screenIntro.classList.add('hidden');
+    els.screenEnd.classList.add('hidden');
+    els.screenGame.classList.remove('hidden');
+    els.creditControls.classList.toggle('hidden', chosenMode !== 'credit');
+    els.debtStat.classList.toggle('hidden', chosenMode !== 'credit');
+    els.riskStatBox.classList.toggle('hidden', chosenMode !== 'credit');
+    els.riskMeterBox.classList.toggle('hidden', chosenMode !== 'credit');
+    els.modeLabel.textContent = (chosenMode === 'credit' ? '🏦 Credit mode' : '🌾 Barter mode');
+    pushLog(chosenMode === 'credit'
+      ? "Squealer announces: “The Bank of Animal Farm now serves every animal!”"
+      : "The animals agree: grain earned is grain spent. No bank, no debt.");
+    syncReadouts();
+    renderGame();
+  });
+
+  // ---------- Game screen ----------
+  els.laborSlider.addEventListener('input', function(){
+    var v = +els.laborSlider.value;
+    els.laborReadout.textContent = (100 - v) + ' / ' + v;
+  });
+  els.sellSlider.addEventListener('input', function(){
+    els.sellReadout.textContent = els.sellSlider.value + '%';
+  });
+  els.rateSlider.addEventListener('input', function(){
+    els.rateReadout.textContent = els.rateSlider.value + '%';
+  });
+
+  els.btnBorrow.addEventListener('click', function(){
+    var amt = Math.max(0, Math.round(+els.loanAmount.value || 0));
+    if (amt <= 0) return;
+    state.credits += amt;
+    state.debt += amt;
+    pushLog('Borrowed ' + fmt(amt) + ' credits from the Bank.');
+    els.loanAmount.value = '';
+    renderGame();
+  });
+  els.btnRepay.addEventListener('click', function(){
+    var amt = Math.max(0, Math.round(+els.loanAmount.value || 0));
+    amt = Math.min(amt, state.credits, state.debt);
+    if (amt <= 0) return;
+    state.credits -= amt;
+    state.debt -= amt;
+    pushLog('Repaid ' + fmt(amt) + ' credits of debt.');
+    els.loanAmount.value = '';
+    renderGame();
+  });
+
+  function renderGame(){
+    els.seasonBanner.innerHTML = 'Season ' + state.season + ' / ' + MAX_SEASONS +
+      '<small>' + (state.mode === 'credit' ? '🏦 Credit mode' : '🌾 Barter mode') + '</small>';
+    els.statGrain.textContent = fmt(state.grain);
+    els.statCredits.textContent = fmt(state.credits);
+    els.statPrice.textContent = state.price.toFixed(2);
+    els.statWindmill.textContent = Math.floor(state.windmill) + '%';
+    els.statDebt.textContent = fmt(state.debt);
+    els.statRisk.textContent = Math.round(state.risk) + '%';
+    els.riskMeter.style.width = Math.round(state.risk) + '%';
+  }
+
+  function roll(p){ return Math.random() < p; }
+
+  function endSeason(){
+    var laborFocus = +els.laborSlider.value; // 0..100, % to building
+    var sellPct = +els.sellSlider.value;
+    var farmFrac = (100 - laborFocus) / 100;
+    var buildFrac = laborFocus / 100;
+
+    // weather
+    var weather = 1.0;
+    if (roll(0.12)) { weather = 0.65; pushLog('☁️ Drought this season — the harvest suffers.'); }
+    else if (roll(0.12)) { weather = 1.35; pushLog('☀️ A bumper harvest.'); }
+
+    var windmillMult = state.windmill >= 100 ? 1.5 : 1.0;
+    var grainProduced = Math.max(0, Math.round(BASE_YIELD * LABOR_TOTAL * farmFrac * windmillMult * weather));
+    state.grain += grainProduced;
+
+    // spoilage
+    var spoilage = Math.round(state.grain * SPOILAGE_RATE);
+    if (spoilage > 0) {
+      state.grain -= spoilage;
+      pushLog('🐀 ' + fmt(spoilage) + ' grain lost to spoilage and rats.');
+    }
+
+    // building
+    if (state.windmill < 100 && buildFrac > 0) {
+      var desiredPoints = LABOR_TOTAL * buildFrac * 2;
+      var affordablePoints = state.credits / MATERIAL_COST_PER_POINT;
+      var actualPoints = Math.min(desiredPoints, affordablePoints, 100 - state.windmill);
+      var spend = actualPoints * MATERIAL_COST_PER_POINT;
+      state.credits -= spend;
+      var before = state.windmill;
+      state.windmill = Math.min(100, state.windmill + actualPoints);
+      if (actualPoints < desiredPoints - 0.01) {
+        pushLog('🏗️ Not enough credits for materials — the build crew stands idle part of the season.');
+      }
+      if (before < 100 && state.windmill >= 100) {
+        pushLog('⚙️ THE WINDMILL IS FINISHED. "Napoleon planned every stone of it," says Squealer. Yield is up for good.');
+      } else if (actualPoints > 0) {
+        pushLog('🏗️ Windmill progress: +' + actualPoints.toFixed(1) + '% (now ' + Math.floor(state.windmill) + '%).');
+      }
+    }
+
+    // sell
+    var sellAmount = Math.round(state.grain * sellPct / 100);
+    if (sellAmount > 0) {
+      var proceeds = sellAmount * state.price;
+      state.grain -= sellAmount;
+      state.credits += proceeds;
+      pushLog('💰 Sold ' + fmt(sellAmount) + ' grain at ' + state.price.toFixed(2) + ' → +' + fmt(proceeds) + ' credits.');
+    }
+
+    // market price update
+    var creditSupply = state.credits + state.debt;
+    var grainStock = state.grain + 1;
+    var moneyRatio = creditSupply / grainStock;
+    var target = Math.min(5, Math.max(0.3, 0.5 * moneyRatio));
+    var noise = (Math.random() - 0.5) * 0.08;
+    state.price = Math.max(0.15, state.price + (target - state.price) * 0.3 + noise);
+
+    // credit mode: interest + risk + crash
+    if (state.mode === 'credit') {
+      state.rate = +els.rateSlider.value;
+      if (state.debt > 0) {
+        var interest = state.debt * (state.rate / 100);
+        state.debt += interest;
+        if (interest > 0.5) pushLog('🏦 Interest accrues: +' + fmt(interest) + ' to the debt (rate ' + state.rate + '%).');
+      }
+      var leverage = state.debt / (state.grain * state.price + 50);
+      if (leverage > 2) {
+        state.risk = Math.min(100, state.risk + (leverage - 2) * 18);
+      } else {
+        state.risk = Math.max(0, state.risk - 12);
+      }
+      if (state.risk >= 65) {
+        var crashChance = (state.risk - 55) / 110;
+        if (roll(crashChance)) {
+          pushLog('📰 "Mr. Frederick\'s banknotes were FORGED." The bubble bursts.');
+          state.price *= 0.4;
+          var callDue = state.debt;
+          if (state.credits >= callDue) {
+            state.credits -= callDue;
+            state.debt = 0;
+            pushLog('🏦 The Bank calls in every loan. Paid in full — the coffers are bare, but the farm stands.');
+          } else {
+            var shortfall = callDue - state.credits;
+            state.credits = 0;
+            state.debt = 0;
+            var grainSeized = Math.min(state.grain, Math.ceil(shortfall / state.price));
+            state.grain = Math.max(0, state.grain - grainSeized);
+            pushLog('🏦 The Bank collapses and seizes ' + fmt(grainSeized) + ' grain to cover the shortfall.');
+          }
+          state.risk = 35;
+          state.crashes += 1;
+        }
+      }
+    }
+
+    state.history.push({
+      season: state.season,
+      grain: state.grain,
+      credits: state.credits,
+      debt: state.debt,
+      price: state.price,
+      windmill: state.windmill
+    });
+
+    if (state.season >= MAX_SEASONS) {
+      finishGame();
+    } else {
+      state.season += 1;
+      renderGame();
+    }
+  }
+  els.btnEndSeason.addEventListener('click', endSeason);
+
+  // ---------- End screen ----------
+  function computeScore(s){
+    var netWorth = s.grain * s.price + s.credits - s.debt;
+    var windmillScore = s.windmill * 3 + (s.windmill >= 100 ? 100 : 0);
+    return Math.round(netWorth + windmillScore);
+  }
+
+  function bestScoreKey(mode){ return 'windmill_best_' + mode; }
+
+  function finishGame(){
+    var score = computeScore(state);
+    els.screenGame.classList.add('hidden');
+    els.screenEnd.classList.remove('hidden');
+    els.endModeLabel.textContent = state.mode;
+    els.endScore.textContent = fmt(score);
+
+    var summary = state.mode === 'credit'
+      ? (state.crashes > 0
+          ? 'The Bank of Animal Farm collapsed ' + state.crashes + ' time(s) along the way. Windmill: ' + Math.floor(state.windmill) + '% built.'
+          : 'The Bank held steady the whole way — you kept leverage under control. Windmill: ' + Math.floor(state.windmill) + '% built.')
+      : 'No bank, no debt, no bubble. Windmill: ' + Math.floor(state.windmill) + '% built, paid for in full.';
+    els.endTitle.textContent = state.windmill >= 100 ? 'The windmill turns.' : 'Sixteen seasons later…';
+    els.endSummary.textContent = summary;
+
+    // best score compare
+    var prevBest = +localStorage.getItem(bestScoreKey(state.mode)) || 0;
+    if (score > prevBest) localStorage.setItem(bestScoreKey(state.mode), String(score));
+    var otherMode = state.mode === 'credit' ? 'barter' : 'credit';
+    var otherBest = +localStorage.getItem(bestScoreKey(otherMode)) || null;
+    if (otherBest) {
+      els.compareNote.textContent = 'Your best ' + otherMode + '-mode score so far: ' + fmt(otherBest) + '. ' +
+        (score > otherBest ? 'This run beat it.' : 'Try ' + otherMode + ' mode and see which system actually builds more.');
+    } else {
+      els.compareNote.textContent = 'Play ' + otherMode + ' mode next — same farm, opposite rules — and compare the score.';
+    }
+
+    drawChart(state.history);
+
+    var url = 'https://windmill.bisks.net/';
+    var text = (state.mode === 'credit' ? '🏦 Credit mode' : '🌾 Barter mode') + ' — score ' + fmt(score) +
+      (state.mode === 'credit' && state.crashes > 0 ? ', survived ' + state.crashes + ' bank collapse(s)' : '') +
+      ', windmill ' + Math.floor(state.windmill) + '% built.\n\nRun Manor Farm\'s economy yourself: ' + url;
+    els.shareBluesky.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text);
+  }
+
+  function drawChart(history){
+    var ctx = els.chart.getContext('2d');
+    var w = els.chart.width, h = els.chart.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!history.length) return;
+
+    var series = [
+      { key: 'grain', color: '#3c5a34' },
+      { key: 'credits', color: '#b8902f' },
+      { key: 'debt', color: '#8f1b1b' },
+    ];
+    var maxVal = 1;
+    history.forEach(function(pt){
+      series.forEach(function(s){ maxVal = Math.max(maxVal, pt[s.key]); });
+    });
+    var padL = 8, padR = 8, padT = 10, padB = 20;
+    var plotW = w - padL - padR, plotH = h - padT - padB;
+
+    function x(i){ return padL + (i / Math.max(1, history.length - 1)) * plotW; }
+    function y(v){ return padT + plotH - (v / maxVal) * plotH; }
+
+    series.forEach(function(s){
+      ctx.beginPath();
+      history.forEach(function(pt, i){
+        var px = x(i), py = y(pt[s.key]);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+
+    ctx.fillStyle = '#241b12';
+    ctx.font = '11px Georgia, serif';
+    ctx.fillText('— grain', padL, h - 6);
+    ctx.fillText('— credits', padL + 70, h - 6);
+    ctx.fillText('— debt', padL + 150, h - 6);
+  }
+
+  els.btnReplay.addEventListener('click', function(){
+    els.screenEnd.classList.add('hidden');
+    els.screenIntro.classList.remove('hidden');
+  });
+  els.btnTryOther.addEventListener('click', function(){
+    var other = state.mode === 'credit' ? 'barter' : 'credit';
+    state = newState(other);
+    els.screenEnd.classList.add('hidden');
+    els.screenGame.classList.remove('hidden');
+    els.creditControls.classList.toggle('hidden', other !== 'credit');
+    els.debtStat.classList.toggle('hidden', other !== 'credit');
+    els.riskStatBox.classList.toggle('hidden', other !== 'credit');
+    els.riskMeterBox.classList.toggle('hidden', other !== 'credit');
+    els.modeLabel.textContent = (other === 'credit' ? '🏦 Credit mode' : '🌾 Barter mode');
+    pushLog(other === 'credit'
+      ? "Squealer announces: “The Bank of Animal Farm now serves every animal!”"
+      : "The animals agree: grain earned is grain spent. No bank, no debt.");
+    syncReadouts();
+    renderGame();
+  });
+
+})();
+</script>
+</body>
+</html>
