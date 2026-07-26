@@ -126,3 +126,30 @@ export async function moots(actor, { onStep } = {}) {
     },
   };
 }
+
+// Latest post for a DID — fetched lazily (only once someone actually picks
+// the object up) and cached forever per page load, since knolling holds up
+// to MAX_ITEMS accounts and most never get grabbed.
+const postCache = new Map();
+
+export function latestPost(did) {
+  if (postCache.has(did)) return postCache.get(did);
+  const p = (async () => {
+    try {
+      const d = await jget(
+        `${PUB}/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(did)}&limit=5`,
+      );
+      const feed = d.feed || [];
+      // Prefer the newest item that actually has text (skip image-only posts
+      // when a texted one is available nearby) so there's something to say.
+      const item = feed.find((it) => it.post?.record?.text?.trim()) || feed[0];
+      if (!item) return { text: "", createdAt: null };
+      const rec = item.post.record || {};
+      return { text: (rec.text || "").trim(), createdAt: rec.createdAt || item.post.indexedAt || null };
+    } catch {
+      return { text: "", createdAt: null };
+    }
+  })();
+  postCache.set(did, p);
+  return p;
+}

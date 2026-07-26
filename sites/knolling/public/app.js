@@ -2,12 +2,13 @@
 // lib/cluster.js, object identity in lib/objects.js, rendering/layout in
 // lib/worktop.js; this file is just DOM + orchestration.
 
-import { moots } from "./lib/cluster.js";
+import { moots, latestPost } from "./lib/cluster.js";
 import { paramsForDid, hash32 } from "./lib/objects.js";
 import { createWorktop } from "./lib/worktop.js";
 
 const MAX_ITEMS = 42;
 const RESUME_KEY = "knolling:last-actor";
+const VOICE_KEY = "knolling:voice-on";
 const W = 1000, H = 640;
 
 const form = document.getElementById("load-form");
@@ -21,6 +22,8 @@ const shuffleBtn = document.getElementById("shuffle-btn");
 const downloadBtn = document.getElementById("download-btn");
 const shareBtn = document.getElementById("share-btn");
 const tooltip = document.getElementById("tooltip");
+const captionEl = document.getElementById("caption");
+const voiceToggle = document.getElementById("voice-toggle");
 
 const esc = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -47,12 +50,74 @@ function openProfile(item) {
   window.open(`https://bsky.app/profile/${item.handle}`, "_blank", "noopener");
 }
 
+// caption + voiceover — fires while an object is actively held (mid-drag).
+let held = false;
+let holdToken = 0;
+let cachedVoices = [];
+
+function refreshVoices() {
+  if (!("speechSynthesis" in window)) return;
+  cachedVoices = window.speechSynthesis.getVoices();
+}
+if ("speechSynthesis" in window) {
+  refreshVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", refreshVoices);
+}
+
+function pickSmoothVoice() {
+  if (!cachedVoices.length) return null;
+  const preferred = [/Google UK English Male/i, /Daniel/i, /^Alex$/i, /Moira/i, /Samantha/i, /Male/i];
+  for (const re of preferred) {
+    const v = cachedVoices.find((v) => re.test(v.name));
+    if (v) return v;
+  }
+  return cachedVoices.find((v) => v.lang?.startsWith("en")) || cachedVoices[0];
+}
+
+function speak(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = pickSmoothVoice();
+  if (v) u.voice = v;
+  u.pitch = 0.85;
+  u.rate = 0.94;
+  u.onend = () => { if (!held) captionEl.hidden = true; };
+  window.speechSynthesis.speak(u);
+}
+
+async function onHold(item) {
+  held = !!item;
+  if (!item) {
+    if (!(voiceToggle.checked && window.speechSynthesis?.speaking)) captionEl.hidden = true;
+    if (worktop) {
+      toggleBtn.textContent = worktop.isKnolled() ? "toss it back" : "knoll it";
+      toggleBtn.dataset.knolled = worktop.isKnolled() ? "1" : "0";
+    }
+    return;
+  }
+  const myToken = ++holdToken;
+  captionEl.hidden = false;
+  captionEl.innerHTML = `<b>@${esc(item.handle)}</b><span class="caption-text">reaching for their latest…</span>`;
+  let post;
+  try {
+    post = await latestPost(item.did);
+  } catch {
+    post = { text: "" };
+  }
+  if (myToken !== holdToken) return; // superseded by a newer grab
+  const text = post.text || "(no recent posts)";
+  captionEl.innerHTML = `<b>@${esc(item.handle)}</b><span class="caption-text">${esc(text)}</span>`;
+  if (voiceToggle.checked && post.text) speak(post.text);
+}
+
 function ensureWorktop() {
   if (worktop) return worktop;
   worktop = createWorktop(canvas, {
     W, H,
     onHover: showTooltip,
     onClick: openProfile,
+    onHold,
   });
   return worktop;
 }
@@ -69,6 +134,8 @@ async function load(actor) {
   setControlsEnabled(false);
   stage.hidden = true;
   tooltip.hidden = true;
+  captionEl.hidden = true;
+  window.speechSynthesis?.cancel();
 
   let cluster;
   try {
@@ -171,7 +238,13 @@ shareBtn.addEventListener("click", async () => {
   }, "image/png");
 });
 
+voiceToggle.addEventListener("change", () => {
+  try { localStorage.setItem(VOICE_KEY, voiceToggle.checked ? "1" : "0"); } catch {}
+  if (!voiceToggle.checked) window.speechSynthesis?.cancel();
+});
+
 (function boot() {
+  try { voiceToggle.checked = localStorage.getItem(VOICE_KEY) === "1"; } catch {}
   let resumeActor = null;
   try { resumeActor = localStorage.getItem(RESUME_KEY); } catch {}
   if (resumeActor) {

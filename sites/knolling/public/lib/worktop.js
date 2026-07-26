@@ -60,11 +60,35 @@ function computeKnoll(items, W, H) {
   return targets;
 }
 
-export function createWorktop(canvas, { W, H, onHover, onClick }) {
+const HANDLE_R = 9; // drawn radius
+const HANDLE_HIT_R = 20; // hit-test radius — generous, this is the touch target
+const HANDLE_GAP = 24; // px beyond the object's own half-height
+
+export function createWorktop(canvas, { W, H, onHover, onClick, onHold }) {
   const ctx = canvas.getContext("2d");
   let items = [];
   let knolled = false;
   let raf = null;
+  let selectedDid = null; // last-grabbed item — its rotate handle stays live
+  let dragging = null; // { pointerId, item, mode: "move"|"rotate", ... }
+
+  function handlePos(it) {
+    const s = Math.max(0.001, it.curScale);
+    const h = it.params.type.h * s;
+    const dist = h / 2 + HANDLE_GAP;
+    return { x: it.x + Math.sin(it.rot) * dist, y: it.y - Math.cos(it.rot) * dist };
+  }
+
+  function hitTestHandle(lx, ly, it) {
+    const p = handlePos(it);
+    const dx = lx - p.x, dy = ly - p.y;
+    return dx * dx + dy * dy <= HANDLE_HIT_R * HANDLE_HIT_R;
+  }
+
+  function clampAxis(v, max) {
+    const margin = 20;
+    return Math.min(max - margin, Math.max(margin, v));
+  }
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -85,6 +109,8 @@ export function createWorktop(canvas, { W, H, onHover, onClick }) {
   }
 
   function setItems(newItems) {
+    dragging = null;
+    selectedDid = null;
     items = newItems.map((it) => ({
       ...it,
       x: W / 2, y: H / 2, rot: 0, curScale: it.params.scale,
@@ -205,11 +231,42 @@ export function createWorktop(canvas, { W, H, onHover, onClick }) {
     ctx.restore();
   }
 
+  function drawHandle(it) {
+    const p = handlePos(it);
+    ctx.save();
+    ctx.strokeStyle = "rgba(26,95,208,0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(it.x, it.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, HANDLE_R, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+    ctx.strokeStyle = "#1a5fd0";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0.3, Math.PI * 1.5);
+    ctx.strokeStyle = "#1a5fd0";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.restore();
+  }
+
   let hoverDid = null;
   function draw() {
     ctx.clearRect(0, 0, W, H);
     drawBackdrop();
-    for (const it of items) drawItem(it, it.did === hoverDid);
+    for (const it of items) drawItem(it, it.did === hoverDid || it.did === selectedDid);
+    const handleDids = new Set([selectedDid, hoverDid].filter(Boolean));
+    for (const did of handleDids) {
+      const it = items.find((i) => i.did === did);
+      if (it) drawHandle(it);
+    }
   }
 
   function hitTest(lx, ly) {
@@ -218,8 +275,8 @@ export function createWorktop(canvas, { W, H, onHover, onClick }) {
       const dx = lx - it.x, dy = ly - it.y;
       const c = Math.cos(-it.rot), s = Math.sin(-it.rot);
       const rx = dx * c - dy * s, ry = dx * s + dy * c;
-      const hw = (it.params.type.w / 2) * it.curScale * 1.2;
-      const hh = (it.params.type.h / 2) * it.curScale * 1.2;
+      const hw = (it.params.type.w / 2) * it.curScale * 1.3;
+      const hh = (it.params.type.h / 2) * it.curScale * 1.3;
       if (Math.abs(rx) <= hw && Math.abs(ry) <= hh) return it;
       const bdx = lx - (it.x + 10), bdy = ly - (it.y - 10);
       if (bdx * bdx + bdy * bdy <= 14 * 14) return it;
@@ -235,18 +292,73 @@ export function createWorktop(canvas, { W, H, onHover, onClick }) {
     };
   }
 
+  // The activity: grab an object's body to translate it, grab its rotate
+  // handle (shown once it's selected/hovered) to spin it in place. Both are
+  // plain pointer-drag gestures, so mouse and touch work the same way.
+  canvas.addEventListener("pointerdown", (e) => {
+    const { x, y } = toLogical(e.clientX, e.clientY);
+    const selItem = selectedDid ? items.find((i) => i.did === selectedDid) : null;
+    let target = null, mode = null;
+    if (selItem && hitTestHandle(x, y, selItem)) {
+      target = selItem; mode = "rotate";
+    } else {
+      const hit = hitTest(x, y);
+      if (hit) { target = hit; mode = "move"; }
+    }
+    if (!target) {
+      if (selectedDid) { selectedDid = null; draw(); }
+      return;
+    }
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    selectedDid = target.did;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = "grabbing";
+    if (mode === "move") {
+      dragging = { pointerId: e.pointerId, item: target, mode, offX: target.x - x, offY: target.y - y };
+    } else {
+      const ang = Math.atan2(x - target.x, -(y - target.y));
+      dragging = { pointerId: e.pointerId, item: target, mode, startAng: ang, startRot: target.rot };
+    }
+    if (onHold) onHold(target);
+    draw();
+  });
+
   canvas.addEventListener("pointermove", (e) => {
     const { x, y } = toLogical(e.clientX, e.clientY);
+    if (dragging && dragging.pointerId === e.pointerId) {
+      const it = dragging.item;
+      if (dragging.mode === "move") {
+        it.x = clampAxis(x + dragging.offX, W);
+        it.y = clampAxis(y + dragging.offY, H);
+      } else {
+        const ang = Math.atan2(x - it.x, -(y - it.y));
+        it.rot = dragging.startRot + (ang - dragging.startAng);
+      }
+      knolled = false;
+      draw();
+      return;
+    }
     const hit = hitTest(x, y);
     const nextDid = hit ? hit.did : null;
     if (nextDid !== hoverDid) { hoverDid = nextDid; draw(); }
-    canvas.style.cursor = hit ? "pointer" : "default";
+    const selItem = selectedDid ? items.find((i) => i.did === selectedDid) : null;
+    canvas.style.cursor = hit ? "pointer" : (selItem && hitTestHandle(x, y, selItem) ? "grab" : "default");
     if (onHover) onHover(hit, e.clientX, e.clientY);
   });
   canvas.addEventListener("pointerleave", () => {
     if (hoverDid) { hoverDid = null; draw(); }
     if (onHover) onHover(null, 0, 0);
   });
+  function endDrag(e) {
+    if (dragging && dragging.pointerId === e.pointerId) {
+      dragging = null;
+      canvas.style.cursor = "default";
+      if (onHold) onHold(null);
+      draw();
+    }
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
   canvas.addEventListener("click", (e) => {
     const { x, y } = toLogical(e.clientX, e.clientY);
     const hit = hitTest(x, y);
