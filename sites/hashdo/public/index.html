@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hashdo — todos with small, optimistic hashes — bisks.net</title>
+    <meta
+      name="description"
+      content="A todo list where every item gets a small hash the moment it's created, so subtasks can point at their parent with parent:[hash] and never collide. All local, nothing leaves your browser."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://hashdo.bisks.net/" />
+    <meta property="og:title" content="hashdo — todos with small, optimistic hashes" />
+    <meta
+      property="og:description"
+      content="Every todo earns a short hash on creation. Reference one from another with parent:[hash] to build subtasks — no collisions, no IDs to keep straight."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="hashdo — todos with small, optimistic hashes" />
+    <meta
+      name="twitter:description"
+      content="Every todo earns a short hash on creation. Reference one with parent:[hash] to build subtasks, collision-free."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as maybetoday / invocation / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --warn: #e0a400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3.5rem 1.25rem 6rem; }
+      header h1 { font-size: 1.6rem; margin: 0 0 0.35rem; font-weight: 600; }
+      header h1 .dot { color: var(--accent); }
+      header p.tagline { color: var(--muted); margin: 0 0 1.25rem; font-size: 0.9rem; }
+      .hint {
+        color: var(--muted); font-size: 0.8rem; background: var(--faintbg);
+        border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.7rem 0.9rem; margin: 0 0 1.75rem; line-height: 1.55;
+      }
+      .hint code {
+        background: var(--faint); border-radius: 3px; padding: 0.05rem 0.3rem;
+        font-size: 0.78rem;
+      }
+
+      form#add {
+        display: flex; gap: 0.5rem; margin-bottom: 0.5rem;
+      }
+      form#add input {
+        flex: 1; font-family: var(--mono); font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--ink); border-radius: 6px;
+        background: var(--bg); color: var(--ink);
+      }
+      form#add input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      form#add button {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+        padding: 0 1.1rem; border: 1px solid var(--ink); border-radius: 6px;
+        background: var(--ink); color: var(--bg); cursor: pointer;
+      }
+      form#add button:hover { background: var(--accent); border-color: var(--accent); }
+
+      .err { color: #c23b3b; font-size: 0.78rem; min-height: 1.2rem; margin: 0.3rem 0 0.5rem; }
+
+      main#list { margin-top: 1.75rem; }
+      .empty {
+        color: var(--muted); font-size: 0.88rem; padding: 2rem 0;
+        text-align: center; border: 1px dashed var(--faint); border-radius: 8px;
+      }
+
+      ul.tree { list-style: none; margin: 0; padding: 0; }
+      ul.tree ul.tree {
+        margin: 0.25rem 0 0.25rem 1.6rem;
+        padding-left: 0.9rem;
+        border-left: 1px solid var(--faint);
+      }
+      li.item {
+        padding: 0.4rem 0; display: flex; align-items: flex-start; gap: 0.55rem;
+      }
+      li.item input[type="checkbox"] {
+        margin-top: 0.3rem; width: 15px; height: 15px; accent-color: var(--accent);
+        cursor: pointer; flex: none;
+      }
+      .body { flex: 1; min-width: 0; }
+      .row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+      .text { word-break: break-word; }
+      .text.done { color: var(--muted); text-decoration: line-through; }
+      button.hash {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--accent);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.05rem 0.35rem; cursor: pointer; flex: none;
+      }
+      button.hash:hover { border-color: var(--accent); }
+      button.hash.copied { color: var(--good); border-color: var(--good); }
+      button.del {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: none; border: none; cursor: pointer; padding: 0 0.15rem;
+        flex: none; margin-left: auto;
+      }
+      button.del:hover { color: #c23b3b; }
+      .orphan-note {
+        font-size: 0.72rem; color: var(--warn);
+        border: 1px solid var(--warn); border-radius: 4px; padding: 0 0.35rem;
+      }
+
+      .orphans-head {
+        font-size: 0.75rem; color: var(--muted); margin: 1.5rem 0 0.25rem;
+        border-top: 1px dashed var(--faint); padding-top: 1rem;
+      }
+
+      .toolbar {
+        display: flex; gap: 1rem; align-items: center; margin-top: 1.75rem;
+        font-size: 0.78rem; color: var(--muted); flex-wrap: wrap;
+      }
+      .toolbar button, .toolbar a {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--accent);
+        background: none; border: none; cursor: pointer; padding: 0;
+        text-decoration: none;
+      }
+      .toolbar button:hover, .toolbar a:hover { text-decoration: underline; }
+      .toolbar .stat { color: var(--muted); }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>hash<span class="dot">do</span></h1>
+        <p class="tagline">
+          every todo gets a small, optimistic hash the second it exists —
+          reference one from another with <code>parent:[hash]</code> and
+          build subtasks that never collide.
+        </p>
+      </header>
+
+      <div class="hint">
+        type a todo and hit add. it gets a short id like <code>#a3</code> —
+        click that id to copy <code>parent:[a3]</code>, then paste it into
+        a new todo's text (e.g. <code>write draft parent:[a3]</code>) to
+        file it as a subtask. ids start at 2 characters and only grow if two
+        happen to collide — optimistic, not paranoid. everything lives in
+        this browser's local storage; nothing is sent anywhere.
+      </div>
+
+      <form id="add" autocomplete="off">
+        <input
+          id="input"
+          type="text"
+          placeholder="buy milk  ·  or: fix the sink parent:[a3]"
+          maxlength="240"
+        />
+        <button type="submit">add</button>
+      </form>
+      <div class="err" id="err"></div>
+
+      <main id="list"></main>
+
+      <div class="toolbar">
+        <span class="stat" id="stats"></span>
+        <button id="copy-list" type="button">copy list as text</button>
+        <button id="clear-done" type="button">clear done</button>
+        <a id="share" target="_blank" rel="noopener">share hashdo ↗</a>
+      </div>
+
+      <footer>
+        stored only in this browser — clear your site data and it's gone.
+        @jazzkid.xyz's idea, given the go-ahead by
+        <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>.
+        part of the <a href="https://bisks.net">atprotozoa</a> zoo.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { load, save, nextHash, parseParent, buildTree } from "./lib/hashdo.js";
+
+      const listEl = document.getElementById("list");
+      const form = document.getElementById("add");
+      const input = document.getElementById("input");
+      const errEl = document.getElementById("err");
+      const statsEl = document.getElementById("stats");
+      const shareEl = document.getElementById("share");
+
+      let items = load();
+
+      function persist() {
+        save(items);
+        render();
+      }
+
+      function renderNode(item, byParent) {
+        const li = document.createElement("li");
+        li.className = "item";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.setAttribute("aria-label", "mark done");
+        checkbox.checked = !!item.done;
+        checkbox.addEventListener("change", () => {
+          item.done = checkbox.checked;
+          persist();
+        });
+
+        const body = document.createElement("div");
+        body.className = "body";
+
+        const row = document.createElement("div");
+        row.className = "row";
+
+        const hashBtn = document.createElement("button");
+        hashBtn.type = "button";
+        hashBtn.className = "hash";
+        hashBtn.textContent = "#" + item.hash;
+        hashBtn.title = "copy parent:[" + item.hash + "]";
+        hashBtn.addEventListener("click", async () => {
+          const token = "parent:[" + item.hash + "]";
+          try {
+            await navigator.clipboard.writeText(token);
+          } catch {
+            /* clipboard blocked — the id is still right there to select */
+          }
+          hashBtn.classList.add("copied");
+          hashBtn.textContent = "copied";
+          setTimeout(() => {
+            hashBtn.classList.remove("copied");
+            hashBtn.textContent = "#" + item.hash;
+          }, 900);
+        });
+
+        const text = document.createElement("span");
+        text.className = "text" + (item.done ? " done" : "");
+        text.textContent = item.text;
+
+        row.appendChild(hashBtn);
+        row.appendChild(text);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "del";
+        delBtn.textContent = "×";
+        delBtn.title = "delete (subtasks are kept, just unfiled)";
+        delBtn.addEventListener("click", () => {
+          items = items.filter((i) => i.hash !== item.hash);
+          for (const i of items) if (i.parent === item.hash) i.parent = null;
+          persist();
+        });
+        row.appendChild(delBtn);
+
+        body.appendChild(row);
+
+        const children = byParent.get(item.hash);
+        if (children && children.length) {
+          const ul = document.createElement("ul");
+          ul.className = "tree";
+          for (const child of children) ul.appendChild(renderNode(child, byParent));
+          body.appendChild(ul);
+        }
+
+        li.appendChild(checkbox);
+        li.appendChild(body);
+        return li;
+      }
+
+      function render() {
+        listEl.innerHTML = "";
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "nothing here yet — add your first todo above.";
+          listEl.appendChild(empty);
+        } else {
+          const { roots, byParent, orphans } = buildTree(items);
+          const ul = document.createElement("ul");
+          ul.className = "tree";
+          for (const item of roots) ul.appendChild(renderNode(item, byParent));
+          listEl.appendChild(ul);
+
+          if (orphans.length) {
+            const head = document.createElement("div");
+            head.className = "orphans-head";
+            head.textContent = "unfiled — their parent hash doesn't match anything:";
+            listEl.appendChild(head);
+            const oul = document.createElement("ul");
+            oul.className = "tree";
+            for (const item of orphans) {
+              const li = renderNode(item, byParent);
+              const row = li.querySelector(".row");
+              const note = document.createElement("span");
+              note.className = "orphan-note";
+              note.textContent = "parent #" + item.parent + " not found";
+              row.insertBefore(note, row.querySelector(".del"));
+              oul.appendChild(li);
+            }
+            listEl.appendChild(oul);
+          }
+        }
+
+        const done = items.filter((i) => i.done).length;
+        statsEl.textContent = items.length
+          ? done + "/" + items.length + " done"
+          : "";
+
+        const shareText = items.length
+          ? "keeping " + items.length + " todos straight with small collision-free hashes on hashdo.bisks.net (" + done + " done so far)"
+          : "todos referenced by small, collision-free hashes — hashdo.bisks.net";
+        shareEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const raw = input.value;
+        if (!raw.trim()) return;
+        const { text, parent } = parseParent(raw);
+        if (!text) {
+          errEl.textContent = "that's just a parent reference — add some todo text too.";
+          return;
+        }
+        errEl.textContent = "";
+        const hash = nextHash(items.map((i) => i.hash));
+        items.push({ hash, text, parent, done: false, createdAt: Date.now() });
+        input.value = "";
+        persist();
+      });
+
+      document.getElementById("copy-list").addEventListener("click", async () => {
+        const lines = items.map((i) => {
+          const mark = i.done ? "[x]" : "[ ]";
+          const parent = i.parent ? " parent:[" + i.parent + "]" : "";
+          return mark + " #" + i.hash + " " + i.text + parent;
+        });
+        const out = lines.length ? lines.join("\n") : "(no todos yet)";
+        try {
+          await navigator.clipboard.writeText(out);
+          errEl.textContent = "copied " + items.length + " todos as text.";
+          errEl.style.color = "var(--good)";
+          setTimeout(() => { errEl.textContent = ""; errEl.style.color = ""; }, 1600);
+        } catch {
+          errEl.textContent = "clipboard blocked — can't copy in this browser.";
+        }
+      });
+
+      document.getElementById("clear-done").addEventListener("click", () => {
+        const doneHashes = new Set(items.filter((i) => i.done).map((i) => i.hash));
+        items = items.filter((i) => !i.done);
+        for (const i of items) if (i.parent && doneHashes.has(i.parent)) i.parent = null;
+        persist();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
