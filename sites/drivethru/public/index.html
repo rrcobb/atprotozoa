@@ -136,6 +136,8 @@
       .combo:hover { border-color: var(--yellow); transform: translateY(-1px); }
       .combo:active { transform: translateY(0); }
       .combo.selected { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+      .combo:disabled { cursor: default; opacity: 0.55; }
+      .combo:disabled:hover { border-color: #3a352c; transform: none; }
       .combo .num {
         display: inline-block;
         background: var(--yellow);
@@ -280,13 +282,25 @@
           welcome to <b>bisks.net/drivethru</b> — pull up, place your order, drive
           off with a real website. speak it or type it, sign in with bluesky, and
           your order gets tagged straight to <b>@buildthis.bisks.net</b> from your
-          own account. that's it, that's the whole mechanism.
+          own account. that's it, that's the whole mechanism. now with limited-time
+          seasonal &amp; tie-in combos, plus a regional specialty pulled from your
+          own PDS.
         </p>
       </header>
 
       <section>
         <h2 class="board-title">TODAY'S MENU</h2>
         <div class="menu" id="menu"></div>
+      </section>
+
+      <section>
+        <h2 class="board-title">LIMITED TIME OFFERS</h2>
+        <div class="menu" id="ltoMenu"></div>
+      </section>
+
+      <section>
+        <h2 class="board-title">REGIONAL MENU</h2>
+        <div class="menu" id="regionalMenu"></div>
       </section>
 
       <section>
@@ -364,7 +378,14 @@
 
     <script src="lib/handle-typeahead.js"></script>
     <script type="module">
-      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import {
+        login,
+        completeLoginIfCallback,
+        getSession,
+        clearSession,
+        resolveHandle,
+        resolvePds,
+      } from "./lib/oauth.js";
       import { firePost, buildOrderPost } from "./lib/post.js";
 
       const $ = (id) => document.getElementById(id);
@@ -372,7 +393,10 @@
         String(s).replace(/[&<>"']/g, (c) =>
           ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-      if (window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
+      if (window.attachHandleTypeahead)
+        window.attachHandleTypeahead($("handle"), {
+          onSelect: (actor) => showRegional(actor.handle),
+        });
 
       // -----------------------------------------------------------------
       // the menu — one-tap "combos" that prefill the order box. still a
@@ -420,35 +444,196 @@
         },
       ];
 
+      // -----------------------------------------------------------------
+      // limited time offers — one seasonal item (rotates with the real
+      // calendar quarter) and one "IP tie-in" item (rotates monthly,
+      // deliberately vague about which franchise it's allegedly tied to).
+      // -----------------------------------------------------------------
+      const SEASONAL_MENU = [
+        {
+          months: [11, 0, 1],
+          name: "FROSTBITE FLURRY COMBO",
+          desc: "seasonal — comes with a wind chill advisory",
+          order:
+            "build a tiny site that turns a bluesky DID into a unique snowflake pattern (svg, no two handles alike) that melts a little on hover",
+        },
+        {
+          months: [2, 3, 4],
+          name: "POLLEN COUNT SPECIAL",
+          desc: "seasonal — allergy warning included",
+          order:
+            "build a site that gives a bluesky handle a made-up daily 'pollen count' derived from their DID, complete with a sneeze-o-meter",
+        },
+        {
+          months: [5, 6, 7],
+          name: "HEATWAVE SLUSHIE COMBO",
+          desc: "seasonal — melts if you scroll too slow",
+          order:
+            "build a site that turns a bluesky handle into a snow-cone flavor that visibly melts (css animation) the longer the page stays open",
+        },
+        {
+          months: [8, 9, 10],
+          name: "HARVEST STACK COMBO",
+          desc: "seasonal — all the spice, none of the nutmeg",
+          order:
+            "build a site that reads a bluesky handle's recent posts and generates a 'pumpkin spice score' for how cozy/basic their fall posting is",
+        },
+      ];
+
+      const IP_TIEIN_MENU = [
+        {
+          name: "GALACTIC BOUNTY COMBO",
+          desc: "tie-in with a certain space saga (we can neither confirm nor deny)",
+          order:
+            "build a site that turns a bluesky handle into a space-opera bounty hunter card: made-up call sign, ship name, and bounty number, styled like a wanted poster",
+        },
+        {
+          name: "MONSTER ISLAND MEAL",
+          desc: "tie-in with a certain giant radioactive lizard franchise (allegedly)",
+          order:
+            "build a site that turns a bluesky handle into a kaiju: a made-up name, height in stories, and a city they're currently stomping through",
+        },
+        {
+          name: "WIZARD SCHOOL COMBO",
+          desc: "tie-in with a certain school of witchcraft (rights unclear, vibes clear)",
+          order:
+            "build a sorting-hat style site that reads a bluesky handle and DID and sorts them into one of four made-up houses with a house crest",
+        },
+        {
+          name: "SUPER SQUAD VALUE PACK",
+          desc: "tie-in with a certain team of costumed do-gooders (name redacted, cape included)",
+          order:
+            "build a site that turns a bluesky handle into a superhero: a made-up codename, one power, and one embarrassing weakness",
+        },
+      ];
+
+      function currentSeasonalCombo() {
+        const m = new Date().getMonth();
+        return SEASONAL_MENU.find((c) => c.months.includes(m)) || SEASONAL_MENU[0];
+      }
+      function currentIpTieinCombo() {
+        const m = new Date().getMonth();
+        return IP_TIEIN_MENU[m % IP_TIEIN_MENU.length];
+      }
+
       const menuEl = $("menu");
+      const ltoMenuEl = $("ltoMenu");
+      const regionalMenuEl = $("regionalMenu");
       const orderEl = $("order");
       const counterEl = $("counter");
 
-      function renderMenu() {
-        menuEl.innerHTML = MENU.map(
-          (c) => `
-          <button type="button" class="combo" data-num="${c.num}">
-            <span class="num">#${c.num}</span>
+      // Generic combo-grid renderer, shared by the core menu, the LTO
+      // board, and the regional-specialty card. `tag` is the little
+      // pill in the corner (#1, LTO, LOCAL, ...); selection highlight is
+      // global across every grid, not per-board.
+      function mountCombos(containerEl, combos, tag) {
+        containerEl.innerHTML = combos
+          .map(
+            (c, i) => `
+          <button type="button" class="combo" data-i="${i}" ${c.disabled ? "disabled" : ""}>
+            <span class="num">${c.tag || (c.num ? "#" + c.num : tag)}</span>
             <span class="name">${esc(c.name)}</span>
             <span class="desc">${esc(c.desc)}</span>
-            <span class="price">${esc(c.price)}</span>
+            <span class="price">${esc(c.price || "$0.00")}</span>
           </button>`
-        ).join("");
-        [...menuEl.querySelectorAll(".combo")].forEach((btn) => {
+          )
+          .join("");
+        [...containerEl.querySelectorAll(".combo:not([disabled])")].forEach((btn) => {
           btn.addEventListener("click", () => {
-            const combo = MENU.find((c) => String(c.num) === btn.dataset.num);
-            [...menuEl.querySelectorAll(".combo")].forEach((b) => b.classList.remove("selected"));
+            const combo = combos[Number(btn.dataset.i)];
+            clearAllSelected();
             btn.classList.add("selected");
             if (combo.order) {
               orderEl.value = combo.order;
               updateCounter();
+              updateOrderBtn();
             } else {
               orderEl.focus();
             }
           });
         });
       }
-      renderMenu();
+      function clearAllSelected() {
+        document.querySelectorAll(".combo.selected").forEach((b) => b.classList.remove("selected"));
+      }
+
+      mountCombos(menuEl, MENU, "");
+      mountCombos(
+        ltoMenuEl,
+        [
+          { ...currentSeasonalCombo(), tag: "LTO", price: "$0.00 · limited time" },
+          { ...currentIpTieinCombo(), tag: "LTO", price: "$0.00 · limited time" },
+        ],
+        "LTO"
+      );
+
+      // -----------------------------------------------------------------
+      // regional menu — one "specialty" combo picked from the requester's
+      // own PDS host. Everyone's PDS is public (it's right there in their
+      // DID doc), so this is just reading the same info the sign-in flow
+      // already needs, before or without actually signing in.
+      // -----------------------------------------------------------------
+      function renderRegionalPlaceholder() {
+        mountCombos(
+          regionalMenuEl,
+          [
+            {
+              name: "REGIONAL SPECIALTY",
+              desc: "pulls up once we know where you're ordering from — type your handle below",
+              price: "$0.00",
+              disabled: true,
+            },
+          ],
+          "LOCAL"
+        );
+      }
+      function regionForPds(pdsUrl) {
+        let host = pdsUrl;
+        try {
+          host = new URL(pdsUrl).host;
+        } catch {}
+        if (host === "bsky.social") {
+          return {
+            name: "THE MAINLINE MELT",
+            desc: `hosted on ${host} — headquarters combo, same kitchen as everyone else`,
+            order:
+              "build a tiny 'how default is your bluesky' site that scores a handle's basic-ness from their handle, avatar, and PDS against the most common defaults",
+          };
+        }
+        if (/\.host\.bsky\.network$/i.test(host)) {
+          return {
+            name: "SATELLITE OFFICE SPECIAL",
+            desc: `hosted on ${host} — your own PDS, still cooked in the mothership's kitchen`,
+            order:
+              "build a 'how many hops from the mothership' site that shows a bluesky account's PDS hostname and frames its distance from bsky.social's default infra like a shipping tracker",
+          };
+        }
+        return {
+          name: "OFF-GRID ARTISANAL COMBO",
+          desc: `hosted on ${host} — small-batch, hand-thrown, somebody's personal server`,
+          order: `build a hand-drawn chalkboard-style badge generator for self-hosted PDS operators, showing their PDS hostname as today's fresh catch`,
+        };
+      }
+      async function showRegional(handleOrDid, knownPdsUrl) {
+        try {
+          let pdsUrl = knownPdsUrl;
+          if (!pdsUrl) {
+            const did = handleOrDid.startsWith("did:")
+              ? handleOrDid
+              : await resolveHandle(handleOrDid);
+            if (!did) return;
+            pdsUrl = await resolvePds(did);
+            if (!pdsUrl) return;
+          }
+          const combo = regionForPds(pdsUrl);
+          mountCombos(
+            regionalMenuEl,
+            [{ ...combo, price: "$0.00 · local only" }],
+            "LOCAL"
+          );
+        } catch {}
+      }
+      renderRegionalPlaceholder();
 
       function updateCounter() {
         const n = orderEl.value.length;
@@ -460,7 +645,7 @@
 
       $("clearBtn").addEventListener("click", () => {
         orderEl.value = "";
-        [...menuEl.querySelectorAll(".combo")].forEach((b) => b.classList.remove("selected"));
+        clearAllSelected();
         updateCounter();
         orderEl.focus();
       });
@@ -590,6 +775,11 @@
         }
       });
 
+      $("handle").addEventListener("blur", () => {
+        const h = $("handle").value.trim();
+        if (h) showRegional(h);
+      });
+
       $("intentBtn").addEventListener("click", () => {
         const orderText = orderEl.value.trim() || "surprise me with something fun";
         const { text } = buildOrderPost(orderText);
@@ -663,6 +853,7 @@
         }
         renderWho();
         updateOrderBtn();
+        if (session) showRegional(session.handle, session.pdsUrl);
       })();
     </script>
   </body>

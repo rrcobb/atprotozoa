@@ -40,7 +40,7 @@ const PLC_DIR = "https://plc.directory";
 
 // --- identity resolution (handle -> DID -> PDS -> auth server) ---------------
 
-async function resolveHandle(handle) {
+export async function resolveHandle(handle) {
   const r = await fetch(
     `${BSKY_PUBLIC_API}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`,
   );
@@ -67,7 +67,7 @@ async function resolveHandleForDid(did) {
   return did;
 }
 
-async function resolvePds(did) {
+export async function resolvePds(did) {
   try {
     if (did.startsWith("did:plc:")) {
       const r = await fetch(`${PLC_DIR}/${did}`);
