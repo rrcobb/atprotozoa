@@ -600,10 +600,16 @@ function updateHud() {
 }
 
 // ---- loop ------------------------------------------------------------
-function loop(t) {
+// Drive the tick off performance.now() rather than the rAF callback's own
+// timestamp — every other clock in this file (retrograde/shake/cosmic/banner
+// windows) already reads performance.now(), and on some mobile browsers
+// (seen on Firefox Android) the rAF timestamp arg can stall or diverge from
+// it, which desynced the drop timer from everything else keyed off isRetro().
+function loop() {
   if (!running) return;
-  const dt = Math.max(0, Math.min(t - lastT, 50)) || 0;
-  lastT = t;
+  const now = performance.now();
+  const dt = Math.max(0, Math.min(now - lastT, 50)) || 0;
+  lastT = now;
   dropAccum += dt;
   const interval = softDrop ? Math.min(current.interval, 45) : current.interval;
   if (dropAccum >= interval) {
@@ -618,6 +624,15 @@ function loop(t) {
   if (running) render();
   if (running) rafId = requestAnimationFrame(loop);
 }
+
+// A backgrounded tab (mobile especially — switching apps, locking the
+// screen) can suspend rAF for an arbitrary stretch. Resuming with a stale
+// lastT would otherwise just eat one clamped 50ms tick, but re-syncing the
+// clock on resume keeps the drop timer from ever reading as "stuck" the
+// moment the game becomes visible again.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && running) lastT = performance.now();
+});
 
 function startGame() {
   grid = emptyGrid();
