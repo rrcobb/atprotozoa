@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>resetwatch — how long since the last usage reset?</title>
+    <meta name="description" content="Tracks @thsottiaux-bot.eurosky.social's mirrored posts for Codex / ChatGPT Work usage-limit resets: when the last one landed, and a timeline of every one before it." />
+    <meta property="og:title" content="resetwatch" />
+    <meta property="og:description" content="How long since the last Codex / ChatGPT Work usage reset? A live clock + timeline, read off @thsottiaux-bot.eurosky.social's mirrored posts." />
+    <meta property="og:image" content="https://resetwatch.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="resetwatch: a status-page style dial reading time since the last usage-limit reset, with a green pulsing dot and a vertical timeline of past resets below." />
+    <meta property="og:url" content="https://resetwatch.bisks.net" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg:#0a0d0b; --panel:#101512; --panel2:#151b17; --ink:#eef4ef;
+        --muted:#8ea297; --faint:#213028; --accent:#3ee08c;
+        --amber:#f4b942; --red:#ff6b6b;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #142019, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:640px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; }
+      h1 .dot { color:var(--accent); font-size:1.3rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:56ch; }
+      .sub a { color:var(--muted); text-decoration:underline; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:var(--red); }
+
+      /* hero clock */
+      .hero { display:none; background:var(--panel); border:1px solid var(--faint);
+        border-radius:18px; padding:1.5rem 1.4rem; margin-bottom:1.1rem; position:relative;
+        overflow:hidden; }
+      .hero.show { display:block; }
+      .hero .glow { position:absolute; inset:-40% -20% auto auto; width:280px; height:280px;
+        border-radius:50%; filter:blur(60px); opacity:0.22; pointer-events:none; }
+      .hero .badge { display:inline-flex; align-items:center; gap:0.4rem; font-family:var(--mono);
+        font-size:0.75rem; font-weight:700; padding:0.25rem 0.6rem; border-radius:999px;
+        border:1px solid var(--faint); color:var(--muted); text-transform:uppercase;
+        letter-spacing:0.04em; }
+      .hero .badge .pulse { width:8px; height:8px; border-radius:50%; background:currentColor;
+        box-shadow:0 0 0 rgba(0,0,0,0); animation:pulse 1.8s ease-in-out infinite; }
+      @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+      .hero .big { font-family:var(--mono); font-weight:800; font-size:2.5rem; line-height:1.1;
+        margin:0.7rem 0 0.15rem; letter-spacing:-0.02em; }
+      .hero .bigsub { color:var(--muted); font-size:0.85rem; margin-bottom:1rem; }
+      .hero .quote { background:var(--panel2); border:1px solid var(--faint); border-left:3px solid var(--accent);
+        border-radius:10px; padding:0.75rem 0.9rem; font-size:0.92rem; line-height:1.5;
+        white-space:pre-wrap; overflow-wrap:break-word; }
+      .hero .qmeta { margin-top:0.55rem; display:flex; gap:0.7rem; align-items:center;
+        font-size:0.78rem; color:var(--muted); }
+      .hero .qmeta a { color:var(--muted); text-decoration:underline; }
+
+      .stats { display:none; grid-template-columns:repeat(3,1fr); gap:0.6rem; margin-bottom:1.4rem; }
+      .stats.show { display:grid; }
+      .stat { background:var(--panel); border:1px solid var(--faint); border-radius:12px;
+        padding:0.65rem 0.55rem; text-align:center; }
+      .stat .n { font-family:var(--mono); font-weight:800; font-size:1.15rem; }
+      .stat .l { color:var(--muted); font-size:0.68rem; text-transform:uppercase; letter-spacing:0.03em;
+        margin-top:0.15rem; }
+
+      .share { display:none; margin:0 0 1.6rem; gap:0.5rem; flex-wrap:wrap; }
+      .share.show { display:flex; }
+      .share a, .share button { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.45rem 0.8rem;
+        cursor:pointer; text-decoration:none; }
+      .share a:hover, .share button:hover { color:var(--ink); border-color:var(--accent); text-decoration:none; }
+
+      h2.tl-h { font-size:1rem; font-weight:800; color:var(--ink); margin:0 0 0.9rem; }
+      .tl-h span { color:var(--muted); font-weight:600; font-size:0.82rem; }
+
+      .timeline { list-style:none; margin:0 0 2rem; padding:0 0 0 1.15rem; border-left:2px solid var(--faint); }
+      .tl-item { position:relative; padding-bottom:1.3rem; }
+      .tl-item:last-child { padding-bottom:0; }
+      .tl-item::before { content:""; position:absolute; left:-1.55rem; top:0.3rem; width:10px; height:10px;
+        border-radius:50%; background:var(--accent); border:2px solid var(--bg); }
+      .tl-item .when { font-family:var(--mono); font-size:0.78rem; color:var(--accent); font-weight:700; }
+      .tl-item .abs { color:var(--muted); font-size:0.74rem; margin-left:0.4rem; }
+      .tl-item .txt { margin-top:0.3rem; font-size:0.9rem; line-height:1.45; color:var(--ink);
+        white-space:pre-wrap; overflow-wrap:break-word; }
+      .tl-item .txt a.open { color:var(--muted); font-size:0.76rem; margin-left:0.4rem; }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+      .empty { color:var(--muted); font-size:0.85rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1><span class="dot">●</span> resetwatch</h1>
+      <p class="sub">
+        How long since the last Codex / ChatGPT Work usage-limit reset? Reads
+        <a href="https://bsky.app/profile/thsottiaux-bot.eurosky.social" target="_blank" rel="noopener">@thsottiaux-bot.eurosky.social</a>'s
+        mirrored posts and flags anything that reads like a reset announcement.
+      </p>
+
+      <div class="status" id="status">loading…</div>
+
+      <div class="hero" id="hero">
+        <div class="glow" id="glow"></div>
+        <span class="badge" id="badge"><span class="pulse"></span><span id="badgeText">—</span></span>
+        <div class="big" id="big">—</div>
+        <div class="bigsub" id="bigsub"></div>
+        <div class="quote" id="quote"></div>
+        <div class="qmeta">
+          <span id="qtime"></span>
+          <a id="qlink" href="#" target="_blank" rel="noopener">open post ↗</a>
+        </div>
+      </div>
+
+      <div class="stats" id="stats">
+        <div class="stat"><div class="n" id="statCount">—</div><div class="l">resets found</div></div>
+        <div class="stat"><div class="n" id="statAvg">—</div><div class="l">avg gap</div></div>
+        <div class="stat"><div class="n" id="statLongest">—</div><div class="l">longest gap</div></div>
+      </div>
+
+      <div class="share" id="share">
+        <a id="postIt" href="#" target="_blank" rel="noopener">🦋 post this status</a>
+        <button id="copyLink">🔗 copy link</button>
+      </div>
+
+      <h2 class="tl-h">timeline <span id="tlCount"></span></h2>
+      <ol class="timeline" id="timeline"></ol>
+
+      <p class="note">
+        Reads only public posts (Bluesky's anonymous AppView, <code>getAuthorFeed</code>
+        on the mirror account, up to ~600 recent). A post counts as a "reset" if its
+        text mentions <code>reset</code> alongside <code>usage</code>, <code>limit</code>,
+        <code>codex</code>, <code>chatgpt</code>, or <code>rate</code> — a text match, not
+        a verified fact, so the odd musing or question can slip in. Refreshes itself every
+        few minutes. Nothing is posted or changed here; it just reads.
+      </p>
+      <p class="credit">asked for by <a href="https://bsky.app/profile/fromthewestmeadow.com">@fromthewestmeadow.com</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      const API = "https://public.api.bsky.app/xrpc";
+      const ACTOR = "thsottiaux-bot.eurosky.social";
+      const RESET_RE = /reset/i;
+      const CONTEXT_RE = /(usage|limit|codex|chatgpt|rate)/i;
+      const REFRESH_MS = 4 * 60 * 1000;
+
+      const statusEl = document.getElementById("status");
+      const hero = document.getElementById("hero");
+      const stats = document.getElementById("stats");
+      const share = document.getElementById("share");
+      const timeline = document.getElementById("timeline");
+      const tlCount = document.getElementById("tlCount");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function bskyLink(post) {
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      function relTime(ms) {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        const units = [["y",31536000],["mo",2592000],["d",86400],["h",3600],["m",60]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return `${v}${u}`;
+        }
+        return `${s}s`;
+      }
+
+      function bigDuration(ms) {
+        const totalMin = Math.floor(ms / 60000);
+        const d = Math.floor(totalMin / 1440);
+        const h = Math.floor((totalMin % 1440) / 60);
+        const m = totalMin % 60;
+        if (d > 0) return `${d}d ${h}h`;
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+      }
+
+      function fmtAbs(iso) {
+        const d = new Date(iso);
+        return d.toLocaleString(undefined, { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+      }
+
+      async function fetchFeed() {
+        let cursor = null, items = [], pages = 0;
+        do {
+          const url = new URL(`${API}/app.bsky.feed.getAuthorFeed`);
+          url.searchParams.set("actor", ACTOR);
+          url.searchParams.set("limit", "100");
+          url.searchParams.set("filter", "posts_no_replies");
+          if (cursor) url.searchParams.set("cursor", cursor);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`feed error (${r.status})`);
+          const data = await r.json();
+          items = items.concat(data.feed || []);
+          cursor = data.cursor;
+          pages++;
+        } while (cursor && pages < 8 && items.length < 600);
+        return items;
+      }
+
+      function findResets(items) {
+        const seen = new Set();
+        const resets = [];
+        for (const it of items) {
+          if (it.reason) continue;
+          const p = it.post;
+          if (!p || !p.record) continue;
+          if (p.record.reply) continue;
+          if (seen.has(p.uri)) continue;
+          const text = p.record.text || "";
+          if (!RESET_RE.test(text) || !CONTEXT_RE.test(text)) continue;
+          seen.add(p.uri);
+          resets.push(p);
+        }
+        resets.sort((a, b) => new Date(b.record.createdAt) - new Date(a.record.createdAt));
+        return resets;
+      }
+
+      function setBadge(hoursSince) {
+        const badge = document.getElementById("badge");
+        const badgeText = document.getElementById("badgeText");
+        const glow = document.getElementById("glow");
+        let color, label;
+        if (hoursSince < 6) { color = "var(--accent)"; label = "just reset"; }
+        else if (hoursSince < 24) { color = "var(--accent)"; label = "today"; }
+        else if (hoursSince < 72) { color = "var(--amber)"; label = "a few days"; }
+        else { color = "var(--red)"; label = "dry spell"; }
+        badge.style.color = color;
+        glow.style.background = color;
+        badgeText.textContent = label;
+      }
+
+      function renderHero(latest) {
+        const rec = latest.record;
+        const createdAt = new Date(rec.createdAt);
+        const deltaMs = Date.now() - createdAt.getTime();
+        const hours = deltaMs / 3600000;
+        setBadge(hours);
+        document.getElementById("big").textContent = bigDuration(deltaMs) + " ago";
+        document.getElementById("bigsub").textContent = "since the last reset mention";
+        document.getElementById("quote").textContent = rec.text || "";
+        document.getElementById("qtime").textContent = fmtAbs(rec.createdAt);
+        document.getElementById("qlink").href = bskyLink(latest);
+        hero.classList.add("show");
+      }
+
+      function renderStats(resets) {
+        if (resets.length < 2) { stats.classList.remove("show"); return; }
+        const gaps = [];
+        for (let i = 0; i < resets.length - 1; i++) {
+          const a = new Date(resets[i].record.createdAt).getTime();
+          const b = new Date(resets[i + 1].record.createdAt).getTime();
+          gaps.push(a - b);
+        }
+        const avg = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+        const longest = Math.max(...gaps);
+        document.getElementById("statCount").textContent = resets.length;
+        document.getElementById("statAvg").textContent = bigDuration(avg);
+        document.getElementById("statLongest").textContent = bigDuration(longest);
+        stats.classList.add("show");
+      }
+
+      function renderTimeline(resets) {
+        tlCount.textContent = `(${resets.length})`;
+        if (!resets.length) {
+          timeline.innerHTML = "";
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = "no reset-shaped posts found in the recent feed.";
+          timeline.appendChild(li);
+          return;
+        }
+        timeline.innerHTML = resets.map((p) => {
+          const rec = p.record;
+          const ago = relTime(Date.now() - new Date(rec.createdAt).getTime());
+          return `
+            <li class="tl-item">
+              <span class="when">${ago} ago</span><span class="abs">${fmtAbs(rec.createdAt)}</span>
+              <div class="txt">${esc(rec.text || "")}<a class="open" href="${bskyLink(p)}" target="_blank" rel="noopener">open ↗</a></div>
+            </li>`;
+        }).join("");
+      }
+
+      function wireShare(latest, resets) {
+        const rec = latest.record;
+        const text = `resetwatch: last Codex/ChatGPT Work usage reset was ${bigDuration(Date.now() - new Date(rec.createdAt).getTime())} ago (${resets.length} resets tracked).\n\nresetwatch.bisks.net`;
+        const composeUrl = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        document.getElementById("postIt").href = composeUrl;
+        share.classList.add("show");
+      }
+
+      let inflight = false;
+      async function load(silent) {
+        if (inflight) return;
+        inflight = true;
+        if (!silent) statusEl.textContent = "reading the mirror's feed…";
+        statusEl.className = "status";
+        try {
+          const items = await fetchFeed();
+          const resets = findResets(items);
+          statusEl.textContent = `updated ${new Date().toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})} · scanned ${items.length} posts`;
+          if (resets.length) {
+            renderHero(resets[0]);
+            renderStats(resets);
+            wireShare(resets[0], resets);
+          } else {
+            hero.classList.remove("show");
+            stats.classList.remove("show");
+            share.classList.remove("show");
+          }
+          renderTimeline(resets);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't load: " + e.message;
+        } finally {
+          inflight = false;
+        }
+      }
+
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      load(false);
+      setInterval(() => load(true), REFRESH_MS);
+    </script>
+  </body>
+</html>
