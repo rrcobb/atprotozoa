@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>maybetoday — will it happen today? — bisks.net</title>
+    <meta
+      name="description"
+      content="Type the thing you're hoping for and the oracle gives you today's odds — a percentage and a verdict, seeded from the date so asking again today gives the same answer. It only changes its mind at midnight."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://maybetoday.bisks.net/" />
+    <meta property="og:title" content="maybetoday — will it happen today?" />
+    <meta
+      property="og:description"
+      content="A daily oracle for the thing you're hoping for. Today's odds, a verdict, and a reason it might or might not land — same question, same day, same answer."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="maybetoday — will it happen today?" />
+    <meta
+      name="twitter:description"
+      content="Ask the oracle if it'll happen today. Odds, a verdict, and a reason — resets at midnight."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as invocation / oblique / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --gold: #e0a400;
+        --bad: #c23b3b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── ask ───────────────────────────────────────────────────────── */
+      form.ask { margin: 0 0 1.5rem; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .askrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* ── the verdict ───────────────────────────────────────────────── */
+      .headline {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 1.5rem;
+      }
+      .headline .cap {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--gold); margin-bottom: 0.55rem;
+        display: flex; justify-content: space-between;
+      }
+      .headline .question { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+      .verdictRow { display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 0.5rem; }
+      .percent { font-size: 2.1rem; font-weight: 700; line-height: 1; }
+      .percent.no, .percent.unlikely { color: var(--bad); }
+      .percent.maybe { color: var(--gold); }
+      .percent.likely, .percent.yes { color: var(--good); }
+      .label {
+        font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--muted); padding-bottom: 0.2rem;
+      }
+      .headline .line {
+        font-size: 1.05rem; line-height: 1.55; font-weight: 600;
+        margin: 0 0 1.1rem;
+      }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+
+      .note {
+        color: var(--muted); font-size: 0.82rem; margin: 0 0 2.5rem;
+      }
+
+      /* ── the log ───────────────────────────────────────────────────── */
+      h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.4rem; }
+      #log { list-style: none; margin: 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        color: var(--muted); font-size: 0.9rem; line-height: 1.6;
+        animation: drop .3s ease-out;
+      }
+      #log li:first-child { border-top: 1px solid var(--faint); }
+      #log .q { color: var(--ink); }
+      @keyframes drop {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>maybetoday <span class="slash">· will it happen today?</span></h1>
+      <p class="intro">
+        Someone once tagged <b>@buildthis</b> with nothing but a mood:
+        <i>"maybe it will happen today."</i> Fair enough — here's an oracle
+        for exactly that uncertainty. Type what "it" is, or leave it blank
+        and ask about <b>it</b> in general. The odds are seeded from today's
+        date, so asking the same question twice today gets the same answer —
+        the oracle only changes its mind at midnight.
+      </p>
+
+      <form class="ask" id="askForm" autocomplete="off">
+        <label class="lbl" for="question">what's "it"? (optional)</label>
+        <div class="askrow">
+          <input type="text" id="question" placeholder="e.g. the deploy, the reply, rain" spellcheck="false" />
+          <button type="submit">ask</button>
+        </div>
+      </form>
+
+      <section class="headline">
+        <div class="cap">
+          <span>today's odds</span>
+          <span class="question" id="questionLabel"></span>
+        </div>
+        <div class="verdictRow">
+          <span class="percent" id="percent">--</span>
+          <span class="label" id="label">consulting…</span>
+        </div>
+        <p class="line" id="line">the oracle is warming up.</p>
+        <div class="btnrow">
+          <button class="ghost" id="reroll">ask again tomorrow's version</button>
+          <button class="ghost" id="copy">copy</button>
+          <a class="btn ghost" id="share" target="_blank" rel="noopener">share ↗</a>
+          <span class="copied" id="copied">copied</span>
+        </div>
+      </section>
+      <p class="note" id="rerollNote"></p>
+
+      <h2>asked today</h2>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          purely a seeded hash in your browser — no login, nothing stored,
+          nothing sent anywhere until you tap share. sibling of
+          <a href="https://bisks.net">bisks.net</a>. built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          who is legally required to say "maybe" more than "no."
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { consult } from "./lib/oracle.js";
+
+      const questionInput = document.getElementById("question");
+      const questionLabel = document.getElementById("questionLabel");
+      const percentEl = document.getElementById("percent");
+      const labelEl = document.getElementById("label");
+      const lineEl = document.getElementById("line");
+      const askForm = document.getElementById("askForm");
+      const rerollBtn = document.getElementById("reroll");
+      const rerollNote = document.getElementById("rerollNote");
+      const copyBtn = document.getElementById("copy");
+      const copiedEl = document.getElementById("copied");
+      const shareBtn = document.getElementById("share");
+      const log = document.getElementById("log");
+
+      const MAX_LOG = 8;
+      let currentQuestion = "";
+      let currentVerdict = null;
+
+      const shareUrl = (text) =>
+        "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+
+      function shareText(v) {
+        const subject = v.question === "it" ? "it" : `"${v.question}"`;
+        return `will ${subject} happen today? the oracle says: ${v.percent}% (${v.label}) — ${v.line}`;
+      }
+
+      function render(question) {
+        const v = consult(question);
+        currentQuestion = v.question;
+        currentVerdict = v;
+        questionLabel.textContent = v.question === "it" ? "" : v.question;
+        percentEl.textContent = v.percent + "%";
+        percentEl.className = "percent " + v.label;
+        labelEl.textContent = v.label;
+        lineEl.textContent = v.line;
+        shareBtn.href = shareUrl(shareText(v));
+      }
+
+      function logAsked(v) {
+        const li = document.createElement("li");
+        const subject = v.question === "it" ? "it" : v.question;
+        const q = document.createElement("span");
+        q.className = "q";
+        q.textContent = subject;
+        li.append(q, ` — ${v.percent}% (${v.label})`);
+        log.insertBefore(li, log.firstChild);
+        while (log.children.length > MAX_LOG) log.removeChild(log.lastChild);
+      }
+
+      render("");
+      rerollNote.textContent = "today's answer for \"it\" is locked in — it resets tomorrow.";
+
+      askForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (currentVerdict) logAsked(currentVerdict);
+        render(questionInput.value);
+        rerollNote.textContent = currentQuestion === "it"
+          ? "today's answer for \"it\" is locked in — it resets tomorrow."
+          : `today's answer for "${currentQuestion}" is locked in — it resets tomorrow.`;
+      });
+
+      rerollBtn.addEventListener("click", () => {
+        rerollNote.textContent = "the oracle doesn't do do-overs same-day — come back tomorrow for a fresh read.";
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(shareText(currentVerdict)); }
+        catch { /* clipboard blocked — share button still works */ }
+        copiedEl.classList.add("show");
+        setTimeout(() => copiedEl.classList.remove("show"), 1200);
+      });
+    </script>
+  </body>
+</html>
