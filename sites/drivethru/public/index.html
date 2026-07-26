@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MICROSITE DRIVE-THRU — order a site from @buildthis</title>
+    <meta
+      name="description"
+      content="Pull up, place your order, drive off with a real website. Speak or type an order, it gets tagged to @buildthis.bisks.net from your own account, and the bot builds it."
+    />
+    <meta property="og:title" content="MICROSITE DRIVE-THRU" />
+    <meta
+      property="og:description"
+      content="Order a microsite like it's a value meal. Speak or type your order, sign in with Bluesky, and it gets tagged straight to @buildthis.bisks.net for a real build."
+    />
+    <meta property="og:image" content="https://bisks.net/drivethru/og.png" />
+    <meta property="og:url" content="https://bisks.net/drivethru" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bungee&family=JetBrains+Mono:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --asphalt: #171512;
+        --panel: #201c18;
+        --red: #d81f26;
+        --red-dark: #9e161b;
+        --yellow: #ffcc02;
+        --cream: #fff6e0;
+        --muted: #b7ac9a;
+        --ok: #6ee7a0;
+        --err: #ff8a80;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --diner: "Bungee", Impact, "Arial Black", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--asphalt);
+        color: var(--cream);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background-image:
+          radial-gradient(circle at 12% 0%, rgba(216, 31, 38, 0.16), transparent 45%),
+          radial-gradient(circle at 90% 10%, rgba(255, 204, 2, 0.09), transparent 40%);
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem 5rem; }
+
+      /* --- sign board header --- */
+      .sign {
+        background: linear-gradient(180deg, var(--red) 0%, var(--red-dark) 100%);
+        border: 4px solid var(--yellow);
+        border-radius: 14px;
+        padding: 1.3rem 1.2rem 1.1rem;
+        text-align: center;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), inset 0 0 0 2px rgba(0, 0, 0, 0.25);
+        position: relative;
+        overflow: hidden;
+      }
+      .sign::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          -45deg,
+          rgba(255, 255, 255, 0.05) 0 12px,
+          transparent 12px 24px
+        );
+        pointer-events: none;
+      }
+      .sign h1 {
+        font-family: var(--diner);
+        font-size: clamp(1.7rem, 8vw, 2.7rem);
+        margin: 0 0 0.35rem;
+        color: var(--yellow);
+        text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.35);
+        letter-spacing: 0.01em;
+      }
+      .sign p {
+        margin: 0;
+        color: var(--cream);
+        font-size: 0.9rem;
+        max-width: 46ch;
+        margin: 0 auto;
+        position: relative;
+      }
+      .sign .arches { font-size: 1.4rem; }
+
+      section { margin-top: 1.6rem; }
+      h2.board-title {
+        font-family: var(--diner);
+        font-size: 1rem;
+        color: var(--yellow);
+        letter-spacing: 0.03em;
+        margin: 0 0 0.7rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      h2.board-title::before,
+      h2.board-title::after {
+        content: "";
+        flex: 1;
+        height: 2px;
+        background: repeating-linear-gradient(
+          90deg,
+          var(--yellow) 0 6px,
+          transparent 6px 12px
+        );
+        opacity: 0.5;
+      }
+
+      /* --- menu board --- */
+      .menu {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 0.6rem;
+      }
+      .combo {
+        background: var(--panel);
+        border: 2px solid #3a352c;
+        border-radius: 10px;
+        padding: 0.7rem 0.7rem 0.6rem;
+        text-align: left;
+        cursor: pointer;
+        color: var(--cream);
+        font-family: var(--mono);
+        transition: border-color 0.15s, transform 0.1s;
+      }
+      .combo:hover { border-color: var(--yellow); transform: translateY(-1px); }
+      .combo:active { transform: translateY(0); }
+      .combo.selected { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+      .combo .num {
+        display: inline-block;
+        background: var(--yellow);
+        color: #221a00;
+        font-weight: 800;
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+        border-radius: 5px;
+        margin-bottom: 0.4rem;
+      }
+      .combo .name {
+        font-weight: 700;
+        font-size: 0.86rem;
+        display: block;
+        margin-bottom: 0.25rem;
+        color: var(--yellow);
+      }
+      .combo .desc {
+        font-size: 0.76rem;
+        color: var(--muted);
+        display: block;
+      }
+      .combo .price {
+        font-size: 0.7rem;
+        color: var(--ok);
+        margin-top: 0.4rem;
+        display: block;
+      }
+
+      /* --- order box (speaker post) --- */
+      .speaker {
+        background: var(--panel);
+        border: 2px solid #3a352c;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      label.field {
+        display: block;
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 0.35rem;
+      }
+      textarea, input[type="text"] {
+        width: 100%;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        padding: 0.6rem 0.7rem;
+        border: 2px solid #47412f;
+        background: #14110d;
+        color: var(--cream);
+        border-radius: 8px;
+      }
+      textarea { resize: vertical; min-height: 4.6em; }
+      textarea::placeholder, input::placeholder { color: #6b6355; }
+      .counter { text-align: right; font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
+      .counter.over { color: var(--err); }
+
+      .row { display: flex; gap: 0.55rem; flex-wrap: wrap; align-items: center; margin-top: 0.7rem; }
+      button {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0.6rem 1rem;
+        border: 2px solid var(--yellow);
+        background: transparent;
+        color: var(--yellow);
+        border-radius: 8px;
+        cursor: pointer;
+        letter-spacing: 0.01em;
+      }
+      button:hover { background: rgba(255, 204, 2, 0.1); }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.primary { background: var(--red); border-color: var(--red); color: var(--cream); }
+      button.primary:hover { background: #ef2b32; }
+      button.ghost { border-color: #4a4536; color: var(--cream); }
+      button.mic.listening { background: var(--red); border-color: var(--red); color: #fff; animation: pulse 1s infinite; }
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(216, 31, 38, 0.5); }
+        50% { box-shadow: 0 0 0 8px rgba(216, 31, 38, 0); }
+      }
+
+      .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.6rem; min-height: 1.2em; }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--ok); }
+      .status.ok a { color: var(--yellow); }
+
+      /* --- pickup window (auth) --- */
+      .window {
+        background: var(--panel);
+        border: 2px solid #3a352c;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      .who { font-size: 0.85rem; margin-bottom: 0.6rem; }
+      .who .h { color: var(--yellow); }
+      .who a { color: var(--yellow); cursor: pointer; }
+      .signin { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .signin input { flex: 1; min-width: 12ch; }
+      .gate-note {
+        font-size: 0.74rem;
+        color: var(--muted);
+        margin-top: 0.7rem;
+        border-top: 1px dashed #3a352c;
+        padding-top: 0.6rem;
+      }
+
+      /* --- receipt --- */
+      .receipt {
+        display: none;
+        background: var(--cream);
+        color: #221a00;
+        border-radius: 4px;
+        padding: 1rem 1.1rem;
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+        background-image: repeating-linear-gradient(
+          #fff6e0,
+          #fff6e0 27px,
+          #f0e6c8 28px
+        );
+      }
+      .receipt h3 { font-family: var(--diner); font-size: 1rem; margin: 0 0 0.5rem; text-align: center; }
+      .receipt .divider { border-top: 1px dashed #998; margin: 0.5rem 0; }
+      .receipt .order-num { text-align: center; font-size: 1.3rem; font-weight: 800; letter-spacing: 0.05em; }
+      .receipt .line { white-space: pre-wrap; word-break: break-word; margin: 0.4rem 0; }
+      .receipt a { color: #7a2b00; }
+      .receipt .foot { text-align: center; font-size: 0.7rem; opacity: 0.7; margin-top: 0.5rem; }
+
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.76rem; text-align: center; }
+      footer a { color: var(--yellow); }
+      .share-row { text-align: center; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="sign">
+        <h1><span class="arches">🍔🚗💨</span><br />MICROSITE DRIVE-THRU</h1>
+        <p>
+          welcome to <b>bisks.net/drivethru</b> — pull up, place your order, drive
+          off with a real website. speak it or type it, sign in with bluesky, and
+          your order gets tagged straight to <b>@buildthis.bisks.net</b> from your
+          own account. that's it, that's the whole mechanism.
+        </p>
+      </header>
+
+      <section>
+        <h2 class="board-title">TODAY'S MENU</h2>
+        <div class="menu" id="menu"></div>
+      </section>
+
+      <section>
+        <h2 class="board-title">SPEAKER BOX</h2>
+        <div class="speaker">
+          <label class="field" for="order">place your order</label>
+          <textarea
+            id="order"
+            maxlength="270"
+            placeholder="e.g. build a page that turns any bluesky handle into a trading card"
+          ></textarea>
+          <div class="counter" id="counter">0 / 270</div>
+          <div class="row">
+            <button type="button" id="micBtn" class="mic">🎤 speak your order</button>
+            <button type="button" id="readBtn" class="ghost">🔊 read it back</button>
+            <button type="button" id="clearBtn" class="ghost">clear</button>
+          </div>
+          <div class="status" id="speakerStatus"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="board-title">PULL UP TO THE WINDOW</h2>
+        <div class="window">
+          <div class="who" id="who"></div>
+          <div class="signin" id="signinRow">
+            <input id="handle" type="text" placeholder="your bluesky handle" autocomplete="off" />
+            <button type="button" id="signinBtn">sign in with bluesky</button>
+          </div>
+          <div class="row">
+            <button type="button" id="orderBtn" class="primary" disabled>
+              🛎️ place order (post to bluesky)
+            </button>
+            <button type="button" id="intentBtn" class="ghost">
+              compose on bsky.app instead
+            </button>
+          </div>
+          <div class="status" id="orderStatus"></div>
+          <p class="gate-note">
+            orders only get auto-built if you're a mutual of
+            <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>
+            — the bot's gate, not ours. everyone else gets a friendly reply
+            tagging bisks.net so they can wave it through by hand. signing in
+            here just lets drivethru post the order <em>as you</em> (an
+            <code>app.bsky.feed.post</code> straight to your own PDS) —
+            nothing is stored on our end, and you can always use "compose on
+            bsky.app" instead if you'd rather not grant that.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="receipt" id="receipt">
+          <h3>✦ DRIVE-THRU RECEIPT ✦</h3>
+          <div class="order-num" id="receiptNum"></div>
+          <div class="divider"></div>
+          <div class="line" id="receiptText"></div>
+          <div class="divider"></div>
+          <div class="line" id="receiptLink"></div>
+          <div class="foot">thank you, pull forward — your build is in the queue.</div>
+        </div>
+        <div class="share-row">
+          <button type="button" id="shareBtn" class="ghost" style="display:none">
+            share the drive-thru
+          </button>
+        </div>
+      </section>
+
+      <footer>
+        no drive-thru speakers were harmed. voice input needs a browser with
+        speech recognition (chrome/edge); everything else works by typing.
+        part of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { firePost, buildOrderPost } from "./lib/post.js";
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
+
+      // -----------------------------------------------------------------
+      // the menu — one-tap "combos" that prefill the order box. still a
+      // real free-text order underneath; these are just inspiration.
+      // -----------------------------------------------------------------
+      const MENU = [
+        {
+          num: 1,
+          name: "THE CLASSIC COMBO",
+          desc: "handle → trading card",
+          price: "$0.00",
+          order:
+            "build a tiny site that turns any bluesky handle into a collectible trading card (stats pulled from their profile + post history)",
+        },
+        {
+          num: 2,
+          name: "THE VALUE MEAL",
+          desc: "mutual head-to-head, live",
+          price: "$0.00",
+          order:
+            "build a site where two bluesky mutuals can play a quick head-to-head game (tic-tac-toe or rock-paper-scissors) by tagging moves at each other",
+        },
+        {
+          num: 3,
+          name: "LATE NIGHT SNACK",
+          desc: "vibe check a feed",
+          price: "$0.00",
+          order:
+            "build a one-page tool that reads someone's last 20 posts and gives a silly 'vibe score' with a one-line diagnosis",
+        },
+        {
+          num: 4,
+          name: "KIDS' MEAL",
+          desc: "did → fortune cookie",
+          price: "$0.00 + toy",
+          order:
+            "build a tiny toy: a digital fortune cookie that cracks open with a fortune generated from the last characters of a handle's DID",
+        },
+        {
+          num: 5,
+          name: "SECRET MENU",
+          desc: "off-menu, your call",
+          price: "$0.00",
+          order: "",
+        },
+      ];
+
+      const menuEl = $("menu");
+      const orderEl = $("order");
+      const counterEl = $("counter");
+
+      function renderMenu() {
+        menuEl.innerHTML = MENU.map(
+          (c) => `
+          <button type="button" class="combo" data-num="${c.num}">
+            <span class="num">#${c.num}</span>
+            <span class="name">${esc(c.name)}</span>
+            <span class="desc">${esc(c.desc)}</span>
+            <span class="price">${esc(c.price)}</span>
+          </button>`
+        ).join("");
+        [...menuEl.querySelectorAll(".combo")].forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const combo = MENU.find((c) => String(c.num) === btn.dataset.num);
+            [...menuEl.querySelectorAll(".combo")].forEach((b) => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            if (combo.order) {
+              orderEl.value = combo.order;
+              updateCounter();
+            } else {
+              orderEl.focus();
+            }
+          });
+        });
+      }
+      renderMenu();
+
+      function updateCounter() {
+        const n = orderEl.value.length;
+        counterEl.textContent = `${n} / 270`;
+        counterEl.classList.toggle("over", n > 270);
+      }
+      orderEl.addEventListener("input", updateCounter);
+      updateCounter();
+
+      $("clearBtn").addEventListener("click", () => {
+        orderEl.value = "";
+        [...menuEl.querySelectorAll(".combo")].forEach((b) => b.classList.remove("selected"));
+        updateCounter();
+        orderEl.focus();
+      });
+
+      // -----------------------------------------------------------------
+      // voice input — Web Speech API (SpeechRecognition). Chrome/Edge only;
+      // feature-detected, degrades to "type it instead" everywhere else.
+      // -----------------------------------------------------------------
+      const speakerStatus = $("speakerStatus");
+      const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const micBtn = $("micBtn");
+
+      if (!SpeechRecognitionImpl) {
+        micBtn.disabled = true;
+        micBtn.title = "voice ordering needs chrome or edge";
+      } else {
+        let recognizing = false;
+        const rec = new SpeechRecognitionImpl();
+        rec.continuous = false;
+        rec.interimResults = true;
+        rec.lang = "en-US";
+
+        rec.onstart = () => {
+          recognizing = true;
+          micBtn.classList.add("listening");
+          micBtn.textContent = "🎤 listening…";
+          speakerStatus.textContent = "speak your order now";
+          speakerStatus.className = "status";
+        };
+        rec.onresult = (e) => {
+          let finalText = "";
+          let interim = "";
+          for (let i = 0; i < e.results.length; i++) {
+            const t = e.results[i][0].transcript;
+            if (e.results[i].isFinal) finalText += t;
+            else interim += t;
+          }
+          if (finalText) {
+            orderEl.value = (orderEl.value.trim() ? orderEl.value.trim() + " " : "") + finalText.trim();
+            updateCounter();
+          }
+          speakerStatus.textContent = interim ? `hearing: "${interim}"` : "";
+        };
+        rec.onerror = (e) => {
+          speakerStatus.textContent = `mic error: ${e.error} — go ahead and type instead`;
+          speakerStatus.className = "status err";
+        };
+        rec.onend = () => {
+          recognizing = false;
+          micBtn.classList.remove("listening");
+          micBtn.textContent = "🎤 speak your order";
+        };
+
+        micBtn.addEventListener("click", () => {
+          if (recognizing) {
+            rec.stop();
+            return;
+          }
+          try {
+            rec.start();
+          } catch (e) {
+            speakerStatus.textContent = "couldn't start the mic — " + e.message;
+            speakerStatus.className = "status err";
+          }
+        });
+      }
+
+      // -----------------------------------------------------------------
+      // voice output — speechSynthesis reads the order back, drive-thru
+      // speaker style, before you commit to posting it.
+      // -----------------------------------------------------------------
+      $("readBtn").addEventListener("click", () => {
+        const text = orderEl.value.trim();
+        if (!window.speechSynthesis) {
+          speakerStatus.textContent = "this browser can't talk back — but here's your order in writing: " + text;
+          speakerStatus.className = "status";
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const spoken = text
+          ? `order up! one order for @buildthis dot bisks dot net: ${text}. that'll be zero dollars and zero cents. pull up to the window.`
+          : "the speaker box just hears static — type or speak an order first.";
+        const utter = new SpeechSynthesisUtterance(spoken);
+        utter.rate = 1.02;
+        utter.pitch = 0.95;
+        window.speechSynthesis.speak(utter);
+      });
+
+      // -----------------------------------------------------------------
+      // auth (pickup window)
+      // -----------------------------------------------------------------
+      const orderStatus = $("orderStatus");
+      let session = null;
+
+      function renderWho() {
+        const who = $("who");
+        const signinRow = $("signinRow");
+        if (session) {
+          who.innerHTML = `at the window as <span class="h">@${esc(session.handle)}</span> · <a id="signoutLink">not you? sign out</a>`;
+          signinRow.style.display = "none";
+          $("signoutLink").onclick = async () => {
+            await clearSession();
+            session = null;
+            renderWho();
+            updateOrderBtn();
+          };
+        } else {
+          who.textContent = "not signed in yet — pull up.";
+          signinRow.style.display = "flex";
+        }
+      }
+      function updateOrderBtn() {
+        $("orderBtn").disabled = !session || !orderEl.value.trim() || orderEl.value.length > 270;
+      }
+      orderEl.addEventListener("input", updateOrderBtn);
+
+      $("signinBtn").addEventListener("click", async () => {
+        const h = $("handle").value.trim();
+        if (!h) return;
+        $("signinBtn").disabled = true;
+        try {
+          await login(h);
+        } catch (e) {
+          orderStatus.textContent = e.message;
+          orderStatus.className = "status err";
+          $("signinBtn").disabled = false;
+        }
+      });
+
+      $("intentBtn").addEventListener("click", () => {
+        const orderText = orderEl.value.trim() || "surprise me with something fun";
+        const { text } = buildOrderPost(orderText);
+        const url = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+        window.open(url, "_blank", "noopener");
+      });
+
+      // -----------------------------------------------------------------
+      // fire the order
+      // -----------------------------------------------------------------
+      const receipt = $("receipt");
+      const shareBtn = $("shareBtn");
+
+      $("orderBtn").addEventListener("click", async () => {
+        if (!session) return;
+        const orderText = orderEl.value.trim();
+        if (!orderText) return;
+        const btn = $("orderBtn");
+        btn.disabled = true;
+        btn.textContent = "firing order…";
+        orderStatus.textContent = "";
+        orderStatus.className = "status";
+        try {
+          const res = await firePost(session, orderText);
+          const rkey = res.uri.split("/").pop();
+          const url = `https://bsky.app/profile/${session.did}/post/${rkey}`;
+          orderStatus.innerHTML = `order fired! <a href="${url}" target="_blank" rel="noopener">see it →</a>`;
+          orderStatus.className = "status ok";
+
+          const orderNum = String(Math.abs(hashCode(res.uri)) % 900 + 100);
+          $("receiptNum").textContent = `ORDER #${orderNum}`;
+          $("receiptText").textContent = `@${session.handle}\n"${orderText}"`;
+          $("receiptLink").innerHTML = `<a href="${url}" target="_blank" rel="noopener">view your order on bluesky →</a>`;
+          receipt.style.display = "block";
+          shareBtn.style.display = "inline-block";
+          receipt.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (e) {
+          orderStatus.textContent = e.message;
+          orderStatus.className = "status err";
+        } finally {
+          btn.disabled = !session;
+          btn.textContent = "🛎️ place order (post to bluesky)";
+          updateOrderBtn();
+        }
+      });
+
+      function hashCode(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+        return h;
+      }
+
+      shareBtn.addEventListener("click", () => {
+        const text = "just ordered a microsite at the drive-thru 🍔🚗💨 bisks.net/drivethru";
+        window.open(
+          `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
+          "_blank",
+          "noopener"
+        );
+      });
+
+      // -----------------------------------------------------------------
+      // boot
+      // -----------------------------------------------------------------
+      (async () => {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          orderStatus.textContent = e.message;
+          orderStatus.className = "status err";
+        }
+        renderWho();
+        updateOrderBtn();
+      })();
+    </script>
+  </body>
+</html>
