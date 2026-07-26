@@ -491,7 +491,8 @@
 
         const foot = document.createElement("div");
         foot.className = "foot";
-        const shareText = buildShareText(p, post);
+        const callUrl = `${location.origin}/call/${encodeURIComponent(state.handle)}/${encodeURIComponent(p.handle)}`;
+        const shareText = buildShareText(p, post, callUrl);
         foot.innerHTML = `
           <span class="stat">${post.likeCount} like${post.likeCount === 1 ? "" : "s"} · <a href="${post.url}" target="_blank" rel="noopener" style="color:inherit">see the real post</a></span>
           <a class="sharebtn" target="_blank" rel="noopener" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}">share this call</a>
@@ -505,10 +506,10 @@
         setLcd("MESSAGE END", "hang up or dial again", false);
       }
 
-      function buildShareText(p, post) {
+      function buildShareText(p, post, callUrl) {
         const prefix = `☎️ dialed @${p.handle} on dial-a-mutual and got: "`;
         const suffix = `"`;
-        const url = ` ${post.url}`;
+        const url = ` ${callUrl}`;
         const budget = 300 - prefix.length - suffix.length - url.length - 1;
         const text = post.text.length > budget ? post.text.slice(0, Math.max(0, budget - 1)) + "…" : post.text;
         return prefix + text + suffix + url;
@@ -529,7 +530,17 @@
       });
 
       // ── boot: resolve handle → build moots → show the machine ──────────
-      const initial = new URLSearchParams(location.search).get("h") || "";
+      // /call/<selfHandle>/<mootHandle> is the shareable per-call URL (see
+      // src/index.ts, which stamps personalized OG tags server-side onto
+      // this same page). When a real browser lands on it, replay the call:
+      // load selfHandle's phonebook, then auto-dial mootHandle.
+      const callMatch = location.pathname.match(/^\/call\/([^/]+)\/([^/]+)\/?$/);
+      const autoDialHandle = callMatch ? decodeURIComponent(callMatch[2]) : null;
+      let autoDialDone = false;
+
+      const initial = callMatch
+        ? decodeURIComponent(callMatch[1])
+        : new URLSearchParams(location.search).get("h") || "";
       if (initial) input.value = initial;
       else {
         try {
@@ -569,6 +580,22 @@
           renderPad();
           hangUp();
           phoneSection.scrollIntoView({ behavior: "smooth", block: "start" });
+
+          if (autoDialHandle && !autoDialDone) {
+            autoDialDone = true;
+            const idx = state.pool.findIndex(
+              (m) => m.handle.toLowerCase() === autoDialHandle.toLowerCase(),
+            );
+            if (idx !== -1) {
+              page = Math.floor(idx / PAGE_SIZE);
+              renderPad();
+              msg.textContent += ` replaying the shared call to @${state.pool[idx].handle}…`;
+              dial(idx);
+            } else {
+              msg.className = "msg err";
+              msg.textContent = `@${autoDialHandle} isn't in @${res.handle}'s moots right now (unfollowed since this was shared?) — dial someone else below.`;
+            }
+          }
         } catch (err) {
           msg.className = "msg err";
           msg.textContent =
