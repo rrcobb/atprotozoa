@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mcskeets — your DID's value meal</title>
+<meta name="description" content="Astrology, but it's a McDonald's order. Enter a Bluesky handle and your DID gets read off as a Value Meal — sandwich, side, drink, and whether the soft-serve machine happens to be down (it usually is)." />
+<meta property="og:title" content="mcskeets — your DID's value meal" />
+<meta property="og:description" content="Astrology, but it's a McDonald's order. Enter a Bluesky handle and your DID gets read off as a Value Meal — sandwich, side, drink, and whether the soft-serve machine happens to be down (it usually is)." />
+<meta property="og:url" content="https://mcskeets.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://mcskeets.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="mcskeets: a drive-thru receipt reading a did:plc as a McDonald's value meal order." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mcskeets — your DID's value meal" />
+<meta name="twitter:description" content="Astrology, but it's a McDonald's order. Enter a Bluesky handle and your DID gets read off as a Value Meal — sandwich, side, drink, and whether the soft-serve machine happens to be down (it usually is)." />
+<meta name="twitter:image" content="https://mcskeets.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #fdf6e3;
+    --bg2: #fff9ee;
+    --fg: #241000;
+    --dim: #7a5a3a;
+    --red: #da291c;
+    --yellow: #ffc72c;
+    --card: #fffdf7;
+    --border: #241000;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #ffe9a8 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #ffd3cc 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    color: var(--red);
+    letter-spacing: -0.01em;
+  }
+  h1 .arches { color: var(--yellow); text-shadow: 0 1px 0 var(--red); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--red); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 2px solid var(--border);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--red); outline-offset: 1px; }
+  button {
+    background: var(--red);
+    color: #fff9ee;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--red); }
+
+  .receipt {
+    display: none;
+    background: var(--card);
+    border: 2px dashed var(--border);
+    border-radius: 4px;
+    padding: 1.75rem 1.5rem 2rem;
+    box-shadow: 0 12px 40px -18px rgba(36, 16, 0, 0.5);
+    position: relative;
+  }
+  .receipt.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .receipt::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -9px;
+    height: 18px;
+    background: repeating-linear-gradient(-45deg, var(--card) 0 8px, transparent 8px 16px);
+    background-color: var(--bg);
+  }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .storeline {
+    text-align: center;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    border-top: 1px dashed var(--border);
+    border-bottom: 1px dashed var(--border);
+    padding: 0.5rem 0;
+    margin-bottom: 1rem;
+  }
+  .storeline b { color: var(--fg); }
+
+  .order { margin-bottom: 1rem; }
+  .item {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px dotted var(--border);
+  }
+  .item .qty { color: var(--red); font-weight: 700; width: 1.4em; flex: none; }
+  .item .name { flex: 1; }
+  .item .name b { display: block; font-size: 0.98rem; }
+  .item .name span { display: block; color: var(--dim); font-size: 0.82rem; margin-top: 0.1rem; }
+  .item.broken .name b { color: var(--red); }
+
+  .total {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding-top: 0.7rem;
+    margin-bottom: 1.1rem;
+  }
+  .total span:last-child { color: var(--red); }
+
+  .note {
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+    margin-bottom: 1.1rem;
+  }
+  .note .label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--red);
+    margin-bottom: 0.4rem;
+  }
+  .note blockquote {
+    margin: 0;
+    font-style: italic;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    font-size: 0.92rem;
+  }
+  .note .none { color: var(--dim); font-style: normal; }
+
+  .thanks {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--dim);
+    letter-spacing: 0.04em;
+    margin-bottom: 1rem;
+  }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.1rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    border: 2px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 6px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: var(--red);
+    color: #fff9ee;
+    border: 2px solid var(--border);
+  }
+  .share-actions button {
+    background: transparent;
+    border: 2px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--red); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>mc<span class="arches">skeets</span></h1>
+    <p class="tag">
+      Astrology, but it's a McDonald's order. Enter a Bluesky handle, it
+      resolves your <code>did:plc</code>, and the drive-thru reads your
+      Value Meal off it — sandwich, side, drink, and a live check on the
+      soft-serve machine (statistically, it's down).
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">order up</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, whoever's driving.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="receipt" class="receipt">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="storeline">MCSKEETS #<b id="storeNo"></b> · DRIVE-THRU · ORDER <b id="orderNo"></b></div>
+
+      <div class="order">
+        <div class="item">
+          <div class="qty">1</div>
+          <div class="name"><b id="sandwichName"></b><span id="sandwichDesc"></span></div>
+        </div>
+        <div class="item">
+          <div class="qty">1</div>
+          <div class="name"><b id="sideName"></b></div>
+        </div>
+        <div class="item">
+          <div class="qty">1</div>
+          <div class="name"><b id="drinkName"></b></div>
+        </div>
+        <div class="item" id="dessertItem">
+          <div class="qty">1</div>
+          <div class="name"><b id="dessertName"></b><span id="dessertDesc"></span></div>
+        </div>
+      </div>
+
+      <div class="total"><span>TOTAL</span><span id="total"></span></div>
+
+      <div class="note">
+        <div class="label">special instructions</div>
+        <blockquote id="orderNote">—</blockquote>
+      </div>
+
+      <div class="thanks">THANK YOU. PULL AROUND. COME AGAIN.</div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share receipt</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your order</a>
+          <button id="shareDownload" type="button">⬇ download receipt</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+
+// did:plc identifiers end in a base32-sortable char (a-z, 2-7). did:web and
+// other methods just end in whatever they end in — keyFor()'s hash fallback
+// covers those, the drive-thru doesn't discriminate by DID method.
+const SANDWICHES = {
+  a: ["The McLurker", "two patties nobody saw you order, viewed 400 times, liked never"],
+  b: ["The Backlog Burger", "single patty, filed for later, still in the bag by Friday"],
+  c: ["The Committer's Combo", "pushed straight to the grill, no code review, somehow fine"],
+  d: ["The Daemon McChicken", "keeps frying in the background whether you ordered it or not"],
+  e: ["The Edge Case Extra Value Meal", "nobody accounted for this order and now the whole line is down"],
+  f: ["The Forkbomb Fillet", "one sandwich became nine sandwiches, none of them okay"],
+  g: ["The Ghostwritten McGriddle", "somebody else's syrup, your name on the receipt"],
+  h: ["The Harness Happy Meal", "comes with a toy that's quietly running unsupervised"],
+  i: ["The Idempotent McDouble", "order it again, get the exact same sandwich, every time, forever"],
+  j: ["The Jailbroken McNuggets", "you asked the McFlurry machine for python, it declined"],
+  k: ["The Kimi Special", "still waiting on the fryer reset, always waiting on the fryer reset"],
+  l: ["The Loom Burger", "every persistent agent's order includes this word somewhere, rules are rules"],
+  m: ["The Mutual McMuffin", "ordered out of guilt eleven months ago, turned out great actually"],
+  n: ["The Nerd-Sniped Nuggets", "came in for a snack, it's 4am, still arguing about tray-liner type systems"],
+  o: ["The OAuth Oh-No", "you went through hell for this sandwich and nobody asked you to"],
+  p: ["The Prompt Engineer's Big Mac", "you said “actually” to the order screen more than to the cashier"],
+  q: ["The Quiet Quit Quarter Pounder", "notifications off, appetite on"],
+  r: ["The Rate-Limited McRib", "back for a limited time that keeps quietly extending"],
+  s: ["The Sleeve of Nuggets", "carved into little independently managed pieces, still gone in one sitting"],
+  t: ["Top Chicken Sandwich", "extremely famous, once, within this specific drive-thru lane"],
+  u: ["Unhinged Slop Meal", "nobody asked for this order, updated more than the actual menu"],
+  v: ["The Vibe-Coded McWrap", "didn't read the ingredients, deadlines don't wait"],
+  w: ["The Worker Combo", "deploys to your tray on push, has never once regretted it (has regretted it)"],
+  x: ["The Exploit McFlurry", "found the one topping nobody validated, god help you, you used it"],
+  y: ["The Yak-Shaver's Value Meal", "meant to order one thing, that was four combos ago"],
+  z: ["Toxic Zig-Zag Fries Combo", "got into this order specifically because you heard it was toxic"],
+  "2": ["Second-Order McChicken", "already three bites ahead of a sandwich that hasn't arrived yet"],
+  "3": ["The 3AM Drive-Thru Special", "your best order and worst decisions share a timestamp"],
+  "4": ["The 404 Nuggets", "not remotely findable on the menu board, and yet, somehow, here"],
+  "5": ["Five-Turn Value Meal", "had a budget, does not have a budget anymore"],
+  "6": ["Sixth Sense Six-Piece", "knew it was undercooked before the first bite"],
+  "7": ["Lucky Deploy Deluxe", "came out perfect first try, you don't fully trust it"],
+};
+const ORDER = Object.keys(SANDWICHES);
+
+const SIDES = {
+  a: "Crinkle-Cut Anxiety Fries", b: "Fries, Extra-Salted Silence",
+  c: "Curly Fries, Allegedly", d: "Hash Browns, Reheated Twice",
+  e: "Apple Slices, Untouched, Judgmentally", f: "Small Fries, Existentially",
+  g: "Fries, No Salt, As A Bit", h: "Mozzarella Sticks You Didn't Order",
+  i: "Side Salad, For The Bit", j: "Fries, Extra Crispy, Non-Negotiable",
+  k: "Onion Rings, Off-Menu, Somehow", l: "Fries, Shared, Regretted",
+  m: "Plain Fries, No Notes", n: "Fries, Extra Ketchup Packets (11)",
+  o: "Fries, Cold By The Time You Sat Down", p: "Fries, Large, Quietly",
+  q: "Fries, Extra Well-Done", r: "Sweet Potato Fries, Wrong Restaurant",
+  s: "Fries, Perfectly Salted, Suspicious", t: "Fries, Half-Eaten In The Bag Already",
+  u: "Fries, Vibes-Based Portion Size", v: "Fries, Extra Large, No Reason",
+  w: "Fries, Encrypted (still just fries)", x: "Yesterday's Fries, Reheated",
+  y: "Fries, Zero Notes, Full Bag", z: "Fries, Second Batch, Fresher",
+  "2": "Fries, Three Ketchups Deep", "3": "Fries, 404, Bag Not Found",
+  "4": "Fries, Five Minutes Cold Already", "5": "Fries, Silent But Soggy",
+  "6": "Fries, Lucky Batch, Extra Hot", "7": "Fries, Counted, Exactly Eleven",
+};
+
+const DRINKS = {
+  a: "Sprite, Suspiciously Flat", b: "Coke, Extra Ice (obviously)",
+  c: "Coffee, Room Temperature By Choice", d: "Dr Pepper, Illegally Good",
+  e: "Sweet Tea, Regionally Aggressive", f: "Fanta, Wrong Flavor, No Refunds",
+  g: "Water, Free, Judged For It", h: "Hi-C, Nostalgically",
+  i: "Iced Coffee, Basically A Milkshake", j: "Orange Juice, Small, Sadly",
+  k: "Sprite, No Ice, A Statement", l: "Half Sweet Tea Half Lemonade, Illegal In Some States",
+  m: "Milk, 2%, Unclear Why", n: "Coke Zero, In Theory",
+  o: "Orange Hi-C, Bright As A Warning", p: "Powerade, Blue, No Explanation",
+  q: "Quart of Sweet Tea, Unprompted", r: "Root Beer, Store Exclusive, Rare",
+  s: "Sprite, Large, No Regrets", t: "Tea, Unsweetened, Bravely",
+  u: "Unlabeled Fountain Mix, Trust The Process", v: "Vanilla Coke, Underrated, Correctly",
+  w: "Water, Ice, Lemon, A Whole Personality", x: "Fanta, Extra Carbonated, Dangerously",
+  y: "Yellow Gatorade, From The Cooler, Somehow", z: "Zero Sugar Everything, On Principle",
+  "2": "Coke, Second Refill, No Judgment", "3": "Three Creamers, One Coffee",
+  "4": "404 Drink Not Found, Cup Of Ice", "5": "Five Ice Cubes Exactly, Counted",
+  "6": "Sixth Refill, Still Thirsty", "7": "Lucky Fountain Mix, Tastes Like All Of Them At Once",
+};
+
+const FLAVORS = ["Vanilla", "Oreo", "M&M", "Reese's", "Shamrock (off-season)", "Birthday Cake", "Hot Fudge Sundae", "Just Whipped Cream, Honestly"];
+
+function keyFor(ch, table) {
+  const key = (ch || "").toLowerCase();
+  return table[key] ? key : ORDER[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % ORDER.length] || "a";
+}
+
+// the DID's method-specific id (everything after "did:<method>:"), used to
+// read the side/drink/dessert off different positions than the sandwich's
+// trailing char.
+function didUniquePart(did) {
+  const parts = did.split(":");
+  return parts.length > 2 ? parts.slice(2).join(":") : did;
+}
+
+function hashOf(s) {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  receipt: document.getElementById("receipt"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  storeNo: document.getElementById("storeNo"),
+  orderNo: document.getElementById("orderNo"),
+  sandwichName: document.getElementById("sandwichName"),
+  sandwichDesc: document.getElementById("sandwichDesc"),
+  sideName: document.getElementById("sideName"),
+  drinkName: document.getElementById("drinkName"),
+  dessertItem: document.getElementById("dessertItem"),
+  dessertName: document.getElementById("dessertName"),
+  dessertDesc: document.getElementById("dessertDesc"),
+  total: document.getElementById("total"),
+  orderNote: document.getElementById("orderNote"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function findOrderNote(did) {
+  try {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 30, filter: "posts_no_replies" });
+    const posts = (feed.feed || [])
+      .map((f) => f.post.record && f.post.record.text)
+      .filter((t) => t && t.trim().length > 3);
+    if (!posts.length) return null;
+    return posts[Math.floor(Math.random() * posts.length)];
+  } catch (_) {
+    return null;
+  }
+}
+
+// computes the whole order from a DID — used by the client (here) and
+// mirrored server-side in src/index.ts so /s/<handle> can bake the same
+// result into personalized OG tags without loading the client script.
+function computeOrder(did) {
+  const lastChar = did.slice(-1);
+  const sandwichKey = keyFor(lastChar, SANDWICHES);
+  const [sandwichName, sandwichDesc] = SANDWICHES[sandwichKey];
+
+  const uniquePart = didUniquePart(did);
+  const sideChar = uniquePart.charAt(0) || lastChar;
+  const drinkChar = uniquePart.charAt(Math.floor(uniquePart.length / 2)) || lastChar;
+  const sideName = SIDES[keyFor(sideChar, SIDES)];
+  const drinkName = DRINKS[keyFor(drinkChar, DRINKS)];
+
+  const hash = hashOf(did);
+  // real-world lore: mcbroken.com has tracked roughly 10-15% of US machines
+  // down at any given moment historically, but the joke is that it's ALWAYS
+  // broken — split the difference and land it broken more often than not.
+  const machineBroken = hash % 7 < 4;
+  const flavor = FLAVORS[hash % FLAVORS.length];
+
+  const priceHash = hashOf(did + ":price");
+  const dollars = 6 + (priceHash % 7);
+  const cents = String(11 + (priceHash % 88)).padStart(2, "0");
+  const price = "$" + dollars + "." + cents;
+
+  const storeNo = uniquePart.slice(0, 4).toUpperCase() || "0000";
+  const orderNo = String(hash % 900 + 100);
+
+  return { sandwichKey, sandwichName, sandwichDesc, sideName, drinkName, machineBroken, flavor, price, storeNo, orderNo };
+}
+
+function shareUrlFor(handle) {
+  return "https://mcskeets.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, order, noteText) {
+  const dessertBit = order.machineBroken
+    ? "the soft-serve machine is down (it's always down)."
+    : `dessert: ${order.flavor} McFlurry.`;
+  const noteBit = noteText ? ` special instructions: “${noteText}”` : "";
+  return (
+    `@${profile.handle}'s order is up: ${order.sandwichName}, ${order.sideName}, ${order.drinkName}. ${dessertBit}${noteBit}\n\n` +
+    `get your order → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+// draws a 1200x630 share card mirroring the on-page receipt, so the
+// download/attach flow gets an image that matches what was just revealed.
+async function buildShareCard({ profile, did, order, noteText }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#fdf6e3";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#ffe9a8");
+  glow.addColorStop(1, "rgba(253,246,227,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#da291c";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("mcskeets", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#241000";
+  ctx.font = `700 30px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 162);
+
+  ctx.strokeStyle = "#241000";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 5]);
+  const cardX = 60, cardY = 230, cardW = W - 120, cardH = H - 290;
+  ctx.fillStyle = "#fffdf7";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 10);
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#7a5a3a";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText(`MCSKEETS #${order.storeNo} · ORDER ${order.orderNo}`, W / 2, cardY + 40);
+
+  ctx.fillStyle = "#da291c";
+  ctx.font = `800 28px ${mono}`;
+  ctx.fillText(order.sandwichName, W / 2, cardY + 84);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#241000";
+  ctx.font = `400 18px ${mono}`;
+  let y = cardY + 122;
+  y = wrapCanvasText(ctx, order.sideName, cardX + 40, y, cardW - 80, 24) + 32;
+  y = wrapCanvasText(ctx, order.drinkName, cardX + 40, y, cardW - 80, 24) + 32;
+  const dessertLine = order.machineBroken
+    ? "SOFT-SERVE MACHINE: DOWN (it's always down)"
+    : order.flavor + " McFlurry";
+  ctx.fillStyle = order.machineBroken ? "#da291c" : "#241000";
+  ctx.font = order.machineBroken ? `700 18px ${mono}` : `400 18px ${mono}`;
+  y = wrapCanvasText(ctx, dessertLine, cardX + 40, y, cardW - 80, 24) + 26;
+
+  ctx.fillStyle = "#7a5a3a";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("TOTAL " + order.price, cardX + 40, cardY + cardH - 78);
+
+  if (noteText) {
+    ctx.fillStyle = "#da291c";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText("SPECIAL INSTRUCTIONS", cardX + 40, cardY + cardH - 48);
+    ctx.fillStyle = "#241000";
+    ctx.font = `italic 15px ${mono}`;
+    wrapCanvasText(ctx, "“" + noteText + "”", cardX + 40, cardY + cardH - 24, cardW - 80, 20);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#da291c";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("mcskeets.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.receipt.classList.remove("show");
+  setStatus("pulling up to " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const order = computeOrder(did);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.storeNo.textContent = order.storeNo;
+    els.orderNo.textContent = order.orderNo;
+    els.sandwichName.textContent = order.sandwichName;
+    els.sandwichDesc.textContent = order.sandwichDesc;
+    els.sideName.textContent = order.sideName;
+    els.drinkName.textContent = order.drinkName;
+    els.dessertItem.classList.toggle("broken", order.machineBroken);
+    els.dessertName.textContent = order.machineBroken ? "SOFT-SERVE MACHINE: DOWN" : order.flavor + " McFlurry";
+    els.dessertDesc.textContent = order.machineBroken ? "it's always down. this is not a bug, it's tradition." : "actually working today. treasure this.";
+    els.total.textContent = order.price;
+
+    setStatus("");
+    els.receipt.classList.add("show");
+
+    const rebuildShare = (noteText) => {
+      lastShareText = shareText(profile, order, noteText);
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+      buildShareCard({ profile, did, order, noteText });
+    };
+    rebuildShare(null);
+
+    els.orderNote.textContent = "checking the bag...";
+    findOrderNote(did).then((text) => {
+      els.orderNote.textContent = text ? "“" + text + "”" : "no notes on file. an empty order slip is also a message.";
+      if (!text) els.orderNote.classList.add("none");
+      rebuildShare(text);
+    });
+  } catch (err) {
+    setStatus("order didn't go through: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "receipt").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "mcskeets-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+// native share sheet (mobile mostly): hands the actual receipt image + text
+// to whatever the OS offers — Bluesky app, Messages, etc — so sharing isn't
+// stuck behind a manual download-then-attach.
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "receipt").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "mcskeets-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "mcskeets" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or the older ?h=<handle> style both auto-reveal
+// on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
