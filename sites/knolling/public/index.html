@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>knolling — your moots, scattered and squared away</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. Every moot hashes to one fixed ordinary object, flung across a virtual studio worktop. Hit 'knoll it' and they glide into a tidy, grouped, right-angled flat-lay."
+    />
+    <meta property="og:title" content="knolling" />
+    <meta property="og:description" content="Your atproto friends, scattered as ordinary objects — then knolled into a tidy flat-lay." />
+    <style>
+      :root {
+        --bg: #0c0e12;
+        --panel: #14171d;
+        --ink: #e7e8ea;
+        --muted: #8a8f99;
+        --faint: #262a32;
+        --accent: #7fb8ff;
+        --accent-dim: #3a5a80;
+        --warn: #ff8b7f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+      header h1 { font-size: 1.5rem; margin: 0 0 0.35rem; font-weight: 600; letter-spacing: -0.01em; }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 62ch; }
+
+      form#load-form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+      #handle-input {
+        flex: 1; font-family: var(--mono); font-size: 0.9rem; color: var(--ink);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      #handle-input:focus { outline: none; border-color: var(--accent-dim); }
+      form#load-form button {
+        font-family: var(--mono); font-size: 0.85rem; color: var(--bg);
+        background: var(--accent); border: none; border-radius: 6px;
+        padding: 0 1rem; cursor: pointer; font-weight: 600;
+      }
+      form#load-form button:hover { filter: brightness(1.08); }
+
+      #status { min-height: 1.2rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 1.25rem; }
+      #status.error { color: var(--warn); }
+
+      #stage[hidden] { display: none; }
+      #stage { position: relative; }
+
+      .canvas-wrap {
+        margin-bottom: 0.75rem; line-height: 0;
+      }
+      #worktop {
+        display: block; width: 100%; height: auto; aspect-ratio: 1000 / 640; touch-action: none;
+        border-radius: 10px; border: 1px solid var(--faint);
+      }
+
+      #tooltip {
+        position: absolute; pointer-events: none; z-index: 3;
+        background: rgba(10, 12, 16, 0.92); color: var(--ink);
+        border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.4rem 0.6rem; font-size: 0.76rem; line-height: 1.4;
+        max-width: 220px; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      }
+      #tooltip[hidden] { display: none; }
+      #tooltip b { color: var(--accent); font-weight: 600; }
+
+      .controls {
+        display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+        padding: 0.8rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 600; cursor: pointer;
+        border-radius: 6px; padding: 0.5rem 0.9rem;
+        background: transparent; color: var(--ink); border: 1px solid var(--accent-dim);
+      }
+      .controls button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+      .controls button:disabled { opacity: 0.4; cursor: default; }
+      #toggle-btn { background: var(--accent); color: var(--bg); border: none; }
+      #toggle-btn:hover:not(:disabled) { filter: brightness(1.08); }
+      #toggle-btn:disabled { opacity: 0.4; }
+      #meta { margin-left: auto; color: var(--muted); font-size: 0.78rem; }
+
+      footer {
+        margin-top: 2.5rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 560px) {
+        #meta { margin-left: 0; width: 100%; order: 10; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>knolling</h1>
+        <p>
+          type a Bluesky handle. every moot (mutual, widened to follows if
+          there aren't enough) hashes to one fixed ordinary object — a mug, a
+          stapler, a lost sunglasses, always the same one for that account,
+          forever — and lands flung across a virtual studio worktop. hit
+          "knoll it" and every object glides into a tidy, grouped,
+          right-angled flat-lay. hover an object for who it is; click to
+          visit them.
+        </p>
+      </header>
+
+      <form id="load-form">
+        <input id="handle-input" placeholder="handle.bsky.social" autocomplete="off" />
+        <button type="submit">spread them out</button>
+      </form>
+      <div id="status"></div>
+
+      <div id="stage" hidden>
+        <div class="canvas-wrap">
+          <canvas id="worktop" width="1000" height="640"></canvas>
+          <div id="tooltip" hidden></div>
+        </div>
+        <div class="controls">
+          <button id="toggle-btn" data-knolled="0">knoll it</button>
+          <button id="shuffle-btn" title="toss them again">🎲 shuffle</button>
+          <button id="download-btn" title="save a PNG of the worktop">⭳ download</button>
+          <button id="share-btn" title="share the worktop">share</button>
+          <span id="meta"></span>
+        </div>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a> · public AppView
+        reads only, laid out live in the browser · object per DID is a pure
+        hash (FNV-1a), stable forever, same convention as
+        <a href="https://mootdrone.bisks.net">mootdrone</a> · moots-graph
+        logic copied from <a href="https://mootdrone.bisks.net">mootdrone</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
