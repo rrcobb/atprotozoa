@@ -152,7 +152,7 @@ async function runWatcher(env: Env): Promise<void> {
         await replyToPost(
           session,
           m,
-          `hi! i only build for @bisks.net's mutuals — tagging @bisks.net so they can take a look.`,
+          `hi! i'll build for anyone, just not automatically yet — tagging @bisks.net so they can give the go-ahead.`,
           { "bisks.net": env.ROB_DID },
         );
         await env.STATE.put(nmKey, "1", { expirationTtl: 60 * 60 * 24 * 30 });
