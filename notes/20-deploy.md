@@ -125,6 +125,22 @@ result or the resulting workers.dev URL.
    (still unresolved, needs dashboard access) — copied the same `workers_dev
    = true` stopgap into `sites/windmill/wrangler.toml`.
 
+**Follow-up verification, same day (2026-07-26), after a fourth report** ("this
+is not resolving, nor is windmill"): re-checked both from a build-agent sandbox
+with live network access.
+
+- `bisks.net` — resolves and serves (`curl -I` → `HTTP/2 200`). The reply.mjs
+  fix above is confirmed working; no further action needed here.
+- `windmill.bisks.net` — still `dig +short` empty / curl fails to resolve
+  (getaddrinfo failure). The `workers_dev = true` stopgap in its
+  `wrangler.toml` gives a fallback route, but without dashboard/CI deploy
+  access this agent can't discover the account's actual `*.workers.dev`
+  subdomain to link it, and can't confirm whether that fallback route ever
+  successfully deployed either. This is still blocked on someone with
+  dash.cloudflare.com access checking the `bisks.net` zone's custom-domain
+  count/cap and freeing up room (or raising it) so `windmill.bisks.net`'s
+  route can actually provision.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
