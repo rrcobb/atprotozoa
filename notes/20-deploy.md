@@ -289,3 +289,35 @@ one new custom domain to *all* sites on the zone is exactly the expected shape o
 shared-IP/zone reputation false-positive already diagnosed above, not evidence of a
 real credential-harvesting page — still needs the Search Console review filed by
 someone with dashboard access; no further code fix available from this agent.
+
+**Root cause found and fixed (2026-07-26, with dashboard access):** Rob checked
+Search Console → Security Issues, which named exactly **one** flagged URL:
+`https://catsofatproto.bisks.net/`, category **Deceptive pages** ("attempt to
+trick users into ... installing unwanted software or revealing personal
+information"). So this was NOT a pure shared-IP/new-domain reputation false
+positive after all — a specific page tripped it, and because the whole zone is
+one domain, that one page flagged every site.
+
+`catsofatproto` streamed **live, unvetted third-party images straight off the
+Bluesky firehose**, loaded remote `tfjs`/`mobilenet` from a CDN, and ran an
+`/img/` proxy. To the Safe Browsing crawler that combination (unreviewed
+third-party image stream + remote script loading + image proxy) reads as a
+compromised/deceptive page. The fix was to **retire the site**: `sites/catsofatproto`
+is now a static retirement stub (no remote scripts, no firehose, no proxy), so the
+flagged URL serves obviously-benign content and the Search Console review can clear
+the domain.
+
+**Do not revive `catsofatproto`'s live feed.** There is no safe way to display an
+unfiltered live public image firehose — anything that re-displays it can re-trip the
+flag and take down the entire `bisks.net` zone again. If a future pass is bringing
+sites "back up," skip this one on purpose; it is down by design. See
+`sites/catsofatproto/RETIRED.md`.
+
+Still to do (needs Cloudflare dashboard / wrangler creds — repo change alone doesn't
+do it): the deploy workflow only ever runs `wrangler deploy` on changed dirs, it has
+no delete path, so the live Worker `atprotozoa-catsofatproto` and the leftover
+`catsofatproto.bisks.net` hostname keep serving until explicitly removed. The stub
+deploy makes them serve harmless content (enough to clear the flag); fully deleting
+the Worker + that custom-domain binding is a separate manual step. After the stub is
+live and the page serves benign content, file the review via Search Console's
+**Request Review** button.
