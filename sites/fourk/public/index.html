@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fourk — a wow in ~4kb of js</title>
+<meta name="description" content="A raymarched neon fractal tunnel, hand-rolled in about 4kb of JavaScript plus a GLSL shader. No libraries, no build step — just a canvas, a fragment shader, and a fly-through.">
+<meta property="og:title" content="fourk — a wow in ~4kb of js">
+<meta property="og:description" content="A raymarched neon fractal tunnel in about 4kb of hand-written JS + GLSL. No libraries, no build step — drag to steer.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://fourk.bisks.net/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="fourk — a wow in ~4kb of js">
+<meta name="twitter:description" content="A raymarched neon fractal tunnel in about 4kb of hand-written JS + GLSL. Drag to steer.">
+<style>
+  html, body { margin: 0; height: 100%; background: #030308; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  #hud, #back {
+    position: fixed; font: 12px/1.5 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    color: #9be8ff; text-shadow: 0 0 8px rgba(80, 220, 255, .45); letter-spacing: .01em;
+  }
+  #hud { left: .75rem; bottom: .65rem; opacity: .85; }
+  #hud a { color: #9be8ff; }
+  #back { left: .75rem; top: .65rem; opacity: .6; text-decoration: none; }
+  #back:hover { opacity: 1; }
+  #fallback { color: #9be8ff; font: 14px ui-monospace, monospace; padding: 3rem 1.25rem; max-width: 32rem; }
+  #fallback a { color: #9be8ff; }
+</style>
+</head>
+<body>
+<a id="back" href="https://bisks.net">&larr; the zoo</a>
+<canvas id="c"></canvas>
+<div id="hud">
+  fourk &middot; <span id="kb">?</span>kb of hand-rolled js &middot; drag / swipe to steer &middot;
+  <a id="share" href="#" target="_blank" rel="noopener">skeet it</a>
+</div>
+<script id="app">
+(function () {
+  "use strict";
+  var c = document.getElementById("c");
+  var gl = c.getContext("webgl2");
+  if (!gl) {
+    var msg = document.createElement("div");
+    msg.id = "fallback";
+    msg.innerHTML = "this demo needs <b>WebGL2</b> &mdash; try a recent desktop " +
+      "Chrome, Firefox, or Safari. (<a href=\"https://bisks.net\">&larr; back to the zoo</a>)";
+    c.replaceWith(msg);
+    return;
+  }
+
+  var vsSrc = "#version 300 es\n" +
+    "void main(){" +
+    "vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);" +
+    "gl_Position=vec4(p*2.0-1.0,0.0,1.0);" +
+    "}";
+
+  var fsSrc = "#version 300 es\n" +
+    "precision highp float;\n" +
+    "out vec4 o;\n" +
+    "uniform vec2 R;\n" +
+    "uniform float T;\n" +
+    "uniform vec2 M;\n" +
+    "mat2 rot(float a){float s=sin(a),c=cos(a);return mat2(c,s,-s,c);}\n" +
+    "float sdBox(vec3 p,vec3 b){vec3 d=abs(p)-b;return length(max(d,0.0))+min(max(d.x,max(d.y,d.z)),0.0);}\n" +
+    "float de(vec3 p){\n" +
+    "  p.xy*=rot(p.z*0.12+T*0.06);\n" +
+    "  vec3 q=p;\n" +
+    "  q.xy=mod(q.xy,2.0)-1.0;\n" +
+    "  float pulse=0.22+0.05*sin(T*1.6+p.z*0.4);\n" +
+    "  return sdBox(q,vec3(pulse,pulse,100000.0));\n" +
+    "}\n" +
+    "vec3 pal(float t){return 0.5+0.5*cos(6.28318*(t+vec3(0.0,0.33,0.67)));}\n" +
+    "void main(){\n" +
+    "  vec2 uv=(gl_FragCoord.xy-0.5*R)/R.y;\n" +
+    "  vec3 ro=vec3(0.0,0.0,T*2.4);\n" +
+    "  vec3 rd=normalize(vec3(uv,1.3));\n" +
+    "  rd.xy*=rot(M.x*0.5);\n" +
+    "  rd.yz*=rot(M.y*0.3);\n" +
+    "  float dt=0.0,glow=0.0;\n" +
+    "  vec3 p=ro;\n" +
+    "  int i;\n" +
+    "  for(i=0;i<80;i++){\n" +
+    "    p=ro+rd*dt;\n" +
+    "    float d=de(p);\n" +
+    "    glow+=exp(-max(d,0.0)*4.0)*0.025;\n" +
+    "    if(d<0.002||dt>60.0)break;\n" +
+    "    dt+=d*0.55;\n" +
+    "  }\n" +
+    "  vec3 col=vec3(0.0);\n" +
+    "  if(dt<60.0){\n" +
+    "    vec2 e=vec2(0.002,0.0);\n" +
+    "    vec3 n=normalize(vec3(\n" +
+    "      de(p+e.xyy)-de(p-e.xyy),\n" +
+    "      de(p+e.yxy)-de(p-e.yxy),\n" +
+    "      de(p+e.yyx)-de(p-e.yyx)\n" +
+    "    ));\n" +
+    "    vec3 l=normalize(vec3(0.4,0.7,-0.4));\n" +
+    "    float diff=max(dot(n,l),0.0);\n" +
+    "    float fres=pow(1.0-max(dot(n,-rd),0.0),3.0);\n" +
+    "    float hue=float(i)*0.025+dt*0.015+T*0.05;\n" +
+    "    col=pal(hue)*(diff*0.7+0.25)+fres*pal(hue+0.5);\n" +
+    "    col=mix(col,vec3(0.02,0.01,0.06),1.0-exp(-dt*0.015));\n" +
+    "  } else {\n" +
+    "    col=vec3(0.02,0.01,0.05);\n" +
+    "  }\n" +
+    "  col+=pal(T*0.07+0.2)*glow;\n" +
+    "  col=pow(col,vec3(0.4545));\n" +
+    "  o=vec4(col,1.0);\n" +
+    "}";
+
+  function compile(type, src) {
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    return sh;
+  }
+
+  var prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  var uR = gl.getUniformLocation(prog, "R");
+  var uT = gl.getUniformLocation(prog, "T");
+  var uM = gl.getUniformLocation(prog, "M");
+
+  var mx = 0, my = 0, tx = 0, ty = 0, dragging = false, lastX = 0, lastY = 0;
+
+  c.addEventListener("pointerdown", function (e) {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+  });
+  addEventListener("pointerup", function () { dragging = false; });
+  addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    tx = Math.max(-1, Math.min(1, tx + (e.clientX - lastX) * 0.003));
+    ty = Math.max(-1, Math.min(1, ty + (e.clientY - lastY) * 0.003));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  c.addEventListener("touchmove", function (e) {
+    var t = e.touches[0];
+    if (!t) return;
+    tx = Math.max(-1, Math.min(1, (t.clientX / innerWidth - 0.5) * 2));
+    ty = Math.max(-1, Math.min(1, (t.clientY / innerHeight - 0.5) * 2));
+  }, { passive: true });
+
+  function resize() {
+    var dpr = Math.min(devicePixelRatio || 1, 1.6);
+    c.width = Math.floor(innerWidth * dpr);
+    c.height = Math.floor(innerHeight * dpr);
+    gl.viewport(0, 0, c.width, c.height);
+  }
+  addEventListener("resize", resize);
+  resize();
+
+  function draw(t) {
+    t *= 0.001;
+    mx += (tx - mx) * 0.06;
+    my += (ty - my) * 0.06;
+    gl.uniform2f(uR, c.width, c.height);
+    gl.uniform1f(uT, t);
+    gl.uniform2f(uM, mx, my);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  var srcBytes = new Blob([document.currentScript.textContent]).size;
+  document.getElementById("kb").textContent = (srcBytes / 1024).toFixed(2);
+  document.getElementById("share").href = "https://bsky.app/intent/compose?text=" +
+    encodeURIComponent("flying through a neon fractal tunnel rendered by " +
+      (srcBytes / 1024).toFixed(1) + "kb of hand-rolled js + a shader — fourk.bisks.net");
+})();
+</script>
+<p style="position:fixed;right:.75rem;bottom:.65rem;font:11px ui-monospace,monospace;color:#9be8ff;opacity:.45">
+  a <a style="color:#9be8ff" href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> demo,
+  idea from <a style="color:#9be8ff" href="https://bsky.app/profile/jmoonz.bsky.social">@jmoonz.bsky.social</a>
+</p>
+</body>
+</html>
