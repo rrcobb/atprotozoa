@@ -1,16 +1,20 @@
-// game.js — grand moot auto, take two. @isolyth.dev said the first cut
-// "wasn't even 3D" — fair, it was a top-down canvas. This one is real WebGL:
-// three.js chase-cam, extruded buildings, real-time shadow mapping. Fetches
-// still happen in lib/cluster.js (copied verbatim from pacmoot — copy, don't
-// abstract); this file is the nine-block city, the car physics, the
-// pedestrian wander AI, the honk mechanic, and the 3D scene. Still not
-// literal GTA 6. Still not 100,000 square kilometers. It is, however,
-// actually 3D now.
+// game.js — grand moot auto, take three. @isolyth.dev's punch list from the
+// thread: spawns in a building (real bug, fixed below), no PBR/raytracing
+// (added a real bloom pass, tied honestly to the RTX toggle), no way to get
+// out of the car (E toggles walk mode), no cops (there's a wanted meter and
+// a patrol car now), no strip club / blimp / helicopter / planes (all four
+// are in the city now, as decor). Fetches still happen in lib/cluster.js
+// (copied verbatim from pacmoot — copy, don't abstract). Still not literal
+// GTA 6. Still not 100,000 square kilometers. It is, however, actually
+// trying now.
 
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { moots, getProfiles } from "./lib/cluster.js";
 
-// ---- the entire map (nine whole blocks now, we doubled it) -----------------
+// ---- the entire map (nine whole blocks, one of them is a strip club) ------
 const TILE = 4; // world units (meters) per grid tile
 const COLS = 22;
 const ROWS = 18;
@@ -25,6 +29,7 @@ const BLOCKS = [
   { r: 13, c: 6 },
   { r: 13, c: 12 },
 ];
+const CLUB_BLOCK = BLOCKS[5]; // { r: 7, c: 9 } — the one right at map center
 
 function isBuilding(r, c) {
   if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
@@ -59,6 +64,20 @@ for (let r = 0; r < ROWS; r++) {
   if (OPEN_TILES.filter((t) => t.r === r).length === COLS) ROAD_ROWS.push(r);
 }
 
+// every road/road intersection — cops patrol between these, cars always spawn on one
+const INTERSECTIONS = [];
+for (const r of ROAD_ROWS) for (const c of ROAD_COLS) INTERSECTIONS.push({ r, c });
+
+// nearest road intersection to map center: this used to be W/2,H/2 flat out,
+// which — @isolyth.dev was right — sat inside the block at r7/c9. fixed.
+const SPAWN = (() => {
+  const midR = ROWS / 2;
+  const midC = COLS / 2;
+  const r = ROAD_ROWS.reduce((a, b) => (Math.abs(b - midR) < Math.abs(a - midR) ? b : a));
+  const c = ROAD_COLS.reduce((a, b) => (Math.abs(b - midC) < Math.abs(a - midC) ? b : a));
+  return { x: c * TILE + TILE / 2, y: r * TILE + TILE / 2 };
+})();
+
 // ---- shared helpers ---------------------------------------------------------
 function hashInt(str) {
   let h = 0;
@@ -72,7 +91,7 @@ function imgReady(img) {
   return img && img.complete && img.naturalWidth > 0;
 }
 
-// ---- car physics (unchanged shape, scaled to TILE=4 world units) -----------
+// ---- car physics -------------------------------------------------------
 const CAR_R = 1.1;
 const ACCEL = 23;
 const BRAKE = 34;
@@ -85,6 +104,21 @@ const HONK_COOLDOWN = 0.3;
 const GAME_SECONDS = 50;
 const MAX_MOOTS = 10;
 const PED_SPEED = 1.15; // tiles/sec
+
+// ---- getting out of the car ---------------------------------------------
+const WALK_SPEED = 3.4;
+const WALK_R = 0.45;
+const WAVE_RADIUS = 3.4;
+const REENTER_RADIUS = 3.2;
+
+// ---- cops ----------------------------------------------------------------
+const COP_PATROL_SPEED = 6.2;
+const COP_CHASE_SPEED = 10.8;
+const WANTED_PER_HONK = 1.4;
+const WANTED_DECAY = 0.55; // per second
+const WANTED_CHASE_AT = 4.5;
+const BUST_RADIUS = 1.75;
+const BUST_INVULN = 2.4;
 
 function closestPointOnRect(cx, cy, rx, ry, rw, rh) {
   return {
@@ -107,7 +141,7 @@ function circleHitsBuilding(cx, cy, r) {
   return false;
 }
 function makeCar() {
-  return { x: W / 2, y: H / 2, angle: -Math.PI / 2, speed: 0 };
+  return { x: SPAWN.x, y: SPAWN.y, angle: -Math.PI / 2, speed: 0 };
 }
 function updateCar(car, dt, keys) {
   if (keys.up) car.speed += ACCEL * dt;
@@ -136,6 +170,71 @@ function updateCar(car, dt, keys) {
 
   car.x = Math.max(CAR_R, Math.min(W - CAR_R, car.x));
   car.y = Math.max(CAR_R, Math.min(H - CAR_R, car.y));
+}
+
+// ---- walking (out of the car) -------------------------------------------
+function makeWalker() {
+  return { x: SPAWN.x, y: SPAWN.y, angle: -Math.PI / 2 };
+}
+function updateWalker(w, dt, keys) {
+  let dx = 0;
+  let dz = 0;
+  if (keys.up) dz -= 1;
+  if (keys.down) dz += 1;
+  if (keys.left) dx -= 1;
+  if (keys.right) dx += 1;
+  if (!dx && !dz) return;
+  const len = Math.hypot(dx, dz);
+  dx /= len;
+  dz /= len;
+  w.angle = Math.atan2(dz, dx);
+  const nx = w.x + dx * WALK_SPEED * dt;
+  const nz = w.y + dz * WALK_SPEED * dt;
+  if (!circleHitsBuilding(nx, w.y, WALK_R)) w.x = nx;
+  if (!circleHitsBuilding(w.x, nz, WALK_R)) w.y = nz;
+  w.x = Math.max(WALK_R, Math.min(W - WALK_R, w.x));
+  w.y = Math.max(WALK_R, Math.min(H - WALK_R, w.y));
+}
+
+// ---- cop AI: patrol between road intersections, chase when wanted is high
+function pickIntersection() {
+  return INTERSECTIONS[Math.floor(Math.random() * INTERSECTIONS.length)];
+}
+function makeCop() {
+  const start = pickIntersection();
+  return {
+    x: start.c * TILE + TILE / 2,
+    y: start.r * TILE + TILE / 2,
+    angle: 0,
+    mode: "patrol",
+    target: pickIntersection(),
+    invuln: 0,
+  };
+}
+function updateCop(cop, dt, targetX, targetY, chasing) {
+  cop.mode = chasing ? "chase" : "patrol";
+  let tx;
+  let ty;
+  if (chasing) {
+    tx = targetX;
+    ty = targetY;
+  } else {
+    tx = cop.target.c * TILE + TILE / 2;
+    ty = cop.target.r * TILE + TILE / 2;
+    const dist = Math.hypot(tx - cop.x, ty - cop.y);
+    if (dist < 0.3) cop.target = pickIntersection();
+  }
+  const dx = tx - cop.x;
+  const dy = ty - cop.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 0.02) {
+    cop.angle = Math.atan2(dy, dx);
+    const spd = chasing ? COP_CHASE_SPEED : COP_PATROL_SPEED;
+    const step = Math.min(dist, spd * dt);
+    cop.x += (dx / dist) * step;
+    cop.y += (dy / dist) * step;
+  }
+  if (cop.invuln > 0) cop.invuln -= dt;
 }
 
 // ---- pedestrian wander AI (unchanged, tile-based) ---------------------------
@@ -199,6 +298,8 @@ const boardMeta = document.getElementById("board-meta");
 const scoreEl = document.getElementById("score");
 const bestEl = document.getElementById("best");
 const timeEl = document.getElementById("time");
+const heatEl = document.getElementById("heat");
+const modeEl = document.getElementById("mode-indicator");
 const canvas = document.getElementById("board");
 const startOverlay = document.getElementById("start-overlay");
 const startCopy = document.getElementById("start-copy");
@@ -210,6 +311,7 @@ const againBtn = document.getElementById("again-btn");
 const shareLink = document.getElementById("share-link");
 const breakthroughBtn = document.getElementById("breakthrough-btn");
 const breakthroughFlash = document.getElementById("breakthrough-flash");
+const bustedFlash = document.getElementById("busted-flash");
 const chipRtx = document.getElementById("chip-rtx");
 const chipDlss = document.getElementById("chip-dlss");
 const chipFsr = document.getElementById("chip-fsr");
@@ -227,6 +329,13 @@ scene.background = BG;
 scene.fog = new THREE.Fog(BG, 30, 95);
 
 const camera = new THREE.PerspectiveCamera(62, 16 / 10, 0.1, 220);
+
+// a real (if small) post-processing pipeline: bloom on emissive surfaces —
+// neon signs, headlights, the club marquee — honestly tied to the RTX chip.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.85, 0.65, 0.18);
+composer.addPass(bloomPass);
 
 scene.add(new THREE.HemisphereLight(0x6a5aa8, 0x0a0812, 0.7));
 const sun = new THREE.DirectionalLight(0xfff2e0, 1.5);
@@ -318,7 +427,8 @@ const windowTexBase = buildWindowTexture();
 const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
 for (const b of BLOCKS) {
   const seed = `${b.r}-${b.c}`;
-  const h = 6 + (hashInt(seed) % 11); // 6..16 tall
+  const isClub = b === CLUB_BLOCK;
+  const h = isClub ? 5 : 6 + (hashInt(seed) % 11); // 6..16 tall, club is squat
   const size = 3 * TILE - 0.6;
   const tex = windowTexBase.clone();
   tex.needsUpdate = true;
@@ -326,11 +436,11 @@ for (const b of BLOCKS) {
   const mat = new THREE.MeshStandardMaterial({
     map: tex,
     emissiveMap: tex,
-    emissive: new THREE.Color(0x12101c),
-    emissiveIntensity: 0.55,
-    color: new THREE.Color().setHSL(hue(seed) / 360, 0.28, 0.42),
-    roughness: 0.6,
-    metalness: 0.15,
+    emissive: new THREE.Color(isClub ? 0xff2ea6 : 0x12101c),
+    emissiveIntensity: isClub ? 0.9 : 0.55,
+    color: new THREE.Color().setHSL(hue(seed) / 360, isClub ? 0.6 : 0.28, isClub ? 0.25 : 0.42),
+    roughness: isClub ? 0.4 : 0.6,
+    metalness: isClub ? 0.35 : 0.15,
   });
   const mesh = new THREE.Mesh(buildingGeo, mat);
   mesh.scale.set(size, h, size);
@@ -341,12 +451,103 @@ for (const b of BLOCKS) {
 
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(buildingGeo),
-    new THREE.LineBasicMaterial({ color: 0x34e0d8, transparent: true, opacity: 0.35 }),
+    new THREE.LineBasicMaterial({ color: isClub ? 0xff2ea6 : 0x34e0d8, transparent: true, opacity: 0.35 }),
   );
   edges.scale.copy(mesh.scale);
   edges.position.copy(mesh.position);
   scene.add(edges);
+
+  if (isClub) {
+    // the marquee — a glowing sign + pink light. this is the strip club.
+    const signCnv = document.createElement("canvas");
+    signCnv.width = 256;
+    signCnv.height = 64;
+    const sg = signCnv.getContext("2d");
+    sg.fillStyle = "#1a0212";
+    sg.fillRect(0, 0, 256, 64);
+    sg.font = "700 34px ui-monospace, monospace";
+    sg.fillStyle = "#ff6fc7";
+    sg.textAlign = "center";
+    sg.textBaseline = "middle";
+    sg.fillText("MOOT CLUB", 128, 32);
+    const signTex = new THREE.CanvasTexture(signCnv);
+    const signMat = new THREE.SpriteMaterial({ map: signTex, transparent: true, depthWrite: false });
+    const sign = new THREE.Sprite(signMat);
+    sign.scale.set(6, 1.5, 1);
+    sign.position.set(mesh.position.x, h + 1.4, mesh.position.z);
+    scene.add(sign);
+    const clubLight = new THREE.PointLight(0xff2ea6, 8, 16, 2);
+    clubLight.position.set(mesh.position.x, h + 1.4, mesh.position.z);
+    scene.add(clubLight);
+  }
 }
+
+// ---- flyovers: blimp, helicopter (with a spotlight), and a distant plane --
+const cityCenter = new THREE.Vector3(0, 0, 0);
+const cityRadius = Math.max(W, H) * 0.62;
+
+const blimpGroup = new THREE.Group();
+const blimpBody = new THREE.Mesh(
+  new THREE.SphereGeometry(3.6, 16, 12),
+  new THREE.MeshStandardMaterial({ color: 0x3a3348, roughness: 0.6, metalness: 0.1 }),
+);
+blimpBody.scale.set(1, 0.55, 0.55);
+blimpBody.castShadow = true;
+blimpGroup.add(blimpBody);
+function bannerTexture(text) {
+  const cnv = document.createElement("canvas");
+  cnv.width = 512;
+  cnv.height = 64;
+  const g = cnv.getContext("2d");
+  g.fillStyle = "#ff2ea6";
+  g.fillRect(0, 0, 512, 64);
+  g.font = "700 30px ui-monospace, monospace";
+  g.fillStyle = "#08050c";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(text, 256, 32);
+  return new THREE.CanvasTexture(cnv);
+}
+const banner = new THREE.Mesh(
+  new THREE.PlaneGeometry(9, 1.3),
+  new THREE.MeshBasicMaterial({ map: bannerTexture("GRAND MOOT AUTO"), side: THREE.DoubleSide }),
+);
+banner.position.set(-5.2, -1.4, 0);
+blimpGroup.add(banner);
+scene.add(blimpGroup);
+
+const heliGroup = new THREE.Group();
+const heliBody = new THREE.Mesh(
+  new THREE.BoxGeometry(1.4, 0.7, 0.8),
+  new THREE.MeshStandardMaterial({ color: 0x1c2230, roughness: 0.45, metalness: 0.4 }),
+);
+heliBody.castShadow = true;
+heliGroup.add(heliBody);
+const rotor = new THREE.Mesh(
+  new THREE.BoxGeometry(3.6, 0.05, 0.12),
+  new THREE.MeshStandardMaterial({ color: 0x0c0e14, roughness: 0.5 }),
+);
+rotor.position.y = 0.5;
+heliGroup.add(rotor);
+const heliSpot = new THREE.SpotLight(0xdfefff, 12, 40, Math.PI / 8, 0.4, 1.2);
+heliSpot.position.set(0, 0, 0);
+heliGroup.add(heliSpot);
+heliSpot.target.position.set(0, -17, 0); // straight down in local space, unaffected by yaw
+heliGroup.add(heliSpot.target);
+scene.add(heliGroup);
+
+const planeGroup = new THREE.Group();
+const planeBody = new THREE.Mesh(
+  new THREE.ConeGeometry(0.4, 2.2, 6),
+  new THREE.MeshStandardMaterial({ color: 0x30364a, roughness: 0.5, metalness: 0.3 }),
+);
+planeBody.rotation.z = Math.PI / 2;
+planeGroup.add(planeBody);
+const planeLight = new THREE.PointLight(0xff5555, 3, 6);
+planeLight.position.set(-1.1, 0, 0);
+planeGroup.add(planeLight);
+scene.add(planeGroup);
+let planeT = -1; // -1 while off-screen waiting to re-launch
 
 // ---- the player's car --------------------------------------------------
 function buildCarGroup(bodyHue) {
@@ -380,6 +581,28 @@ function buildCarGroup(bodyHue) {
 }
 let carGroup = buildCarGroup(300);
 scene.add(carGroup);
+
+// ---- the cop car: same shape, blue/red light bar on the roof --------------
+function buildCopGroup() {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0d1a3a, roughness: 0.3, metalness: 0.5 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 1.4), bodyMat);
+  body.position.y = 0.55;
+  body.castShadow = true;
+  group.add(body);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.55, 1.15), new THREE.MeshStandardMaterial({ color: 0xeaeaf2, roughness: 0.4 }));
+  cabin.position.set(-0.1, 1.05, 0);
+  cabin.castShadow = true;
+  group.add(cabin);
+  const barMat = new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0xff2222, emissiveIntensity: 2 });
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.18, 0.5), barMat);
+  bar.position.set(-0.1, 1.42, 0);
+  group.add(bar);
+  return { group, barMat };
+}
+const copVisual = buildCopGroup();
+scene.add(copVisual.group);
+copVisual.group.visible = false;
 
 // ---- avatar sprites (canvas circle -> billboard) ------------------------
 function drawAvatarCanvas(ctx, size, { img, hue: h, initial }) {
@@ -438,21 +661,21 @@ function disposeSprite(sprite) {
 const ringGeo = new THREE.RingGeometry(0.85, 1, 40);
 ringGeo.rotateX(-Math.PI / 2);
 let honkRings = [];
-function spawnHonkRing(x, z) {
-  const mat = new THREE.MeshBasicMaterial({ color: 0x34e0d8, transparent: true, opacity: 1, side: THREE.DoubleSide });
+function spawnHonkRing(x, z, color) {
+  const mat = new THREE.MeshBasicMaterial({ color: color ?? 0x34e0d8, transparent: true, opacity: 1, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(ringGeo, mat);
   mesh.position.set(x, 0.06, z);
   scene.add(mesh);
   honkRings.push({ mesh, life: 1 });
 }
 let particles = [];
-function spawnParticle(text, x, z) {
+function spawnParticle(text, x, z, color) {
   const cnv = document.createElement("canvas");
   cnv.width = 256;
   cnv.height = 64;
   const g = cnv.getContext("2d");
   g.font = "700 34px ui-monospace, monospace";
-  g.fillStyle = "#34e0d8";
+  g.fillStyle = color ?? "#34e0d8";
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.fillText(text, 128, 32);
@@ -468,6 +691,11 @@ function spawnParticle(text, x, z) {
 // ---- game state ------------------------------------------------------------
 let cluster = null;
 let car = null;
+let walker = null;
+let mode = "drive"; // "drive" | "walk"
+let cop = null;
+let wanted = 0;
+let bustFlashT = 0;
 let playerHue = 0;
 let playerInitial = "?";
 let playerSprite = null;
@@ -484,7 +712,11 @@ let breakthroughTimeLeft = 0;
 
 const keys = { up: false, down: false, left: false, right: false };
 
-// ---- fake graphics settings — two of the three are real now ---------------
+function actorPos() {
+  return mode === "drive" ? { x: car.x, y: car.y } : { x: walker.x, y: walker.y };
+}
+
+// ---- fake graphics settings — most of them are real now -------------------
 const gfx = { rtx: true, dlss: true, fsr: true };
 function applyFilters() {
   if (canvas.classList.contains("breakthrough")) return;
@@ -517,6 +749,27 @@ function doBreakthrough() {
 }
 breakthroughBtn.addEventListener("click", doBreakthrough);
 
+// ---- get out of the car ---------------------------------------------------
+function toggleMode() {
+  if (!running) return;
+  if (mode === "drive") {
+    mode = "walk";
+    walker.x = car.x + Math.cos(car.angle + Math.PI / 2) * 1.6;
+    walker.y = car.y + Math.sin(car.angle + Math.PI / 2) * 1.6;
+    walker.angle = car.angle;
+    setStatus("on foot — walk up to the car and press E to get back in.");
+  } else {
+    const dist = Math.hypot(walker.x - car.x, walker.y - car.y);
+    if (dist > REENTER_RADIUS) {
+      setStatus("too far from the car.", true);
+      return;
+    }
+    mode = "drive";
+    setStatus("");
+  }
+  modeEl.textContent = mode === "drive" ? "driving" : "on foot";
+}
+
 // ---- input --------------------------------------------------------------
 const KEY_MAP = {
   ArrowUp: "up", w: "up", W: "up",
@@ -527,6 +780,10 @@ const KEY_MAP = {
 window.addEventListener("keydown", (e) => {
   if (e.key === " ") {
     if (running) { e.preventDefault(); doHonk(); }
+    return;
+  }
+  if (e.key === "e" || e.key === "E") {
+    if (running) { e.preventDefault(); toggleMode(); }
     return;
   }
   const k = KEY_MAP[e.key];
@@ -551,20 +808,27 @@ document.getElementById("t-honk").addEventListener("pointerdown", (e) => {
   e.preventDefault();
   if (running) doHonk();
 });
+document.getElementById("t-exit").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (running) toggleMode();
+});
 
 function doHonk() {
   if (honkCooldown > 0) return;
   honkCooldown = HONK_COOLDOWN;
-  spawnHonkRing(worldX(car.x), worldZ(car.y));
+  const { x: ax, y: ay } = actorPos();
+  const radius = mode === "drive" ? HONK_RADIUS : WAVE_RADIUS;
+  spawnHonkRing(worldX(ax), worldZ(ay));
+  if (mode === "drive") wanted = Math.min(10, wanted + WANTED_PER_HONK);
   for (const p of peds) {
     const px = p.entity.col * TILE + TILE / 2;
     const py = p.entity.row * TILE + TILE / 2;
-    if (Math.hypot(px - car.x, py - car.y) < HONK_RADIUS) {
+    if (Math.hypot(px - ax, py - ay) < radius) {
       const gain = breakthroughTimeLeft > 0 ? 2 : 1;
       score += gain;
       scoreEl.textContent = String(score);
       spawnParticle(`+${gain} @${p.handle}`, worldX(px), worldZ(py));
-      const exclude = [{ r: Math.round(car.y / TILE), c: Math.round(car.x / TILE) }];
+      const exclude = [{ r: Math.round(ay / TILE), c: Math.round(ax / TILE) }];
       for (const other of peds) {
         if (other !== p) exclude.push({ r: Math.round(other.entity.row), c: Math.round(other.entity.col) });
       }
@@ -601,6 +865,12 @@ function clearTransient() {
 
 function resetPositions() {
   car = makeCar();
+  walker = makeWalker();
+  mode = "drive";
+  modeEl.textContent = "driving";
+  cop = makeCop();
+  wanted = 0;
+  bustFlashT = 0;
   for (const p of peds) {
     const t = farTile([{ r: Math.round(car.y / TILE), c: Math.round(car.x / TILE) }], 3);
     p.entity.row = t.r;
@@ -615,6 +885,7 @@ function resetPositions() {
   breakthroughBtn.disabled = false;
   canvas.classList.remove("breakthrough");
   breakthroughFlash.classList.remove("show");
+  bustedFlash.classList.remove("show");
   applyFilters();
   keys.up = keys.down = keys.left = keys.right = false;
 }
@@ -623,10 +894,19 @@ function resetPositions() {
 function syncScene(dt) {
   carGroup.position.set(worldX(car.x), 0, worldZ(car.y));
   carGroup.rotation.y = -car.angle;
+  carGroup.visible = true;
+
+  const actorDriving = mode === "drive";
+  const { x: ax, y: ay } = actorPos();
+  const actorAngle = actorDriving ? car.angle : walker.angle;
+
   carGlow.position.set(worldX(car.x), 2.6, worldZ(car.y));
 
   if (playerSprite) {
-    playerSprite.position.set(worldX(car.x), 2.15, worldZ(car.y));
+    const bob = actorDriving ? 0 : Math.sin(clock * 6) * 0.05;
+    const height = actorDriving ? 2.15 : 1.2 + bob;
+    playerSprite.position.set(worldX(ax), height, worldZ(ay));
+    playerSprite.visible = true;
   }
 
   for (const p of peds) {
@@ -636,8 +916,44 @@ function syncScene(dt) {
     p.sprite.position.set(px, 1.15 + bob, pz);
   }
 
+  // cop car + light bar
+  copVisual.group.visible = true;
+  copVisual.group.position.set(worldX(cop.x), 0, worldZ(cop.y));
+  copVisual.group.rotation.y = -cop.angle;
+  const flash = cop.mode === "chase" ? Math.sin(clock * 14) : Math.sin(clock * 5);
+  copVisual.barMat.color.setHex(flash > 0 ? 0xff2222 : 0x2244ff);
+  copVisual.barMat.emissive.setHex(flash > 0 ? 0xff2222 : 0x2244ff);
+
+  // flyovers
+  const blimpAngle = clock * 0.05;
+  blimpGroup.position.set(
+    Math.cos(blimpAngle) * cityRadius * 0.8,
+    26 + Math.sin(clock * 0.2) * 1.5,
+    Math.sin(blimpAngle) * cityRadius * 0.8,
+  );
+  blimpGroup.rotation.y = -blimpAngle - Math.PI / 2;
+
+  const heliAngle = clock * 0.35;
+  const heliPos = new THREE.Vector3(Math.cos(heliAngle) * cityRadius * 0.45, 17, Math.sin(heliAngle) * cityRadius * 0.45);
+  heliGroup.position.copy(heliPos);
+  heliGroup.rotation.y = -heliAngle - Math.PI / 2;
+  rotor.rotation.y = clock * 40;
+  heliSpot.visible = gfx.rtx;
+
+  if (planeT < 0 && Math.random() < dt * 0.05) planeT = 0;
+  if (planeT >= 0) {
+    planeT += dt * 0.045;
+    const px = -cityRadius * 1.6 + planeT * cityRadius * 3.2;
+    planeGroup.position.set(px, 40, -cityRadius * 0.9);
+    planeGroup.visible = true;
+    planeLight.intensity = Math.sin(clock * 10) > 0 ? 3 : 0;
+    if (planeT > 1) planeT = -1;
+  } else {
+    planeGroup.visible = false;
+  }
+
   for (const r of honkRings) {
-    const radius = HONK_RADIUS * (1 - r.life) + 0.6;
+    const radius = (mode === "drive" ? HONK_RADIUS : WAVE_RADIUS) * (1 - r.life) + 0.6;
     r.mesh.scale.setScalar(radius);
     r.mesh.material.opacity = Math.max(0, r.life);
   }
@@ -646,22 +962,49 @@ function syncScene(dt) {
     p.sprite.material.opacity = Math.max(0, p.life);
   }
 
-  const forward = { x: Math.cos(car.angle), z: Math.sin(car.angle) };
-  const carPos = new THREE.Vector3(worldX(car.x), 0.7, worldZ(car.y));
-  const desired = carPos.clone()
-    .addScaledVector(new THREE.Vector3(forward.x, 0, forward.z), -7.5)
-    .add(new THREE.Vector3(0, 4.4, 0));
+  const forward = { x: Math.cos(actorAngle), z: Math.sin(actorAngle) };
+  const actorWorld = new THREE.Vector3(worldX(ax), actorDriving ? 0.7 : 0.4, worldZ(ay));
+  const back = actorDriving ? -7.5 : -4.4;
+  const up = actorDriving ? 4.4 : 2.9;
+  const ahead = actorDriving ? 4 : 2.6;
+  const desired = actorWorld.clone()
+    .addScaledVector(new THREE.Vector3(forward.x, 0, forward.z), back)
+    .add(new THREE.Vector3(0, up, 0));
   camera.position.lerp(desired, Math.min(1, dt * 5));
-  const lookTarget = carPos.clone().addScaledVector(new THREE.Vector3(forward.x, 0, forward.z), 4);
+  const lookTarget = actorWorld.clone().addScaledVector(new THREE.Vector3(forward.x, 0, forward.z), ahead);
   lookTarget.y += 0.6;
   camera.lookAt(lookTarget);
-  sun.target.position.copy(carPos);
+  sun.target.position.copy(actorWorld);
 }
 
 function update(dt) {
-  updateCar(car, dt, keys);
+  if (mode === "drive") updateCar(car, dt, keys);
+  else updateWalker(walker, dt, keys);
   for (const p of peds) stepPed(p.entity, dt, PED_SPEED * p.speedMul);
   if (honkCooldown > 0) honkCooldown -= dt;
+
+  wanted = Math.max(0, wanted - WANTED_DECAY * dt);
+  const chasing = wanted >= WANTED_CHASE_AT;
+  const { x: ax, y: ay } = actorPos();
+  updateCop(cop, dt, ax, ay, chasing);
+  heatEl.textContent = "!".repeat(Math.min(5, Math.ceil(wanted))) || "–";
+  heatEl.classList.toggle("accent", chasing);
+
+  if (cop.invuln <= 0 && Math.hypot(cop.x - ax, cop.y - ay) < BUST_RADIUS) {
+    const lost = Math.ceil(score / 2);
+    score -= lost;
+    scoreEl.textContent = String(score);
+    wanted = 0;
+    cop.invuln = BUST_INVULN;
+    cop.target = pickIntersection();
+    spawnParticle(`busted -${lost}`, worldX(ax), worldZ(ay), "#ff5555");
+    bustFlashT = 0.7;
+    bustedFlash.classList.add("show");
+  }
+  if (bustFlashT > 0) {
+    bustFlashT -= dt;
+    if (bustFlashT <= 0) bustedFlash.classList.remove("show");
+  }
 
   for (const p of particles) p.life -= dt * 0.7;
   const deadParticles = particles.filter((p) => p.life <= 0);
@@ -697,7 +1040,8 @@ function loop(t) {
   clock += dt;
   update(dt);
   syncScene(dt);
-  renderer.render(scene, camera);
+  if (gfx.rtx) composer.render();
+  else renderer.render(scene, camera);
   rafId = requestAnimationFrame(loop);
 }
 
@@ -706,6 +1050,7 @@ function endGame() {
   cancelAnimationFrame(rafId);
   canvas.classList.remove("breakthrough");
   breakthroughFlash.classList.remove("show");
+  bustedFlash.classList.remove("show");
   applyFilters();
   const best = getBest(cluster.did);
   const newBest = score > best;
@@ -713,9 +1058,9 @@ function endGame() {
   bestEl.textContent = String(newBest ? score : best);
   overTitle.textContent = "time!";
   overCopy.textContent = newBest
-    ? `recruited ${score} moots — new best. the shadows were real the whole time.`
+    ? `recruited ${score} moots — new best. the cops never caught you (or you shook them off).`
     : `recruited ${score} moots. best is still ${best}.`;
-  const shareText = `just recruited ${score} of my moots in grand moot auto — now with actual WebGL 3D and real-time shadows. still not literally GTA 6. https://grand-moot-auto.bisks.net`;
+  const shareText = `just recruited ${score} of my moots in grand moot auto — cops, a strip club, a blimp, and real bloom now. still not literally GTA 6. https://grand-moot-auto.bisks.net`;
   shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
   overOverlay.classList.remove("hidden");
 }
@@ -743,6 +1088,8 @@ function handleResize() {
   const dlssScale = gfx.dlss ? 0.6 : 1;
   renderer.setPixelRatio(nativeDpr * dlssScale);
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloomPass.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -821,7 +1168,8 @@ async function loadNetwork(actor) {
   loadBtn.disabled = false;
   setStatus("");
   handleResize();
-  renderer.render(scene, camera);
+  if (gfx.rtx) composer.render();
+  else renderer.render(scene, camera);
 }
 
 form.addEventListener("submit", (e) => {

@@ -3,25 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>grand moot auto — it's just all of gta six (now in 3D)</title>
+    <title>grand moot auto — it's just all of gta six (now with cops)</title>
     <meta
       name="description"
-      content="Type a Bluesky handle. Drive a tiny car through a nine-block WebGL city with real chase-cam and real-time shadows, honk at your moots (they're the NPCs), and recruit as many as you can before the clock runs out. RTX ON. DLSS 5. FSR 4. Still not literally GTA 6, but it is now, at least, 3D."
+      content="Type a Bluesky handle. Drive a tiny car through a nine-block WebGL city with real chase-cam, real-time shadows, and a real bloom pass. Honk at your moots (they're the NPCs) to recruit them, get out of the car and walk around, and watch out for the cop patrolling the roads. There's a strip club. There's a blimp. RTX ON. DLSS 5. FSR 4."
     />
 
     <!-- Open Graph / Twitter -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://grand-moot-auto.bisks.net/" />
-    <meta property="og:title" content="grand moot auto — it's just all of gta six (now in 3D)" />
+    <meta property="og:title" content="grand moot auto — it's just all of gta six (now with cops)" />
     <meta
       property="og:description"
-      content="A nine-block open world, in actual WebGL 3D, with a chase cam and real-time shadows. Your mutuals are the NPCs. Drive around and honk at as many as you can before time runs out."
+      content="A nine-block open world in WebGL 3D: chase cam, real shadows, real bloom, a cop that chases you, a strip club, a blimp, a helicopter with a spotlight, and the odd plane overhead. Your mutuals are the NPCs. Get out of the car and walk around."
     />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="grand moot auto" />
     <meta
       name="twitter:description"
-      content="It's just all of GTA 6, now with real 3D and real shadows. Your moots are the NPCs. Honk to recruit them."
+      content="It's just all of GTA 6: real 3D, real shadows, real bloom, cops, a strip club, a blimp. Your moots are the NPCs. Honk to recruit them."
     />
 
     <style>
@@ -143,6 +143,16 @@
         opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
       }
       #breakthrough-flash.show { opacity: 1; }
+      #busted-flash {
+        position: absolute; top: 0.6rem; left: 50%; transform: translateX(-50%);
+        font-size: 0.72rem; font-weight: 700; color: #fff;
+        background: linear-gradient(90deg, #ff2222, var(--accent));
+        padding: 0.3rem 0.8rem; border-radius: 999px; z-index: 6;
+        opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+      }
+      #busted-flash.show { opacity: 1; }
+      #heat { color: var(--warn); }
+      #mode-indicator { color: var(--cyan); }
 
       .overlay {
         position: absolute; inset: 0;
@@ -173,6 +183,7 @@
         margin-top: 0.6rem; gap: 0.6rem;
       }
       #touch .pad { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 42px); gap: 4px; }
+      #touch .actions { display: flex; align-items: center; gap: 0.6rem; }
       #touch button {
         font-family: var(--mono); font-size: 1rem; color: var(--ink);
         background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
@@ -181,6 +192,10 @@
       #touch #t-honk {
         width: 88px; height: 88px; border-radius: 50%; font-size: 0.75rem;
         font-weight: 700; color: var(--accent); border-color: var(--accent-dim);
+      }
+      #touch #t-exit {
+        width: 60px; height: 60px; border-radius: 50%; font-size: 0.62rem;
+        font-weight: 700; color: var(--cyan); border-color: var(--cyan);
       }
       @media (pointer: coarse) { #touch { display: flex; } }
 
@@ -205,8 +220,9 @@
           is: real WebGL, a chase cam, real-time shadows.
         </p>
         <p class="brag">
-          RTX: ON (real shadow map) · DLSS 5 (real render-scale) · FSR 4 ·
-          triple-A gameplay · 100,000 km² not included
+          RTX: ON (real shadow map + real bloom pass) · DLSS 5 (real
+          render-scale) · FSR 4 · triple-A gameplay · cops now patrol the
+          roads · 100,000 km² not included
         </p>
       </header>
 
@@ -229,6 +245,8 @@
           <span>recruited <b id="score">0</b></span>
           <span>best <b id="best" class="accent">0</b></span>
           <span>time <b id="time">50</b>s</span>
+          <span>heat <b id="heat">–</b></span>
+          <span><b id="mode-indicator">driving</b></span>
           <span class="spacer"></span>
           <span id="board-meta"></span>
         </div>
@@ -236,6 +254,7 @@
         <div id="stage">
           <canvas id="board"></canvas>
           <div id="breakthrough-flash">🚀 BREAKTHROUGH MODE — 2× recruits</div>
+          <div id="busted-flash">🚨 BUSTED — half your recruits, gone</div>
 
           <div class="overlay" id="start-overlay">
             <h2>the entire map awaits</h2>
@@ -243,6 +262,7 @@
             <button id="start-btn">▶ start the game (it's gta 6)</button>
             <p class="keys">
               <b>arrows / WASD</b> to drive · <b>space</b> to honk ·
+              <b>E</b> to get out of the car · watch for the cop ·
               touch controls on mobile
             </p>
           </div>
@@ -261,27 +281,33 @@
             <button id="t-left">◀</button><span></span><button id="t-right">▶</button>
             <span></span><button id="t-down">▼</button><span></span>
           </div>
-          <button id="t-honk">HONK</button>
+          <div class="actions">
+            <button id="t-honk">HONK</button>
+            <button id="t-exit">OUT/IN</button>
+          </div>
         </div>
       </div>
 
       <footer>
         built on <a href="https://atproto.com">atproto</a> · public AppView
         reads only, nothing written · moots-graph logic copied from
-        <a href="https://pacmoot.bisks.net">pacmoot</a> · real WebGL now
-        (three.js), a real chase cam, and real-time shadow mapping — RTX
-        toggles that shadow pass and DLSS toggles the actual render
-        resolution, so those two are honest. FSR is still just a CSS
-        filter. there is no literal ray tracing, no literal DLSS/FSR
-        upscaler, and the map is nine blocks, not 100,000 square
-        kilometers. it's still not GTA 6.
+        <a href="https://pacmoot.bisks.net">pacmoot</a> · real WebGL (three.js),
+        a real chase cam, real-time shadow mapping, and a real UnrealBloomPass
+        — RTX toggles the shadow pass and the bloom pass together, DLSS
+        toggles the actual render resolution, so those two are honest. FSR is
+        still just a CSS filter. the cop, the "get out of the car" walk mode,
+        the strip club, the blimp, the helicopter with its spotlight, and the
+        odd passing plane are all new. there is still no literal ray tracing,
+        no literal DLSS/FSR upscaler, and the map is nine blocks, not 100,000
+        square kilometers. it's still not GTA 6.
       </footer>
     </div>
 
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
         }
       }
     </script>
