@@ -1,0 +1,31 @@
+name = "atprotozoa-timeline"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Path route on the shared zone, not a dedicated custom domain — the zone hit
+# a Cloudflare custom-domain cap a while back, so new sites mount as a path
+# on bisks.net instead of requesting a new hostname. See
+# notes/40-new-site-playbook.md ("Why paths, not subdomains").
+routes = [
+  { pattern = "bisks.net/timeline", zone_name = "bisks.net" },
+  { pattern = "bisks.net/timeline/*", zone_name = "bisks.net" },
+]
+
+# timeline (bisks.net/timeline): a chronological history of every autonomous
+# build in this repo, drawn straight from `git log` via the GitHub REST API
+# (this repo is public: github.com/rrcobb/atprotozoa) — not from the
+# buildthis KV log that sites/logs reads. It's a pure READER, same shape as
+# logs: no state of its own, everything computed at request time from the
+# commit history + the live apex gallery (for correct site links).
+#
+# run_worker_first: the Worker renders "/" and "/og.png" dynamically, so it
+# must run BEFORE the static-asset router. Without it the assets router would
+# serve public/index.html directly and the timeline would never render. The
+# Worker falls through to env.ASSETS.fetch for anything it doesn't handle.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[observability]
+enabled = true
