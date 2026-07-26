@@ -602,7 +602,7 @@ function updateHud() {
 // ---- loop ------------------------------------------------------------
 function loop(t) {
   if (!running) return;
-  const dt = Math.min(t - lastT, 50) || 0;
+  const dt = Math.max(0, Math.min(t - lastT, 50)) || 0;
   lastT = t;
   dropAccum += dt;
   const interval = softDrop ? Math.min(current.interval, 45) : current.interval;
