@@ -98,6 +98,19 @@ free up room or raise the cap. Until then, expect brand-new sites' first
 deploy to keep failing even when the code is fine; retrying the same push
 won't help if it's really a cap.
 
+**Still unresolved as of a later same-day build agent run (2026-07-26,
+padmoot follow-up):** `dig` for `padmoot`, `windmill`, `lasercats`, `pvnp`,
+`sonnethype`, and even `the-place` (whose Durable Object migration bug was
+already fixed) all still return no DNS record. So the cap is a distinct,
+still-live blocker on top of the migration bug, and it isn't specific to
+sites that also had the migration bug — `the-place`'s fix didn't unstick its
+custom domain. As a stopgap, `sites/padmoot/wrangler.toml` now also sets
+`workers_dev = true` alongside its `custom_domain` route, on the theory that
+custom-domain route creation failing shouldn't also block the workers.dev
+route in the same deploy. Worth copying to the other stuck sites if it turns
+out to work — unconfirmed, since this agent has no way to check the deploy
+result or the resulting workers.dev URL.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
