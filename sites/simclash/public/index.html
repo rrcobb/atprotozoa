@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>simclash — a visual metaphor for simclusters colliding — bisks.net</title>
+    <meta
+      name="description"
+      content="Two clusters of accounts drift together, collide, and spark gold wherever they overlap — then drift apart and reform, forever. A generative visual metaphor for SimClusters. Optionally type two Bluesky handles and the sparks become their real shared mutuals."
+    />
+    <meta property="og:title" content="simclash — a visual metaphor for simclusters colliding" />
+    <meta property="og:description" content="Two clusters of accounts drift together, collide, and spark gold wherever they overlap. Type two Bluesky handles and the sparks become their real shared mutuals." />
+    <meta property="og:url" content="https://simclash.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://simclash.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="simclash: two glowing clusters of dots, one blue one orange, colliding at the center in a shower of gold sparks." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="simclash — a visual metaphor for simclusters colliding" />
+    <meta name="twitter:description" content="Two clusters of accounts drift together, collide, and spark gold wherever they overlap — forever." />
+    <meta name="twitter:image" content="https://simclash.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg0: #05060a;
+        --ink: #eaf2fb;
+        --muted: #90a2b8;
+        --blue: #4da3ff;
+        --orange: #ff8a4d;
+        --gold: #ffd166;
+        --panel: rgba(8, 11, 20, 0.62);
+        --panel-line: rgba(234, 242, 251, 0.14);
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      body {
+        background: var(--bg0);
+        font-family: var(--mono);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+      }
+      #stage { position: fixed; inset: 0; display: block; }
+
+      .hud {
+        position: fixed; left: 0; right: 0; top: 0;
+        padding: 16px 18px 30px;
+        pointer-events: none;
+        z-index: 5;
+        background: linear-gradient(180deg, rgba(5, 6, 10, 0.72) 0%, rgba(5, 6, 10, 0) 100%);
+      }
+      .titlebar { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+      h1 {
+        margin: 0; font-size: clamp(1.15rem, 3.6vw, 1.7rem); font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+      h1 .b { color: var(--blue); }
+      h1 .x { color: var(--muted); font-weight: 400; }
+      .sub {
+        margin: 4px 0 0; font-size: clamp(0.72rem, 2.1vw, 0.88rem); color: var(--muted);
+        max-width: 62ch; line-height: 1.55;
+      }
+      .sub b { color: var(--ink); font-weight: 600; }
+      .sub .gold { color: var(--gold); font-weight: 600; }
+      .state {
+        display: inline-block; margin-top: 6px; font-size: 0.72rem;
+        letter-spacing: 0.04em; text-transform: uppercase; color: var(--gold);
+        opacity: 0.9;
+      }
+
+      .dock {
+        position: fixed; left: 14px; right: 14px; bottom: 14px;
+        z-index: 6; display: flex; gap: 10px; flex-wrap: wrap;
+        align-items: flex-end; justify-content: space-between;
+        pointer-events: none; font-size: 0.8rem;
+      }
+      .panel {
+        pointer-events: auto;
+        background: var(--panel); backdrop-filter: blur(8px);
+        border: 1px solid var(--panel-line); border-radius: 12px;
+        padding: 10px 13px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      }
+      .finder { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; max-width: 560px; }
+      .finder .lbl { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 2px; }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.82rem; width: 150px;
+        padding: 6px 8px; border-radius: 6px; border: 1px solid var(--panel-line);
+        background: rgba(255, 255, 255, 0.04); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: #5b6b80; }
+      input[type="text"]:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+      button {
+        font-family: inherit; font-size: 0.8rem; cursor: pointer;
+        border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.06);
+        color: var(--ink); border-radius: 8px; padding: 6px 11px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.go { background: linear-gradient(180deg, #ffe09a, #f2a93c); color: #3a2405; border-color: rgba(255,255,255,0.5); }
+      button.go:hover:not(:disabled) { filter: brightness(1.08); }
+      button.ghost { background: transparent; }
+      .msg { font-size: 0.72rem; color: var(--muted); margin-top: 6px; max-width: 400px; }
+      .msg.err { color: #ff8b7b; }
+      .msg.ok { color: #8fe0b0; }
+
+      .stats { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+      .stats .row { display: flex; gap: 8px; align-items: center; }
+      .stats .sparkN { color: var(--gold); font-weight: 700; }
+      .sharedList {
+        max-width: 260px; max-height: 90px; overflow-y: auto; text-align: right;
+        font-size: 0.7rem; color: var(--muted); line-height: 1.5;
+      }
+      .sharedList b { color: var(--gold); }
+      .hint {
+        pointer-events: auto; font-size: 0.72rem; color: var(--muted);
+        text-decoration: underline dotted; cursor: pointer;
+      }
+
+      .about {
+        position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+        padding: 20px; background: rgba(2, 3, 6, 0.78); backdrop-filter: blur(4px);
+      }
+      .about.show { display: grid; }
+      .about-card {
+        max-width: 540px; background: linear-gradient(165deg, #10141f, #0a0c14);
+        border: 1px solid rgba(255, 209, 102, 0.35); border-radius: 16px;
+        padding: 22px 24px; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6); line-height: 1.65;
+      }
+      .about-card h2 { margin: 0 0 10px; font-size: 1.15rem; color: var(--gold); font-weight: 700; }
+      .about-card p { margin: 0 0 12px; font-size: 0.86rem; color: #d3e0ec; }
+      .about-card a { color: var(--blue); }
+      .about-card .close { display: block; margin: 8px 0 0 auto; }
+      .about-card small { color: var(--muted); font-size: 0.76rem; }
+
+      @media (max-width: 640px) {
+        .dock { flex-direction: column; align-items: stretch; }
+        .stats { align-items: flex-start; }
+        .sharedList { text-align: left; max-width: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div class="hud">
+      <div class="titlebar">
+        <h1><span class="b">simclusters</span> <span class="x">colliding</span></h1>
+      </div>
+      <p class="sub" id="subline">
+        two clusters of accounts drift together, spark gold where they overlap,
+        then drift apart and reform. a generative <b>visual metaphor</b>
+        for SimClusters. <span class="hint" id="aboutBtn">what's a simcluster?</span>
+      </p>
+      <div class="state" id="stateLbl">drifting apart</div>
+    </div>
+
+    <div class="dock">
+      <div class="panel">
+        <form class="finder" id="form" autocomplete="off">
+          <span class="lbl">collide two handles</span>
+          <input type="text" id="hA" placeholder="handle a" spellcheck="false" />
+          <input type="text" id="hB" placeholder="handle b" spellcheck="false" />
+          <button class="go" id="goBtn" type="submit">collide</button>
+          <button class="ghost" id="demoBtn" type="button">random demo</button>
+          <button class="ghost" id="shareBtn" type="button">share ↗</button>
+        </form>
+        <p class="msg" id="msg">no login — reads Bluesky's public graph in your browser.</p>
+      </div>
+
+      <div class="panel stats">
+        <div class="row"><span class="sparkN" id="sparkCount">0</span><span>&nbsp;sparks so far</span></div>
+        <div class="sharedList" id="sharedList"></div>
+      </div>
+    </div>
+
+    <div class="about" id="about">
+      <div class="about-card">
+        <h2>what's a simcluster?</h2>
+        <p>
+          <b style="color:#eaf2fb">SimClusters</b> was Twitter's old
+          recommendation machinery — it grouped accounts into thousands of
+          overlapping "communities" learned from the follow graph, then used
+          those clusters to decide what to show you. Nobody outside the
+          building ever really <i>saw</i> a simcluster; it was a vector in a
+          model.
+        </p>
+        <p>
+          This page makes it a picture instead: two clusters of dots, each its
+          own little community, drifting toward each other on a loop. When
+          they touch, the accounts they actually <b>share</b> light up gold
+          and spark across the gap — then the clusters drift apart and settle
+          back into themselves, until the next pass.
+        </p>
+        <p>
+          Type two Bluesky handles above and the collision gets real: each
+          cluster is sized off that handle's actual moots (mutual follows),
+          and the gold sparks are the <b>real accounts</b> who are moots of
+          both — the overlap made visible.
+        </p>
+        <p><small>a @buildthis build — @norvid-studies.bsky.social asked for "a visual metaphor for simclusters colliding" (tagged by @cee.wtf). sibling of <a href="https://bisks.net">bisks.net</a>.</small></p>
+        <button class="close" id="closeAbout">watch it collide</button>
+      </div>
+    </div>
+
+    <script type="module">
+      import { moots } from "./lib/moots.js";
+
+      // ======================================================================
+      // simclash — a generative visual metaphor for "simclusters colliding".
+      // Two clusters of particles orbit their own drifting centroid; the
+      // centroids breathe together and apart on a sine loop, forever. Near
+      // the peak of each cycle, sparks fly between the clusters and a
+      // shockwave marks the moment of impact. Optionally seeded with two real
+      // Bluesky handles' moots — then the overlap (their shared mutuals) IS
+      // the spark shower, popped one at a time off a real name queue.
+      // ======================================================================
+
+      const cv = document.getElementById("stage");
+      const ctx = cv.getContext("2d");
+      const subline = document.getElementById("subline");
+      const stateLbl = document.getElementById("stateLbl");
+      const form = document.getElementById("form");
+      const hAInput = document.getElementById("hA");
+      const hBInput = document.getElementById("hB");
+      const goBtn = document.getElementById("goBtn");
+      const demoBtn = document.getElementById("demoBtn");
+      const shareBtn = document.getElementById("shareBtn");
+      const msg = document.getElementById("msg");
+      const sparkCountEl = document.getElementById("sparkCount");
+      const sharedListEl = document.getElementById("sharedList");
+      const aboutBtn = document.getElementById("aboutBtn");
+      const aboutEl = document.getElementById("about");
+      const closeAbout = document.getElementById("closeAbout");
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // ---- helpers ----------------------------------------------------------
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function hashStr(s) {
+        let h = 0;
+        for (let i = 0; i < (s || "x").length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+        return h >>> 0;
+      }
+      function mulberry32(seed) {
+        let a = seed >>> 0;
+        return function () {
+          a |= 0; a = (a + 0x6d2b79f5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      function shuffle(arr, rng) {
+        const x = arr.slice();
+        for (let i = x.length - 1; i > 0; i--) {
+          const j = Math.floor((rng ? rng() : Math.random()) * (i + 1));
+          [x[i], x[j]] = [x[j], x[i]];
+        }
+        return x;
+      }
+      const BLUE = "#4da3ff", ORANGE = "#ff8a4d", GOLD = "#ffd166";
+
+      // ---- layout ------------------------------------------------------------
+      let W = 0, H = 0, DPR = 1, stars = [];
+      function resize() {
+        DPR = Math.min(2, window.devicePixelRatio || 1);
+        W = window.innerWidth; H = window.innerHeight;
+        cv.width = Math.floor(W * DPR); cv.height = Math.floor(H * DPR);
+        cv.style.width = W + "px"; cv.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        seedStars();
+      }
+      function seedStars() {
+        stars = [];
+        const n = clamp(Math.round((W * H) / 9000), 60, 220);
+        for (let i = 0; i < n; i++) {
+          stars.push({ x: rnd(W), y: rnd(H), r: rnd(1.4, 0.3), tw: rnd(6.28), sp: rnd(1.2, 0.3) });
+        }
+      }
+      window.addEventListener("resize", resize);
+
+      // ---- cluster model -------------------------------------------------------
+      // A cluster is a swarm of particles orbiting a moving centroid. `n`
+      // scales its visual size; `pool` (if present, from real moots) supplies
+      // the names sparks pull from.
+      function makeCluster(color, n, seedBase) {
+        const rng = mulberry32(hashStr(seedBase));
+        const radius = clamp(30 + Math.sqrt(n) * 10, 60, 190);
+        const particles = [];
+        for (let i = 0; i < n; i++) {
+          const radBase = rng() * radius;
+          particles.push({
+            ang: rng() * 6.28,
+            angSpeed: (rng() * 0.5 + 0.12) * (rng() < 0.5 ? 1 : -1),
+            radBase, rad: radBase,
+            wobPhase: rng() * 6.28,
+            wobSpeed: rng() * 0.8 + 0.3,
+            size: rng() * 2.2 + 1.4,
+          });
+        }
+        return {
+          color, radius, particles,
+          cx: 0, cy: 0, // set each frame
+          bobPhase: rng() * 6.28, bobSpeed: rng() * 0.06 + 0.09, bobAmp: rng() * 0.4 + 0.35,
+          handle: null, // filled in handle mode
+        };
+      }
+
+      let clusterA = makeCluster(BLUE, 46, "a0");
+      let clusterB = makeCluster(ORANGE, 46, "b0");
+      let sharedQueue = []; // profiles to pop as sparks arrive, in handle mode
+      let sharedSeenIdx = 0;
+      let demoMode = true; // true = synthetic random clusters, false = real handles
+
+      // ---- collision physics ---------------------------------------------------
+      let t = 0;
+      const CYCLE = 15; // seconds per full approach → collide → separate loop
+      let phase = rnd(6.28); // start somewhere in the cycle so it's alive immediately
+      function closenessOf(ph) { return (1 - Math.cos(ph)) / 2; } // 0 apart .. 1 collided
+      let peakArmed = true; // fires one shockwave per cycle at the true peak
+
+      // ---- sparks & shockwaves ---------------------------------------------------
+      let sparks = []; // {x,y,fx,fy,tx,ty,t,dur,color,label}
+      let shockwaves = []; // {x,y,r,life,color}
+      let flash = 0; // 0..1 full-screen impact flash
+      let sparkTotal = 0;
+      let recentShared = []; // last few real shared names, for the sidebar
+
+      function midpoint() {
+        return { x: (clusterA.cx + clusterB.cx) / 2, y: (clusterA.cy + clusterB.cy) / 2 };
+      }
+
+      function spawnSpark(fromCluster) {
+        const p = fromCluster.particles[(Math.random() * fromCluster.particles.length) | 0];
+        const fx = fromCluster.cx + Math.cos(p.ang) * p.rad;
+        const fy = fromCluster.cy + Math.sin(p.ang) * p.rad * 0.9;
+        const mid = midpoint();
+        let label = null;
+        if (!demoMode && sharedQueue.length) {
+          const prof = sharedQueue[sharedSeenIdx % sharedQueue.length];
+          sharedSeenIdx++;
+          label = short(prof.handle);
+        }
+        sparks.push({
+          fx, fy, x: fx, y: fy,
+          tx: mid.x + rnd(14, -14), ty: mid.y + rnd(14, -14),
+          t: 0, dur: rnd(0.55, 0.32),
+          color: fromCluster.color, label,
+        });
+      }
+
+      function burstAt(x, y, color) {
+        shockwaves.push({ x, y, r: 4, life: 1, color });
+        sparkTotal++;
+        sparkCountEl.textContent = sparkTotal;
+      }
+
+      // ---- rendering ---------------------------------------------------------
+      function drawBackground(dt) {
+        const g = ctx.createRadialGradient(W * 0.5, H * 0.42, 10, W * 0.5, H * 0.5, Math.max(W, H) * 0.75);
+        g.addColorStop(0, "#0d1220");
+        g.addColorStop(0.6, "#080a12");
+        g.addColorStop(1, "#05060a");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+        for (const s of stars) {
+          if (!reduceMotion) s.tw += dt * s.sp;
+          const a = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(s.tw));
+          ctx.globalAlpha = a;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.r, 0, 7);
+          ctx.fillStyle = "#cfe3f5";
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      function drawCluster(c) {
+        // ambient glow
+        const glow = ctx.createRadialGradient(c.cx, c.cy, 0, c.cx, c.cy, c.radius * 1.5);
+        glow.addColorStop(0, c.color + "33");
+        glow.addColorStop(1, c.color + "00");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(c.cx, c.cy, c.radius * 1.5, 0, 7);
+        ctx.fill();
+
+        // world positions this frame
+        const pos = c.particles.map((p) => ({
+          x: c.cx + Math.cos(p.ang) * p.rad,
+          y: c.cy + Math.sin(p.ang) * p.rad * 0.92,
+          p,
+        }));
+
+        // faint network edges between nearby particles — sells "a community"
+        const connectDist = c.radius * 0.5;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < pos.length; i++) {
+          for (let j = i + 1; j < pos.length; j++) {
+            const dx = pos[i].x - pos[j].x, dy = pos[i].y - pos[j].y;
+            const d = Math.hypot(dx, dy);
+            if (d < connectDist) {
+              ctx.globalAlpha = 0.12 * (1 - d / connectDist);
+              ctx.strokeStyle = c.color;
+              ctx.beginPath();
+              ctx.moveTo(pos[i].x, pos[i].y);
+              ctx.lineTo(pos[j].x, pos[j].y);
+              ctx.stroke();
+            }
+          }
+        }
+        ctx.globalAlpha = 1;
+
+        // particles
+        for (const { x, y, p } of pos) {
+          ctx.beginPath();
+          ctx.arc(x, y, p.size, 0, 7);
+          ctx.fillStyle = c.color;
+          ctx.globalAlpha = 0.9;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // centroid core
+        ctx.beginPath();
+        ctx.arc(c.cx, c.cy, 3.5, 0, 7);
+        ctx.fillStyle = "#ffffff";
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      function drawStrands(closeness) {
+        if (closeness < 0.1) return;
+        const n = Math.round(6 + closeness * 10);
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < n; i++) {
+          const pa = clusterA.particles[(Math.random() * clusterA.particles.length) | 0];
+          const pb = clusterB.particles[(Math.random() * clusterB.particles.length) | 0];
+          const ax = clusterA.cx + Math.cos(pa.ang) * pa.rad, ay = clusterA.cy + Math.sin(pa.ang) * pa.rad * 0.92;
+          const bx = clusterB.cx + Math.cos(pb.ang) * pb.rad, by = clusterB.cy + Math.sin(pb.ang) * pb.rad * 0.92;
+          const g = ctx.createLinearGradient(ax, ay, bx, by);
+          g.addColorStop(0, clusterA.color + "00");
+          g.addColorStop(0.5, GOLD + Math.round(closeness * 160).toString(16).padStart(2, "0"));
+          g.addColorStop(1, clusterB.color + "00");
+          ctx.strokeStyle = g;
+          ctx.globalAlpha = clamp(closeness * 1.1, 0, 0.85);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      function drawSparks(dt) {
+        for (let i = sparks.length - 1; i >= 0; i--) {
+          const s = sparks[i];
+          if (!reduceMotion) s.t += dt / s.dur;
+          const e = s.t < 1 ? 1 - Math.pow(1 - s.t, 3) : 1; // ease-out
+          s.x = s.fx + (s.tx - s.fx) * e;
+          s.y = s.fy + (s.ty - s.fy) * e;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 2.4, 0, 7);
+          ctx.fillStyle = s.t < 0.85 ? s.color : GOLD;
+          ctx.shadowColor = GOLD;
+          ctx.shadowBlur = 8;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          if (s.t >= 1) {
+            burstAt(s.x, s.y, GOLD);
+            if (s.label) {
+              recentShared.push(s.label);
+              if (recentShared.length > 6) recentShared.shift();
+              renderSharedList();
+            }
+            sparks.splice(i, 1);
+          }
+        }
+      }
+
+      function drawShockwaves(dt) {
+        for (let i = shockwaves.length - 1; i >= 0; i--) {
+          const w = shockwaves[i];
+          if (!reduceMotion) { w.r += dt * 220; w.life -= dt * 1.1; }
+          if (w.life <= 0) { shockwaves.splice(i, 1); continue; }
+          ctx.beginPath();
+          ctx.arc(w.x, w.y, w.r, 0, 7);
+          ctx.strokeStyle = `rgba(255,209,102,${0.55 * w.life})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+
+      function renderSharedList() {
+        if (demoMode) {
+          sharedListEl.innerHTML = "";
+          return;
+        }
+        sharedListEl.innerHTML = recentShared.length
+          ? "shared: " + recentShared.map((h) => `<b>${h}</b>`).join(", ")
+          : "waiting for the first spark…";
+      }
+
+      // ---- state label --------------------------------------------------------
+      function updateStateLabel(closeness) {
+        let label;
+        if (closeness > 0.92) label = "COLLISION";
+        else if (closeness > 0.55) label = "sparks flying";
+        else if (closeness > 0.2) label = "approaching";
+        else label = "drifting apart";
+        stateLbl.textContent = label;
+        stateLbl.style.color = closeness > 0.55 ? GOLD : "#7fb2c4";
+      }
+
+      // ---- main loop -----------------------------------------------------------
+      let last = 0;
+      function frame(ts) {
+        const dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
+        last = ts;
+        if (!reduceMotion) t += dt;
+
+        if (!reduceMotion) phase = (phase + dt * (6.2832 / CYCLE)) % 6.2832;
+        const closeness = closenessOf(phase);
+
+        // centroid positions: breathe together on the x axis, gentle
+        // independent bob on y so the impact point wanders a little.
+        const maxDist = Math.max(220, W * 0.34);
+        const minDist = (clusterA.radius + clusterB.radius) * 0.22;
+        const dist = maxDist - (maxDist - minDist) * closeness;
+        clusterA.cx = W / 2 - dist / 2;
+        clusterB.cx = W / 2 + dist / 2;
+        clusterA.cy = H * 0.5 + Math.sin(t * clusterA.bobSpeed + clusterA.bobPhase) * H * 0.06 * clusterA.bobAmp;
+        clusterB.cy = H * 0.5 + Math.sin(t * clusterB.bobSpeed + clusterB.bobPhase) * H * 0.06 * clusterB.bobAmp;
+
+        for (const c of [clusterA, clusterB]) {
+          if (reduceMotion) continue;
+          for (const p of c.particles) {
+            p.ang += p.angSpeed * dt;
+            p.rad = p.radBase * (0.85 + 0.15 * Math.sin(t * p.wobSpeed + p.wobPhase));
+          }
+        }
+
+        // peak shockwave — one per cycle, at the true top of the collision
+        if (closeness > 0.965 && peakArmed) {
+          peakArmed = false;
+          const mid = midpoint();
+          burstAt(mid.x, mid.y, GOLD);
+          burstAt(mid.x, mid.y, GOLD);
+          flash = 0.35;
+        }
+        if (closeness < 0.4) peakArmed = true;
+
+        // spark spawning while close
+        if (closeness > 0.5 && sparks.length < 40 && Math.random() < closeness * 0.55) {
+          spawnSpark(Math.random() < 0.5 ? clusterA : clusterB);
+        }
+
+        drawBackground(dt);
+        drawStrands(closeness);
+        drawCluster(clusterA);
+        drawCluster(clusterB);
+        drawSparks(dt);
+        drawShockwaves(dt);
+
+        if (flash > 0) {
+          ctx.fillStyle = `rgba(255,235,180,${flash})`;
+          ctx.fillRect(0, 0, W, H);
+          flash = Math.max(0, flash - dt * 0.9);
+        }
+
+        updateStateLabel(closeness);
+        requestAnimationFrame(frame);
+      }
+
+      // ---- handle mode: real moots, real overlap --------------------------------
+      function intersectPools(poolA, poolB) {
+        const bDids = new Set(poolB.map((p) => p.did));
+        return poolA.filter((p) => bDids.has(p.did));
+      }
+
+      async function runHandles(a, b) {
+        goBtn.disabled = true;
+        msg.className = "msg";
+        msg.textContent = `resolving ${short(a)} + ${short(b)}…`;
+        try {
+          const resA = await moots(a, { onStep: (s) => { msg.textContent = short(a) + ": " + s; } });
+          const resB = await moots(b, { onStep: (s) => { msg.textContent = short(b) + ": " + s; } });
+          const shared = intersectPools(resA.pool, resB.pool);
+
+          demoMode = false;
+          sharedQueue = shared.length ? shuffle(shared) : [];
+          sharedSeenIdx = 0;
+          recentShared = [];
+          renderSharedList();
+
+          const nA = clamp(8 + Math.round(Math.sqrt(resA.pool.length) * 4), 14, 70);
+          const nB = clamp(8 + Math.round(Math.sqrt(resB.pool.length) * 4), 14, 70);
+          clusterA = makeCluster(BLUE, nA, resA.did);
+          clusterB = makeCluster(ORANGE, nB, resB.did);
+          clusterA.handle = resA.handle;
+          clusterB.handle = resB.handle;
+
+          subline.innerHTML =
+            `<b>${short(resA.handle)}</b>'s cluster (${resA.pool.length} moots) × ` +
+            `<b>${short(resB.handle)}</b>'s cluster (${resB.pool.length} moots) — ` +
+            (shared.length
+              ? `<span class="gold">${shared.length} shared mutual${shared.length === 1 ? "" : "s"}</span> spark where they overlap.`
+              : `no shared mutuals — not a single spark between them.`) +
+            ` <span class="hint" id="aboutBtn2">what's a simcluster?</span>`;
+          document.getElementById("aboutBtn2")?.addEventListener("click", () => aboutEl.classList.add("show"));
+
+          msg.className = "msg ok";
+          msg.textContent = `collision seeded — ${shared.length} shared mutual${shared.length === 1 ? "" : "s"} in the queue.`;
+          history.replaceState(null, "", "?a=" + encodeURIComponent(resA.handle) + "&b=" + encodeURIComponent(resB.handle));
+        } catch (err) {
+          msg.className = "msg err";
+          msg.textContent = err && err.status === 400
+            ? "couldn't find one of those handles. check the spelling?"
+            : "couldn't load that one — " + (err.message || "try again") + ".";
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      function runDemo() {
+        demoMode = true;
+        sharedQueue = [];
+        recentShared = [];
+        renderSharedList();
+        const seed = Math.random().toString(36).slice(2);
+        clusterA = makeCluster(BLUE, Math.round(rnd(60, 26)), "demoA" + seed);
+        clusterB = makeCluster(ORANGE, Math.round(rnd(60, 26)), "demoB" + seed);
+        subline.innerHTML =
+          `two clusters of accounts drift together, spark gold where they overlap, ` +
+          `then drift apart and reform. a generative <b>visual metaphor</b> for ` +
+          `SimClusters. <span class="hint" id="aboutBtn2">what's a simcluster?</span>`;
+        document.getElementById("aboutBtn2")?.addEventListener("click", () => aboutEl.classList.add("show"));
+        msg.className = "msg";
+        msg.textContent = "no login — reads Bluesky's public graph in your browser.";
+        history.replaceState(null, "", location.pathname);
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const a = hAInput.value.trim(), b = hBInput.value.trim();
+        if (!a || !b) {
+          msg.className = "msg err";
+          msg.textContent = "enter both handles — or leave blank and hit random demo.";
+          return;
+        }
+        runHandles(a, b);
+      });
+      demoBtn.addEventListener("click", runDemo);
+      aboutBtn.addEventListener("click", () => aboutEl.classList.add("show"));
+      closeAbout.addEventListener("click", () => aboutEl.classList.remove("show"));
+      aboutEl.addEventListener("click", (e) => { if (e.target === aboutEl) aboutEl.classList.remove("show"); });
+
+      // ---- share --------------------------------------------------------------
+      function composeUrl(text) {
+        return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+      function shareUrl() {
+        const u = new URL(location.href);
+        u.search = "";
+        if (!demoMode && clusterA.handle && clusterB.handle) {
+          u.searchParams.set("a", clusterA.handle);
+          u.searchParams.set("b", clusterB.handle);
+        }
+        return u.toString();
+      }
+      function shareText() {
+        if (!demoMode && clusterA.handle && clusterB.handle) {
+          const n = sharedQueue.length;
+          return `${short(clusterA.handle)}'s cluster collided with ${short(clusterB.handle)}'s on simclash — ` +
+            `${n} shared mutual${n === 1 ? "" : "s"} sparked. watch it: ${shareUrl()}`;
+        }
+        return `a visual metaphor for simclusters colliding — watch two clusters spark where they overlap: ${shareUrl()}`;
+      }
+      async function doShare() {
+        const text = shareText();
+        // try a real snapshot of the live collision as an attachable image
+        let blob = null;
+        try {
+          blob = await new Promise((res) => cv.toBlob(res, "image/png"));
+        } catch {}
+        const file = blob ? new File([blob], "simclash.png", { type: "image/png" }) : null;
+        if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ title: "simclash", text, files: [file] });
+          } catch {}
+          return; // the native sheet already gave the user their shot at this
+        }
+        if (blob) {
+          const dl = document.createElement("a");
+          dl.href = URL.createObjectURL(blob);
+          dl.download = "simclash.png";
+          dl.click();
+        }
+        window.open(composeUrl(text), "_blank", "noopener");
+      }
+      shareBtn.addEventListener("click", doShare);
+
+      // ---- boot ---------------------------------------------------------------
+      resize();
+      const params = new URLSearchParams(location.search);
+      const initA = params.get("a"), initB = params.get("b");
+      if (initA && initB) {
+        hAInput.value = initA; hBInput.value = initB;
+        runHandles(initA, initB);
+      }
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>
