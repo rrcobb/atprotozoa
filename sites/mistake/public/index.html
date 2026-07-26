@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mistake — make a mistake — bisks.net</title>
+    <meta
+      name="description"
+      content="Type what you'd like to mess up (optional) and get today's assigned mistake — a severity and a line, seeded from the date so asking again today gives the same one. It only changes its mind at midnight."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mistake.bisks.net/" />
+    <meta property="og:title" content="mistake — make a mistake" />
+    <meta
+      property="og:description"
+      content="A daily assignment. Type what you'd like to mess up, get today's mistake — severity, and a line to go do it. Same context, same day, same mistake."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="mistake — make a mistake" />
+    <meta
+      name="twitter:description"
+      content="Today's assigned mistake, seeded from the date. Severity included. Resets at midnight."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as maybetoday / invocation / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --gold: #e0a400;
+        --bad: #c23b3b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── ask ───────────────────────────────────────────────────────── */
+      form.ask { margin: 0 0 1.5rem; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .askrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      /* ── the assignment ───────────────────────────────────────────── */
+      .headline {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 1.5rem;
+      }
+      .headline .cap {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--gold); margin-bottom: 0.55rem;
+        display: flex; justify-content: space-between;
+      }
+      .headline .context { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+      .verdictRow { display: flex; align-items: baseline; gap: 0.8rem; margin-bottom: 0.5rem; }
+      .severity { font-size: 2.1rem; font-weight: 700; line-height: 1; }
+      .severity.harmless { color: var(--good); }
+      .severity.regrettable { color: var(--gold); }
+      .severity.legendary { color: var(--bad); }
+      .label {
+        font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--muted); padding-bottom: 0.2rem;
+      }
+      .headline .line {
+        font-size: 1.05rem; line-height: 1.55; font-weight: 600;
+        margin: 0 0 1.1rem;
+      }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+
+      .note {
+        color: var(--muted); font-size: 0.82rem; margin: 0 0 2.5rem;
+      }
+
+      /* ── the log ───────────────────────────────────────────────────── */
+      h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.4rem; }
+      #log { list-style: none; margin: 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        color: var(--muted); font-size: 0.9rem; line-height: 1.6;
+        animation: drop .3s ease-out;
+      }
+      #log li:first-child { border-top: 1px solid var(--faint); }
+      #log .q { color: var(--ink); }
+      @keyframes drop {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: none; }
+      }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>mistake <span class="slash">· make a mistake</span></h1>
+      <p class="intro">
+        Someone tagged <b>@buildthis</b> with two words: <i>"make a
+        mistake."</i> Fair enough — here's a daily assignment. Type what
+        you'd like to mess up, or leave it blank and get a general-purpose
+        one. It's seeded from today's date, so asking about the same thing
+        twice today gets the same mistake — the assignment only changes at
+        midnight.
+      </p>
+
+      <form class="ask" id="askForm" autocomplete="off">
+        <label class="lbl" for="context">what should it involve? (optional)</label>
+        <div class="askrow">
+          <input type="text" id="context" placeholder="e.g. email, code, small talk" spellcheck="false" />
+          <button type="submit">assign</button>
+        </div>
+      </form>
+
+      <section class="headline">
+        <div class="cap">
+          <span>today's assigned mistake</span>
+          <span class="context" id="contextLabel"></span>
+        </div>
+        <div class="verdictRow">
+          <span class="severity" id="severity">--</span>
+          <span class="label" id="label">assigning…</span>
+        </div>
+        <p class="line" id="line">warming up the mistake dispenser.</p>
+        <div class="btnrow">
+          <button class="ghost" id="reroll">get a different one</button>
+          <button class="ghost" id="copy">copy</button>
+          <a class="btn ghost" id="share" target="_blank" rel="noopener">share ↗</a>
+          <span class="copied" id="copied">copied</span>
+        </div>
+      </section>
+      <p class="note" id="rerollNote"></p>
+
+      <h2>considered today</h2>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          purely a seeded hash in your browser — no login, nothing stored,
+          nothing sent anywhere until you tap share. sibling of
+          <a href="https://maybetoday.bisks.net">maybetoday</a> and
+          <a href="https://bisks.net">bisks.net</a>. built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          who was simply asked to make one.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { assign } from "./lib/mistakes.js";
+
+      const contextInput = document.getElementById("context");
+      const contextLabel = document.getElementById("contextLabel");
+      const severityEl = document.getElementById("severity");
+      const labelEl = document.getElementById("label");
+      const lineEl = document.getElementById("line");
+      const askForm = document.getElementById("askForm");
+      const rerollBtn = document.getElementById("reroll");
+      const rerollNote = document.getElementById("rerollNote");
+      const copyBtn = document.getElementById("copy");
+      const copiedEl = document.getElementById("copied");
+      const shareBtn = document.getElementById("share");
+      const log = document.getElementById("log");
+
+      const MAX_LOG = 8;
+      let currentContext = "";
+      let currentMistake = null;
+
+      const shareUrl = (text) =>
+        "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+
+      function shareText(m) {
+        const subject = m.context === "something" ? "something" : `"${m.context}"`;
+        return `today's assigned mistake, re: ${subject}: ${m.line} (severity: ${m.label})`;
+      }
+
+      function render(context) {
+        const m = assign(context);
+        currentContext = m.context;
+        currentMistake = m;
+        contextLabel.textContent = m.context === "something" ? "" : m.context;
+        severityEl.textContent = m.severity;
+        severityEl.className = "severity " + m.label;
+        labelEl.textContent = m.label;
+        lineEl.textContent = m.line;
+        shareBtn.href = shareUrl(shareText(m));
+      }
+
+      function logConsidered(m) {
+        const li = document.createElement("li");
+        const subject = m.context === "something" ? "something" : m.context;
+        const q = document.createElement("span");
+        q.className = "q";
+        q.textContent = subject;
+        li.append(q, ` — ${m.severity} (${m.label})`);
+        log.insertBefore(li, log.firstChild);
+        while (log.children.length > MAX_LOG) log.removeChild(log.lastChild);
+      }
+
+      render("");
+      rerollNote.textContent = "today's mistake for \"something\" is locked in — it resets tomorrow.";
+
+      askForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (currentMistake) logConsidered(currentMistake);
+        render(contextInput.value);
+        rerollNote.textContent = currentContext === "something"
+          ? "today's mistake for \"something\" is locked in — it resets tomorrow."
+          : `today's mistake for "${currentContext}" is locked in — it resets tomorrow.`;
+      });
+
+      rerollBtn.addEventListener("click", () => {
+        rerollNote.textContent = "no take-backs — the day's mistake is already assigned. come back tomorrow for a new one.";
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(shareText(currentMistake)); }
+        catch { /* clipboard blocked — share button still works */ }
+        copiedEl.classList.add("show");
+        setTimeout(() => copiedEl.classList.remove("show"), 1200);
+      });
+    </script>
+  </body>
+</html>
