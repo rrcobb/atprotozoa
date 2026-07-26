@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>simclustered — how SimCluster are you, really? — bisks.net</title>
+    <meta
+      name="description"
+      content="A 20-question quiz on your ACTUAL Bluesky graph: real moots, real one-way follows, real timestamps. Answer honestly and find out how deep in your own SimCluster you really are — no jokey questions, every answer is checkable."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="simclustered — how SimCluster are you, really?" />
+    <meta
+      property="og:description"
+      content="20 real questions about your real Bluesky graph — real moots, real follows, real timestamps. Quantifies exactly how SimCluster you are."
+    />
+    <meta property="og:url" content="https://simclustered.bisks.net/" />
+    <meta property="og:image" content="https://simclustered.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="simclustered: a 20-question quiz card reading “how SimCluster are you?” over a cluster of glowing dots." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="simclustered — how SimCluster are you, really?" />
+    <meta name="twitter:description" content="20 real questions about your real Bluesky graph. No jokey filler — every answer is checkable." />
+    <meta name="twitter:image" content="https://simclustered.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg0: #05060a;
+        --panel-bg: #0c0f18;
+        --ink: #eaf2fb;
+        --muted: #90a2b8;
+        --faint: rgba(234, 242, 251, 0.14);
+        --blue: #4da3ff;
+        --gold: #ffd166;
+        --good: #59d38c;
+        --goodbg: rgba(89, 211, 140, 0.12);
+        --bad: #ff6b6b;
+        --badbg: rgba(255, 107, 107, 0.12);
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg0);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.4rem 1.25rem 5rem; }
+
+      header { margin-bottom: 1.6rem; }
+      h1 {
+        margin: 0 0 0.4rem; font-size: 1.9rem; font-weight: 800; letter-spacing: -0.01em;
+      }
+      h1 .sim { color: var(--blue); }
+      h1 .clustered { color: var(--gold); }
+      .tagline { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.3rem; max-width: 56ch; }
+      .tagline b { color: var(--ink); }
+      .fineprint { color: var(--muted); font-size: 0.76rem; opacity: 0.85; }
+
+      form.finder {
+        display: flex; gap: 0.5rem; margin: 1.4rem 0 0.6rem; flex-wrap: wrap;
+      }
+      input[type="text"] {
+        flex: 1; min-width: 180px; font-family: inherit; font-size: 0.95rem;
+        padding: 0.65rem 0.8rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: rgba(255, 255, 255, 0.04); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: #5b6b80; }
+      input[type="text"]:focus { outline: 2px solid var(--blue); outline-offset: 1px; }
+      button {
+        font-family: inherit; font-size: 0.9rem; cursor: pointer;
+        border: 1px solid var(--faint); background: rgba(255, 255, 255, 0.06);
+        color: var(--ink); border-radius: 8px; padding: 0.65rem 1rem; font-weight: 700;
+      }
+      button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.solid { background: linear-gradient(180deg, #ffe09a, #f2a93c); color: #3a2405; border-color: transparent; }
+      button.solid:hover:not(:disabled) { filter: brightness(1.06); }
+      button.ghost { background: transparent; }
+
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.4rem 0 1.4rem; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      .progress-row {
+        display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.2rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .progress-bar { flex: 1; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }
+      .progress-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--gold)); transition: width 0.25s ease; }
+      .scorepill { font-weight: 700; color: var(--gold); }
+
+      .qcard {
+        border: 1px solid var(--faint); border-radius: 12px; padding: 1.1rem 1.2rem;
+        background: var(--panel-bg); margin-bottom: 1.1rem;
+      }
+      .qcat {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--blue); margin-bottom: 0.5rem; font-weight: 700;
+      }
+      .qprompt { font-size: 1.02rem; font-weight: 600; margin: 0 0 1rem; }
+
+      .choices { display: grid; gap: 0.55rem; }
+      .choices.two-col { grid-template-columns: 1fr 1fr; }
+      @media (max-width: 460px) { .choices.two-col { grid-template-columns: 1fr; } }
+      .choices button {
+        display: flex; align-items: center; gap: 0.6rem; text-align: left; width: 100%;
+        font-weight: 500;
+      }
+      .choices button img, .choices button .ph {
+        width: 30px; height: 30px; border-radius: 50%; flex: none; object-fit: cover;
+        background: rgba(255,255,255,0.08);
+      }
+      .choices button .ph { display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 700; color: var(--muted); }
+      .choices button .meta { min-width: 0; }
+      .choices button .dn { font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .choices button .hn { color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      .yesno { display: flex; gap: 0.6rem; }
+      .yesno button { flex: 1; justify-content: center; font-weight: 700; }
+
+      button.correct { border-color: var(--good); background: var(--goodbg); color: var(--good); }
+      button.wrong { border-color: var(--bad); background: var(--badbg); color: var(--bad); }
+      button.dim { opacity: 0.35; }
+
+      .subject-card {
+        display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem;
+        padding: 0.7rem 0.8rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: rgba(255,255,255,0.03);
+      }
+      .subject-card img, .subject-card .ph {
+        width: 40px; height: 40px; border-radius: 50%; flex: none; object-fit: cover;
+        background: rgba(255,255,255,0.08);
+      }
+      .subject-card .ph { display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--muted); }
+      .subject-card .dn { font-weight: 700; }
+      .subject-card .hn { color: var(--muted); font-size: 0.82rem; }
+
+      .nextrow { display: flex; justify-content: flex-end; margin-top: 0.2rem; }
+
+      /* ── results ─────────────────────────────────────────────────────── */
+      .result { text-align: center; padding: 1.2rem 0 0.6rem; }
+      .result .pct { font-size: 3.4rem; font-weight: 800; color: var(--gold); line-height: 1; }
+      .result .tier { font-size: 1.3rem; font-weight: 800; margin: 0.3rem 0 0.4rem; }
+      .result .blurb { color: var(--muted); font-size: 0.9rem; max-width: 44ch; margin: 0 auto 1.2rem; }
+      .breakdown { text-align: left; font-size: 0.82rem; color: var(--muted); margin: 0 0 1.4rem; }
+      .breakdown .row { display: flex; justify-content: space-between; padding: 0.28rem 0; border-bottom: 1px dashed var(--faint); }
+      .breakdown .row b { color: var(--ink); }
+      .actions-row { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; margin-bottom: 0.6rem; }
+      canvas#shareCanvas { display: none; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--blue); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      .err { color: var(--bad); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="sim">sim</span><span class="clustered">clustered</span></h1>
+        <p class="tagline">
+          20 questions, <b>zero jokey ones</b> — every question is a real,
+          checkable fact pulled live off your actual Bluesky graph: who's
+          really a moot, who really isn't, who really posted more recently.
+          Answer honestly and get a real number for how deep in your own
+          SimCluster you actually are.
+        </p>
+        <p class="fineprint">reads Bluesky's public API in your browser — no login, nothing written anywhere.</p>
+      </header>
+
+      <form class="finder" id="startForm" autocomplete="off">
+        <input type="text" id="handleInput" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+        <button class="solid" id="startGo" type="submit">quiz me</button>
+      </form>
+      <p class="msg" id="msg"></p>
+
+      <div id="quizArea" style="display:none">
+        <div class="progress-row">
+          <span id="qCounter">question 1 of 20</span>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <span class="scorepill" id="scorePill">0 correct</span>
+        </div>
+        <div id="stage"></div>
+      </div>
+
+      <div id="resultArea" style="display:none">
+        <div class="result">
+          <div class="pct" id="resultPct">0%</div>
+          <div class="tier" id="resultTier"></div>
+          <p class="blurb" id="resultBlurb"></p>
+        </div>
+        <div class="breakdown" id="breakdown"></div>
+        <div class="actions-row">
+          <a class="ghost" id="shareBluesky" href="#" target="_blank" rel="noopener"><button class="solid" type="button">share on Bluesky</button></a>
+          <button class="ghost" id="shareDownload" type="button">download share card</button>
+          <button class="ghost" id="shareNative" type="button" style="display:none">share…</button>
+          <button class="ghost" id="playAgain" type="button">try another handle</button>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      </div>
+
+      <footer>
+        every question's answer lives in your real follows/followers, fetched
+        live from Bluesky's public AppView — no login, nothing stored. graph
+        reading borrows from <a href="https://simclash.bisks.net">simclash</a>
+        and <a href="https://simcluster.bisks.net">simcluster</a> · sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { loadGraph } from "./lib/graph.js";
+      import { buildQuiz, tierFor, TARGET_COUNT } from "./lib/quiz.js";
+
+      const els = {
+        startForm: document.getElementById("startForm"),
+        handleInput: document.getElementById("handleInput"),
+        startGo: document.getElementById("startGo"),
+        msg: document.getElementById("msg"),
+        quizArea: document.getElementById("quizArea"),
+        qCounter: document.getElementById("qCounter"),
+        progressFill: document.getElementById("progressFill"),
+        scorePill: document.getElementById("scorePill"),
+        stage: document.getElementById("stage"),
+        resultArea: document.getElementById("resultArea"),
+        resultPct: document.getElementById("resultPct"),
+        resultTier: document.getElementById("resultTier"),
+        resultBlurb: document.getElementById("resultBlurb"),
+        breakdown: document.getElementById("breakdown"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareDownload: document.getElementById("shareDownload"),
+        shareNative: document.getElementById("shareNative"),
+        playAgain: document.getElementById("playAgain"),
+        shareCanvas: document.getElementById("shareCanvas"),
+      };
+
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      const initials = (p) =>
+        (p.displayName || p.handle || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+
+      const CATEGORY_LABEL = {
+        "moot-or-not": "moot or not",
+        which: "which is real",
+        recency: "who posted more recently",
+        estimate: "estimate your own graph",
+        fact: "atproto facts",
+      };
+
+      let self = null;
+      let questions = [];
+      let idx = 0;
+      let correct = 0;
+      const tally = {}; // category -> {right, total}
+
+      function step(m) {
+        els.msg.className = "msg";
+        els.msg.textContent = m;
+      }
+
+      function paintProgress() {
+        els.qCounter.textContent = `question ${idx + 1} of ${questions.length}`;
+        els.progressFill.style.width = `${(idx / questions.length) * 100}%`;
+        els.scorePill.textContent = `${correct} correct`;
+      }
+
+      function bump(cat, right) {
+        if (!tally[cat]) tally[cat] = { right: 0, total: 0 };
+        tally[cat].total++;
+        if (right) tally[cat].right++;
+      }
+
+      function subjectCard(subj) {
+        const av = subj.avatar
+          ? `<img src="${esc(subj.avatar)}" alt="" />`
+          : `<span class="ph">${esc(initials(subj))}</span>`;
+        return `<div class="subject-card">${av}
+          <div class="meta"><span class="dn">${esc(subj.displayName)}</span><br/>
+          <span class="hn">@${esc(subj.handle)}</span></div></div>`;
+      }
+
+      function renderQuestion() {
+        const q = questions[idx];
+        paintProgress();
+        let html = `<div class="qcard">
+          <div class="qcat">${esc(CATEGORY_LABEL[q.category] || q.category)}</div>
+          <p class="qprompt">${esc(q.prompt)}</p>`;
+
+        if (q.kind === "yesno") {
+          html += subjectCard(q.subject);
+          html += `<div class="yesno" id="choices">
+            <button data-v="true">yes, real moot</button>
+            <button data-v="false">no, not a moot</button>
+          </div>`;
+        } else {
+          const withAvatars = q.options.some((o) => "avatar" in o);
+          html += `<div class="choices ${withAvatars ? "two-col" : ""}" id="choices">`;
+          html += q.options
+            .map((o, i) => {
+              if (withAvatars) {
+                const av = o.avatar
+                  ? `<img src="${esc(o.avatar)}" alt="" />`
+                  : `<span class="ph">${esc(initials({ displayName: o.label }))}</span>`;
+                return `<button data-i="${i}">${av}<span class="meta"><span class="dn">${esc(o.label)}</span><span class="hn">${esc(o.sub || "")}</span></span></button>`;
+              }
+              return `<button data-i="${i}">${esc(o.label)}</button>`;
+            })
+            .join("");
+          html += `</div>`;
+        }
+
+        html += `<div class="nextrow"><button class="solid" id="nextBtn" style="display:none">${idx + 1 < questions.length ? "next →" : "see results →"}</button></div></div>`;
+        els.stage.innerHTML = html;
+
+        document.querySelectorAll("#choices button").forEach((b) => {
+          b.onclick = () => answer(q, b);
+        });
+      }
+
+      function answer(q, btn) {
+        document.querySelectorAll("#choices button").forEach((b) => (b.onclick = null));
+        let won;
+        if (q.kind === "yesno") {
+          const picked = btn.dataset.v === "true";
+          won = picked === q.correctBool;
+          document.querySelectorAll("#choices button").forEach((b) => {
+            const v = b.dataset.v === "true";
+            if (v === q.correctBool) b.className = "correct";
+            else if (b === btn) b.className = "wrong";
+            else b.className = "dim";
+          });
+        } else {
+          const i = Number(btn.dataset.i);
+          won = i === q.correctIndex;
+          document.querySelectorAll("#choices button").forEach((b, j) => {
+            if (j === q.correctIndex) b.className = "correct";
+            else if (j === i) b.className = "wrong";
+            else b.className = "dim";
+          });
+        }
+        if (won) correct++;
+        bump(q.category, won);
+        els.scorePill.textContent = `${correct} correct`;
+        const nb = document.getElementById("nextBtn");
+        nb.style.display = "";
+        nb.onclick = () => {
+          idx++;
+          if (idx < questions.length) renderQuestion();
+          else showResults();
+        };
+      }
+
+      function showResults() {
+        els.quizArea.style.display = "none";
+        els.resultArea.style.display = "";
+        const pct = Math.round((correct / questions.length) * 100);
+        const tier = tierFor(pct);
+        els.resultPct.textContent = `${pct}%`;
+        els.resultTier.textContent = tier.label;
+        els.resultBlurb.textContent = tier.blurb;
+
+        els.breakdown.innerHTML = Object.entries(tally)
+          .map(([cat, t]) => `<div class="row"><span>${esc(CATEGORY_LABEL[cat] || cat)}</span><b>${t.right}/${t.total}</b></div>`)
+          .join("");
+
+        const shareText =
+          `I scored ${pct}% on simclustered — “${tier.label}.” ` +
+          `${correct}/${questions.length} on real questions about my ACTUAL Bluesky graph.\n\n` +
+          `quiz your own → https://simclustered.bisks.net`;
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        buildShareCard({ pct, tier, handle: self.handle, avatar: self.avatar, correct, total: questions.length });
+      }
+
+      // ── canvas share card (mirrors didscope's approach) ─────────────────
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard({ pct, tier, handle, avatar, correct, total }) {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const av = await loadImg(avatar);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#05060a";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.2, H * 0.15, 0, W * 0.2, H * 0.15, W * 0.6);
+        glow.addColorStop(0, "#0f2440");
+        glow.addColorStop(1, "rgba(5,6,10,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#4da3ff";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("sim", 60, 100);
+        ctx.fillStyle = "#ffd166";
+        ctx.fillText("clustered", 60 + ctx.measureText("sim").width, 100);
+
+        let textX = 60;
+        if (av) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(88, 152, 28, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(av, 60, 124, 56, 56);
+          ctx.restore();
+          textX = 132;
+        }
+        ctx.fillStyle = "#eaf2fb";
+        ctx.font = `700 26px ${mono}`;
+        ctx.fillText("@" + handle, textX, 160);
+
+        const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 290;
+        ctx.fillStyle = "#0c0f18";
+        ctx.strokeStyle = "rgba(234,242,251,0.14)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `800 96px ${mono}`;
+        ctx.fillText(pct + "%", W / 2, cardY + 130);
+
+        ctx.fillStyle = "#eaf2fb";
+        ctx.font = `800 34px ${mono}`;
+        ctx.fillText(tier.label, W / 2, cardY + 185);
+
+        ctx.fillStyle = "#90a2b8";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText(`${correct}/${total} correct — real questions, real graph`, W / 2, cardY + 220);
+
+        ctx.font = `italic 16px ${mono}`;
+        const words = tier.blurb.split(" ");
+        let line = "", y = cardY + 260, lineH = 24;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > cardW - 96) {
+            ctx.fillText(line, W / 2, y);
+            line = w;
+            y += lineH;
+          } else line = test;
+        }
+        if (line) ctx.fillText(line, W / 2, y);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("simclustered.bisks.net", 60, H - 40);
+      }
+
+      els.shareDownload.addEventListener("click", () => {
+        els.shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          const who = (self && self.handle ? self.handle : "card").replace(/[^a-z0-9.-]/gi, "_");
+          a.download = "simclustered-" + who + ".png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        els.shareNative.style.display = "";
+        els.shareNative.addEventListener("click", () => {
+          els.shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const who = (self && self.handle ? self.handle : "card").replace(/[^a-z0-9.-]/gi, "_");
+            const file = new File([blob], "simclustered-" + who + ".png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], title: "simclustered" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+
+      els.playAgain.addEventListener("click", () => {
+        els.resultArea.style.display = "none";
+        els.startForm.style.display = "";
+        els.handleInput.value = "";
+        els.handleInput.focus();
+        step("");
+        try { history.replaceState(null, "", location.pathname); } catch {}
+      });
+
+      // ── kickoff ──────────────────────────────────────────────────────────
+      async function start(handle) {
+        els.startGo.disabled = true;
+        els.handleInput.value = handle;
+        idx = 0;
+        correct = 0;
+        for (const k of Object.keys(tally)) delete tally[k];
+        step(`resolving @${handle.replace(/^@/, "")}…`);
+        let graph;
+        try {
+          graph = await loadGraph(handle, { onStep: step });
+        } catch (e) {
+          els.msg.className = "msg err";
+          els.msg.textContent = `couldn't load that one — ${(e && e.message) || "check the handle"}.`;
+          els.startGo.disabled = false;
+          return;
+        }
+        self = graph.self;
+        step("building your 20 questions…");
+        questions = await buildQuiz(graph, { onStep: step });
+        if (!questions.length) {
+          els.msg.className = "msg err";
+          els.msg.textContent = "couldn't build a quiz from that graph — try a different handle.";
+          els.startGo.disabled = false;
+          return;
+        }
+        try {
+          history.replaceState(null, "", `?h=${encodeURIComponent(self.handle)}`);
+        } catch {}
+        els.msg.className = "msg ok";
+        els.msg.textContent = `loaded @${self.handle} — ${questions.length} questions, all real.`;
+        els.startForm.style.display = "none";
+        els.quizArea.style.display = "";
+        renderQuestion();
+        els.startGo.disabled = false;
+      }
+
+      els.startForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const h = els.handleInput.value.trim();
+        if (h) start(h);
+        else els.handleInput.focus();
+      });
+
+      const qp = new URLSearchParams(location.search);
+      const qh = qp.get("h");
+      if (qh) start(qh);
+    </script>
+  </body>
+</html>
