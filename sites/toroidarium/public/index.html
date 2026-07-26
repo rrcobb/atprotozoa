@@ -27,6 +27,7 @@
     --accent2: #ffd166;
     --card: #0b2530;
     --border: #1c4a5c;
+    --shared: #ff5dc4;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -76,6 +77,19 @@
   .tankbar label { display: inline-flex; align-items: center; gap: 0.35rem; }
   .tankbar .count { margin-left: auto; }
   .tankbar b { color: var(--fg); }
+
+  .comparerow {
+    display: none; gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap; align-items: center;
+  }
+  .comparerow.show { display: flex; }
+  .comparerow input {
+    flex: 1; min-width: 140px; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.55rem 0.75rem; font: inherit; font-size: 0.85rem;
+  }
+  .comparerow input:focus { outline: 2px solid var(--shared); outline-offset: 1px; }
+  .comparerow button { border-radius: 8px; padding: 0.55rem 0.8rem; font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .comparestatus { flex-basis: 100%; font-size: 0.78rem; color: var(--dim); }
+  .comparestatus b { color: var(--shared); }
 
   .tankwrap {
     position: relative; width: 100%; border-radius: 14px; overflow: hidden;
@@ -135,8 +149,16 @@
       <div class="tankbar">
         <button id="feedBtn" type="button" class="ghost">🍚 feed</button>
         <label><input id="labelsBox" type="checkbox" checked /> labels</label>
+        <button id="compareBtn" type="button" class="ghost">🔍 compare</button>
         <span class="count" id="count"></span>
       </div>
+
+      <form id="compareForm" class="comparerow">
+        <input id="compareHandle" type="text" placeholder="compare against another handle…" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="compareGo" type="submit">compare</button>
+        <button id="compareClear" type="button" class="ghost">clear</button>
+        <span class="comparestatus" id="compareStatus"></span>
+      </form>
 
       <div class="tankwrap" id="tankWrap">
         <canvas id="tank"></canvas>
@@ -147,10 +169,13 @@
       </div>
 
       <p class="legend">
-        <span class="you">◉ gold-ringed fish</span> is the account itself.
+        <span class="you">◉ gold-ringed fish</span> is the account itself,
         others are its moots, sized roughly by how early they turned up in the
         mutuals list. click any fish for its handle; click empty water to
-        dismiss.
+        dismiss. dip your cursor in the water and the fish scatter. hit
+        <b>🔍 compare</b> and enter a second handle to ring your
+        <span style="color: var(--shared); font-weight: 700;">shared moots</span>
+        in magenta.
       </p>
 
       <div class="share">
@@ -183,6 +208,12 @@ const els = {
   section: document.getElementById("tankSection"),
   feedBtn: document.getElementById("feedBtn"),
   labelsBox: document.getElementById("labelsBox"),
+  compareBtn: document.getElementById("compareBtn"),
+  compareForm: document.getElementById("compareForm"),
+  compareHandle: document.getElementById("compareHandle"),
+  compareGo: document.getElementById("compareGo"),
+  compareClear: document.getElementById("compareClear"),
+  compareStatus: document.getElementById("compareStatus"),
   count: document.getElementById("count"),
   tankWrap: document.getElementById("tankWrap"),
   canvas: document.getElementById("tank"),
@@ -201,8 +232,14 @@ let W = 880, H = 520, DPR = Math.min(window.devicePixelRatio || 1, 2);
 let fish = [];
 let foods = [];
 let bubbles = [];
+let decor = [];
+let castle = null;
 let lastShareText = "";
 let currentHandle = "";
+let comparedHandle = "";
+
+const FLEE_R = 78;
+const mouse = { x: -9999, y: -9999, active: false };
 
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
@@ -240,6 +277,8 @@ function resize() {
     for (const f of fish) { f.x *= sx; f.y *= sy; }
     for (const b of foods) { b.x *= sx; b.y *= sy; }
     for (const b of bubbles) { b.x *= sx; b.y *= sy; }
+    for (const d of decor) d.x *= sx;
+    if (castle) castle.x *= sx;
   }
   W = newW; H = newH;
   els.canvas.width = Math.round(W * DPR);
@@ -282,12 +321,32 @@ function makeFish(profile, isSelf) {
   return f;
 }
 
+function seedDecor() {
+  decor = [];
+  const n = Math.max(3, Math.round(W / 220));
+  for (let i = 0; i < n; i++) {
+    decor.push({
+      x: (i + 0.5) * (W / n) + (Math.random() - 0.5) * 30,
+      h: 34 + Math.random() * 46,
+      hue: 130 + Math.random() * 50,
+      seed: Math.random() * 10,
+      blades: 4 + Math.floor(Math.random() * 3),
+    });
+  }
+  castle = { x: W * (0.68 + Math.random() * 0.22), scale: 0.85 + Math.random() * 0.4 };
+}
+
 function stockTank(self, pool) {
   fish = [makeFish(self, true)];
   const n = Math.min(pool.length, MAX_FISH);
   for (let i = 0; i < n; i++) fish.push(makeFish(pool[i], false));
   foods = [];
   seedBubbles();
+  seedDecor();
+  comparedHandle = "";
+  els.compareHandle.value = "";
+  els.compareStatus.textContent = "";
+  els.compareForm.classList.remove("show");
 }
 
 function steerToward(f, tx, ty, accel) {
@@ -321,6 +380,16 @@ function update(now) {
   const hungry = foods.some((b) => !b.eaten);
 
   for (const f of fish) {
+    if (mouse.active) {
+      const mdx = f.x - mouse.x, mdy = f.y - mouse.y;
+      const md = Math.hypot(mdx, mdy);
+      if (md < FLEE_R) {
+        const force = (1 - md / FLEE_R) * 0.55;
+        const nd = md || 1;
+        f.vx += (mdx / nd) * force;
+        f.vy += (mdy / nd) * force;
+      }
+    }
     if (!hungry) {
       const turn = (Math.random() - 0.5) * 0.22;
       const cos = Math.cos(turn), sin = Math.sin(turn);
@@ -421,6 +490,18 @@ function drawFish(f, now) {
         ctx.stroke();
         ctx.restore();
       }
+      if (f.shared) {
+        ctx.save();
+        ctx.translate(f.x + ox, f.y + oy);
+        ctx.beginPath();
+        ctx.arc(0, 0, f.r * 1.35, 0, TAU);
+        ctx.strokeStyle = "#ff5dc4";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
       if (f.highlightUntil > now) {
         const t = (f.highlightUntil - now) / 1500;
         ctx.save();
@@ -436,6 +517,61 @@ function drawFish(f, now) {
   }
 }
 
+function drawSand() {
+  const sandH = Math.max(18, H * 0.09);
+  const grad = ctx.createLinearGradient(0, H - sandH, 0, H);
+  grad.addColorStop(0, "rgba(180,150,90,0.16)");
+  grad.addColorStop(1, "rgba(120,95,55,0.32)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, H - sandH, W, sandH);
+}
+
+function drawCastle() {
+  if (!castle) return;
+  const sandH = Math.max(18, H * 0.09);
+  const s = castle.scale;
+  ctx.save();
+  ctx.translate(castle.x, H - sandH + 2);
+  ctx.fillStyle = "rgba(90,72,62,0.55)";
+  ctx.strokeStyle = "rgba(234,246,251,0.22)";
+  ctx.lineWidth = 1;
+  ctx.fillRect(-18 * s, -34 * s, 36 * s, 34 * s);
+  ctx.strokeRect(-18 * s, -34 * s, 36 * s, 34 * s);
+  for (const tx of [-18 * s, 18 * s]) {
+    ctx.fillRect(tx - 5 * s, -46 * s, 10 * s, 14 * s);
+    ctx.strokeRect(tx - 5 * s, -46 * s, 10 * s, 14 * s);
+  }
+  ctx.beginPath();
+  ctx.arc(0, -2 * s, 7 * s, Math.PI, 0);
+  ctx.lineTo(7 * s, 0);
+  ctx.lineTo(-7 * s, 0);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(4,18,26,0.6)";
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPlants(now) {
+  const sandH = Math.max(18, H * 0.09);
+  const baseY = H - sandH + 4;
+  for (const d of decor) {
+    ctx.save();
+    ctx.translate(d.x, baseY);
+    ctx.strokeStyle = `hsla(${d.hue}, 55%, 45%, 0.55)`;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    for (let b = 0; b < d.blades; b++) {
+      const bx = (b - (d.blades - 1) / 2) * 6;
+      const sway = Math.sin(now / 900 + d.seed + b) * 10;
+      ctx.beginPath();
+      ctx.moveTo(bx, 0);
+      ctx.quadraticCurveTo(bx + sway * 0.6, -d.h * 0.55, bx + sway, -d.h);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function render(now) {
   ctx.clearRect(0, 0, W, H);
   const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -443,6 +579,10 @@ function render(now) {
   grad.addColorStop(1, "#04121a");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
+
+  drawSand();
+  drawCastle();
+  drawPlants(now);
 
   ctx.strokeStyle = "rgba(255,209,102,0.25)";
   ctx.lineWidth = 2;
@@ -481,7 +621,7 @@ function render(now) {
       const w = ctx.measureText(label).width + 8;
       ctx.fillStyle = "rgba(4,18,26,0.72)";
       ctx.fillRect(f.x - w / 2, y - 11, w, 15);
-      ctx.fillStyle = f.isSelf ? "#ffd166" : "#eaf6fb";
+      ctx.fillStyle = f.isSelf ? "#ffd166" : f.shared ? "#ff5dc4" : "#eaf6fb";
       ctx.fillText(label, f.x, y);
     }
   }
@@ -527,6 +667,51 @@ els.canvas.addEventListener("click", (evt) => {
     els.tooltip.onclick = () => window.open("https://bsky.app/profile/" + best.handle, "_blank", "noopener");
   } else {
     els.tooltip.classList.remove("show");
+  }
+});
+
+els.tankWrap.addEventListener("pointermove", (evt) => {
+  const p = canvasPoint(evt);
+  mouse.x = p.x; mouse.y = p.y; mouse.active = true;
+});
+els.tankWrap.addEventListener("pointerleave", () => { mouse.active = false; });
+els.tankWrap.addEventListener("pointercancel", () => { mouse.active = false; });
+
+els.compareBtn.addEventListener("click", () => {
+  els.compareForm.classList.toggle("show");
+  if (els.compareForm.classList.contains("show")) els.compareHandle.focus();
+});
+
+els.compareClear.addEventListener("click", () => {
+  comparedHandle = "";
+  for (const f of fish) f.shared = false;
+  els.compareHandle.value = "";
+  els.compareStatus.textContent = "";
+});
+
+els.compareForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const target = els.compareHandle.value.trim().replace(/^@/, "");
+  if (!target) return;
+  els.compareGo.disabled = true;
+  els.compareStatus.textContent = "comparing…";
+  try {
+    const result2 = await moots(target);
+    const otherDids = new Set(result2.pool.map((p) => p.did));
+    otherDids.add(result2.self.did);
+    comparedHandle = result2.handle || target;
+    let shared = 0;
+    for (const f of fish) {
+      f.shared = !f.isSelf && otherDids.has(f.did);
+      if (f.shared) shared++;
+    }
+    els.compareStatus.innerHTML = shared
+      ? `<b>${shared}</b> fish also known by @${comparedHandle}`
+      : `no overlap with @${comparedHandle} in this tank`;
+  } catch (err) {
+    els.compareStatus.textContent = "couldn't compare: " + (err?.message || err);
+  } finally {
+    els.compareGo.disabled = false;
   }
 });
 
