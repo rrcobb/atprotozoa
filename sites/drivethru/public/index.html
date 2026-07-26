@@ -103,6 +103,14 @@
         align-items: center;
         gap: 0.5rem;
       }
+      h2.board-title .hours {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        letter-spacing: normal;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      h2.board-title .hours.open { color: var(--ok); }
       h2.board-title::before,
       h2.board-title::after {
         content: "";
@@ -283,14 +291,19 @@
           off with a real website. speak it or type it, sign in with bluesky, and
           your order gets tagged straight to <b>@buildthis.bisks.net</b> from your
           own account. that's it, that's the whole mechanism. now with limited-time
-          seasonal &amp; tie-in combos, plus a regional specialty pulled from your
-          own PDS.
+          seasonal &amp; tie-in combos, a regional specialty pulled from your own
+          PDS, and a breakfast menu — 4:30am to 11am, your clock, no exceptions.
         </p>
       </header>
 
       <section>
         <h2 class="board-title">TODAY'S MENU</h2>
         <div class="menu" id="menu"></div>
+      </section>
+
+      <section>
+        <h2 class="board-title">BREAKFAST MENU <span id="breakfastHours"></span></h2>
+        <div class="menu" id="breakfastMenu"></div>
       </section>
 
       <section>
@@ -507,6 +520,65 @@
         },
       ];
 
+      // -----------------------------------------------------------------
+      // breakfast menu — real McDonald's-style time gate: 4:30am–11:00am,
+      // requester's local (browser) clock. Outside the window the board
+      // goes dark with a disabled placeholder, same pattern as the
+      // regional-specialty "pulls up once we know where you're ordering
+      // from" card.
+      // -----------------------------------------------------------------
+      const BREAKFAST_MENU = [
+        {
+          name: "SUNRISE HANDLE MUFFIN",
+          desc: "a bluesky handle, scrambled into a daily horoscope",
+          order:
+            "build a tiny site that turns a bluesky handle into a fake daily horoscope, re-rolled once every morning (same handle, same day, same horoscope)",
+        },
+        {
+          name: "HASH BROWN DID HASH",
+          desc: "your DID, folded into a hash brown pattern (svg, crispy edges)",
+          order:
+            "build a site that renders a bluesky DID as a golden-brown hash-brown-shaped svg pattern, unique per DID",
+        },
+        {
+          name: "FIRST LIGHT FEED",
+          desc: "your earliest posting hour, tracked over your last 20 posts",
+          order:
+            "build a one-page tool that reads someone's last 20 bluesky posts and reports what time of day they post most, styled like a sunrise/sunset chart",
+        },
+      ];
+      function breakfastWindow() {
+        const now = new Date();
+        const mins = now.getHours() * 60 + now.getMinutes();
+        return { open: mins >= 4 * 60 + 30 && mins < 11 * 60, now };
+      }
+      function renderBreakfast() {
+        const { open } = breakfastWindow();
+        const hoursEl = $("breakfastHours");
+        hoursEl.textContent = open ? "· open now, until 11am" : "· 4:30am–11am, closed right now";
+        hoursEl.classList.toggle("open", open);
+        if (open) {
+          mountCombos(
+            breakfastMenuEl,
+            BREAKFAST_MENU.map((c) => ({ ...c, price: "$0.00 · breakfast" })),
+            "AM"
+          );
+        } else {
+          mountCombos(
+            breakfastMenuEl,
+            [
+              {
+                name: "GRIDDLE'S DARK",
+                desc: "breakfast runs 4:30am–11am your local time — swing back by then",
+                price: "$0.00",
+                disabled: true,
+              },
+            ],
+            "AM"
+          );
+        }
+      }
+
       function currentSeasonalCombo() {
         const m = new Date().getMonth();
         return SEASONAL_MENU.find((c) => c.months.includes(m)) || SEASONAL_MENU[0];
@@ -517,6 +589,7 @@
       }
 
       const menuEl = $("menu");
+      const breakfastMenuEl = $("breakfastMenu");
       const ltoMenuEl = $("ltoMenu");
       const regionalMenuEl = $("regionalMenu");
       const orderEl = $("order");
@@ -558,6 +631,8 @@
       }
 
       mountCombos(menuEl, MENU, "");
+      renderBreakfast();
+      setInterval(renderBreakfast, 60 * 1000);
       mountCombos(
         ltoMenuEl,
         [
