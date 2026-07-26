@@ -40,9 +40,19 @@ async function main() {
   let text;
   let url = null; // the built-site URL, if any, so we can link-facet it
   if (ok && result) {
-    url = result.includes("/")
-      ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
-      : `https://${result}.bisks.net`;
+    // Special case: "apex" IS bisks.net itself (the root domain, no subdomain —
+    // see notes/00-vision.md / notes/30-identity-and-did.md). Every other site
+    // gets the mechanical <name>.bisks.net; apex would otherwise produce
+    // "apex.bisks.net", a hostname that was never provisioned and never resolves
+    // (caught 2026-07-26 after a reply linked exactly that dead URL).
+    if (result === "apex" || result.startsWith("apex/")) {
+      const rest = result.slice("apex".length);
+      url = `https://bisks.net${rest}`;
+    } else {
+      url = result.includes("/")
+        ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
+        : `https://${result}.bisks.net`;
+    }
     // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —
     // a build that got a real first pass live but ran out of turns before finishing.
     // The partial's whole point is that the work is preserved and CONTINUABLE: the

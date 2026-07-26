@@ -111,6 +111,20 @@ route in the same deploy. Worth copying to the other stuck sites if it turns
 out to work — unconfirmed, since this agent has no way to check the deploy
 result or the resulting workers.dev URL.
 
+**Third report, same day (2026-07-26):** someone in the wild flagged both
+`apex.bisks.net` and `windmill.bisks.net` as dead. Two distinct causes:
+
+1. `apex.bisks.net` was never supposed to resolve — the apex site's real
+   domain is the bare zone apex, `bisks.net` (see `notes/00-vision.md` /
+   `notes/30-identity-and-did.md`), not a subdomain. A prior bot reply had
+   mechanically appended `.bisks.net` to the built name "apex" and linked the
+   wrong, nonexistent host. Fixed in `sites/buildthis/builder/reply.mjs`:
+   `BUILD_RESULT=apex` (or `apex/<path>`) now special-cases to
+   `https://bisks.net<path>` instead of `https://apex.bisks.net<path>`.
+2. `windmill.bisks.net` is a real instance of the custom-domain-cap bug above
+   (still unresolved, needs dashboard access) — copied the same `workers_dev
+   = true` stopgap into `sites/windmill/wrangler.toml`.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
