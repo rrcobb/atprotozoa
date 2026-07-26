@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>semanticmute — mute a concept, not just a word</title>
+    <meta
+      name="description"
+      content="A tiny live AppView over the Bluesky firehose: mute a concept — 'oysters', 'that guy', 'crypto' — and posts that are semantically close get filtered too, not just ones spelling the word. Shows its work: every mute says which related term matched."
+    />
+    <meta property="og:title" content="semanticmute" />
+    <meta
+      property="og:description"
+      content="Mute a concept, not a keyword. A live Bluesky-firehose viewer that mutes posts semantically close to what you named — 'oysters' also catches 'bivalve', 'shellfish', 'raw bar' — and explains every mute."
+    />
+    <meta property="og:image" content="https://bisks.net/semanticmute/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="semanticmute: a crossed-out speech bubble surrounded by a fading cloud of related words, over 'mute a concept, not just a word'."
+    />
+    <meta property="og:url" content="https://bisks.net/semanticmute" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="semanticmute — mute a concept, not just a word" />
+    <meta
+      name="twitter:description"
+      content="Mute 'oysters' and it catches 'bivalve' and 'shellfish' too — a live firehose viewer that mutes by meaning, and shows why every post got caught."
+    />
+    <meta name="twitter:image" content="https://bisks.net/semanticmute/og.png" />
+    <!-- bisks.net house style, dark variant: one readable mono, hairline
+         separators, a rose accent for "muted" and teal for "live/normal". -->
+    <style>
+      :root {
+        --bg: #08090d;
+        --panel: #10121b;
+        --ink: #e8ecf3;
+        --muted: #808daa;
+        --faint: rgba(232, 236, 243, 0.12);
+        --accent: #6ee7c8;
+        --mute: #ff7a90;
+        --gold: #ffd166;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.25rem; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 span.m { color: var(--mute); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; transition: background 0.3s; }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.75rem; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro em { color: var(--ink); font-style: normal; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      section { margin: 0 0 1.75rem; }
+      .sectitle {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 0 0 0.75rem;
+      }
+
+      /* concept manager */
+      #addForm { display: flex; gap: 0.5rem; margin-bottom: 0.9rem; }
+      #conceptInput {
+        flex: 1 1 auto; font-family: var(--mono); font-size: 0.88rem; color: var(--ink);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      #conceptInput::placeholder { color: #5a6579; }
+      #conceptInput:focus { outline: none; border-color: var(--mute); }
+      #addForm button {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 600;
+        color: var(--bg); background: var(--mute); border: none;
+        border-radius: 6px; padding: 0 1.1rem; cursor: pointer; white-space: nowrap;
+        transition: opacity 0.15s;
+      }
+      #addForm button:hover { opacity: 0.85; }
+      #addForm button:disabled { opacity: 0.5; cursor: default; }
+
+      ul#conceptList { list-style: none; margin: 0 0 0.9rem; padding: 0; }
+      li.concept {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.6rem 0.75rem;
+        margin: 0 0 0.5rem; background: var(--panel);
+      }
+      .chead { display: flex; align-items: center; gap: 0.5rem; }
+      .cexpand {
+        background: none; border: none; color: var(--muted); cursor: pointer;
+        font-size: 0.8rem; padding: 0 0.2rem; font-family: var(--mono);
+      }
+      .cphrase { font-weight: 600; flex: 1 1 auto; word-break: break-word; }
+      .ccount {
+        font-size: 0.72rem; color: var(--mute); border: 1px solid var(--faint);
+        border-radius: 999px; padding: 0.1rem 0.5rem; white-space: nowrap;
+      }
+      .cremove {
+        background: none; border: none; color: var(--muted); cursor: pointer;
+        font-size: 1rem; line-height: 1; padding: 0 0.2rem;
+      }
+      .cremove:hover { color: var(--mute); }
+      .cpreview {
+        margin: 0.35rem 0 0 1.4rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .ccloud { margin: 0.5rem 0 0 1.4rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+      .cterm {
+        font-size: 0.72rem; color: var(--ink); background: rgba(255,122,144,0.08);
+        border: 1px solid var(--faint); border-radius: 999px; padding: 0.12rem 0.55rem;
+      }
+
+      .sensitivity {
+        display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .sensitivity input[type="range"] { accent-color: var(--mute); flex: 1 1 auto; max-width: 220px; }
+      .sensitivity .n { color: var(--ink); font-weight: 600; min-width: 2ch; text-align: right; }
+
+      /* firehose controls */
+      .controls {
+        display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;
+        margin: 0 0 0.85rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.6rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .controls button:hover { border-color: var(--muted); }
+      .controls button.on { border-color: var(--accent); color: var(--accent); }
+      .speed { display: flex; align-items: center; gap: 0.35rem; }
+      .speed .grp { display: inline-flex; gap: 0.3rem; }
+      .controls label { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .controls input[type="text"] {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.2rem 0.45rem; width: 5rem;
+      }
+      .spacer { flex: 1 1 auto; }
+      .stats { white-space: nowrap; }
+      .stats b { color: var(--ink); }
+      .stats .mutepct { color: var(--mute); font-weight: 600; }
+
+      /* feed */
+      main#feed { border-top: 1px solid var(--faint); }
+      .card {
+        padding: 0.9rem 0; border-bottom: 1px solid var(--faint);
+        animation: fade 0.25s ease both;
+      }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .who { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 0.8rem; }
+      .who .avatar {
+        width: 20px; height: 20px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat; border: 1px solid var(--faint);
+      }
+      .who .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .who .handle:hover { color: var(--accent); text-decoration: underline; }
+      .card .body { margin: 0 0 0.5rem; color: var(--ink); line-height: 1.6; word-break: break-word; font-size: 0.92rem; white-space: pre-wrap; }
+      .card a.perma { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .card a.perma:hover { text-decoration: underline; }
+
+      .card.muted { padding: 0.7rem 0; }
+      .mutehead { display: flex; align-items: center; gap: 0.55rem; font-size: 0.82rem; color: var(--muted); }
+      .muteicon { flex: none; }
+      .mutewhy { flex: 1 1 auto; }
+      .mutewhy b { color: var(--mute); font-weight: 600; }
+      .mutewhy i { color: var(--ink); font-style: normal; }
+      .showanyway {
+        font-family: var(--mono); font-size: 0.74rem; color: var(--muted);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.2rem 0.55rem; cursor: pointer; white-space: nowrap;
+      }
+      .showanyway:hover { border-color: var(--mute); color: var(--mute); }
+
+      /* sharing */
+      .share {
+        display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+        margin: 1.5rem 0 0; font-size: 0.8rem;
+      }
+      #shareLink {
+        color: var(--bg); background: var(--accent); text-decoration: none;
+        font-weight: 600; border-radius: 6px; padding: 0.45rem 0.9rem;
+      }
+      #shareLink:hover { opacity: 0.85; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/semanticmute/">semantic<span class="m">mute</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">not connected</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        A regular mute list only catches the exact word. This one mutes the
+        <b>concept</b>: mute <em>"oysters"</em> and it also catches
+        <em>"bivalve," "shellfish," "raw bar"</em> — every enumerable
+        near-miss a hand-written word-list would've had to spell out one by
+        one. It's a tiny personal <b>AppView</b>: connects straight to the
+        live Bluesky firehose in your browser, expands each concept you name
+        into a cloud of related words via the free
+        <a href="https://www.datamuse.com/api/" target="_blank" rel="noopener">Datamuse API</a>,
+        and scores every incoming post against that cloud. Nothing is sent
+        anywhere or stored on a server — your mute list lives only in this
+        browser's local storage. Every mute shows its work: which concept,
+        which word actually matched, so it's a rigorous framework whether
+        or not you thought to type "maine" <em>and</em> "oyster."
+      </p>
+
+      <section>
+        <p class="sectitle">mute a concept</p>
+        <form id="addForm" autocomplete="off">
+          <input id="conceptInput" type="text" placeholder="a concept, e.g. 'oysters' or 'that guy'" spellcheck="false" />
+          <button type="submit" id="addBtn">mute it</button>
+        </form>
+        <ul id="conceptList"></ul>
+        <label class="sensitivity" title="How loosely related a post can be to a muted concept before it still gets caught. Low = only near-exact matches. High = looser topical association is enough.">
+          mute sensitivity
+          <input id="sensitivity" type="range" min="0" max="100" value="55" />
+          <span class="n" id="sensitivityLabel">55</span>
+        </label>
+      </section>
+
+      <section>
+        <p class="sectitle">live firehose</p>
+        <div class="controls">
+          <button id="pauseBtn" title="freeze the feed (the stream keeps flowing underneath, counts still climb)">pause</button>
+          <div class="speed">
+            <span class="grp" id="speedGrp">
+              <button data-speed="fast" class="spd">fast</button>
+              <button data-speed="medium" class="spd on">medium</button>
+              <button data-speed="slow" class="spd">slow</button>
+            </span>
+          </div>
+          <label title="Only show posts in these languages (blank = all). Semantic matching only understands English, so muting works best with 'en' set.">
+            lang
+            <input id="langFilter" type="text" value="en" spellcheck="false" />
+          </label>
+          <span class="spacer"></span>
+          <span class="stats" id="statsLine">seen 0 · muted 0</span>
+        </div>
+        <main id="feed"></main>
+      </section>
+
+      <div class="share">
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share my mute list on bluesky</a>
+      </div>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · concept expansion via <a href="https://www.datamuse.com/api/" target="_blank" rel="noopener">datamuse</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- config ------------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const DATAMUSE = "https://api.datamuse.com/words";
+      const MAX_TERMS_QUERY = 30; // per datamuse call
+      const MAX_TERMS_KEPT = 40; // per concept, after merging ml + rel_trg
+      const MAX_CARDS = 60; // cap the DOM; oldest cards drop off the bottom
+      const STORE_CONCEPTS = "semanticmute.concepts.v1";
+      const STORE_SENSITIVITY = "semanticmute.sensitivity.v1";
+      const SPEEDS = { fast: 250, medium: 1100, slow: 2800 };
+
+      // ---- dom -----------------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const addForm = document.getElementById("addForm");
+      const conceptInput = document.getElementById("conceptInput");
+      const addBtn = document.getElementById("addBtn");
+      const conceptList = document.getElementById("conceptList");
+      const sensitivityInput = document.getElementById("sensitivity");
+      const sensitivityLabel = document.getElementById("sensitivityLabel");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const speedGrp = document.getElementById("speedGrp");
+      const langFilterInput = document.getElementById("langFilter");
+      const statsLine = document.getElementById("statsLine");
+      const feed = document.getElementById("feed");
+      const shareLink = document.getElementById("shareLink");
+
+      // ---- concepts --------------------------------------------------------
+      // A concept is { id, phrase, terms:[{word,weight}], termMap:Map, mutedCount, expanded }.
+      let concepts = [];
+      const countEls = new Map(); // concept.id -> the .ccount span, for cheap live updates
+
+      function loadConcepts() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(STORE_CONCEPTS) || "[]");
+          concepts = raw.map((c) => ({
+            ...c,
+            termMap: new Map((c.terms || []).map((t) => [t.word, t.weight])),
+            expanded: false,
+          }));
+        } catch {
+          concepts = [];
+        }
+      }
+
+      function saveConcepts() {
+        const raw = concepts.map(({ id, phrase, terms, mutedCount }) => ({
+          id,
+          phrase,
+          terms,
+          mutedCount,
+        }));
+        try {
+          localStorage.setItem(STORE_CONCEPTS, JSON.stringify(raw));
+        } catch {}
+      }
+
+      let saveTimer = null;
+      function saveConceptsSoon() {
+        if (saveTimer) return;
+        saveTimer = setTimeout(() => {
+          saveTimer = null;
+          saveConcepts();
+        }, 4000);
+      }
+
+      // Merge Datamuse "means like" (strong synonym) and "triggered by"
+      // (looser topical association) results into one weighted term cloud.
+      // ml= carries full weight; rel_trg= is discounted since it's a much
+      // looser relation (e.g. "maine" -> "bangor", "orono", "lobster").
+      async function fetchExpansion(phrase) {
+        const q = encodeURIComponent(phrase.toLowerCase());
+        const [ml, trg] = await Promise.all([
+          fetch(`${DATAMUSE}?ml=${q}&max=${MAX_TERMS_QUERY}`)
+            .then((r) => (r.ok ? r.json() : []))
+            .catch(() => []),
+          fetch(`${DATAMUSE}?rel_trg=${q}&max=${MAX_TERMS_QUERY}`)
+            .then((r) => (r.ok ? r.json() : []))
+            .catch(() => []),
+        ]);
+        const terms = new Map();
+        const addAll = (list, mult) => {
+          if (!Array.isArray(list) || !list.length) return;
+          const top = list[0].score || 1;
+          for (const { word, score } of list) {
+            const key = String(word || "").toLowerCase();
+            if (!key) continue;
+            const w = Math.min(1, (score || 0) / top) * mult;
+            if (!terms.has(key) || terms.get(key) < w) terms.set(key, w);
+          }
+        };
+        addAll(ml, 1.0);
+        addAll(trg, 0.65);
+        return [...terms.entries()]
+          .map(([word, weight]) => ({ word, weight: Math.round(weight * 1000) / 1000 }))
+          .sort((a, b) => b.weight - a.weight)
+          .slice(0, MAX_TERMS_KEPT);
+      }
+
+      function idFor(phrase) {
+        return phrase.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36);
+      }
+
+      async function addConcept(phrase) {
+        phrase = phrase.trim();
+        if (!phrase) return;
+        if (concepts.some((c) => c.phrase.toLowerCase() === phrase.toLowerCase())) return;
+        conceptInput.disabled = true;
+        addBtn.disabled = true;
+        addBtn.textContent = "learning…";
+        let terms = [];
+        try {
+          terms = await fetchExpansion(phrase);
+        } catch {}
+        concepts.push({
+          id: idFor(phrase),
+          phrase,
+          terms,
+          termMap: new Map(terms.map((t) => [t.word, t.weight])),
+          mutedCount: 0,
+          expanded: false,
+        });
+        saveConcepts();
+        renderConcepts();
+        conceptInput.disabled = false;
+        addBtn.disabled = false;
+        addBtn.textContent = "mute it";
+        conceptInput.value = "";
+        conceptInput.focus();
+      }
+
+      function removeConcept(id) {
+        concepts = concepts.filter((c) => c.id !== id);
+        countEls.delete(id);
+        saveConcepts();
+        renderConcepts();
+      }
+
+      function renderConcepts() {
+        conceptList.innerHTML = "";
+        countEls.clear();
+        for (const c of concepts) {
+          const li = document.createElement("li");
+          li.className = "concept";
+          const preview = c.terms.slice(0, 6).map((t) => t.word).join(", ") || "(no related words found)";
+          const cloud = c.terms
+            .map(
+              (t) =>
+                `<span class="cterm" style="opacity:${(0.45 + t.weight * 0.55).toFixed(2)}">${escapeHtml(t.word)}</span>`,
+            )
+            .join("");
+          li.innerHTML =
+            `<div class="chead">` +
+            `<button class="cexpand" type="button" title="show the words used to match this concept">${c.expanded ? "▾" : "▸"}</button>` +
+            `<span class="cphrase">${escapeHtml(c.phrase)}</span>` +
+            `<span class="ccount" title="posts muted by this concept so far">${c.mutedCount}</span>` +
+            `<button class="cremove" type="button" title="stop muting this concept">×</button>` +
+            `</div>` +
+            (c.expanded
+              ? `<div class="ccloud">${cloud}</div>`
+              : `<div class="cpreview">≈ ${escapeHtml(preview)}</div>`);
+          li.querySelector(".cexpand").addEventListener("click", () => {
+            c.expanded = !c.expanded;
+            renderConcepts();
+          });
+          li.querySelector(".cremove").addEventListener("click", () => removeConcept(c.id));
+          countEls.set(c.id, li.querySelector(".ccount"));
+          conceptList.appendChild(li);
+        }
+      }
+
+      addForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        addConcept(conceptInput.value);
+      });
+
+      // ---- sensitivity -------------------------------------------------------
+      let sensitivity = 55;
+      function threshold() {
+        // 0 -> 1.0 (near-nothing but literal matches), 100 -> ~0.15 (loose).
+        return 1 - (sensitivity / 100) * 0.85;
+      }
+      function loadSensitivity() {
+        const v = parseInt(localStorage.getItem(STORE_SENSITIVITY) || "", 10);
+        sensitivity = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 55;
+        sensitivityInput.value = sensitivity;
+        sensitivityLabel.textContent = sensitivity;
+      }
+      sensitivityInput.addEventListener("input", () => {
+        sensitivity = Number(sensitivityInput.value);
+        sensitivityLabel.textContent = sensitivity;
+        try {
+          localStorage.setItem(STORE_SENSITIVITY, String(sensitivity));
+        } catch {}
+      });
+
+      // ---- scoring -----------------------------------------------------------
+      function tokenize(text) {
+        return text.toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
+      }
+
+      function scoreAgainstConcept(lowerText, tokens, concept) {
+        if (lowerText.includes(concept.phrase.toLowerCase())) {
+          return { score: 1, matched: [concept.phrase], literal: true };
+        }
+        let total = 0;
+        const hits = [];
+        const seenWord = new Set();
+        for (const tok of tokens) {
+          if (seenWord.has(tok)) continue;
+          const w = concept.termMap.get(tok);
+          if (w) {
+            seenWord.add(tok);
+            total += w;
+            hits.push({ word: tok, weight: w });
+          }
+        }
+        hits.sort((a, b) => b.weight - a.weight);
+        return {
+          score: Math.min(1, total / 1.4),
+          matched: hits.slice(0, 3).map((h) => h.word),
+          literal: false,
+        };
+      }
+
+      function bestMatch(text) {
+        if (!concepts.length) return null;
+        const lower = text.toLowerCase();
+        const tokens = tokenize(text);
+        const t = threshold();
+        let best = null;
+        for (const c of concepts) {
+          if (!c.termMap.size && !c.phrase) continue;
+          const r = scoreAgainstConcept(lower, tokens, c);
+          if (r.score >= t && (!best || r.score > best.score)) {
+            best = { concept: c, ...r };
+          }
+        }
+        return best;
+      }
+
+      // ---- misc helpers ------------------------------------------------------
+      function escapeHtml(s) {
+        return String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+      function profileUrl(did) {
+        return `https://bsky.app/profile/${did}`;
+      }
+
+      const PROFILE_API = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+      async function fillAuthor(card, did) {
+        const prof = await fetchProfile(did);
+        const handleEl = card.querySelector(".handle");
+        const avatarEl = card.querySelector(".avatar");
+        if (!handleEl) return;
+        if (prof && prof.handle) {
+          handleEl.textContent = "@" + prof.handle;
+          handleEl.href = "https://bsky.app/profile/" + prof.handle;
+          if (prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
+        } else {
+          handleEl.textContent = did.slice(0, 20) + "…";
+        }
+      }
+
+      // Cheap gate for obviously automated / spammy posts, same idea as
+      // sites/trigrams — not exhaustive, just trims the loudest bot noise.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true;
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true;
+        return false;
+      }
+
+      const AUTHOR_COOLDOWN_MS = 20000;
+      const lastShownByAuthor = new Map();
+      function authorOnCooldown(did, now) {
+        const prev = lastShownByAuthor.get(did);
+        return prev != null && now - prev < AUTHOR_COOLDOWN_MS;
+      }
+
+      let allowLangs = new Set(["en"]);
+      function langPasses(rec) {
+        if (allowLangs.size === 0) return true;
+        const langs = Array.isArray(rec.langs) ? rec.langs : [];
+        if (langs.length === 0) return true;
+        return langs.some((l) => allowLangs.has(String(l).toLowerCase().split("-")[0]));
+      }
+      langFilterInput.addEventListener("input", () => {
+        allowLangs = new Set(
+          langFilterInput.value.toLowerCase().split(/[^a-z]+/).filter(Boolean),
+        );
+      });
+
+      // ---- stats ---------------------------------------------------------------
+      let postsSeen = 0;
+      let postsMuted = 0;
+      function updateStats() {
+        const pct = postsSeen ? Math.round((postsMuted / postsSeen) * 100) : 0;
+        statsLine.innerHTML = `seen <b>${postsSeen}</b> · muted <b class="mutepct">${postsMuted}</b> (${pct}%)`;
+        shareLink.href =
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(pct));
+      }
+      function buildShareText(pct) {
+        const names = concepts.map((c) => c.phrase).slice(0, 5);
+        const list = names.length ? names.join(", ") : "nothing yet";
+        return (
+          `my mute list understands concepts, not just words — muting: ${list}\n\n` +
+          `${postsMuted} posts caught so far (${pct}%) watching the live firehose\n\n` +
+          `bisks.net/semanticmute`
+        );
+      }
+      updateStats();
+
+      // ---- render queue (throttle DOM churn, not scoring) ---------------------
+      let minGap = SPEEDS.medium;
+      let pending = null;
+      let tickTimer = null;
+      let paused = false;
+
+      function restartTicker() {
+        if (tickTimer) clearInterval(tickTimer);
+        tickTimer = setInterval(() => {
+          if (paused || !pending) return;
+          const c = pending;
+          pending = null;
+          renderCard(c);
+        }, minGap);
+      }
+
+      speedGrp.addEventListener("click", (e) => {
+        const b = e.target.closest(".spd");
+        if (!b) return;
+        minGap = SPEEDS[b.dataset.speed] || SPEEDS.medium;
+        for (const el of speedGrp.querySelectorAll(".spd")) el.classList.toggle("on", el === b);
+        restartTicker();
+      });
+
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        pauseBtn.classList.toggle("on", paused);
+        if (paused) pending = null;
+      });
+
+      function renderCard({ text, did, rkey, muted }) {
+        const card = document.createElement("article");
+        card.className = "card" + (muted ? " muted" : "");
+        if (muted) {
+          const reason = muted.literal
+            ? `says <i>"${escapeHtml(muted.concept.phrase)}"</i> directly`
+            : `close to <b>${escapeHtml(muted.concept.phrase)}</b>` +
+              (muted.matched.length
+                ? ` — matched <i>${muted.matched.map(escapeHtml).join(", ")}</i>`
+                : "");
+          card.innerHTML =
+            `<div class="mutehead">` +
+            `<span class="muteicon">🔇</span>` +
+            `<span class="mutewhy">${reason}</span>` +
+            `<button class="showanyway" type="button">show anyway</button>` +
+            `</div>`;
+          card.querySelector(".showanyway").addEventListener(
+            "click",
+            () => fillRealCard(card, { text, did, rkey }),
+            { once: true },
+          );
+        } else {
+          fillRealCard(card, { text, did, rkey });
+        }
+        feed.prepend(card);
+        while (feed.childElementCount > MAX_CARDS) feed.removeChild(feed.lastElementChild);
+      }
+
+      function fillRealCard(card, { text, did, rkey }) {
+        card.classList.remove("muted");
+        card.innerHTML =
+          `<div class="who"><span class="avatar"></span>` +
+          `<a class="handle" href="${profileUrl(did)}" target="_blank" rel="noopener">resolving…</a></div>` +
+          `<p class="body">${escapeHtml(text)}</p>` +
+          `<div class="cardfoot"><a class="perma" href="${postUrl(did, rkey)}" target="_blank" rel="noopener">view on bluesky →</a></div>`;
+        fillAuthor(card, did);
+      }
+
+      function queueRender(candidate) {
+        pending = candidate; // keep only the newest while throttled
+      }
+
+      // ---- firehose ------------------------------------------------------------
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text || looksLikeSpam(text)) return;
+
+        // Scoring runs on every post regardless of display filters/throttle, so
+        // counts and per-concept mute totals stay accurate to the real stream.
+        postsSeen++;
+        const match = bestMatch(text);
+        if (match) {
+          postsMuted++;
+          match.concept.mutedCount++;
+          const el = countEls.get(match.concept.id);
+          if (el) el.textContent = match.concept.mutedCount;
+          saveConceptsSoon();
+        }
+        if (postsSeen % 5 === 0) updateStats();
+
+        if (!langPasses(rec)) return;
+        if (authorOnCooldown(evt.did, Date.now())) return;
+        lastShownByAuthor.set(evt.did, Date.now());
+        queueRender({ text, did: evt.did, rkey: commit.rkey, muted: match });
+      }
+
+      // ---- websocket -------------------------------------------------------------
+      let ws = null;
+      let reconnectDelay = 1000;
+      let connected = false;
+
+      function setStatus(msg, live) {
+        statusText.textContent = msg;
+        dot.classList.toggle("live", !!live);
+      }
+
+      function connect() {
+        setStatus("connecting…", false);
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          connected = true;
+          setStatus("live", true);
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus("reconnecting…", false);
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (connected && (!ws || ws.readyState > WebSocket.OPEN)) {
+          connect();
+        }
+      });
+
+      // ---- boot ------------------------------------------------------------------
+      loadConcepts();
+      loadSensitivity();
+      renderConcepts();
+      restartTicker();
+      connect();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
