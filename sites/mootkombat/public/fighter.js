@@ -522,9 +522,18 @@ function updateFighter(f, other, dt) {
   if (f.dashT > 0) {
     // vx stays locked at the dash speed set when the dash triggered
   } else if (canAct(f)) {
-    const targetVX = f.moveDir * (f.airborne ? AIR_MOVE_SPEED : MOVE_SPEED);
-    if (f.airborne) f.vx += (targetVX - f.vx) * Math.min(1, 10 * dt);
-    else f.vx = targetVX;
+    if (f.airborne) {
+      // Air control only steers a normal jump arc — it must never be what
+      // cancels a launch. While still tumbling above normal air speed
+      // (fresh off a big hit, even post-hitstun), leave vx alone so
+      // knockback actually carries to a blast zone instead of snapping
+      // back the instant control returns or the AI decides to approach.
+      if (f.moveDir && Math.abs(f.vx) < AIR_MOVE_SPEED * 1.5) {
+        f.vx += (f.moveDir * AIR_MOVE_SPEED - f.vx) * Math.min(1, 3 * dt);
+      }
+    } else {
+      f.vx = f.moveDir * MOVE_SPEED;
+    }
   } else {
     f.vx *= Math.pow(0.4, dt); // knockback/hitstun drag (dt is seconds — gentle per-second decay so a launch actually carries through hitstun)
   }
