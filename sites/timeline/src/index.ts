@@ -26,6 +26,13 @@
 // Routes (mounted at /timeline — PREFIX stripped before this file sees the
 // path):
 //   /       -> the timeline (PRIMARY page)
+//   /scene  -> the scene: a directory of every handle that's ever tagged
+//              @buildthis, aggregated from the same commit history, plus a
+//              curated "kindred networks" list of the prior art named in
+//              notes/00-vision.md. Requested by @bisks.net, same thread as
+//              the timeline itself: "search and include all the accounts
+//              linked to this little network that have shared neat little
+//              websites — the whole scene if you can."
 //   /og.png -> a generated share-card image: a bar chart of builds/day
 //   everything else -> static assets (public/)
 
@@ -46,6 +53,9 @@ export default {
 
     if (url.pathname === "/" || url.pathname === "") {
       return renderTimeline(env, url.origin + PREFIX);
+    }
+    if (url.pathname === "/scene") {
+      return renderScene(env, url.origin + PREFIX + "/scene", url.origin + PREFIX + "/og.png");
     }
     if (url.pathname === "/og.png") {
       return renderOgImage(env);
@@ -316,6 +326,186 @@ function renderEvent(e: BuildEvent, gallery: Map<string, string>): string {
 </article>`;
 }
 
+// --- data + rendering: the scene ---------------------------------------------
+//
+// "search and include all the accounts linked to this little network that
+// have shared neat little websites — the whole scene if you can" (@bisks.net,
+// same thread as the timeline itself). Two sources:
+//   1. every handle that's ever tagged @buildthis, aggregated straight out of
+//      the same commit history the timeline reads — a real, live-updating
+//      roster of "this little network," not a guess.
+//   2. a small curated list of the prior art named in notes/00-vision.md —
+//      networks this repo is explicitly patterned on, not derived from git
+//      history (they don't tag @buildthis; they're not on bisks.net at all).
+// Anonymous full-text search of Bluesky (searchPosts) is gated behind auth
+// this bot doesn't hold — see sites/trigrams and sites/ratioed, which both
+// note the same limit — so "search the whole scene" means "search this
+// repo's own history for who's in it," not a live Bluesky crawl.
+
+interface HandleAgg {
+  handle: string;
+  count: number;
+  sites: string[]; // unique site slugs, in first-seen order
+  firstDate: Date;
+  lastDate: Date;
+}
+
+function aggregateByHandle(events: BuildEvent[]): HandleAgg[] {
+  const map = new Map<string, HandleAgg>();
+  // eventsOldFirst so `sites` lists in the order someone actually built them
+  for (const e of [...events].reverse()) {
+    let agg = map.get(e.handle);
+    if (!agg) {
+      agg = { handle: e.handle, count: 0, sites: [], firstDate: e.date, lastDate: e.date };
+      map.set(e.handle, agg);
+    }
+    agg.count++;
+    if (!agg.sites.includes(e.site)) agg.sites.push(e.site);
+    if (e.date < agg.firstDate) agg.firstDate = e.date;
+    if (e.date > agg.lastDate) agg.lastDate = e.date;
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count || b.lastDate.getTime() - a.lastDate.getTime());
+}
+
+interface BskyProfile {
+  handle: string;
+  displayName?: string;
+  avatar?: string;
+  description?: string;
+}
+
+const BSKY_API = "https://public.api.bsky.app/xrpc/";
+
+// Best-effort: a handle that fails to resolve just renders without an avatar
+// or bio, never breaks the page. getProfile takes a handle directly (no
+// separate resolveHandle round-trip needed).
+async function loadProfiles(handles: string[]): Promise<Map<string, BskyProfile>> {
+  const map = new Map<string, BskyProfile>();
+  await Promise.all(
+    handles.map(async (h) => {
+      try {
+        const res = await fetch(`${BSKY_API}app.bsky.actor.getProfile?actor=${encodeURIComponent(h)}`, {
+          headers: { "User-Agent": "atprotozoa-timeline (bisks.net/timeline)" },
+          cf: { cacheTtl: 900, cacheEverything: true } as never,
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as BskyProfile;
+        map.set(h, { handle: j.handle || h, displayName: j.displayName, avatar: j.avatar, description: j.description });
+      } catch {
+        // profile is a nice-to-have; the card still renders with just the handle
+      }
+    }),
+  );
+  return map;
+}
+
+// The prior art named in notes/00-vision.md as the taste this repo is
+// stealing — kindred networks, not requesters in this repo's own history.
+const KINDRED: { name: string; url: string; blurb: string }[] = [
+  {
+    name: "mino.mobi",
+    url: "https://mino.mobi",
+    blurb:
+      "125+ interconnected atproto \"surfaces\" under one domain, sharing one OAuth worker — the clearest model for this repo's shape.",
+  },
+  {
+    name: "vibe-coded.com",
+    url: "https://vibe-coded.com/projects",
+    blurb: "a gallery of small vibe-coded web toys.",
+  },
+  {
+    name: "all-paperclips.bsky.social (\"fluoddity\")",
+    url: "https://bsky.app/profile/all-paperclips.bsky.social",
+    blurb: "a one-person stream of tiny, weird, atproto-flavored web things.",
+  },
+  {
+    name: "dollspace-gay",
+    url: "https://github.com/dollspace-gay",
+    blurb: "third-party atproto software, mostly Rust tooling — a reminder the ecosystem is bigger than the web-toy corner.",
+  },
+  {
+    name: "carbonadoks.com",
+    url: "https://carbonadoks.com",
+    blurb: "another handle-as-domain person shipping small sites — same shape as this project, the domain as both identity and host.",
+  },
+];
+
+async function renderScene(env: Env, selfUrl: string, ogImageUrl: string): Promise<Response> {
+  const [{ commits, error }, gallery] = await Promise.all([loadCommits(env), loadGallery()]);
+
+  if (error !== null) {
+    return html(
+      pageShell(
+        "the scene — bisks.net/timeline",
+        `<p class="empty">${esc(error)}. the raw history is always at
+        <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}/commits/main">github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}</a>.</p>`,
+        selfUrl,
+        null,
+        ogImageUrl,
+      ),
+      502,
+    );
+  }
+
+  const events = parseEvents(commits);
+  const people = aggregateByHandle(events);
+  const profiles = await loadProfiles(people.map((p) => p.handle));
+
+  const peopleHtml =
+    people.length > 0
+      ? `<ul class="people">${people.map((p) => `<li>${renderPersonCard(p, profiles.get(p.handle), gallery)}</li>`).join("\n")}</ul>`
+      : `<p class="empty">no one's tagged @buildthis yet.</p>`;
+
+  const kindredHtml = `<ul class="kindred">${KINDRED.map(
+    (k) => `<li class="kperson">
+  <a class="kname" href="${esc(k.url)}">${esc(k.name)}</a>
+  <p class="kblurb">${esc(k.blurb)}</p>
+</li>`,
+  ).join("\n")}</ul>`;
+
+  const sub = `${people.length} account${people.length === 1 ? "" : "s"} have tagged @buildthis, across ${new Set(events.map((e) => e.site)).size} sites`;
+  const description = `Everyone who's tagged @buildthis.bisks.net, aggregated live from this repo's git history, plus the kindred networks that inspired it — the whole scene around bisks.net.`;
+
+  const body = `<p class="intro">
+    every account that's ever tagged <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>,
+    pulled from the same <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}">commit history</a>
+    the <a href="${PREFIX}">timeline</a> reads — this repo's own little network, not a guess.
+  </p>
+  <h2 class="scenehead">the requesters</h2>
+  ${peopleHtml}
+  <h2 class="scenehead">further afield</h2>
+  <p class="scenesub">the prior art this repo is patterned on (see <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}/blob/main/notes/00-vision.md">notes/00-vision.md</a>) — kindred networks, not requesters here.</p>
+  ${kindredHtml}`;
+
+  return html(pageShell("the scene — bisks.net/timeline", body, selfUrl, { title: "the scene — bisks.net/timeline", description, sub, heading: "the scene" }, ogImageUrl));
+}
+
+function renderPersonCard(p: HandleAgg, profile: BskyProfile | undefined, gallery: Map<string, string>): string {
+  const name = profile?.displayName?.trim() || p.handle;
+  const avatar = profile?.avatar
+    ? `<img class="avatar" src="${esc(profile.avatar)}" alt="" loading="lazy" />`
+    : `<span class="avatar avatar-fallback">${esc(p.handle.charAt(0).toUpperCase())}</span>`;
+  const bio = profile?.description
+    ? `<p class="bio">${esc(oneLine(profile.description.replace(/\s+/g, " ")))}</p>`
+    : "";
+  const sites = p.sites
+    .map((s) => {
+      const liveUrl = gallery.get(s);
+      return liveUrl
+        ? `<a class="chip" href="${esc(liveUrl)}">${esc(s)}</a>`
+        : `<span class="chip nolive">${esc(s)}</span>`;
+    })
+    .join(" ");
+  return `<article class="person">
+  <a class="pidentity" href="https://bsky.app/profile/${esc(p.handle)}">
+    ${avatar}
+    <span class="pname">${esc(name)}<span class="phandle">@${esc(p.handle)}</span></span>
+  </a>
+  ${bio}
+  <p class="pmeta">${p.count} build${p.count === 1 ? "" : "s"} · ${sites}</p>
+</article>`;
+}
+
 // --- rendering: og.png share image -------------------------------------------
 
 async function renderOgImage(env: Env): Promise<Response> {
@@ -382,12 +572,15 @@ function pageShell(
   title: string,
   body: string,
   selfUrl: string,
-  meta: { title: string; description: string; sub: string } | null,
+  meta: { title: string; description: string; sub: string; heading?: string } | null,
+  ogImageUrl?: string,
 ): string {
   const shareText = meta ? `${meta.sub} — ${selfUrl}` : `a timeline of autonomous web dev — ${selfUrl}`;
   const shareHref = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}`;
   const ogTitle = meta?.title || title;
   const ogDescription = meta?.description || "A chronological history of autonomous web dev in this repo.";
+  const ogImage = ogImageUrl || `${selfUrl}/og.png`;
+  const heading = meta?.heading || "timeline";
 
   return `<!doctype html>
 <html lang="en">
@@ -400,12 +593,12 @@ function pageShell(
 <meta property="og:title" content="${esc(ogTitle)}" />
 <meta property="og:description" content="${esc(ogDescription)}" />
 <meta property="og:url" content="${esc(selfUrl)}" />
-<meta property="og:image" content="${esc(selfUrl)}/og.png" />
+<meta property="og:image" content="${esc(ogImage)}" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="a bar chart of autonomous builds per day" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:image" content="${esc(selfUrl)}/og.png" />
+<meta name="twitter:image" content="${esc(ogImage)}" />
 <style>
   :root {
     --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4; --accent:#1a5fd0;
@@ -420,6 +613,10 @@ function pageShell(
   header p { color:var(--muted); margin:0 0 1rem; font-size:.9rem; }
   a { color:var(--accent); text-decoration:none; }
   a:hover { text-decoration:underline; }
+
+  .crumbs { font-size:.8rem; margin:0 0 .85rem; }
+  .crumbs a { color:var(--muted); }
+  .crumbs a:hover { color:var(--accent); }
 
   .share { display:inline-block; margin:0 0 2rem; font-size:.82rem; padding:.35em .8em;
     border:1px solid var(--faint); border-radius:5px; color:var(--ink); }
@@ -454,6 +651,29 @@ function pageShell(
 
   .empty { color:var(--muted); padding:1.5rem 0; border-top:1px solid var(--ink); }
 
+  .scenehead { font-size:1rem; margin:1.75rem 0 1rem; font-weight:600; }
+  .scenesub { color:var(--muted); font-size:.8rem; margin:-.5rem 0 1rem; }
+  .people { display:flex; flex-direction:column; gap:.9rem; margin:0 0 2rem; padding:0; list-style:none; }
+  .person { display:block; padding:.85rem; border:1px solid var(--faint); border-radius:8px; }
+  .pidentity { display:flex; align-items:center; gap:.6rem; color:var(--ink); }
+  .pidentity:hover { text-decoration:none; }
+  .pidentity:hover .pname { text-decoration:underline; }
+  .avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; flex:none; background:var(--faint); }
+  .avatar-fallback { display:flex; align-items:center; justify-content:center;
+    font-weight:600; color:var(--muted); }
+  .pname { font-weight:600; }
+  .phandle { display:block; font-weight:400; color:var(--muted); font-size:.78rem; }
+  .bio { margin:.5rem 0 0; font-size:.82rem; color:var(--muted); max-width:60ch; }
+  .pmeta { margin:.5rem 0 0; font-size:.78rem; color:var(--muted); }
+  .chip { display:inline-block; font-size:.76rem; padding:.1em .5em; margin:.15em .2em 0 0;
+    border:1px solid var(--faint); border-radius:999px; color:var(--ink); }
+  .chip.nolive { color:var(--muted); }
+
+  .kindred { display:flex; flex-direction:column; gap:.7rem; margin:0 0 1rem; padding:0; list-style:none; }
+  .kperson { padding:.75rem .85rem; border:1px dashed var(--faint); border-radius:8px; }
+  .kname { font-weight:600; }
+  .kblurb { margin:.3rem 0 0; font-size:.82rem; color:var(--muted); max-width:60ch; }
+
   footer { margin-top:3rem; padding-top:.75rem; border-top:1px solid var(--faint);
     color:var(--muted); font-size:.78rem; }
 </style>
@@ -461,8 +681,9 @@ function pageShell(
 <body>
   <div class="wrap">
     <header>
-      <h1>timeline</h1>
+      <h1>${esc(heading)}</h1>
       <p>${meta ? esc(meta.sub) : "a chronological history of autonomous web dev in this repo"}</p>
+      <nav class="crumbs"><a href="${PREFIX}">timeline</a> · <a href="${PREFIX}/scene">the scene</a></nav>
       <a class="share" href="${shareHref}" target="_blank" rel="noopener">share on bluesky ↗</a>
     </header>
     <main>
