@@ -51,12 +51,21 @@ there's genuinely nothing to make.
 - **Copy, don't abstract.** Need an OAuth helper, a card component, an AppView
   fetch that another site already has? Copy the file in and edit it. No shared
   packages across sites; near-duplicate files are fine and expected.
-- **New site = one directory = one Worker = one subdomain.** For a new standalone
-  idea: `cp -r` the closest existing site (or `sites/trigrams` if nothing's close),
-  then rename — `wrangler.toml` `name = "atprotozoa-<newname>"` + route
-  `<newname>.bisks.net`; `package.json` `"name": "@atprotozoa/<newname>"`. Build the
-  idea in `public/` (+ `src/` only if it needs a server surface). Add a gallery card
-  to `apex/public/index.html`.
+- **New site = one directory = one Worker = one path.** The zone hit a Cloudflare
+  custom-domain cap, so a dedicated `<newname>.bisks.net` subdomain is the
+  exception now, not the default — see `notes/20-deploy.md` and
+  `notes/40-new-site-playbook.md` ("Why paths, not subdomains"). For a new
+  standalone idea: `cp -r` the closest existing site (or `sites/trigrams` if
+  nothing's close), then rename — `wrangler.toml` `name = "atprotozoa-<newname>"`
+  + `main = "src/index.ts"` + routes `bisks.net/<newname>` and
+  `bisks.net/<newname>/*` (`zone_name = "bisks.net"`, not `custom_domain`);
+  `package.json` `"name": "@atprotozoa/<newname>"`; `src/index.ts` strips the
+  `/<newname>` prefix before forwarding to the `ASSETS` binding (see the
+  playbook's barebones template). Build the idea in `public/` (+ the rest of
+  `src/` for any further server surface). Any absolute URL a site writes about
+  itself (OG tags, share links, OAuth redirect URIs) must include the
+  `/<newname>` prefix. Add a gallery card to `apex/public/index.html` linking
+  `https://bisks.net/<newname>`.
 - **Keep it self-contained.** A site is a directory; don't import across sites.
 - **Include sharing in most sites, not just when asked.** Give new sites a real
   OG/Twitter preview image and a one-tap way to post the result to Bluesky — an

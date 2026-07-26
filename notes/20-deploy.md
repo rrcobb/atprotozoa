@@ -141,6 +141,39 @@ with live network access.
   count/cap and freeing up room (or raising it) so `windmill.bisks.net`'s
   route can actually provision.
 
+## Migrating existing sites off subdomains, to free cap room
+
+On 2026-07-26, in response to a mutual flagging both the cap failures above and
+a request to "keep moving sites from subdomains to trailing slash paths,"
+migrated 24 pre-existing single-page static sites off their long-lived
+`<name>.bisks.net` custom domains onto `bisks.net/<name>` path routes instead:
+acausal, babel, bird-costumes, buildcoin, candyland, cogsec, delaunay-maze,
+fourk, fruitninja, gulpstream, heistlibs, hellmole, idea-island, koipond,
+labescape, mahjong-solitaire, norvidwave, old-beach, pixel-fishing, popmoot,
+solitaire, tabernacle, trigramonopoly, and viable. Each got a `main =
+"src/index.ts"` prefix-stripping Worker (they previously had no Worker at
+all — pure `[assets]`), following the barebones template in
+`notes/40-new-site-playbook.md`. Self-referential links (OG tags, share-text,
+in-page footers) and the apex/wheelhouse gallery mirrors were updated to the
+new path; a few other sites that linked out to them (`neighborhood`,
+`buildthis2`) were fixed too.
+
+These were picked because they're the simplest case — single static
+`index.html`, no subresources, no Durable Objects, no OAuth — to minimize risk
+of the prefix-stripping migration breaking something. This intentionally
+**breaks each site's old `<name>.bisks.net` link** (no redirect is possible
+once the custom domain is deprovisioned) in exchange for freeing a
+custom-domain slot on the zone; that's the explicit tradeoff the requester
+asked for. Unconfirmed from this sandbox (no dashboard/deploy access): whether
+`wrangler deploy` actually deprovisions the now-unlisted custom domains on
+push, and whether the freed slots actually unstick the sites still stuck on
+the cap (`padmoot`, `windmill`). Worth checking after the next deploy.
+
+There are ~80+ more pre-existing sites still on subdomains (most with a
+`src/index.ts` already, or more subresources/state to account for) — this was
+one batch, not the whole migration. A future agent picking this up should
+grep `custom_domain = true` across `sites/*/wrangler.toml` for what's left.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
