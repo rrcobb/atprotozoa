@@ -262,3 +262,30 @@ That needs someone with domain-owner access to submit the review at
 `https://safebrowsing.google.com/safebrowsing/report_error/`. Worth checking again in a
 day or two even without filing anything — reputation-based false positives on new
 domains often clear on their own.
+
+**Follow-up (2026-07-26):** a mutual reported the warning now showing on *all* sites,
+not just `solvers`, and floated a new theory — maybe some page is asking for a
+password. Grepped the whole repo for `password` and every `input[type="password"]`.
+Findings:
+
+- The only real, visitor-facing password-type input anywhere in the repo is
+  `sites/keytags` — a local HMAC secret ("your secret") used to derive a private
+  record key client-side. It's explicitly documented as never leaving the browser
+  and never stored, and is unrelated to Bluesky login. Tightened the label anyway
+  (`sites/keytags/public/index.html`) to say "not your Bluesky password" right next
+  to the field, so neither a scanner nor a visitor skimming the page could mistake
+  it for account-credential collection.
+- `sites/war/public/index.html` has a dead `input[type="password"]` CSS selector
+  with no matching `<input>` on the page — copy-pasted rule, never rendered, not a
+  risk.
+- Every other `password` hit in the repo is server-side/backend code referring to
+  the *bot's own* app-password (`BOT_APP_PASSWORD`) used in `createSession` calls
+  from Workers/scripts — never a form a site visitor fills in. Real user auth
+  everywhere else (`keytags`, `mootdrone`, etc.) goes through atproto OAuth
+  (PKCE + DPoP, redirects to the user's own PDS), which never touches a password.
+
+So: no phishing-shaped password collection found anywhere. A warning spreading from
+one new custom domain to *all* sites on the zone is exactly the expected shape of the
+shared-IP/zone reputation false-positive already diagnosed above, not evidence of a
+real credential-harvesting page — still needs the Search Console review filed by
+someone with dashboard access; no further code fix available from this agent.
