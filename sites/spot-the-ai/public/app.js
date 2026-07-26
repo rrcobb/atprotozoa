@@ -34,9 +34,20 @@ async function loadManifest() {
 }
 
 function buildRounds() {
+  // Pair each AI image with a human image of the same `subject` when one is
+  // still available, so a round pits like against like (two witches, two
+  // water spirits) instead of a random fantasy AI piece against a random
+  // fairy tale illustration. Falls back to any unused human image otherwise.
   const ai = shuffle(manifest.ai);
-  const human = shuffle(manifest.human);
-  const pairs = ai.map((a, i) => ({ ai: a, human: human[i] }));
+  const humanPool = shuffle(manifest.human);
+  const used = new Set();
+  const pairs = ai.map((a) => {
+    let idx = humanPool.findIndex((h) => !used.has(h.key) && h.subject === a.subject);
+    if (idx === -1) idx = humanPool.findIndex((h) => !used.has(h.key));
+    const human = humanPool[idx];
+    used.add(human.key);
+    return { ai: a, human };
+  });
   rounds = shuffle(pairs).map((p) => ({
     ...p,
     aiOnLeft: Math.random() < 0.5,

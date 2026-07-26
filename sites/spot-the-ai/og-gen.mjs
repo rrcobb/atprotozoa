@@ -17,8 +17,8 @@ const BG = "#f3ede2", INK = "#1c1a17", DIM = "#6b6255", ACCENT = "#b5482f", ACCE
 const imgPath = (name) => fileURLToPath(new URL(`./public/images/${name}`, import.meta.url));
 const toDataUri = (name, mime) => `data:${mime};base64,${readFileSync(imgPath(name)).toString("base64")}`;
 
-const aiImg = toDataUri("space-opera.jpg", "image/jpeg");
-const humanImg = toDataUri("undine.jpg", "image/jpeg");
+const aiImg = toDataUri("sorgin.png", "image/png");
+const humanImg = toDataUri("baba-yaga.jpg", "image/jpeg");
 
 const cardW = 420, cardH = 420, cardY = 150, gap = 40;
 const leftX = 60, rightX = leftX + cardW + gap;
