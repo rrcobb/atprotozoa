@@ -23,12 +23,31 @@
 // best-effort: a failure logs and is swallowed, so it can never turn a successful
 // build+reply into a red workflow.
 
+import { readFileSync } from "node:fs";
+
 const PDS = "https://bsky.social";
 
 function reqEnv(name) {
   const v = process.env[name];
   if (!v) throw new Error(`missing env ${name}`);
   return v;
+}
+
+// Whether `site` is mounted as a path on the shared bisks.net zone (the
+// default since the 2026-07-26 slash-path migration — see
+// notes/40-new-site-playbook.md) rather than owning its own `<site>.bisks.net`
+// custom domain (the pre-migration convention). Reads the site's own
+// wrangler.toml instead of hardcoding a site list, so newly migrated or
+// newly built sites resolve correctly without this file needing another
+// edit. Defaults to false (legacy subdomain) if the toml can't be read, which
+// matches every site built before the migration.
+function isPathMounted(site) {
+  try {
+    const toml = readFileSync(`sites/${site}/wrangler.toml`, "utf8");
+    return toml.includes(`pattern = "bisks.net/${site}"`);
+  } catch {
+    return false;
+  }
 }
 
 async function main() {
@@ -49,9 +68,11 @@ async function main() {
       const rest = result.slice("apex".length);
       url = `https://bisks.net${rest}`;
     } else {
-      url = result.includes("/")
-        ? `https://${result.split("/")[0]}.bisks.net/${result.split("/").slice(1).join("/")}`
-        : `https://${result}.bisks.net`;
+      const site = result.split("/")[0];
+      const rest = result.slice(site.length); // "" or "/sub/path..."
+      url = isPathMounted(site)
+        ? `https://bisks.net/${site}${rest}`
+        : `https://${site}.bisks.net${rest}`;
     }
     // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —
     // a build that got a real first pass live but ran out of turns before finishing.
