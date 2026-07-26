@@ -151,10 +151,14 @@
         mutuals) can propose house-rule changes, FLUXX-style — each written to
         <b>your own</b> <code>net.bisks.war.ruleset</code> record, since
         atproto only lets you write your own repo. Want a change that sticks
-        for <b>everyone</b>, not just your own games? Tag
+        for <b>everyone</b> — not just the rule knobs below, <i>anything</i>
+        about this site? Tag
         <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
-        and ask it to change the game itself — and be excellent to each other
-        about it.
+        with it — that mention <b>is</b> the move, logged right alongside your
+        game below — and be excellent to each other about it. The game ref
+        (<a href="https://bsky.app/profile/antiali.as" target="_blank" rel="noopener">@antiali.as</a>)
+        can roll the whole thing back to any earlier ruleset or build if a
+        change goes sideways.
       </p>
 
       <div id="signin-box"></div>
@@ -174,22 +178,28 @@
       import { resolvePds, getRecord } from "./lib/atproto.js";
       import { DEFAULT_RULES, RULES_CATALOG, normalizeRules, makeDeck, shuffle, deal, playRound } from "./lib/warengine.js";
 
-      const ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"; // @bisks.net — the admin
+      const ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"; // @bisks.net — site admin
+      const GAME_REF_DID = "did:plc:cp5hnfgqbgjdbizyqyp4zgdl"; // @antiali.as — this game's ref; asked for the role themselves
       const APPVIEW = "https://public.api.bsky.app";
       const STATE_COLLECTION = "net.bisks.war.state";
       const STATE_RKEY = "self";
       const RULESET_COLLECTION = "net.bisks.war.ruleset";
       const RULESET_RKEY = "current";
       const LOG_LINES = 30; // cap so the PDS record doesn't grow unbounded across a long game
+      const ASK_LINES = 5; // cap on the "your buildthis asks" log kept in your own state record
+      const BUILDLOG_URL = "./buildlog.json";
 
       const $ = (sel, root = document) => root.querySelector(sel);
       const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
       let session = null;
       let eligible = false;
-      let isAdmin = false;
+      let isAdmin = false; // @bisks.net — site admin
+      let isRef = false; // @antiali.as — this game's ref
       let state = null; // net.bisks.war.state value
-      let ruleset = null; // { rules, source } — source: "you" | "admin" | "default"
+      let ruleset = null; // { rules, source, history } — source: "you" | "admin" | "default"
+      let adminRuleset = null; // @bisks.net's baseline ruleset, fetched separately so stewards can restore it explicitly
+      let buildlog = []; // prior deployed builds of this site, for the game ref's "restore a build" lane
       let autoplayTimer = null;
 
       async function boot() {
@@ -286,6 +296,7 @@
           gamesPlayed: 0,
           current: null,
           lastResult: null,
+          asks: [], // your own log of things you've tagged @buildthis.bisks.net to change — this IS part of your game
           updatedAt: new Date().toISOString(),
         };
       }
@@ -343,9 +354,39 @@
         return { rules: { ...DEFAULT_RULES }, source: "default", history: [] };
       }
 
+      // Rob's baseline record specifically (not "whatever's effective for me")
+      // — stewards restoring a prior ruleset should always be able to reach
+      // back into the shared baseline's own history, even if they've long
+      // since forked their own copy.
+      async function loadAdminRuleset() {
+        try {
+          const robPds = await resolvePds(ROB_DID);
+          if (!robPds) return null;
+          const rec = await getRecord(robPds, ROB_DID, RULESET_COLLECTION, RULESET_RKEY);
+          return { rules: normalizeRules(rec.value), history: rec.value?.history || [] };
+        } catch {
+          return null;
+        }
+      }
+
+      async function loadBuildlog() {
+        try {
+          const r = await fetch(BUILDLOG_URL);
+          if (!r.ok) return [];
+          const j = await r.json();
+          return Array.isArray(j.builds) ? j.builds : [];
+        } catch {
+          return [];
+        }
+      }
+
+      // Each entry snapshots the rules that became active at that moment, so
+      // any past entry can be handed straight back to saveRuleset to restore
+      // it verbatim — this is what makes "reset to any prior ruleset" real
+      // instead of just a changelog of notes.
       async function saveRuleset(newRules, note) {
         const history = [
-          { by: session.handle, note: note || "", at: new Date().toISOString() },
+          { by: session.handle, note: note || "", at: new Date().toISOString(), rules: newRules },
           ...(ruleset.history || []),
         ].slice(0, 10);
         const record = {
@@ -363,9 +404,23 @@
         ruleset = { rules: newRules, source: "you", history };
       }
 
+      // Records that you tagged @buildthis.bisks.net for something — this is
+      // what makes the mention itself part of your game rather than a
+      // fire-and-forget popup: it shows up in your own log below, same as a
+      // round of cards would.
+      async function logAsk(kind, text) {
+        state.asks = [{ kind, text, at: new Date().toISOString() }, ...(state.asks || [])].slice(0, ASK_LINES);
+        await saveState();
+      }
+
       async function loadEverything() {
         [eligible, state, ruleset] = await Promise.all([checkEligible(session.did), loadState(), loadRuleset()]);
         isAdmin = session.did === ROB_DID;
+        isRef = session.did === GAME_REF_DID;
+        [adminRuleset, buildlog] = await Promise.all([
+          isAdmin || isRef ? loadAdminRuleset() : Promise.resolve(null),
+          isAdmin || isRef ? loadBuildlog() : Promise.resolve([]),
+        ]);
       }
 
       // --- game actions --------------------------------------------------------
@@ -423,7 +478,7 @@
 
       function render() {
         const app = $("#app");
-        app.innerHTML = [renderScore(), renderRules(), renderGame()].join("\n");
+        app.innerHTML = [renderScore(), renderRules(), renderAsks(), renderGame()].join("\n");
       }
 
       function renderScore() {
@@ -446,6 +501,26 @@
         const cat = RULES_CATALOG.find((c) => c.key === key);
         const opt = cat?.options.find((o) => o.value === value);
         return opt ? opt.label : value;
+      }
+
+      // Flattened by renderRules() each render, indexed by data-idx on the
+      // restore buttons — every prior ruleset a steward can reach, from
+      // anywhere: built-ins, @bisks.net's baseline and its history, and
+      // whatever's currently loaded (your own history, if you've got one).
+      let restoreOptions = [];
+
+      function buildRestoreOptions() {
+        const opts = [{ label: "built-in defaults", by: null, at: null, rules: { ...DEFAULT_RULES } }];
+        if (adminRuleset) {
+          opts.push({ label: "@bisks.net's current baseline", by: "bisks.net", at: null, rules: adminRuleset.rules });
+          for (const h of adminRuleset.history || []) {
+            if (h.rules) opts.push({ label: `baseline history — "${h.note || "no note"}"`, by: h.by, at: h.at, rules: h.rules });
+          }
+        }
+        for (const h of ruleset.history || []) {
+          if (h.rules) opts.push({ label: `your history — "${h.note || "no note"}"`, by: h.by, at: h.at, rules: h.rules });
+        }
+        return opts;
       }
 
       function renderRules() {
@@ -480,15 +555,18 @@
               </div>
             </details>
             <details class="rules-form">
-              <summary>ask @buildthis to change the game itself, for everyone</summary>
+              <summary>ask @buildthis to change anything about this site, for everyone</summary>
               <div class="body">
                 <p class="hint">
                   the form above only ever writes to <b>your own</b> repo — atproto
                   won't let this page touch anyone else's. a change that ships for
-                  every player (a new mechanic, a different deck, whatever) has to
+                  every player isn't limited to the knobs above — new mechanics, a
+                  different deck, a whole new page, the art, anything — it has to
                   go through the bot that built this site: describe it, tag
                   <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>,
-                  and it edits the real game. be excellent to each other about it.
+                  and it edits the real site. that mention <b>is</b> the move — it
+                  gets logged below, right alongside your game. be excellent to
+                  each other about it.
                 </p>
                 <form id="global-rule-form">
                   <label class="field"><span>what should change, for everyone?</span>
@@ -502,11 +580,64 @@
           form = `<p class="hint">only <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>'s mutuals can change the house rules — sign in as one to propose a change.</p>`;
         }
 
+        // The ref's reset powers aren't contingent on staying a bisks.net
+        // mutual — being the game ref is its own standing, separate from
+        // general buildthis-eligibility.
+        const steward = isAdmin || isRef ? renderStewardTools() : "";
+
         return `
           <section class="panel">
             <div class="panel-label">house rules</div>
             <p class="ruleset-summary">${chips}<span class="src">${esc(srcLabel)}</span></p>
             ${form}
+            ${steward}
+          </section>`;
+      }
+
+      function renderStewardTools() {
+        restoreOptions = buildRestoreOptions();
+        const rows = restoreOptions
+          .map(
+            (o, i) => `
+          <div class="btnrow" style="justify-content:space-between;align-items:center;">
+            <span class="hint" style="margin:0;">${esc(o.label)}${o.by ? ` — ${esc(o.by)}` : ""}${o.at ? ` · ${esc(new Date(o.at).toLocaleDateString())}` : ""}</span>
+            <button class="ghost tiny" data-action="restore-ruleset" data-idx="${i}">restore this ruleset</button>
+          </div>`,
+          )
+          .join("");
+        const builds = (buildlog || [])
+          .slice()
+          .reverse()
+          .map(
+            (b) => `
+          <div class="btnrow" style="justify-content:space-between;align-items:center;">
+            <span class="hint" style="margin:0;">${esc(b.id)} · ${esc(new Date(b.at).toLocaleDateString())} — ${esc(b.note)}</span>
+            <button class="ghost tiny" data-action="ask-revert-build" data-build-id="${esc(b.id)}">ask @buildthis to restore</button>
+          </div>`,
+          )
+          .join("");
+        return `
+          <details class="rules-form" open>
+            <summary>game ref tools — you're the ${esc(roleWord())}</summary>
+            <div class="body">
+              <p class="hint">reset the effective ruleset to any prior version — yours, @bisks.net's baseline, or its history.</p>
+              ${rows || `<p class="hint">no prior rulesets on file yet.</p>`}
+              <p class="hint" style="margin-top:0.8rem;">reset to any prior <b>build</b> of the site itself — this asks the bot directly, since that's the only thing that can actually rewrite the code.</p>
+              ${builds || `<p class="hint">no build log yet.</p>`}
+            </div>
+          </details>`;
+      }
+
+      function renderAsks() {
+        if (!state.asks || !state.asks.length) return "";
+        const rows = state.asks
+          .map((a) => `<div><b>${esc(a.kind)}</b> · ${esc(new Date(a.at).toLocaleString())} — ${esc(a.text)}</div>`)
+          .join("");
+        return `
+          <section class="panel">
+            <div class="panel-label">your buildthis asks</div>
+            <p class="hint">every mention you've sent is part of your game — a permanent move, not just a popup.</p>
+            <div class="log" style="max-height:none;">${rows}</div>
           </section>`;
       }
 
@@ -616,10 +747,25 @@
             btn.disabled = true;
             await saveRuleset({ ...DEFAULT_RULES }, "reset to defaults by admin");
             render();
+          } else if (action === "restore-ruleset") {
+            btn.disabled = true;
+            const opt = restoreOptions[Number(btn.dataset.idx)];
+            if (opt) await saveRuleset({ ...opt.rules }, `restored by ${session.handle} (${roleWord()}): ${opt.label}`);
+            render();
+          } else if (action === "ask-revert-build") {
+            const build = (buildlog || []).find((b) => b.id === btn.dataset.buildId);
+            const text = `@buildthis.bisks.net war — game ref request: revert war.bisks.net to build "${build?.id || btn.dataset.buildId}" (${build?.note || ""})`;
+            window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+            await logAsk("revert-build", text.replace("@buildthis.bisks.net war — ", ""));
+            render();
           }
         } catch (err) {
           console.error(err);
         }
+      }
+
+      function roleWord() {
+        return isAdmin && isRef ? "admin & ref" : isAdmin ? "admin" : "ref";
       }
 
       async function onAppSubmit(e) {
@@ -629,7 +775,9 @@
           if (!proposal) return;
           const text = `@buildthis.bisks.net war — ${proposal}`;
           window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+          await logAsk("proposal", proposal);
           e.target.reset();
+          render();
           return;
         }
         if (e.target.id !== "rules-form") return;
