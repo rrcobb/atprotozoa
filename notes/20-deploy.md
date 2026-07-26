@@ -55,6 +55,49 @@ Each site's `wrangler.toml` declares its route. Two options:
 
 The apex (`bisks.net`) is a custom_domain route on the zone apex.
 
+## Durable Objects need the SQLite storage backend
+
+This account is on Workers Free, which doesn't support the legacy KV-backed
+Durable Object storage — only the newer SQLite-backed one. In `wrangler.toml`
+that means the migration must say:
+
+```
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["YourClassName"]   # NOT new_classes
+```
+
+Using `new_classes` deploys fine locally-looking (no TOML error) but fails at
+`wrangler deploy` on this account — and because the deploy dies before the
+route/custom-domain step runs, the site's subdomain never resolves, which
+looks identical to a totally unrelated deploy failure. This bit `sites/ratioed`,
+`sites/the-place`, and `sites/mootrider` before it was caught (2026-07-26).
+The `state.storage.get/put` API is unchanged on SQLite-backed DOs, so no other
+code needs to change — just this one line.
+
+## Possible custom-domain cap on the zone (unresolved, needs dashboard access)
+
+On 2026-07-26, every *new* custom-domain deploy started failing around 14:18
+UTC — `sites/lasercats`, `sites/pvnp`, `sites/sonnethype`, `sites/padmoot`, and
+`sites/windmill` all failed their first deploy, while every deploy to an
+*already-provisioned* domain (edits to existing sites) kept succeeding right
+through and after that window. Two new sites (`sites/fourk`, `sites/hashdo`)
+deployed fine about an hour earlier (13:06–13:12 UTC), so this isn't these
+sites' `wrangler.toml` — they're plain `assets`-only configs, same shape as
+dozens of sites that work. `dig` shows no DNS record at all for any of the
+failing hostnames, meaning `wrangler deploy` is dying before it gets to
+route/custom-domain creation specifically for *new* hostnames.
+
+The repo at that point had ~107 sites with `custom_domain = true` in their
+`wrangler.toml` (not all successfully provisioned — some are the failures
+above). That's suspiciously close to plan-level custom-domain caps some
+Cloudflare tiers impose per zone. This build agent has no Cloudflare
+dashboard/API access to confirm — someone with dash.cloudflare.com access
+needs to check the `bisks.net` zone's custom domains count/limit and either
+free up room or raise the cap. Until then, expect brand-new sites' first
+deploy to keep failing even when the code is fine; retrying the same push
+won't help if it's really a cap.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
