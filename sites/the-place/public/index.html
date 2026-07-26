@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>the place — bisks.net</title>
+    <meta
+      name="description"
+      content="One shared pixel canvas for the whole internet. No login — place a pixel every few seconds, watch everyone else's pixels land, and at 00:00 UTC today's canvas freezes and a blank one begins."
+    />
+    <meta property="og:title" content="the place — bisks.net" />
+    <meta
+      property="og:description"
+      content="One shared pixel canvas. Everyone draws the same grid; it resets every day at 00:00 UTC."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://the-place.bisks.net" />
+    <meta property="og:image" content="https://the-place.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A colorful pixel-art grid reading THE PLACE, in the r/place style." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://the-place.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem;
+      }
+      h1 { font-size: 1.3rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.9rem; line-height: 1.7; max-width: 66ch; }
+      .credit { color: var(--muted); font-size: 0.78rem; margin: -0.9rem 0 1.5rem; }
+      .credit a { color: var(--accent); text-decoration: none; }
+
+      .status-row {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.9rem;
+        font-size: 0.8rem; color: var(--muted);
+      }
+      .status-row b { color: var(--ink); }
+      #cooldown { color: var(--accent); font-weight: 600; }
+      #cooldown.ready { color: #02be01; }
+
+      .board-wrap {
+        border: 1px solid var(--ink); display: inline-block; line-height: 0;
+        touch-action: none; max-width: 100%; overflow: auto;
+      }
+      canvas#board { display: block; image-rendering: pixelated; cursor: crosshair; max-width: 100%; }
+      canvas#board.readonly { cursor: default; }
+
+      .palette {
+        display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.9rem 0;
+      }
+      .swatch {
+        width: 1.7rem; height: 1.7rem; border-radius: 3px; border: 1px solid var(--faint);
+        cursor: pointer; padding: 0;
+      }
+      .swatch.active { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+      .row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border-color: var(--faint); }
+      button.ghost:hover { background: #f5f8ff; }
+      select {
+        font-family: inherit; font-size: 0.82rem; padding: 0.4rem 0.5rem;
+        border: 1px solid var(--faint); border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      a { color: var(--accent); }
+      .archived-note {
+        font-size: 0.8rem; color: var(--muted); margin: 0.6rem 0 0;
+        padding: 0.6rem 0.75rem; background: #f7f7f7; border-radius: 4px;
+      }
+      .archived-note b { color: var(--ink); }
+
+      .panel-label {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 2rem 0 0.6rem; font-weight: 600;
+      }
+      .err { color: #c0392b; font-size: 0.82rem; }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">the place<span class="slash"> / bisks.net</span></a></h1>
+      </header>
+      <p class="intro">
+        One shared pixel canvas. No account, no name — anyone who loads this
+        page can drop a pixel every few seconds. At <b>00:00 UTC</b> today's
+        grid freezes forever and a blank one begins. Everything before today
+        stays browsable below.
+      </p>
+      <p class="credit">
+        an idea from <a href="https://bsky.app/profile/minormobius.bsky.social" target="_blank" rel="noopener">@minormobius.bsky.social</a>
+        ("a bot that makes one website a day but it's like The Place and everybody's
+        prompts make changes to the one big site for that day"), tagged in by
+        <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>
+      </p>
+
+      <div id="archivedNote" class="archived-note" hidden></div>
+
+      <div class="status-row">
+        <span id="dayLabel">loading…</span>
+        <span id="cooldownWrap" hidden>next pixel: <span id="cooldown">ready</span></span>
+        <span id="resetWrap" hidden>resets in <b id="resetCountdown">--:--:--</b></span>
+      </div>
+
+      <div class="board-wrap">
+        <canvas id="board" width="640" height="400"></canvas>
+      </div>
+
+      <div class="palette" id="palette"></div>
+      <p id="pixelErr" class="err" hidden></p>
+
+      <div class="row">
+        <a class="button-link" id="shareLink" href="#" target="_blank" rel="noopener">
+          <button type="button">share on bluesky</button>
+        </a>
+        <button type="button" class="ghost" id="downloadBtn">download png</button>
+      </div>
+
+      <div class="panel-label">past canvases</div>
+      <div class="row">
+        <select id="daySelect"><option value="">today (live)</option></select>
+      </div>
+
+      <footer>
+        <a href="https://bisks.net">← bisks.net</a> · a tiny atproto experiment
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        const CELL = 10;
+        const canvas = document.getElementById("board");
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = false;
+
+        const params = new URLSearchParams(location.search);
+        const requestedDay = params.get("day") || "";
+
+        let width = 64, height = 40, palette = [], live = true;
+        let grid = null; // Uint8Array
+        let version = -1;
+        let selectedColor = 3;
+        let resetAt = null;
+        let localCooldownUntil = 0;
+
+        const dayLabel = document.getElementById("dayLabel");
+        const cooldownWrap = document.getElementById("cooldownWrap");
+        const cooldownEl = document.getElementById("cooldown");
+        const resetWrap = document.getElementById("resetWrap");
+        const resetCountdownEl = document.getElementById("resetCountdown");
+        const archivedNote = document.getElementById("archivedNote");
+        const paletteEl = document.getElementById("palette");
+        const pixelErr = document.getElementById("pixelErr");
+        const shareLink = document.getElementById("shareLink");
+        const downloadBtn = document.getElementById("downloadBtn");
+        const daySelect = document.getElementById("daySelect");
+
+        function draw() {
+          if (!grid) return;
+          canvas.width = width * CELL;
+          canvas.height = height * CELL;
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const c = grid[y * width + x] || 0;
+              ctx.fillStyle = palette[c] || "#ffffff";
+              ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+            }
+          }
+        }
+
+        function buildPalette() {
+          paletteEl.innerHTML = "";
+          palette.forEach((hex, i) => {
+            const b = document.createElement("button");
+            b.className = "swatch" + (i === selectedColor ? " active" : "");
+            b.style.background = hex;
+            b.title = hex;
+            b.addEventListener("click", () => {
+              selectedColor = i;
+              [...paletteEl.children].forEach((el, j) => el.classList.toggle("active", j === i));
+            });
+            paletteEl.appendChild(b);
+          });
+        }
+
+        function decodeGrid(hex) {
+          const arr = new Uint8Array(hex.length);
+          for (let i = 0; i < hex.length; i++) arr[i] = parseInt(hex[i], 16);
+          return arr;
+        }
+
+        async function fetchState(day) {
+          const q = day ? "?day=" + encodeURIComponent(day) : "";
+          const res = await fetch("/api/state" + q);
+          if (!res.ok) {
+            dayLabel.textContent = "couldn't load that day";
+            return;
+          }
+          const data = await res.json();
+          width = data.width;
+          height = data.height;
+          palette = data.palette;
+          live = data.live;
+          if (data.version === undefined || data.version !== version) {
+            grid = decodeGrid(data.grid);
+            version = data.version === undefined ? version : data.version;
+            draw();
+          }
+          if (data.resetAt) resetAt = new Date(data.resetAt);
+
+          if (live) {
+            dayLabel.innerHTML = "<b>" + data.day + "</b> — live — " + data.pixelsToday + " pixel" + (data.pixelsToday === 1 ? "" : "s") + " placed today";
+            cooldownWrap.hidden = false;
+            resetWrap.hidden = false;
+            archivedNote.hidden = true;
+            canvas.classList.remove("readonly");
+          } else {
+            dayLabel.innerHTML = "<b>" + data.day + "</b> — archived";
+            cooldownWrap.hidden = true;
+            resetWrap.hidden = true;
+            archivedNote.hidden = false;
+            archivedNote.innerHTML = "You're viewing <b>" + data.day + "</b>, a frozen day. " +
+              "<a href=\"/\">Go back to today's live canvas →</a>";
+            canvas.classList.add("readonly");
+          }
+          buildPalette();
+          updateShare(data.day, live);
+        }
+
+        function updateShare(day, isLive) {
+          const url = isLive ? "https://the-place.bisks.net" : "https://the-place.bisks.net/?day=" + day;
+          const text = isLive
+            ? "I put a pixel on today's shared canvas at the-place.bisks.net — come draw with everyone else."
+            : "the shared canvas from " + day + " — the-place.bisks.net/?day=" + day;
+          shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text + " " + url);
+        }
+
+        async function placePixel(x, y) {
+          pixelErr.hidden = true;
+          try {
+            const res = await fetch("/api/pixel", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ x, y, c: selectedColor }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              if (data.retryMs) localCooldownUntil = Date.now() + data.retryMs;
+              pixelErr.textContent = data.error === "cooldown" ? "hang on, one pixel at a time." : "couldn't place that — " + (data.error || res.status);
+              pixelErr.hidden = false;
+              return;
+            }
+            grid[y * width + x] = selectedColor;
+            version = data.version;
+            draw();
+            localCooldownUntil = Date.now() + data.cooldownMs;
+          } catch (e) {
+            pixelErr.textContent = "network error placing pixel.";
+            pixelErr.hidden = false;
+          }
+        }
+
+        canvas.addEventListener("click", (e) => {
+          if (!live || requestedDay) return;
+          if (Date.now() < localCooldownUntil) return;
+          const rect = canvas.getBoundingClientRect();
+          const scaleX = canvas.width / rect.width;
+          const scaleY = canvas.height / rect.height;
+          const x = Math.floor(((e.clientX - rect.left) * scaleX) / CELL);
+          const y = Math.floor(((e.clientY - rect.top) * scaleY) / CELL);
+          if (x < 0 || x >= width || y < 0 || y >= height) return;
+          placePixel(x, y);
+        });
+
+        function tickCooldown() {
+          const remaining = localCooldownUntil - Date.now();
+          if (remaining > 0) {
+            cooldownEl.textContent = (remaining / 1000).toFixed(1) + "s";
+            cooldownEl.classList.remove("ready");
+          } else {
+            cooldownEl.textContent = "ready";
+            cooldownEl.classList.add("ready");
+          }
+          if (resetAt && live) {
+            const rem = Math.max(0, resetAt - Date.now());
+            const h = String(Math.floor(rem / 3600000)).padStart(2, "0");
+            const m = String(Math.floor((rem % 3600000) / 60000)).padStart(2, "0");
+            const s = String(Math.floor((rem % 60000) / 1000)).padStart(2, "0");
+            resetCountdownEl.textContent = h + ":" + m + ":" + s;
+          }
+        }
+
+        function downloadPng() {
+          const link = document.createElement("a");
+          link.download = "the-place-" + (dayLabel.textContent.match(/\d{4}-\d{2}-\d{2}/) || ["canvas"])[0] + ".png";
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+        }
+        downloadBtn.addEventListener("click", downloadPng);
+
+        async function loadDays() {
+          try {
+            const res = await fetch("/api/days");
+            const data = await res.json();
+            data.days.forEach((d) => {
+              const opt = document.createElement("option");
+              opt.value = d;
+              opt.textContent = d;
+              daySelect.appendChild(opt);
+            });
+            daySelect.value = requestedDay || "";
+          } catch (e) {}
+        }
+        daySelect.addEventListener("change", () => {
+          const d = daySelect.value;
+          location.search = d ? "?day=" + d : "";
+        });
+
+        setInterval(tickCooldown, 100);
+        setInterval(() => {
+          if (live && !requestedDay) fetchState();
+        }, 2000);
+
+        fetchState(requestedDay);
+        loadDays();
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,37 @@
+name = "atprotozoa-the-place"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @minormobius.bsky.social's idea, tagged by @norvid-studies.bsky.social: "a
+# bot that makes one website a day but it's like The Place and everybody's
+# prompts make changes to the one big site for that day." This IS that site —
+# a shared r/place-style pixel canvas. One canvas, shared by everyone who loads
+# the page, no login. It resets at 00:00 UTC; the finished grid is archived so
+# yesterday's (and every past day's) canvas stays viewable at /?day=YYYY-MM-DD.
+#
+# The canvas lives in a single Durable Object instance (name "global") holding
+# the pixel grid + per-day archive in its transactional storage — the one bit
+# of shared, durable, single-writer state this idea needs. Everything else
+# (palette, countdown, share card) is client-side in public/index.html.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in sites/logs and sites/didscope).
+routes = [{ pattern = "the-place.bisks.net", custom_domain = true }]
+
+# / and /api/* are dynamic (canvas state can change between requests, and old
+# days are served straight from the Durable Object) — the Worker must run
+# before the static-asset router picks up index.html for those paths, same
+# reasoning as sites/logs and sites/didscope.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/", "/api/*"]
+
+[[durable_objects.bindings]]
+name = "CANVAS"
+class_name = "Canvas"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["Canvas"]
