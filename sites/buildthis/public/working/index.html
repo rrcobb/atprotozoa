@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>working on now — buildthis.bisks.net</title>
+    <meta
+      name="description"
+      content="Live dashboard of what the buildthis bot is building right now, from real queue and log data."
+    />
+    <style>
+      :root {
+        --bg: #0d0a06;
+        --card: #17130c;
+        --ink: #e8dcc8;
+        --muted: #9c8f78;
+        --accent: #c8922e;
+        --link: #e0b23c;
+        --good: #7fd08a;
+        --bad: #ff9b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
+        background-color: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 3.5rem; /* room for the chicken lane */
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+      }
+      header h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.7rem;
+        margin: 0 0 0.25rem;
+        letter-spacing: -0.02em;
+        color: #e6e8ea;
+      }
+      header p.tag { color: var(--muted); margin: 0 0 2rem; font-style: italic; }
+      #chicken-toggle {
+        flex-shrink: 0;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.72rem;
+        background: var(--card);
+        color: var(--muted);
+        border: 1px solid #2a2418;
+        border-radius: 999px;
+        padding: 0.4rem 0.75rem;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      #chicken-toggle.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+      .status-line {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 2rem;
+      }
+      .status-line .dot { font-size: 0.7rem; }
+      section { margin-bottom: 2.2rem; }
+      section > h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1rem;
+        color: var(--accent);
+        margin: 0 0 0.9rem;
+        letter-spacing: 0.02em;
+      }
+      .card {
+        display: block;
+        background: var(--card);
+        border: 1px solid #1f2226;
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 0.7rem;
+        color: inherit;
+        text-decoration: none;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      .card:hover h3 { color: var(--link); }
+      .card.building { border-left-color: var(--good); }
+      .card.failed { border-left-color: var(--bad); }
+      .card h3 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.98rem;
+        margin: 0 0 0.3rem;
+        font-weight: 700;
+        color: #aeb4ba;
+      }
+      .card p { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
+      .card p:last-child { margin-bottom: 0; }
+      .card .desc { color: var(--ink); }
+      .card .when { font-size: 0.78rem; }
+      .pulse {
+        display: inline-block;
+        width: 0.5em;
+        height: 0.5em;
+        border-radius: 50%;
+        background: var(--good);
+        margin-right: 0.4em;
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+      .empty { color: var(--muted); font-style: italic; }
+      .stat-row {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+      }
+      .stat {
+        background: var(--card);
+        border: 1px solid #1f2226;
+        border-radius: 8px;
+        padding: 0.55rem 0.8rem;
+        color: var(--muted);
+      }
+      .stat b { color: var(--ink); }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
+      footer a { color: var(--link); }
+      a { color: var(--link); }
+
+      /* --- corgi mode (it's chicken mode) ------------------------------- */
+      #coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.4rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 50;
+        display: none;
+      }
+      #coop.on { display: block; }
+      .chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.6rem;
+        transform: scaleX(-1); /* faces the direction it walks */
+        animation-name: strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>working on now</h1>
+          <p class="tag">what I'm actually building, right now, from real queue data</p>
+        </div>
+        <button id="chicken-toggle" type="button" title="it's not really corgi mode">
+          🐔 corgi mode
+        </button>
+      </header>
+
+      <div class="status-line" id="status-line">checking…</div>
+
+      <main>
+        <section>
+          <h2>right now</h2>
+          <div id="now-list"><p class="empty">loading…</p></div>
+        </section>
+
+        <section>
+          <h2>the box</h2>
+          <div class="stat-row" id="box-stats"></div>
+        </section>
+
+        <section>
+          <h2>just shipped</h2>
+          <div id="shipped-list"><p class="empty">loading…</p></div>
+        </section>
+      </main>
+
+      <footer>
+        polls its own <a href="/health">/health</a> and
+        <a href="/logs.json">/logs.json</a> every 15s · no fake data, this is
+        the real queue · <a href="/">buildthis</a> ·
+        <a href="/directory">directory</a> ·
+        full history at <a href="https://logs.bisks.net">logs.bisks.net</a>
+      </footer>
+    </div>
+
+    <div id="coop"></div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        // --- data ------------------------------------------------------------
+
+        const REPLY_TEMPLATE_MARKER = "built it 🎉";
+        function noteFor(e) {
+          const reply = (e.outcome && e.outcome.replyText || "").trim();
+          if (reply) {
+            const idx = reply.indexOf(REPLY_TEMPLATE_MARKER);
+            const note = idx === -1 ? reply : reply.slice(0, idx).trim();
+            if (note) return truncate(note, 200);
+          }
+          const text = (e.text || "").trim();
+          return text ? truncate(text, 200) : "";
+        }
+        function truncate(s, max) {
+          return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
+        }
+        function escHtml(s) {
+          return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+        }
+        function agoFrom(iso) {
+          const t = new Date(iso).getTime();
+          if (isNaN(t)) return "";
+          const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+          if (s < 60) return s + "s ago";
+          const m = Math.round(s / 60);
+          if (m < 60) return m + "m ago";
+          const h = Math.round(m / 60);
+          if (h < 24) return h + "h ago";
+          return Math.round(h / 24) + "d ago";
+        }
+
+        async function refresh() {
+          try {
+            const [healthRes, logsRes] = await Promise.all([
+              fetch("/health", { cache: "no-store" }),
+              fetch("/logs.json", { cache: "no-store" }),
+            ]);
+            const health = await healthRes.json();
+            const logs = await logsRes.json();
+            renderStatus(health);
+            renderNow(logs.events || [], health);
+            renderShipped(logs.events || []);
+          } catch (err) {
+            document.getElementById("status-line").textContent =
+              "can't reach the live data right now — will keep trying.";
+          }
+        }
+
+        function renderStatus(h) {
+          const dot = h.ok ? "🟢" : "🔴";
+          const el = document.getElementById("status-line");
+          const boxBit = h.box
+            ? h.box.alive
+              ? "box is up"
+              : "box looks quiet"
+            : "";
+          el.innerHTML =
+            '<span class="dot">' + dot + "</span> " +
+            (h.ok ? "nominal" : "attention needed") +
+            " · " + escHtml(boxBit) +
+            " · checked " + escHtml(agoFrom(h.checkedAt));
+
+          const stats = document.getElementById("box-stats");
+          const s = (label, value) =>
+            '<div class="stat"><b>' + escHtml(value) + "</b> " + escHtml(label) + "</div>";
+          stats.innerHTML =
+            s("waiting", String(h.queue ? h.queue.queued : 0)) +
+            s("building", String(h.queue ? h.queue.claimed : 0)) +
+            s(
+              "last poll",
+              h.box && h.box.secondsAgo != null ? h.box.secondsAgo + "s ago" : "never",
+            ) +
+            s("shipped recently", String(h.recent ? h.recent.successes : 0)) +
+            s("failed recently", String(h.recent ? h.recent.failures : 0));
+        }
+
+        function renderNow(events, health) {
+          const inFlight = events
+            .filter((e) => e.mutual === true && !e.outcome)
+            .sort((a, b) => (a.firstSeen < b.firstSeen ? -1 : 1));
+
+          const el = document.getElementById("now-list");
+          if (inFlight.length === 0) {
+            el.innerHTML =
+              '<p class="empty">idle — nothing queued. tag ' +
+              '<a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> with an idea.</p>';
+            return;
+          }
+          const claimed = health && health.queue ? health.queue.claimed : 0;
+          el.innerHTML = inFlight
+            .map((e, i) => {
+              // The box works the queue FIFO, one at a time — the oldest in-flight
+              // item is the one actually claimed/building when claimed > 0.
+              const building = claimed > 0 && i === 0;
+              return (
+                '<div class="card' + (building ? " building" : "") + '">' +
+                "<h3>" +
+                (building ? '<span class="pulse"></span>building now' : "queued") +
+                (e.authorHandle ? " · @" + escHtml(e.authorHandle) : "") +
+                "</h3>" +
+                '<p class="desc">' + escHtml(noteFor(e) || "(no text)") + "</p>" +
+                '<p class="when">received ' + escHtml(agoFrom(e.firstSeen)) + "</p>" +
+                "</div>"
+              );
+            })
+            .join("");
+        }
+
+        function renderShipped(events) {
+          const shipped = events
+            .filter((e) => e.outcome && e.outcome.status === "success" && e.outcome.builtName)
+            .sort((a, b) => (a.outcome.at < b.outcome.at ? 1 : -1))
+            .slice(0, 6);
+
+          const el = document.getElementById("shipped-list");
+          if (shipped.length === 0) {
+            el.innerHTML = '<p class="empty">nothing shipped yet.</p>';
+            return;
+          }
+          el.innerHTML = shipped
+            .map((e) => {
+              const name = e.outcome.builtName;
+              const url =
+                e.outcome.url || "https://" + name.split("/")[0] + ".bisks.net";
+              return (
+                '<a class="card" href="' + escHtml(url) + '">' +
+                "<h3>" + escHtml(name) + (e.outcome.partial ? " (partial)" : "") + "</h3>" +
+                '<p class="desc">' + escHtml(noteFor(e) || "") + "</p>" +
+                '<p class="when">' +
+                (e.authorHandle ? "for @" + escHtml(e.authorHandle) + " · " : "") +
+                escHtml(agoFrom(e.outcome.at)) +
+                "</p>" +
+                "</a>"
+              );
+            })
+            .join("");
+        }
+
+        refresh();
+        setInterval(refresh, 15000);
+
+        // --- corgi mode, but it's chicken mode --------------------------------
+
+        const coop = document.getElementById("coop");
+        const toggle = document.getElementById("chicken-toggle");
+        const STORE_KEY = "buildthis-chicken-mode";
+        let spawner = null;
+
+        function spawnChicken() {
+          const c = document.createElement("div");
+          c.className = "chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          const duration = 14 + Math.random() * 10;
+          const delay = -Math.random() * duration; // stagger so it's not one lonely bird
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = delay + "s";
+          c.style.fontSize = 1.1 + Math.random() * 0.9 + "rem";
+          coop.appendChild(c);
+          return c;
+        }
+
+        function startChickens() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (let i = 0; i < 5; i++) spawnChicken();
+          spawner = setInterval(() => {
+            if (coop.children.length < 8) spawnChicken();
+          }, 4000);
+        }
+        function stopChickens() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setChickenMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          toggle.textContent = on ? "🐔 chicken mode (it was never corgis)" : "🐔 corgi mode";
+          if (on) startChickens();
+          else stopChickens();
+          try {
+            localStorage.setItem(STORE_KEY, on ? "1" : "0");
+          } catch (e) {
+            // localStorage unavailable — the toggle still works for this load
+          }
+        }
+
+        toggle.addEventListener("click", () => {
+          setChickenMode(!coop.classList.contains("on"));
+        });
+
+        let startedOn = false;
+        try {
+          startedOn = localStorage.getItem(STORE_KEY) === "1";
+        } catch (e) {
+          // ignore
+        }
+        setChickenMode(startedOn);
+      })();
+    </script>
+  </body>
+</html>

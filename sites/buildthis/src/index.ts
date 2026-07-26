@@ -553,7 +553,8 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
       </main>
       <footer>
         snapshot from ${escHtml(fmtDay(snap.computedAt))} · refreshes once a day ·
-        <a href="/">buildthis</a> · full tag-by-tag history at
+        <a href="/">buildthis</a> · <a href="/working/">what's building right now</a> ·
+        full tag-by-tag history at
         <a href="https://logs.bisks.net">logs.bisks.net</a>
       </footer>
     </div>
@@ -1298,7 +1299,8 @@ function renderHealthPage(s: HealthSnapshot): string {
   <footer>
     machine-readable at <a href="/health">/health</a> ·
     tag timeline at <a href="https://logs.bisks.net">logs.bisks.net</a> ·
-    <a href="/directory">directory</a>
+    <a href="/directory">directory</a> ·
+    <a href="/working/">working on now</a>
   </footer>
 </div></body></html>`;
 }
