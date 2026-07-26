@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>code for airports — a generative ambient album, in the vein of Eno</title>
+    <meta
+      name="description"
+      content="Four generative ambient tracks built like Brian Eno's Music for Airports: independent Web Audio voices on loops of different lengths, drifting in and out of phase forever, never repeating the same way twice. No samples, no server — synthesized live in your browser."
+    />
+    <meta property="og:title" content="code for airports" />
+    <meta property="og:description" content="Four generative ambient tracks, Eno's tape-loop trick rebuilt in Web Audio — voices on loops of different lengths, drifting forever, never quite the same twice." />
+    <meta property="og:image" content="https://code-for-airports.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A dark split-flap departures board reading CODE FOR AIRPORTS, with four generative ambient tracks listed below it." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://code-for-airports.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="code for airports" />
+    <meta name="twitter:description" content="A generative ambient album for the browser — Eno's Music for Airports, rebuilt as drifting Web Audio loops that never repeat." />
+    <meta name="twitter:image" content="https://code-for-airports.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #05060a;
+        --panel: #0d0f15;
+        --ink: #eef0f2;
+        --muted: #7c8290;
+        --faint: #1c2028;
+        --accent: #f0b429;
+        --accent-dim: #7a5c17;
+        --accent2: #4fd1c5;
+        --warn: #ff6b6b;
+        --live: #34d399;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 20% -10%, rgba(240,180,41,0.06), transparent 55%);
+      }
+      a { color: var(--accent2); }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+      header .kicker {
+        color: var(--accent); font-size: 0.72rem; letter-spacing: 0.2em;
+        text-transform: uppercase; margin: 0 0 0.5rem;
+      }
+      header h1 {
+        font-size: 1.8rem; margin: 0 0 0.6rem; font-weight: 800;
+        letter-spacing: 0.02em; text-transform: uppercase;
+      }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 60ch; }
+      header p code { color: var(--accent2); font-size: 0.85em; }
+
+      #board {
+        display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.25rem;
+        border: 1px solid var(--faint); border-radius: 8px; overflow: hidden;
+        background: var(--panel);
+      }
+      .flight {
+        display: grid; grid-template-columns: 4.2rem 8rem 1fr 6rem;
+        align-items: center; gap: 0.8rem; width: 100%; text-align: left;
+        font-family: var(--mono); color: var(--ink); background: transparent;
+        border: none; border-bottom: 1px solid var(--faint);
+        padding: 0.75rem 1rem; cursor: pointer;
+      }
+      .flight:last-child { border-bottom: none; }
+      .flight:hover { background: rgba(240,180,41,0.05); }
+      .flight.active { background: rgba(240,180,41,0.09); }
+      .fno { font-weight: 700; color: var(--accent); font-size: 0.85rem; }
+      .fdest { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .fblurb { color: var(--muted); font-size: 0.76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .fstatus {
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+        color: var(--muted); text-align: right;
+      }
+      .fstatus.live { color: var(--live); }
+      .fstatus.live::before { content: "● "; }
+
+      .transport {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      #play-btn {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        color: var(--bg); background: var(--accent); border: none;
+        border-radius: 6px; padding: 0.5rem 1.1rem; cursor: pointer;
+      }
+      #play-btn:hover { filter: brightness(1.08); }
+      #reseed-btn, #record-btn {
+        font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+        color: var(--ink); background: transparent; border: 1px solid var(--accent-dim);
+        border-radius: 6px; padding: 0.5rem 0.85rem; cursor: pointer;
+      }
+      #reseed-btn:hover, #record-btn:hover { border-color: var(--accent); color: var(--accent); }
+      #record-btn:disabled { opacity: 0.5; cursor: default; }
+      .transport label {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        color: var(--muted); font-size: 0.8rem;
+      }
+      #now-playing { margin-left: auto; color: var(--muted); font-size: 0.78rem; max-width: 22ch; text-align: right; }
+
+      #vis-wrap { margin-bottom: 1rem; border-radius: 8px; overflow: hidden; border: 1px solid var(--faint); }
+      #vis { display: block; width: 100%; height: auto; aspect-ratio: 640 / 300; background: var(--bg); }
+
+      #mixer { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+      .voice {
+        display: grid; grid-template-columns: 0.6rem 1fr 6.5rem auto auto;
+        align-items: center; gap: 0.7rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      .vdot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+      .vmeta { min-width: 0; }
+      .vname { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .vtag { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      input.fader { width: 6.5rem; accent-color: var(--accent); }
+      .chip {
+        font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+        color: var(--muted); background: transparent; border: 1px solid var(--faint);
+        border-radius: 5px; padding: 0.35rem 0.5rem; cursor: pointer; letter-spacing: 0.03em;
+      }
+      .chip:hover { border-color: var(--accent-dim); }
+      .chip.mute.active { color: var(--warn); border-color: var(--warn); }
+      .chip.solo.active { color: var(--accent2); border-color: var(--accent2); }
+
+      .record-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+      #record-status { color: var(--muted); font-size: 0.78rem; }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.75rem; flex-wrap: wrap; }
+      .share a, .share button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none;
+      }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); }
+
+      .about {
+        padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        color: var(--muted); font-size: 0.8rem; line-height: 1.7;
+      }
+      .about b { color: var(--ink); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--accent2); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 560px) {
+        .flight { grid-template-columns: 1fr auto; grid-template-areas: "fno fstatus" "fdest fdest" "fblurb fblurb"; row-gap: 0.15rem; }
+        .fno { grid-area: fno; }
+        .fstatus { grid-area: fstatus; }
+        .fdest { grid-area: fdest; }
+        .fblurb { grid-area: fblurb; }
+        .voice { grid-template-columns: 0.6rem 1fr; grid-template-areas: "dot meta" "fader fader" "controls controls"; row-gap: 0.4rem; }
+        .voice .vdot { grid-area: dot; }
+        .voice .vmeta { grid-area: meta; }
+        .voice input.fader { grid-area: fader; width: 100%; }
+        #now-playing { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="kicker">now departing</p>
+        <h1>code for airports</h1>
+        <p>
+          Four generative ambient pieces, built the way Brian Eno built
+          <em>Music for Airports</em>: independent voices, each looping on
+          its own length, left to drift in and out of phase with the
+          others. There's no sequencer here — just Web Audio oscillators on
+          <code>setTimeout</code> loops of different, non-repeating
+          durations, so the arrangement never lines back up the same way
+          twice. Pick a track, hit play, and let it run.
+        </p>
+      </header>
+
+      <div id="board"></div>
+
+      <div class="transport">
+        <button id="play-btn">▶ play</button>
+        <button id="reseed-btn" title="rebuild this track's voices with a new random seed">🎲 new arrangement</button>
+        <label>master <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8" /></label>
+        <span id="now-playing"></span>
+      </div>
+
+      <div id="vis-wrap"><canvas id="vis" width="640" height="300"></canvas></div>
+
+      <div id="mixer"></div>
+
+      <div class="record-row">
+        <button id="record-btn">⏺ record 30s clip</button>
+        <span id="record-status"></span>
+      </div>
+
+      <div class="share">
+        <a id="share-intent" target="_blank" rel="noopener">🦋 share this track</a>
+      </div>
+
+      <div class="about">
+        <b>Why it never repeats:</b> each voice's loop length is drawn from a
+        wide range (some voices swell over 8 seconds, some over 45) and the
+        lengths aren't nice round multiples of each other — so two voices
+        that start in sync drift apart by fractions of a second every cycle,
+        the same way Eno's original tape loops (physically different
+        lengths of magnetic tape) slipped out of phase over an installation
+        that ran for hours without ever quite looping. Reload for the same
+        arrangement back, or hit <b>🎲 new arrangement</b> for a fresh one on
+        the same track.
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a>'s house style of
+        small self-contained sites · synthesized live with plain Web Audio,
+        no samples, no server · voice/master-bus engine copied from
+        <a href="https://mootdrone.bisks.net">mootdrone</a> · a nod to Brian
+        Eno's <i>Ambient 1: Music for Airports</i> (1978), not a cover of it
+        · a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        build · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
