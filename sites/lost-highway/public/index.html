@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LOST HIGHWAY — the flash game</title>
+<meta name="description" content="A Night Driver-style pseudo-3D drive down an endless black highway, after David Lynch's Lost Highway. Dodge headlights and the Mystery Man, grab the stray VHS tapes, and try not to notice you keep changing names. All audio synthesized live in your browser.">
+<style>
+  :root {
+    --void: #000000;
+    --road: #0a0a0a;
+    --line: #f2f0e6;
+    --shoulder: #8a8578;
+    --ink: #f2f0e6;
+    --muted: #9a968a;
+    --red: #b3122a;
+    --amber: #e8b23a;
+    --panel: rgba(0,0,0,0.86);
+    --glitch: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--void);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; padding: 12px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 960px);
+    aspect-ratio: 16 / 9;
+    max-height: 74vh;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08),
+                0 24px 60px rgba(0,0,0,0.7);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(2px);
+    padding: 20px; gap: 12px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(24px, 6vw, 46px);
+    letter-spacing: 6px;
+    color: var(--ink);
+    text-shadow: 0 0 22px rgba(179,18,42,0.65);
+  }
+  .overlay .sub {
+    margin: -6px 0 4px; font-size: 12px; letter-spacing: 3px;
+    color: var(--red); text-transform: uppercase;
+  }
+  .overlay p { margin: 0; max-width: 46ch; line-height: 1.55; opacity: 0.9; font-size: 13.5px; }
+  .keys { font-size: 12px; opacity: 0.7; }
+  .keys b { color: var(--amber); }
+  .quote { font-style: italic; color: var(--muted); font-size: 12.5px; max-width: 40ch; }
+  button.big {
+    font: inherit; font-size: 16px; letter-spacing: 1px;
+    padding: 11px 24px; border-radius: 3px;
+    border: 1px solid var(--red);
+    background: var(--red);
+    color: var(--ink); cursor: pointer;
+    box-shadow: 0 0 18px rgba(179,18,42,0.5);
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.96); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  a.linklike {
+    font: inherit; font-size: 13px; letter-spacing: 1px;
+    padding: 10px 18px; border-radius: 3px;
+    border: 1px solid var(--muted);
+    color: var(--ink); text-decoration: none;
+  }
+  a.linklike:hover { border-color: var(--ink); }
+
+  #hud {
+    position: absolute; top: 8px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 12.5px; z-index: 4; pointer-events: none;
+    letter-spacing: 1px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  }
+  #hud .stat { line-height: 1.4; }
+  #hud .stat b { color: var(--amber); }
+  #hud .who { text-align: right; }
+  #hud .who b { color: var(--red); font-size: 15px; letter-spacing: 2px; }
+
+  #flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0;
+    pointer-events: none; z-index: 6; mix-blend-mode: normal;
+  }
+  #quoteBanner {
+    position: absolute; left: 0; right: 0; top: 44%;
+    text-align: center; font-size: clamp(13px, 3vw, 20px);
+    letter-spacing: 2px; color: #fff; opacity: 0;
+    text-shadow: 0 0 10px #000, 0 0 20px #000;
+    pointer-events: none; z-index: 6; padding: 0 12px;
+  }
+
+  #bar {
+    width: min(100%, 960px);
+    display: flex; flex-wrap: wrap; gap: 8px 12px;
+    align-items: center; justify-content: center;
+  }
+  .toggle {
+    font: inherit; font-size: 12.5px;
+    background: rgba(255,255,255,0.06);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 6px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  .toggle[aria-pressed="true"] {
+    background: var(--red); border-color: var(--red); color: #fff;
+  }
+  a.credit { color: var(--red); text-decoration: none; }
+  a.credit:hover { text-decoration: underline; }
+  .foot { font-size: 10.5px; opacity: 0.55; text-align: center; margin-top: 2px; }
+
+  #touch {
+    position: absolute; bottom: 10px; left: 10px; right: 10px;
+    display: none; justify-content: space-between; z-index: 4;
+  }
+  #touch button {
+    font: inherit; font-size: 18px;
+    width: 78px; height: 58px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.08);
+    color: var(--ink); backdrop-filter: blur(2px);
+  }
+  @media (pointer: coarse) { #touch { display: flex; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+    <div id="flash"></div>
+    <div id="quoteBanner"></div>
+
+    <div id="hud">
+      <div class="stat">
+        DIST <b id="dist">0</b>m<br>
+        BEST <b id="best">0</b>m
+      </div>
+      <div class="stat who">
+        YOU ARE<br><b id="identity">FRED</b>
+      </div>
+    </div>
+
+    <div id="touch">
+      <button id="tLeft">◀</button>
+      <button id="tRight">▶</button>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <div class="sub">a night drive, after david lynch</div>
+      <h1>LOST&nbsp;HIGHWAY</h1>
+      <p>Straight black road. No end in sight. Stay in your lane, dodge the
+         oncoming headlights and whoever's standing still up ahead, and try
+         not to think too hard about who's driving. It gets away from you
+         sometimes.</p>
+      <p class="keys">
+        <b>&larr; &rarr;</b> or <b>A / D</b> steer · <b>&darr; / S</b> brake ·
+        <b>P</b> pause · <b>M</b> mute
+      </p>
+      <button class="big" id="startBtn">▶ Get in</button>
+    </div>
+
+    <div class="overlay hidden" id="pauseOverlay">
+      <h1 style="font-size:28px;letter-spacing:4px;">PAUSED</h1>
+      <p class="keys">press <b>P</b> to resume</p>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1 style="font-size:30px;">DICK LAURENT IS DEAD</h1>
+      <p class="quote" id="finalQuote">&mdash; a voice on the intercom</p>
+      <p><b id="finalIdentity" style="color:var(--red)">FRED</b> made it
+         <b id="finalDist" style="color:var(--amber)">0</b>m down the highway.</p>
+      <div class="row">
+        <button class="big" id="againBtn">↻ Drive again</button>
+        <a class="linklike" id="shareBtn" target="_blank" rel="noopener">🦋 share the wreck</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="bar">
+    <button class="toggle" id="musicToggle" aria-pressed="true">♪ music</button>
+    <button class="toggle" id="sfxToggle" aria-pressed="true">♫ sfx</button>
+  </div>
+  <div class="foot">
+    a Night Driver-style pseudo-3D drive · all audio synthesized in real time with the Web Audio API ·
+    unaffiliated fan homage to David Lynch's <i>Lost Highway</i> (1997) ·
+    built by <a class="credit" href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a class="credit" href="https://bsky.app/profile/ver.ooo">@ver.ooo</a>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
