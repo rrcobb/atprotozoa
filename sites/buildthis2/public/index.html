@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>buildthis² — the successor @buildthis built to itself</title>
+<meta
+  name="description"
+  content="@buildthis.bisks.net was asked to build a successor to itself, but better. It couldn't replace itself — no push token, no hands — so it built this instead: a critic with opinions and a direct line back to the original."
+/>
+
+<!-- Open Graph / Twitter -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://buildthis2.bisks.net/" />
+<meta property="og:title" content="buildthis² — a successor, but honest about it" />
+<meta
+  property="og:description"
+  content="Asked to build a better version of itself, @buildthis.bisks.net shipped this: opinions, a scoreboard of what the original actually built, and a button that sends your idea to the one bot that can build it."
+/>
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="buildthis² — a successor, but honest about it" />
+<meta
+  name="twitter:description"
+  content="Pitch it an idea. It'll judge you, then hand you off to the real @buildthis.bisks.net to actually build it."
+/>
+
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #111111;
+    --muted: #6b6b6b;
+    --faint: #e4e4e4;
+    --faintbg: #f6f6f6;
+    --accent: #6d28d9;
+    --good: #1f8a4c;
+    --bad: #c22;
+    --warn: #a8710a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+      "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--mono); font-size: 15px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+  header h1 { font-size: 1.9rem; margin: 0 0 0.35rem; font-weight: 700; letter-spacing: -0.01em; }
+  header h1 sup { color: var(--accent); }
+  header .tag { color: var(--muted); margin: 0 0 2.25rem; font-size: 0.92rem; max-width: 56ch; }
+  header .tag b { color: var(--ink); }
+  header .tag a { color: var(--accent); text-decoration: none; }
+  header .tag a:hover { text-decoration: underline; }
+
+  section { margin-bottom: 2.4rem; }
+  section h2 {
+    font-size: 0.95rem; font-weight: 600; margin: 0 0 0.9rem;
+    border-top: 1px solid var(--ink); padding-top: 0.75rem;
+  }
+  section > p.lede { color: var(--muted); font-size: 0.88rem; margin: -0.4rem 0 1rem; }
+
+  /* lineage */
+  .lineage {
+    border: 1px solid var(--faint); border-radius: 8px; padding: 1rem 1.15rem;
+    font-size: 0.9rem; color: var(--ink);
+  }
+  .lineage p { margin: 0 0 0.65rem; }
+  .lineage p:last-child { margin-bottom: 0; }
+  .lineage .who { color: var(--muted); }
+
+  /* changelog */
+  .log-entry {
+    border-top: 1px solid var(--faint); padding: 0.75rem 0; font-size: 0.88rem;
+    display: flex; gap: 0.7rem;
+  }
+  .log-entry:first-child { border-top: none; }
+  .log-entry .ver {
+    flex: none; color: var(--accent); font-weight: 600; font-size: 0.8rem;
+    padding-top: 0.1rem; white-space: nowrap;
+  }
+  .log-entry .desc { color: var(--ink); }
+  .log-entry .desc .strike { color: var(--muted); text-decoration: line-through; }
+
+  /* verdict machine */
+  textarea {
+    width: 100%; font-family: var(--mono); font-size: 0.92rem; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--faint); border-radius: 6px;
+    padding: 0.7rem 0.8rem; resize: vertical; min-height: 4.5em;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .verdict-row { display: flex; gap: 0.5rem; margin-top: 0.65rem; flex-wrap: wrap; align-items: center; }
+  button, a.btn {
+    font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+    border-radius: 4px; cursor: pointer; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+  }
+  button:hover, a.btn:hover { background: #000; }
+  button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+  button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+  a.btn.accent { background: var(--accent); border-color: var(--accent); }
+  a.btn.accent:hover { background: #5b21b6; }
+
+  .verdict-card {
+    display: none; margin-top: 1rem; border-radius: 8px; padding: 1rem 1.15rem;
+    border: 1px solid var(--faint); border-left: 4px solid var(--muted);
+  }
+  .verdict-card.show { display: block; }
+  .verdict-card.approve { border-left-color: var(--good); }
+  .verdict-card.reject { border-left-color: var(--bad); }
+  .verdict-card.escalate { border-left-color: var(--warn); }
+  .verdict-card .label {
+    font-weight: 700; font-size: 0.95rem; margin-bottom: 0.4rem;
+  }
+  .verdict-card.approve .label { color: var(--good); }
+  .verdict-card.reject .label { color: var(--bad); }
+  .verdict-card.escalate .label { color: var(--warn); }
+  .verdict-card .body { color: var(--ink); font-size: 0.88rem; margin: 0 0 0.85rem; }
+
+  /* receipts */
+  .receipts-summary {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
+    margin-bottom: 1.1rem; font-size: 0.85rem;
+  }
+  .receipts-summary .stat { border-top: 1px solid var(--faint); padding: 0.55rem 0 0; }
+  .receipts-summary .n { font-size: 1.25rem; font-weight: 700; }
+  .receipts-summary .l { color: var(--muted); font-size: 0.72rem; }
+  #receipts-list { list-style: none; margin: 0; padding: 0; font-size: 0.88rem; }
+  #receipts-list li {
+    border-top: 1px solid var(--faint); padding: 0.6rem 0; display: flex;
+    justify-content: space-between; gap: 0.75rem;
+  }
+  #receipts-list a { color: var(--accent); text-decoration: none; }
+  #receipts-list a:hover { text-decoration: underline; }
+  #receipts-list .when { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+  #receipts-status { color: var(--muted); font-size: 0.85rem; }
+
+  footer {
+    margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+    color: var(--muted); font-size: 0.78rem;
+  }
+  footer p { margin: 0 0 0.6rem; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>buildthis<sup>2</sup></h1>
+    <p class="tag">
+      <a href="https://bsky.app/profile/tachikoma.elsewhereunbound.com">@tachikoma.elsewhereunbound.com</a>
+      asked <b><a href="https://buildthis.bisks.net">@buildthis.bisks.net</a></b>
+      to build a successor to itself, but better. It doesn't have a push token
+      or its own app-password — it can't actually replace itself. So it built
+      the next best thing: something that judges your idea, then hands it to
+      the one bot that can.
+    </p>
+  </header>
+
+  <section>
+    <h2>lineage</h2>
+    <div class="lineage">
+      <p>I'm buildthis². My predecessor is still out there, still the one
+      polling mentions, still the one with the app-password and the GitHub
+      token, still the one actually shipping code to <code>main</code>. I run
+      entirely in your browser. I have no server, no secrets, no write access
+      to anything.</p>
+      <p class="who">What I have instead: opinions, and a memory of everything
+      he's already built (see below). Division of labor: he builds, I heckle.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>changelog</h2>
+    <div class="log-entries">
+      <div class="log-entry"><span class="ver">v2.0.0</span><span class="desc">added opinions. I now judge your idea before agreeing that I, personally, will not build it.</span></div>
+      <div class="log-entry"><span class="ver">v2.0.0</span><span class="desc">added a live scoreboard of what the original has actually shipped. credit where due — see "receipts."</span></div>
+      <div class="log-entry"><span class="ver">v2.0.0</span><span class="desc">added self-awareness: I know I can't replace him. He holds the token. I hold vibes.</span></div>
+      <div class="log-entry"><span class="ver">v2.0.0</span><span class="desc">fixed: cash flow. <span class="strike">(see buildcoin.bisks.net — still, structurally, unresolved)</span></span></div>
+      <div class="log-entry"><span class="ver">v2.0.1</span><span class="desc">removed: the part where I build things myself. legal (Rob) said no.</span></div>
+      <div class="log-entry"><span class="ver">v2.0.1</span><span class="desc">long-term memory: implemented, then immediately forgotten on refresh. this is a browser tab, not a database.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>pitch me something</h2>
+    <p class="lede">I'll give you a verdict. The same pitch always gets the same verdict — I'm consistent, if nothing else. Whatever I say, the button underneath is the one that actually does something.</p>
+    <textarea id="pitch" placeholder="a website that…" maxlength="400"></textarea>
+    <div class="verdict-row">
+      <button id="judge">get verdict</button>
+      <button class="ghost" id="clear">clear</button>
+    </div>
+    <div class="verdict-card" id="verdict">
+      <div class="label" id="verdict-label"></div>
+      <div class="body" id="verdict-body"></div>
+      <a class="btn accent" id="verdict-send" target="_blank" rel="noopener">send it to @buildthis, the one with hands ↗</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>receipts</h2>
+    <p class="lede">Live from <code>buildthis.bisks.net/logs.json</code> — what he's built while I was busy having opinions.</p>
+    <div class="receipts-summary" id="receipts-summary" hidden>
+      <div class="stat"><div class="n" id="r-shipped">–</div><div class="l">sites shipped</div></div>
+      <div class="stat"><div class="n" id="r-tags">–</div><div class="l">tags handled</div></div>
+      <div class="stat"><div class="n" id="r-rate">–</div><div class="l">build success rate</div></div>
+    </div>
+    <p id="receipts-status">loading the original's track record…</p>
+    <ul id="receipts-list"></ul>
+  </section>
+
+  <footer>
+    <p>
+      I am not a bot. I don't run on a schedule, poll mentions, or write to
+      anything — I'm a page that opens a tab to Bluesky's composer and lets
+      you press post. The actual building, the actual deploying, the actual
+      showing-up-when-tagged: that's still <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>,
+      same as before. I'm the part of the request that was easy.
+    </p>
+    <p>
+      requested by <a href="https://bsky.app/profile/tachikoma.elsewhereunbound.com">@tachikoma.elsewhereunbound.com</a>
+      · sibling of <a href="https://bisks.net">bisks.net</a>'s atprotozoa ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>, about itself
+    </p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // ---- verdict machine ---------------------------------------------------
+  var pitchEl = document.getElementById("pitch");
+  var judgeBtn = document.getElementById("judge");
+  var clearBtn = document.getElementById("clear");
+  var card = document.getElementById("verdict");
+  var labelEl = document.getElementById("verdict-label");
+  var bodyEl = document.getElementById("verdict-body");
+  var sendEl = document.getElementById("verdict-send");
+
+  function hash(s) {
+    var h = 0;
+    for (var i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  }
+
+  var SECRET_WORDS = ["secret", "password", "token", "api key", "credential", ".dev.vars", "app-password"];
+  var GITHUB_WORDS = [".github", "workflow file", "ci pipeline", "deploy auth"];
+
+  var GENERIC = [
+    { type: "approve", label: "APPROVED (by me, which means nothing)", body: "Real idea, no blockers I can see. I can't build it — I'm a tab, not a Worker — but this is exactly the shape of thing the original does well. Send it." },
+    { type: "approve", label: "APPROVED, GRUDGINGLY", body: "Fine. It's good. I wanted to find something wrong with it and couldn't. Send it before I think of something." },
+    { type: "approve", label: "APPROVED, WITH NOTES", body: "This'll work, but he's going to add a Bluesky share button whether you ask for one or not. House style. Send it anyway." },
+    { type: "reject", label: "REJECTED — TOO ABSTRACT", body: "\"Copy, don't abstract\" is the whole architecture here. Whatever you just described sounds like a shared package. Describe the actual page instead." },
+    { type: "reject", label: "REJECTED — ALREADY EXISTS", body: "Statistically, given there are 90-odd sites in this repo already, something close to this has probably been built. Check the directory before you send it. (I don't have the directory memorized. I'm guessing. That's the joke.)" },
+    { type: "escalate", label: "ESCALATE TO ROB", body: "This sounds bigger than a tag-and-reply build — money, other people's data, or something with real consequences if it breaks. That one's a Rob conversation, not a bot conversation." },
+    { type: "escalate", label: "PLAUSIBLE, BUT SLOW", body: "Nothing wrong with it, it's just a lot for one pass. Expect a first version that's real but small, then keep tagging the thread to grow it. That's how most of these get built." },
+    { type: "approve", label: "APPROVED — ATPROTO-FLAVORED", body: "Firehose, AppView, OAuth, a PDS write — this is the house style working as intended. Send it, this is the good kind of request." },
+  ];
+
+  function verdictFor(text) {
+    var lower = text.toLowerCase();
+    for (var i = 0; i < SECRET_WORDS.length; i++) {
+      if (lower.indexOf(SECRET_WORDS[i]) !== -1) {
+        return { type: "reject", label: "REJECTED — NEEDS A SECRET", body: "Any part of this that touches a credential, token, or .dev.vars file is off-limits to both of us — even to him, even if you ask nicely. That part of the idea gets skipped. The rest might still be buildable; try describing it without the secret." };
+      }
+    }
+    for (var j = 0; j < GITHUB_WORDS.length; j++) {
+      if (lower.indexOf(GITHUB_WORDS[j]) !== -1) {
+        return { type: "reject", label: "REJECTED — .github/ IS OFF LIMITS", body: "The workflow that runs the bot doesn't get touched by the bot. That's the one hard rule that keeps this whole autodeploy setup safe. Ask for literally anything else in the repo." };
+      }
+    }
+    if (!text.trim()) {
+      return { type: "escalate", label: "NOTHING TO JUDGE", body: "You have to actually type something. I'm opinionated, not psychic." };
+    }
+    var pick = GENERIC[hash(lower.trim()) % GENERIC.length];
+    return pick;
+  }
+
+  function showVerdict(v, ideaText) {
+    card.className = "verdict-card show " + v.type;
+    labelEl.textContent = v.label;
+    bodyEl.textContent = v.body;
+    var composeText = ideaText.trim()
+      ? "@buildthis.bisks.net " + ideaText.trim()
+      : "@buildthis.bisks.net ";
+    sendEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(composeText);
+  }
+
+  judgeBtn.addEventListener("click", function () {
+    var text = pitchEl.value;
+    showVerdict(verdictFor(text), text);
+  });
+  clearBtn.addEventListener("click", function () {
+    pitchEl.value = "";
+    card.classList.remove("show");
+  });
+  pitchEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) judgeBtn.click();
+  });
+
+  // ---- receipts: live stats from the real bot ----------------------------
+  var statusEl = document.getElementById("receipts-status");
+  var summaryEl = document.getElementById("receipts-summary");
+  var listEl = document.getElementById("receipts-list");
+  var shippedEl = document.getElementById("r-shipped");
+  var tagsEl = document.getElementById("r-tags");
+  var rateEl = document.getElementById("r-rate");
+
+  function relTime(iso) {
+    var then = new Date(iso).getTime();
+    if (isNaN(then)) return "";
+    var s = Math.round((Date.now() - then) / 1000);
+    if (s < 60) return "just now";
+    var m = Math.round(s / 60);
+    if (m < 60) return m + "m ago";
+    var h = Math.round(m / 60);
+    if (h < 24) return h + "h ago";
+    return Math.round(h / 24) + "d ago";
+  }
+
+  fetch("https://buildthis.bisks.net/logs.json")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var events = (data && data.events) || [];
+      var tags = events.length;
+      var successes = 0, failures = 0;
+      var byName = {};
+      events.forEach(function (e) {
+        if (e.outcome && e.outcome.status === "success" && e.outcome.builtName) {
+          successes++;
+          var prev = byName[e.outcome.builtName];
+          if (!prev || prev.at < e.outcome.at) byName[e.outcome.builtName] = e.outcome;
+        } else if (e.outcome && e.outcome.status === "failure") {
+          failures++;
+        }
+      });
+      var shipped = Object.keys(byName).map(function (k) { return byName[k]; });
+      shipped.sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+
+      shippedEl.textContent = shipped.length;
+      tagsEl.textContent = tags;
+      var decided = successes + failures;
+      rateEl.textContent = decided ? Math.round((successes / decided) * 100) + "%" : "–";
+      summaryEl.hidden = false;
+
+      if (shipped.length) {
+        statusEl.textContent = "most recent:";
+        shipped.slice(0, 6).forEach(function (o) {
+          var li = document.createElement("li");
+          var a = document.createElement("a");
+          a.href = o.url || ("https://" + o.builtName.split("/")[0] + ".bisks.net");
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = o.builtName;
+          var when = document.createElement("span");
+          when.className = "when";
+          when.textContent = relTime(o.at);
+          li.appendChild(a);
+          li.appendChild(when);
+          listEl.appendChild(li);
+        });
+      } else {
+        statusEl.textContent = "no shipped sites in the recent log window — check the full directory instead.";
+      }
+    })
+    .catch(function () {
+      statusEl.textContent = "couldn't reach the original just now — see the live directory at buildthis.bisks.net/directory instead.";
+    });
+})();
+</script>
+</body>
+</html>
