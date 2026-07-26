@@ -182,7 +182,7 @@ function computeOrder(did: string) {
 const GENERIC_TITLE = "mcskeets — your DID's value meal";
 const GENERIC_DESC =
   "Astrology, but it's a McDonald's order. Enter a Bluesky handle and your DID gets read off as a Value Meal — sandwich, side, drink, and whether the soft-serve machine happens to be down (it usually is).";
-const GENERIC_OG_URL = "https://mcskeets.bisks.net/";
+const GENERIC_OG_URL = "https://bisks.net/mcskeets/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -211,7 +211,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const who = "@" + (profile.handle || handle);
     const title = `mcskeets: ${who}'s order is up`;
     const desc = truncate(`${order.sandwichName}, ${order.sideName}, ${order.drinkName}. ${dessertBit}${noteBit}`, 300);
-    const ogUrl = `https://mcskeets.bisks.net/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://bisks.net/mcskeets/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))
@@ -231,16 +231,23 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
   }
 }
 
+// Mounted at bisks.net/mcskeets/ — strip the mount prefix so the /s/<handle>
+// matching and the ASSETS fallthrough (which has no idea it isn't at the
+// domain root) both see root-relative paths. See notes/40-new-site-playbook.md.
+const PREFIX = "/mcskeets";
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    const stripped = new Request(url, request);
 
     // /s/<handle> — the distinct, shareable, per-person URL. Every
     // combination gets its own page (and its own og:title/description/url),
     // so a link unfurler can't collapse them into one cached card.
     const m = url.pathname.match(/^\/s\/([^/]+)\/?$/);
-    if (m) return renderShare(env, request, m[1]);
+    if (m) return renderShare(env, stripped, m[1]);
 
-    return env.ASSETS.fetch(request);
+    return env.ASSETS.fetch(stripped);
   },
 };

@@ -524,7 +524,7 @@
   }
 
   function buildShareText() {
-    const url = `https://solvers.bisks.net/magnetostatics?preset=${current.preset.id}`;
+    const url = `https://bisks.net/solvers/magnetostatics?preset=${current.preset.id}`;
     return `${current.preset.label} on the magnetostatics solver — a Rust/wasm field solver with real preset problems and a material library. ${url}`;
   }
 

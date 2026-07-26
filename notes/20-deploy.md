@@ -223,6 +223,39 @@ site rather than needing a cluster segment). `mootrider` (has a Durable
 Object) and `war` (has OAuth with a hardcoded-origin client) were
 deliberately skipped this batch as higher-risk; worth a dedicated pass.
 
+## Migrating the 5 cap-stuck sites off subdomains (2026-07-26, audit follow-up)
+
+The five sites the custom-domain cap left with no DNS at all — `wheelhouse`,
+`solvers`, `mcskeets`, `ratioed`, `the-place` — were migrated onto path routes
+(`bisks.net/<name>`) and deployed directly with `wrangler deploy`, which drops
+the old (never-provisioned) custom domain and creates the path route. All five
+now serve 200; the old subdomains stay dead (they never resolved, so no live
+link broke). This was pure upside — unlike migrating an *up* subdomain, there
+was no working `<name>.bisks.net` link to break.
+
+Two gotchas beyond the standard prefix-strip, worth knowing for the next batch:
+
+- **Subdirectory index → trailing-slash redirect drops the mount prefix.**
+  `solvers` has `public/magnetostatics/index.html`. The asset router serves a
+  dir index via a 307 to the trailing-slash form, and it builds that `Location`
+  off the *stripped* path — so it sent the browser to `bisks.net/magnetostatics/`
+  (no `/solvers`, 404). Fix: in the Worker, after `env.ASSETS.fetch`, if the
+  response is a 3xx whose `Location` is a same-origin absolute path missing the
+  prefix, re-add it. A flat single-`index.html` site (most of them) never hits
+  this; only sites with a real subdirectory index do.
+- **DO sites: `run_worker_first` must become `true`, and the client must prefix
+  its `/api` calls.** `ratioed`/`the-place` had `run_worker_first = ["/",
+  "/api/*"]` — those root-relative patterns don't match the mounted `/ratioed/*`
+  paths, so the asset router would grab them. Set `run_worker_first = true` so
+  the Worker strips the prefix first, then routes to the DO/ASSETS with the
+  stripped request. The browser client also fetches `/api/...` absolute, which
+  becomes `bisks.net/api/...` (off-route) under the mount — thread a `MOUNT`
+  const through every `fetch()` and self-link (`the-place` needed it for
+  `/api/state`, `/api/pixel`, `/api/days`, the title link, the "go back" link,
+  and the share URLs). DO cold-start returns a one-off 404/empty on the first
+  request after deploy while `this.ready` resolves — retry before concluding
+  it's broken.
+
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).

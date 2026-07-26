@@ -14,19 +14,28 @@ compatibility_date = "2025-01-01"
 # of shared, durable, single-writer state this idea needs. Everything else
 # (palette, countdown, share card) is client-side in public/index.html.
 #
+# Path route on the shared bisks.net zone, not a dedicated custom domain —
+# the-place.bisks.net never provisioned (the zone hit Cloudflare's custom-domain
+# cap, see notes/20-deploy.md), so it's mounted at bisks.net/the-place. The
+# Worker strips the /the-place prefix before routing to the DO / ASSETS (see
+# src/index.ts).
+#
 # routes MUST stay above [assets] — in TOML, keys after a table header join
 # that table, so a routes line below [assets] silently becomes assets.routes
 # (same gotcha called out in sites/logs and sites/didscope).
-routes = [{ pattern = "the-place.bisks.net", custom_domain = true }]
+routes = [
+  { pattern = "bisks.net/the-place", zone_name = "bisks.net" },
+  { pattern = "bisks.net/the-place/*", zone_name = "bisks.net" },
+]
 
-# / and /api/* are dynamic (canvas state can change between requests, and old
-# days are served straight from the Durable Object) — the Worker must run
-# before the static-asset router picks up index.html for those paths, same
-# reasoning as sites/logs and sites/didscope.
+# The Worker runs first for everything now: it must strip the /the-place mount
+# prefix before the asset router (which has no idea it isn't at the domain root)
+# ever sees the request. (Was run_worker_first = ["/", "/api/*"] on the old
+# subdomain; those root-relative patterns don't match the mounted paths.)
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = ["/", "/api/*"]
+run_worker_first = true
 
 [[durable_objects.bindings]]
 name = "CANVAS"

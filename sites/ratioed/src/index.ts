@@ -46,15 +46,24 @@ export interface Env {
   TRACKER: DurableObjectNamespace;
 }
 
+// Mounted at bisks.net/ratioed/ — strip the mount prefix before routing, so the
+// /api/* check and the DO + ASSETS all see root-relative paths (the assets dir
+// and the DO have no idea they aren't at the domain root). The client fetches
+// /ratioed/api/leaderboard (see public/index.html). See
+// notes/40-new-site-playbook.md.
+const PREFIX = "/ratioed";
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    const stripped = new Request(url, request);
     if (url.pathname.startsWith("/api/")) {
       const id = env.TRACKER.idFromName("global");
       const stub = env.TRACKER.get(id);
-      return stub.fetch(request);
+      return stub.fetch(stripped);
     }
-    return env.ASSETS.fetch(request);
+    return env.ASSETS.fetch(stripped);
   },
 };
 

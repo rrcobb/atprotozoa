@@ -74,15 +74,24 @@ function hexGrid(grid: Uint8Array): string {
   return s;
 }
 
+// Mounted at bisks.net/the-place/ — strip the mount prefix before routing, so
+// the /api/* check and the DO + ASSETS all see root-relative paths (the assets
+// dir and the DO have no idea they aren't at the domain root). The client
+// prefixes its /api calls and self-links with /the-place (see
+// public/index.html's MOUNT const). See notes/40-new-site-playbook.md.
+const PREFIX = "/the-place";
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    const stripped = new Request(url, request);
     if (url.pathname.startsWith("/api/")) {
       const id = env.CANVAS.idFromName("global");
       const stub = env.CANVAS.get(id);
-      return stub.fetch(request);
+      return stub.fetch(stripped);
     }
-    return env.ASSETS.fetch(request);
+    return env.ASSETS.fetch(stripped);
   },
 };
 
