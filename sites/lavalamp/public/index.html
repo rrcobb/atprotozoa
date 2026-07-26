@@ -97,15 +97,20 @@
         border-radius: 50%; pointer-events: none; z-index: 3;
       }
 
+      /* .blob's position (left/top via transform) is driven entirely by the JS
+         physics loop each frame — collisions, buoyancy, walls. .inner carries
+         the CSS-only shape/entrance animation, kept independent of position. */
       .blob {
-        position: absolute; display: flex; align-items: center; justify-content: center;
-        border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%;
-        cursor: pointer; z-index: 2;
-        animation: rise var(--rise-dur, 1.6s) cubic-bezier(.22,.85,.3,1.1) both,
-                   morph var(--morph-dur, 9s) ease-in-out infinite var(--rise-dur, 1.6s),
-                   bob var(--bob-dur, 8s) ease-in-out infinite var(--rise-dur, 1.6s);
+        position: absolute; left: 0; top: 0; display: flex; align-items: center; justify-content: center;
+        cursor: pointer; z-index: 2; will-change: transform;
       }
-      .blob.leaving { animation: sink 0.85s ease-in forwards !important; }
+      .blob .inner {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%;
+        animation: riseIn var(--rise-dur, 1.6s) cubic-bezier(.22,.85,.3,1.1) both,
+                   morph var(--morph-dur, 9s) ease-in-out infinite var(--rise-dur, 1.6s);
+      }
+      .blob.leaving .inner { animation: sinkOut 0.85s ease-in forwards !important; }
       .blob .glow {
         position: absolute; inset: 0; border-radius: inherit;
         background: radial-gradient(circle at 35% 30%, var(--c1), var(--c2) 70%);
@@ -126,19 +131,13 @@
       .blob:hover .likes { opacity: 1; }
       .blob:hover .glow { filter: brightness(1.15); }
 
-      @keyframes rise {
-        from { transform: translateY(60px) scale(0.5); opacity: 0; }
-        to { transform: translateY(0) scale(1); opacity: 1; }
+      @keyframes riseIn {
+        from { transform: scale(0.5); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
       }
-      @keyframes sink {
-        from { transform: translateY(0) scale(1); opacity: 1; }
-        to { transform: translateY(50px) scale(0.4); opacity: 0; }
-      }
-      @keyframes bob {
-        0%, 100% { margin-left: 0; margin-top: 0; }
-        25% { margin-left: var(--dx1, 8px); margin-top: -10px; }
-        50% { margin-left: 0; margin-top: -18px; }
-        75% { margin-left: var(--dx2, -8px); margin-top: -8px; }
+      @keyframes sinkOut {
+        from { transform: scale(1); opacity: 1; }
+        to { transform: scale(0.4); opacity: 0; }
       }
       @keyframes morph {
         0%, 100% { border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%; }
@@ -146,7 +145,7 @@
         66% { border-radius: 42% 58% 52% 48% / 58% 42% 44% 56%; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .blob { animation: rise 0.4s ease both !important; }
+        .blob .inner { animation: riseIn 0.4s ease both !important; }
       }
 
       .share { display: none; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
@@ -330,25 +329,45 @@
       }
 
       let pool = [], byLikes = [], buoyancy = new Map();
-      let shown = new Map(); // uri -> { post, el }
+      let shown = new Map(); // uri -> { post, el, phys }
       let swapTimer = null;
 
       function paletteFor(uri) {
         return PALETTE[hashInt(uri) % PALETTE.length];
       }
 
+      // ── circle physics: buoyancy + wander + inelastic directional
+      // collisions, so blobs never overlap ─────────────────────────
+      const LAMP_W = 240, LAMP_H = 400;
+      const CORNER_RX = 120, CORNER_RY = 60; // matches .lamp's border-radius
+      const RESTITUTION = 0.35; // < 1: inelastic — impacts lose energy, don't bounce forever
+      const WALL_RESTITUTION = 0.45;
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let physRaf = null, physLastT = null;
+
+      // The glass is a capsule: straight sides, elliptical top/bottom caps
+      // (border-radius: 120px/60px). Returns how far a circle of radius r
+      // may sit from the vertical centerline at a given height y.
+      function maxDxAt(y, r) {
+        let local;
+        if (y < CORNER_RY) local = CORNER_RY - y;
+        else if (y > LAMP_H - CORNER_RY) local = y - (LAMP_H - CORNER_RY);
+        else return LAMP_W / 2 - r;
+        const t = Math.min(1, local / CORNER_RY);
+        const halfW = CORNER_RX * Math.sqrt(Math.max(0, 1 - t * t));
+        return Math.max(r * 0.4, halfW - r);
+      }
+
       function spawnBlob(entry) {
         const p = entry.post;
         const b = buoyancy.get(entry.uri) ?? 0.5;
         const size = Math.round(46 + b * 56 + (Math.random() * 10 - 5));
-        const bottomPct = (6 + b * 76 + (Math.random() * 5 - 2.5)).toFixed(1);
-        const leftPct = (8 + Math.random() * 78).toFixed(1);
-        const [c1, c2] = paletteFor(entry.uri);
-        const dx1 = (6 + Math.random() * 10).toFixed(0) + "px";
-        const dx2 = (-6 - Math.random() * 10).toFixed(0) + "px";
-        const bobDur = (6.5 + Math.random() * 3.5).toFixed(1) + "s";
+        const r = size / 2;
+        const bottomPct = 6 + b * 76 + (Math.random() * 5 - 2.5);
+        const targetY = Math.min(LAMP_H - r, Math.max(r, LAMP_H - (bottomPct / 100) * LAMP_H));
         const morphDur = (7 + Math.random() * 5).toFixed(1) + "s";
         const riseDelay = (Math.random() * 0.6).toFixed(2) + "s";
+        const [c1, c2] = paletteFor(entry.uri);
 
         const el = document.createElement("a");
         el.className = "blob";
@@ -358,28 +377,120 @@
         el.title = `${entry.text || "(no text)"} — ♥ ${entry.likeCount.toLocaleString()}`;
         el.style.setProperty("--c1", c1);
         el.style.setProperty("--c2", c2);
-        el.style.setProperty("--dx1", dx1);
-        el.style.setProperty("--dx2", dx2);
-        el.style.setProperty("--bob-dur", bobDur);
         el.style.setProperty("--morph-dur", morphDur);
         el.style.setProperty("--rise-dur", "1.6s");
         el.style.width = size + "px";
         el.style.height = size + "px";
-        el.style.left = leftPct + "%";
-        el.style.bottom = bottomPct + "%";
-        el.style.animationDelay = `${riseDelay}, ${riseDelay}, ${riseDelay}`;
-        el.innerHTML = `<span class="glow"></span><span class="peek">${esc(firstWords(entry.text))}</span><span class="likes">♥ ${entry.likeCount.toLocaleString()}</span>`;
+        el.innerHTML = `<span class="inner"><span class="glow"></span><span class="peek">${esc(firstWords(entry.text))}</span></span><span class="likes">♥ ${entry.likeCount.toLocaleString()}</span>`;
+        el.querySelector(".inner").style.animationDelay = `${riseDelay}, ${riseDelay}`;
         lamp.appendChild(el);
-        shown.set(entry.uri, { post: entry, el });
+
+        // spawn low and narrow (the glass necks in near the bottom cap) and
+        // let buoyancy carry it up to its likes-driven resting height, like a
+        // bubble rising off the base of the lamp.
+        const spawnY = LAMP_H - r * 0.3;
+        const spawnDx = maxDxAt(spawnY, r) * (Math.random() * 1.4 - 0.7);
+        const phys = {
+          x: LAMP_W / 2 + spawnDx, y: spawnY, vx: (Math.random() - 0.5) * 20, vy: -(90 + Math.random() * 60),
+          r, m: r * r, targetY, wanderX: LAMP_W / 2, wanderT: 0, leaving: false,
+        };
+        shown.set(entry.uri, { post: entry, el, phys });
+        renderBlob(shown.get(entry.uri));
+        startPhysics();
       }
 
       function removeBlob(uri) {
         const s = shown.get(uri);
         if (!s) return;
         shown.delete(uri);
+        s.phys.leaving = true;
+        s.phys.targetY = LAMP_H + s.phys.r + 30;
         s.el.classList.add("leaving");
         s.el.style.pointerEvents = "none";
         setTimeout(() => s.el.remove(), 900);
+      }
+
+      function renderBlob(s) {
+        const p = s.phys;
+        s.el.style.transform = `translate3d(${(p.x - p.r).toFixed(1)}px, ${(p.y - p.r).toFixed(1)}px, 0)`;
+      }
+
+      function stepPhysics(dt) {
+        const all = [...shown.values()];
+        const active = all.filter((s) => !s.phys.leaving);
+
+        for (const s of all) {
+          const p = s.phys;
+          const springK = p.leaving ? 30 : 16, damp = p.leaving ? 5 : 3;
+          const ay = (p.targetY - p.y) * springK - p.vy * damp;
+          let ax = -p.vx * 1.8;
+          if (!p.leaving && !reducedMotion) {
+            p.wanderT -= dt;
+            if (p.wanderT <= 0) {
+              const maxDx = maxDxAt(p.y, p.r);
+              p.wanderX = LAMP_W / 2 + (Math.random() * 2 - 1) * maxDx * 0.75;
+              p.wanderT = 1.4 + Math.random() * 2.2;
+            }
+            ax += (p.wanderX - p.x) * 3.2;
+          }
+          p.vx += ax * dt; p.vy += ay * dt;
+          p.x += p.vx * dt; p.y += p.vy * dt;
+
+          if (!p.leaving) {
+            if (p.y < p.r) { p.y = p.r; p.vy = Math.abs(p.vy) * WALL_RESTITUTION; }
+            if (p.y > LAMP_H - p.r) { p.y = LAMP_H - p.r; p.vy = -Math.abs(p.vy) * WALL_RESTITUTION; }
+            const maxDx = maxDxAt(p.y, p.r), cx = LAMP_W / 2;
+            if (p.x < cx - maxDx) { p.x = cx - maxDx; p.vx = Math.abs(p.vx) * WALL_RESTITUTION; }
+            if (p.x > cx + maxDx) { p.x = cx + maxDx; p.vx = -Math.abs(p.vx) * WALL_RESTITUTION; }
+          }
+        }
+
+        // inelastic, direction-aware circle collisions: resolve overlap along
+        // the line connecting centers so blobs never sit on top of each other.
+        for (let iter = 0; iter < 6; iter++) {
+          for (let i = 0; i < active.length; i++) {
+            for (let j = i + 1; j < active.length; j++) {
+              const a = active[i].phys, b = active[j].phys;
+              let dx = b.x - a.x, dy = b.y - a.y;
+              let dist = Math.hypot(dx, dy);
+              const minDist = a.r + b.r;
+              if (dist >= minDist) continue;
+              if (dist < 0.001) { dx = 1; dy = 0; dist = 1; }
+              const nx = dx / dist, ny = dy / dist;
+              const overlap = minDist - dist;
+              const totalM = a.m + b.m;
+              a.x -= nx * overlap * (b.m / totalM); a.y -= ny * overlap * (b.m / totalM);
+              b.x += nx * overlap * (a.m / totalM); b.y += ny * overlap * (a.m / totalM);
+
+              const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+              const velAlongNormal = rvx * nx + rvy * ny;
+              if (velAlongNormal > 0) continue; // already separating
+              const j_ = (-(1 + RESTITUTION) * velAlongNormal) / (1 / a.m + 1 / b.m);
+              a.vx -= (j_ * nx) / a.m; a.vy -= (j_ * ny) / a.m;
+              b.vx += (j_ * nx) / b.m; b.vy += (j_ * ny) / b.m;
+            }
+          }
+        }
+
+        for (const s of all) renderBlob(s);
+      }
+
+      function physFrame(t) {
+        if (physLastT == null) physLastT = t;
+        const dt = Math.min(0.033, Math.max(0, (t - physLastT) / 1000));
+        physLastT = t;
+        if (!document.hidden) stepPhysics(dt);
+        if (shown.size) physRaf = requestAnimationFrame(physFrame);
+        else { physRaf = null; physLastT = null; }
+      }
+
+      function startPhysics() {
+        if (physRaf == null) physRaf = requestAnimationFrame(physFrame);
+      }
+
+      function stopPhysics() {
+        if (physRaf != null) cancelAnimationFrame(physRaf);
+        physRaf = null; physLastT = null;
       }
 
       function swapOneBlob() {
@@ -412,6 +523,7 @@
         busy = true;
         go.disabled = true;
         clearInterval(swapTimer);
+        stopPhysics();
         const actor = rawHandle.trim().replace(/^@/, "");
         statusEl.className = "status";
         statusEl.textContent = "warming up the lamp…";
