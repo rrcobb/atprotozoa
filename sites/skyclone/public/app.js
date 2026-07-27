@@ -10,6 +10,106 @@ const FALLBACK_AVATAR =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#8b98a5"/><circle cx="50" cy="38" r="20" fill="#e1e8ed"/><ellipse cx="50" cy="92" rx="34" ry="30" fill="#e1e8ed"/></svg>'
   );
 
+// ---------- auth (OAuth login -> home timeline) ----------
+//
+// skyclone is still a read-only viewer for anyone who doesn't log in — this
+// just adds an optional real OAuth session (see lib/oauth.js) so a logged-in
+// visitor can see their actual home timeline (app.bsky.feed.getTimeline,
+// proxied through their own PDS) instead of only the public Discover feed.
+// Nothing here ever writes to the user's repo.
+
+let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null
+let sessionProfile = null; // { avatar, displayName } for the logged-in user, best-effort
+let oauthLib = null;
+
+async function oauth() {
+  if (!oauthLib) oauthLib = await import(`${MOUNT}/lib/oauth.js`);
+  return oauthLib;
+}
+
+async function loadSessionProfile() {
+  if (!session) {
+    sessionProfile = null;
+    return;
+  }
+  try {
+    sessionProfile = await xrpc("app.bsky.actor.getProfile", { actor: session.did });
+  } catch {
+    sessionProfile = null;
+  }
+}
+
+function showToast(msg, kind) {
+  const t = document.createElement("div");
+  t.className = "toast" + (kind ? " " + kind : "");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("show"));
+  setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 300);
+  }, 4000);
+}
+
+function openLoginModal() {
+  if (document.getElementById("login-modal")) return;
+  const box = document.createElement("div");
+  box.id = "login-modal";
+  box.className = "modal-overlay";
+  box.innerHTML = `
+    <div class="modal">
+      <h2>Log in with Bluesky</h2>
+      <p>Real OAuth, straight to your own PDS — skyclone never sees your password. This unlocks your actual home timeline; skyclone still never posts, likes, or follows on your behalf.</p>
+      <input id="login-handle" placeholder="yourhandle.bsky.social" autocomplete="off">
+      <div class="modal-actions">
+        <button type="button" id="login-cancel" class="pill-btn">Cancel</button>
+        <button type="button" id="login-go" class="pill-btn primary">Continue</button>
+      </div>
+      <div class="modal-status" id="login-status"></div>
+    </div>`;
+  document.body.appendChild(box);
+  const input = document.getElementById("login-handle");
+  input.focus();
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
+  box.addEventListener("click", (e) => {
+    if (e.target === box) closeLoginModal();
+  });
+  document.getElementById("login-cancel").onclick = closeLoginModal;
+  const go = document.getElementById("login-go");
+  const status = document.getElementById("login-status");
+  const submit = async () => {
+    const h = input.value.trim().replace(/^@/, "");
+    if (!h) return;
+    go.disabled = true;
+    status.textContent = "Redirecting to your PDS…";
+    try {
+      const { login } = await oauth();
+      await login(h); // navigates away on success
+    } catch (e) {
+      status.textContent = e.message || String(e);
+      go.disabled = false;
+    }
+  };
+  go.onclick = submit;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+}
+function closeLoginModal() {
+  document.getElementById("login-modal")?.remove();
+}
+
+async function logout() {
+  const { clearSession } = await oauth();
+  await clearSession();
+  session = null;
+  sessionProfile = null;
+  const home = `${MOUNT}/`;
+  if (location.pathname + location.search !== home) history.replaceState({}, "", home);
+  render();
+  window.scrollTo(0, 0);
+}
+
 // ---------- API ----------
 
 async function xrpc(method, params) {
@@ -319,20 +419,45 @@ function isActive(path, itemPath) {
   return path.startsWith(itemPath);
 }
 
+function navCtaHtml() {
+  if (session) {
+    const avatar = sessionProfile?.avatar || FALLBACK_AVATAR;
+    const name = sessionProfile?.displayName?.trim() || session.handle;
+    return `
+      <a class="nav-cta loggedin" href="${profileUrl(session.handle)}" data-link title="${esc(name)} (@${esc(session.handle)})">
+        <img class="nav-avatar" src="${esc(avatar)}" alt="">
+        <span class="label">@${esc(session.handle)}</span>
+      </a>
+      <div class="nav-logout" data-action="logout">Log out</div>`;
+  }
+  return `<div class="nav-cta" data-action="login"><span class="label">Log in with Bluesky</span></div>`;
+}
+
+function mobileAuthHtml() {
+  if (session) {
+    const avatar = sessionProfile?.avatar || FALLBACK_AVATAR;
+    return `<span class="mtb-auth">
+      <a href="${profileUrl(session.handle)}" data-link><img class="nav-avatar" src="${esc(avatar)}" alt="@${esc(session.handle)}"></a>
+      <span class="mtb-logout" data-action="logout">Log out</span>
+    </span>`;
+  }
+  return `<span class="mtb-auth"><span class="mtb-login" data-action="login">Log in</span></span>`;
+}
+
 function shellHtml(activePath) {
   const navItem = (item, mobile) => `
     <a class="nav-item ${isActive(activePath, item.path) ? "active" : ""}" href="${MOUNT}${item.path}" data-link>
       <span class="ic">${item.icon}</span>${mobile ? "" : `<span class="label">${item.label}</span>`}
     </a>`;
   return `
-  <div class="mobile-topbar">🦋 skyclone</div>
+  <div class="mobile-topbar"><span>🦋 skyclone</span>${mobileAuthHtml()}</div>
   <div class="shell">
     <nav class="nav">
       <a class="nav-logo" href="${MOUNT}/" data-link><span class="wing">🦋</span><span class="word">skyclone</span></a>
       <div class="nav-items">${NAV_ITEMS.map((i) => navItem(i, false)).join("")}</div>
-      <a class="nav-cta" href="https://bsky.app" target="_blank" rel="noopener"><span class="label">Open real Bluesky ↗</span></a>
+      ${navCtaHtml()}
       <div class="nav-spacer"></div>
-      <div class="nav-foot">Unofficial fan clone. Not affiliated with Bluesky PBC. Live public data, read-only, no login.<br><a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a></div>
+      <div class="nav-foot">Unofficial fan clone. Not affiliated with Bluesky PBC. Live public data — browse freely, or log in with OAuth for your own timeline.<br><a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a></div>
     </nav>
     <main class="main" id="main"></main>
     <aside class="aside" id="aside"></aside>
@@ -349,8 +474,8 @@ function asideHtml() {
   </div>
   <div class="aside-card">
     <h2>What is this?</h2>
-    <p>skyclone is a fan-made, read-only rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>No login, no posting, no tracking. For the real thing (posting, notifications, your own timeline) use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline. skyclone never posts, likes, or follows for you. For notifications, DMs, or posting, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -394,18 +519,22 @@ function headerHtml(title, sub, back) {
 
 // ---------- views ----------
 
+const TIMELINE_URI = "timeline"; // sentinel feed id for the logged-in home timeline
+
 async function HomeView(main, params) {
-  let tabs = [{ label: "Discover", uri: DISCOVER_FEED }];
-  const activeUri = params.get("feed") || DISCOVER_FEED;
+  let tabs = session ? [{ label: "Home", uri: TIMELINE_URI }] : [];
+  tabs.push({ label: "Discover", uri: DISCOVER_FEED });
+  const activeUri = params.get("feed") || (session ? TIMELINE_URI : DISCOVER_FEED);
   main.innerHTML = headerHtml("Home") + `<div class="feed-tabs" id="feed-tabs"></div><div id="feed-posts">${skeleton(6)}</div>`;
   renderTabs();
 
   xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 8 })
     .then((data) => {
+      const cap = session ? 6 : 5;
       for (const f of data.feeds) {
         if (f.uri === DISCOVER_FEED) continue;
         tabs.push({ label: f.displayName, uri: f.uri });
-        if (tabs.length >= 5) break;
+        if (tabs.length >= cap) break;
       }
       renderTabs();
     })
@@ -422,7 +551,45 @@ async function HomeView(main, params) {
       .join("");
   }
 
-  await loadFeed(activeUri, document.getElementById("feed-posts"));
+  const box = document.getElementById("feed-posts");
+  if (activeUri === TIMELINE_URI) await loadTimeline(box);
+  else await loadFeed(activeUri, box);
+}
+
+// Real getTimeline for a logged-in visitor — proxied through their own PDS to
+// the AppView (same DPoP-bound session lib/oauth.js sets up), so it reflects
+// their actual follows, not the public Discover feed.
+async function loadTimeline(box, cursor) {
+  if (!session) {
+    box.innerHTML = centerMsg("Not signed in", "Log in with Bluesky (top of the nav) to see your real home timeline.");
+    return;
+  }
+  try {
+    const { dpopFetch } = await oauth();
+    const url = new URL(`${session.pdsUrl.replace(/\/$/, "")}/xrpc/app.bsky.feed.getTimeline`);
+    url.searchParams.set("limit", "25");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const res = await dpopFetch(session, url.toString(), {
+      headers: { accept: "application/json", "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+    });
+    if (!res.ok) throw new Error(`getTimeline failed (${res.status})`);
+    const data = await res.json();
+    if (!cursor) box.innerHTML = "";
+    else box.querySelector(".load-more")?.remove();
+    box.insertAdjacentHTML(
+      "beforeend",
+      data.feed.map(feedItemHtml).join("") || centerMsg("Nothing here yet", "Follow some people on Bluesky and they'll show up here.")
+    );
+    if (data.cursor && data.feed.length) {
+      box.insertAdjacentHTML("beforeend", loadMoreBtn());
+      box.querySelector(".load-more").onclick = (e) => {
+        e.target.textContent = "Loading…";
+        loadTimeline(box, data.cursor);
+      };
+    }
+  } catch (e) {
+    box.innerHTML = errorBox("Couldn't load your timeline (" + e.message + ")", location.pathname + location.search);
+  }
 }
 
 async function loadFeed(feedUri, box, cursor) {
@@ -737,9 +904,9 @@ function AboutView(main) {
   main.innerHTML =
     headerHtml("About skyclone") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
-      <p><b>skyclone</b> is an unofficial, read-only rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
-      <p>There's no login here and never will be — this is a viewer, not a client. Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time. Nothing is stored, scraped, or replayed.</p>
-      <p>For posting, notifications, DMs, or your personal Following feed, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
+      <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
+      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side, and skyclone never posts, likes, or follows on your behalf.</p>
+      <p>For posting, notifications, or DMs, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
 }
@@ -827,6 +994,14 @@ document.addEventListener("click", (e) => {
     }
     return;
   }
+  if (e.target.closest("[data-action='login']")) {
+    openLoginModal();
+    return;
+  }
+  if (e.target.closest("[data-action='logout']")) {
+    logout();
+    return;
+  }
   const cover = e.target.closest(".sensitive-cover");
   if (cover) {
     e.stopPropagation();
@@ -895,6 +1070,10 @@ function lbRender() {
   box.querySelector(".lb-next").style.display = multi ? "" : "none";
 }
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.getElementById("login-modal")) {
+    closeLoginModal();
+    return;
+  }
   const box = document.getElementById("lightbox");
   if (!box || !box.classList.contains("open")) return;
   if (e.key === "Escape") box.classList.remove("open");
@@ -902,4 +1081,28 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "ArrowRight") lbShow(1);
 });
 
-render();
+// ---------- boot ----------
+//
+// Complete an in-flight OAuth callback (if this load is the PDS redirecting
+// back with ?code&state), or restore a previously-logged-in session, before
+// the first render — so a returning visitor lands straight on their real
+// home timeline instead of flashing the logged-out Discover feed first.
+
+async function boot() {
+  let bootError = null;
+  let freshLogin = null;
+  try {
+    const { completeLoginIfCallback, getSession } = await oauth();
+    freshLogin = await completeLoginIfCallback();
+    session = freshLogin || (await getSession());
+  } catch (e) {
+    bootError = e.message || String(e);
+    session = null;
+  }
+  await loadSessionProfile();
+  render();
+  if (freshLogin) showToast(`Logged in as @${freshLogin.handle}`, "ok");
+  if (bootError) showToast(bootError, "err");
+}
+
+boot();
