@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>areyoumad — who ghosted your courtesy-like today — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. Finds every reply you posted today, checks whether the person you replied to liked it back, and hands you a pre-written 'are you mad at me?' post for anyone who didn't."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/areyoumad" />
+    <meta property="og:title" content="areyoumad — who ghosted your courtesy-like today" />
+    <meta
+      property="og:description"
+      content="Finds today's replies, checks who you replied to didn't like you back, and gives you a button to ask them if they're mad. Petty, automated, atproto-native."
+    />
+    <meta property="og:image" content="https://bisks.net/areyoumad/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="areyoumad — who ghosted your courtesy-like today" />
+    <meta
+      name="twitter:description"
+      content="Finds today's replies, checks who didn't like you back, gives you a button to ask if they're mad."
+    />
+    <meta name="twitter:image" content="https://bisks.net/areyoumad/og.png" />
+
+    <style>
+      :root {
+        --bg: #fbf9f7;
+        --ink: #16130f;
+        --muted: #726b60;
+        --faint: #e9e2d8;
+        --faintbg: #f2ede4;
+        --accent: #b5471f;
+        --ok: #2c7a4b;
+        --okbg: #eef7f1;
+        --nobg: #fdf1ec;
+        --card: #ffffff;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      a { color: var(--accent); }
+
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      h1 { font-size: 1.5rem; font-weight: 700; margin: 0.9rem 0 0.4rem; letter-spacing: -0.01em; }
+      .intro {
+        color: var(--muted); margin: 0 0 1.8rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      .console {
+        border: 1px solid var(--ink); border-radius: 10px;
+        padding: 1.1rem; margin-bottom: 1.4rem; background: var(--card);
+      }
+      .console label {
+        display: block; font-size: 0.68rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.5rem;
+      }
+      .row { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+      #handle {
+        flex: 1; min-width: 12rem; font-family: inherit; font-size: 0.95rem;
+        color: var(--ink); background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 6px; padding: 0.6rem 0.75rem;
+      }
+      #handle:focus { outline: none; border-color: var(--ink); background: var(--bg); }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.6rem 1rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 6px; cursor: pointer; font-weight: 600;
+      }
+      button:hover { filter: brightness(1.15); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost {
+        background: transparent; color: var(--ink); border-color: var(--faint);
+        font-weight: 400;
+      }
+      button.ghost:hover { border-color: var(--ink); }
+      button.tiny { font-size: 0.76rem; padding: 0.4rem 0.7rem; }
+
+      .status {
+        font-size: 0.82rem; color: var(--muted); margin: 0.9rem 0 0;
+        min-height: 1.3em;
+      }
+      .status.err { color: var(--accent); }
+
+      .summary {
+        margin: 1.6rem 0 1.1rem; font-size: 0.95rem; line-height: 1.6;
+      }
+      .summary b { font-weight: 700; }
+
+      .empty-ok {
+        border: 1px solid var(--ok); background: var(--okbg); border-radius: 10px;
+        padding: 1.1rem 1.2rem; color: #1c5236; font-size: 0.92rem; line-height: 1.6;
+      }
+      .empty-none {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        border: 1px dashed var(--faint); border-radius: 10px; padding: 1.2rem;
+      }
+
+      .flagged { display: flex; flex-direction: column; gap: 0.8rem; }
+      .fcard {
+        display: flex; gap: 0.8rem; align-items: flex-start; background: var(--card);
+        border: 1px solid var(--faint); border-radius: 10px; padding: 0.9rem 1rem;
+      }
+      .fcard .avatar {
+        width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); flex: none; border: 1px solid var(--faint);
+      }
+      .fcard .body { flex: 1; min-width: 0; }
+      .fcard .who { font-size: 0.92rem; margin-bottom: 0.15rem; }
+      .fcard .who .n { font-weight: 700; }
+      .fcard .who .h { color: var(--muted); }
+      .fcard .h a { color: inherit; text-decoration: none; }
+      .fcard .h a:hover { color: var(--accent); }
+      .fcard .meta {
+        font-size: 0.78rem; color: var(--muted); margin: 0.15rem 0 0.6rem; line-height: 1.5;
+      }
+      .fcard .meta a { color: var(--muted); text-decoration: underline; }
+      .fcard .meta a:hover { color: var(--accent); }
+      .fcard .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .fcard .actions a {
+        text-decoration: none; font-size: 0.76rem; padding: 0.4rem 0.7rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 6px; font-weight: 600; cursor: pointer;
+      }
+      .fcard .actions a:hover { filter: brightness(1.15); }
+      .fcard .actions a.ghost {
+        background: transparent; color: var(--ink); border-color: var(--faint); font-weight: 400;
+      }
+      .fcard .actions a.ghost:hover { border-color: var(--ink); }
+
+      .toolbar { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.6rem 0; }
+      .toolbar a {
+        text-decoration: none; font-size: 0.85rem; padding: 0.55rem 0.9rem;
+        border: 1px solid var(--faint); border-radius: 6px; color: var(--ink);
+        font-weight: 400; cursor: pointer;
+      }
+      .toolbar a:hover { border-color: var(--ink); }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.9rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem; line-height: 1.8;
+      }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>areyoumad</h1>
+      <p class="intro">
+        Type a handle. It pulls up every reply <b>you</b> posted today, figures
+        out who each reply was actually to, and checks whether they
+        courtesy-liked it back. Anyone who didn't gets a card here — with a
+        one-tap, pre-written post publicly asking if they're mad at you.
+        Petty by design.
+      </p>
+
+      <div class="console">
+        <label for="handle">your bluesky handle</label>
+        <div class="row">
+          <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="off" />
+          <button id="go">check today</button>
+        </div>
+        <p class="status" id="status"></p>
+      </div>
+
+      <div id="results"></div>
+
+      <div class="toolbar" id="toolbar" hidden>
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share this callout</a>
+      </div>
+
+      <footer>
+        Reads are all public, unauthenticated AppView calls — nothing is
+        posted or liked on your behalf, and nothing you type is stored
+        anywhere. "Courtesy-like" here means: someone you replied to today,
+        liking that specific reply back. "Today" is your local calendar day.
+        Only checked against people who follow you back (your moots) — a cold
+        stranger not liking your reply isn't a crime. Scans are capped, so a
+        very high-volume account may not get a fully exhaustive check.
+        <br />
+        asked for by <a href="https://bsky.app/profile/7778777.online">@7778777.online</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import {
+        resolveDid,
+        resolveHandleForDid,
+        resolvePds,
+        getProfile,
+        listRecordsSince,
+        moots,
+        didLike,
+        mapLimit,
+      } from "./lib/atproto.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead($("#handle"));
+
+      const handleInput = $("#handle");
+      const goBtn = $("#go");
+      const statusEl = $("#status");
+      const resultsEl = $("#results");
+      const toolbar = $("#toolbar");
+      const shareLink = $("#shareLink");
+
+      const CHECK_CONCURRENCY = 6;
+      const MOOT_CAP = 150;
+
+      const ASK_TEMPLATES = [
+        (h) => `hey @${h}, you good? I courtesy-liked you and got nothing back today 👀 (bisks.net/areyoumad)`,
+        (h) => `@${h} did I do something? no like back on my reply today 🥲 checking via bisks.net/areyoumad`,
+        (h) => `checking in, @${h} — we still mutuals or what? bisks.net/areyoumad said you went quiet`,
+        (h) => `@${h} no courtesy-like today... we ok? asking publicly per bisks.net/areyoumad`,
+      ];
+
+      function setStatus(msg, isErr) {
+        statusEl.textContent = msg || "";
+        statusEl.classList.toggle("err", !!isErr);
+      }
+
+      function postPermalink(handle, uri) {
+        const rkey = uri.split("/").pop();
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+
+      function authorDidFromUri(uri) {
+        // at://did:.../collection/rkey
+        const parts = uri.replace(/^at:\/\//, "").split("/");
+        return parts[0];
+      }
+
+      function startOfTodayMs() {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+      }
+
+      async function run() {
+        const raw = handleInput.value.trim();
+        if (!raw) {
+          handleInput.focus();
+          return;
+        }
+        goBtn.disabled = true;
+        resultsEl.innerHTML = "";
+        toolbar.hidden = true;
+        try {
+          setStatus(`resolving @${raw.replace(/^@/, "")}…`);
+          const did = await resolveDid(raw);
+          const [profile, pds] = await Promise.all([getProfile(did), resolvePds(did)]);
+          if (!pds) throw new Error("couldn't resolve their PDS");
+          const myHandle = profile?.handle || (await resolveHandleForDid(did));
+
+          setStatus(`scanning today's replies from @${esc(myHandle)}…`);
+          const since = startOfTodayMs();
+          const replies = await listRecordsSince(pds, did, "app.bsky.feed.post", since, (v) => !!v?.reply, 8);
+
+          if (!replies.length) {
+            setStatus("");
+            resultsEl.innerHTML = `<div class="empty-none">@${esc(myHandle)} hasn't posted any replies yet today — nothing to check. come back after you've said something.</div>`;
+            return;
+          }
+
+          setStatus(`finding @${esc(myHandle)}'s moots…`);
+          const myMoots = await moots(did, MOOT_CAP);
+          const mootByDid = new Map(myMoots.map((m) => [m.did, m]));
+
+          // Group today's replies by which moot they were actually replying
+          // to (the parent post's author) — a moot only needs to like ONE of
+          // today's replies to them to be in the clear.
+          const byMoot = new Map(); // mootDid -> [{uri, createdAt}]
+          for (const rec of replies) {
+            const parentUri = rec.value?.reply?.parent?.uri;
+            if (!parentUri) continue;
+            const parentAuthorDid = authorDidFromUri(parentUri);
+            if (parentAuthorDid === did) continue; // replying to yourself
+            if (!mootByDid.has(parentAuthorDid)) continue; // not a moot, not our business
+            const list = byMoot.get(parentAuthorDid) || [];
+            list.push({ uri: rec.uri, createdAt: rec.value.createdAt });
+            byMoot.set(parentAuthorDid, list);
+          }
+
+          if (!byMoot.size) {
+            setStatus("");
+            resultsEl.innerHTML = `<div class="empty-none">@${esc(myHandle)} replied ${replies.length} time${replies.length === 1 ? "" : "s"} today, but none of those replies landed on a moot's post — nothing to check against.</div>`;
+            return;
+          }
+
+          setStatus(`checking courtesy-likes from ${byMoot.size} moot${byMoot.size === 1 ? "" : "s"}…`);
+          const entries = [...byMoot.entries()];
+          const checked = await mapLimit(entries, CHECK_CONCURRENCY, async ([mootDid, list]) => {
+            // newest reply first — if any got liked, they're in the clear.
+            const sorted = [...list].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+            for (const r of sorted) {
+              if (await didLike(r.uri, mootDid)) return null;
+            }
+            return { moot: mootByDid.get(mootDid), reply: sorted[0] };
+          });
+
+          const flagged = checked.filter(Boolean);
+          setStatus("");
+          renderSummary(myHandle, byMoot.size, flagged);
+          if (flagged.length) renderFlagged(myHandle, flagged);
+          wireShare(myHandle, flagged.length, byMoot.size);
+        } catch (e) {
+          console.error(e);
+          setStatus(e.message || "something went wrong", true);
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      function renderSummary(myHandle, mootCount, flagged) {
+        if (!flagged.length) {
+          resultsEl.innerHTML = `
+            <p class="summary">Replied to <b>${mootCount}</b> moot${mootCount === 1 ? "" : "s"} today. Every single one liked you back.</p>
+            <div class="empty-ok">nobody's mad at you. or if they are, they're hiding it well. 🫡</div>
+          `;
+          return;
+        }
+        resultsEl.innerHTML = `
+          <p class="summary">Replied to <b>${mootCount}</b> moot${mootCount === 1 ? "" : "s"} today. <b>${flagged.length}</b> of them ${flagged.length === 1 ? "hasn't" : "haven't"} courtesy-liked you back.</p>
+          <div class="flagged" id="flaggedList"></div>
+        `;
+      }
+
+      function renderFlagged(myHandle, flagged) {
+        const list = $("#flaggedList");
+        list.innerHTML = flagged
+          .map((f, i) => {
+            const m = f.moot;
+            const permalink = postPermalink(myHandle, f.reply.uri);
+            const askText = ASK_TEMPLATES[i % ASK_TEMPLATES.length](m.handle);
+            const askUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(askText)}`;
+            return `
+              <div class="fcard">
+                <img class="avatar" src="${esc(m.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" />
+                <div class="body">
+                  <div class="who">
+                    <span class="n">${esc(m.displayName)}</span>
+                    <span class="h">· <a href="https://bsky.app/profile/${esc(m.handle)}" target="_blank" rel="noopener">@${esc(m.handle)}</a></span>
+                  </div>
+                  <div class="meta">
+                    no courtesy-like on <a href="${permalink}" target="_blank" rel="noopener">your reply</a> to them today.
+                  </div>
+                  <div class="actions">
+                    <a href="${askUrl}" target="_blank" rel="noopener">ask if they're mad</a>
+                    <a class="ghost" href="https://bsky.app/profile/${esc(m.handle)}" target="_blank" rel="noopener">view profile</a>
+                  </div>
+                </div>
+              </div>`;
+          })
+          .join("");
+      }
+
+      function wireShare(myHandle, flaggedCount, mootCount) {
+        const text = `${flaggedCount} of the ${mootCount} moots I replied to today didn't courtesy-like me back 👀 check who's ghosting you: bisks.net/areyoumad`;
+        shareLink.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+        toolbar.hidden = false;
+      }
+
+      goBtn.addEventListener("click", run);
+      handleInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") run();
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
