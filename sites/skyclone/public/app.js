@@ -474,7 +474,7 @@ function repostActionHtml(post, url) {
   const reposted = repostedPosts.has(post.uri);
   const count = (post.repostCount || 0) + (post.quoteCount || 0);
   return `<span class="act repost${reposted ? " reposted" : ""}">
-    <span class="repost-icon" data-action="repost" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" title="${reposted ? "Undo repost" : "Repost"}">🔁</span>
+    <span class="repost-icon" data-action="repost" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" title="${reposted ? "Shake it off the web" : "Send it back out"}">🪰</span>
     <span class="repost-count" data-href="${url}/reposted-by" data-count="${count}">${fmtCount(count)}</span>
   </span>`;
 }
@@ -691,7 +691,7 @@ function feedItemHtml(item) {
   const reason = item.reason;
   let reasonLine = "";
   if (reason?.$type === "app.bsky.feed.defs#reasonRepost") {
-    reasonLine = `<div class="reply-context">🔁 <a href="${profileUrl(reason.by.handle)}" data-link>${esc(reason.by.displayName || reason.by.handle)}</a> reposted</div>`;
+    reasonLine = `<div class="reply-context">🪰 <a href="${profileUrl(reason.by.handle)}" data-link>${esc(reason.by.displayName || reason.by.handle)}</a> reposted</div>`;
   }
   return reasonLine ? reasonLine + postCard(item.post, { showReplyContext: true }).replace('class="post"', 'class="post" style="padding-top:0"') : postCard(item.post, { showReplyContext: true });
 }
@@ -726,7 +726,7 @@ const NAV_ITEMS = [
   { path: "/search", label: "Search", icon: "🔎" },
   { path: "/trending", label: "Trending", icon: "📈" },
   { path: "/feeds", label: "Feeds", icon: "📋" },
-  { path: "/about", label: "About", icon: "🦋" },
+  { path: "/about", label: "About", icon: "🕷️" },
 ];
 
 function isActive(path, itemPath) {
@@ -765,10 +765,10 @@ function shellHtml(activePath) {
       <span class="ic">${item.icon}</span>${mobile ? "" : `<span class="label">${item.label}</span>`}
     </a>`;
   return `
-  <div class="mobile-topbar"><span>🦋 skyclone</span>${mobileAuthHtml()}</div>
+  <div class="mobile-topbar"><span>🕷️ skyclone</span>${mobileAuthHtml()}</div>
   <div class="shell">
     <nav class="nav">
-      <a class="nav-logo" href="${MOUNT}/" data-link><span class="wing">🦋</span><span class="word">skyclone</span></a>
+      <a class="nav-logo" href="${MOUNT}/" data-link><span class="wing">🕷️</span><span class="word">skyclone</span></a>
       <div class="nav-items">${NAV_ITEMS.map((i) => navItem(i, false)).join("")}</div>
       <div class="nav-compose" data-action="compose"><span class="ic">🕷️</span><span class="label">New Post</span></div>
       ${navCtaHtml()}
@@ -1222,7 +1222,7 @@ function AboutView(main) {
     headerHtml("About skyclone") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
       <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
-      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🔁 is a genuine <code>app.bsky.feed.repost</code>, and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
+      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🪰 is a genuine <code>app.bsky.feed.repost</code> (a fly, loosed back into the web), and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
       <p>For notifications, DMs, or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
