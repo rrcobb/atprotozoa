@@ -131,11 +131,50 @@ function externalEmbed(ext) {
   </a></div>`;
 }
 
+let videoSeq = 0;
 function videoEmbed(v) {
-  return `<div class="embed"><div class="video-embed">
+  const id = "vid-" + ++videoSeq;
+  return `<div class="embed"><div class="video-embed" id="${id}" data-playlist="${esc(v.playlist || "")}" data-action="play-video">
     ${v.thumbnail ? `<img src="${esc(v.thumbnail)}" alt="">` : ""}
     <div class="play">▶</div>
   </div></div>`;
+}
+
+function playVideo(box) {
+  const src = box.getAttribute("data-playlist");
+  if (!src) return;
+  box.removeAttribute("data-action");
+  const video = document.createElement("video");
+  video.controls = true;
+  video.autoplay = true;
+  video.playsInline = true;
+  box.innerHTML = "";
+  box.appendChild(video);
+  if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = src;
+    return;
+  }
+  if (window.Hls && window.Hls.isSupported()) {
+    attachHls(video, src);
+    return;
+  }
+  const s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js";
+  s.onload = () => attachHls(video, src);
+  s.onerror = () => {
+    box.innerHTML = `<div class="err-box">Couldn't load video player</div>`;
+  };
+  document.head.appendChild(s);
+}
+function attachHls(video, src) {
+  if (window.Hls && window.Hls.isSupported()) {
+    const hls = new window.Hls();
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    hls.on(window.Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+  } else {
+    video.src = src;
+  }
 }
 
 function quoteRecordEmbed(rec) {
@@ -225,8 +264,8 @@ function postCard(post, opts) {
       ${renderEmbed(post.embed, isSensitive(post))}
       <div class="post-actions">
         <span class="act reply">💬 <span>${fmtCount(post.replyCount)}</span></span>
-        <span class="act repost">🔁 <span>${fmtCount((post.repostCount || 0) + (post.quoteCount || 0))}</span></span>
-        <span class="act like">🤍 <span>${fmtCount(post.likeCount)}</span></span>
+        <span class="act repost" data-href="${url}/reposted-by">🔁 <span>${fmtCount((post.repostCount || 0) + (post.quoteCount || 0))}</span></span>
+        <span class="act like" data-href="${url}/liked-by">🤍 <span>${fmtCount(post.likeCount)}</span></span>
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗</a>
       </div>
     </div>
@@ -270,6 +309,7 @@ function centerMsg(title, body) {
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: "🏠" },
   { path: "/search", label: "Search", icon: "🔎" },
+  { path: "/trending", label: "Trending", icon: "📈" },
   { path: "/feeds", label: "Feeds", icon: "📋" },
   { path: "/about", label: "About", icon: "🦋" },
 ];
@@ -400,6 +440,22 @@ async function loadFeed(feedUri, box, cursor) {
     }
   } catch (e) {
     box.innerHTML = errorBox("Couldn't load this feed (" + e.message + ")", location.pathname + location.search);
+  }
+}
+
+async function TrendingView(main) {
+  main.innerHTML = headerHtml("Trending", "What people are talking about right now") + skeleton(8);
+  try {
+    const data = await xrpc("app.bsky.unspecced.getTrendingTopics", { limit: 24 });
+    const row = (t) => `<div class="card-row" data-href="${MOUNT}${t.link}">
+      <div class="cr-body"><div class="cr-title">${esc(t.topic)}</div></div>
+    </div>`;
+    let out = "";
+    if (data.topics?.length) out += `<div class="section-label">Trending topics</div>` + data.topics.map(row).join("");
+    if (data.suggested?.length) out += `<div class="section-label">Suggested feeds</div>` + data.suggested.map(row).join("");
+    main.innerHTML = headerHtml("Trending", "What people are talking about right now") + (out || centerMsg("Nothing trending right now"));
+  } catch (e) {
+    main.innerHTML = headerHtml("Trending") + errorBox("Couldn't load trending topics (" + e.message + ")");
   }
 }
 
@@ -540,6 +596,25 @@ async function followListView(main, handle, tabKey, title, method, field) {
   }
 }
 
+async function LikedByView(main, params, args) {
+  await postActorListView(main, args.handle, args.rkey, "Liked by", "app.bsky.feed.getLikes", "likes", (l) => l.actor);
+}
+async function RepostedByView(main, params, args) {
+  await postActorListView(main, args.handle, args.rkey, "Reposted by", "app.bsky.feed.getRepostedBy", "repostedBy", (a) => a);
+}
+async function postActorListView(main, handle, rkey, title, method, field, unwrap) {
+  main.innerHTML = headerHtml(title, "", true) + skeleton(6);
+  try {
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: handle });
+    const uri = `at://${profile.did}/app.bsky.feed.post/${rkey}`;
+    const data = await xrpc(method, { uri, limit: 40 });
+    const actors = (data[field] || []).map(unwrap);
+    main.innerHTML = headerHtml(title, "", true) + (actors.length ? actors.map(actorRow).join("") : centerMsg("Nobody yet"));
+  } catch (e) {
+    main.innerHTML = headerHtml(title, "", true) + errorBox("Couldn't load this list (" + e.message + ")");
+  }
+}
+
 async function ThreadView(main, params, args) {
   const { handle, rkey } = args;
   main.innerHTML = headerHtml("Post", "", true) + skeleton(3);
@@ -577,8 +652,8 @@ async function ThreadView(main, params, args) {
       <div class="thread-time">${new Date(focus.record.createdAt).toLocaleString()}</div>
       <div class="post-actions">
         <span class="act reply">💬 <span>${fmtCount(focus.replyCount)}</span></span>
-        <span class="act repost">🔁 <span>${fmtCount((focus.repostCount || 0) + (focus.quoteCount || 0))}</span></span>
-        <span class="act like">🤍 <span>${fmtCount(focus.likeCount)}</span></span>
+        <span class="act repost" data-href="${postUrl(focus.author.handle, focus.uri)}/reposted-by">🔁 <span>${fmtCount((focus.repostCount || 0) + (focus.quoteCount || 0))}</span></span>
+        <span class="act like" data-href="${postUrl(focus.author.handle, focus.uri)}/liked-by">🤍 <span>${fmtCount(focus.likeCount)}</span></span>
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗ Share</a>
       </div>
     </div>`;
@@ -679,7 +754,10 @@ const ROUTES = [
   { pattern: "/", view: HomeView },
   { pattern: "/feeds", view: FeedsView },
   { pattern: "/search", view: SearchView },
+  { pattern: "/trending", view: TrendingView },
   { pattern: "/about", view: AboutView },
+  { pattern: "/profile/:handle/post/:rkey/liked-by", view: LikedByView },
+  { pattern: "/profile/:handle/post/:rkey/reposted-by", view: RepostedByView },
   { pattern: "/profile/:handle/post/:rkey", view: ThreadView },
   { pattern: "/profile/:handle/follows", view: FollowsView },
   { pattern: "/profile/:handle/followers", view: FollowersView },
@@ -755,9 +833,20 @@ document.addEventListener("click", (e) => {
     cover.classList.remove("sensitive-cover");
     return;
   }
+  const videoBox = e.target.closest("[data-action='play-video']");
+  if (videoBox) {
+    e.stopPropagation();
+    playVideo(videoBox);
+    return;
+  }
+  if (e.target.closest(".video-embed")) {
+    e.stopPropagation();
+    return;
+  }
   if (e.target.tagName === "IMG" && e.target.closest(".imgs")) {
     e.stopPropagation();
-    openLightbox(e.target.src);
+    const imgs = [...e.target.closest(".imgs").querySelectorAll("img")].map((i) => i.src);
+    openLightbox(imgs, imgs.indexOf(e.target.src));
     return;
   }
   if (e.target.closest("[data-action='back']")) {
@@ -768,18 +857,49 @@ document.addEventListener("click", (e) => {
   if (card) navigate(card.getAttribute("data-href"));
 });
 
-function openLightbox(src) {
+let lightboxImgs = [];
+let lightboxIdx = 0;
+function openLightbox(imgs, idx) {
+  lightboxImgs = imgs && imgs.length ? imgs : [imgs];
+  lightboxIdx = idx || 0;
   let box = document.getElementById("lightbox");
   if (!box) {
     box = document.createElement("div");
     box.id = "lightbox";
     box.className = "lightbox";
-    box.innerHTML = `<img>`;
-    box.addEventListener("click", () => box.classList.remove("open"));
+    box.innerHTML = `<span class="lb-close" data-action="lb-close">✕</span>
+      <span class="lb-nav lb-prev" data-action="lb-prev">‹</span>
+      <img>
+      <span class="lb-nav lb-next" data-action="lb-next">›</span>`;
+    box.addEventListener("click", (e) => {
+      const action = e.target.closest("[data-action]")?.getAttribute("data-action");
+      if (action === "lb-prev") { e.stopPropagation(); lbShow(-1); return; }
+      if (action === "lb-next") { e.stopPropagation(); lbShow(1); return; }
+      box.classList.remove("open");
+    });
     document.body.appendChild(box);
   }
-  box.querySelector("img").src = src;
+  lbRender();
   box.classList.add("open");
 }
+function lbShow(delta) {
+  lightboxIdx = (lightboxIdx + delta + lightboxImgs.length) % lightboxImgs.length;
+  lbRender();
+}
+function lbRender() {
+  const box = document.getElementById("lightbox");
+  if (!box) return;
+  box.querySelector("img").src = lightboxImgs[lightboxIdx];
+  const multi = lightboxImgs.length > 1;
+  box.querySelector(".lb-prev").style.display = multi ? "" : "none";
+  box.querySelector(".lb-next").style.display = multi ? "" : "none";
+}
+document.addEventListener("keydown", (e) => {
+  const box = document.getElementById("lightbox");
+  if (!box || !box.classList.contains("open")) return;
+  if (e.key === "Escape") box.classList.remove("open");
+  else if (e.key === "ArrowLeft") lbShow(-1);
+  else if (e.key === "ArrowRight") lbShow(1);
+});
 
 render();
