@@ -349,6 +349,80 @@ function closeReplyModal() {
   document.getElementById("reply-modal")?.remove();
 }
 
+// A real top-level app.bsky.feed.post — no reply ref, just spun straight
+// into the user's own repo from the New Post button.
+function openComposeModal() {
+  if (!session) {
+    openLoginModal();
+    return;
+  }
+  if (document.getElementById("compose-modal")) return;
+  const box = document.createElement("div");
+  box.id = "compose-modal";
+  box.className = "modal-overlay";
+  box.innerHTML = `
+    <div class="modal">
+      <h2>🕷️ Spin a post</h2>
+      <p>A real app.bsky.feed.post, written straight to your own repo — into the spider internet.</p>
+      <textarea id="compose-text" maxlength="300" placeholder="What's caught your eye?" autocomplete="off"></textarea>
+      <div class="reply-count-hint" id="compose-chars">300</div>
+      <div class="modal-actions">
+        <button type="button" id="compose-cancel" class="pill-btn">Cancel</button>
+        <button type="button" id="compose-go" class="pill-btn primary">Spin it</button>
+      </div>
+      <div class="modal-status" id="compose-status"></div>
+    </div>`;
+  document.body.appendChild(box);
+  const input = document.getElementById("compose-text");
+  const chars = document.getElementById("compose-chars");
+  input.focus();
+  input.addEventListener("input", () => {
+    chars.textContent = String(300 - input.value.length);
+  });
+  box.addEventListener("click", (e) => {
+    if (e.target === box) closeComposeModal();
+  });
+  document.getElementById("compose-cancel").onclick = closeComposeModal;
+  const go = document.getElementById("compose-go");
+  const status = document.getElementById("compose-status");
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    go.disabled = true;
+    status.textContent = "Spinning…";
+    try {
+      const { dpopFetch } = await oauth();
+      const pds = session.pdsUrl.replace(/\/$/, "");
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: "app.bsky.feed.post",
+          record: {
+            $type: "app.bsky.feed.post",
+            text,
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`post failed (${res.status})`);
+      closeComposeModal();
+      showToast("Spun into the web 🕷️", "ok");
+    } catch (e) {
+      status.textContent = e.message || String(e);
+      go.disabled = false;
+    }
+  };
+  go.onclick = submit;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+  });
+}
+function closeComposeModal() {
+  document.getElementById("compose-modal")?.remove();
+}
+
 // ---------- small helpers ----------
 
 function h(strings, ...vals) {
@@ -696,6 +770,7 @@ function shellHtml(activePath) {
     <nav class="nav">
       <a class="nav-logo" href="${MOUNT}/" data-link><span class="wing">🦋</span><span class="word">skyclone</span></a>
       <div class="nav-items">${NAV_ITEMS.map((i) => navItem(i, false)).join("")}</div>
+      <div class="nav-compose" data-action="compose"><span class="ic">🕷️</span><span class="label">New Post</span></div>
       ${navCtaHtml()}
       <div class="nav-spacer"></div>
       <div class="nav-foot">Unofficial fan clone. Not affiliated with Bluesky PBC. Live public data — browse freely, or log in with OAuth for your own timeline.<br><a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a></div>
@@ -704,6 +779,7 @@ function shellHtml(activePath) {
     <aside class="aside" id="aside"></aside>
   </div>
   <div class="mobile-tabbar">${NAV_ITEMS.map((i) => navItem(i, true)).join("")}</div>
+  <div class="compose-fab" data-action="compose" title="New post">🕷️</div>
   `;
 }
 
@@ -716,7 +792,7 @@ function asideHtml() {
   <div class="aside-card">
     <h2>What is this?</h2>
     <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>Browse without an account, or log in with OAuth to see your real home timeline, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. For notifications or DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline, spin your own posts, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. For notifications or DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -1243,6 +1319,10 @@ document.addEventListener("click", (e) => {
     logout();
     return;
   }
+  if (e.target.closest("[data-action='compose']")) {
+    openComposeModal();
+    return;
+  }
   const likeIcon = e.target.closest("[data-action='like']");
   if (likeIcon) {
     e.stopPropagation();
@@ -1335,6 +1415,10 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape" && document.getElementById("reply-modal")) {
     closeReplyModal();
+    return;
+  }
+  if (e.key === "Escape" && document.getElementById("compose-modal")) {
+    closeComposeModal();
     return;
   }
   const box = document.getElementById("lightbox");
