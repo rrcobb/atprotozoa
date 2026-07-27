@@ -139,6 +139,72 @@
     100% { transform: translate(-50%, -150%) scale(1.1); opacity: 0; }
   }
 
+  /* --- CRT overlay: faint scanlines + vignette + occasional flicker,
+     always on (this shack was "best viewed at 800x600" for a reason) --- */
+  #crt-overlay {
+    position: fixed; inset: 0; z-index: 2147483001; pointer-events: none;
+    background-image: repeating-linear-gradient(
+      180deg, rgba(0,0,0,0.16) 0px, rgba(0,0,0,0.16) 1px,
+      transparent 2px, transparent 3px
+    );
+    mix-blend-mode: multiply;
+  }
+  #crt-overlay::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+  #crt-overlay.flicker { animation: crt-flicker 6.5s steps(1) infinite; }
+  @keyframes crt-flicker {
+    0%, 96%, 100% { opacity: 1; }
+    97% { opacity: 0.82; }
+    98% { opacity: 1; }
+    99% { opacity: 0.9; }
+  }
+  @media (prefers-reduced-motion: reduce) { #crt-overlay.flicker { animation: none; } }
+
+  /* --- winamp-ish visualizer bars, lit up by the chowder loop --- */
+  .viz-wrap { display: flex; justify-content: center; margin: 0.7rem 0 0.2rem; }
+  #viz {
+    width: min(280px, 80vw); height: 40px;
+    background: #000;
+    border: 2px inset #5c4a22;
+  }
+
+  /* --- confetti burst (clams + stars) for the name reveal --- */
+  #confetti-layer {
+    position: fixed; inset: 0; pointer-events: none; z-index: 2147483000;
+    overflow: hidden;
+  }
+  .confetti-piece {
+    position: absolute; top: -5%; font-size: 1.3rem; will-change: transform, opacity;
+    animation-name: confetti-fall; animation-timing-function: ease-in;
+    animation-fill-mode: forwards;
+  }
+  @keyframes confetti-fall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(105vh) rotate(var(--spin, 540deg)); opacity: 0.15; }
+  }
+
+  /* --- glitch flicker on the hero logo, VHS-tracking style --- */
+  header.hero .logo.glitching {
+    animation: logo-glitch 0.22s steps(2, end) 2;
+    text-shadow:
+      2px 0 var(--red-bright),
+      -2px 0 #2ee6d6,
+      0 0 12px rgba(255, 210, 94, 0.6);
+  }
+  @keyframes logo-glitch {
+    0% { transform: translate(0, 0) skewX(0deg); }
+    20% { transform: translate(-3px, 1px) skewX(-2deg); }
+    40% { transform: translate(3px, -1px) skewX(2deg); }
+    60% { transform: translate(-2px, 0) skewX(0deg); }
+    80% { transform: translate(2px, 1px) skewX(1deg); }
+    100% { transform: translate(0, 0) skewX(0deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    header.hero .logo.glitching { animation: none; text-shadow: none; }
+  }
+
   /* --- entrance gate --- */
   #gate {
     position: fixed; inset: 0; z-index: 999;
@@ -432,6 +498,7 @@
         <span class="badge">🔊 SOUND ON</span>
       </div>
       <button id="soundToggle" class="btn" type="button" style="font-size:0.75rem;">🔇 chowder loop: off</button>
+      <div class="viz-wrap"><canvas id="viz" width="280" height="40"></canvas></div>
     </header>
 
     <nav class="tabs">
@@ -559,6 +626,8 @@
   </div>
 
   <div id="sparkle-layer"></div>
+  <div id="confetti-layer"></div>
+  <div id="crt-overlay"></div>
 
   <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
   <div id="cm-coop"></div>
@@ -1011,6 +1080,7 @@
 
         setStatus("");
         wnEls.card.classList.add("show");
+        burstConfetti();
         return buildShareCard(profile, r);
       });
     }).catch(function (err) {
@@ -1138,7 +1208,7 @@
   // Gate + tiny synthesized "chowder loop" (Web Audio, no samples).
   // Autoplay policies require a user gesture, so it starts on Enter.
   // ============================================================
-  var audioCtx = null, loopTimer = null, loopOn = false;
+  var audioCtx = null, loopTimer = null, loopOn = false, analyser = null;
   function playBlip(t, freq, dur, type, gain) {
     var osc = audioCtx.createOscillator();
     var g = audioCtx.createGain();
@@ -1147,7 +1217,7 @@
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain || 0.05, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(g).connect(audioCtx.destination);
+    osc.connect(g).connect(analyser || audioCtx.destination);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -1161,11 +1231,49 @@
     loopTimer = setTimeout(scheduleLoop, notes.length * 220);
   }
   var soundBtn = document.getElementById("soundToggle");
+
+  // ------------------------------------------------------------
+  // Visualizer — a strip of LCD-red bars reading the chowder
+  // loop's frequency data, Winamp-in-a-clam-shack style. Draws
+  // only while the loop is on; idles flat otherwise.
+  // ------------------------------------------------------------
+  var vizCanvas = document.getElementById("viz");
+  var vizCtx = vizCanvas ? vizCanvas.getContext("2d") : null;
+  var vizRaf = null;
+  var vizReduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function drawViz() {
+    if (!vizCtx) return;
+    var W = vizCanvas.width, H = vizCanvas.height;
+    vizCtx.clearRect(0, 0, W, H);
+    if (loopOn && analyser) {
+      var data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      var barCount = 24;
+      var barW = W / barCount;
+      for (var i = 0; i < barCount; i++) {
+        var v = data[i % data.length] / 255;
+        var barH = Math.max(2, v * H);
+        vizCtx.fillStyle = i % 5 === 0 ? "#ffd25e" : "#e6402f";
+        vizCtx.fillRect(i * barW + 1, H - barH, barW - 2, barH);
+      }
+    } else {
+      vizCtx.fillStyle = "#3a0000";
+      vizCtx.fillRect(0, H - 2, W, 2);
+    }
+    vizRaf = requestAnimationFrame(drawViz);
+  }
+  if (vizCtx) drawViz();
+
   function setLoop(on) {
     loopOn = on;
     soundBtn.textContent = on ? "🔊 chowder loop: on" : "🔇 chowder loop: off";
     if (on) {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.connect(audioCtx.destination);
+      }
       if (audioCtx.state === "suspended") audioCtx.resume();
       scheduleLoop();
     } else if (loopTimer) {
@@ -1178,6 +1286,54 @@
     document.body.classList.add("entered");
     setLoop(true);
   });
+
+  // ------------------------------------------------------------
+  // CRT overlay — scanlines are always visible; the occasional-
+  // flicker animation only kicks in without reduced-motion.
+  // ------------------------------------------------------------
+  var crtOverlay = document.getElementById("crt-overlay");
+  if (crtOverlay && !vizReduceMotion) crtOverlay.classList.add("flicker");
+
+  // ------------------------------------------------------------
+  // Logo glitch — a quick VHS-tracking stutter on the hero
+  // wordmark every so often, timing randomized per-cycle.
+  // ------------------------------------------------------------
+  var heroLogo = document.querySelector("header.hero .logo");
+  if (heroLogo && !vizReduceMotion) {
+    (function scheduleGlitch() {
+      setTimeout(function () {
+        heroLogo.classList.add("glitching");
+        setTimeout(function () { heroLogo.classList.remove("glitching"); }, 260);
+        scheduleGlitch();
+      }, 4000 + Math.random() * 5000);
+    })();
+  }
+
+  // ------------------------------------------------------------
+  // Confetti burst — clams and stars raining down on a successful
+  // Wu-Clam name reveal. Capped count, self-cleaning per piece.
+  // ------------------------------------------------------------
+  var confettiLayer = document.getElementById("confetti-layer");
+  function burstConfetti() {
+    if (!confettiLayer || vizReduceMotion) return;
+    var GLYPHS = ["🦪", "⭐", "✨", "🥇"];
+    var count = 26;
+    for (var i = 0; i < count; i++) {
+      var el = document.createElement("span");
+      el.className = "confetti-piece";
+      el.textContent = GLYPHS[(Math.random() * GLYPHS.length) | 0];
+      el.style.left = Math.random() * 100 + "%";
+      el.style.fontSize = (1 + Math.random() * 0.9) + "rem";
+      var duration = 1.6 + Math.random() * 1.4;
+      el.style.animationDuration = duration + "s";
+      el.style.animationDelay = (Math.random() * 0.4) + "s";
+      el.style.setProperty("--spin", (Math.random() < 0.5 ? "-" : "") + (360 + Math.random() * 360) + "deg");
+      confettiLayer.appendChild(el);
+      (function (node) {
+        node.addEventListener("animationend", function () { node.remove(); });
+      })(el);
+    }
+  }
   </script>
 </body>
 </html>
