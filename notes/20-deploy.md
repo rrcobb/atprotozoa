@@ -354,3 +354,36 @@ deploy makes them serve harmless content (enough to clear the flag); fully delet
 the Worker + that custom-domain binding is a separate manual step. After the stub is
 live and the page serves benign content, file the review via Search Console's
 **Request Review** button.
+
+## Migrated-to-path sites: the old custom domain can keep resolving and silently break
+
+`@ver.ooo` reported (2026-07-27) that `fitzcarraldo.bisks.net` — the site's
+original custom domain, before the "bardposting" commit (2bdbc6c) moved it to the
+`bisks.net/games/fitzcarraldo` clustered path route — "doesn't seem to load."
+`dig fitzcarraldo.bisks.net` still resolves (unlike genuinely-never-provisioned
+or intentionally-retired hostnames like `windmill.bisks.net`, which return no
+record): moving a site's `routes` off `custom_domain = true` in `wrangler.toml`
+does **not** deprovision the old custom-domain hostname in Cloudflare, so it kept
+routing straight to the same Worker.
+
+The break: every path-mounted site's `src/index.ts` unconditionally does
+`url.pathname.slice(PREFIX.length) || "/"` to strip the mount prefix before
+handing off to `ASSETS.fetch`. Hit through the *old* domain, requests arrive
+**without** that prefix, so the slice chops the front off short paths instead
+(`"/game.js".slice(20)` → `""` → falls back to `"/"`) and every asset request —
+JS, images, fonts — silently served `index.html` instead. The page itself loaded
+fine (empty path still resolves to `/` either way), so this only shows up as
+"the game/interactive part doesn't work," not an outright 404 — easy to miss in
+a quick check.
+
+Fixed for `fitzcarraldo` by guarding the strip (`sites/fitzcarraldo/src/index.ts`):
+only slice when `url.pathname === PREFIX || url.pathname.startsWith(PREFIX + "/")`,
+otherwise pass the request through unchanged. This makes the Worker correct
+regardless of which still-live hostname hits it, without needing dashboard access
+to actually remove the stale custom domain.
+
+**Every other site migrated off a custom domain onto a path route (the ~24+12+10
+from the sections above, and any since) likely has the same latent bug** if its
+old hostname is still resolving — worth sweeping `sites/*/src/index.ts` for the
+unconditional-slice pattern and applying the same guard, and/or getting dashboard
+access to actually deprovision the stale custom domains at the source.
