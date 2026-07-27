@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>quotehof — the quote poster's hall of fame</title>
+    <meta
+      name="description"
+      content="A hall of fame for a very specific shape of Bluesky post: a Quote Post that's just an image, quoting a post that's just text. Top 10 reposted and top 10 liked, last 14 days."
+    />
+    <meta property="og:title" content="quotehof — the quote poster's hall of fame" />
+    <meta
+      property="og:description"
+      content="Quote Post = image only. Quoted post = text only. Top 10 reposted + top 10 liked, last 14 days. No wammies."
+    />
+    <meta name="twitter:card" content="summary" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --panel: #f7f7f7;
+        --accent: #1a5fd0;
+        --gold: #a5790a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--mono);
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.65; max-width: 62ch; margin: 0 0 1rem; }
+      .rules {
+        font-size: 0.82rem; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 10px; padding: 0.8rem 1rem;
+        margin: 0 0 1.4rem; line-height: 1.65;
+      }
+      .rules b { color: var(--ink); }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 2rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #c9c9c9; transition: background 0.3s; }
+      .dot.live { background: #2ecc71; animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: #ccc; }
+
+      .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.4rem; }
+      .tab {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        background: var(--bg); color: var(--muted); border: 1px solid var(--faint);
+        border-radius: 8px; padding: 0.5rem 0.9rem; cursor: pointer;
+      }
+      .tab.active { color: var(--ink); border-color: var(--ink); background: var(--panel); }
+
+      .board-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+
+      ol.board { list-style: none; margin: 0 0 2.5rem; padding: 0; }
+      .row {
+        display: flex; gap: 1rem; padding: 1.1rem 0; border-top: 1px solid var(--faint);
+        align-items: flex-start; animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .rank { font-weight: 800; font-size: 1rem; color: var(--muted); min-width: 1.7rem; padding-top: 0.15rem; }
+      .rank.gold { color: var(--gold); }
+
+      .quotepost { flex: none; width: 116px; }
+      .quotepost img {
+        width: 116px; height: 116px; object-fit: cover; border-radius: 10px;
+        border: 1px solid var(--faint); display: block; background: var(--panel);
+      }
+      .quotepost .who3 { font-size: 0.68rem; color: var(--muted); margin-top: 0.35rem; text-align: center; }
+
+      .body { flex: 1; min-width: 0; }
+      .quoted {
+        background: var(--panel); border: 1px solid var(--faint); border-left: 3px solid var(--ink);
+        border-radius: 8px; padding: 0.7rem 0.85rem; margin-bottom: 0.6rem;
+      }
+      .quoted .qtext {
+        font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word;
+        word-break: break-word; margin: 0 0 0.35rem;
+      }
+      .quoted .qwho { font-size: 0.75rem; color: var(--muted); }
+      .quoted .qwho .n { font-weight: 700; color: var(--ink); }
+
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.8rem; color: var(--muted);
+        font-size: 0.78rem; font-variant-numeric: tabular-nums; align-items: center;
+      }
+      .meta .count { font-weight: 800; color: var(--ink); }
+      .meta a.perma { color: var(--muted); text-decoration: none; }
+      .meta a.perma:hover { color: var(--ink); text-decoration: underline; }
+
+      .share { margin: 1.8rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--ink); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>quotehof</h1>
+        <p class="sub">
+          The quote poster's hall of fame — but only a very specific shape
+          of quote counts. The Quote Post itself can only have an image (no
+          caption). The post it quotes can only have text (no image, no
+          link card, no quote of its own). Two boards, last 14 days.
+        </p>
+      </header>
+
+      <div class="rules">
+        <b>Qualifying shape:</b> quote post = image, nothing else. Quoted
+        post = text, nothing else. Every entry here is re-checked against
+        the live post before it counts — no wammies.
+      </div>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span id="trackingText"></span>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" id="tabRepost" type="button">top 10 reposted</button>
+        <button class="tab" id="tabLike" type="button">top 10 liked</button>
+      </div>
+
+      <div class="board-title" id="boardTitle">most reposted, last 14 days</div>
+      <div class="empty" id="empty" style="display:none">
+        Nothing's qualified yet. This shape — an image-only quote of a
+        text-only post — is rare, and the tracker only sees posts made
+        since it went live, checked a few minutes after they're posted.
+        Check back as the 14-day window fills in.
+      </div>
+      <ol class="board" id="board"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=bisks.net/quotehof" target="_blank" rel="noopener">share this board</a>
+      </div>
+
+      <footer>
+        Sampled from the live firehose via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>,
+        each candidate's shape confirmed against the public AppView a few
+        minutes after posting, then re-checked periodically so counts stay
+        live. Ranked by the quote post's own repost/like count. idea from
+        <a href="https://bsky.app/profile/psingletary.com">@psingletary.com</a>,
+        tagged in by <a href="https://bsky.app/profile/antiali.as">@antiali.as</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const trackingText = document.getElementById("trackingText");
+      const empty = document.getElementById("empty");
+      const board = document.getElementById("board");
+      const boardTitle = document.getElementById("boardTitle");
+      const shareLink = document.getElementById("shareLink");
+      const tabRepost = document.getElementById("tabRepost");
+      const tabLike = document.getElementById("tabLike");
+
+      let mode = "repost"; // or "like"
+      let lastData = null;
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(handle, rkey) {
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+
+      function rowHTML(e, i, mode) {
+        const rankClass = i === 0 ? "rank gold" : "rank";
+        const count = mode === "repost" ? e.repostCount : e.likeCount;
+        const countLabel = mode === "repost" ? "reposts" : "likes";
+        const otherCount = mode === "repost" ? e.likeCount : e.repostCount;
+        const otherLabel = mode === "repost" ? "likes" : "reposts";
+        return `
+          <li class="row">
+            <div class="${rankClass}">${i + 1}</div>
+            <div class="quotepost">
+              <img src="${esc(e.imgThumb || "")}" alt="" referrerpolicy="no-referrer" loading="lazy" />
+              <div class="who3">@${esc(e.handle)}</div>
+            </div>
+            <div class="body">
+              <div class="quoted">
+                <p class="qtext">${esc(e.quotedText) || "<em>(no text)</em>"}</p>
+                <div class="qwho">
+                  quoting <span class="n">@${esc(e.quotedHandle)}</span>
+                </div>
+              </div>
+              <div class="meta">
+                <span class="count">${count.toLocaleString()}</span>
+                <span>${countLabel}</span>
+                <span>·</span>
+                <span>${otherCount.toLocaleString()} ${otherLabel}</span>
+                <span>${timeAgo(e.createdAt)}</span>
+                <a class="perma" href="${postUrl(e.handle, e.rkey)}" target="_blank" rel="noopener">quote ↗</a>
+                <a class="perma" href="${postUrl(e.quotedHandle, e.quotedRkey)}" target="_blank" rel="noopener">quoted ↗</a>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function renderBoard() {
+        if (!lastData) return;
+        const list = mode === "repost" ? lastData.byRepost || [] : lastData.byLike || [];
+        boardTitle.textContent = mode === "repost" ? "most reposted, last 14 days" : "most liked, last 14 days";
+        tabRepost.classList.toggle("active", mode === "repost");
+        tabLike.classList.toggle("active", mode === "like");
+
+        if (!list.length) {
+          empty.style.display = "";
+          board.innerHTML = "";
+          return;
+        }
+        empty.style.display = "none";
+        board.innerHTML = list.map((e, i) => rowHTML(e, i, mode)).join("");
+
+        const top = list[0];
+        const shareText =
+          mode === "repost"
+            ? `most reposted image-quote-of-a-text-post on Bluesky right now: @${top.handle} — ${top.repostCount} reposts. bisks.net/quotehof`
+            : `most liked image-quote-of-a-text-post on Bluesky right now: @${top.handle} — ${top.likeCount} likes. bisks.net/quotehof`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      tabRepost.addEventListener("click", () => { mode = "repost"; renderBoard(); });
+      tabLike.addEventListener("click", () => { mode = "like"; renderBoard(); });
+
+      function render(data) {
+        lastData = data;
+        const days = data.windowDays || 14;
+        trackingText.textContent = `tracking ${data.tracking || 0} qualifying posts from the last ${days} days`;
+        renderBoard();
+      }
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const r = await fetch("/quotehof/api/leaderboard", { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          dot.classList.add("live");
+          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 20000);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
