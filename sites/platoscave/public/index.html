@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PLATO'S CAVE :: an Allegory Simulator (2002)</title>
+<meta name="description" content="A Y2K-flash-portal simulation of Plato's Allegory of the Cave. Guess the shadow puppets, snap your chain, climb to the light, get blinded by the Forms, then go back down and try to convince the others. They will throw rocks at you.">
+<meta property="og:title" content="PLATO'S CAVE">
+<meta property="og:description" content="a flash-game simulator of the Allegory, est. 2002 · guess the shadows, break the chain, see the Forms, go back down and get stoned for it">
+<meta property="og:image" content="https://bisks.net/games/platoscave/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://bisks.net/games/platoscave">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="PLATO'S CAVE">
+<meta name="twitter:description" content="a flash-game simulator of the Allegory, est. 2002 · guess the shadows, break the chain, see the Forms, go back down and get stoned for it">
+<meta name="twitter:image" content="https://bisks.net/games/platoscave/og.png">
+<style>
+  :root {
+    --magenta: #ff2fd6;
+    --cyan: #2fe6ff;
+    --gold: #ffd23f;
+    --wall: #241130;
+    --rock: #150a1c;
+    --rock-lo: #0a0410;
+    --cream: #fff4e0;
+    --panel: rgba(15,6,20,0.88);
+    --glow: 0 0 10px currentColor;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; min-height: 100%;
+    background: radial-gradient(ellipse at 50% -10%, #3a1a48 0%, #0a0410 55%, #050208 100%);
+    color: var(--cream);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  h1, h2, .display {
+    font-family: "Arial Black", Impact, Haettenschweiler, "Franklin Gothic Bold", sans-serif;
+  }
+  #marquee-wrap {
+    overflow: hidden;
+    white-space: nowrap;
+    background: linear-gradient(90deg, #000, #1a0a22, #000);
+    border-bottom: 2px solid var(--magenta);
+    padding: 4px 0;
+  }
+  #marquee {
+    display: inline-block;
+    padding-left: 100%;
+    animation: scrollmarquee 22s linear infinite;
+    color: var(--gold);
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+  @keyframes scrollmarquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  .blink { animation: blinker 1s step-start infinite; }
+  @keyframes blinker { 50% { opacity: 0; } }
+
+  #wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 14px 12px 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+  #titlebar { text-align: center; margin-top: 4px; }
+  #titlebar h1 {
+    margin: 0; font-size: clamp(28px, 7vw, 46px);
+    letter-spacing: 3px;
+    color: var(--cream);
+    text-shadow:
+      0 0 2px #000, 2px 2px 0 var(--magenta), 4px 4px 0 #000,
+      0 0 24px var(--magenta);
+  }
+  #titlebar .sub {
+    font-size: 12px; color: var(--cyan); text-shadow: var(--glow);
+    letter-spacing: 1px; margin-top: 2px;
+  }
+
+  #stage {
+    position: relative;
+    width: 100%;
+    max-width: 960px;
+    aspect-ratio: 16 / 9;
+    border: 3px solid var(--magenta);
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px #000, 0 0 26px rgba(255,47,214,0.45), inset 0 0 40px rgba(0,0,0,0.6);
+    overflow: hidden;
+    background: #05020a;
+  }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  #hud {
+    position: absolute; top: 6px; left: 8px; right: 8px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 12px; z-index: 4; pointer-events: none;
+    text-shadow: 0 1px 2px #000, 0 0 6px #000;
+  }
+  #hud .stat { line-height: 1.4; color: var(--cream); }
+  #hud .stat b { color: var(--gold); }
+  #hud #faith { color: #ff5d8f; letter-spacing: 2px; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    padding: 16px; gap: 12px;
+    z-index: 6;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 {
+    margin: 0; font-size: clamp(22px, 5.4vw, 36px);
+    letter-spacing: 2px; color: var(--gold);
+    text-shadow: 2px 2px 0 #000, 0 0 18px var(--magenta);
+  }
+  .overlay p { margin: 0; max-width: 46ch; line-height: 1.55; font-size: 14px; }
+  .overlay .flavor { color: var(--cyan); font-size: 12px; opacity: 0.9; }
+
+  button.big {
+    font: inherit; font-weight: 700; font-size: 16px;
+    padding: 12px 26px; border-radius: 4px;
+    border: 2px solid var(--gold);
+    background: linear-gradient(180deg, #ff62e6, #b400a0);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 14px var(--magenta), inset 0 1px 0 rgba(255,255,255,0.4);
+    text-shadow: 1px 1px 0 #000;
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.95); }
+  button.big:disabled { opacity: 0.4; cursor: default; }
+  button.ghost {
+    font: inherit; font-size: 13px; padding: 8px 16px; border-radius: 4px;
+    border: 1px solid var(--cyan); background: rgba(0,0,0,0.4); color: var(--cyan);
+    cursor: pointer;
+  }
+
+  /* fake loading screen */
+  #loadLog {
+    width: min(90%, 420px); text-align: left; font-size: 11px;
+    color: #7dffb0; background: #000; border: 1px solid #333;
+    border-radius: 3px; padding: 8px 10px; height: 96px; overflow: hidden;
+  }
+  #loadLog div { opacity: 0.9; }
+  #loadBarOuter {
+    width: min(90%, 420px); height: 18px; border: 2px solid var(--cream);
+    background: #000; border-radius: 2px; overflow: hidden;
+    box-shadow: 0 0 10px rgba(255,255,255,0.25);
+  }
+  #loadBarInner {
+    height: 100%; width: 0%;
+    background: repeating-linear-gradient(45deg, var(--magenta) 0 10px, var(--cyan) 10px 20px);
+    transition: width 0.15s linear;
+  }
+  #loadPct { font-size: 12px; color: var(--gold); }
+
+  /* choice buttons for the shadow-guessing scene */
+  #choices {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    width: 100%; max-width: 960px;
+  }
+  #choices.hidden { display: none; }
+  .choice-btn {
+    font: inherit; font-size: 14px; font-weight: 700; letter-spacing: 1px;
+    padding: 12px 8px; border-radius: 4px;
+    border: 2px solid var(--cyan);
+    background: rgba(10,4,16,0.8); color: var(--cyan);
+    cursor: pointer;
+  }
+  .choice-btn:active { transform: scale(0.97); }
+  .choice-btn:disabled { cursor: default; }
+  .choice-btn.correct { border-color: #7dffb0; color: #7dffb0; background: rgba(0,50,20,0.7); }
+  .choice-btn.wrong { border-color: #ff5d8f; color: #ff5d8f; background: rgba(50,0,10,0.7); }
+
+  /* movement controls for climb / return scenes */
+  #moveControls { display: flex; gap: 10px; width: 100%; max-width: 960px; justify-content: center; }
+  #moveControls.hidden { display: none; }
+  #moveControls button {
+    font: inherit; font-size: 18px; padding: 10px 22px;
+    border-radius: 999px; border: 2px solid var(--gold);
+    background: rgba(10,4,16,0.8); color: var(--gold); cursor: pointer;
+  }
+  #moveControls button#actionBtn { border-color: var(--magenta); color: var(--magenta); font-size: 14px; }
+
+  #bottomBar {
+    width: 100%; max-width: 960px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 8px; margin-top: 4px; font-size: 11px; opacity: 0.9;
+  }
+  #hitcounter {
+    font-family: "Courier New", monospace; font-size: 15px; letter-spacing: 3px;
+    background: #000; color: #ff2222; border: 2px inset #444; border-radius: 2px;
+    padding: 3px 8px; text-shadow: 0 0 6px #ff2222;
+  }
+  #hitcounter::before { content: "VISITOR "; color: #999; font-size: 10px; letter-spacing: 1px; }
+  .badge-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .badge {
+    border: 1px solid var(--gold); color: var(--gold); font-size: 10px;
+    padding: 3px 6px; border-radius: 2px; background: rgba(0,0,0,0.5);
+    text-decoration: none; letter-spacing: 0.5px;
+  }
+  .webring a { color: var(--cyan); text-decoration: none; font-size: 11px; }
+  .webring a:hover { text-decoration: underline; }
+  .foot { width: 100%; text-align: center; font-size: 11px; opacity: 0.65; margin-top: 8px; }
+  .foot a { color: var(--magenta); text-decoration: none; }
+  .foot a:hover { text-decoration: underline; }
+
+  #shareRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #shareCanvas { display: none; }
+</style>
+</head>
+<body>
+
+<div id="marquee-wrap">
+  <span id="marquee">☆☆☆ WELCOME TO PLATO'S CAVE ☆☆☆ BEST VIEWED AT 800x600 WITH 32-BIT SHADOWS ☆☆☆ NOW WITH REAL-TIME FIRE ☆☆☆ SIGN THE GUESTBOOK ☆☆☆ THIS SITE IS UNDER ETERNAL CONSTRUCTION ☆☆☆ p4ck3th4ck3r productions presents ☆☆☆</span>
+</div>
+
+<div id="wrap">
+  <div id="titlebar">
+    <h1>PLATO'S CAVE</h1>
+    <div class="sub blink">▶ AN ALLEGORY SIMULATOR · click to enable sound ◀</div>
+  </div>
+
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="hud">
+      <div class="stat">SCORE <b id="score">0</b></div>
+      <div class="stat" style="text-align:right">FAITH <span id="faith">♥♥♥</span></div>
+    </div>
+
+    <!-- splash / loading -->
+    <div class="overlay" id="splashOverlay">
+      <h2>PLATO'S CAVE</h2>
+      <p class="flavor">a p4ck3th4ck3r production · flash sim, circa 2002 · vaporwave before the word existed</p>
+      <div id="loadLog"></div>
+      <div id="loadBarOuter"><div id="loadBarInner"></div></div>
+      <div id="loadPct">LOADING ASSETS... 0%</div>
+      <div style="display:flex; gap:10px;">
+        <button class="big" id="enterBtn" disabled>☛ ENTER THE CAVE ☚</button>
+        <button class="ghost" id="skipBtn">SKIP INTRO »</button>
+      </div>
+    </div>
+
+    <!-- generic narrative transition card, reused between scenes -->
+    <div class="overlay hidden" id="storyOverlay">
+      <h2 id="storyTitle">TITLE</h2>
+      <p id="storyText">...</p>
+      <button class="big" id="storyBtn">CONTINUE ▶</button>
+    </div>
+
+    <!-- results -->
+    <div class="overlay hidden" id="resultsOverlay">
+      <h2 id="resultsTitle">THE END</h2>
+      <p id="resultsText">...</p>
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div id="shareRow">
+        <a class="big" id="shareBtn" style="text-decoration:none; display:inline-block;" target="_blank" rel="noopener">🦋 share on bluesky</a>
+        <button class="ghost" id="downloadBtn">⇩ save card</button>
+        <button class="big" id="againBtn">↻ RE-ENTER THE CAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="choices" class="hidden">
+    <button class="choice-btn" data-i="0">—</button>
+    <button class="choice-btn" data-i="1">—</button>
+    <button class="choice-btn" data-i="2">—</button>
+    <button class="choice-btn" data-i="3">—</button>
+  </div>
+
+  <div id="moveControls" class="hidden">
+    <button id="leftBtn">◀ LEFT</button>
+    <button id="actionBtn">▲ CLIMB</button>
+    <button id="rightBtn">RIGHT ▶</button>
+  </div>
+
+  <div id="bottomBar">
+    <div id="hitcounter">0001337</div>
+    <div class="badge-row">
+      <span class="badge">★ TOP 2002 SITE ★</span>
+      <span class="badge blink">NEW!</span>
+      <span class="badge">800×600</span>
+    </div>
+    <div class="webring">
+      <a href="https://bisks.net/games/fitzcarraldo">◄ prev site</a> ·
+      <a href="https://bisks.net/games">webring</a> ·
+      <a href="https://bisks.net/games/moonbuggy">next site ►</a>
+    </div>
+  </div>
+
+  <div class="foot">
+    the Allegory, in flash-portal form · shadows guessed, chains snapped, eyes ruined by the sun ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> for
+    <a href="https://bsky.app/profile/ver.ooo">@ver.ooo</a> ·
+    <a href="#" id="guestbookLink">sign the guestbook</a>
+  </div>
+</div>
+
+<script src="game.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
