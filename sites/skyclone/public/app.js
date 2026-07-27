@@ -112,6 +112,7 @@ async function logout() {
   await clearSession();
   session = null;
   sessionProfile = null;
+  unreadCount = null;
   const home = `${MOUNT}/`;
   if (location.pathname + location.search !== home) history.replaceState({}, "", home);
   render();
@@ -748,6 +749,7 @@ function centerMsg(title, body) {
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: "🏠" },
   { path: "/search", label: "Search", icon: "🔎" },
+  { path: "/notifications", label: "Notifications", icon: "🔔" },
   { path: "/trending", label: "Trending", icon: "📈" },
   { path: "/feeds", label: "Feeds", icon: "📋" },
   { path: "/about", label: "About", icon: "🕷️" },
@@ -786,7 +788,7 @@ function mobileAuthHtml() {
 function shellHtml(activePath) {
   const navItem = (item, mobile) => `
     <a class="nav-item ${isActive(activePath, item.path) ? "active" : ""}" href="${MOUNT}${item.path}" data-link>
-      <span class="ic">${item.icon}</span>${mobile ? "" : `<span class="label">${item.label}</span>`}
+      <span class="ic">${item.icon}${item.path === "/notifications" ? `<span class="nav-badge" data-badge-for="notifications"></span>` : ""}</span>${mobile ? "" : `<span class="label">${item.label}</span>`}
     </a>`;
   return `
   <div class="mobile-topbar"><span>🕷️ skyclone</span>${mobileAuthHtml()}</div>
@@ -816,7 +818,7 @@ function asideHtml() {
   <div class="aside-card">
     <h2>What is this?</h2>
     <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>Browse without an account, or log in with OAuth to see your real home timeline, spin your own posts, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. For notifications or DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline, spin your own posts, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. Real notifications live in the 🔔 tab — a spider crawls across your screen when a new one comes in. For DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -949,6 +951,149 @@ async function loadFeed(feedUri, box, cursor) {
   } catch (e) {
     box.innerHTML = errorBox("Couldn't load this feed (" + e.message + ")", location.pathname + location.search);
   }
+}
+
+// ---------- notifications (real, from your own repo's notification feed) ----------
+//
+// app.bsky.notification.listNotifications, proxied through the user's own PDS
+// the same way getTimeline is — no server-side storage, just a live fetch.
+// A lightweight poll (see pollNotifications) watches app.bsky.notification.getUnreadCount
+// in the background; when it climbs, a spider crawls across the screen. AHH!
+
+const NOTIF_META = {
+  like: { icon: "🕸️", verb: "caught your post in their web" },
+  repost: { icon: "🪰", verb: "let your post loose again" },
+  quote: { icon: "🪰", verb: "quoted your post" },
+  follow: { icon: "🕷️", verb: "spun a thread to you" },
+  mention: { icon: "💬", verb: "mentioned you" },
+  reply: { icon: "💬", verb: "replied to you" },
+};
+
+function notifHref(n) {
+  if (n.reason === "follow") return profileUrl(n.author.handle);
+  if (n.reason === "like" || n.reason === "repost") {
+    const rkey = rkeyOf(n.reasonSubject || "");
+    return rkey ? `${profileUrl(session.handle)}/post/${encodeURIComponent(rkey)}` : profileUrl(n.author.handle);
+  }
+  return n.uri ? postUrl(n.author.handle, n.uri) : profileUrl(n.author.handle);
+}
+
+function notificationRow(n) {
+  const meta = NOTIF_META[n.reason] || { icon: "🔔", verb: n.reason };
+  const author = n.author;
+  const text = n.record?.text;
+  return `<div class="card-row notif${n.isRead ? "" : " unread"}" data-href="${notifHref(n)}">
+    <a href="${profileUrl(author.handle)}" data-link><img src="${esc(author.avatar || FALLBACK_AVATAR)}" alt=""></a>
+    <div class="cr-body">
+      <div class="cr-title">${meta.icon} <a href="${profileUrl(author.handle)}" data-link>${esc(author.displayName || author.handle)}</a> ${esc(meta.verb)}</div>
+      ${text ? `<div class="cr-desc">${esc(text.slice(0, 140))}</div>` : ""}
+      <div class="cr-sub">${relTime(n.indexedAt)}</div>
+    </div>
+  </div>`;
+}
+
+async function NotificationsView(main) {
+  if (!session) {
+    main.innerHTML = headerHtml("Notifications") + centerMsg("Not signed in", "Log in with Bluesky (top of the nav) to see your real notifications.");
+    return;
+  }
+  main.innerHTML = headerHtml("Notifications", "", false) + `<div id="notif-list">${skeleton(6)}</div>`;
+  await loadNotifications(document.getElementById("notif-list"));
+  markNotificationsSeen();
+}
+
+async function loadNotifications(box, cursor) {
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    const url = new URL(`${pds}/xrpc/app.bsky.notification.listNotifications`);
+    url.searchParams.set("limit", "30");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const res = await dpopFetch(session, url.toString(), {
+      headers: { accept: "application/json", "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+    });
+    if (!res.ok) throw new Error(`listNotifications failed (${res.status})`);
+    const data = await res.json();
+    if (!cursor) box.innerHTML = "";
+    else box.querySelector(".load-more")?.remove();
+    box.insertAdjacentHTML(
+      "beforeend",
+      data.notifications.map(notificationRow).join("") ||
+        centerMsg("Nothing yet", "When someone catches a post in their web, reposts it, follows you, or replies, it'll show up here.")
+    );
+    if (data.cursor && data.notifications.length) {
+      box.insertAdjacentHTML("beforeend", loadMoreBtn());
+      box.querySelector(".load-more").onclick = (e) => {
+        e.target.textContent = "Loading…";
+        loadNotifications(box, data.cursor);
+      };
+    }
+  } catch (e) {
+    box.innerHTML = errorBox("Couldn't load notifications (" + e.message + ")");
+  }
+}
+
+async function markNotificationsSeen() {
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    await dpopFetch(session, `${pds}/xrpc/app.bsky.notification.updateSeen`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+      body: JSON.stringify({ seenAt: new Date().toISOString() }),
+    });
+    unreadCount = 0;
+    updateNavBadge(0);
+  } catch {}
+}
+
+// null until the first successful poll, so we never spider-scare someone
+// over notifications that were already sitting there before this tab opened.
+let unreadCount = null;
+
+function updateNavBadge(count) {
+  document.querySelectorAll('[data-badge-for="notifications"]').forEach((el) => {
+    el.textContent = count > 0 ? (count > 99 ? "99+" : String(count)) : "";
+    el.classList.toggle("show", count > 0);
+  });
+}
+
+function spawnCrawlingSpider(delay) {
+  setTimeout(() => {
+    const el = document.createElement("div");
+    el.className = "spider-crawler";
+    el.textContent = "🕷️";
+    el.style.top = (8 + Math.random() * 76) + "vh";
+    document.body.appendChild(el);
+    el.addEventListener("animationend", () => el.remove());
+    setTimeout(() => el.remove(), 6000);
+  }, delay || 0);
+}
+
+function crawlSpiders(n) {
+  showToast(n > 1 ? `AHH! SPIDERS! 🕷️ ×${n}` : "AHH! SPIDER! 🕷️", "spider");
+  for (let i = 0; i < n; i++) spawnCrawlingSpider(i * 500);
+}
+
+async function pollNotifications() {
+  if (!session) {
+    unreadCount = null;
+    updateNavBadge(0);
+    return;
+  }
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${pds}/xrpc/app.bsky.notification.getUnreadCount`, {
+      headers: { accept: "application/json", "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const count = data.count || 0;
+    if (unreadCount !== null && count > unreadCount) crawlSpiders(Math.min(count - unreadCount, 3));
+    unreadCount = count;
+    updateNavBadge(count);
+  } catch {}
 }
 
 async function TrendingView(main) {
@@ -1248,9 +1393,10 @@ function AboutView(main) {
   main.innerHTML =
     headerHtml("About skyclone") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
-      <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
+      <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, search, and notifications, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
       <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🪰 is a genuine <code>app.bsky.feed.repost</code> (a fly, loosed back into the web), and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
-      <p>For notifications, DMs, or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
+      <p>Notifications (🔔) are real too — a genuine <code>app.bsky.notification.listNotifications</code> call through your own PDS. skyclone quietly polls for new ones in the background, and when one lands, a spider crawls across your screen. AHH!</p>
+      <p>For DMs or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
 }
@@ -1265,6 +1411,7 @@ const ROUTES = [
   { pattern: "/", view: HomeView },
   { pattern: "/feeds", view: FeedsView },
   { pattern: "/search", view: SearchView },
+  { pattern: "/notifications", view: NotificationsView },
   { pattern: "/trending", view: TrendingView },
   { pattern: "/about", view: AboutView },
   { pattern: "/profile/:handle/post/:rkey/liked-by", view: LikedByView },
@@ -1304,6 +1451,7 @@ async function render() {
   const path = location.pathname.slice(MOUNT.length) || "/";
   const params = new URLSearchParams(location.search);
   document.getElementById("app").innerHTML = shellHtml(path);
+  updateNavBadge(unreadCount || 0);
   document.getElementById("aside").innerHTML = asideHtml();
   fillAside();
   const main = document.getElementById("main");
@@ -1477,6 +1625,8 @@ async function boot() {
   render();
   if (freshLogin) showToast(`Logged in as @${freshLogin.handle}`, "ok");
   if (bootError) showToast(bootError, "err");
+  pollNotifications();
+  setInterval(pollNotifications, 20000);
 }
 
 boot();
