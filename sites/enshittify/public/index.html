@@ -113,6 +113,21 @@
         aspect-ratio: 16/9;
         border-radius: 8px;
         background: linear-gradient(160deg, #e7c98f, #b8813f 55%, #6e4420);
+        position: relative;
+        overflow: hidden;
+      }
+      figure .photo a {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      figure .photo img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       figcaption {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -120,6 +135,7 @@
         color: var(--muted);
         margin-top: 8px;
       }
+      figcaption a { color: var(--accent); }
 
       h2 {
         font-size: 1.5rem;
@@ -224,6 +240,21 @@
       .related-card .thumb {
         aspect-ratio: 1/1;
         background: linear-gradient(135deg, var(--c1, #ffb703), var(--c2, #fb5607));
+        position: relative;
+        overflow: hidden;
+      }
+      .related-card .thumb a {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      .related-card .thumb img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       .related-card p {
         font-size: 11.5px;
@@ -630,8 +661,8 @@
       </p>
 
       <figure>
-        <div class="photo"></div>
-        <figcaption>The finished loaf, cooling on a wire rack.</figcaption>
+        <div class="photo" id="hero-photo"></div>
+        <figcaption id="hero-caption">The finished loaf, cooling on a wire rack.</figcaption>
       </figure>
 
       <p>
@@ -988,6 +1019,110 @@
         document.getElementById("reset-link").addEventListener("click", function () {
           setTimeout(function () { location.reload(); }, 350);
         });
+
+        // ---- real banana bread, pulled live from Bluesky ------------------
+        // api.bsky.app serves searchPosts unauthenticated with CORS * (see
+        // notes/70-reply-and-rich.md's "HAMMERED" test) — a plain client-side
+        // fetch, no worker/proxy needed. If this fails for any reason (offline,
+        // API hiccup, nothing safe found) the gradient placeholders just stay.
+        (function loadBananaPhotos() {
+          function postUrl(uri) {
+            var m = /^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/.exec(uri || "");
+            return m ? "https://bsky.app/profile/" + m[1] + "/post/" + m[2] : "https://bsky.app";
+          }
+
+          function isSafe(post) {
+            var labels = (post.labels || []).concat(
+              (post.author && post.author.labels) || []
+            );
+            return !labels.some(function (l) {
+              return /porn|nudity|sexual|gore|graphic-media/i.test(l.val || "");
+            });
+          }
+
+          function mount(container, photo, size) {
+            container.style.background = "none";
+            var a = document.createElement("a");
+            a.href = photo.href;
+            a.target = "_blank";
+            a.rel = "noopener";
+            a.title = "real banana bread, via @" + photo.handle;
+            var img = document.createElement("img");
+            img.src = size === "thumb" ? photo.thumb : photo.fullsize;
+            img.alt = photo.alt;
+            img.loading = "lazy";
+            a.appendChild(img);
+            container.appendChild(a);
+          }
+
+          fetch(
+            "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=" +
+              encodeURIComponent("banana bread") +
+              "&sort=top&limit=100"
+          )
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+              if (!data) return;
+              var seenAuthors = {};
+              var photos = (data.posts || [])
+                .filter(function (p) {
+                  return (
+                    p.embed &&
+                    p.embed.$type === "app.bsky.embed.images#view" &&
+                    p.embed.images &&
+                    p.embed.images.length &&
+                    /banana/i.test((p.record && p.record.text) || "") &&
+                    isSafe(p)
+                  );
+                })
+                .sort(function (a, b) {
+                  return (b.likeCount || 0) - (a.likeCount || 0);
+                })
+                .filter(function (p) {
+                  var did = p.author && p.author.did;
+                  if (seenAuthors[did]) return false; // one loaf per baker
+                  seenAuthors[did] = true;
+                  return true;
+                })
+                .map(function (p) {
+                  var img = p.embed.images[0];
+                  return {
+                    thumb: img.thumb,
+                    fullsize: img.fullsize,
+                    alt: img.alt || "banana bread",
+                    handle: (p.author && p.author.handle) || "unknown",
+                    href: postUrl(p.uri),
+                  };
+                });
+
+              if (!photos.length) return;
+
+              var hero = document.getElementById("hero-photo");
+              if (hero) {
+                mount(hero, photos[0], "fullsize");
+                var cap = document.getElementById("hero-caption");
+                if (cap) {
+                  cap.innerHTML =
+                    'Okay, not <em>this</em> exact loaf — real banana bread, via <a href="' +
+                    photos[0].href +
+                    '" target="_blank" rel="noopener">@' +
+                    photos[0].handle +
+                    "</a>.";
+                }
+              }
+
+              var thumbs = Array.prototype.slice.call(
+                document.querySelectorAll(".related-card .thumb")
+              );
+              thumbs.forEach(function (thumb, i) {
+                var photo = photos[i + 1];
+                if (photo) mount(thumb, photo, "thumb");
+              });
+            })
+            .catch(function () {
+              // offline / API hiccup — gradients stay, page still works.
+            });
+        })();
       })();
     </script>
   </body>
