@@ -659,16 +659,11 @@ function postCard(post, opts) {
   const url = postUrl(author.handle, post.uri);
   const shareUrl = `${SITE_URL}/profile/${encodeURIComponent(author.handle)}/post/${rkeyOf(post.uri)}`;
   const shareText = `Post by @${author.handle} on skyclone: "${(record.text || "").slice(0, 120)}"`;
-  const replyCtx =
-    opts.showReplyContext && post.reply?.parent && !post.reply.parent.notFound
-      ? `<div class="reply-context">Replying to <a href="${profileUrl(post.reply.parent.author?.handle || "")}" data-link>@${esc(post.reply.parent.author?.handle || "")}</a></div>`
-      : "";
   return `<article class="post" data-href="${url}">
     <a class="post-avatar" href="${profileUrl(author.handle)}" data-link>
       <img src="${esc(author.avatar || FALLBACK_AVATAR)}" alt="">
     </a>
     <div class="post-body">
-      ${replyCtx}
       <div class="post-head">
         <a class="post-name" href="${profileUrl(author.handle)}" data-link>${esc(author.displayName || author.handle)}</a>${verifyBadge(author)}
         <a class="post-handle" href="${profileUrl(author.handle)}" data-link>@${esc(author.handle)}</a>
@@ -687,13 +682,42 @@ function postCard(post, opts) {
   </article>`;
 }
 
+// A feed's reply ref (app.bsky.feed.defs#replyRef) rides alongside `post` on
+// the feed item itself, not on the post — its `parent` is a full PostView
+// (or a notFound/blocked stub) straight from the AppView, so when it's real
+// we can thread the actual parent post inline instead of a bare "replying
+// to" link. This is what makes a reply in the timeline read as a thread
+// instead of a stray, decontextualized post.
+function isRealPostView(p) {
+  return !!(p && p.author && p.$type !== "app.bsky.feed.defs#notFoundPost" && p.$type !== "app.bsky.feed.defs#blockedPost");
+}
+
+function replyFallbackHtml(replyRef) {
+  const parent = replyRef?.parent;
+  if (!parent) return "";
+  if (parent.$type === "app.bsky.feed.defs#blockedPost") return `<div class="reply-context">🕸️ Replying to a blocked post</div>`;
+  return `<div class="reply-context">🕸️ Replying to a post that's unavailable</div>`;
+}
+
+// Renders `post`, and if it's a reply with a resolvable parent, threads that
+// parent post inline above it (connected by a thread line) instead of just
+// linking to who it's replying to.
+function threadedPostHtml(post, replyRef, opts) {
+  const parent = replyRef?.parent;
+  if (isRealPostView(parent)) {
+    return `<div class="thread-group"><div class="thread-parent feed-thread-parent">${postCard(parent)}</div>${postCard(post, opts)}</div>`;
+  }
+  return replyFallbackHtml(replyRef) + postCard(post, opts);
+}
+
 function feedItemHtml(item) {
   const reason = item.reason;
   let reasonLine = "";
   if (reason?.$type === "app.bsky.feed.defs#reasonRepost") {
     reasonLine = `<div class="reply-context">🪰 <a href="${profileUrl(reason.by.handle)}" data-link>${esc(reason.by.displayName || reason.by.handle)}</a> reposted</div>`;
   }
-  return reasonLine ? reasonLine + postCard(item.post, { showReplyContext: true }).replace('class="post"', 'class="post" style="padding-top:0"') : postCard(item.post, { showReplyContext: true });
+  const body = threadedPostHtml(item.post, item.reply);
+  return reasonLine ? reasonLine + body.replace('class="post"', 'class="post" style="padding-top:0"') : body;
 }
 
 // ---------- generic UI bits ----------
@@ -1040,7 +1064,10 @@ async function loadAuthorFeed(actor, filter, box, cursor) {
     const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor, filter, limit: 25, cursor });
     if (!cursor) box.innerHTML = "";
     else box.querySelector(".load-more")?.remove();
-    box.insertAdjacentHTML("beforeend", data.feed.map((it) => postCard(it.post, { showReplyContext: filter === "posts_with_replies" })).join("") || centerMsg("Nothing here yet"));
+    box.insertAdjacentHTML(
+      "beforeend",
+      data.feed.map((it) => (filter === "posts_with_replies" ? threadedPostHtml(it.post, it.reply) : postCard(it.post))).join("") || centerMsg("Nothing here yet")
+    );
     if (data.cursor && data.feed.length) {
       box.insertAdjacentHTML("beforeend", loadMoreBtn());
       box.querySelector(".load-more").onclick = (e) => {
