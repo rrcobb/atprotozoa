@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>logjam — the atproto firehose as a freight network</title>
+    <meta
+      name="description"
+      content="A live freight yard fed by the real atproto firehose. Every commit is a shipment: posts, likes, reposts, follows, and blocks each get their own lane, rolling from a DEPOT (your PDS) to a HUB (the relay). Deletes come back through as recalls."
+    />
+    <meta property="og:title" content="logjam" />
+    <meta
+      property="og:description"
+      content="Every atproto commit is a shipment. Post, like, repost, follow, block — each its own lane, rolling from depot to hub live. Deletes come back as recalls."
+    />
+    <meta property="og:image" content="https://bisks.net/logjam/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="logjam: a dark card with two dashed freight lanes running from a DEPOT badge to a HUB circle, over 'the atproto firehose as a freight network'."
+    />
+    <meta property="og:url" content="https://bisks.net/logjam" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="logjam — the atproto firehose as a freight network" />
+    <meta
+      name="twitter:description"
+      content="Every atproto commit is a shipment, rolling down its own lane from depot to hub — live off the real firehose."
+    />
+    <meta name="twitter:image" content="https://bisks.net/logjam/og.png" />
+    <!-- bisks.net house style, dark variant: one readable mono, hairline
+         separators, a small palette of accent colors doing double duty as
+         the cargo-class legend (each collection gets one color/lane). -->
+    <style>
+      :root {
+        --bg: #05060a;
+        --panel: #0c0f18;
+        --ink: #eaf2fb;
+        --muted: #7f93ac;
+        --faint: rgba(234, 242, 251, 0.12);
+        --amber: #ffb454;
+        --pink: #ff7ab8;
+        --teal: #5fd8c9;
+        --green: #8bd17c;
+        --red: #ff6b6b;
+        --accent: #ffb454;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 1.3rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
+      }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 span.a { color: var(--amber); }
+      header h1 span.t { color: var(--teal); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #333; transition: background 0.3s;
+      }
+      .dot.live { background: var(--amber); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--amber); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .start-row { margin: 0 0 1.5rem; }
+      #startBtn {
+        font-family: var(--mono); font-size: 0.95rem; font-weight: 600;
+        color: var(--bg); background: var(--amber); border: none;
+        border-radius: 6px; padding: 0.65rem 1.3rem; cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      #startBtn:hover { opacity: 0.85; }
+      #startBtn.playing {
+        background: none; color: var(--ink); border: 1px solid var(--faint);
+      }
+
+      .stage {
+        position: relative; width: 100%; height: 320px;
+        background: var(--panel); border: 1px solid var(--faint);
+        border-radius: 10px; overflow: hidden; margin: 0 0 1.1rem;
+      }
+      .stage canvas { width: 100%; height: 100%; display: block; }
+
+      .legend {
+        display: flex; flex-wrap: wrap; gap: 0.6rem;
+        margin: 0 0 1.1rem; font-size: 0.74rem; color: var(--muted);
+      }
+      .legend .chip {
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.28rem 0.6rem 0.28rem 0.5rem;
+      }
+      .legend .chip .n { color: var(--ink); font-weight: 600; margin-left: 0.15rem; }
+
+      .stats {
+        display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+        margin: 0 0 1.25rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .stat .n { color: var(--ink); font-weight: 600; }
+      .stat.warn .n { color: var(--red); }
+      .spacer { flex: 1 1 auto; }
+      #shareLink {
+        color: var(--accent); text-decoration: none; font-size: 0.78rem;
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.25rem 0.6rem;
+      }
+      #shareLink:hover { border-color: var(--accent); }
+
+      .ticker { margin: 0; padding: 0; list-style: none; }
+      .ticker li {
+        padding: 0.5rem 0; border-top: 1px solid var(--faint);
+        font-size: 0.82rem; color: var(--muted);
+        display: flex; align-items: baseline; gap: 0.5rem;
+        animation: fade 0.25s ease both;
+      }
+      .ticker li:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .ticker .icon { flex: none; width: 1.4em; }
+      .ticker .who { color: var(--ink); }
+      .ticker .recalled { color: var(--red); }
+      .ticker .meta { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/logjam">log<span class="a">j</span><span class="t">am</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">not connected</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        The atproto firehose, restaged as a freight yard. Every commit is a
+        <b>shipment</b> filed into a lane by its collection — posts, likes,
+        reposts, follows, blocks — and animated rolling from a
+        <b>DEPOT</b> (the account's own PDS, where the record was written) to
+        the <b>HUB</b> (the relay, where every subscriber downstream picks it
+        up). A deleted record has no body left to inspect, so a
+        <b>delete</b> comes back through as a <b class="recalled">recall</b>
+        heading the other way — with its real size if we saw it get created
+        recently, "size unknown" otherwise, same honest gap as
+        <a href="https://bisks.net/chimehose">chimehose</a>. Nothing is
+        recorded or sent anywhere; it all runs live in your browser off the
+        public <a href="https://github.com/bluesky-social/jetstream">Jetstream</a>.
+      </p>
+
+      <div class="start-row">
+        <button id="startBtn">▶ open the yard</button>
+      </div>
+
+      <div class="stage">
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="legend" id="legend"></div>
+
+      <div class="stats">
+        <span class="stat"><span class="n" id="totalCount">0</span> shipped</span>
+        <span class="stat"><span class="n" id="rateCount">0</span>/min</span>
+        <span class="stat warn"><span class="n" id="recallCount">0</span> recalled</span>
+        <span class="spacer"></span>
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      </div>
+
+      <ul class="ticker" id="ticker"></ul>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · built for <b>@tynanpurdy.com</b>'s "atproto for transportation logistics" aside
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- cargo classes -------------------------------------------------
+      // One lane per collection. Color doubles as the legend swatch and the
+      // dashed track tint.
+      const CARGO = [
+        { collection: "app.bsky.feed.post", label: "post", emoji: "📦", color: "#ffb454" },
+        { collection: "app.bsky.feed.like", label: "like", emoji: "💌", color: "#ff7ab8" },
+        { collection: "app.bsky.feed.repost", label: "repost", emoji: "🚂", color: "#5fd8c9" },
+        { collection: "app.bsky.graph.follow", label: "follow", emoji: "🚚", color: "#8bd17c" },
+        { collection: "app.bsky.graph.block", label: "block", emoji: "🛢️", color: "#ff6b6b" },
+      ];
+      const CARGO_BY_COLLECTION = Object.fromEntries(CARGO.map((c) => [c.collection, c]));
+
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?" +
+        CARGO.map((c) => "wantedCollections=" + encodeURIComponent(c.collection)).join("&");
+
+      const MAX_TICKER = 40;
+      const SIZE_CAP = 1800;
+      const SIZE_CACHE_MAX = 4000;
+      const RATE_WINDOW_MS = 60000;
+
+      // ---- dom -------------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const startBtn = document.getElementById("startBtn");
+      const totalCountEl = document.getElementById("totalCount");
+      const rateCountEl = document.getElementById("rateCount");
+      const recallCountEl = document.getElementById("recallCount");
+      const ticker = document.getElementById("ticker");
+      const shareLink = document.getElementById("shareLink");
+      const legend = document.getElementById("legend");
+      const canvas = document.getElementById("canvas");
+      const ctx2d = canvas.getContext("2d");
+
+      shareLink.href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent(
+          "watching the atproto firehose restaged as a freight yard — every post/like/repost/follow/block rolling from depot to hub, live 📦🚂\n\nbisks.net/logjam",
+        );
+
+      const legendChips = {};
+      for (const cargo of CARGO) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.style.borderColor = "rgba(234,242,251,0.12)";
+        chip.innerHTML =
+          `<span style="color:${cargo.color}">${cargo.emoji} ${cargo.label}</span>` +
+          `<span class="n" id="chip-${cargo.label}">0</span>`;
+        legend.appendChild(chip);
+        legendChips[cargo.collection] = document.getElementById(`chip-${cargo.label}`);
+      }
+
+      function recordBytes(rec) {
+        try {
+          return new TextEncoder().encode(JSON.stringify(rec)).length;
+        } catch {
+          return 200;
+        }
+      }
+
+      // uri -> byte size, insertion-ordered so the oldest falls off first —
+      // lets a delete that follows soon after be recalled at its real size.
+      const sizeCache = new Map();
+      function rememberSize(uri, bytes) {
+        sizeCache.set(uri, bytes);
+        while (sizeCache.size > SIZE_CACHE_MAX) {
+          sizeCache.delete(sizeCache.keys().next().value);
+        }
+      }
+
+      // ---- counters ----------------------------------------------------------
+      let totalShipped = 0;
+      let totalRecalled = 0;
+      const perCargoCount = Object.fromEntries(CARGO.map((c) => [c.collection, 0]));
+      const createTimestamps = [];
+      let waybillSeq = 0;
+
+      function recordThroughput(now) {
+        createTimestamps.push(now);
+        while (createTimestamps.length && now - createTimestamps[0] > RATE_WINDOW_MS) {
+          createTimestamps.shift();
+        }
+        rateCountEl.textContent = createTimestamps.length;
+      }
+
+      // ---- ticker ------------------------------------------------------------
+      function pushTicker({ cargo, did, sizeLabel, recalled }) {
+        waybillSeq++;
+        const num = String(waybillSeq).padStart(6, "0");
+        const li = document.createElement("li");
+        const kind = recalled ? "RECALL" : "WAYBILL";
+        const dest = recalled ? "→ depot" : "→ hub";
+        const whoClass = recalled ? "who recalled" : "who";
+        li.innerHTML =
+          `<span class="icon">${cargo.emoji}</span>` +
+          `<span class="${whoClass}">${kind} #${num} · ${cargo.label} · ${did.slice(0, 20)}…</span>` +
+          `<span class="meta">${sizeLabel} ${dest}</span>`;
+        ticker.prepend(li);
+        while (ticker.childElementCount > MAX_TICKER) {
+          ticker.removeChild(ticker.lastElementChild);
+        }
+      }
+
+      // ---- yard visual ---------------------------------------------------------
+      let shipments = [];
+      let dpr = Math.max(1, window.devicePixelRatio || 1);
+      function resizeCanvas() {
+        dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = canvas.clientWidth * dpr;
+        canvas.height = canvas.clientHeight * dpr;
+      }
+      window.addEventListener("resize", resizeCanvas);
+
+      function roundRect(c, x, y, w, h, r) {
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.arcTo(x + w, y, x + w, y + h, r);
+        c.arcTo(x + w, y + h, x, y + h, r);
+        c.arcTo(x, y + h, x, y, r);
+        c.arcTo(x, y, x + w, y, r);
+        c.closePath();
+      }
+
+      function spawnShipment(cargo, bytes, recalled) {
+        const laneIndex = CARGO.indexOf(cargo);
+        const mag = bytes != null ? Math.min(bytes, SIZE_CAP) / SIZE_CAP : 0.3;
+        shipments.push({
+          cargo,
+          laneIndex,
+          recalled,
+          mag,
+          spawnedAt: performance.now(),
+          duration: recalled ? 1500 : 2200,
+        });
+        if (shipments.length > 400) shipments.shift();
+      }
+
+      function drawLoop() {
+        requestAnimationFrame(drawLoop);
+        if (!canvas.width || !canvas.height) resizeCanvas();
+        ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const w = canvas.clientWidth || 1;
+        const h = canvas.clientHeight || 1;
+        ctx2d.clearRect(0, 0, w, h);
+        ctx2d.fillStyle = "rgba(12,15,24,1)";
+        ctx2d.fillRect(0, 0, w, h);
+
+        const laneH = h / CARGO.length;
+        const labelW = 116;
+        const hubX = w - 30;
+        const trackX0 = labelW;
+        const trackX1 = hubX - 22;
+
+        ctx2d.textBaseline = "middle";
+        CARGO.forEach((cargo, i) => {
+          const cy = laneH * i + laneH / 2;
+          if (i > 0) {
+            ctx2d.strokeStyle = "rgba(234,242,251,0.08)";
+            ctx2d.lineWidth = 1;
+            ctx2d.beginPath();
+            ctx2d.moveTo(0, laneH * i);
+            ctx2d.lineTo(w, laneH * i);
+            ctx2d.stroke();
+          }
+          ctx2d.font = "18px system-ui, sans-serif";
+          ctx2d.fillStyle = cargo.color;
+          ctx2d.fillText(cargo.emoji, 12, cy);
+          ctx2d.font = "600 11px ui-monospace, monospace";
+          ctx2d.fillStyle = "rgba(234,242,251,0.75)";
+          ctx2d.fillText(cargo.label, 38, cy);
+
+          ctx2d.save();
+          ctx2d.strokeStyle = cargo.color;
+          ctx2d.globalAlpha = 0.32;
+          ctx2d.lineWidth = 2;
+          ctx2d.setLineDash([8, 7]);
+          ctx2d.beginPath();
+          ctx2d.moveTo(trackX0, cy);
+          ctx2d.lineTo(trackX1, cy);
+          ctx2d.stroke();
+          ctx2d.restore();
+
+          ctx2d.strokeStyle = cargo.color;
+          ctx2d.globalAlpha = 0.9;
+          ctx2d.lineWidth = 2;
+          ctx2d.beginPath();
+          ctx2d.arc(hubX, cy, 8, 0, Math.PI * 2);
+          ctx2d.stroke();
+          ctx2d.globalAlpha = 1;
+        });
+
+        const now = performance.now();
+        shipments = shipments.filter((s) => now - s.spawnedAt < s.duration + 200);
+        for (const s of shipments) {
+          const cy = laneH * s.laneIndex + laneH / 2;
+          const t = Math.min(1, (now - s.spawnedAt) / s.duration);
+          const x = s.recalled
+            ? trackX1 - (trackX1 - trackX0) * t
+            : trackX0 + (trackX1 - trackX0) * t;
+          const size = 12 + s.mag * 12;
+          const fade = t > 0.9 ? Math.max(0, 1 - (t - 0.9) / 0.1) : 1;
+          ctx2d.save();
+          ctx2d.globalAlpha = fade;
+          ctx2d.fillStyle = s.recalled ? "#ff6b6b" : s.cargo.color;
+          roundRect(ctx2d, x - size / 2, cy - size * 0.35, size, size * 0.7, 3);
+          ctx2d.fill();
+          if (s.recalled) {
+            ctx2d.strokeStyle = "#fff";
+            ctx2d.lineWidth = 1;
+            roundRect(ctx2d, x - size / 2, cy - size * 0.35, size, size * 0.7, 3);
+            ctx2d.stroke();
+          }
+          ctx2d.restore();
+        }
+      }
+
+      // ---- firehose handling -------------------------------------------------
+      function handleCommit(evt) {
+        const commit = evt.commit;
+        if (!commit) return;
+        const cargo = CARGO_BY_COLLECTION[commit.collection];
+        if (!cargo) return;
+        const uri = `at://${evt.did}/${commit.collection}/${commit.rkey}`;
+
+        if (commit.operation === "create") {
+          const rec = commit.record;
+          if (!rec) return;
+          const bytes = recordBytes(rec);
+          rememberSize(uri, bytes);
+          spawnShipment(cargo, bytes, false);
+
+          totalShipped++;
+          perCargoCount[commit.collection]++;
+          totalCountEl.textContent = totalShipped;
+          legendChips[commit.collection].textContent = perCargoCount[commit.collection];
+          recordThroughput(performance.now());
+          pushTicker({ cargo, did: evt.did, sizeLabel: `${bytes}B`, recalled: false });
+        } else if (commit.operation === "delete") {
+          const known = sizeCache.get(uri);
+          sizeCache.delete(uri);
+          spawnShipment(cargo, known ?? null, true);
+
+          totalRecalled++;
+          recallCountEl.textContent = totalRecalled;
+          pushTicker({
+            cargo,
+            did: evt.did,
+            sizeLabel: known != null ? `${known}B` : "size unknown",
+            recalled: true,
+          });
+        }
+      }
+
+      // ---- websocket ----------------------------------------------------------
+      let ws = null;
+      let reconnectDelay = 1000;
+      let listening = false;
+
+      function setStatus(msg, live) {
+        statusText.textContent = msg;
+        dot.classList.toggle("live", !!live);
+      }
+
+      function connect() {
+        setStatus("connecting…", false);
+        ws = new WebSocket(JETSTREAM);
+
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus("live", true);
+        };
+
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handleCommit(evt);
+        };
+
+        ws.onclose = () => {
+          if (!listening) return;
+          setStatus("reconnecting…", false);
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          try {
+            ws.close();
+          } catch {}
+          ws = null;
+        }
+        setStatus("not connected", false);
+      }
+
+      startBtn.addEventListener("click", () => {
+        if (!listening) {
+          listening = true;
+          startBtn.textContent = "■ close the yard";
+          startBtn.classList.add("playing");
+          connect();
+        } else {
+          listening = false;
+          startBtn.textContent = "▶ open the yard";
+          startBtn.classList.remove("playing");
+          disconnect();
+        }
+      });
+
+      // Pause the socket when the tab is hidden; resume on return.
+      document.addEventListener("visibilitychange", () => {
+        if (!listening) return;
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      resizeCanvas();
+      drawLoop();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
