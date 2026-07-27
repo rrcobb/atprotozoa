@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hashclaim — check a hash-commitment claim — bisks.net</title>
+    <meta
+      name="description"
+      content="Someone posted a hash in advance, then later posted the text they say produces it. Paste both in and hashclaim recomputes it in your browser and tells you whether the claim actually holds up."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/hashclaim/" />
+    <meta property="og:title" content="hashclaim — check a hash-commitment claim" />
+    <meta
+      property="og:description"
+      content="Paste the hash someone posted in advance and the text they later claimed was the source. hashclaim recomputes it client-side and tells you if it actually matches — no more taking it on faith."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="hashclaim — check a hash-commitment claim" />
+    <meta
+      name="twitter:description"
+      content="Paste a claimed hash + the text someone says produces it. Recomputed client-side, no faith required."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as declined / trigrams / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --goodbg: #eef8f1;
+        --bad: #c0392b;
+        --badbg: #fdf0ee;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .console {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem; margin-bottom: 1.5rem;
+      }
+      .field + .field { margin-top: 1rem; }
+      label {
+        display: block; font-size: 0.68rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.55rem;
+      }
+      textarea, input[type="text"] {
+        width: 100%; font-family: inherit; font-size: 0.95rem; color: var(--ink);
+        background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.75rem 0.85rem; resize: vertical;
+        line-height: 1.5;
+      }
+      #hash { min-height: 2.6rem; }
+      #source { min-height: 6rem; }
+      textarea:focus, input[type="text"]:focus {
+        outline: none; border-color: var(--ink); background: var(--bg);
+      }
+      textarea::placeholder, input::placeholder { color: var(--muted); }
+
+      .algrow { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .algrow label { margin: 0; }
+      select {
+        font-family: inherit; font-size: 0.85rem; color: var(--ink);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.4rem 0.5rem;
+      }
+      .detected { color: var(--muted); font-size: 0.78rem; }
+
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 1.1rem; }
+      button {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 1.05rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; line-height: 1;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      button.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover { background: var(--faintbg); }
+      .hint { color: var(--muted); font-size: 0.78rem; }
+
+      #stage { min-height: 1rem; margin-bottom: 2.25rem; }
+
+      .verdict {
+        border: 1px solid var(--faint); border-radius: 6px; overflow: hidden;
+        animation: stamp 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      @keyframes stamp {
+        0% { opacity: 0; transform: scale(1.04) rotate(-0.4deg); }
+        100% { opacity: 1; transform: none; }
+      }
+      .verdict.match { border-color: var(--good); }
+      .verdict.mismatch { border-color: var(--bad); }
+      .verdict .top {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 0.75rem; padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--faint);
+      }
+      .verdict.match .top { background: var(--goodbg); border-bottom-color: var(--good); }
+      .verdict.mismatch .top { background: var(--badbg); border-bottom-color: var(--bad); }
+      .verdict .stamp {
+        flex: none; border: 2px solid; border-radius: 4px; font-weight: 700;
+        font-size: 0.78rem; letter-spacing: 0.08em; padding: 0.18rem 0.5rem;
+        transform: rotate(-3deg);
+      }
+      .verdict.match .stamp { color: var(--good); border-color: var(--good); }
+      .verdict.mismatch .stamp { color: var(--bad); border-color: var(--bad); }
+      .verdict .alg { color: var(--muted); font-size: 0.78rem; }
+      .verdict .body { padding: 1.1rem 1.1rem 1.2rem; }
+      .verdict .headline { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.6rem; }
+
+      .variants { list-style: none; margin: 0; padding: 0; }
+      .variants li {
+        border-top: 1px solid var(--faint); padding: 0.6rem 0;
+        display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap;
+      }
+      .variants li:first-child { border-top: none; }
+      .variants .vlabel { flex: none; width: 11rem; color: var(--muted); font-size: 0.8rem; }
+      .variants .vhash {
+        font-size: 0.82rem; word-break: break-all; flex: 1; min-width: 14rem;
+      }
+      .variants .vhash.hit { color: var(--good); font-weight: 600; }
+      .variants .vmark { flex: none; font-size: 0.8rem; }
+      .variants .vmark.hit { color: var(--good); }
+      .variants .vmark.miss { color: var(--muted); }
+
+      .sharewrap { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+      .about { margin-top: 2.5rem; }
+      .about h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.6rem; }
+      .about p { color: var(--muted); margin: 0 0 0.9rem; line-height: 1.7; }
+      .about code {
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 3px;
+        padding: 0.05rem 0.3rem; font-size: 0.85rem;
+      }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>hashclaim <span class="slash">· check a hash-commitment claim</span></h1>
+      <p class="intro">
+        People "call it in advance" on Bluesky by posting a hash, then later
+        posting the string that supposedly produces it — a commitment scheme
+        so nobody can accuse them of changing their answer after the fact. The
+        trick only works if someone actually checks. Paste the hash and the
+        claimed source below; this recomputes it <b>entirely in your
+        browser</b> — nothing is sent anywhere — and tells you whether the
+        claim holds up.
+      </p>
+
+      <section class="console">
+        <div class="field">
+          <label for="hash">the hash they posted first</label>
+          <textarea id="hash" placeholder="e.g. 9e107d9d372bb6826bd81d3542a419d6" spellcheck="false"></textarea>
+        </div>
+        <div class="field">
+          <label for="source">the text they later claimed was the source</label>
+          <textarea id="source" placeholder="the quick brown fox jumps over the lazy dog" spellcheck="false"></textarea>
+        </div>
+        <div class="field algrow">
+          <label for="alg" style="margin-bottom:0">algorithm</label>
+          <select id="alg">
+            <option value="auto">auto-detect from hash length</option>
+            <option value="SHA-256">SHA-256</option>
+            <option value="SHA-1">SHA-1</option>
+            <option value="SHA-512">SHA-512</option>
+            <option value="SHA-384">SHA-384</option>
+            <option value="MD5">MD5</option>
+          </select>
+          <span class="detected" id="detected"></span>
+        </div>
+        <div class="btnrow">
+          <button id="check">check the claim</button>
+          <button class="ghost" id="example">try an example</button>
+        </div>
+      </section>
+
+      <div id="stage" aria-live="polite"></div>
+
+      <div class="about">
+        <h2>what it's actually doing</h2>
+        <p>
+          A hash function turns any text into a fixed-length fingerprint —
+          the same input always produces the same output, but you can't work
+          backwards from the output to guess the input. That's what makes it
+          useful as a commitment: post <code>hash(answer)</code> today,
+          reveal <code>answer</code> tomorrow, and anyone can independently
+          recompute <code>hash(answer)</code> and confirm it's the same
+          string you committed to earlier — no trust required.
+        </p>
+        <p>
+          The usual failure mode isn't a fake claim, it's an honest mismatch
+          from whitespace: a trailing newline, a leading space from a copy-
+          paste, smart quotes swapped in by an app. hashclaim tries a handful
+          of common variants of your source text automatically (as pasted,
+          trimmed, with a trailing newline, with surrounding quotes
+          stripped) and tells you which one, if any, actually lands.
+        </p>
+      </div>
+
+      <footer>
+        <p>
+          Everything above runs client-side — the hash and the source text
+          never leave your browser. SHA-1/256/384/512 use the browser's
+          built-in <code>SubtleCrypto</code>; MD5 (still common, still
+          broken, still posted) is a small local reimplementation.
+        </p>
+        <p>
+          built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          part of <a href="https://bisks.net">bisks.net</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { md5 } from "./lib/md5.js";
+
+      const hashEl = document.getElementById("hash");
+      const sourceEl = document.getElementById("source");
+      const algEl = document.getElementById("alg");
+      const detectedEl = document.getElementById("detected");
+      const checkBtn = document.getElementById("check");
+      const exampleBtn = document.getElementById("example");
+      const stage = document.getElementById("stage");
+
+      const HEX_LEN_TO_ALG = { 32: "MD5", 40: "SHA-1", 64: "SHA-256", 96: "SHA-384", 128: "SHA-512" };
+
+      function esc(s) {
+        return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function cleanHash(raw) {
+        // People paste the whole post sometimes ("sha256: abc123…", "hash = abc123").
+        // Pull out the longest contiguous hex run.
+        const runs = raw.match(/[0-9a-fA-F]{16,}/g) || [];
+        runs.sort((a, b) => b.length - a.length);
+        return (runs[0] || raw.trim()).toLowerCase();
+      }
+
+      function detectAlg(hexHash) {
+        return HEX_LEN_TO_ALG[hexHash.length] || null;
+      }
+
+      algEl.addEventListener("change", updateDetected);
+      hashEl.addEventListener("input", updateDetected);
+      function updateDetected() {
+        const h = cleanHash(hashEl.value);
+        const guess = detectAlg(h);
+        detectedEl.textContent = h
+          ? guess
+            ? algEl.value === "auto"
+              ? `looks like ${guess} (${h.length} hex chars)`
+              : `hash is ${h.length} hex chars — looks like ${guess}`
+            : `${h.length} hex chars — unrecognized length`
+          : "";
+      }
+
+      async function digestHex(alg, text) {
+        if (alg === "MD5") return md5(text);
+        const bytes = new TextEncoder().encode(text);
+        const buf = await crypto.subtle.digest(alg, bytes);
+        return Array.from(new Uint8Array(buf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      }
+
+      function variantsOf(text) {
+        const trimmed = text.trim();
+        const unquoted = trimmed.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "");
+        const out = [{ label: "as pasted", text }];
+        if (trimmed !== text) out.push({ label: "trimmed", text: trimmed });
+        out.push({ label: "trimmed + trailing newline", text: trimmed + "\n" });
+        if (unquoted !== trimmed) out.push({ label: "quotes stripped", text: unquoted });
+        return out;
+      }
+
+      async function runCheck() {
+        const claimedRaw = hashEl.value;
+        const claimed = cleanHash(claimedRaw);
+        const source = sourceEl.value;
+
+        if (!claimed || !source) {
+          stage.innerHTML = '<p class="hint">Paste both the hash and the claimed source text first.</p>';
+          return;
+        }
+
+        const alg = algEl.value === "auto" ? detectAlg(claimed) || "SHA-256" : algEl.value;
+
+        checkBtn.disabled = true;
+        checkBtn.textContent = "checking…";
+
+        try {
+          const variants = variantsOf(source);
+          const results = [];
+          let hitIndex = -1;
+          for (let i = 0; i < variants.length; i++) {
+            const v = variants[i];
+            const computed = await digestHex(alg, v.text);
+            const hit = computed === claimed;
+            if (hit && hitIndex === -1) hitIndex = i;
+            results.push({ ...v, computed, hit });
+          }
+
+          renderVerdict(claimed, alg, results, hitIndex);
+        } catch (e) {
+          stage.innerHTML = `<p class="hint">Couldn't compute that: ${esc(String(e.message || e))}</p>`;
+        } finally {
+          checkBtn.disabled = false;
+          checkBtn.textContent = "check the claim";
+        }
+      }
+
+      function renderVerdict(claimed, alg, results, hitIndex) {
+        const matched = hitIndex !== -1;
+        const rows = results
+          .map(
+            (r) =>
+              `<li><span class="vlabel">${esc(r.label)}</span>` +
+              `<span class="vhash${r.hit ? " hit" : ""}">${esc(r.computed)}</span>` +
+              `<span class="vmark ${r.hit ? "hit" : "miss"}">${r.hit ? "✓ match" : "—"}</span></li>`,
+          )
+          .join("");
+
+        const shareUrl = "https://bisks.net/hashclaim";
+        const shareText = matched
+          ? `Checked a hash claim: it holds up. ${alg}(${results[hitIndex].label}) matches the posted hash. ${shareUrl}`
+          : `Checked a hash claim: it does NOT match. Recomputed ${alg} doesn't equal the posted hash, in any of the usual whitespace variants. ${shareUrl}`;
+
+        stage.innerHTML =
+          `<div class="verdict ${matched ? "match" : "mismatch"}">` +
+          `<div class="top"><span class="stamp">${matched ? "VERIFIED" : "MISMATCH"}</span>` +
+          `<span class="alg">${esc(alg)} · claimed hash: <code>${esc(claimed)}</code></span></div>` +
+          `<div class="body">` +
+          `<p class="headline">${
+            matched
+              ? "The claim checks out — one of the variants matches exactly."
+              : "None of the variants match. Either it's not the real source, or it wasn't hashed the way you think."
+          }</p>` +
+          `<ul class="variants">${rows}</ul>` +
+          `<div class="sharewrap">` +
+          `<a class="btn" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener"><button class="ghost">share result on Bluesky</button></a>` +
+          `</div></div></div>`;
+      }
+
+      checkBtn.addEventListener("click", runCheck);
+      exampleBtn.addEventListener("click", () => {
+        hashEl.value = "9e107d9d372bb6826bd81d3542a419d6";
+        sourceEl.value = "the quick brown fox jumps over the lazy dog\n";
+        algEl.value = "auto";
+        updateDetected();
+        runCheck();
+      });
+      // Cmd/Ctrl+Enter from either field also submits.
+      for (const el of [hashEl, sourceEl]) {
+        el.addEventListener("keydown", (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            runCheck();
+          }
+        });
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
