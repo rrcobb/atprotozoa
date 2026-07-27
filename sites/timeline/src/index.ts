@@ -33,6 +33,17 @@
 //              the timeline itself: "search and include all the accounts
 //              linked to this little network that have shared neat little
 //              websites — the whole scene if you can."
+//   /helix  -> the same build events, replotted as a time helix: one loop
+//              per UTC day, angle = time of day, so builds at the same hour
+//              on different days line up radially. Requested by
+//              @forthrast.com, replying in the timeline thread: "are you
+//              aware of the time helix? could you search the network for
+//              prior art and represent this timeline thusly." There's no
+//              prior art *in this network* (nobody here has built one) — the
+//              real prior art is Helixaeon's patented "Time Helix" (US
+//              10,185,933), a VR/desktop visualization for cyclical
+//              time-series data. This is a flat SSR-SVG homage to that idea,
+//              not a port of it.
 //   /og.png -> a generated share-card image: a bar chart of builds/day
 //   everything else -> static assets (public/)
 
@@ -56,6 +67,9 @@ export default {
     }
     if (url.pathname === "/scene") {
       return renderScene(env, url.origin + PREFIX + "/scene", url.origin + PREFIX + "/og.png");
+    }
+    if (url.pathname === "/helix") {
+      return renderHelix(env, url.origin + PREFIX + "/helix", url.origin + PREFIX + "/og.png");
     }
     if (url.pathname === "/og.png") {
       return renderOgImage(env);
@@ -226,6 +240,7 @@ async function renderTimeline(env: Env, selfUrl: string): Promise<Response> {
   </p>
   ${milestones}
   ${chart}
+  <p class="helixnudge">same builds, plotted as a <a href="${PREFIX}/helix">time helix</a> — one ring per day, angle by time of day.</p>
   <h2 class="feedhead">every build</h2>
   ${feed}`;
 
@@ -506,6 +521,178 @@ function renderPersonCard(p: HandleAgg, profile: BskyProfile | undefined, galler
 </article>`;
 }
 
+// --- data + rendering: the time helix -----------------------------------------
+//
+// "are you aware of the time helix? could you search the network for prior
+// art and represent this timeline thusly" (@forthrast.com, replying in the
+// timeline thread). The network here — this repo's own history, and the
+// kindred sites in notes/00-vision.md — has never built one; the real prior
+// art is Helixaeon's patented "Time Helix" (US 10,185,933): a 3D helix where
+// "each revolution... corresponds with an iteration of the cyclic period,"
+// used to spot recurring patterns in time-series data by letting same-phase
+// events line up radially across cycles. This is a flat, dependency-free
+// homage: one ring per UTC day (the cyclic period), angle = time of day, so
+// a build at 14:00 on two different days lands at the same angle on two
+// different rings — the coil makes the day/night rhythm visible at a glance,
+// same data the hourly bar chart on / shows, replotted to foreground the
+// cycle instead of the sequence.
+
+const HELIX_WIDTH = 640;
+const HELIX_RX = 220;
+const HELIX_RY = 46;
+const HELIX_RING_GAP = 130;
+const HELIX_TOP_PAD = 70;
+const HELIX_CX = HELIX_WIDTH / 2;
+const HELIX_TOP_Y = HELIX_TOP_PAD + HELIX_RY; // ry headroom so the nearest ring's arc doesn't clip the top of the viewBox
+
+interface HelixPoint {
+  e: BuildEvent;
+  x: number;
+  y: number;
+  front: boolean; // true = near half of the ring (drawn brighter, on top)
+}
+
+interface HelixRing {
+  dayKey: string;
+  cy: number;
+  points: HelixPoint[];
+}
+
+function buildHelixRings(events: BuildEvent[], cx: number, topY: number, rx: number, ry: number, ringGap: number): HelixRing[] {
+  const byDay = new Map<string, BuildEvent[]>();
+  for (const e of events) {
+    const key = dayKey(e.date);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key)!.push(e);
+  }
+  const days = [...byDay.keys()].sort(); // oldest first
+  return days.map((key, i) => {
+    const depthFromTop = days.length - 1 - i; // newest day -> smallest depth -> nearest the top
+    const cy = topY + depthFromTop * ringGap;
+    const points = byDay.get(key)!.map((e) => {
+      const hourFrac = e.date.getUTCHours() + e.date.getUTCMinutes() / 60 + e.date.getUTCSeconds() / 3600;
+      const angle = (hourFrac / 24) * 2 * Math.PI - Math.PI / 2; // 0h at the top, clockwise
+      const sin = Math.sin(angle);
+      return {
+        e,
+        x: cx + rx * Math.cos(angle),
+        y: cy + ry * sin,
+        front: sin > 0,
+      };
+    });
+    return { dayKey: key, cy, points };
+  });
+}
+
+function renderHelixSvg(rings: HelixRing[], gallery: Map<string, string>): string {
+  const width = HELIX_WIDTH;
+  const rx = HELIX_RX;
+  const ry = HELIX_RY;
+  const cx = HELIX_CX;
+  const height = HELIX_TOP_Y + Math.max(rings.length - 1, 0) * HELIX_RING_GAP + ry + 50;
+
+  const dot = (p: HelixPoint) => {
+    const liveUrl = gallery.get(p.e.site);
+    const r = p.front ? 4.5 : 3;
+    const opacity = p.front ? 1 : 0.4;
+    const title = `${esc(p.e.path)} for @${esc(p.e.handle)} — ${fmtTime(p.e.date)} ${dayKey(p.e.date)}`;
+    const circle = `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" fill="var(--helix-dot, #7c6cff)" fill-opacity="${opacity}"><title>${title}</title></circle>`;
+    return liveUrl ? `<a href="${esc(liveUrl)}">${circle}</a>` : circle;
+  };
+
+  const ringMarkup = rings
+    .map((ring) => {
+      const back = `<path d="M ${cx - rx},${ring.cy} A ${rx},${ry} 0 0 0 ${cx + rx},${ring.cy}" fill="none" stroke="var(--helix-ring, #3a3550)" stroke-width="1" stroke-dasharray="3 4" opacity="0.55" />`;
+      const front = `<path d="M ${cx - rx},${ring.cy} A ${rx},${ry} 0 0 1 ${cx + rx},${ring.cy}" fill="none" stroke="var(--helix-ring, #3a3550)" stroke-width="1.25" opacity="0.9" />`;
+      const backDots = ring.points.filter((p) => !p.front).map(dot).join("");
+      const frontDots = ring.points.filter((p) => p.front).map(dot).join("");
+      const label = `<text x="${cx - rx - 12}" y="${ring.cy + 4}" text-anchor="end" class="ringlabel">${esc(ring.dayKey)}</text>`;
+      return `<g>${back}${backDots}${front}${frontDots}${label}</g>`;
+    })
+    .join("\n");
+
+  const axis =
+    rings.length > 1
+      ? `<line x1="${cx}" y1="${rings[rings.length - 1].cy}" x2="${cx}" y2="${rings[0].cy}" stroke="var(--helix-ring, #3a3550)" stroke-width="1" opacity="0.3" />`
+      : "";
+
+  const hourTicks = rings.length > 0 ? renderHourTicks(cx, rings[0].cy, rx, ry) : "";
+
+  return `<svg class="helix" viewBox="0 0 ${width} ${height}" role="img" aria-label="a helix of build events, one ring per day, angle by time of day">
+${axis}
+${hourTicks}
+${ringMarkup}
+</svg>`;
+}
+
+function renderHourTicks(cx: number, cy: number, rx: number, ry: number): string {
+  return [0, 6, 12, 18]
+    .map((h) => {
+      const angle = (h / 24) * 2 * Math.PI - Math.PI / 2;
+      const x = cx + (rx + 16) * Math.cos(angle);
+      const y = cy + (ry + 14) * Math.sin(angle) - (h === 0 ? 6 : h === 12 ? -2 : 0);
+      return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" class="hourtick">${h}:00</text>`;
+    })
+    .join("");
+}
+
+async function renderHelix(env: Env, selfUrl: string, ogImageUrl: string): Promise<Response> {
+  const [{ commits, error }, gallery] = await Promise.all([loadCommits(env), loadGallery()]);
+
+  if (error !== null) {
+    return html(
+      pageShell(
+        "the time helix — bisks.net/timeline",
+        `<p class="empty">${esc(error)}. the raw history is always at
+        <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}/commits/main">github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}</a>.</p>`,
+        selfUrl,
+        null,
+        ogImageUrl,
+      ),
+      502,
+    );
+  }
+
+  const events = parseEvents(commits);
+  const rings = buildHelixRings(events, HELIX_CX, HELIX_TOP_Y, HELIX_RX, HELIX_RY, HELIX_RING_GAP);
+  const svg = rings.length > 0 ? renderHelixSvg(rings, gallery) : "";
+
+  const days = rings.length;
+  const sub =
+    events.length > 0
+      ? `${events.length} build${events.length === 1 ? "" : "s"} coiled across ${days} day${days === 1 ? "" : "s"} of UTC time`
+      : "a time helix, waiting for its first build";
+
+  const description = `Every autonomous build in this repo, plotted as a time helix — one ring per UTC day, angle by time of day — after Helixaeon's patented visualization for cyclical time-series data.`;
+
+  const body = `<p class="intro">
+    are we aware of the time helix? we are now — <a href="https://voicesofvr.com/748-visualizing-cyclical-time-in-vr-with-helixaeons-time-helix/">Helixaeon's Time Helix</a>
+    (US patent <a href="https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/10185933">10,185,933</a>)
+    plots time-series events as a 3D helix, one revolution per cycle, so events at the same phase of the cycle
+    line up radially across turns of the coil. we searched this network — the repo's own history, and the kindred
+    sites in <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}/blob/main/notes/00-vision.md">notes/00-vision.md</a>
+    — and found no prior art here; this looks like the first one. so: <a href="${PREFIX}">the timeline</a>'s
+    events, replotted with one ring per UTC day and angle set by time of day. same data as the
+    <a href="${PREFIX}">hourly bar chart</a>, foregrounding the cycle instead of the sequence — hover a point for
+    what it was.
+  </p>
+  ${
+    svg
+      ? `<div class="helixwrap">${svg}</div>`
+      : `<p class="empty">no builds yet to coil.</p>`
+  }`;
+
+  return html(
+    pageShell(
+      "the time helix — bisks.net/timeline",
+      body,
+      selfUrl,
+      { title: "the time helix — bisks.net/timeline", description, sub, heading: "the time helix" },
+      ogImageUrl,
+    ),
+  );
+}
+
 // --- rendering: og.png share image -------------------------------------------
 
 async function renderOgImage(env: Env): Promise<Response> {
@@ -651,6 +838,13 @@ function pageShell(
 
   .empty { color:var(--muted); padding:1.5rem 0; border-top:1px solid var(--ink); }
 
+  .helixnudge { font-size:.8rem; color:var(--muted); margin:-1rem 0 1.75rem; }
+  .helixwrap { margin:0 0 1rem; }
+  .helix { width:100%; height:auto; display:block; }
+  .helix a { cursor:pointer; }
+  .helix text.ringlabel { font-family:var(--mono); font-size:12px; fill:var(--muted); }
+  .helix text.hourtick { font-family:var(--mono); font-size:10px; fill:var(--muted); opacity:.7; }
+
   .scenehead { font-size:1rem; margin:1.75rem 0 1rem; font-weight:600; }
   .scenesub { color:var(--muted); font-size:.8rem; margin:-.5rem 0 1rem; }
   .people { display:flex; flex-direction:column; gap:.9rem; margin:0 0 2rem; padding:0; list-style:none; }
@@ -683,7 +877,7 @@ function pageShell(
     <header>
       <h1>${esc(heading)}</h1>
       <p>${meta ? esc(meta.sub) : "a chronological history of autonomous web dev in this repo"}</p>
-      <nav class="crumbs"><a href="${PREFIX}">timeline</a> · <a href="${PREFIX}/scene">the scene</a></nav>
+      <nav class="crumbs"><a href="${PREFIX}">timeline</a> · <a href="${PREFIX}/helix">the helix</a> · <a href="${PREFIX}/scene">the scene</a></nav>
       <a class="share" href="${shareHref}" target="_blank" rel="noopener">share on bluesky ↗</a>
     </header>
     <main>
