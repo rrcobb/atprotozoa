@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>droste — bisks.net</title>
+    <meta
+      name="description"
+      content="A paint app with a window in the middle of the canvas that shows the whole canvas, shrunk down, forever — draw around it and watch your doodle echo inward like a screenshot of a screenshot of a screenshot."
+    />
+    <meta property="og:title" content="droste — draw a doodle that folds into itself" />
+    <meta
+      property="og:description"
+      content="Draw around the frame in the middle of the canvas. The frame shows the whole canvas, shrunk down — including itself, and what's inside that, forever."
+    />
+    <meta property="og:url" content="https://bisks.net/droste" />
+    <meta property="og:image" content="https://bisks.net/droste/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A square canvas with a smaller copy of itself nested in the center, receding into infinity." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+      }
+      body { display: flex; flex-direction: column; }
+
+      header {
+        padding: 0.85rem 1rem 0.6rem; border-bottom: 1px solid var(--faint);
+        flex: none;
+      }
+      header .top {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      }
+      h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      header p.tag {
+        margin: 0.3rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 60ch;
+      }
+      .backlink { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .backlink:hover { text-decoration: underline; }
+
+      .toolbar {
+        display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+        padding: 0.5rem 1rem; border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem; color: var(--muted); flex: none;
+      }
+      .toolbar .group { display: flex; align-items: center; gap: 0.4rem; }
+      .swatches { display: flex; gap: 0.3rem; }
+      .swatch {
+        width: 1.15rem; height: 1.15rem; border-radius: 50%; border: 1px solid var(--faint);
+        cursor: pointer; padding: 0;
+      }
+      .swatch.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+      input[type="color"] {
+        width: 1.6rem; height: 1.6rem; padding: 0; border: 1px solid var(--faint);
+        border-radius: 4px; background: none; cursor: pointer;
+      }
+      input[type="range"] { width: 5.5rem; vertical-align: middle; accent-color: var(--accent); }
+      label { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+      button {
+        font-family: inherit; font-size: 0.78rem; padding: 0.35rem 0.65rem;
+        border: 1px solid var(--ink); background: var(--bg); color: var(--ink);
+        border-radius: 4px; cursor: pointer;
+      }
+      button:hover { background: #f3f3f3; }
+      button.solid { background: var(--ink); color: var(--bg); }
+      button.solid:hover { background: #000; }
+      button.accent { border-color: var(--accent); color: var(--accent); }
+      button.accent:hover { background: #f5f8ff; }
+      .spacer { flex: 1 1 auto; }
+
+      main {
+        flex: 1 1 auto; position: relative; min-height: 0;
+      }
+      #stage { position: absolute; inset: 0; }
+      canvas {
+        display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair;
+      }
+
+      .hint {
+        position: absolute; left: 0; right: 0; bottom: 0.9rem; text-align: center;
+        pointer-events: none; color: var(--muted); font-size: 0.76rem;
+        transition: opacity 0.6s ease; opacity: 1;
+      }
+      .hint.faded { opacity: 0; }
+
+      footer {
+        flex: none; padding: 0.5rem 1rem; border-top: 1px solid var(--faint);
+        font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; flex-wrap: wrap;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <h1><a href="https://bisks.net/">bisks.net</a><span class="slash">/</span><a href="https://bisks.net/droste">droste</a></h1>
+        <a class="backlink" href="https://bisks.net/">← the zoo</a>
+      </div>
+      <p class="tag">
+        the square in the middle shows the whole canvas, shrunk down — including
+        the square itself, and whatever's inside <em>that</em>, all the way down.
+        draw outside it.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <div class="group">
+        <div class="swatches" id="swatches"></div>
+        <input type="color" id="customColor" value="#111111" title="custom color" />
+      </div>
+      <label>brush <input type="range" id="brushSize" min="1" max="36" value="6" /></label>
+      <label>portal <input type="range" id="portalSize" min="22" max="78" value="55" /></label>
+      <label>spin <input type="range" id="spinSpeed" min="0" max="150" value="18" /></label>
+      <label><input type="checkbox" id="eraser" /> eraser</label>
+      <div class="spacer"></div>
+      <button id="undoBtn" title="undo last stroke">undo</button>
+      <button id="clearBtn" title="clear the canvas">clear</button>
+      <button class="solid" id="saveBtn">save image</button>
+      <button class="accent" id="shareBtn">share to bluesky</button>
+    </div>
+
+    <main>
+      <div id="stage">
+        <canvas id="c"></canvas>
+      </div>
+      <div class="hint" id="hint">draw around the frame — watch it echo inward, forever</div>
+    </main>
+
+    <footer>
+      <span id="status"></span>
+      <div class="spacer"></div>
+      <a href="https://bisks.net/">more bisks.net experiments</a>
+    </footer>
+
+    <script>
+      (function () {
+        const canvas = document.getElementById("c");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const stage = document.getElementById("stage");
+        const hint = document.getElementById("hint");
+        const statusEl = document.getElementById("status");
+
+        const BG = "#ffffff";
+        const COLORS = ["#111111", "#c0392b", "#1a5fd0", "#1e8f5f", "#e8a83c", "#ffffff"];
+
+        let cssW = 0, cssH = 0, dpr = 1;
+        let brushColor = "#111111";
+        let brushSize = 6;
+        let eraser = false;
+        let portalPct = 55;
+        let spinSpeed = 18; // hundredths of a degree per frame
+        let angle = 0;
+        let drawing = false;
+        let lastX = 0, lastY = 0;
+        let hasStroked = false;
+        let undoStack = [];
+
+        function frameRect() {
+          const size = Math.min(cssW, cssH) * (portalPct / 100);
+          return { x: (cssW - size) / 2, y: (cssH - size) / 2, w: size, h: size };
+        }
+
+        function inFrame(x, y) {
+          const f = frameRect();
+          return x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h;
+        }
+
+        function initCanvas(preserve) {
+          let temp = null, tw = cssW, th = cssH;
+          if (preserve && cssW && cssH) {
+            temp = document.createElement("canvas");
+            temp.width = canvas.width;
+            temp.height = canvas.height;
+            temp.getContext("2d").drawImage(canvas, 0, 0);
+          }
+          const rect = stage.getBoundingClientRect();
+          cssW = rect.width;
+          cssH = rect.height;
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.max(1, Math.round(cssW * dpr));
+          canvas.height = Math.max(1, Math.round(cssH * dpr));
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.fillStyle = BG;
+          ctx.fillRect(0, 0, cssW, cssH);
+          if (temp) {
+            // contain-fit the old drawing into the new size, centered
+            const scale = Math.min(cssW / tw, cssH / th);
+            const dw = tw * scale, dh = th * scale;
+            ctx.drawImage(temp, 0, 0, tw * dpr || temp.width, th * dpr || temp.height, (cssW - dw) / 2, (cssH - dh) / 2, dw, dh);
+          }
+          undoStack = [];
+        }
+
+        function pushUndo() {
+          try {
+            undoStack.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+            if (undoStack.length > 20) undoStack.shift();
+          } catch (e) {}
+        }
+
+        function undo() {
+          const img = undoStack.pop();
+          if (img) ctx.putImageData(img, 0, 0);
+        }
+
+        function clearCanvas() {
+          pushUndo();
+          ctx.fillStyle = BG;
+          ctx.fillRect(0, 0, cssW, cssH);
+        }
+
+        function pos(e) {
+          const r = canvas.getBoundingClientRect();
+          return [e.clientX - r.left, e.clientY - r.top];
+        }
+
+        function dot(x, y) {
+          ctx.beginPath();
+          ctx.fillStyle = eraser ? BG : brushColor;
+          ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        function line(x0, y0, x1, y1) {
+          ctx.beginPath();
+          ctx.strokeStyle = eraser ? BG : brushColor;
+          ctx.lineWidth = brushSize;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
+
+        canvas.addEventListener("pointerdown", (e) => {
+          canvas.setPointerCapture(e.pointerId);
+          const [x, y] = pos(e);
+          pushUndo();
+          drawing = true;
+          lastX = x;
+          lastY = y;
+          if (!inFrame(x, y)) dot(x, y);
+          if (!hasStroked) {
+            hasStroked = true;
+            hint.classList.add("faded");
+          }
+        });
+        canvas.addEventListener("pointermove", (e) => {
+          if (!drawing) return;
+          const [x, y] = pos(e);
+          const wasIn = inFrame(lastX, lastY);
+          const isIn = inFrame(x, y);
+          if (!isIn) {
+            if (wasIn) dot(x, y);
+            else line(lastX, lastY, x, y);
+          }
+          lastX = x;
+          lastY = y;
+        });
+        ["pointerup", "pointercancel", "pointerleave"].forEach((ev) =>
+          canvas.addEventListener(ev, () => (drawing = false))
+        );
+
+        function tick() {
+          const f = frameRect();
+          angle = (angle + spinSpeed / 100) % 360;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(f.x, f.y, f.w, f.h);
+          ctx.clip();
+          ctx.translate(f.x + f.w / 2, f.y + f.h / 2);
+          ctx.rotate((angle * Math.PI) / 180);
+          const scale = Math.max(f.w / cssW, f.h / cssH);
+          ctx.scale(scale, scale);
+          ctx.translate(-cssW / 2, -cssH / 2);
+          ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, cssW, cssH);
+          ctx.restore();
+
+          ctx.save();
+          ctx.strokeStyle = "#111111";
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(f.x + 1.25, f.y + 1.25, f.w - 2.5, f.h - 2.5);
+          ctx.restore();
+
+          requestAnimationFrame(tick);
+        }
+
+        // --- controls ---
+        const swatchesEl = document.getElementById("swatches");
+        COLORS.forEach((c, i) => {
+          const b = document.createElement("button");
+          b.className = "swatch" + (i === 0 ? " active" : "");
+          b.style.background = c;
+          if (c === "#ffffff") b.style.borderColor = "#999";
+          b.title = c;
+          b.addEventListener("click", () => {
+            brushColor = c;
+            eraser = false;
+            document.getElementById("eraser").checked = false;
+            document.getElementById("customColor").value = c;
+            [...swatchesEl.children].forEach((s) => s.classList.remove("active"));
+            b.classList.add("active");
+          });
+          swatchesEl.appendChild(b);
+        });
+
+        document.getElementById("customColor").addEventListener("input", (e) => {
+          brushColor = e.target.value;
+          eraser = false;
+          document.getElementById("eraser").checked = false;
+          [...swatchesEl.children].forEach((s) => s.classList.remove("active"));
+        });
+        document.getElementById("brushSize").addEventListener("input", (e) => {
+          brushSize = +e.target.value;
+        });
+        document.getElementById("portalSize").addEventListener("input", (e) => {
+          portalPct = +e.target.value;
+        });
+        document.getElementById("spinSpeed").addEventListener("input", (e) => {
+          spinSpeed = +e.target.value;
+        });
+        document.getElementById("eraser").addEventListener("change", (e) => {
+          eraser = e.target.checked;
+        });
+        document.getElementById("undoBtn").addEventListener("click", undo);
+        document.getElementById("clearBtn").addEventListener("click", clearCanvas);
+
+        // --- share / save ---
+        function shareText() {
+          return "i drew a doodle that folds into itself forever, screenshot of a screenshot style — bisks.net/droste";
+        }
+        const shareBtn = document.getElementById("shareBtn");
+        shareBtn.addEventListener("click", () => {
+          window.open(
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText()),
+            "_blank",
+            "noopener"
+          );
+        });
+
+        function canShareFiles() {
+          if (!navigator.share || !navigator.canShare) return false;
+          try {
+            const probe = new File([""], "probe.png", { type: "image/png" });
+            return navigator.canShare({ files: [probe] });
+          } catch (e) {
+            return false;
+          }
+        }
+        function downloadBlob(blob) {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "droste.png";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }
+        const saveBtn = document.getElementById("saveBtn");
+        if (canShareFiles()) saveBtn.textContent = "share image";
+        saveBtn.addEventListener("click", () => {
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            if (canShareFiles()) {
+              try {
+                const file = new File([blob], "droste.png", { type: "image/png" });
+                await navigator.share({ files: [file], text: shareText(), title: "droste" });
+                return;
+              } catch (e) {
+                // user cancelled or share failed — fall back to download
+              }
+            }
+            downloadBlob(blob);
+          }, "image/png");
+        });
+
+        // --- resize ---
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => initCanvas(true), 150);
+        });
+
+        initCanvas(false);
+        requestAnimationFrame(tick);
+      })();
+    </script>
+  </body>
+</html>
