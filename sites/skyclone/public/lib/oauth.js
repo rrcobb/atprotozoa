@@ -14,12 +14,13 @@
 // against the deployed bisks.net/skyclone/ URL (the PDS auth server redirects
 // back to a fixed, pre-registered redirect_uri).
 //
-// Scope `atproto transition:generic` is the generic full-repo-access scope —
-// broader than skyclone actually uses (skyclone only ever *reads*, via
-// getTimeline proxied through the PDS to the AppView), but atproto's
-// fine-grained read-only permission sets are still not reliably supported
-// server-side, so this mirrors drivethru's proven-working scope rather than
-// guessing at a narrower one that might get rejected.
+// Scope `atproto transition:generic` is the generic full-repo-access scope.
+// skyclone mostly reads (getTimeline proxied through the PDS to the AppView),
+// plus one write: creating/deleting an app.bsky.feed.like record directly on
+// the user's own PDS when they catch a post in their web. atproto's
+// fine-grained scopes still aren't reliably supported server-side, so this
+// mirrors drivethru's proven-working scope rather than guessing at a
+// narrower one that might get rejected.
 
 import {
   generateDPoPKeyPair,

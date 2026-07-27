@@ -22,6 +22,12 @@ let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null
 let sessionProfile = null; // { avatar, displayName } for the logged-in user, best-effort
 let oauthLib = null;
 
+// post uri -> like record uri, for posts liked/unliked this session. skyclone
+// reads through the public (unauthenticated) AppView, which never returns
+// viewer state, so there's no way to know on load whether you'd already liked
+// something elsewhere — this only tracks changes made in this tab.
+const likedPosts = new Map();
+
 async function oauth() {
   if (!oauthLib) oauthLib = await import(`${MOUNT}/lib/oauth.js`);
   return oauthLib;
@@ -59,7 +65,7 @@ function openLoginModal() {
   box.innerHTML = `
     <div class="modal">
       <h2>Log in with Bluesky</h2>
-      <p>Real OAuth, straight to your own PDS — skyclone never sees your password. This unlocks your actual home timeline; skyclone still never posts, likes, or follows on your behalf.</p>
+      <p>Real OAuth, straight to your own PDS — skyclone never sees your password. This unlocks your actual home timeline, and lets you catch a post in your web (skyclone's like, minus the heart) — it still never posts or follows on your behalf.</p>
       <input id="login-handle" placeholder="yourhandle.bsky.social" autocomplete="off">
       <div class="modal-actions">
         <button type="button" id="login-cancel" class="pill-btn">Cancel</button>
@@ -131,6 +137,69 @@ async function xrpc(method, params) {
   return res.json();
 }
 
+// ---------- likes (the one write skyclone makes) ----------
+//
+// A real app.bsky.feed.like record, created/deleted directly on the user's own
+// PDS via their DPoP-bound OAuth session (no AppView proxy needed for repo
+// writes). Optimistic UI, reverted on failure. No hearts — a click drops the
+// post into a web (🕸️) and it comes back caught (🕷️).
+
+async function toggleLike(iconEl) {
+  if (!session) {
+    openLoginModal();
+    return;
+  }
+  const wrap = iconEl.closest(".act.like");
+  const countEl = wrap.querySelector(".like-count");
+  const uri = iconEl.getAttribute("data-uri");
+  const cid = iconEl.getAttribute("data-cid");
+  const wasLiked = wrap.classList.contains("liked");
+  const base = Number(countEl.getAttribute("data-count") || 0);
+
+  wrap.classList.toggle("liked");
+  iconEl.classList.remove("like-pop");
+  void iconEl.offsetWidth;
+  iconEl.classList.add("like-pop");
+  const newCount = wasLiked ? Math.max(0, base - 1) : base + 1;
+  countEl.setAttribute("data-count", newCount);
+  countEl.textContent = fmtCount(newCount);
+
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    if (!wasLiked) {
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: "app.bsky.feed.like",
+          record: { $type: "app.bsky.feed.like", subject: { uri, cid }, createdAt: new Date().toISOString() },
+        }),
+      });
+      if (!res.ok) throw new Error(`like failed (${res.status})`);
+      const data = await res.json();
+      likedPosts.set(uri, data.uri);
+    } else {
+      const likeUri = likedPosts.get(uri);
+      if (likeUri) {
+        const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.like", rkey: rkeyOf(likeUri) }),
+        });
+        if (!res.ok) throw new Error(`unlike failed (${res.status})`);
+      }
+      likedPosts.delete(uri);
+    }
+  } catch (e) {
+    wrap.classList.toggle("liked");
+    countEl.setAttribute("data-count", base);
+    countEl.textContent = fmtCount(base);
+    showToast(e.message || "Couldn't update like", "err");
+  }
+}
+
 // ---------- small helpers ----------
 
 function h(strings, ...vals) {
@@ -170,6 +239,13 @@ function isSensitive(post) {
 }
 function shareIntent(text, url) {
   return "https://bsky.app/intent/compose?text=" + encodeURIComponent(`${text}\n\n${url}`);
+}
+function likeActionHtml(post, url) {
+  const liked = likedPosts.has(post.uri);
+  return `<span class="act like${liked ? " liked" : ""}">
+    <span class="like-icon" data-action="like" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" title="${liked ? "Caught in your web" : "Catch it in your web"}">${liked ? "🕷️" : "🕸️"}</span>
+    <span class="like-count" data-href="${url}/liked-by" data-count="${post.likeCount || 0}">${fmtCount(post.likeCount)}</span>
+  </span>`;
 }
 
 // ---------- rich text ----------
@@ -365,7 +441,7 @@ function postCard(post, opts) {
       <div class="post-actions">
         <span class="act reply">💬 <span>${fmtCount(post.replyCount)}</span></span>
         <span class="act repost" data-href="${url}/reposted-by">🔁 <span>${fmtCount((post.repostCount || 0) + (post.quoteCount || 0))}</span></span>
-        <span class="act like" data-href="${url}/liked-by">🤍 <span>${fmtCount(post.likeCount)}</span></span>
+        ${likeActionHtml(post, url)}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗</a>
       </div>
     </div>
@@ -475,7 +551,7 @@ function asideHtml() {
   <div class="aside-card">
     <h2>What is this?</h2>
     <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>Browse without an account, or log in with OAuth to see your real home timeline. skyclone never posts, likes, or follows for you. For notifications, DMs, or posting, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline and catch posts in your web (a real like, no hearts). skyclone never posts or follows for you. For notifications, DMs, or posting, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -662,7 +738,7 @@ async function CustomFeedView(main, params, args) {
       `<div style="padding:12px 16px;border-bottom:1px solid var(--border)">
         <img src="${esc(info.avatar || FALLBACK_AVATAR)}" style="width:56px;height:56px;border-radius:14px" alt="">
         <p style="color:var(--text-dim);font-size:14px;margin-top:8px">${esc(info.description || "")}</p>
-        <p style="color:var(--text-dimmer);font-size:13px">❤ ${fmtCount(info.likeCount)} likes</p>
+        <p style="color:var(--text-dimmer);font-size:13px">🕷️ ${fmtCount(info.likeCount)} likes</p>
       </div>
       <div id="feed-posts">${skeleton(6)}</div>`;
     await loadFeed(uri, document.getElementById("feed-posts"));
@@ -820,7 +896,7 @@ async function ThreadView(main, params, args) {
       <div class="post-actions">
         <span class="act reply">💬 <span>${fmtCount(focus.replyCount)}</span></span>
         <span class="act repost" data-href="${postUrl(focus.author.handle, focus.uri)}/reposted-by">🔁 <span>${fmtCount((focus.repostCount || 0) + (focus.quoteCount || 0))}</span></span>
-        <span class="act like" data-href="${postUrl(focus.author.handle, focus.uri)}/liked-by">🤍 <span>${fmtCount(focus.likeCount)}</span></span>
+        ${likeActionHtml(focus, postUrl(focus.author.handle, focus.uri))}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗ Share</a>
       </div>
     </div>`;
@@ -905,7 +981,7 @@ function AboutView(main) {
     headerHtml("About skyclone") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
       <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
-      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side, and skyclone never posts, likes, or follows on your behalf.</p>
+      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. The one write skyclone will make on your behalf: catching a post in your web (a real <code>app.bsky.feed.like</code> record on your own repo) — deliberately drawn as a spider, not a heart. It still never posts or follows for you.</p>
       <p>For posting, notifications, or DMs, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
@@ -1000,6 +1076,12 @@ document.addEventListener("click", (e) => {
   }
   if (e.target.closest("[data-action='logout']")) {
     logout();
+    return;
+  }
+  const likeIcon = e.target.closest("[data-action='like']");
+  if (likeIcon) {
+    e.stopPropagation();
+    toggleLike(likeIcon);
     return;
   }
   const cover = e.target.closest(".sensitive-cover");
