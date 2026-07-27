@@ -6,12 +6,12 @@
     <title>mootstream — wind currents from Bluesky's pulse</title>
     <meta
       name="description"
-      content="A live wind map. Ocean heat is the normal climatological sea temperature for today's date — no satellite posters. Land heat is a live z-score of Bluesky posting activity per region, pulled straight off the Jetstream firehose. Hot/cold spots drive the wind, rendered in WebGL."
+      content="A live wind map on a spinning WebGL globe. Ocean heat is the normal climatological sea temperature for today's date — no satellite posters. Land heat is a live z-score of Bluesky posting activity per region, pulled straight off the Jetstream firehose. Hot/cold spots drive the wind. Drag to rotate."
     />
     <meta property="og:title" content="mootstream — wind currents from Bluesky's pulse" />
     <meta
       property="og:description"
-      content="Ocean = today's normal sea temperature. Land = a live z-score of Bluesky activity per region. Hot and cold spots drive a WebGL wind simulation, earth.nullschool.net-style."
+      content="Ocean = today's normal sea temperature. Land = a live z-score of Bluesky activity per region. Hot and cold spots drive a WebGL wind simulation on a drag-to-rotate globe, earth.nullschool.net-style."
     />
     <meta property="og:image" content="https://bisks.net/mootstream/og.png" />
     <meta property="og:url" content="https://bisks.net/mootstream" />
@@ -231,7 +231,7 @@
         season — no satellite imagery. Land color is a live <strong>z-score</strong> of
         Bluesky posting activity per region, straight off the Jetstream firehose: hot
         means busier than usual right now, cold means quieter. Wind flows from the
-        data.
+        data. <strong>Drag</strong> the globe to rotate it.
       </p>
       <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">connecting…</span></div>
     </div>
@@ -254,6 +254,9 @@
 
         const MOUNT = "/mootstream";
         const SITE_URL = "https://bisks.net/mootstream";
+        const GLOBE_SCALE = 0.94; // fraction of the shorter canvas dimension used as the globe radius
+        const COAST_TEX_W = 1440;
+        const COAST_TEX_H = 720;
 
         // ---- region list (client copy — id/name/bbox only, no langs needed
         // here). Keep in sync by hand with REGIONS in src/index.ts (house
@@ -300,12 +303,46 @@
         const hotcoldEl = document.getElementById("hotcold");
         const shareLink = document.getElementById("shareLink");
 
-        const heatCtx = heatCanvas.getContext("2d");
         const offscreen = document.createElement("canvas");
         offscreen.width = GRID_W;
         offscreen.height = GRID_H;
         const offCtx = offscreen.getContext("2d");
         const offImage = offCtx.createImageData(GRID_W, GRID_H);
+
+        // ---- globe orientation (radians) — drag the stage to rotate --------
+        let lon0 = 0.17; // ~10°E
+        let lat0 = 0.3; // ~17°N
+        const LAT_LIMIT = 85 * DEG2RAD;
+
+        function wrapAngle(a) {
+          const twoPi = Math.PI * 2;
+          a = a % twoPi;
+          if (a > Math.PI) a -= twoPi;
+          if (a < -Math.PI) a += twoPi;
+          return a;
+        }
+
+        function getGlobeRadiusPx() {
+          return Math.min(windCanvas.width, windCanvas.height) * 0.5 * GLOBE_SCALE;
+        }
+
+        // Forward rotation: globe-space (lon,lat) -> camera-space (px,py,pz).
+        // pz >= 0 means the point faces the camera (visible front hemisphere).
+        // See notes inline near the fragment shader for the inverse used there.
+        function projectToSphere(col, row, clat, slat, clon, slon) {
+          const [lonDeg, latDeg] = cellLonLat(col, row);
+          const lon = lonDeg * DEG2RAD;
+          const lat = latDeg * DEG2RAD;
+          const gx = Math.cos(lat) * Math.sin(lon);
+          const gy = Math.sin(lat);
+          const gz = Math.cos(lat) * Math.cos(lon);
+          const x1 = gx * clon - gz * slon;
+          const z1 = gx * slon + gz * clon;
+          const y1 = gy;
+          const y2 = y1 * clat - z1 * slat;
+          const z2 = y1 * slat + z1 * clat;
+          return { px: x1, py: y2, pz: z2 };
+        }
 
         // ---- geo data --------------------------------------------------------
         let land = new Uint8Array(GRID_W * GRID_H); // 0/1, filled once landmask loads
@@ -495,10 +532,10 @@
         function recomputeFields() {
           computeTemperatureField();
           computeWindField();
-          drawHeatBackground();
+          buildHeatTexture();
         }
 
-        // ---- heat background (2D canvas, redrawn on data refresh / resize) ----
+        // ---- heat texture (360x180 RGBA, rebuilt on data refresh) ----
         function tempToColor(t) {
           // diverging stops: deep cold -> cool -> pale neutral -> warm -> hot
           const stops = [
@@ -526,7 +563,7 @@
           return stops[stops.length - 1].slice(1);
         }
 
-        function drawHeatBackground() {
+        function buildHeatTexture() {
           const data = offImage.data;
           for (let i = 0; i < GRID_W * GRID_H; i++) {
             const [r, g, b] = tempToColor(temp[i]);
@@ -537,39 +574,171 @@
             data[o + 3] = 255;
           }
           offCtx.putImageData(offImage, 0, 0);
-
-          const w = heatCanvas.width;
-          const h = heatCanvas.height;
-          heatCtx.imageSmoothingEnabled = true;
-          heatCtx.clearRect(0, 0, w, h);
-          heatCtx.drawImage(offscreen, 0, 0, GRID_W, GRID_H, 0, 0, w, h);
-
-          if (coastlines) drawCoastlines(w, h);
+          if (glHeat && heatTex) {
+            glHeat.pixelStorei(glHeat.UNPACK_FLIP_Y_WEBGL, true);
+            glHeat.bindTexture(glHeat.TEXTURE_2D, heatTex);
+            glHeat.texImage2D(glHeat.TEXTURE_2D, 0, glHeat.RGBA, glHeat.RGBA, glHeat.UNSIGNED_BYTE, offscreen);
+          }
+          heatTexReady = true;
         }
 
-        function drawCoastlines(w, h) {
-          heatCtx.beginPath();
+        // Bake the coastline polygons once into a higher-res alpha-mask
+        // texture (same equirectangular u/v space as the heat texture, just
+        // sharper) so the globe shader can draw crisp coastlines.
+        function buildCoastTexture() {
+          if (!glHeat || !coastlines) return;
+          const c = document.createElement("canvas");
+          c.width = COAST_TEX_W;
+          c.height = COAST_TEX_H;
+          const ctx = c.getContext("2d");
+          ctx.beginPath();
           for (const rings of coastlines) {
             for (const ring of rings) {
               for (let i = 0; i < ring.length; i++) {
-                const x = ((ring[i][0] + 180) / 360) * w;
-                const y = ((90 - ring[i][1]) / 180) * h;
-                if (i === 0) heatCtx.moveTo(x, y);
-                else heatCtx.lineTo(x, y);
+                const x = ((ring[i][0] + 180) / 360) * COAST_TEX_W;
+                const y = ((90 - ring[i][1]) / 180) * COAST_TEX_H;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
               }
-              heatCtx.closePath();
+              ctx.closePath();
             }
           }
-          heatCtx.strokeStyle = "rgba(15, 22, 30, 0.55)";
-          heatCtx.lineWidth = Math.max(1, w / 720);
-          heatCtx.stroke();
+          ctx.strokeStyle = "rgba(255,255,255,1)";
+          ctx.lineWidth = COAST_TEX_W / 720;
+          ctx.stroke();
+          glHeat.pixelStorei(glHeat.UNPACK_FLIP_Y_WEBGL, true);
+          glHeat.bindTexture(glHeat.TEXTURE_2D, coastTex);
+          glHeat.texImage2D(glHeat.TEXTURE_2D, 0, glHeat.RGBA, glHeat.RGBA, glHeat.UNSIGNED_BYTE, c);
+        }
+
+        function compile(gl, type, src) {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src);
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+            throw new Error(gl.getShaderInfoLog(s) || "shader compile failed");
+          }
+          return s;
+        }
+
+        // ---- webgl globe (heat sphere) -----------------------------------------
+        // Rendered with a single fullscreen-quad fragment shader: for every
+        // pixel inside the globe's circle, raycast an orthographic ray onto
+        // the unit sphere, undo the current view rotation to get back to
+        // globe-space (lon,lat), and sample the heat/coastline textures. This
+        // is the inverse of the forward rotation used for particles in
+        // projectToSphere() above — see the comment there for the derivation.
+        const glHeat = heatCanvas.getContext("webgl") || heatCanvas.getContext("experimental-webgl");
+        const GLOBE_VERT_SRC =
+          "attribute vec2 aPos;" + "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }";
+        const GLOBE_FRAG_SRC =
+          "precision mediump float;" +
+          "uniform sampler2D uHeat;" +
+          "uniform sampler2D uCoast;" +
+          "uniform float uLon0;" +
+          "uniform float uLat0;" +
+          "uniform vec2 uResolution;" +
+          "uniform float uGlobeScale;" +
+          "void main(){" +
+          "vec2 center = uResolution * 0.5;" +
+          "float radiusPx = min(uResolution.x, uResolution.y) * 0.5 * uGlobeScale;" +
+          "vec2 d = (gl_FragCoord.xy - center) / radiusPx;" +
+          "d.y = -d.y;" +
+          "float r2 = dot(d, d);" +
+          "if (r2 > 1.0) { discard; }" +
+          "float pz = sqrt(1.0 - r2);" +
+          "float px = d.x;" +
+          "float py = d.y;" +
+          "float clat = cos(uLat0), slat = sin(uLat0);" +
+          "float clon = cos(uLon0), slon = sin(uLon0);" +
+          "float y1 = py * clat + pz * slat;" +
+          "float z1 = -py * slat + pz * clat;" +
+          "float x1 = px;" +
+          "float x2 = x1 * clon + z1 * slon;" +
+          "float z2 = -x1 * slon + z1 * clon;" +
+          "float y2 = y1;" +
+          "float lat = asin(clamp(y2, -1.0, 1.0));" +
+          "float lon = atan(x2, z2);" +
+          "float PI = 3.14159265359;" +
+          "vec2 uv = vec2((lon + PI) / (2.0 * PI), (PI * 0.5 - lat) / PI);" +
+          "vec3 heat = texture2D(uHeat, uv).rgb;" +
+          "float coast = texture2D(uCoast, uv).a;" +
+          "vec3 color = mix(heat, vec3(0.05, 0.08, 0.11), coast * 0.6);" +
+          "float shade = 0.6 + 0.4 * pz;" +
+          "gl_FragColor = vec4(color * shade, 1.0);" +
+          "}";
+
+        let globeProg, gAPos, gQuadBuf, uHeatLoc, uCoastLoc, uLon0Loc, uLat0Loc, uResLoc, uScaleLoc;
+        let heatTex, coastTex, heatTexReady = false;
+
+        if (glHeat) {
+          const gvs = compile(glHeat, glHeat.VERTEX_SHADER, GLOBE_VERT_SRC);
+          const gfs = compile(glHeat, glHeat.FRAGMENT_SHADER, GLOBE_FRAG_SRC);
+          globeProg = glHeat.createProgram();
+          glHeat.attachShader(globeProg, gvs);
+          glHeat.attachShader(globeProg, gfs);
+          glHeat.linkProgram(globeProg);
+          if (!glHeat.getProgramParameter(globeProg, glHeat.LINK_STATUS)) {
+            throw new Error(glHeat.getProgramInfoLog(globeProg) || "globe program link failed");
+          }
+          glHeat.useProgram(globeProg);
+          gAPos = glHeat.getAttribLocation(globeProg, "aPos");
+          uHeatLoc = glHeat.getUniformLocation(globeProg, "uHeat");
+          uCoastLoc = glHeat.getUniformLocation(globeProg, "uCoast");
+          uLon0Loc = glHeat.getUniformLocation(globeProg, "uLon0");
+          uLat0Loc = glHeat.getUniformLocation(globeProg, "uLat0");
+          uResLoc = glHeat.getUniformLocation(globeProg, "uResolution");
+          uScaleLoc = glHeat.getUniformLocation(globeProg, "uGlobeScale");
+
+          gQuadBuf = glHeat.createBuffer();
+          glHeat.bindBuffer(glHeat.ARRAY_BUFFER, gQuadBuf);
+          glHeat.bufferData(
+            glHeat.ARRAY_BUFFER,
+            new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+            glHeat.STATIC_DRAW,
+          );
+
+          function makeTex() {
+            const t = glHeat.createTexture();
+            glHeat.bindTexture(glHeat.TEXTURE_2D, t);
+            glHeat.texParameteri(glHeat.TEXTURE_2D, glHeat.TEXTURE_WRAP_S, glHeat.CLAMP_TO_EDGE);
+            glHeat.texParameteri(glHeat.TEXTURE_2D, glHeat.TEXTURE_WRAP_T, glHeat.CLAMP_TO_EDGE);
+            glHeat.texParameteri(glHeat.TEXTURE_2D, glHeat.TEXTURE_MIN_FILTER, glHeat.LINEAR);
+            glHeat.texParameteri(glHeat.TEXTURE_2D, glHeat.TEXTURE_MAG_FILTER, glHeat.LINEAR);
+            return t;
+          }
+          heatTex = makeTex();
+          coastTex = makeTex();
+        } else {
+          statusText.textContent = "WebGL unavailable in this browser";
+        }
+
+        function renderGlobe() {
+          if (!glHeat || !heatTexReady) return;
+          const w = heatCanvas.width;
+          const h = heatCanvas.height;
+          glHeat.viewport(0, 0, w, h);
+          glHeat.clearColor(0, 0, 0, 0);
+          glHeat.clear(glHeat.COLOR_BUFFER_BIT);
+          glHeat.useProgram(globeProg);
+          glHeat.uniform1f(uLon0Loc, lon0);
+          glHeat.uniform1f(uLat0Loc, lat0);
+          glHeat.uniform2f(uResLoc, w, h);
+          glHeat.uniform1f(uScaleLoc, GLOBE_SCALE);
+          glHeat.activeTexture(glHeat.TEXTURE0);
+          glHeat.bindTexture(glHeat.TEXTURE_2D, heatTex);
+          glHeat.uniform1i(uHeatLoc, 0);
+          glHeat.activeTexture(glHeat.TEXTURE1);
+          glHeat.bindTexture(glHeat.TEXTURE_2D, coastTex);
+          glHeat.uniform1i(uCoastLoc, 1);
+          glHeat.bindBuffer(glHeat.ARRAY_BUFFER, gQuadBuf);
+          glHeat.enableVertexAttribArray(gAPos);
+          glHeat.vertexAttribPointer(gAPos, 2, glHeat.FLOAT, false, 0, 0);
+          glHeat.drawArrays(glHeat.TRIANGLES, 0, 6);
         }
 
         // ---- webgl particles ----------------------------------------------------
         const gl = windCanvas.getContext("webgl") || windCanvas.getContext("experimental-webgl");
-        if (!gl) {
-          statusText.textContent = "WebGL unavailable in this browser";
-        }
 
         const VERT_SRC =
           "attribute vec2 aPos;" +
@@ -583,16 +752,6 @@
           "varying vec3 vColor;" +
           "varying float vAlpha;" +
           "void main(){ gl_FragColor = vec4(vColor, vAlpha); }";
-
-        function compile(gl, type, src) {
-          const s = gl.createShader(type);
-          gl.shaderSource(s, src);
-          gl.compileShader(s);
-          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-            throw new Error(gl.getShaderInfoLog(s) || "shader compile failed");
-          }
-          return s;
-        }
 
         let prog, aPos, aColor, aAlpha, posBuf, colorBuf, alphaBuf, quadPosBuf;
 
@@ -621,6 +780,8 @@
             gl.STATIC_DRAW,
           );
           gl.enable(gl.BLEND);
+        } else if (glHeat) {
+          statusText.textContent = "WebGL unavailable in this browser";
         }
 
         // ---- particles ----------------------------------------------------------
@@ -631,7 +792,7 @@
         const pPrevRow = new Float32Array(N);
         const pAge = new Int32Array(N);
         const pMaxAge = new Int32Array(N);
-        const pWrapped = new Uint8Array(N);
+        const pSuppress = new Uint8Array(N); // don't draw a segment: just spawned, or occluded by the globe
         const pSpeed = new Float32Array(N);
 
         function respawn(i) {
@@ -641,7 +802,7 @@
           pPrevRow[i] = pRow[i];
           pAge[i] = 0;
           pMaxAge[i] = 40 + Math.floor(Math.random() * 130);
-          pWrapped[i] = 1; // don't draw a segment the frame a particle (re)spawns
+          pSuppress[i] = 1; // don't draw a segment the frame a particle (re)spawns
         }
         for (let i = 0; i < N; i++) respawn(i);
 
@@ -687,7 +848,6 @@
               continue;
             }
             nc = ((nc % GRID_W) + GRID_W) % GRID_W;
-            pWrapped[i] = Math.abs(nc - pCol[i]) > GRID_W / 2 ? 1 : 0;
             pCol[i] = nc;
             pRow[i] = nr;
           }
@@ -709,30 +869,45 @@
         }
 
         function buildLineBuffers() {
-          for (let i = 0; i < N; i++) {
-            const px = (pPrevCol[i] / GRID_W) * 2 - 1;
-            const py = 1 - (pPrevRow[i] / GRID_H) * 2;
-            const cx = (pCol[i] / GRID_W) * 2 - 1;
-            const cy = 1 - (pRow[i] / GRID_H) * 2;
-            const pi = i * 4;
-            linePos[pi] = px;
-            linePos[pi + 1] = py;
-            linePos[pi + 2] = cx;
-            linePos[pi + 3] = cy;
+          const clat = Math.cos(lat0),
+            slat = Math.sin(lat0);
+          const clon = Math.cos(lon0),
+            slon = Math.sin(lon0);
+          const w = windCanvas.width,
+            h = windCanvas.height;
+          const m = Math.min(w, h);
+          const scaleX = (m * GLOBE_SCALE) / w;
+          const scaleY = (m * GLOBE_SCALE) / h;
 
-            const [r, g, b] = speedColor(pSpeed[i]);
+          for (let i = 0; i < N; i++) {
+            const a = projectToSphere(pPrevCol[i], pPrevRow[i], clat, slat, clon, slon);
+            const b = projectToSphere(pCol[i], pRow[i], clat, slat, clon, slon);
+
+            const pi = i * 4;
+            linePos[pi] = a.px * scaleX;
+            linePos[pi + 1] = -a.py * scaleY;
+            linePos[pi + 2] = b.px * scaleX;
+            linePos[pi + 3] = -b.py * scaleY;
+
+            const [r, g, b2] = speedColor(pSpeed[i]);
             const ci = i * 6;
             lineColor[ci] = r;
             lineColor[ci + 1] = g;
-            lineColor[ci + 2] = b;
+            lineColor[ci + 2] = b2;
             lineColor[ci + 3] = r;
             lineColor[ci + 4] = g;
-            lineColor[ci + 5] = b;
+            lineColor[ci + 5] = b2;
 
-            const a = pWrapped[i] ? 0 : Math.max(0.12, Math.min(0.9, 0.25 + pSpeed[i] * 0.9));
+            const occluded = a.pz < 0 || b.pz < 0;
+            const limbFade = occluded ? 0 : Math.max(0, Math.min(1, Math.min(a.pz, b.pz) * 4));
+            const suppressed = pSuppress[i] || occluded;
+            const alpha = suppressed
+              ? 0
+              : Math.max(0.12, Math.min(0.9, 0.25 + pSpeed[i] * 0.9)) * limbFade;
             const ai = i * 2;
-            lineAlpha[ai] = a;
-            lineAlpha[ai + 1] = a;
+            lineAlpha[ai] = alpha;
+            lineAlpha[ai + 1] = alpha;
+            pSuppress[i] = 0;
           }
         }
 
@@ -775,9 +950,52 @@
           if (!running) return;
           updateParticles();
           buildLineBuffers();
+          renderGlobe();
           renderFrame();
           requestAnimationFrame(loop);
         }
+
+        // ---- drag to rotate ---------------------------------------------------
+        const stageEl = document.getElementById("stage");
+        let dragging = false,
+          dragPointerId = null,
+          dragStartX = 0,
+          dragStartY = 0,
+          dragStartLon = 0,
+          dragStartLat = 0;
+
+        function onPointerDown(e) {
+          dragging = true;
+          dragPointerId = e.pointerId;
+          dragStartX = e.clientX;
+          dragStartY = e.clientY;
+          dragStartLon = lon0;
+          dragStartLat = lat0;
+          stageEl.style.cursor = "grabbing";
+          stageEl.setPointerCapture(e.pointerId);
+        }
+        function onPointerMove(e) {
+          if (!dragging || e.pointerId !== dragPointerId) return;
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const radiusPx = getGlobeRadiusPx() || 1;
+          const sens = Math.PI / (radiusPx * 1.6);
+          const dx = (e.clientX - dragStartX) * dpr;
+          const dy = (e.clientY - dragStartY) * dpr;
+          lon0 = wrapAngle(dragStartLon - dx * sens);
+          lat0 = Math.max(-LAT_LIMIT, Math.min(LAT_LIMIT, dragStartLat + dy * sens));
+        }
+        function onPointerUp(e) {
+          if (e.pointerId !== dragPointerId) return;
+          dragging = false;
+          dragPointerId = null;
+          stageEl.style.cursor = "grab";
+        }
+        stageEl.style.cursor = "grab";
+        stageEl.style.touchAction = "none";
+        stageEl.addEventListener("pointerdown", onPointerDown);
+        stageEl.addEventListener("pointermove", onPointerMove);
+        stageEl.addEventListener("pointerup", onPointerUp);
+        stageEl.addEventListener("pointercancel", onPointerUp);
 
         // ---- sizing ---------------------------------------------------------
         function resize() {
@@ -795,7 +1013,7 @@
             gl.clearColor(0, 0, 0, 0);
             gl.clear(gl.COLOR_BUFFER_BIT);
           }
-          if (land.some(Boolean)) drawHeatBackground();
+          if (glHeat) glHeat.viewport(0, 0, w, h);
         }
         window.addEventListener("resize", resize);
 
@@ -809,6 +1027,7 @@
           land = decodeMask(maskRes.b64, maskRes.w, maskRes.h);
           coastlines = coastRes;
           buildRegionIndex();
+          buildCoastTexture();
           recomputeFields();
           loadingEl.classList.add("hidden");
           running = true;
