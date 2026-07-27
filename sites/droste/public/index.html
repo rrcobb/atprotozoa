@@ -345,14 +345,6 @@
         function shareText() {
           return "i drew a doodle that folds into itself forever, screenshot of a screenshot style — bisks.net/droste";
         }
-        const shareBtn = document.getElementById("shareBtn");
-        shareBtn.addEventListener("click", () => {
-          window.open(
-            "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText()),
-            "_blank",
-            "noopener"
-          );
-        });
 
         function canShareFiles() {
           if (!navigator.share || !navigator.canShare) return false;
@@ -372,21 +364,39 @@
           a.remove();
           setTimeout(() => URL.revokeObjectURL(a.href), 4000);
         }
+
         const saveBtn = document.getElementById("saveBtn");
-        if (canShareFiles()) saveBtn.textContent = "share image";
         saveBtn.addEventListener("click", () => {
+          canvas.toBlob((blob) => {
+            if (blob) downloadBlob(blob);
+          }, "image/png");
+        });
+
+        const shareBtn = document.getElementById("shareBtn");
+        shareBtn.addEventListener("click", () => {
           canvas.toBlob(async (blob) => {
             if (!blob) return;
+            // prefer the OS share sheet — it hands the drawing straight to the
+            // Bluesky app with the image attached, which a bsky.app compose
+            // link can't do (it only accepts text, no image param)
             if (canShareFiles()) {
               try {
                 const file = new File([blob], "droste.png", { type: "image/png" });
                 await navigator.share({ files: [file], text: shareText(), title: "droste" });
                 return;
               } catch (e) {
-                // user cancelled or share failed — fall back to download
+                if (e && e.name === "AbortError") return; // user cancelled the sheet
               }
             }
+            // no OS share sheet available: download the drawing and open the
+            // web composer so the image is at least one attach-click away
             downloadBlob(blob);
+            statusEl.textContent = "image downloaded — attach it in the composer that just opened";
+            window.open(
+              "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText()),
+              "_blank",
+              "noopener"
+            );
           }, "image/png");
         });
 
