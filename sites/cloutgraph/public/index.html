@@ -111,6 +111,11 @@
 
       .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
 
+      .swapRow { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; margin: 0 0 1.2rem; }
+      .swapStatus { font-size: 0.82rem; color: var(--muted); }
+      .swapStatus.err { color: #b3261e; }
+      .swapStatus.ok { color: var(--good); }
+
       details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
       details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
       details.how .body { margin-top: 0.8rem; line-height: 1.75; }
@@ -158,6 +163,10 @@
 
       <section id="result">
         <div class="summary" id="summary"></div>
+        <div class="swapRow" id="swapRow" style="display: none">
+          <button type="button" class="btn2" id="swapBtn">swap out low-activity members</button>
+          <span class="swapStatus" id="swapStatus"></span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -200,11 +209,16 @@
           scaled 0–100 against the pool's own top scorer. The graph is capped
           at 50 pool members and 300 likes each to keep the crawl bounded —
           big mutual sets or lists get truncated to the first 50 found. Any
-          pool member found with fewer than 5 total in-pool likes (given +
-          received) in that initial crawl gets swapped for the next candidate
-          waiting in line — a couple of stray likes is too small a sample for
-          PMI/HITS and tends to swing scores to extremes rather than reflect
-          real standing.
+          pool member whose <b>weaker side</b> — <code>min(likes given,
+          likes received)</code> within the pool — is under 5 is too small a
+          sample for PMI/HITS and tends to swing scores to extremes rather
+          than reflect real standing. Nobody gets swapped automatically
+          though: hit the <b>"swap out low-activity members"</b> button once
+          results are in, and it'll drop whoever's currently under that
+          threshold for the next candidate waiting in line, recompute, and
+          re-rank. It only checks the pool as it stands when you click it, so
+          if a freshly swapped-in replacement also turns out to be
+          low-activity, click it again to clean that up too.
         </div>
       </details>
 
@@ -227,13 +241,22 @@
       const $ = (id) => document.getElementById(id);
       const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
       const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
+      const swapRow = $("swapRow"), swapBtn = $("swapBtn"), swapStatusEl = $("swapStatus");
       const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
       const shareCanvas = $("shareCanvas");
+
+      // Live state for the current result set, so the swap button can act on
+      // it after the initial run() call has returned.
+      let state = null;
 
       const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
       function setStatus(text, cls) {
         statusEl.className = "status" + (cls ? " " + cls : "");
         statusEl.textContent = text;
+      }
+      function setSwapStatus(text, cls) {
+        swapStatusEl.className = "swapStatus" + (cls ? " " + cls : "");
+        swapStatusEl.textContent = text;
       }
 
       function fmt(n, d) {
@@ -386,34 +409,123 @@
         }, "image/png");
       });
 
+      // Pool members whose weaker in-pool-likes side (min of given/received)
+      // is below MIN_IN_POOL_LIKES — the candidates the swap button acts on.
+      function belowThreshold(pool, graph) {
+        return pool.filter((p) => {
+          const g = graph.givenInPool[p.did] || 0;
+          const r = graph.receivedInPool[p.did] || 0;
+          return Math.min(g, r) < MIN_IN_POOL_LIKES;
+        });
+      }
+
+      function updateSwapButtonState() {
+        if (!state) { swapRow.style.display = "none"; return; }
+        swapRow.style.display = "";
+        const below = belowThreshold(state.pool, state.graph);
+        if (!below.length) {
+          swapBtn.textContent = "no low-activity members left";
+          swapBtn.disabled = true;
+        } else if (!state.overflow.length) {
+          swapBtn.textContent = `drop ${below.length} low-activity member${below.length === 1 ? "" : "s"} (no replacements left)`;
+          swapBtn.disabled = false;
+        } else {
+          swapBtn.textContent = `swap out ${below.length} low-activity member${below.length === 1 ? "" : "s"}`;
+          swapBtn.disabled = false;
+        }
+      }
+
+      // Re-rank and redraw everything from `state` — called after the
+      // initial crawl and again after every swap-button click.
+      function renderAll() {
+        const ids = state.pool.map((p) => p.did);
+        const ranked = rankPool(ids, state.graph.edges);
+
+        const truncNote = state.poolInfo.truncated
+          ? ` (capped at the first ${MAX_POOL} of ${state.poolInfo.totalFound} found)`
+          : "";
+        const failNote = state.graph.failedCount
+          ? ` — ${state.graph.failedCount} account${state.graph.failedCount === 1 ? "" : "s"} unreachable (different PDS/CORS), skipped`
+          : "";
+        const swapNote = (() => {
+          if (!state.swapRounds) return "";
+          const bits = [];
+          if (state.totalReplaced) bits.push(`${state.totalReplaced} swapped for a replacement`);
+          if (state.totalDropped) bits.push(`${state.totalDropped} dropped (no replacement left)`);
+          return bits.length
+            ? ` — ${bits.join(", ")} (min(given, received) < ${MIN_IN_POOL_LIKES})`
+            : "";
+        })();
+        summaryEl.innerHTML =
+          `<b>${escapeHtml(state.poolInfo.label)}</b>${truncNote} — <b>${state.pool.length}</b> in the pool, ` +
+          `<b>${state.graph.resolvedCount}</b> crawled, <b>${state.graph.edges.length}</b> in-pool like-edges found${failNote}${swapNote}.`;
+
+        renderRows(ranked, state.profiles, state.graph.givenInPool, state.graph.receivedInPool);
+        updateSwapButtonState();
+
+        lastShareText = buildShareText(state.poolInfo, ranked, state.profiles);
+        shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+        buildShareCard(state.poolInfo, ranked, state.profiles);
+      }
+
+      swapBtn.addEventListener("click", async () => {
+        if (!state) return;
+        swapBtn.disabled = true;
+        setSwapStatus("crawling replacements…");
+        try {
+          const backfilled = await backfillLowActivity(state.pool, state.overflow, state.graph, {
+            onProgress: (done, total) =>
+              setSwapStatus(`crawling ${total} replacement${total === 1 ? "" : "s"}: ${done}/${total}…`),
+          });
+          const swapped = backfilled.swapped;
+          if (!swapped.length) {
+            setSwapStatus("nobody left below the threshold.", "ok");
+            return;
+          }
+          for (const s of swapped) {
+            state.profiles.delete(s.removed.did);
+            if (s.added) state.profiles.set(s.added.did, s.added);
+          }
+          const consumed = swapped.filter((s) => s.added).length;
+          state.overflow = state.overflow.slice(consumed);
+          state.pool = backfilled.pool;
+          state.graph = backfilled.graph;
+          state.swapRounds++;
+          state.totalReplaced += consumed;
+          state.totalDropped += swapped.length - consumed;
+
+          renderAll();
+          const dropped = swapped.length - consumed;
+          setSwapStatus(
+            `swapped ${consumed} member${consumed === 1 ? "" : "s"}` +
+              (dropped ? `, dropped ${dropped} with no replacement left.` : "."),
+            "ok",
+          );
+        } catch (err) {
+          setSwapStatus("that swap failed — " + (err && err.message ? err.message : "try again") + ".", "err");
+        } finally {
+          updateSwapButtonState();
+        }
+      });
+
       async function run(raw) {
         const q = (raw || "").trim();
         if (!q) { input.focus(); return; }
         goBtn.disabled = true;
         result.classList.remove("on");
+        state = null;
+        swapRow.style.display = "none";
+        setSwapStatus("");
         setStatus("resolving " + q + "…");
         try {
           const poolInfo = await resolvePool(q, { onStep: (s) => setStatus(s) });
-          let pool = poolInfo.pool;
+          const pool = poolInfo.pool;
           const profiles = new Map(pool.map((p) => [p.did, p]));
 
           setStatus(`pool: ${pool.length} accounts (${poolInfo.label}). reading likes: 0/${pool.length}…`);
-          let graph = await buildLikeGraph(pool, {
+          const graph = await buildLikeGraph(pool, {
             onProgress: (done, total) => setStatus(`pool: ${pool.length} accounts. reading likes: ${done}/${total}…`),
           });
-
-          setStatus("checking for low-activity members to swap out…");
-          const backfilled = await backfillLowActivity(pool, poolInfo.overflow, graph, {
-            onProgress: (done, total) =>
-              setStatus(`crawling ${total} replacement${total === 1 ? "" : "s"}: ${done}/${total}…`),
-          });
-          const swapped = backfilled.swapped;
-          pool = backfilled.pool;
-          graph = backfilled.graph;
-          for (const s of swapped) {
-            profiles.delete(s.removed.did);
-            if (s.added) profiles.set(s.added.did, s.added);
-          }
 
           if (!graph.edges.length) {
             setStatus(
@@ -424,35 +536,20 @@
             return;
           }
 
-          const ids = pool.map((p) => p.did);
-          const ranked = rankPool(ids, graph.edges);
+          state = {
+            poolInfo,
+            pool,
+            graph,
+            profiles,
+            overflow: poolInfo.overflow.slice(),
+            swapRounds: 0,
+            totalReplaced: 0,
+            totalDropped: 0,
+          };
 
-          const truncNote = poolInfo.truncated
-            ? ` (capped at the first ${MAX_POOL} of ${poolInfo.totalFound} found)`
-            : "";
-          const failNote = graph.failedCount
-            ? ` — ${graph.failedCount} account${graph.failedCount === 1 ? "" : "s"} unreachable (different PDS/CORS), skipped`
-            : "";
-          const swapNote = (() => {
-            if (!swapped.length) return "";
-            const replaced = swapped.filter((s) => s.added).length;
-            const droppedOnly = swapped.length - replaced;
-            const bits = [];
-            if (replaced) bits.push(`${replaced} swapped for a replacement`);
-            if (droppedOnly) bits.push(`${droppedOnly} dropped (no replacement left)`);
-            return ` — ${swapped.length} member${swapped.length === 1 ? "" : "s"} with fewer than ${MIN_IN_POOL_LIKES} in-pool likes (${bits.join(", ")})`;
-          })();
-          summaryEl.innerHTML =
-            `<b>${escapeHtml(poolInfo.label)}</b>${truncNote} — <b>${pool.length}</b> in the pool, ` +
-            `<b>${graph.resolvedCount}</b> crawled, <b>${graph.edges.length}</b> in-pool like-edges found${failNote}${swapNote}.`;
-
-          renderRows(ranked, profiles, graph.givenInPool, graph.receivedInPool);
+          renderAll();
           result.classList.add("on");
           setStatus("done.", "ok");
-
-          lastShareText = buildShareText(poolInfo, ranked, profiles);
-          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
-          buildShareCard(poolInfo, ranked, profiles);
 
           result.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {

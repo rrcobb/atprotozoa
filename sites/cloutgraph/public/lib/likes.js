@@ -159,23 +159,28 @@ export async function buildLikeGraph(pool, { onProgress } = {}) {
   return { edges, givenInPool, receivedInPool, resolvedCount, failedCount, rawByMember };
 }
 
-// Below this many total in-pool likes (given + received), a member's PMI
-// weights and HITS scores are noise from a tiny sample rather than real
-// signal — one stray like can swing their whole row/column and let them
-// dominate the ranking. See backfillLowActivity().
+// Below this many in-pool likes on a member's *weaker* side (the smaller of
+// given vs. received), a member's PMI weights and HITS scores are noise from
+// a tiny sample rather than real signal — one stray like can swing their
+// whole row/column and let them dominate the ranking. See
+// backfillLowActivity(). (Used to be a sum of given+received; min is
+// stricter — someone who only ever gives likes and never receives any, or
+// vice versa, still gets caught even if their total looks fine.)
 export const MIN_IN_POOL_LIKES = 5;
 
-// Swap out any pool member with fewer than `threshold` total in-pool likes
-// (given + received, per the crawl already done in `graph`) for the next
-// candidate waiting in `overflow`. The rest of the graph is recomputed from
-// the raw likes already crawled in `graph.rawByMember` — only the
-// replacements themselves need a fresh PDS crawl, no re-fetching anyone
-// already in scope. This runs once: replacements aren't re-checked against
-// the threshold, so a still-sparse pool stays as-is rather than looping.
-// Returns { pool, graph, swapped: [{removed, added}] } — `added` is null for
-// a removed member with no replacement left in `overflow` (pool just shrinks).
+// Swap out any pool member whose weaker side (min of given/received in-pool
+// likes, per the crawl already done in `graph`) is below `threshold`, for
+// the next candidate waiting in `overflow`. The rest of the graph is
+// recomputed from the raw likes already crawled in `graph.rawByMember` —
+// only the replacements themselves need a fresh PDS crawl, no re-fetching
+// anyone already in scope. This runs one pass: replacements aren't
+// re-checked against the threshold here, so a caller that wants to keep
+// cleaning up a pool (e.g. a "swap again" button) just calls this again with
+// the updated pool/graph/overflow. Returns { pool, graph, swapped:
+// [{removed, added}] } — `added` is null for a removed member with no
+// replacement left in `overflow` (pool just shrinks).
 export async function backfillLowActivity(pool, overflow, graph, { onProgress, threshold = MIN_IN_POOL_LIKES } = {}) {
-  const activity = (did) => (graph.givenInPool[did] || 0) + (graph.receivedInPool[did] || 0);
+  const activity = (did) => Math.min(graph.givenInPool[did] || 0, graph.receivedInPool[did] || 0);
   const removed = pool.filter((p) => activity(p.did) < threshold);
   if (!removed.length) return { pool, graph, swapped: [] };
 
