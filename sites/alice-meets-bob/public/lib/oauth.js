@@ -156,10 +156,23 @@ export async function clearSession() {
 
 // --- login: start the flow ---------------------------------------------------
 
+// Forgiving handle/DID/URL cleanup — mirrors atproto.js's resolveDid, so
+// pasting "@handle.bsky.social" or a bsky.app profile URL into the sign-in
+// box works the same as it does for the crush-target field.
+function cleanHandleOrDid(input) {
+  return (input || "")
+    .trim()
+    .replace(/^@/, "")
+    .replace(/^at:\/\//, "")
+    .replace(/^https?:\/\/(bsky\.app\/profile\/)?/, "")
+    .split("/")[0];
+}
+
 export async function login(handleOrDid) {
-  const did = handleOrDid.startsWith("did:")
-    ? handleOrDid
-    : await resolveHandle(handleOrDid);
+  const cleaned = cleanHandleOrDid(handleOrDid);
+  const did = cleaned.startsWith("did:")
+    ? cleaned
+    : await resolveHandle(cleaned);
   if (!did) throw new Error("could not resolve handle");
   const pdsUrl = await resolvePds(did);
   if (!pdsUrl) throw new Error("could not resolve PDS");
@@ -182,7 +195,7 @@ export async function login(handleOrDid) {
     code_challenge_method: "S256",
     state,
     scope: SCOPE,
-    login_hint: handleOrDid,
+    login_hint: cleaned,
   });
 
   let dpopProof = await createDPoPProof(dpop, "POST", parEndpoint);
