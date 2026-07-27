@@ -560,6 +560,23 @@
 
   function updateClimb(dt) {
     if (!climbActive) return;
+    // check the win condition BEFORE decay: climbMeter is capped at CLIMB_TARGET,
+    // so if this ran after decay it would always find climbMeter a hair under the
+    // target and never fire — the climb would look infinite no matter how hard
+    // you mashed.
+    if (climbMeter >= CLIMB_TARGET) {
+      climbActive = false;
+      addScore(300);
+      moveControls.classList.add("hidden");
+      showStory(
+        "YOUR HEAD BREAKS THE SURFACE",
+        "Light — real light, not firelight — pours down the shaft. It is the single " +
+        "worst thing that has ever happened to your eyes. You claw the last few feet anyway.",
+        "OPEN YOUR EYES ▶",
+        enterForms
+      );
+      return;
+    }
     if (keys.left) climbLane = Math.max(0, climbLane - dt * 3.2);
     if (keys.right) climbLane = Math.min(2, climbLane + dt * 3.2);
     climbMeter = Math.max(0, climbMeter - dt * 3.2); // gentle decay — keep mashing
@@ -580,19 +597,6 @@
     }
     climbObstacles = climbObstacles.filter((o) => o.y < H + 30);
     if (climbFlash > 0) climbFlash = Math.max(0, climbFlash - dt);
-
-    if (climbMeter >= CLIMB_TARGET) {
-      climbActive = false;
-      addScore(300);
-      moveControls.classList.add("hidden");
-      showStory(
-        "YOUR HEAD BREAKS THE SURFACE",
-        "Light — real light, not firelight — pours down the shaft. It is the single " +
-        "worst thing that has ever happened to your eyes. You claw the last few feet anyway.",
-        "OPEN YOUR EYES ▶",
-        enterForms
-      );
-    }
   }
 
   function drawClimb(dt, tNow) {
