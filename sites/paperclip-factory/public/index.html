@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Paperclip Factory</title>
+    <meta
+      name="description"
+      content="A little factory that produces paperclips. Mostly. Watch the assembly line, count the anomalies, and find out how good it really is at its one job."
+    />
+    <meta property="og:title" content="The Paperclip Factory" />
+    <meta
+      property="og:description"
+      content="It produces paperclips. Mostly. Every so often something else comes off the line instead, with a reaction to match."
+    />
+    <meta property="og:image" content="https://bisks.net/paperclip-factory/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A conveyor belt under hazard stripes, paperclips rolling past with one unicorn among them." />
+    <meta property="og:url" content="https://bisks.net/paperclip-factory" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://bisks.net/paperclip-factory/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #101316;
+        --panel: #181c20;
+        --panel2: #1f242a;
+        --steel: #6b7684;
+        --stripe: #ffb100;
+        --ink: #eef1f4;
+        --muted: #8b96a3;
+        --warn: #ffb100;
+        --alarm: #ff6b57;
+        --legend: #c58bff;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+      }
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 28px 16px 60px;
+      }
+      .wrap { width: 100%; max-width: 780px; }
+      header { text-align: center; margin-bottom: 22px; }
+      h1 {
+        font-size: clamp(28px, 6vw, 42px);
+        font-weight: 800;
+        margin: 0 0 8px;
+        letter-spacing: -0.01em;
+      }
+      h1 .clip { color: var(--warn); }
+      .sub { color: var(--muted); font-size: 14px; max-width: 520px; margin: 0 auto; line-height: 1.5; }
+
+      .belt-frame {
+        position: relative;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #0c0e10;
+        box-shadow: 0 0 0 1px #2a3038;
+      }
+      .stripe-band {
+        height: 14px;
+        background: repeating-linear-gradient(
+          -45deg,
+          var(--stripe) 0 14px,
+          #1a1d20 14px 28px
+        );
+      }
+      .belt {
+        position: relative;
+        height: 170px;
+        background:
+          linear-gradient(180deg, #14171a, #101214 60%, #0c0e10),
+          repeating-linear-gradient(90deg, #23282e 0 2px, transparent 2px 34px);
+        overflow: hidden;
+      }
+      .item {
+        position: absolute;
+        top: 50%;
+        left: 100%;
+        transform: translate(0, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        animation: travel linear forwards;
+        animation-duration: var(--dur, 5.5s);
+        white-space: nowrap;
+      }
+      @keyframes travel {
+        to { left: -120px; }
+      }
+      .item .bubble {
+        font-size: 12px;
+        background: var(--panel2);
+        border: 1px solid #2c333b;
+        border-radius: 8px;
+        padding: 4px 8px;
+        color: var(--ink);
+        max-width: 220px;
+        white-space: normal;
+        text-align: center;
+        line-height: 1.3;
+      }
+      .item .emoji { font-size: 34px; line-height: 1; }
+      .item.tier-uncommon .bubble { border-color: #4a4030; color: var(--warn); }
+      .item.tier-rare .bubble { border-color: #4a3230; color: var(--alarm); }
+      .item.tier-legendary .bubble { border-color: #3d2e4d; color: var(--legend); }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        margin: 14px 0 20px;
+        background: var(--panel);
+        border: 1px solid #262b31;
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .controls .left, .controls .right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      button {
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 600;
+        border: 1px solid #333a42;
+        background: var(--panel2);
+        color: var(--ink);
+        border-radius: 7px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--steel); }
+      button.primary { background: var(--warn); color: #1a1400; border-color: var(--warn); }
+      button.primary:hover { filter: brightness(1.08); }
+      label.speed { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+      input[type="range"] { accent-color: var(--warn); }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid #262b31;
+        border-radius: 10px;
+        padding: 12px 10px;
+        text-align: center;
+      }
+      .stat .num { font-size: 22px; font-weight: 800; }
+      .stat .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+      .stat.rarest .num { font-size: 26px; }
+
+      .log-panel {
+        background: var(--panel);
+        border: 1px solid #262b31;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 20px;
+      }
+      .log-panel h2 {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 2px 0 8px;
+      }
+      .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; max-height: 210px; overflow-y: auto; }
+      .log-list li {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .log-list li .e { font-size: 16px; }
+      .log-list li .r { color: var(--ink); }
+      .log-list li.tier-uncommon .r { color: var(--warn); }
+      .log-list li.tier-rare .r { color: var(--alarm); }
+      .log-list li.tier-legendary .r { color: var(--legend); }
+
+      .share {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 8px;
+      }
+      .share a, .share button {
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #shareBluesky { background: #1185fe; border-color: #1185fe; color: #fff; }
+      #shareBluesky:hover { filter: brightness(1.08); }
+
+      footer {
+        margin-top: 10px;
+        text-align: center;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      footer a { color: var(--muted); }
+      canvas#cardCanvas { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="clip">📎</span> The Paperclip Factory</h1>
+        <p class="sub">It produces paperclips. Mostly. Every so often, something else comes off the line — with a reaction to match.</p>
+      </header>
+
+      <div class="belt-frame">
+        <div class="stripe-band"></div>
+        <div class="belt" id="belt"></div>
+        <div class="stripe-band"></div>
+      </div>
+
+      <div class="controls">
+        <div class="left">
+          <button class="primary" id="crank">🔧 crank it</button>
+          <button id="toggle">⏸ pause</button>
+        </div>
+        <div class="right">
+          <label class="speed">
+            speed
+            <input type="range" id="speed" min="1" max="5" step="1" value="3" />
+          </label>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="num" id="statTotal">0</div>
+          <div class="label">produced</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="statClips">0</div>
+          <div class="label">paperclips</div>
+        </div>
+        <div class="stat">
+          <div class="num" id="statAnomalies">0</div>
+          <div class="label">anomalies</div>
+        </div>
+        <div class="stat rarest">
+          <div class="num" id="statRarest">—</div>
+          <div class="label" id="statRarestLabel">rarest catch</div>
+        </div>
+      </div>
+
+      <div class="log-panel">
+        <h2>off the line</h2>
+        <ul class="log-list" id="log"></ul>
+      </div>
+
+      <div class="share">
+        <a id="shareBluesky" href="#" target="_blank" rel="noopener"><button>🦋 share your factory's stats</button></a>
+        <button id="shareCard">🖼️ save share card</button>
+      </div>
+
+      <footer>
+        a small, honest QC report — <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <canvas id="cardCanvas" width="1200" height="630"></canvas>
+
+    <script>
+      const SITE_URL = "https://bisks.net/paperclip-factory";
+
+      // weight units sum to 1000 → paperclip ≈86%, uncommon ≈10%, rare ≈3.5%, legendary ≈0.5%
+      const ITEMS = [
+        { key: "paperclip", tier: "common", emoji: "📎", name: "paperclip", weight: 860,
+          reactions: ["😐 paperclip. as expected.", "📎 nominal.", "🥱 another paperclip.",
+                      "✅ within spec.", "😑 yep. paperclip.", "📎 paperclip, paperclip, paperclip."] },
+
+        { key: "pin", tier: "uncommon", emoji: "🧷", name: "safety pin", weight: 20,
+          reactions: ["🤨 huh, safety pin.", "🧐 …close enough?", "😅 slight tolerance issue."] },
+        { key: "wrench", tier: "uncommon", emoji: "🔧", name: "wrench", weight: 20,
+          reactions: ["🤔 that's a tool, not a paperclip.", "🧐 wrong bin, machine."] },
+        { key: "spoon", tier: "uncommon", emoji: "🥄", name: "spoon", weight: 20,
+          reactions: ["🤨 a spoon. sure.", "😅 cutlery again?"] },
+        { key: "hook", tier: "uncommon", emoji: "🪝", name: "hook", weight: 20,
+          reactions: ["🧐 a hook. technically fastens things.", "🤔 not what we ordered."] },
+        { key: "thread", tier: "uncommon", emoji: "🧵", name: "spool of thread", weight: 20,
+          reactions: ["🤨 thread. huh.", "😅 someone recalibrate this thing."] },
+
+        { key: "bone", tier: "rare", emoji: "🦴", name: "bone", weight: 7,
+          reactions: ["😳 okay that is DEFINITELY not a paperclip.", "🚨 quality control has questions."] },
+        { key: "sax", tier: "rare", emoji: "🎷", name: "saxophone", weight: 7,
+          reactions: ["😬 someone check the hopper.", "🎷 …it's a whole saxophone."] },
+        { key: "octopus", tier: "rare", emoji: "🐙", name: "octopus", weight: 7,
+          reactions: ["🫣 we don't talk about the hopper.", "😳 it's got EIGHT arms."] },
+        { key: "sock", tier: "rare", emoji: "🧦", name: "sock", weight: 7,
+          reactions: ["😳 a single sock. concerning.", "🚨 fastening capability: zero."] },
+        { key: "banana", tier: "rare", emoji: "🍌", name: "banana", weight: 7,
+          reactions: ["😬 that's food. that's just food.", "😳 not fastening anything, chief."] },
+
+        { key: "unicorn", tier: "legendary", emoji: "🦄", name: "unicorn", weight: 1,
+          reactions: ["🤯 THE FACTORY HAS ACHIEVED SOMETHING.", "✨ nobody tell the shareholders."] },
+        { key: "rocket", tier: "legendary", emoji: "🚀", name: "rocket", weight: 1,
+          reactions: ["🎉 jackpot?? sure, let's call it that.", "🚀 well. it fastens nothing but it FLIES."] },
+        { key: "alien", tier: "legendary", emoji: "👽", name: "alien", weight: 1,
+          reactions: ["🛸 the factory dreams now, apparently.", "🤯 HR is going to hear about this."] },
+        { key: "crystal", tier: "legendary", emoji: "🔮", name: "crystal ball", weight: 1,
+          reactions: ["✨ it foretells... more paperclips, probably.", "🤯 not in the spec sheet."] },
+        { key: "dragon", tier: "legendary", emoji: "🐉", name: "tiny dragon", weight: 1,
+          reactions: ["🐉 that is, at minimum, a fire hazard.", "🤯 the factory has transcended."] },
+      ];
+
+      const TIER_RANK = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
+      const TOTAL_WEIGHT = ITEMS.reduce((s, i) => s + i.weight, 0);
+
+      function pickItem() {
+        let r = Math.random() * TOTAL_WEIGHT;
+        for (const item of ITEMS) {
+          if (r < item.weight) return item;
+          r -= item.weight;
+        }
+        return ITEMS[0];
+      }
+
+      const belt = document.getElementById("belt");
+      const log = document.getElementById("log");
+      const els = {
+        total: document.getElementById("statTotal"),
+        clips: document.getElementById("statClips"),
+        anomalies: document.getElementById("statAnomalies"),
+        rarest: document.getElementById("statRarest"),
+        rarestLabel: document.getElementById("statRarestLabel"),
+        toggle: document.getElementById("toggle"),
+        crank: document.getElementById("crank"),
+        speed: document.getElementById("speed"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareCard: document.getElementById("shareCard"),
+      };
+
+      const state = { total: 0, clips: 0, anomalies: 0, rarest: null, log: [] };
+      let running = true;
+      let timer = null;
+
+      const SPEED_MS = { 1: 3200, 2: 2200, 3: 1400, 4: 900, 5: 500 };
+      const SPEED_DUR = { 1: "7s", 2: "6s", 3: "5.2s", 4: "4.4s", 5: "3.6s" };
+
+      function produce() {
+        const item = pickItem();
+        state.total++;
+        if (item.tier === "common") state.clips++; else state.anomalies++;
+        if (!state.rarest || TIER_RANK[item.tier] > TIER_RANK[state.rarest.tier]) {
+          state.rarest = item;
+        }
+
+        const reaction = item.reactions[Math.floor(Math.random() * item.reactions.length)];
+
+        const el = document.createElement("div");
+        el.className = "item tier-" + item.tier;
+        el.style.setProperty("--dur", SPEED_DUR[els.speed.value]);
+        el.innerHTML = `<div class="bubble">${reaction}</div><div class="emoji">${item.emoji}</div>`;
+        el.addEventListener("animationend", () => el.remove());
+        belt.appendChild(el);
+
+        state.log.unshift({ emoji: item.emoji, name: item.name, reaction, tier: item.tier });
+        state.log = state.log.slice(0, 8);
+
+        render();
+      }
+
+      function render() {
+        els.total.textContent = state.total;
+        els.clips.textContent = state.clips;
+        els.anomalies.textContent = state.anomalies;
+        if (state.rarest) {
+          els.rarest.textContent = state.rarest.emoji + " " + state.rarest.name;
+          els.rarestLabel.textContent = "rarest catch (" + state.rarest.tier + ")";
+        }
+        log.innerHTML = state.log
+          .map(
+            (l) =>
+              `<li class="tier-${l.tier}"><span class="e">${l.emoji}</span><span class="r">${l.reaction}</span></li>`
+          )
+          .join("");
+      }
+
+      function scheduleNext() {
+        clearTimeout(timer);
+        if (!running) return;
+        timer = setTimeout(() => {
+          produce();
+          scheduleNext();
+        }, SPEED_MS[els.speed.value]);
+      }
+
+      els.toggle.addEventListener("click", () => {
+        running = !running;
+        els.toggle.textContent = running ? "⏸ pause" : "▶ resume";
+        scheduleNext();
+      });
+
+      els.crank.addEventListener("click", () => {
+        produce();
+        if (running) scheduleNext();
+      });
+
+      els.speed.addEventListener("input", () => {
+        if (running) scheduleNext();
+      });
+
+      function shareText() {
+        const rate = state.total ? ((state.anomalies / state.total) * 100).toFixed(1) : "0.0";
+        const rarest = state.rarest ? `${state.rarest.emoji} ${state.rarest.name} (${state.rarest.tier})` : "none yet";
+        return `My paperclip factory has produced ${state.total} items: ${state.clips} paperclips, ${state.anomalies} anomalies (${rate}%). Rarest catch: ${rarest}. ${SITE_URL}`;
+      }
+
+      els.shareBluesky.addEventListener("click", (e) => {
+        e.preventDefault();
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText());
+        window.open(els.shareBluesky.href, "_blank", "noopener");
+      });
+
+      function drawCard() {
+        const canvas = document.getElementById("cardCanvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        ctx.fillStyle = "#0c0e10";
+        ctx.fillRect(0, 0, W, H);
+        // hazard stripes top/bottom
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, 18);
+        ctx.rect(0, H - 18, W, 18);
+        ctx.clip();
+        ctx.fillStyle = "#1a1d20";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#ffb100";
+        for (let x = -30; x < W + H; x += 56) {
+          ctx.save();
+          ctx.translate(x, 0);
+          ctx.rotate((-45 * Math.PI) / 180);
+          ctx.fillRect(0, -40, 26, 200);
+          ctx.restore();
+        }
+        ctx.restore();
+
+        ctx.fillStyle = "#eef1f4";
+        ctx.font = "800 52px 'JetBrains Mono', monospace";
+        ctx.fillText("📎 THE PAPERCLIP FACTORY", 60, 130);
+
+        ctx.fillStyle = "#8b96a3";
+        ctx.font = "400 22px 'JetBrains Mono', monospace";
+        const rate = state.total ? ((state.anomalies / state.total) * 100).toFixed(1) : "0.0";
+        ctx.fillText(`${state.total} produced  ·  ${state.clips} paperclips  ·  ${state.anomalies} anomalies (${rate}%)`, 60, 190);
+
+        if (state.rarest) {
+          ctx.font = "800 140px sans-serif";
+          ctx.fillText(state.rarest.emoji, 60, 400);
+          ctx.fillStyle = "#eef1f4";
+          ctx.font = "700 26px 'JetBrains Mono', monospace";
+          ctx.fillText("rarest catch: " + state.rarest.name, 240, 360);
+          ctx.fillStyle = "#8b96a3";
+          ctx.font = "400 20px 'JetBrains Mono', monospace";
+          ctx.fillText("tier: " + state.rarest.tier, 240, 392);
+        }
+
+        ctx.fillStyle = "#eef1f4";
+        ctx.font = "700 22px 'JetBrains Mono', monospace";
+        ctx.fillText("bisks.net/paperclip-factory", 60, 560);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        const probe = new File([""], "probe.png", { type: "image/png" });
+        try {
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      els.shareCard.addEventListener("click", async () => {
+        drawCard();
+        const canvas = document.getElementById("cardCanvas");
+        canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          if (canShareFiles()) {
+            const file = new File([blob], "paperclip-factory.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: shareText(), title: "The Paperclip Factory" });
+              return;
+            } catch {
+              // fall through to download
+            }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "paperclip-factory.png";
+          a.click();
+          URL.revokeObjectURL(url);
+        }, "image/png");
+      });
+
+      // seed the belt with a couple of items right away, then run
+      produce();
+      scheduleNext();
+    </script>
+  </body>
+</html>
