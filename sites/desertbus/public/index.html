@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>desert bus (abridged) — a 30-second drive with Grace</title>
+<meta name="description" content="A Desert Bus homage crammed into 30 real seconds. Your speed is tied straight to your fuel, and once the tank runs low, Grace starts messaging you about it — every 5 seconds, none of them go away on their own.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="desert bus (abridged)">
+<meta property="og:description" content="30 seconds of fuel. Speed drops with it. Once it's low, Grace won't stop telling you. Exactly.">
+<meta property="og:url" content="https://bisks.net/games/desertbus">
+<meta property="og:image" content="https://bisks.net/games/desertbus/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="desert bus (abridged)">
+<meta name="twitter:description" content="30 seconds of fuel. Speed drops with it. Once it's low, Grace won't stop telling you. Exactly.">
+<meta name="twitter:image" content="https://bisks.net/games/desertbus/og.png">
+
+<style>
+  :root {
+    --sky-top: #ffb37a;
+    --sky-bot: #ffdca8;
+    --dune-far: #e0a868;
+    --dune-near: #c98a4f;
+    --road: #4a4238;
+    --road-edge: #f4e6c9;
+    --stripe: #f4e6c9;
+    --car: #2d5b6b;
+    --car-2: #dfeff2;
+    --panel: #241f1c;
+    --panel-ink: #f3e6cf;
+    --amber: #ffb454;
+    --warn: #ff5d5d;
+    --good: #7fbf6a;
+    --accent: #d0672c;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #1a1512;
+    color: var(--panel-ink);
+    font-family: var(--mono);
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; padding: 12px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 900px);
+    aspect-ratio: 900 / 620;
+    max-height: 88vh;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 24px 60px rgba(0,0,0,0.55);
+    display: flex; flex-direction: column;
+  }
+  canvas { display: block; width: 100%; flex: 1 1 auto; min-height: 0; }
+
+  /* dashboard strip */
+  #dash {
+    flex: 0 0 auto;
+    background: var(--panel);
+    border-top: 3px solid #100d0b;
+    display: flex; align-items: stretch; justify-content: space-between;
+    padding: 8px 14px;
+    gap: 10px;
+    font-size: 12px;
+  }
+  #dash .gauge { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  #dash .label { opacity: 0.6; letter-spacing: 1px; font-size: 10px; }
+  #dash .val { font-size: 20px; font-weight: 700; color: var(--amber); line-height: 1.2; }
+  #dash .val small { font-size: 11px; opacity: 0.7; font-weight: 400; }
+  #fuelWrap { flex: 1 1 auto; }
+  #fuelBar {
+    position: relative;
+    height: 12px; border-radius: 6px; overflow: hidden;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    margin-top: 4px;
+  }
+  #fuelFill {
+    position: absolute; inset: 0; right: auto;
+    width: 100%;
+    background: linear-gradient(90deg, var(--good), var(--amber) 60%, var(--warn));
+    transition: width 0.12s linear;
+  }
+  #dash.low #fuelWrap .label { color: var(--warn); animation: blink 0.7s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  #warnLight {
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 0 10px;
+    color: var(--warn);
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 1px;
+    animation: blink 0.7s steps(2) infinite;
+  }
+  #dash.low #warnLight { display: flex; }
+
+  /* overlays */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: rgba(24,18,14,0.92);
+    backdrop-filter: blur(3px);
+    padding: 20px; gap: 12px;
+    z-index: 30;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(22px, 5.6vw, 38px);
+    letter-spacing: 1px;
+    color: var(--amber);
+  }
+  .overlay p { margin: 0; max-width: 46ch; line-height: 1.5; opacity: 0.92; font-size: 14px; }
+  .overlay .keys { font-size: 12px; opacity: 0.7; }
+  .overlay .keys b { color: var(--amber); }
+  .overlay .stats { font-size: 14px; line-height: 1.7; }
+  .overlay .stats b { color: var(--amber); }
+  .overlay .flavor { font-size: 12px; opacity: 0.65; max-width: 42ch; }
+  button.big {
+    font: inherit; font-size: 16px;
+    padding: 11px 24px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff2e6; cursor: pointer;
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.96); }
+  button.ghost {
+    font: inherit; font-size: 13px;
+    padding: 8px 16px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.3);
+    background: transparent; color: var(--panel-ink);
+    cursor: pointer;
+  }
+  .btnrow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+  /* shoo button, only visible once popups exist */
+  #shoo {
+    position: fixed;
+    top: 12px; right: 12px;
+    z-index: 100000;
+    display: none;
+    font: inherit; font-size: 13px;
+    padding: 8px 14px; border-radius: 999px;
+    border: 1px solid var(--warn);
+    background: #2a1414; color: #ffd6d6;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  }
+  #shoo.show { display: block; }
+
+  /* Grace popups — fixed to the viewport, cascade over everything */
+  .grace-popup {
+    position: fixed;
+    width: 300px;
+    z-index: 99000;
+    background: #ece7dd;
+    color: #1c1a17;
+    border: 1px solid #8a8578;
+    border-radius: 6px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+    font-family: var(--mono);
+    overflow: hidden;
+    animation: pop-in 0.16s ease-out;
+  }
+  @keyframes pop-in { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .grace-popup .titlebar {
+    display: flex; align-items: center; gap: 8px;
+    background: linear-gradient(90deg, #274b6b, #3a6a92);
+    color: #fff;
+    padding: 6px 8px;
+    font-size: 12px; font-weight: 700;
+  }
+  .grace-popup .avatar {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #ffb454; color: #241f1c;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex: 0 0 auto;
+  }
+  .grace-popup .titlebar span { flex: 1 1 auto; }
+  .grace-popup .close {
+    width: 18px; height: 18px; line-height: 16px;
+    text-align: center;
+    background: #d9dde2; color: #1c1a17;
+    border: 1px solid #8a8578; border-radius: 3px;
+    cursor: pointer; font-size: 12px; font-weight: 700;
+    flex: 0 0 auto;
+  }
+  .grace-popup .body { padding: 12px 12px 8px; font-size: 13px; line-height: 1.5; }
+  .grace-popup .foot { padding: 0 12px 12px; display: flex; justify-content: flex-end; }
+  .grace-popup .ok {
+    font: inherit; font-size: 12px;
+    padding: 5px 14px; border-radius: 4px;
+    border: 1px solid #274b6b; background: #3a6a92; color: #fff;
+    cursor: pointer;
+  }
+
+  #bar {
+    width: min(100%, 900px);
+    text-align: center;
+    font-size: 11px; opacity: 0.6;
+  }
+  #bar a { color: var(--amber); text-decoration: none; }
+  #bar a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="900" height="480"></canvas>
+
+    <div id="dash">
+      <div class="gauge">
+        <div class="label">SPEED</div>
+        <div class="val" id="mph">0<small> mph</small></div>
+      </div>
+      <div class="gauge" id="fuelWrap">
+        <div class="label">FUEL</div>
+        <div id="fuelBar"><div id="fuelFill"></div></div>
+      </div>
+      <div class="gauge">
+        <div class="label">TRIP</div>
+        <div class="val" id="dist">0<small> ft</small></div>
+      </div>
+      <div class="gauge" id="warnLight">⚠ LOW FUEL</div>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <h1>DESERT BUS <small style="font-size:0.5em;opacity:0.7">(abridged)</small></h1>
+      <p>The tank runs empty in exactly <b>30 seconds</b>, no matter what you do — and your
+         speed drops right along with it. Once fuel gets low, Grace starts letting you know.
+         Repeatedly. Every 5 seconds. None of it goes away on its own.</p>
+      <p class="keys"><b>&larr; &rarr;</b> or <b>A / D</b> to steer · stay on the road, it's faster</p>
+      <button class="big" id="startBtn">▶ turn the key</button>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <h1 id="overTitle">TANK EMPTY</h1>
+      <div class="stats">
+        trip <b id="finalDist">0 ft</b> · fuel warnings received <b id="finalWarnings">0</b> · dismissed <b id="finalDismissed">0</b>
+      </div>
+      <p class="flavor" id="flavorText"></p>
+      <div class="btnrow">
+        <button class="big" id="againBtn">↻ fill up, go again</button>
+        <a class="ghost" id="shareBtn" style="text-decoration:none; display:inline-flex; align-items:center;" target="_blank" rel="noopener">🦋 share</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="bar">
+    a Desert Bus homage, 28,800&times; shorter ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>
+    (quoting <a href="https://bsky.app/profile/gracekind.net">@gracekind.net</a>)
+  </div>
+</div>
+
+<button id="shoo" type="button">shoo (<span id="shooCount">0</span>) ✕</button>
+<div id="popups"></div>
+
+<script src="game.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
