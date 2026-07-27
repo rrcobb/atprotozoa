@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spoonerism — every spoonerism, browsable one by one</title>
+    <meta
+      name="description"
+      content="A 60-word bank, every pair spoonerized — 1,770 of them, each with its own link. Plus: type any phrase and get its spoonerism instantly."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky.
+         src/index.ts swaps these exact strings for per-entry text on
+         /p/<n> — keep GENERIC_TITLE/GENERIC_DESC/GENERIC_OG_URL there in
+         sync with the strings here if you edit this head. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/spoonerism/" />
+    <meta property="og:title" content="spoonerism — every spoonerism, browsable one by one" />
+    <meta
+      property="og:description"
+      content="A 60-word bank, every pair spoonerized — 1,770 of them, each with its own link. Plus: type any phrase and get its spoonerism instantly."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="spoonerism — every spoonerism, browsable one by one" />
+    <meta
+      name="twitter:description"
+      content="A 60-word bank, every pair spoonerized — 1,770 of them. Type any phrase and get its spoonerism instantly."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --accentbg: #eef3fd;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--mono);
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      h1 { font-size: 1.5rem; margin: 1.1rem 0 0.3rem; letter-spacing: -0.01em; }
+      .tagline { color: var(--muted); margin: 0 0 1.4rem; }
+      .note {
+        font-size: 0.85rem; color: var(--muted); background: var(--faintbg);
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.75rem 0.9rem;
+        margin-bottom: 2rem;
+      }
+      .note strong { color: var(--ink); }
+
+      section { margin-bottom: 2.4rem; }
+      h2 {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 0 0 0.8rem;
+      }
+
+      .card {
+        border: 1px solid var(--faint); border-radius: 10px; padding: 1.1rem 1.2rem;
+        background: var(--bg);
+      }
+
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1 1 240px; font-family: var(--mono); font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 6px;
+        background: var(--bg); color: var(--ink); min-width: 0;
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: var(--mono); font-size: 0.85rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--faintbg);
+        color: var(--ink); cursor: pointer;
+      }
+      button:hover { background: var(--faint); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      button.primary:hover { background: #144ba8; }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      .result { margin-top: 0.9rem; font-size: 0.95rem; }
+      .result .orig { color: var(--muted); }
+      .result .arrow { color: var(--muted); margin: 0 0.4rem; }
+      .result .spoon { color: var(--accent); font-weight: 600; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; }
+
+      .archive-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem;
+      }
+      .archive-count { color: var(--muted); font-size: 0.8rem; }
+      .archive-nav { display: flex; gap: 0.4rem; margin-top: 0.9rem; flex-wrap: wrap; }
+      .permalink { font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; word-break: break-all; }
+      .permalink a { color: var(--muted); }
+
+      .share-btn {
+        display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none;
+        font-family: var(--mono); font-size: 0.8rem; padding: 0.45rem 0.75rem;
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--accentbg);
+        color: var(--accent); margin-top: 0.7rem;
+      }
+      .share-btn:hover { text-decoration: none; background: #dfe9fb; }
+
+      .feed-toggle { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.9rem; }
+      .feed-status { font-size: 0.8rem; color: var(--muted); }
+      .feed-list { display: flex; flex-direction: column; gap: 0.6rem; }
+      .feed-item {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.7rem 0.85rem;
+        font-size: 0.88rem; animation: pop 0.25s ease;
+      }
+      .feed-item .meta { color: var(--muted); font-size: 0.72rem; margin-bottom: 0.25rem; }
+      .feed-item .spoon { color: var(--accent); }
+      @keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+      .feed-empty { color: var(--muted); font-size: 0.85rem; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net/">← bisks.net</a>
+      <h1>spoonerism</h1>
+      <p class="tagline">a bot that posts every spoonerism — or the closest thing to it</p>
+
+      <p class="note">
+        <strong>honest note:</strong> a bot that actually posts to Bluesky on a
+        timer needs its own account and a stored app password — this build
+        doesn't have one and can't wire one up. So instead: <em>every</em>
+        spoonerism it would post is enumerated right here, each with its own
+        permalink, plus a feed below that behaves like the bot's timeline
+        would. One tap sends any of them to your own Bluesky post composer.
+      </p>
+
+      <section>
+        <h2>spoonerize your own</h2>
+        <div class="card">
+          <div class="row">
+            <input type="text" id="customInput" placeholder="type two words, e.g. flat battery" maxlength="80" />
+            <button class="primary" id="customBtn">spoonerize</button>
+          </div>
+          <p class="hint">uses the first two words of whatever you type.</p>
+          <div class="result" id="customResult" hidden>
+            <span class="orig" id="customOrig"></span>
+            <span class="arrow">→</span>
+            <span class="spoon" id="customSpoon"></span>
+          </div>
+          <a class="share-btn" id="customShare" href="#" target="_blank" rel="noopener" hidden>🦋 share to bluesky</a>
+        </div>
+      </section>
+
+      <section>
+        <div class="archive-head">
+          <h2 style="margin-bottom:0">the archive</h2>
+          <span class="archive-count" id="archiveCount"></span>
+        </div>
+        <div class="card">
+          <div class="result" id="archiveResult">
+            <span class="orig" id="archiveOrig"></span>
+            <span class="arrow">→</span>
+            <span class="spoon" id="archiveSpoon"></span>
+          </div>
+          <div class="archive-nav">
+            <button id="prevBtn">← prev</button>
+            <button id="randomBtn">🎲 random</button>
+            <button id="nextBtn">next →</button>
+          </div>
+          <a class="share-btn" id="archiveShare" href="#" target="_blank" rel="noopener">🦋 share to bluesky</a>
+          <div class="permalink">permalink: <a id="archiveLink" href="#"></a></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>live feed</h2>
+        <div class="feed-toggle">
+          <button id="feedBtn" class="primary">▶ start auto-posting</button>
+          <span class="feed-status" id="feedStatus">not running — the bot is idle until you press play</span>
+        </div>
+        <div class="feed-list" id="feedList">
+          <p class="feed-empty">nothing posted yet.</p>
+        </div>
+      </section>
+
+      <footer>
+        every spoonerism is generated by splitting each word before its
+        first vowel and swapping the leading sound — same trick behind
+        real spoonerisms, applied to a made-up word bank of 60 words.
+        <br />
+        part of <a href="https://bisks.net/">bisks.net</a>, built by
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script>
+      // Kept identical to src/index.ts's WORDS array — the client and the
+      // /p/<n> server route must agree on what index n means.
+      const WORDS = [
+        "dragon", "muffin", "castle", "wizard", "pickle", "rocket", "goblin", "biscuit", "thunder", "noodle",
+        "pirate", "walrus", "cactus", "ninja", "volcano", "penguin", "banana", "hamster", "dolphin", "sausage",
+        "unicorn", "wombat", "kettle", "pancake", "gremlin", "lantern", "whistle", "sparkle", "gravy", "turtle",
+        "cabbage", "sandwich", "trombone", "ferret", "blanket", "mustard", "giraffe", "spatula", "cucumber", "moustache",
+        "ravioli", "squirrel", "tornado", "waffle", "zeppelin", "apricot", "broccoli", "chimney", "doughnut", "eggplant",
+        "flamingo", "gargoyle", "hedgehog", "jackal", "kazoo", "lobster", "meatball", "nectarine", "octopus", "pretzel",
+      ];
+
+      const PAIRS = [];
+      for (let i = 0; i < WORDS.length; i++) {
+        for (let j = i + 1; j < WORDS.length; j++) PAIRS.push([i, j]);
+      }
+
+      function splitOnset(word) {
+        const m = word.match(/^[^aeiouAEIOU]+/);
+        const onset = m ? m[0] : "";
+        return [onset, word.slice(onset.length)];
+      }
+
+      function spoonerize(a, b) {
+        const [oa, ra] = splitOnset(a);
+        const [ob, rb] = splitOnset(b);
+        return [ob + ra, oa + rb];
+      }
+
+      function entryAt(n) {
+        const idx = ((n % PAIRS.length) + PAIRS.length) % PAIRS.length;
+        const [i, j] = PAIRS[idx];
+        const a = WORDS[i], b = WORDS[j];
+        const [sa, sb] = spoonerize(a, b);
+        return { n: idx, a, b, sa, sb };
+      }
+
+      const SITE = "https://bisks.net/spoonerism";
+
+      function composeUrl(text) {
+        return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      // ---- custom spoonerizer ----
+      const customInput = document.getElementById("customInput");
+      const customBtn = document.getElementById("customBtn");
+      const customResult = document.getElementById("customResult");
+      const customOrig = document.getElementById("customOrig");
+      const customSpoon = document.getElementById("customSpoon");
+      const customShare = document.getElementById("customShare");
+
+      function runCustom() {
+        const words = customInput.value.trim().split(/\s+/).filter(Boolean);
+        if (words.length < 2) {
+          customResult.hidden = true;
+          customShare.hidden = true;
+          customInput.focus();
+          return;
+        }
+        const [a, b] = words;
+        const [sa, sb] = spoonerize(a, b);
+        customOrig.textContent = `"${a} ${b}"`;
+        customSpoon.textContent = `"${sa} ${sb}"`;
+        customResult.hidden = false;
+        const text = `spoonerism bot: "${a} ${b}" → "${sa} ${sb}"\n${SITE}`;
+        customShare.href = composeUrl(text);
+        customShare.hidden = false;
+      }
+      customBtn.addEventListener("click", runCustom);
+      customInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runCustom(); });
+
+      // ---- archive browser ----
+      const archiveCount = document.getElementById("archiveCount");
+      const archiveOrig = document.getElementById("archiveOrig");
+      const archiveSpoon = document.getElementById("archiveSpoon");
+      const archiveShare = document.getElementById("archiveShare");
+      const archiveLink = document.getElementById("archiveLink");
+      archiveCount.textContent = `${PAIRS.length.toLocaleString()} spoonerisms, all enumerated`;
+
+      let current = Math.floor(Math.random() * PAIRS.length);
+
+      function showArchive(n) {
+        const e = entryAt(n);
+        current = e.n;
+        archiveOrig.textContent = `#${e.n}: "${e.a} ${e.b}"`;
+        archiveSpoon.textContent = `"${e.sa} ${e.sb}"`;
+        const url = `${SITE}/p/${e.n}`;
+        archiveLink.textContent = url.replace("https://", "");
+        archiveLink.href = url;
+        const text = `spoonerism bot, #${e.n}: "${e.a} ${e.b}" → "${e.sa} ${e.sb}"\n${url}`;
+        archiveShare.href = composeUrl(text);
+        return e;
+      }
+
+      document.getElementById("prevBtn").addEventListener("click", () => showArchive(current - 1));
+      document.getElementById("nextBtn").addEventListener("click", () => showArchive(current + 1));
+      document.getElementById("randomBtn").addEventListener("click", () =>
+        showArchive(Math.floor(Math.random() * PAIRS.length)),
+      );
+
+      // deep-link support: /spoonerism/#42 jumps straight to entry 42.
+      const hashN = parseInt((location.hash || "").replace("#", ""), 10);
+      showArchive(Number.isFinite(hashN) ? hashN : current);
+
+      // ---- live feed: simulates what an autonomous bot would be posting ----
+      const feedBtn = document.getElementById("feedBtn");
+      const feedStatus = document.getElementById("feedStatus");
+      const feedList = document.getElementById("feedList");
+      let feedTimer = null;
+      let feedCount = 0;
+
+      function postToFeed() {
+        const n = Math.floor(Math.random() * PAIRS.length);
+        const e = entryAt(n);
+        feedCount++;
+        if (feedList.querySelector(".feed-empty")) feedList.innerHTML = "";
+        const item = document.createElement("div");
+        item.className = "feed-item";
+        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        item.innerHTML =
+          `<div class="meta">spoonerism bot · #${e.n} · ${time}</div>` +
+          `"${e.a} ${e.b}" → <span class="spoon">"${e.sa} ${e.sb}"</span>`;
+        feedList.prepend(item);
+        while (feedList.children.length > 12) feedList.removeChild(feedList.lastChild);
+      }
+
+      feedBtn.addEventListener("click", () => {
+        if (feedTimer) {
+          clearInterval(feedTimer);
+          feedTimer = null;
+          feedBtn.textContent = "▶ start auto-posting";
+          feedBtn.classList.add("primary");
+          feedStatus.textContent = `paused after ${feedCount} post${feedCount === 1 ? "" : "s"} this session`;
+          return;
+        }
+        postToFeed();
+        feedTimer = setInterval(postToFeed, 3500);
+        feedBtn.textContent = "⏸ stop auto-posting";
+        feedStatus.textContent = "posting a new spoonerism every ~3.5s, right in your browser";
+      });
+    </script>
+  </body>
+</html>
