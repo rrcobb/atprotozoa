@@ -33,20 +33,27 @@ function reqEnv(name) {
   return v;
 }
 
-// Whether `site` is mounted as a path on the shared bisks.net zone (the
-// default since the 2026-07-26 slash-path migration — see
-// notes/40-new-site-playbook.md) rather than owning its own `<site>.bisks.net`
-// custom domain (the pre-migration convention). Reads the site's own
-// wrangler.toml instead of hardcoding a site list, so newly migrated or
-// newly built sites resolve correctly without this file needing another
-// edit. Defaults to false (legacy subdomain) if the toml can't be read, which
-// matches every site built before the migration.
-function isPathMounted(site) {
+// The path `site` is mounted at on the shared bisks.net zone (the default
+// since the 2026-07-26 slash-path migration — see
+// notes/40-new-site-playbook.md), or null if it isn't path-mounted at all
+// (owns its own legacy `<site>.bisks.net` custom domain instead). Reads the
+// site's own wrangler.toml instead of assuming the flat `/<site>` shape, so
+// clustered mounts (`bisks.net/games/<site>`, see the "clustering related
+// sites" section of notes/20-deploy.md) resolve correctly too — a flat-only
+// check silently mis-linked every games/* site to a never-provisioned
+// subdomain (caught 2026-07-27 via a desertbus report: "the site doesn't
+// load", because the previous reply linked desertbus.bisks.net instead of
+// bisks.net/games/desertbus). Defaults to null (legacy subdomain) if the
+// toml can't be read, which matches every site built before the migration.
+function mountPath(site) {
   try {
     const toml = readFileSync(`sites/${site}/wrangler.toml`, "utf8");
-    return toml.includes(`pattern = "bisks.net/${site}"`);
+    const patterns = [...toml.matchAll(/pattern\s*=\s*"bisks\.net(\/[^"]+)"/g)].map((m) => m[1]);
+    // Prefer the base route (no trailing "/*" wildcard) over the wildcard
+    // sibling every mounted site's routes list also carries.
+    return patterns.find((p) => !p.endsWith("/*")) || patterns[0] || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -70,8 +77,9 @@ async function main() {
     } else {
       const site = result.split("/")[0];
       const rest = result.slice(site.length); // "" or "/sub/path..."
-      url = isPathMounted(site)
-        ? `https://bisks.net/${site}${rest}`
+      const mount = mountPath(site);
+      url = mount
+        ? `https://bisks.net${mount}${rest}`
         : `https://${site}.bisks.net${rest}`;
     }
     // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —

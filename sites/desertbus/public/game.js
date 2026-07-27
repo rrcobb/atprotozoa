@@ -49,7 +49,19 @@
     againBtn: el('againBtn'), shareBtn: el('shareBtn'),
     shoo: el('shoo'), shooCount: el('shooCount'),
     popups: el('popups'),
+    bestLine: el('bestLine'), bestDist: el('bestDist'), bestFlavor: el('bestFlavor'),
   };
+
+  // ---------------------------------------------------------------------
+  // personal best — just bragging rights, stored locally per browser
+  // ---------------------------------------------------------------------
+  const BEST_KEY = 'desertbus-best-ft';
+  function loadBest() {
+    try { return Number(localStorage.getItem(BEST_KEY)) || 0; } catch (e) { return 0; }
+  }
+  function saveBest(ft) {
+    try { localStorage.setItem(BEST_KEY, String(ft)); } catch (e) {}
+  }
 
   // ---------------------------------------------------------------------
   // tiny audio: an engine drone that pitches with speed, a notification
@@ -272,15 +284,28 @@
 
   function endRun() {
     state.running = false; state.over = true;
-    els.finalDist.textContent = Math.round(state.distanceFt).toLocaleString() + ' ft';
+    const distFt = Math.round(state.distanceFt);
+    els.finalDist.textContent = distFt.toLocaleString() + ' ft';
     els.finalWarnings.textContent = String(state.warningsShown);
     els.finalDismissed.textContent = String(state.warningsDismissed);
     const pct = (state.distanceFt / 5280 / 360 * 100);
     const pctStr = pct < 0.01 ? '<0.01' : pct.toFixed(2);
     els.flavorText.textContent =
       `the real Desert Bus route is about 360 miles. you covered roughly ${pctStr}% of it.`;
+
+    const prevBest = loadBest();
+    const isNewBest = distFt > prevBest;
+    if (isNewBest) saveBest(distFt);
+    const best = isNewBest ? distFt : prevBest;
+    if (best > 0) {
+      els.bestFlavor.style.display = '';
+      els.bestFlavor.textContent = isNewBest
+        ? `new personal best.`
+        : `personal best: ${best.toLocaleString()} ft.`;
+    }
+
     const shareText =
-      `Drove ${Math.round(state.distanceFt).toLocaleString()} ft before the tank hit empty ` +
+      `Drove ${distFt.toLocaleString()} ft before the tank hit empty ` +
       `and Grace sent ${state.warningsShown} fuel warning${state.warningsShown === 1 ? '' : 's'}. ` +
       `Desert Bus, abridged: https://bisks.net/games/desertbus`;
     els.shareBtn.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText);
@@ -455,8 +480,44 @@
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
   });
 
+  // Touch / mouse steering: hold either half of the canvas, same as holding
+  // an arrow key. One active steer pointer at a time is enough — this is a
+  // joke driving game, not a fighting game combo input.
+  let steerPointerId = null;
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!state.running && !state.over) { startGame(); return; }
+    if (state.over) { startGame(); return; }
+    steerPointerId = e.pointerId;
+    const rect = canvas.getBoundingClientRect();
+    const side = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
+    keys.left = side === 'left';
+    keys.right = side === 'right';
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== steerPointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    const side = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
+    keys.left = side === 'left';
+    keys.right = side === 'right';
+  });
+  function releaseSteer(e) {
+    if (e.pointerId !== steerPointerId) return;
+    steerPointerId = null;
+    keys.left = false; keys.right = false;
+  }
+  canvas.addEventListener('pointerup', releaseSteer);
+  canvas.addEventListener('pointercancel', releaseSteer);
+
   els.startBtn.addEventListener('click', startGame);
   els.againBtn.addEventListener('click', startGame);
+
+  const initialBest = loadBest();
+  if (initialBest > 0) {
+    els.bestLine.style.display = '';
+    els.bestDist.textContent = initialBest.toLocaleString() + ' ft';
+  }
 
   reset();
   state.running = false;
