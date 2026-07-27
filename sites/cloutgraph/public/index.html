@@ -199,7 +199,12 @@
           <b>clout</b> is <code>sqrt(hub × authority)</code> per person,
           scaled 0–100 against the pool's own top scorer. The graph is capped
           at 50 pool members and 300 likes each to keep the crawl bounded —
-          big mutual sets or lists get truncated to the first 50 found.
+          big mutual sets or lists get truncated to the first 50 found. Any
+          pool member found with fewer than 5 total in-pool likes (given +
+          received) in that initial crawl gets swapped for the next candidate
+          waiting in line — a couple of stray likes is too small a sample for
+          PMI/HITS and tends to swing scores to extremes rather than reflect
+          real standing.
         </div>
       </details>
 
@@ -216,7 +221,7 @@
 
     <script type="module">
       import { resolvePool, MAX_POOL } from "./lib/pool.js";
-      import { buildLikeGraph } from "./lib/likes.js";
+      import { buildLikeGraph, backfillLowActivity, MIN_IN_POOL_LIKES } from "./lib/likes.js";
       import { rankPool } from "./lib/hits.js";
 
       const $ = (id) => document.getElementById(id);
@@ -389,23 +394,37 @@
         setStatus("resolving " + q + "…");
         try {
           const poolInfo = await resolvePool(q, { onStep: (s) => setStatus(s) });
-          const profiles = new Map(poolInfo.pool.map((p) => [p.did, p]));
+          let pool = poolInfo.pool;
+          const profiles = new Map(pool.map((p) => [p.did, p]));
 
-          setStatus(`pool: ${poolInfo.pool.length} accounts (${poolInfo.label}). reading likes: 0/${poolInfo.pool.length}…`);
-          const graph = await buildLikeGraph(poolInfo.pool, {
-            onProgress: (done, total) => setStatus(`pool: ${poolInfo.pool.length} accounts. reading likes: ${done}/${total}…`),
+          setStatus(`pool: ${pool.length} accounts (${poolInfo.label}). reading likes: 0/${pool.length}…`);
+          let graph = await buildLikeGraph(pool, {
+            onProgress: (done, total) => setStatus(`pool: ${pool.length} accounts. reading likes: ${done}/${total}…`),
           });
+
+          setStatus("checking for low-activity members to swap out…");
+          const backfilled = await backfillLowActivity(pool, poolInfo.overflow, graph, {
+            onProgress: (done, total) =>
+              setStatus(`crawling ${total} replacement${total === 1 ? "" : "s"}: ${done}/${total}…`),
+          });
+          const swapped = backfilled.swapped;
+          pool = backfilled.pool;
+          graph = backfilled.graph;
+          for (const s of swapped) {
+            profiles.delete(s.removed.did);
+            if (s.added) profiles.set(s.added.did, s.added);
+          }
 
           if (!graph.edges.length) {
             setStatus(
-              `read likes for ${graph.resolvedCount}/${poolInfo.pool.length} accounts, but found no likes pointed at anyone else in the pool — try a bigger or tighter-knit group.`,
+              `read likes for ${graph.resolvedCount}/${pool.length} accounts, but found no likes pointed at anyone else in the pool — try a bigger or tighter-knit group.`,
               "err",
             );
             goBtn.disabled = false;
             return;
           }
 
-          const ids = poolInfo.pool.map((p) => p.did);
+          const ids = pool.map((p) => p.did);
           const ranked = rankPool(ids, graph.edges);
 
           const truncNote = poolInfo.truncated
@@ -414,9 +433,18 @@
           const failNote = graph.failedCount
             ? ` — ${graph.failedCount} account${graph.failedCount === 1 ? "" : "s"} unreachable (different PDS/CORS), skipped`
             : "";
+          const swapNote = (() => {
+            if (!swapped.length) return "";
+            const replaced = swapped.filter((s) => s.added).length;
+            const droppedOnly = swapped.length - replaced;
+            const bits = [];
+            if (replaced) bits.push(`${replaced} swapped for a replacement`);
+            if (droppedOnly) bits.push(`${droppedOnly} dropped (no replacement left)`);
+            return ` — ${swapped.length} member${swapped.length === 1 ? "" : "s"} with fewer than ${MIN_IN_POOL_LIKES} in-pool likes (${bits.join(", ")})`;
+          })();
           summaryEl.innerHTML =
-            `<b>${escapeHtml(poolInfo.label)}</b>${truncNote} — <b>${poolInfo.pool.length}</b> in the pool, ` +
-            `<b>${graph.resolvedCount}</b> crawled, <b>${graph.edges.length}</b> in-pool like-edges found${failNote}.`;
+            `<b>${escapeHtml(poolInfo.label)}</b>${truncNote} — <b>${pool.length}</b> in the pool, ` +
+            `<b>${graph.resolvedCount}</b> crawled, <b>${graph.edges.length}</b> in-pool like-edges found${failNote}${swapNote}.`;
 
           renderRows(ranked, profiles, graph.givenInPool, graph.receivedInPool);
           result.classList.add("on");

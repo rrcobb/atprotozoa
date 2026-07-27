@@ -175,18 +175,23 @@ async function listPool(input, onStep) {
 }
 
 // Resolve free-text input to a bounded pool ready for the likes crawl.
-// Returns { kind, label, subject, pool, totalFound, truncated }.
+// Returns { kind, label, subject, pool, overflow, totalFound, truncated }.
+// `overflow` is the next MAX_POOL candidates past the cap — spare members
+// held in reserve to swap in for anyone the likes crawl finds is
+// low-activity (see likes.js backfillLowActivity).
 export async function resolvePool(input, { onStep } = {}) {
   const raw = looksLikeList(input)
     ? await listPool(input, onStep)
     : await mutualsPool(input, onStep);
   const totalFound = raw.full.length;
   const pool = raw.full.slice(0, MAX_POOL);
+  const overflow = raw.full.slice(MAX_POOL, MAX_POOL + MAX_POOL);
   return {
     kind: raw.kind,
     label: raw.label,
     subject: raw.subject,
     pool,
+    overflow,
     totalFound,
     truncated: totalFound > pool.length,
   };

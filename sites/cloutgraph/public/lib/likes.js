@@ -90,37 +90,50 @@ async function pooledEach(items, limit, fn) {
   );
 }
 
-// Crawl `pool`'s likes and build a liker->author edge-count graph, counting
-// only likes where both liker and author are inside the pool. Returns:
-//   { edges: [{from, to, count}], givenInPool: {did:n}, receivedInPool: {did:n},
-//     resolvedCount, failedCount }
-export async function buildLikeGraph(pool, { onProgress } = {}) {
-  const poolDids = new Set(pool.map((p) => p.did));
-  const counts = new Map(); // "from|to" -> count
+// Crawl each member's own PDS and record every author DID they liked
+// (unfiltered — not restricted to the pool yet, so the same raw data can be
+// re-filtered against a different pool later without re-crawling).
+async function crawlPool(members, onProgress) {
+  const rawByMember = new Map(); // did -> authorDid[]
   let done = 0;
   let resolvedCount = 0;
   let failedCount = 0;
 
-  await pooledEach(pool, CONCURRENCY, async (member) => {
+  await pooledEach(members, CONCURRENCY, async (member) => {
     const pds = await resolvePds(member.did);
     if (!pds) {
       failedCount++;
       done++;
-      if (onProgress) onProgress(done, pool.length);
+      if (onProgress) onProgress(done, members.length);
       return;
     }
     const likes = await listLikes(member.did, pds);
     resolvedCount++;
+    const authorDids = [];
     for (const rec of likes) {
       const authorDid = authorFromSubjectUri(rec.value && rec.value.subject && rec.value.subject.uri);
-      if (!authorDid || authorDid === member.did || !poolDids.has(authorDid)) continue;
-      const key = member.did + "|" + authorDid;
-      counts.set(key, (counts.get(key) || 0) + 1);
+      if (authorDid && authorDid !== member.did) authorDids.push(authorDid);
     }
+    rawByMember.set(member.did, authorDids);
     done++;
-    if (onProgress) onProgress(done, pool.length);
+    if (onProgress) onProgress(done, members.length);
   });
 
+  return { rawByMember, resolvedCount, failedCount };
+}
+
+// Build the liker->author edge-count graph restricted to `poolDids`, from
+// raw (unfiltered) liked-author-did lists per member.
+function graphFromRaw(poolDids, rawByMember) {
+  const counts = new Map(); // "from|to" -> count
+  for (const [from, authorDids] of rawByMember) {
+    if (!poolDids.has(from)) continue;
+    for (const to of authorDids) {
+      if (to === from || !poolDids.has(to)) continue;
+      const key = from + "|" + to;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
   const edges = [];
   const givenInPool = {};
   const receivedInPool = {};
@@ -130,5 +143,69 @@ export async function buildLikeGraph(pool, { onProgress } = {}) {
     givenInPool[from] = (givenInPool[from] || 0) + count;
     receivedInPool[to] = (receivedInPool[to] || 0) + count;
   }
-  return { edges, givenInPool, receivedInPool, resolvedCount, failedCount };
+  return { edges, givenInPool, receivedInPool };
+}
+
+// Crawl `pool`'s likes and build a liker->author edge-count graph, counting
+// only likes where both liker and author are inside the pool. Returns:
+//   { edges: [{from, to, count}], givenInPool: {did:n}, receivedInPool: {did:n},
+//     resolvedCount, failedCount, rawByMember }
+// `rawByMember` is kept around so backfillLowActivity() can recompute the
+// graph over a swapped pool without re-crawling anyone already fetched here.
+export async function buildLikeGraph(pool, { onProgress } = {}) {
+  const { rawByMember, resolvedCount, failedCount } = await crawlPool(pool, onProgress);
+  const poolDids = new Set(pool.map((p) => p.did));
+  const { edges, givenInPool, receivedInPool } = graphFromRaw(poolDids, rawByMember);
+  return { edges, givenInPool, receivedInPool, resolvedCount, failedCount, rawByMember };
+}
+
+// Below this many total in-pool likes (given + received), a member's PMI
+// weights and HITS scores are noise from a tiny sample rather than real
+// signal — one stray like can swing their whole row/column and let them
+// dominate the ranking. See backfillLowActivity().
+export const MIN_IN_POOL_LIKES = 5;
+
+// Swap out any pool member with fewer than `threshold` total in-pool likes
+// (given + received, per the crawl already done in `graph`) for the next
+// candidate waiting in `overflow`. The rest of the graph is recomputed from
+// the raw likes already crawled in `graph.rawByMember` — only the
+// replacements themselves need a fresh PDS crawl, no re-fetching anyone
+// already in scope. This runs once: replacements aren't re-checked against
+// the threshold, so a still-sparse pool stays as-is rather than looping.
+// Returns { pool, graph, swapped: [{removed, added}] } — `added` is null for
+// a removed member with no replacement left in `overflow` (pool just shrinks).
+export async function backfillLowActivity(pool, overflow, graph, { onProgress, threshold = MIN_IN_POOL_LIKES } = {}) {
+  const activity = (did) => (graph.givenInPool[did] || 0) + (graph.receivedInPool[did] || 0);
+  const removed = pool.filter((p) => activity(p.did) < threshold);
+  if (!removed.length) return { pool, graph, swapped: [] };
+
+  const removedSet = new Set(removed.map((p) => p.did));
+  const kept = pool.filter((p) => !removedSet.has(p.did));
+  const replacements = overflow.slice(0, removed.length);
+  const newPool = kept.concat(replacements);
+
+  const { rawByMember: newRaw, resolvedCount, failedCount } = replacements.length
+    ? await crawlPool(replacements, onProgress)
+    : { rawByMember: new Map(), resolvedCount: 0, failedCount: 0 };
+
+  const mergedRaw = new Map(graph.rawByMember);
+  for (const [did, authorDids] of newRaw) mergedRaw.set(did, authorDids);
+
+  const poolDids = new Set(newPool.map((p) => p.did));
+  const { edges, givenInPool, receivedInPool } = graphFromRaw(poolDids, mergedRaw);
+
+  const swapped = removed.map((r, i) => ({ removed: r, added: replacements[i] || null }));
+
+  return {
+    pool: newPool,
+    graph: {
+      edges,
+      givenInPool,
+      receivedInPool,
+      resolvedCount: graph.resolvedCount + resolvedCount,
+      failedCount: graph.failedCount + failedCount,
+      rawByMember: mergedRaw,
+    },
+    swapped,
+  };
 }
