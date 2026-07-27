@@ -22,11 +22,13 @@ let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null
 let sessionProfile = null; // { avatar, displayName } for the logged-in user, best-effort
 let oauthLib = null;
 
-// post uri -> like record uri, for posts liked/unliked this session. skyclone
-// reads through the public (unauthenticated) AppView, which never returns
-// viewer state, so there's no way to know on load whether you'd already liked
-// something elsewhere — this only tracks changes made in this tab.
+// post uri -> like/repost record uri, for posts liked/unliked/reposted this
+// session. skyclone reads through the public (unauthenticated) AppView, which
+// never returns viewer state, so there's no way to know on load whether you'd
+// already liked or reposted something elsewhere — this only tracks changes
+// made in this tab.
 const likedPosts = new Map();
+const repostedPosts = new Map();
 
 async function oauth() {
   if (!oauthLib) oauthLib = await import(`${MOUNT}/lib/oauth.js`);
@@ -65,7 +67,7 @@ function openLoginModal() {
   box.innerHTML = `
     <div class="modal">
       <h2>Log in with Bluesky</h2>
-      <p>Real OAuth, straight to your own PDS — skyclone never sees your password. This unlocks your actual home timeline, and lets you catch a post in your web (skyclone's like, minus the heart) — it still never posts or follows on your behalf.</p>
+      <p>Real OAuth, straight to your own PDS — skyclone never sees your password. This unlocks your actual home timeline, and lets you catch posts in your web, repost, and reply — all genuine writes to your own repo. It still never follows anyone on your behalf.</p>
       <input id="login-handle" placeholder="yourhandle.bsky.social" autocomplete="off">
       <div class="modal-actions">
         <button type="button" id="login-cancel" class="pill-btn">Cancel</button>
@@ -137,12 +139,13 @@ async function xrpc(method, params) {
   return res.json();
 }
 
-// ---------- likes (the one write skyclone makes) ----------
+// ---------- likes, reposts, replies (real writes to the user's own repo) ----------
 //
-// A real app.bsky.feed.like record, created/deleted directly on the user's own
-// PDS via their DPoP-bound OAuth session (no AppView proxy needed for repo
-// writes). Optimistic UI, reverted on failure. No hearts — a click drops the
-// post into a web (🕸️) and it comes back caught (🕷️).
+// Real app.bsky.feed.like / app.bsky.feed.repost / app.bsky.feed.post records,
+// created (and for like/repost, deleted) directly on the user's own PDS via
+// their DPoP-bound OAuth session (no AppView proxy needed for repo writes).
+// Likes and reposts are optimistic UI, reverted on failure. No hearts — a
+// click drops the post into a web (🕸️) and it comes back caught (🕷️).
 
 async function toggleLike(iconEl) {
   if (!session) {
@@ -200,6 +203,152 @@ async function toggleLike(iconEl) {
   }
 }
 
+async function toggleRepost(iconEl) {
+  if (!session) {
+    openLoginModal();
+    return;
+  }
+  const wrap = iconEl.closest(".act.repost");
+  const countEl = wrap.querySelector(".repost-count");
+  const uri = iconEl.getAttribute("data-uri");
+  const cid = iconEl.getAttribute("data-cid");
+  const wasReposted = wrap.classList.contains("reposted");
+  const base = Number(countEl.getAttribute("data-count") || 0);
+
+  wrap.classList.toggle("reposted");
+  iconEl.classList.remove("repost-pop");
+  void iconEl.offsetWidth;
+  iconEl.classList.add("repost-pop");
+  const newCount = wasReposted ? Math.max(0, base - 1) : base + 1;
+  countEl.setAttribute("data-count", newCount);
+  countEl.textContent = fmtCount(newCount);
+
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    if (!wasReposted) {
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: "app.bsky.feed.repost",
+          record: { $type: "app.bsky.feed.repost", subject: { uri, cid }, createdAt: new Date().toISOString() },
+        }),
+      });
+      if (!res.ok) throw new Error(`repost failed (${res.status})`);
+      const data = await res.json();
+      repostedPosts.set(uri, data.uri);
+    } else {
+      const repostUri = repostedPosts.get(uri);
+      if (repostUri) {
+        const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.repost", rkey: rkeyOf(repostUri) }),
+        });
+        if (!res.ok) throw new Error(`undo repost failed (${res.status})`);
+      }
+      repostedPosts.delete(uri);
+    }
+  } catch (e) {
+    wrap.classList.toggle("reposted");
+    countEl.setAttribute("data-count", base);
+    countEl.textContent = fmtCount(base);
+    showToast(e.message || "Couldn't update repost", "err");
+  }
+}
+
+// A real app.bsky.feed.post record with a reply ref — clicking 💬 opens a
+// compose box and posts for real, straight to the user's own PDS. root/parent
+// strong refs come off the post being replied to (its own record.reply.root
+// if it's itself a reply, else the post is the root).
+function openReplyModal(trigger) {
+  if (!session) {
+    openLoginModal();
+    return;
+  }
+  if (document.getElementById("reply-modal")) return;
+  const parent = { uri: trigger.getAttribute("data-uri"), cid: trigger.getAttribute("data-cid") };
+  const root = {
+    uri: trigger.getAttribute("data-root-uri") || parent.uri,
+    cid: trigger.getAttribute("data-root-cid") || parent.cid,
+  };
+  const toHandle = trigger.getAttribute("data-author") || "";
+  const countEl = trigger.querySelector(".reply-count");
+
+  const box = document.createElement("div");
+  box.id = "reply-modal";
+  box.className = "modal-overlay";
+  box.innerHTML = `
+    <div class="modal">
+      <h2>Reply${toHandle ? ` to @${esc(toHandle)}` : ""}</h2>
+      <p>A real app.bsky.feed.post, written straight to your own repo.</p>
+      <textarea id="reply-text" maxlength="300" placeholder="Say something…" autocomplete="off"></textarea>
+      <div class="reply-count-hint" id="reply-chars">300</div>
+      <div class="modal-actions">
+        <button type="button" id="reply-cancel" class="pill-btn">Cancel</button>
+        <button type="button" id="reply-go" class="pill-btn primary">Reply</button>
+      </div>
+      <div class="modal-status" id="reply-status"></div>
+    </div>`;
+  document.body.appendChild(box);
+  const input = document.getElementById("reply-text");
+  const chars = document.getElementById("reply-chars");
+  input.focus();
+  input.addEventListener("input", () => {
+    chars.textContent = String(300 - input.value.length);
+  });
+  box.addEventListener("click", (e) => {
+    if (e.target === box) closeReplyModal();
+  });
+  document.getElementById("reply-cancel").onclick = closeReplyModal;
+  const go = document.getElementById("reply-go");
+  const status = document.getElementById("reply-status");
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    go.disabled = true;
+    status.textContent = "Posting…";
+    try {
+      const { dpopFetch } = await oauth();
+      const pds = session.pdsUrl.replace(/\/$/, "");
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: "app.bsky.feed.post",
+          record: {
+            $type: "app.bsky.feed.post",
+            text,
+            reply: { root, parent },
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(`reply failed (${res.status})`);
+      closeReplyModal();
+      if (countEl) {
+        const n = Number(countEl.getAttribute("data-count") || 0) + 1;
+        countEl.setAttribute("data-count", n);
+        countEl.textContent = fmtCount(n);
+      }
+      showToast("Reply posted", "ok");
+    } catch (e) {
+      status.textContent = e.message || String(e);
+      go.disabled = false;
+    }
+  };
+  go.onclick = submit;
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+  });
+}
+function closeReplyModal() {
+  document.getElementById("reply-modal")?.remove();
+}
+
 // ---------- small helpers ----------
 
 function h(strings, ...vals) {
@@ -245,6 +394,22 @@ function likeActionHtml(post, url) {
   return `<span class="act like${liked ? " liked" : ""}">
     <span class="like-icon" data-action="like" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" title="${liked ? "Caught in your web" : "Catch it in your web"}">${liked ? "🕷️" : "🕸️"}</span>
     <span class="like-count" data-href="${url}/liked-by" data-count="${post.likeCount || 0}">${fmtCount(post.likeCount)}</span>
+  </span>`;
+}
+function repostActionHtml(post, url) {
+  const reposted = repostedPosts.has(post.uri);
+  const count = (post.repostCount || 0) + (post.quoteCount || 0);
+  return `<span class="act repost${reposted ? " reposted" : ""}">
+    <span class="repost-icon" data-action="repost" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" title="${reposted ? "Undo repost" : "Repost"}">🔁</span>
+    <span class="repost-count" data-href="${url}/reposted-by" data-count="${count}">${fmtCount(count)}</span>
+  </span>`;
+}
+function replyActionHtml(post) {
+  const reply = post.record?.reply;
+  const rootUri = reply?.root?.uri || post.uri;
+  const rootCid = reply?.root?.cid || post.cid || "";
+  return `<span class="act reply" data-action="reply" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}" data-root-uri="${esc(rootUri)}" data-root-cid="${esc(rootCid)}" data-author="${esc(post.author?.handle || "")}" title="Reply">
+    💬 <span class="reply-count" data-count="${post.replyCount || 0}">${fmtCount(post.replyCount)}</span>
   </span>`;
 }
 
@@ -439,8 +604,8 @@ function postCard(post, opts) {
       <div class="post-text">${richText(record.text, record.facets)}</div>
       ${renderEmbed(post.embed, isSensitive(post))}
       <div class="post-actions">
-        <span class="act reply">💬 <span>${fmtCount(post.replyCount)}</span></span>
-        <span class="act repost" data-href="${url}/reposted-by">🔁 <span>${fmtCount((post.repostCount || 0) + (post.quoteCount || 0))}</span></span>
+        ${replyActionHtml(post)}
+        ${repostActionHtml(post, url)}
         ${likeActionHtml(post, url)}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗</a>
       </div>
@@ -551,7 +716,7 @@ function asideHtml() {
   <div class="aside-card">
     <h2>What is this?</h2>
     <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>Browse without an account, or log in with OAuth to see your real home timeline and catch posts in your web (a real like, no hearts). skyclone never posts or follows for you. For notifications, DMs, or posting, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. For notifications or DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -894,8 +1059,8 @@ async function ThreadView(main, params, args) {
       ${renderEmbed(focus.embed, isSensitive(focus))}
       <div class="thread-time">${new Date(focus.record.createdAt).toLocaleString()}</div>
       <div class="post-actions">
-        <span class="act reply">💬 <span>${fmtCount(focus.replyCount)}</span></span>
-        <span class="act repost" data-href="${postUrl(focus.author.handle, focus.uri)}/reposted-by">🔁 <span>${fmtCount((focus.repostCount || 0) + (focus.quoteCount || 0))}</span></span>
+        ${replyActionHtml(focus)}
+        ${repostActionHtml(focus, postUrl(focus.author.handle, focus.uri))}
         ${likeActionHtml(focus, postUrl(focus.author.handle, focus.uri))}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗ Share</a>
       </div>
@@ -981,8 +1146,8 @@ function AboutView(main) {
     headerHtml("About skyclone") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
       <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, and search, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
-      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. The one write skyclone will make on your behalf: catching a post in your web (a real <code>app.bsky.feed.like</code> record on your own repo) — deliberately drawn as a spider, not a heart. It still never posts or follows for you.</p>
-      <p>For posting, notifications, or DMs, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
+      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🔁 is a genuine <code>app.bsky.feed.repost</code>, and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
+      <p>For notifications, DMs, or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
 }
@@ -1084,6 +1249,18 @@ document.addEventListener("click", (e) => {
     toggleLike(likeIcon);
     return;
   }
+  const repostIcon = e.target.closest("[data-action='repost']");
+  if (repostIcon) {
+    e.stopPropagation();
+    toggleRepost(repostIcon);
+    return;
+  }
+  const replyTrigger = e.target.closest("[data-action='reply']");
+  if (replyTrigger) {
+    e.stopPropagation();
+    openReplyModal(replyTrigger);
+    return;
+  }
   const cover = e.target.closest(".sensitive-cover");
   if (cover) {
     e.stopPropagation();
@@ -1154,6 +1331,10 @@ function lbRender() {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.getElementById("login-modal")) {
     closeLoginModal();
+    return;
+  }
+  if (e.key === "Escape" && document.getElementById("reply-modal")) {
+    closeReplyModal();
     return;
   }
   const box = document.getElementById("lightbox");

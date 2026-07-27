@@ -16,10 +16,10 @@
 //
 // Scope `atproto transition:generic` is the generic full-repo-access scope.
 // skyclone mostly reads (getTimeline proxied through the PDS to the AppView),
-// plus one write: creating/deleting an app.bsky.feed.like record directly on
-// the user's own PDS when they catch a post in their web. atproto's
-// fine-grained scopes still aren't reliably supported server-side, so this
-// mirrors drivethru's proven-working scope rather than guessing at a
+// plus real repo writes on the user's own PDS: app.bsky.feed.like (catching a
+// post in your web), app.bsky.feed.repost, and app.bsky.feed.post (replies).
+// atproto's fine-grained scopes still aren't reliably supported server-side,
+// so this mirrors drivethru's proven-working scope rather than guessing at a
 // narrower one that might get rejected.
 
 import {
