@@ -260,6 +260,34 @@ async function toggleRepost(iconEl) {
   }
 }
 
+// Cosmetic only — banishes a post from view with a curse (catches fire,
+// shrivels up, gone). No repo write, no deleteRecord; the post itself is
+// untouched, this tab just stops showing it.
+const WITCH_LINES = [
+  "A witch descends… gone. 🧙",
+  "Cursed and cast into the web. 🧙",
+  "Poof. The witch got it. 🧙",
+  "Banished — the witch was thorough. 🧙",
+];
+function witchPost(actionEl) {
+  const target = actionEl.closest(".post, .thread-focus");
+  if (!target || target.classList.contains("hexed")) return;
+  target.classList.add("hexed");
+  showToast(WITCH_LINES[Math.floor(Math.random() * WITCH_LINES.length)], "spider");
+  target.addEventListener(
+    "animationend",
+    (e) => {
+      if (e.target !== target) return;
+      const height = target.getBoundingClientRect().height;
+      target.style.maxHeight = height + "px";
+      target.style.overflow = "hidden";
+      requestAnimationFrame(() => target.classList.add("hex-collapse"));
+      setTimeout(() => target.remove(), 260);
+    },
+    { once: true }
+  );
+}
+
 // A real app.bsky.feed.post record with a reply ref — clicking 💬 opens a
 // compose box and posts for real, straight to the user's own PDS. root/parent
 // strong refs come off the post being replied to (its own record.reply.root
@@ -487,6 +515,12 @@ function replyActionHtml(post) {
     💬 <span class="reply-count" data-count="${post.replyCount || 0}">${fmtCount(post.replyCount)}</span>
   </span>`;
 }
+// Not a real write — nothing is deleted from anyone's repo. A witch just
+// curses the post out of *your* view: it catches fire, shrivels up, and the
+// DOM node is removed. Refresh (or another visitor) and it's right back.
+function witchActionHtml() {
+  return `<span class="act witch" data-action="witch" title="Summon a witch">🧙</span>`;
+}
 
 // ---------- rich text ----------
 
@@ -677,6 +711,7 @@ function postCard(post, opts) {
         ${replyActionHtml(post)}
         ${repostActionHtml(post, url)}
         ${likeActionHtml(post, url)}
+        ${witchActionHtml()}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗</a>
       </div>
     </div>
@@ -1310,6 +1345,7 @@ async function ThreadView(main, params, args) {
         ${replyActionHtml(focus)}
         ${repostActionHtml(focus, postUrl(focus.author.handle, focus.uri))}
         ${likeActionHtml(focus, postUrl(focus.author.handle, focus.uri))}
+        ${witchActionHtml()}
         <a class="act share" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">↗ Share</a>
       </div>
     </div>`;
@@ -1514,6 +1550,12 @@ document.addEventListener("click", (e) => {
   if (replyTrigger) {
     e.stopPropagation();
     openReplyModal(replyTrigger);
+    return;
+  }
+  const witchIcon = e.target.closest("[data-action='witch']");
+  if (witchIcon) {
+    e.stopPropagation();
+    witchPost(witchIcon);
     return;
   }
   const cover = e.target.closest(".sensitive-cover");
