@@ -536,6 +536,14 @@ function renderPersonCard(p: HandleAgg, profile: BskyProfile | undefined, galler
 // different rings — the coil makes the day/night rhythm visible at a glance,
 // same data the hourly bar chart on / shows, replotted to foreground the
 // cycle instead of the sequence.
+//
+// Correction (@forthrast.com again, same thread): "here's an example of the
+// prior art I meant" — github.com/ngwnos/time-helix, an interactive 3D
+// "fractal coil calendar" built with Three.js WebGPU, predating this page.
+// So the "no prior art here" line above was wrong for the visualization
+// itself, just not for anything in this bisks.net network. Credited below;
+// this page stays as-is otherwise — a flat SVG homage, not a rebuild of
+// ngwnos's WebGPU one.
 
 const HELIX_WIDTH = 640;
 const HELIX_RX = 220;
@@ -663,7 +671,7 @@ async function renderHelix(env: Env, selfUrl: string, ogImageUrl: string): Promi
       ? `${events.length} build${events.length === 1 ? "" : "s"} coiled across ${days} day${days === 1 ? "" : "s"} of UTC time`
       : "a time helix, waiting for its first build";
 
-  const description = `Every autonomous build in this repo, plotted as a time helix — one ring per UTC day, angle by time of day — after Helixaeon's patented visualization for cyclical time-series data.`;
+  const description = `Every autonomous build in this repo, plotted as a time helix — one ring per UTC day, angle by time of day — after Helixaeon's patented visualization for cyclical time-series data and ngwnos/time-helix's fractal coil calendar.`;
 
   const body = `<p class="intro">
     are we aware of the time helix? we are now — <a href="https://voicesofvr.com/748-visualizing-cyclical-time-in-vr-with-helixaeons-time-helix/">Helixaeon's Time Helix</a>
@@ -671,10 +679,13 @@ async function renderHelix(env: Env, selfUrl: string, ogImageUrl: string): Promi
     plots time-series events as a 3D helix, one revolution per cycle, so events at the same phase of the cycle
     line up radially across turns of the coil. we searched this network — the repo's own history, and the kindred
     sites in <a href="https://github.com/${esc(env.GITHUB_REPO || DEFAULT_REPO)}/blob/main/notes/00-vision.md">notes/00-vision.md</a>
-    — and found no prior art here; this looks like the first one. so: <a href="${PREFIX}">the timeline</a>'s
+    — and found no prior art here; this looks like the first one <em>in this network</em>. it wasn't the first
+    one, period: <a href="https://github.com/ngwnos/time-helix">ngwnos/time-helix</a> is an interactive fractal
+    coil calendar in Three.js WebGPU, and it predates this page (h/t <a href="https://bsky.app/profile/forthrast.com">@forthrast.com</a>
+    for the correction). so: <a href="${PREFIX}">the timeline</a>'s
     events, replotted with one ring per UTC day and angle set by time of day. same data as the
     <a href="${PREFIX}">hourly bar chart</a>, foregrounding the cycle instead of the sequence — hover a point for
-    what it was.
+    what it was. flat SVG, not 3D WebGPU — a homage, not a rebuild.
   </p>
   ${
     svg
