@@ -1190,14 +1190,34 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
   let next: QueueJob | undefined = queued[0];
   let reclaimed = false;
   if (!next) {
-    const orphan = jobs
+    const orphans = jobs
       .filter((j) => j.status === "claimed" && j.claimedAt)
       .filter((j) => now - new Date(j.claimedAt as string).getTime() > ORPHAN_AGE_MS)
-      .sort((a, b) => ((a.claimedAt as string) < (b.claimedAt as string) ? -1 : 1))[0];
-    if (orphan) {
+      .sort((a, b) => ((a.claimedAt as string) < (b.claimedAt as string) ? -1 : 1));
+    for (const orphan of orphans) {
+      // Mirror requeueJob()'s ceiling: unbounded here, a job whose build keeps
+      // dying before reply.mjs runs (no /outcome POST, so no terminal event) got
+      // reclaimed and re-served forever — /working/ showed it as a permanently
+      // stuck "building now" and /health flagged it as an orphan forever too.
+      const nextAttempt = (orphan.attempts ?? 1) + 1;
+      if (nextAttempt > MAX_JOB_ATTEMPTS) {
+        console.warn(
+          `giving up on orphaned job ${orphan.mentionUri} after ${orphan.attempts} attempt(s) — retiring`,
+        );
+        await env.STATE.delete(`${JOB_PREFIX}${orphan.mentionUri}`);
+        await recordEvent(env, orphan.mentionUri, {
+          outcome: {
+            status: "failure",
+            replyText: "gave up — the build kept dying before it could report back. sorry about that one.",
+            at: new Date().toISOString(),
+          },
+        });
+        continue;
+      }
       next = orphan;
       reclaimed = true;
       console.warn(`reclaiming orphaned job ${orphan.mentionUri} (claimed ${orphan.claimedAt}, attempts ${orphan.attempts})`);
+      break;
     }
   }
   if (!next) return new Response(null, { status: 204 });
