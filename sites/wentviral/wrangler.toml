@@ -1,0 +1,36 @@
+name = "atprotozoa-wentviral"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# wentviral (bisks.net/wentviral): a fake Bluesky compose box. You write a
+# post, hit send, and it "posts" — then a deterministic client-side sim
+# grows replies/likes/reposts/quote-posts out of it over real elapsed time.
+# Nothing is written anywhere real; there's no PDS record, no account. The
+# whole engine is a seeded PRNG driven off the post text + a timestamp, both
+# encoded into the permalink URL, so a shared link reproduces the exact same
+# fake pile-on for anyone who opens it, growing further the longer it's been
+# since the encoded post time — not a live clock, a pure function of elapsed
+# time, so it survives reloads with no server-side state at all.
+#
+# Path-mounted at bisks.net/wentviral, not a dedicated custom domain — the
+# zone hit its custom-domain cap a while back. See
+# notes/40-new-site-playbook.md ("Why paths, not subdomains"). routes MUST
+# stay above [assets] — a routes line below [assets] silently becomes
+# assets.routes in TOML.
+routes = [
+  { pattern = "bisks.net/wentviral", zone_name = "bisks.net" },
+  { pattern = "bisks.net/wentviral/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /wentviral/p/<code> is a dynamic permalink — the Worker
+# decodes the code and stamps personalized og:title/og:description onto the
+# shared HTML shell so the link unfurls with a real preview instead of one
+# generic card for every shared post. Every request also needs the
+# "/wentviral" mount prefix stripped before it reaches ASSETS.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[observability]
+enabled = true
