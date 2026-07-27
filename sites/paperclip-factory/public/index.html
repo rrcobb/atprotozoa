@@ -156,7 +156,7 @@
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 10px;
-        margin-bottom: 20px;
+        margin-bottom: 12px;
       }
       .stat {
         background: var(--panel);
@@ -168,6 +168,84 @@
       .stat .num { font-size: 22px; font-weight: 800; }
       .stat .label { font-size: 11px; color: var(--muted); margin-top: 2px; }
       .stat.rarest .num { font-size: 26px; }
+
+      .verdict {
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 8px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+        background: var(--panel);
+        border: 1px solid #262b31;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 20px;
+      }
+      .verdict .rate { font-weight: 800; color: var(--ink); }
+      .verdict.ok .rate { color: #6fdc8c; }
+      .verdict.meh .rate { color: var(--warn); }
+      .verdict.bad .rate { color: var(--alarm); }
+
+      .catalog {
+        background: var(--panel);
+        border: 1px solid #262b31;
+        border-radius: 10px;
+        padding: 10px 14px 14px;
+        margin-bottom: 20px;
+      }
+      .catalog h2 {
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 2px 0 10px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .catalog-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+        gap: 8px;
+      }
+      .catalog-tile {
+        aspect-ratio: 1;
+        border-radius: 8px;
+        background: var(--panel2);
+        border: 1px solid #2c333b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        position: relative;
+      }
+      .catalog-tile.locked { color: #3a4048; }
+      .catalog-tile.tier-uncommon.found { border-color: #4a4030; }
+      .catalog-tile.tier-rare.found { border-color: #4a3230; }
+      .catalog-tile.tier-legendary.found { border-color: #3d2e4d; box-shadow: 0 0 0 1px #3d2e4d, 0 0 10px -2px var(--legend); }
+      .catalog-tile[data-tip]:hover::after {
+        content: attr(data-tip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        margin-bottom: 6px;
+        background: #0c0e10;
+        border: 1px solid #2c333b;
+        color: var(--ink);
+        font-size: 11px;
+        padding: 3px 6px;
+        border-radius: 5px;
+        white-space: nowrap;
+        z-index: 2;
+      }
+
+      .belt-frame.alarm-flash { animation: flash 0.5s ease-in-out 2; }
+      @keyframes flash {
+        0%, 100% { box-shadow: 0 0 0 1px #2a3038; }
+        50% { box-shadow: 0 0 0 3px var(--alarm), 0 0 24px 2px var(--alarm); }
+      }
 
       .log-panel {
         background: var(--panel);
@@ -268,9 +346,19 @@
         </div>
       </div>
 
+      <div class="verdict" id="verdict">
+        <span>defect rate:</span> <span class="rate" id="verdictRate">0.0%</span>
+        <span id="verdictText">— not enough data yet</span>
+      </div>
+
       <div class="log-panel">
         <h2>off the line</h2>
         <ul class="log-list" id="log"></ul>
+      </div>
+
+      <div class="catalog">
+        <h2><span>QC spec sheet</span><span id="catalogCount">0 / 15 catalogued</span></h2>
+        <div class="catalog-grid" id="catalogGrid"></div>
       </div>
 
       <div class="share">
@@ -341,6 +429,7 @@
       }
 
       const belt = document.getElementById("belt");
+      const beltFrame = document.querySelector(".belt-frame");
       const log = document.getElementById("log");
       const els = {
         total: document.getElementById("statTotal"),
@@ -353,11 +442,85 @@
         speed: document.getElementById("speed"),
         shareBluesky: document.getElementById("shareBluesky"),
         shareCard: document.getElementById("shareCard"),
+        verdict: document.getElementById("verdict"),
+        verdictRate: document.getElementById("verdictRate"),
+        verdictText: document.getElementById("verdictText"),
+        catalogGrid: document.getElementById("catalogGrid"),
+        catalogCount: document.getElementById("catalogCount"),
       };
 
-      const state = { total: 0, clips: 0, anomalies: 0, rarest: null, log: [] };
+      const STORE_KEY = "paperclip-factory-v1";
+      function loadStored() {
+        try {
+          const raw = localStorage.getItem(STORE_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (typeof parsed.total !== "number") return null;
+          return parsed;
+        } catch {
+          return null;
+        }
+      }
+      function saveStored() {
+        try {
+          localStorage.setItem(
+            STORE_KEY,
+            JSON.stringify({
+              total: state.total,
+              clips: state.clips,
+              anomalies: state.anomalies,
+              rarestKey: state.rarest ? state.rarest.key : null,
+              caught: Array.from(state.caught),
+            })
+          );
+        } catch {
+          // storage unavailable — cumulative stats just won't persist
+        }
+      }
+
+      const stored = loadStored();
+      const state = {
+        total: stored ? stored.total : 0,
+        clips: stored ? stored.clips : 0,
+        anomalies: stored ? stored.anomalies : 0,
+        rarest: stored && stored.rarestKey ? ITEMS.find((i) => i.key === stored.rarestKey) || null : null,
+        caught: new Set(stored && stored.caught ? stored.caught : []),
+        log: [],
+      };
       let running = true;
       let timer = null;
+
+      const VERDICTS = [
+        { max: 5, cls: "ok", text: "— honestly? pretty solid for a factory." },
+        { max: 12, cls: "meh", text: "— within the range mrinsecure was asking about." },
+        { max: 25, cls: "bad", text: "— HR would like a word with this machine." },
+        { max: 101, cls: "bad", text: "— recall this factory immediately." },
+      ];
+
+      function renderVerdict() {
+        if (state.total < 5) {
+          els.verdict.className = "verdict";
+          els.verdictRate.textContent = state.total ? ((state.anomalies / state.total) * 100).toFixed(1) + "%" : "0.0%";
+          els.verdictText.textContent = "— not enough data yet";
+          return;
+        }
+        const rate = (state.anomalies / state.total) * 100;
+        const v = VERDICTS.find((v) => rate <= v.max);
+        els.verdict.className = "verdict " + v.cls;
+        els.verdictRate.textContent = rate.toFixed(1) + "%";
+        els.verdictText.textContent = v.text;
+      }
+
+      function renderCatalog() {
+        els.catalogCount.textContent = state.caught.size + " / " + ITEMS.length + " catalogued";
+        els.catalogGrid.innerHTML = ITEMS.map((item) => {
+          const found = state.caught.has(item.key);
+          const cls = "catalog-tile tier-" + item.tier + (found ? " found" : " locked");
+          const tip = found ? item.name : "not yet catalogued";
+          const glyph = found ? item.emoji : "?";
+          return `<div class="${cls}" data-tip="${tip}">${glyph}</div>`;
+        }).join("");
+      }
 
       const SPEED_MS = { 1: 3200, 2: 2200, 3: 1400, 4: 900, 5: 500 };
       const SPEED_DUR = { 1: "7s", 2: "6s", 3: "5.2s", 4: "4.4s", 5: "3.6s" };
@@ -369,6 +532,14 @@
         if (!state.rarest || TIER_RANK[item.tier] > TIER_RANK[state.rarest.tier]) {
           state.rarest = item;
         }
+        const newlyCaught = !state.caught.has(item.key);
+        state.caught.add(item.key);
+
+        if (item.tier === "rare" || item.tier === "legendary") {
+          beltFrame.classList.remove("alarm-flash");
+          void beltFrame.offsetWidth; // restart animation
+          beltFrame.classList.add("alarm-flash");
+        }
 
         const reaction = item.reactions[Math.floor(Math.random() * item.reactions.length)];
 
@@ -379,9 +550,10 @@
         el.addEventListener("animationend", () => el.remove());
         belt.appendChild(el);
 
-        state.log.unshift({ emoji: item.emoji, name: item.name, reaction, tier: item.tier });
+        state.log.unshift({ emoji: item.emoji, name: item.name, reaction, tier: item.tier, isNew: newlyCaught });
         state.log = state.log.slice(0, 8);
 
+        saveStored();
         render();
       }
 
@@ -396,9 +568,11 @@
         log.innerHTML = state.log
           .map(
             (l) =>
-              `<li class="tier-${l.tier}"><span class="e">${l.emoji}</span><span class="r">${l.reaction}</span></li>`
+              `<li class="tier-${l.tier}"><span class="e">${l.emoji}</span><span class="r">${l.reaction}${l.isNew ? " 🆕 first catalogue!" : ""}</span></li>`
           )
           .join("");
+        renderVerdict();
+        renderCatalog();
       }
 
       function scheduleNext() {
@@ -519,7 +693,8 @@
         }, "image/png");
       });
 
-      // seed the belt with a couple of items right away, then run
+      // restore cumulative stats/catalog from a prior visit, then seed the belt
+      render();
       produce();
       scheduleNext();
     </script>
