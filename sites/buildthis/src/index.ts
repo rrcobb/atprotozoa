@@ -34,6 +34,10 @@ interface Env {
   // or not "1" => the watcher fires the GitHub Action via repository_dispatch (the
   // fallback path). A plain var so the cutover is one dashboard toggle, no deploy.
   USE_BOX_QUEUE?: string;
+  // Minutes between dispensed jobs when the queue has a backlog (mobius mode —
+  // see the "Build queue" section). "0" or unset disables throttling entirely,
+  // restoring the original drain-as-fast-as-possible behavior.
+  MOBIUS_INTERVAL_MINUTES?: string;
 }
 
 const PDS = "https://bsky.social";
@@ -92,6 +96,12 @@ export default {
     // live on every hit.
     if (url.pathname === "/directory") {
       return handleDirectoryPage(env);
+    }
+
+    // The "yes, fine, I titrate too" page — mobius mode's own status surface.
+    // See the Mobius mode section near handleNextJob for what it's reporting.
+    if (url.pathname === "/mobius") {
+      return handleMobiusPage(env);
     }
 
     return env.ASSETS.fetch(request);
@@ -735,6 +745,97 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// GET /mobius — status page for mobius mode (see the "Build queue" section /
+// handleNextJob for the actual throttle). A confession, of sorts: the landing
+// page has a whole banner insisting this bot has nothing to do with
+// @minormobius.bsky.social — this is the one place that's no longer entirely
+// true. Public, read-only, no secrets in play (same shape as /health).
+async function handleMobiusPage(env: Env): Promise<Response> {
+  const intervalMin = num(env.MOBIUS_INTERVAL_MINUTES ?? "0");
+  const enabled = intervalMin > 0;
+
+  let queuedCount = 0;
+  try {
+    const list = await env.STATE.list({ prefix: JOB_PREFIX });
+    for (const k of list.keys) {
+      const raw = await env.STATE.get(k.name);
+      if (!raw) continue;
+      try {
+        if ((JSON.parse(raw) as QueueJob).status === "queued") queuedCount++;
+      } catch {
+        // skip a corrupt job
+      }
+    }
+  } catch (err) {
+    console.error(`mobius page: queue read failed: ${err}`);
+  }
+
+  let lastDispensed: string | null = null;
+  try {
+    lastDispensed = await env.STATE.get(MOBIUS_LAST_DISPENSED_KEY);
+  } catch {
+    // non-fatal — the page just shows "—" for last release
+  }
+
+  let nextReleaseNote: string;
+  if (!enabled) {
+    nextReleaseNote = "disabled — every queued job is served the moment it's claimed.";
+  } else if (queuedCount <= 1) {
+    nextReleaseNote = "no backlog right now, so nothing's being throttled — the lone job (if any) ships on the next poll.";
+  } else {
+    const lastMs = lastDispensed ? new Date(lastDispensed).getTime() : 0;
+    const nextMs = lastMs + intervalMin * 60 * 1000;
+    const waitMin = Math.max(0, Math.round((nextMs - Date.now()) / 60000));
+    nextReleaseNote = waitMin === 0
+      ? "due any poll now."
+      : `in about ${waitMin} minute${waitMin === 1 ? "" : "s"}.`;
+  }
+
+  const body = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mobius mode — buildthis.bisks.net</title>
+<meta name="description" content="How buildthis paces a build backlog instead of dumping it all at once." />
+<style>
+  body { margin:0; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    background:#0d0a06; color:#e8dcc8; line-height:1.6; }
+  .wrap { max-width:560px; margin:0 auto; padding:3rem 1.25rem 5rem; }
+  h1 { font-size:1.4rem; margin:0 0 0.25rem; }
+  p.lede { color:#9c8f78; margin:0 0 1.5rem; font-style:italic; }
+  table { width:100%; border-collapse:collapse; margin:1rem 0; }
+  td { padding:0.4rem 0.5rem; border-bottom:1px solid #1f2226; font-size:0.9rem; }
+  td:first-child { color:#9c8f78; width:44%; }
+  footer { margin-top:2rem; color:#9c8f78; font-size:0.78rem; }
+  a { color:#e0b23c; }
+</style></head><body><div class="wrap">
+  <h1>mobius mode</h1>
+  <p class="lede">${enabled ? "🟢 on" : "🔴 off"} — the one part of this bot that's honestly a bit like <a href="https://bsky.app/profile/minormobius.bsky.social">@minormobius</a>.</p>
+  <p>
+    Most tags build the moment they're claimed. But when a burst of tags piles
+    the queue up, dispensing them all back-to-back would land a pile of commits
+    in a few minutes, then nothing for a long stretch after — exactly the kind
+    of spiky, gap-y history a steady drip avoids. So once there's more than one
+    job waiting, releases space out to at most one every ${intervalMin || "?"} minute${intervalMin === 1 ? "" : "s"}
+    until the backlog clears.
+  </p>
+  <table>
+    <tr><td>status</td><td>${escHtml(enabled ? "enabled" : "disabled")}</td></tr>
+    <tr><td>interval</td><td>${enabled ? `${intervalMin} min` : "—"}</td></tr>
+    <tr><td>queued now</td><td>${queuedCount}</td></tr>
+    <tr><td>last release</td><td>${escHtml(lastDispensed ? lastDispensed.replace("T", " ").slice(0, 19) + "Z" : "—")}</td></tr>
+    <tr><td>next release</td><td>${escHtml(nextReleaseNote)}</td></tr>
+  </table>
+  <footer>
+    machine status at <a href="/health">/health</a> ·
+    <a href="/directory">directory</a> · <a href="/working/">working on now</a> ·
+    <a href="/">buildthis</a>
+  </footer>
+</div></body></html>`;
+  return new Response(body, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+  });
+}
+
 // POST /outcome — the builder reports a finished build. Body:
 //   { mentionUri, status: "success"|"failure", builtName?, url?, replyText? }
 // Authenticated by the shared OUTCOME_SECRET (Authorization: Bearer <secret>).
@@ -1082,6 +1183,9 @@ const BOX_HEARTBEAT_KEY = "box-heartbeat";
 // The box reads `attempts` off the job and gives up on its side at the same number;
 // this is the worker-side backstop so a buggy box can't loop forever.
 const MAX_JOB_ATTEMPTS = 3;
+// Last time /next-job actually handed a job to the box (not just polled — see
+// BOX_HEARTBEAT_KEY for that). Mobius mode reads this to pace a backlog.
+const MOBIUS_LAST_DISPENSED_KEY = "mobius-last-dispensed";
 
 interface QueueJob extends BuildPayload {
   status: "queued" | "claimed";
@@ -1177,6 +1281,24 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
     .filter((j) => j.status === "queued")
     .sort((a, b) => (a.enqueuedAt < b.enqueuedAt ? -1 : 1));
 
+  // Mobius mode: titrate a BACKLOG instead of draining it all at once. A single
+  // queued job is always served right away — most tags arrive one at a time and
+  // should still build promptly. It's only a *pile-up* (queued.length > 1, e.g. a
+  // burst of tags landing together) that gets spaced out: without this, a burst
+  // becomes a burst of commits landing in the same few minutes, followed by a long
+  // silent stretch until the next tag — exactly the "unsightly gap" pattern this
+  // bot's own landing page swore up and down it had nothing to do with
+  // (public/index.html's "not @minormobius" banner). MOBIUS_INTERVAL_MINUTES unset
+  // or "0" disables this and restores drain-as-fast-as-possible.
+  const mobiusIntervalMs = num(env.MOBIUS_INTERVAL_MINUTES ?? "0") * 60 * 1000;
+  if (mobiusIntervalMs > 0 && queued.length > 1) {
+    const lastRaw = await env.STATE.get(MOBIUS_LAST_DISPENSED_KEY);
+    const lastMs = lastRaw ? new Date(lastRaw).getTime() : 0;
+    if (Date.now() - lastMs < mobiusIntervalMs) {
+      return new Response(null, { status: 204 }); // titrating — try again next poll
+    }
+  }
+
   // Orphan reclaim (self-healing): a build that died mid-run (crash, box reboot, a
   // SIGKILLed process) leaves its job stuck `claimed` forever — the box only serves
   // `queued` jobs, so without this it would never be retried and the requester is
@@ -1230,6 +1352,14 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
   await env.STATE.put(`${JOB_PREFIX}${next.mentionUri}`, JSON.stringify(next), {
     expirationTtl: JOB_TTL,
   });
+  // Stamp the dispense clock every time a job actually goes out (not just when
+  // mobius mode gated on it) so the pacing window is measured from the last real
+  // release, whether or not a throttle happened to apply to it.
+  try {
+    await env.STATE.put(MOBIUS_LAST_DISPENSED_KEY, next.claimedAt);
+  } catch {
+    // non-fatal — worst case mobius mode under-paces by one interval next time
+  }
   return new Response(JSON.stringify(next), {
     headers: { "content-type": "application/json" },
   });

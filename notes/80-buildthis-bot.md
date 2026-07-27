@@ -106,6 +106,20 @@ URL and whether the build succeeded. It logs in as the bot and replies in-thread
 success → "built it: `<name>.bisks.net` 🎉"; failure → an honest "couldn't build
 that one." No human-in-the-loop; the reply is automatic.
 
+### Mobius mode (backlog pacing)
+
+2026-07-27, a mutual asked (as a bit — the landing page has a running gag denying
+any resemblance to `@minormobius.bsky.social`) for the bot to actually adopt
+minormobius's habit of queuing ideas and releasing them on a spaced schedule,
+so a burst of tags doesn't land as a burst of commits followed by a long silent
+stretch. Implemented on the box-queue path (`sites/buildthis/src/index.ts`,
+`handleNextJob` / `POST /next-job`): when more than one job is queued (a
+pile-up), releases are paced to at most one every `MOBIUS_INTERVAL_MINUTES`
+(wrangler var, default 20) instead of draining back-to-back. A **lone** queued
+job always ships on the next poll — this only throttles backlogs, not the
+common one-tag-at-a-time case. `MOBIUS_INTERVAL_MINUTES = "0"` (or unset)
+disables it entirely. Status/explanation page at `/mobius`.
+
 ## Budget
 
 Rob's stated ceiling: **don't spend more than ~$10 by accident.** Dollars are the
