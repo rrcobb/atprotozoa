@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>mootstream — wind currents from Bluesky's pulse</title>
+    <meta
+      name="description"
+      content="A live wind map. Ocean heat is the normal climatological sea temperature for today's date — no satellite posters. Land heat is a live z-score of Bluesky posting activity per region, pulled straight off the Jetstream firehose. Hot/cold spots drive the wind, rendered in WebGL."
+    />
+    <meta property="og:title" content="mootstream — wind currents from Bluesky's pulse" />
+    <meta
+      property="og:description"
+      content="Ocean = today's normal sea temperature. Land = a live z-score of Bluesky activity per region. Hot and cold spots drive a WebGL wind simulation, earth.nullschool.net-style."
+    />
+    <meta property="og:image" content="https://bisks.net/mootstream/og.png" />
+    <meta property="og:url" content="https://bisks.net/mootstream" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #050a10;
+      }
+      body {
+        font-family:
+          ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: #eaf3f6;
+        -webkit-font-smoothing: antialiased;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+      #heat,
+      #wind {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #wind {
+        pointer-events: none;
+      }
+
+      .panel {
+        position: fixed;
+        z-index: 5;
+        background: rgba(6, 12, 18, 0.72);
+        border: 1px solid rgba(120, 200, 220, 0.16);
+        border-radius: 12px;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      #title-panel {
+        top: max(14px, env(safe-area-inset-top));
+        left: max(14px, env(safe-area-inset-left));
+        max-width: min(420px, calc(100vw - 28px));
+        padding: 12px 16px;
+      }
+      #title-panel h1 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        letter-spacing: 0.01em;
+        color: #9be8ff;
+      }
+      #title-panel p {
+        margin: 0;
+        font-size: 11.5px;
+        line-height: 1.5;
+        color: #b9c6cc;
+      }
+      #title-panel .status {
+        margin-top: 8px;
+        font-size: 10.5px;
+        color: #6f8790;
+      }
+      #title-panel .status .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #58e0a8;
+        box-shadow: 0 0 6px #58e0a8;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      #title-panel .status .dot.off {
+        background: #ff6b6b;
+        box-shadow: 0 0 6px #ff6b6b;
+      }
+
+      #legend-panel {
+        bottom: max(14px, env(safe-area-inset-bottom));
+        left: max(14px, env(safe-area-inset-left));
+        padding: 10px 14px;
+        font-size: 11px;
+        max-width: min(320px, calc(100vw - 28px));
+      }
+      #legend-panel .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 0;
+      }
+      #legend-panel .swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        flex: none;
+      }
+      #legend-panel .grad {
+        width: 100%;
+        height: 8px;
+        border-radius: 4px;
+        margin: 4px 0 8px;
+        background: linear-gradient(
+          90deg,
+          #1c3a66,
+          #2f7fae,
+          #6fc6c0,
+          #f0e3b0,
+          #e8913c,
+          #c23b2c,
+          #6e1414
+        );
+      }
+      #legend-panel .caption {
+        display: flex;
+        justify-content: space-between;
+        font-size: 9.5px;
+        color: #7d8f96;
+        margin-bottom: 6px;
+      }
+      #hotcold {
+        margin-top: 4px;
+        display: grid;
+        gap: 3px;
+      }
+      #hotcold .r {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      #hotcold .r .name {
+        color: #cfe4e8;
+      }
+      #hotcold .r.hot .z {
+        color: #ff8a5c;
+      }
+      #hotcold .r.cold .z {
+        color: #6fc7ff;
+      }
+      #hotcold .empty {
+        color: #6f8790;
+        font-size: 10.5px;
+      }
+
+      #share-panel {
+        top: max(14px, env(safe-area-inset-top));
+        right: max(14px, env(safe-area-inset-right));
+        padding: 10px 12px;
+      }
+      #share-panel a {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #eaf3f6;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 600;
+        background: linear-gradient(135deg, #1b6fa8, #0e3f66);
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(155, 232, 255, 0.3);
+      }
+      #share-panel a:active {
+        transform: translateY(1px);
+      }
+
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: #7d8f96;
+        z-index: 6;
+        background: #050a10;
+        transition: opacity 0.4s ease;
+      }
+      #loading.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      @media (max-width: 560px) {
+        #title-panel p {
+          display: none;
+        }
+        #legend-panel {
+          max-width: calc(100vw - 28px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="heat"></canvas>
+      <canvas id="wind"></canvas>
+    </div>
+
+    <div id="loading">spinning up the atmosphere…</div>
+
+    <div id="title-panel" class="panel">
+      <h1>mootstream</h1>
+      <p>
+        Ocean color is today's <strong>normal</strong> sea temperature by latitude and
+        season — no satellite imagery. Land color is a live <strong>z-score</strong> of
+        Bluesky posting activity per region, straight off the Jetstream firehose: hot
+        means busier than usual right now, cold means quieter. Wind flows from the
+        data.
+      </p>
+      <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">connecting…</span></div>
+    </div>
+
+    <div id="legend-panel" class="panel">
+      <div class="caption"><span>cold</span><span>normal</span><span>hot</span></div>
+      <div class="grad"></div>
+      <div id="hotcold"><div class="empty">calibrating regional baselines…</div></div>
+    </div>
+
+    <div id="share-panel" class="panel">
+      <a id="shareLink" href="https://bsky.app/intent/compose" target="_blank" rel="noopener">
+        share ↗
+      </a>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const MOUNT = "/mootstream";
+        const SITE_URL = "https://bisks.net/mootstream";
+
+        // ---- region list (client copy — id/name/bbox only, no langs needed
+        // here). Keep in sync by hand with REGIONS in src/index.ts (house
+        // style: copy, don't abstract, even within one site). Order matters:
+        // more specific/smaller boxes are listed before broader ones so a
+        // land cell in an overlap gets the more specific region. ----
+        const REGIONS = [
+          { id: "north-america", name: "North America", bbox: [-130, 25, -60, 55] },
+          { id: "uk-ireland", name: "UK & Ireland", bbox: [-11, 49, 2, 61] },
+          { id: "australia", name: "Australia & NZ", bbox: [113, -47, 179, -10] },
+          { id: "brazil", name: "Brazil", bbox: [-74, -34, -34, 6] },
+          { id: "latin-america", name: "Latin America", bbox: [-109, -56, -35, 15] },
+          { id: "spain", name: "Spain", bbox: [-10, 36, 4, 44] },
+          { id: "france", name: "France", bbox: [-5, 41, 10, 51] },
+          { id: "germany", name: "Germany & Central Europe", bbox: [5, 46, 17, 55] },
+          { id: "italy", name: "Italy", bbox: [6, 36, 19, 47] },
+          { id: "netherlands", name: "Netherlands", bbox: [3, 50, 7, 54] },
+          { id: "poland", name: "Poland", bbox: [14, 49, 24, 55] },
+          { id: "nordics", name: "Nordics", bbox: [4, 54, 31, 71] },
+          { id: "russia", name: "Russia", bbox: [30, 41, 180, 77] },
+          { id: "turkey", name: "Turkey", bbox: [26, 36, 45, 42] },
+          { id: "middle-east", name: "Middle East", bbox: [34, 12, 60, 38] },
+          { id: "north-africa", name: "North Africa", bbox: [-17, 20, 34, 37] },
+          { id: "japan", name: "Japan", bbox: [129, 30, 146, 46] },
+          { id: "korea", name: "Korea", bbox: [124, 33, 131, 43] },
+          { id: "china", name: "China & Taiwan", bbox: [73, 18, 135, 53] },
+          { id: "southeast-asia", name: "Southeast Asia", bbox: [92, -11, 141, 21] },
+          { id: "india", name: "India", bbox: [68, 6, 97, 36] },
+        ];
+
+        const GRID_W = 360;
+        const GRID_H = 180;
+        const DEG2RAD = Math.PI / 180;
+        const ANOMALY_SCALE = 9; // °C per unit z-score — makes hot/cold spots dramatic enough to drive wind
+        const MAX_WIND_SPEED = 3; // grid-cells/frame cap on the raw gradient, so particles never leap
+        const HEAT_POLL_MS = 20000;
+
+        // ---- dom -----------------------------------------------------------
+        const heatCanvas = document.getElementById("heat");
+        const windCanvas = document.getElementById("wind");
+        const loadingEl = document.getElementById("loading");
+        const statusDot = document.getElementById("statusDot");
+        const statusText = document.getElementById("statusText");
+        const hotcoldEl = document.getElementById("hotcold");
+        const shareLink = document.getElementById("shareLink");
+
+        const heatCtx = heatCanvas.getContext("2d");
+        const offscreen = document.createElement("canvas");
+        offscreen.width = GRID_W;
+        offscreen.height = GRID_H;
+        const offCtx = offscreen.getContext("2d");
+        const offImage = offCtx.createImageData(GRID_W, GRID_H);
+
+        // ---- geo data --------------------------------------------------------
+        let land = new Uint8Array(GRID_W * GRID_H); // 0/1, filled once landmask loads
+        let regionIndex = new Int8Array(GRID_W * GRID_H).fill(-1); // per-cell region index, land cells only
+        let coastlines = null; // array of polygons (array of rings of [lon,lat])
+
+        function decodeMask(b64, w, h) {
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const out = new Uint8Array(w * h);
+          for (let i = 0; i < w * h; i++) out[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+          return out;
+        }
+
+        function cellLonLat(col, row) {
+          return [col - 180 + 0.5, 90 - row - 0.5];
+        }
+
+        function buildRegionIndex() {
+          for (let row = 0; row < GRID_H; row++) {
+            for (let col = 0; col < GRID_W; col++) {
+              const i = row * GRID_W + col;
+              if (!land[i]) continue;
+              const [lon, lat] = cellLonLat(col, row);
+              for (let ri = 0; ri < REGIONS.length; ri++) {
+                const b = REGIONS[ri].bbox;
+                if (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]) {
+                  regionIndex[i] = ri;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // ---- region z-scores (from the Worker) --------------------------------
+        let regionStats = {}; // id -> {z, rate, mean, std}
+        let lastHeatUpdate = 0;
+        let calibrated = false;
+
+        async function pollHeat() {
+          try {
+            const res = await fetch(MOUNT + "/api/heat", { cache: "no-store" });
+            if (!res.ok) throw new Error("bad status " + res.status);
+            const data = await res.json();
+            regionStats = data.regions || {};
+            lastHeatUpdate = data.updatedAt || Date.now();
+            calibrated = Object.values(regionStats).some((r) => r.std > 0);
+            statusDot.classList.remove("off");
+            statusText.textContent = calibrated
+              ? "live · updated " + timeAgo(lastHeatUpdate)
+              : "live · baselines still warming up";
+            recomputeFields();
+            updateLegend();
+          } catch (e) {
+            statusDot.classList.add("off");
+            statusText.textContent = "reconnecting…";
+          }
+        }
+
+        function timeAgo(ts) {
+          const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+          if (s < 60) return s + "s ago";
+          return Math.round(s / 60) + "m ago";
+        }
+
+        function updateLegend() {
+          const entries = Object.keys(regionStats)
+            .map((id) => ({ id, ...regionStats[id] }))
+            .filter((r) => r.std > 0);
+          if (!entries.length) {
+            hotcoldEl.innerHTML = '<div class="empty">calibrating regional baselines… check back in a bit</div>';
+            return;
+          }
+          entries.sort((a, b) => b.z - a.z);
+          const hot = entries.slice(0, 3).filter((r) => r.z > 0.3);
+          const cold = entries
+            .slice()
+            .sort((a, b) => a.z - b.z)
+            .slice(0, 3)
+            .filter((r) => r.z < -0.3);
+          const nameOf = (id) => (REGIONS.find((r) => r.id === id) || {}).name || id;
+          let html = "";
+          for (const r of hot) {
+            html += `<div class="r hot"><span class="name">🔥 ${nameOf(r.id)}</span><span class="z">z=${r.z.toFixed(1)}</span></div>`;
+          }
+          for (const r of cold) {
+            html += `<div class="r cold"><span class="name">🧊 ${nameOf(r.id)}</span><span class="z">z=${r.z.toFixed(1)}</span></div>`;
+          }
+          hotcoldEl.innerHTML = html || '<div class="empty">everything\'s within its normal range right now</div>';
+
+          if (hot.length) {
+            const top = hot[0];
+            const text =
+              "🌬️ mootstream: " +
+              nameOf(top.id) +
+              " is the hottest spot on the board right now (z=" +
+              top.z.toFixed(1) +
+              ") — live wind currents driven by Bluesky's own pulse. " +
+              SITE_URL;
+            shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+          } else {
+            const text = "🌬️ mootstream: a live wind map driven by Bluesky's own posting activity. " + SITE_URL;
+            shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+          }
+        }
+
+        // ---- temperature field -------------------------------------------------
+        const temp = new Float32Array(GRID_W * GRID_H);
+        const windU = new Float32Array(GRID_W * GRID_H);
+        const windV = new Float32Array(GRID_W * GRID_H);
+
+        function solarDeclinationDeg(date) {
+          const start = Date.UTC(date.getUTCFullYear(), 0, 0);
+          const dayOfYear = Math.floor((date.getTime() - start) / 86400000);
+          return 23.44 * Math.sin(((2 * Math.PI) / 365) * (dayOfYear - 81));
+        }
+
+        function computeTemperatureField() {
+          const delta = solarDeclinationDeg(new Date());
+          for (let row = 0; row < GRID_H; row++) {
+            const [, lat] = cellLonLat(0, row);
+            const effLat = lat - delta;
+            const t = Math.cos(effLat * DEG2RAD); // ~1 at thermal equator, can go slightly negative near a dark winter pole
+            const oceanBase = -2 + 29 * t;
+            const landBase = -25 + 55 * t;
+            for (let col = 0; col < GRID_W; col++) {
+              const i = row * GRID_W + col;
+              if (land[i]) {
+                const ri = regionIndex[i];
+                let anomaly = 0;
+                if (ri >= 0) {
+                  const s = regionStats[REGIONS[ri].id];
+                  if (s && s.std > 0) anomaly = s.z * ANOMALY_SCALE;
+                }
+                temp[i] = landBase + anomaly;
+              } else {
+                temp[i] = oceanBase;
+              }
+            }
+          }
+        }
+
+        function computeWindField() {
+          for (let row = 0; row < GRID_H; row++) {
+            const [, lat] = cellLonLat(0, row);
+            const cosLat = Math.max(Math.cos(lat * DEG2RAD), 0.15);
+            const rUp = Math.max(row - 1, 0);
+            const rDown = Math.min(row + 1, GRID_H - 1);
+            const hemi = lat >= 0 ? 1 : -1;
+            for (let col = 0; col < GRID_W; col++) {
+              const cLeft = (col - 1 + GRID_W) % GRID_W;
+              const cRight = (col + 1) % GRID_W;
+              const i = row * GRID_W + col;
+              const dTdx = (temp[row * GRID_W + cRight] - temp[row * GRID_W + cLeft]) / (2 * cosLat);
+              const dTdy = temp[rDown * GRID_W + col] - temp[rUp * GRID_W + col];
+              // Wind flows toward the hot spot (surface flow toward the
+              // low-pressure/rising-air side), blended with a Coriolis-like
+              // rotation so flow spirals around hot/cold spots instead of
+              // running straight down the gradient — counterclockwise around
+              // a hot spot in the northern hemisphere, clockwise in the
+              // southern, matching real cyclonic convention.
+              const gx = dTdx;
+              const gy = dTdy;
+              const px = -gy * hemi;
+              const py = gx * hemi;
+              const W_RADIAL = 0.35;
+              const W_ROTATE = 0.65;
+              let ux = gx * W_RADIAL + px * W_ROTATE;
+              let uy = gy * W_RADIAL + py * W_ROTATE;
+              // Clamp magnitude — a sharp land/ocean baseline jump or an
+              // extreme z-score can otherwise produce a gradient large
+              // enough to make particles leap dozens of cells in one frame.
+              const mag = Math.hypot(ux, uy);
+              if (mag > MAX_WIND_SPEED) {
+                const s = MAX_WIND_SPEED / mag;
+                ux *= s;
+                uy *= s;
+              }
+              windU[i] = ux;
+              windV[i] = uy;
+            }
+          }
+        }
+
+        function recomputeFields() {
+          computeTemperatureField();
+          computeWindField();
+          drawHeatBackground();
+        }
+
+        // ---- heat background (2D canvas, redrawn on data refresh / resize) ----
+        function tempToColor(t) {
+          // diverging stops: deep cold -> cool -> pale neutral -> warm -> hot
+          const stops = [
+            [-35, 22, 32, 64],
+            [-10, 40, 110, 150],
+            [8, 100, 180, 168],
+            [16, 232, 220, 178],
+            [24, 224, 130, 60],
+            [32, 168, 46, 32],
+            [42, 96, 18, 18],
+          ];
+          if (t <= stops[0][0]) return stops[0].slice(1);
+          for (let i = 1; i < stops.length; i++) {
+            if (t <= stops[i][0]) {
+              const a = stops[i - 1],
+                b = stops[i];
+              const f = (t - a[0]) / (b[0] - a[0]);
+              return [
+                a[1] + (b[1] - a[1]) * f,
+                a[2] + (b[2] - a[2]) * f,
+                a[3] + (b[3] - a[3]) * f,
+              ];
+            }
+          }
+          return stops[stops.length - 1].slice(1);
+        }
+
+        function drawHeatBackground() {
+          const data = offImage.data;
+          for (let i = 0; i < GRID_W * GRID_H; i++) {
+            const [r, g, b] = tempToColor(temp[i]);
+            const o = i * 4;
+            data[o] = r;
+            data[o + 1] = g;
+            data[o + 2] = b;
+            data[o + 3] = 255;
+          }
+          offCtx.putImageData(offImage, 0, 0);
+
+          const w = heatCanvas.width;
+          const h = heatCanvas.height;
+          heatCtx.imageSmoothingEnabled = true;
+          heatCtx.clearRect(0, 0, w, h);
+          heatCtx.drawImage(offscreen, 0, 0, GRID_W, GRID_H, 0, 0, w, h);
+
+          if (coastlines) drawCoastlines(w, h);
+        }
+
+        function drawCoastlines(w, h) {
+          heatCtx.beginPath();
+          for (const rings of coastlines) {
+            for (const ring of rings) {
+              for (let i = 0; i < ring.length; i++) {
+                const x = ((ring[i][0] + 180) / 360) * w;
+                const y = ((90 - ring[i][1]) / 180) * h;
+                if (i === 0) heatCtx.moveTo(x, y);
+                else heatCtx.lineTo(x, y);
+              }
+              heatCtx.closePath();
+            }
+          }
+          heatCtx.strokeStyle = "rgba(15, 22, 30, 0.55)";
+          heatCtx.lineWidth = Math.max(1, w / 720);
+          heatCtx.stroke();
+        }
+
+        // ---- webgl particles ----------------------------------------------------
+        const gl = windCanvas.getContext("webgl") || windCanvas.getContext("experimental-webgl");
+        if (!gl) {
+          statusText.textContent = "WebGL unavailable in this browser";
+        }
+
+        const VERT_SRC =
+          "attribute vec2 aPos;" +
+          "attribute vec3 aColor;" +
+          "attribute float aAlpha;" +
+          "varying vec3 vColor;" +
+          "varying float vAlpha;" +
+          "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vColor = aColor; vAlpha = aAlpha; }";
+        const FRAG_SRC =
+          "precision mediump float;" +
+          "varying vec3 vColor;" +
+          "varying float vAlpha;" +
+          "void main(){ gl_FragColor = vec4(vColor, vAlpha); }";
+
+        function compile(gl, type, src) {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src);
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+            throw new Error(gl.getShaderInfoLog(s) || "shader compile failed");
+          }
+          return s;
+        }
+
+        let prog, aPos, aColor, aAlpha, posBuf, colorBuf, alphaBuf, quadPosBuf;
+
+        if (gl) {
+          const vs = compile(gl, gl.VERTEX_SHADER, VERT_SRC);
+          const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG_SRC);
+          prog = gl.createProgram();
+          gl.attachShader(prog, vs);
+          gl.attachShader(prog, fs);
+          gl.linkProgram(prog);
+          if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            throw new Error(gl.getProgramInfoLog(prog) || "program link failed");
+          }
+          gl.useProgram(prog);
+          aPos = gl.getAttribLocation(prog, "aPos");
+          aColor = gl.getAttribLocation(prog, "aColor");
+          aAlpha = gl.getAttribLocation(prog, "aAlpha");
+          posBuf = gl.createBuffer();
+          colorBuf = gl.createBuffer();
+          alphaBuf = gl.createBuffer();
+          quadPosBuf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, quadPosBuf);
+          gl.bufferData(
+            gl.ARRAY_BUFFER,
+            new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+            gl.STATIC_DRAW,
+          );
+          gl.enable(gl.BLEND);
+        }
+
+        // ---- particles ----------------------------------------------------------
+        const N = 3000;
+        const pCol = new Float32Array(N);
+        const pRow = new Float32Array(N);
+        const pPrevCol = new Float32Array(N);
+        const pPrevRow = new Float32Array(N);
+        const pAge = new Int32Array(N);
+        const pMaxAge = new Int32Array(N);
+        const pWrapped = new Uint8Array(N);
+        const pSpeed = new Float32Array(N);
+
+        function respawn(i) {
+          pCol[i] = Math.random() * GRID_W;
+          pRow[i] = Math.random() * GRID_H;
+          pPrevCol[i] = pCol[i];
+          pPrevRow[i] = pRow[i];
+          pAge[i] = 0;
+          pMaxAge[i] = 40 + Math.floor(Math.random() * 130);
+          pWrapped[i] = 1; // don't draw a segment the frame a particle (re)spawns
+        }
+        for (let i = 0; i < N; i++) respawn(i);
+
+        function sampleWind(c, r) {
+          const cw = ((c % GRID_W) + GRID_W) % GRID_W;
+          const c0 = Math.floor(cw);
+          const c1 = (c0 + 1) % GRID_W;
+          const rc = Math.max(0, Math.min(GRID_H - 1.0001, r));
+          const r0 = Math.floor(rc);
+          const r1 = Math.min(r0 + 1, GRID_H - 1);
+          const fc = cw - c0;
+          const fr = rc - r0;
+          const i00 = r0 * GRID_W + c0,
+            i10 = r0 * GRID_W + c1,
+            i01 = r1 * GRID_W + c0,
+            i11 = r1 * GRID_W + c1;
+          const u =
+            windU[i00] * (1 - fc) * (1 - fr) +
+            windU[i10] * fc * (1 - fr) +
+            windU[i01] * (1 - fc) * fr +
+            windU[i11] * fc * fr;
+          const v =
+            windV[i00] * (1 - fc) * (1 - fr) +
+            windV[i10] * fc * (1 - fr) +
+            windV[i01] * (1 - fc) * fr +
+            windV[i11] * fc * fr;
+          return [u, v];
+        }
+
+        const STEP = 0.55;
+
+        function updateParticles() {
+          for (let i = 0; i < N; i++) {
+            const [u, v] = sampleWind(pCol[i], pRow[i]);
+            pSpeed[i] = Math.hypot(u, v);
+            pPrevCol[i] = pCol[i];
+            pPrevRow[i] = pRow[i];
+            let nc = pCol[i] + u * STEP;
+            let nr = pRow[i] + v * STEP;
+            pAge[i]++;
+            if (nr < 0 || nr > GRID_H - 1 || pAge[i] > pMaxAge[i]) {
+              respawn(i);
+              continue;
+            }
+            nc = ((nc % GRID_W) + GRID_W) % GRID_W;
+            pWrapped[i] = Math.abs(nc - pCol[i]) > GRID_W / 2 ? 1 : 0;
+            pCol[i] = nc;
+            pRow[i] = nr;
+          }
+        }
+
+        const linePos = new Float32Array(N * 4);
+        const lineColor = new Float32Array(N * 6);
+        const lineAlpha = new Float32Array(N * 2);
+
+        function speedColor(s) {
+          const t = Math.max(0, Math.min(1, s / 2.2));
+          const slow = [0.35, 0.55, 0.85];
+          const fast = [1.0, 0.95, 0.55];
+          return [
+            slow[0] + (fast[0] - slow[0]) * t,
+            slow[1] + (fast[1] - slow[1]) * t,
+            slow[2] + (fast[2] - slow[2]) * t,
+          ];
+        }
+
+        function buildLineBuffers() {
+          for (let i = 0; i < N; i++) {
+            const px = (pPrevCol[i] / GRID_W) * 2 - 1;
+            const py = 1 - (pPrevRow[i] / GRID_H) * 2;
+            const cx = (pCol[i] / GRID_W) * 2 - 1;
+            const cy = 1 - (pRow[i] / GRID_H) * 2;
+            const pi = i * 4;
+            linePos[pi] = px;
+            linePos[pi + 1] = py;
+            linePos[pi + 2] = cx;
+            linePos[pi + 3] = cy;
+
+            const [r, g, b] = speedColor(pSpeed[i]);
+            const ci = i * 6;
+            lineColor[ci] = r;
+            lineColor[ci + 1] = g;
+            lineColor[ci + 2] = b;
+            lineColor[ci + 3] = r;
+            lineColor[ci + 4] = g;
+            lineColor[ci + 5] = b;
+
+            const a = pWrapped[i] ? 0 : Math.max(0.12, Math.min(0.9, 0.25 + pSpeed[i] * 0.9));
+            const ai = i * 2;
+            lineAlpha[ai] = a;
+            lineAlpha[ai + 1] = a;
+          }
+        }
+
+        function renderFrame() {
+          if (!gl) return;
+          // 1) fade the previous frame's trails toward transparent.
+          gl.blendColor(0, 0, 0, 0.92);
+          gl.blendFunc(gl.ZERO, gl.CONSTANT_ALPHA);
+          gl.disableVertexAttribArray(aColor);
+          gl.vertexAttrib3f(aColor, 0, 0, 0);
+          gl.disableVertexAttribArray(aAlpha);
+          gl.vertexAttrib1f(aAlpha, 1);
+          gl.bindBuffer(gl.ARRAY_BUFFER, quadPosBuf);
+          gl.enableVertexAttribArray(aPos);
+          gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+          // 2) draw this frame's particle segments on top, normal alpha blend.
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, linePos, gl.DYNAMIC_DRAW);
+          gl.enableVertexAttribArray(aPos);
+          gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, colorBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, lineColor, gl.DYNAMIC_DRAW);
+          gl.enableVertexAttribArray(aColor);
+          gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, alphaBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, lineAlpha, gl.DYNAMIC_DRAW);
+          gl.enableVertexAttribArray(aAlpha);
+          gl.vertexAttribPointer(aAlpha, 1, gl.FLOAT, false, 0, 0);
+
+          gl.drawArrays(gl.LINES, 0, N * 2);
+        }
+
+        let running = false;
+        function loop() {
+          if (!running) return;
+          updateParticles();
+          buildLineBuffers();
+          renderFrame();
+          requestAnimationFrame(loop);
+        }
+
+        // ---- sizing ---------------------------------------------------------
+        function resize() {
+          const dpr = Math.min(window.devicePixelRatio || 1, 2);
+          const w = Math.round(window.innerWidth * dpr);
+          const h = Math.round(window.innerHeight * dpr);
+          for (const c of [heatCanvas, windCanvas]) {
+            c.width = w;
+            c.height = h;
+            c.style.width = window.innerWidth + "px";
+            c.style.height = window.innerHeight + "px";
+          }
+          if (gl) {
+            gl.viewport(0, 0, w, h);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+          }
+          if (land.some(Boolean)) drawHeatBackground();
+        }
+        window.addEventListener("resize", resize);
+
+        // ---- boot -------------------------------------------------------------
+        async function boot() {
+          resize();
+          const [maskRes, coastRes] = await Promise.all([
+            fetch(MOUNT + "/data/landmask.json").then((r) => r.json()),
+            fetch(MOUNT + "/data/coastlines.json").then((r) => r.json()),
+          ]);
+          land = decodeMask(maskRes.b64, maskRes.w, maskRes.h);
+          coastlines = coastRes;
+          buildRegionIndex();
+          recomputeFields();
+          loadingEl.classList.add("hidden");
+          running = true;
+          loop();
+          pollHeat();
+          setInterval(pollHeat, HEAT_POLL_MS);
+        }
+
+        boot().catch((e) => {
+          loadingEl.textContent = "couldn't load — try reloading (" + (e && e.message) + ")";
+        });
+      })();
+    </script>
+  </body>
+</html>
