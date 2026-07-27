@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cloutgraph — PMI-weighted HITS clout for your mutuals or a list — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle (crawls its mutuals) or an app.bsky.graph.list link (crawls its members). cloutgraph builds a directed liker→author like-graph across that group, weights edges by pointwise mutual information, runs HITS, and ranks everyone by network clout — the geometric mean of authority and hub score."
+    />
+    <meta property="og:title" content="cloutgraph — network clout via PMI + HITS" />
+    <meta
+      property="og:description"
+      content="A handle's mutuals, or a Bluesky list — turned into a directed like-graph, PMI-weighted, run through HITS, ranked by clout."
+    />
+    <meta property="og:url" content="https://bisks.net/cloutgraph" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="cloutgraph — network clout via PMI + HITS" />
+    <meta
+      name="twitter:description"
+      content="A handle's mutuals, or a Bluesky list — turned into a directed like-graph, PMI-weighted, run through HITS, ranked by clout."
+    />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #0d7a3f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 600; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 62ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: #b3261e; }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      thead th {
+        text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--muted); font-weight: 600; padding: 0 0.5rem 0.5rem 0; border-bottom: 1px solid var(--ink);
+      }
+      thead th.num, td.num { text-align: right; }
+      tbody td { padding: 0.55rem 0.5rem 0.55rem 0; border-bottom: 1px solid var(--faint); vertical-align: middle; }
+      tbody tr:hover { background: #fafafa; }
+      .rank { color: var(--muted); font-variant-numeric: tabular-nums; width: 1.6em; }
+      .who { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+      .who img { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--faint); }
+      .who .names { min-width: 0; }
+      .who .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+      .who .hd { color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+
+      .cloutCell { display: flex; align-items: center; gap: 0.55rem; justify-content: flex-end; }
+      .cloutNum { font-variant-numeric: tabular-nums; font-weight: 600; width: 3.2em; text-align: right; }
+      .meter { width: 90px; height: 7px; border-radius: 4px; background: var(--faint); overflow: hidden; flex: none; }
+      .meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+      .sub { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.85em; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>cloutgraph <span class="slash">· network clout via PMI + HITS</span></h1>
+      <p class="intro">
+        Paste a <b>Bluesky handle</b> (crawls its mutuals) or a
+        <b>list link</b> (<code>bsky.app/profile/…/lists/…</code>, crawls its
+        members). cloutgraph reads who in that group liked whom, weights each
+        directed <b>liker → author</b> edge by
+        <b>pointwise mutual information</b> (so one hyperactive liker or one
+        universally-liked account can't dominate on raw counts), runs
+        <b>HITS</b> on the weighted graph, and ranks the group by
+        <b>network clout</b> — the geometric mean of authority score and hub
+        score.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">handle or list link</label>
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. norvid-studies.bsky.social — or https://bsky.app/profile/…/lists/…"
+            spellcheck="false"
+          />
+          <button id="go" type="submit">map clout</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView + each account's own PDS, all in your browser — no login.
+      </p>
+
+      <section id="result">
+        <div class="summary" id="summary"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>who</th>
+              <th class="num">clout</th>
+              <th class="num">hub</th>
+              <th class="num">auth</th>
+              <th class="num">likes in-pool (given / recv)</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this ranking →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how the score works</summary>
+        <div class="body">
+          For every member of the pool, cloutgraph reads their public like
+          records straight off their own PDS (<code>com.atproto.repo.listRecords</code>,
+          collection <code>app.bsky.feed.like</code> — up to 300 recent likes
+          per member) and keeps only the likes aimed at another pool member,
+          giving a directed count <code>c(i,j)</code> = how many times
+          <code>i</code> liked something by <code>j</code>. Each edge is then
+          re-weighted by <b>PPMI</b>:
+          <code>max(0, log(c(i,j)·T / (rowSum(i)·colSum(j))))</code>, T being
+          the total in-pool likes — so an edge only carries weight if the
+          pair like each other more than their individual activity levels
+          would predict by chance. <b>HITS</b> then runs ~100 power-iteration
+          rounds on that weighted graph (authority ← incoming hub·weight,
+          hub ← outgoing authority·weight, L2-normalized each round), and
+          <b>clout</b> is <code>sqrt(hub × authority)</code> per person,
+          scaled 0–100 against the pool's own top scorer. The graph is capped
+          at 50 pool members and 300 likes each to keep the crawl bounded —
+          big mutual sets or lists get truncated to the first 50 found.
+        </div>
+      </details>
+
+      <footer>
+        clout = geometric mean of HITS hub &amp; authority scores over a
+        PMI-weighted liker→author like-graph. Reads Bluesky's public AppView
+        (getFollows / getFollowers / getList) plus each pool member's own PDS
+        (<code>listRecords</code> on <code>app.bsky.feed.like</code>) — all
+        anonymous, everything client-side, no login. moots/list pool logic
+        copied from <a href="https://bisks.net/games/simcluster">simcluster</a>.
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolvePool, MAX_POOL } from "./lib/pool.js";
+      import { buildLikeGraph } from "./lib/likes.js";
+      import { rankPool } from "./lib/hits.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+
+      function fmt(n, d) {
+        return Number(n || 0).toFixed(d == null ? 1 : d);
+      }
+
+      function renderRows(ranked, profiles, given, received) {
+        rowsEl.innerHTML = "";
+        ranked.forEach((r, i) => {
+          const p = profiles.get(r.did) || { handle: r.did, displayName: r.did, avatar: "" };
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            `<td class="rank">${i + 1}</td>` +
+            `<td><div class="who">` +
+              (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+              `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(p.handle || p.did)}" target="_blank" rel="noopener">` +
+                `<div class="dn">${escapeHtml(p.displayName || p.handle)}</div>` +
+                `<div class="hd">${short(p.handle)}</div>` +
+              `</a></div>` +
+            `</div></td>` +
+            `<td class="num"><div class="cloutCell"><div class="meter"><i style="width:${Math.max(2, r.clout)}%"></i></div><span class="cloutNum">${fmt(r.clout, 1)}</span></div></td>` +
+            `<td class="num sub">${fmt(r.hub, 3)}</td>` +
+            `<td class="num sub">${fmt(r.authority, 3)}</td>` +
+            `<td class="num sub">${given[r.did] || 0} / ${received[r.did] || 0}</td>`;
+          rowsEl.appendChild(tr);
+        });
+      }
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      const SHARE_URL = "https://bisks.net/cloutgraph";
+
+      function buildShareText(poolInfo, ranked, profiles) {
+        const top = ranked.slice(0, 3).map((r) => {
+          const p = profiles.get(r.did);
+          return p ? short(p.handle) : r.did;
+        });
+        const podium = top.length ? ` top clout: ${top.join(" > ")}.` : "";
+        return `ran ${poolInfo.label} through cloutgraph (PMI-weighted HITS over their like-graph).${podium} ${SHARE_URL}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(poolInfo, ranked, profiles) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("cloutgraph", 60, 90);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText(poolInfo.label + " — clout leaderboard", 60, 128);
+
+        const top = ranked.slice(0, 6);
+        const rowH = 76;
+        const startY = 190;
+        const avatars = await Promise.all(top.map((r) => loadImg((profiles.get(r.did) || {}).avatar)));
+
+        top.forEach((r, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y + rowH - 10, W - 120, 1);
+
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `700 22px ${mono}`;
+          ctx.textAlign = "left";
+          ctx.fillText(String(i + 1), 60, y + 30);
+
+          const img = avatars[i];
+          let textX = 110;
+          if (img) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(128, y + 14, 22, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 106, y - 8, 44, 44);
+            ctx.restore();
+            textX = 168;
+          }
+          const p = profiles.get(r.did);
+          ctx.fillStyle = "#111111";
+          ctx.font = `700 24px ${mono}`;
+          ctx.fillText((p && (p.displayName || p.handle)) || r.did, textX, y + 12);
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 17px ${mono}`;
+          ctx.fillText(p ? short(p.handle) : "", textX, y + 36);
+
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#1a5fd0";
+          ctx.font = `800 30px ${mono}`;
+          ctx.fillText(fmt(r.clout, 1), W - 60, y + 24);
+          ctx.textAlign = "left";
+        });
+
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/cloutgraph", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "cloutgraph.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "cloutgraph" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "cloutgraph.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        setStatus("resolving " + q + "…");
+        try {
+          const poolInfo = await resolvePool(q, { onStep: (s) => setStatus(s) });
+          const profiles = new Map(poolInfo.pool.map((p) => [p.did, p]));
+
+          setStatus(`pool: ${poolInfo.pool.length} accounts (${poolInfo.label}). reading likes: 0/${poolInfo.pool.length}…`);
+          const graph = await buildLikeGraph(poolInfo.pool, {
+            onProgress: (done, total) => setStatus(`pool: ${poolInfo.pool.length} accounts. reading likes: ${done}/${total}…`),
+          });
+
+          if (!graph.edges.length) {
+            setStatus(
+              `read likes for ${graph.resolvedCount}/${poolInfo.pool.length} accounts, but found no likes pointed at anyone else in the pool — try a bigger or tighter-knit group.`,
+              "err",
+            );
+            goBtn.disabled = false;
+            return;
+          }
+
+          const ids = poolInfo.pool.map((p) => p.did);
+          const ranked = rankPool(ids, graph.edges);
+
+          const truncNote = poolInfo.truncated
+            ? ` (capped at the first ${MAX_POOL} of ${poolInfo.totalFound} found)`
+            : "";
+          const failNote = graph.failedCount
+            ? ` — ${graph.failedCount} account${graph.failedCount === 1 ? "" : "s"} unreachable (different PDS/CORS), skipped`
+            : "";
+          summaryEl.innerHTML =
+            `<b>${escapeHtml(poolInfo.label)}</b>${truncNote} — <b>${poolInfo.pool.length}</b> in the pool, ` +
+            `<b>${graph.resolvedCount}</b> crawled, <b>${graph.edges.length}</b> in-pool like-edges found${failNote}.`;
+
+          renderRows(ranked, profiles, graph.givenInPool, graph.receivedInPool);
+          result.classList.add("on");
+          setStatus("done.", "ok");
+
+          lastShareText = buildShareText(poolInfo, ranked, profiles);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(poolInfo, ranked, profiles);
+
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle or list link."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
