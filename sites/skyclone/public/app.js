@@ -260,6 +260,63 @@ async function toggleRepost(iconEl) {
   }
 }
 
+// A real app.bsky.graph.block record, written to the user's own repo (the
+// same createRecord/deleteRecord dance as like/repost above). Blocking is a
+// real, two-way action on Bluesky, so it gets a confirm() before the write —
+// unlike a like or repost, you can't casually undo the social effect.
+async function toggleBlock(btn) {
+  if (!session) {
+    openLoginModal();
+    return;
+  }
+  const did = btn.getAttribute("data-did");
+  if (did === session.did) return;
+  const wasBlocking = btn.classList.contains("blocking");
+  if (!wasBlocking && !confirm("Block this account? They won't be able to find your posts, reply to you, or mention you — and you won't see theirs.")) {
+    return;
+  }
+  const prevLabel = btn.textContent;
+  const prevUri = btn.getAttribute("data-block-uri") || "";
+
+  btn.classList.toggle("blocking");
+  btn.textContent = wasBlocking ? "Block" : "Blocked";
+
+  try {
+    const { dpopFetch } = await oauth();
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    if (!wasBlocking) {
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: "app.bsky.graph.block",
+          record: { $type: "app.bsky.graph.block", subject: did, createdAt: new Date().toISOString() },
+        }),
+      });
+      if (!res.ok) throw new Error(`block failed (${res.status})`);
+      const data = await res.json();
+      btn.setAttribute("data-block-uri", data.uri);
+      showToast("Caught in the web — blocked. 🕸️", "spider");
+    } else {
+      if (prevUri) {
+        const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: "app.bsky.graph.block", rkey: rkeyOf(prevUri) }),
+        });
+        if (!res.ok) throw new Error(`unblock failed (${res.status})`);
+      }
+      btn.setAttribute("data-block-uri", "");
+      showToast("Unblocked.", "spider");
+    }
+  } catch (e) {
+    btn.classList.toggle("blocking");
+    btn.textContent = prevLabel;
+    showToast(e.message || "Couldn't update block", "err");
+  }
+}
+
 // Cosmetic only — banishes a post from view with a curse (catches fire,
 // shrivels up, gone). No repo write, no deleteRecord; the post itself is
 // untouched, this tab just stops showing it.
@@ -1211,6 +1268,11 @@ async function ProfileView(main, params, args) {
   }
   const shareText = `${profile.displayName || profile.handle} (@${profile.handle}) on skyclone`;
   const shareUrl = `${SITE_URL}/profile/${encodeURIComponent(profile.handle)}`;
+  const isSelf = session && session.did === profile.did;
+  const blockUri = profile.viewer?.blocking || "";
+  const blockBtnHtml = isSelf
+    ? ""
+    : `<span class="pill-btn danger${blockUri ? " blocking" : ""}" data-action="block" data-did="${esc(profile.did)}" data-block-uri="${esc(blockUri)}">${blockUri ? "Blocked" : "Block"}</span>`;
 
   main.innerHTML =
     headerHtml(profile.displayName || `@${profile.handle}`, `${fmtCount(profile.postsCount)} posts`, true) +
@@ -1220,7 +1282,8 @@ async function ProfileView(main, params, args) {
         <img class="profile-avatar" src="${esc(profile.avatar || FALLBACK_AVATAR)}" alt="">
         <div style="display:flex;gap:8px;margin-top:10px">
           <a class="pill-btn" href="${shareIntent(shareText, shareUrl)}" target="_blank" rel="noopener">Share ↗</a>
-          <a class="pill-btn primary" href="https://bsky.app/profile/${esc(profile.handle)}" target="_blank" rel="noopener">Open in Bluesky</a>
+          <a class="pill-btn" href="https://bsky.app/profile/${esc(profile.handle)}" target="_blank" rel="noopener">Open in Bluesky</a>
+          ${blockBtnHtml}
         </div>
       </div>
       <div class="profile-name">${esc(profile.displayName || profile.handle)}${verifyBadge(profile)}</div>
@@ -1556,6 +1619,12 @@ document.addEventListener("click", (e) => {
   if (witchIcon) {
     e.stopPropagation();
     witchPost(witchIcon);
+    return;
+  }
+  const blockBtn = e.target.closest("[data-action='block']");
+  if (blockBtn) {
+    e.stopPropagation();
+    toggleBlock(blockBtn);
     return;
   }
   const cover = e.target.closest(".sensitive-cover");
