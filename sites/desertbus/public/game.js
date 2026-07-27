@@ -459,7 +459,10 @@
   // controls
   // ---------------------------------------------------------------------
   function startGame() {
-    Audio.init();
+    // Audio is a nice-to-have; some browsers (in-app webviews especially)
+    // throw or lack AudioContext entirely, and that must never block the
+    // key from turning.
+    try { Audio.init(); } catch (e) {}
     els.start.classList.add('hidden');
     els.over.classList.add('hidden');
     reset();
