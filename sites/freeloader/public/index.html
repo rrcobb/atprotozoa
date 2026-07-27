@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>freeloader — track your API free trials</title>
+    <meta
+      name="description"
+      content="A starting-point list of AI/inference API free tiers, plus a private tracker that reminds you to cancel before a trial quietly starts billing you."
+    />
+    <meta property="og:title" content="freeloader" />
+    <meta
+      property="og:description"
+      content="A cheat-sheet of AI/inference API free tiers, plus a tracker that reminds you to cancel before a trial quietly starts billing you."
+    />
+    <meta property="og:image" content="https://bisks.net/freeloader/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="freeloader — a clock face over a stack of API keys, with a red cancel-by mark." />
+    <meta property="og:url" content="https://bisks.net/freeloader" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://bisks.net/freeloader/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #101316;
+        --panel: #181c20;
+        --panel2: #1f242a;
+        --line: #262b31;
+        --ink: #eef1f4;
+        --muted: #8b96a3;
+        --accent: #5fc9a8;
+        --warn: #ffb100;
+        --alarm: #ff6b57;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+      body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 28px 16px 60px; }
+      .wrap { width: 100%; max-width: 760px; }
+      header { margin-bottom: 24px; }
+      h1 { font-size: 1.8rem; margin: 0 0 0.35rem; font-weight: 800; letter-spacing: -0.01em; }
+      .lede { color: var(--muted); font-size: 0.92rem; line-height: 1.6; margin: 0 0 0.5rem; }
+      .lede b { color: var(--ink); }
+
+      section { margin-top: 2.2rem; }
+      h2 { font-size: 1.05rem; margin: 0 0 0.15rem; font-weight: 700; }
+      .sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 1rem; line-height: 1.55; }
+
+      .note {
+        background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+        padding: 0.85rem 1rem; font-size: 0.8rem; color: var(--muted); line-height: 1.6;
+      }
+      .note b { color: var(--warn); }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      td.provider { color: var(--ink); font-weight: 600; white-space: nowrap; }
+      td.what { color: var(--ink); }
+      td.notes { color: var(--muted); }
+      tr:last-child td { border-bottom: none; }
+
+      .tracker-card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem;
+      }
+      .add-row { display: grid; grid-template-columns: 1.4fr 1fr 0.8fr 1.2fr auto; gap: 0.5rem; margin-bottom: 1rem; }
+      .add-row input {
+        font-family: var(--mono); font-size: 0.82rem; color: var(--ink); background: var(--panel2);
+        border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.6rem; width: 100%;
+      }
+      .add-row input::placeholder { color: #55606c; }
+      .add-row button, .btn {
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 700; color: #0b1f18; background: var(--accent);
+        border: none; border-radius: 6px; padding: 0.5rem 0.9rem; cursor: pointer;
+      }
+      .add-row button:hover, .btn:hover { filter: brightness(1.08); }
+      @media (max-width: 640px) { .add-row { grid-template-columns: 1fr 1fr; } }
+
+      .trial {
+        display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 0.75rem;
+        padding: 0.65rem 0.2rem; border-bottom: 1px solid var(--line);
+      }
+      .trial:last-child { border-bottom: none; }
+      .trial .name { font-weight: 700; }
+      .trial .meta { color: var(--muted); font-size: 0.76rem; }
+      .trial .days { font-weight: 700; font-size: 0.85rem; text-align: right; white-space: nowrap; }
+      .days.ok { color: var(--accent); }
+      .days.soon { color: var(--warn); }
+      .days.urgent { color: var(--alarm); }
+      .trial .actions { display: flex; gap: 0.4rem; }
+      .icon-btn {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--muted); background: var(--panel2);
+        border: 1px solid var(--line); border-radius: 5px; padding: 0.3rem 0.5rem; cursor: pointer;
+      }
+      .icon-btn:hover { color: var(--ink); border-color: var(--muted); }
+      .empty { color: var(--muted); font-size: 0.85rem; padding: 0.5rem 0.2rem; }
+
+      .stat-row { display: flex; gap: 1.5rem; margin: 0.9rem 0 1.1rem; flex-wrap: wrap; }
+      .stat { }
+      .stat .n { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
+      .stat .l { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+
+      .share-row { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+      .share-row a.btn, .share-row button.btn {
+        text-decoration: none; display: inline-flex; align-items: center;
+        background: var(--panel2); color: var(--ink); border: 1px solid var(--line);
+        font-weight: 600;
+      }
+      .share-row a.btn:hover, .share-row button.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+      footer { margin-top: 3rem; padding-top: 0.9rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.76rem; text-align: center; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>freeloader</h1>
+        <p class="lede">
+          A cheat-sheet of AI/inference API free tiers, and a private tracker
+          that reminds <b>you</b> to cancel before a trial quietly turns into
+          a bill. It watches dates, not your wallet — you still sign up for
+          things yourself and cancel them yourself.
+        </p>
+      </header>
+
+      <section id="catalog">
+        <h2>known free tiers</h2>
+        <p class="sub">
+          A starting point, not a guarantee — hand-compiled, not live-checked
+          against provider pages. <b>Terms shift constantly and without
+          notice</b>: rate limits change, credit amounts change, "free"
+          becomes "free with a card on file" becomes "gone." Verify on the
+          provider's own pricing page before you rely on any of this.
+        </p>
+        <table id="catalog-table">
+          <thead>
+            <tr><th>provider</th><th>what's free</th><th>notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="provider">Google AI Studio (Gemini)</td><td class="what">Ongoing free tier, rate-limited</td><td class="notes">No card required for the free tier; usage may train on your data unless you're on a paid tier.</td></tr>
+            <tr><td class="provider">Groq</td><td class="what">Ongoing free tier, rate-limited</td><td class="notes">Fast open-weight inference; free tier caps requests/tokens per minute.</td></tr>
+            <tr><td class="provider">Mistral (La Plateforme)</td><td class="what">Free "experiment" tier</td><td class="notes">Rate-limited, meant for testing, not production traffic.</td></tr>
+            <tr><td class="provider">Cohere</td><td class="what">Free trial API key</td><td class="notes">Rate-limited trial key, separate from paid production keys.</td></tr>
+            <tr><td class="provider">OpenRouter</td><td class="what">Free routes to some open models</td><td class="notes">A subset of models are free/donated; others are pass-through billed.</td></tr>
+            <tr><td class="provider">Hugging Face Inference</td><td class="what">Free-tier serverless inference</td><td class="notes">Rate-limited and best-effort; dedicated endpoints are paid.</td></tr>
+            <tr><td class="provider">Together AI / Fireworks AI</td><td class="what">Sign-up credit</td><td class="notes">One-time credit on account creation historically; card usually required once it runs out.</td></tr>
+            <tr><td class="provider">Modal</td><td class="what">Monthly compute credit</td><td class="notes">Recurring free compute allowance for serverless GPU/CPU jobs.</td></tr>
+            <tr><td class="provider">Replicate</td><td class="what">Occasional sign-up credit</td><td class="notes">Varies; many models bill per-second from the first run.</td></tr>
+            <tr><td class="provider">AWS / GCP / Azure (general)</td><td class="what">New-account cloud credit</td><td class="notes">Broad cloud credit, not AI-specific — covers Bedrock/Vertex/Azure OpenAI usage but expires on a clock.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="tracker">
+        <h2>your trials</h2>
+        <p class="sub">
+          Stored only in this browser (<code>localStorage</code>) — nothing
+          is sent anywhere, there's no account and no server-side list.
+          Add a trial you've actually signed up for, and freeloader keeps
+          the countdown so a card doesn't get charged behind your back.
+        </p>
+        <div class="tracker-card">
+          <div class="add-row">
+            <input id="in-name" placeholder="provider (e.g. Fireworks AI)" />
+            <input id="in-end" type="date" />
+            <input id="in-cost" placeholder="$/mo if it converts" inputmode="decimal" />
+            <input id="in-notes" placeholder="notes (optional)" />
+            <button id="add-btn" type="button">track it</button>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat"><div class="n" id="stat-count">0</div><div class="l">tracked</div></div>
+            <div class="stat"><div class="n" id="stat-value">$0</div><div class="l">at risk / mo</div></div>
+            <div class="stat"><div class="n" id="stat-soonest">—</div><div class="l">next cancel-by</div></div>
+          </div>
+
+          <div id="trial-list"></div>
+          <p class="empty" id="empty-msg">No trials tracked yet — add one above.</p>
+
+          <div class="share-row">
+            <button class="btn" id="ics-all" type="button">download all reminders (.ics)</button>
+            <a class="btn" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        built by <a href="https://bisks.net/buildthis">@buildthis.bisks.net</a>
+        · part of the <a href="https://bisks.net">bisks.net</a> zoo
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+        var STORE_KEY = "freeloader.trials.v1";
+        var MOUNT = "/freeloader";
+        var SITE_URL = "https://bisks.net" + MOUNT;
+
+        function load() {
+          try {
+            var raw = localStorage.getItem(STORE_KEY);
+            return raw ? JSON.parse(raw) : [];
+          } catch (e) { return []; }
+        }
+        function save(list) {
+          localStorage.setItem(STORE_KEY, JSON.stringify(list));
+        }
+        function uid() {
+          return Math.random().toString(36).slice(2) + Date.now().toString(36);
+        }
+        function daysUntil(dateStr) {
+          var end = new Date(dateStr + "T00:00:00");
+          var now = new Date();
+          var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          return Math.round((end - startOfToday) / 86400000);
+        }
+        function fmtMoney(n) {
+          if (!n || isNaN(n)) return "$0";
+          return "$" + (Math.round(n * 100) / 100).toLocaleString();
+        }
+
+        var list = load();
+
+        var els = {
+          name: document.getElementById("in-name"),
+          end: document.getElementById("in-end"),
+          cost: document.getElementById("in-cost"),
+          notes: document.getElementById("in-notes"),
+          add: document.getElementById("add-btn"),
+          listEl: document.getElementById("trial-list"),
+          empty: document.getElementById("empty-msg"),
+          statCount: document.getElementById("stat-count"),
+          statValue: document.getElementById("stat-value"),
+          statSoonest: document.getElementById("stat-soonest"),
+          icsAll: document.getElementById("ics-all"),
+          shareBsky: document.getElementById("share-bsky"),
+        };
+
+        function render() {
+          els.listEl.innerHTML = "";
+          var sorted = list.slice().sort(function (a, b) {
+            return daysUntil(a.end) - daysUntil(b.end);
+          });
+
+          els.empty.style.display = sorted.length ? "none" : "block";
+
+          var totalValue = 0;
+          var soonest = null;
+
+          sorted.forEach(function (t) {
+            var d = daysUntil(t.end);
+            if (d < soonest || soonest === null) soonest = d;
+            totalValue += Number(t.cost) || 0;
+
+            var row = document.createElement("div");
+            row.className = "trial";
+
+            var info = document.createElement("div");
+            var nameEl = document.createElement("div");
+            nameEl.className = "name";
+            nameEl.textContent = t.name;
+            var metaEl = document.createElement("div");
+            metaEl.className = "meta";
+            var costPart = t.cost ? fmtMoney(t.cost) + "/mo if it converts" : "no cost noted";
+            metaEl.textContent = "ends " + t.end + " · " + costPart + (t.notes ? " · " + t.notes : "");
+            info.appendChild(nameEl);
+            info.appendChild(metaEl);
+
+            var daysEl = document.createElement("div");
+            var cls = d <= 3 ? "urgent" : d <= 10 ? "soon" : "ok";
+            daysEl.className = "days " + cls;
+            daysEl.textContent = d < 0 ? Math.abs(d) + "d overdue" : d === 0 ? "today" : d + "d left";
+
+            var icsBtn = document.createElement("button");
+            icsBtn.className = "icon-btn";
+            icsBtn.type = "button";
+            icsBtn.textContent = "remind";
+            icsBtn.addEventListener("click", function () { downloadIcs([t]); });
+
+            var delBtn = document.createElement("button");
+            delBtn.className = "icon-btn";
+            delBtn.type = "button";
+            delBtn.textContent = "remove";
+            delBtn.addEventListener("click", function () {
+              list = list.filter(function (x) { return x.id !== t.id; });
+              save(list);
+              render();
+            });
+
+            var actions = document.createElement("div");
+            actions.className = "actions";
+            actions.appendChild(icsBtn);
+            actions.appendChild(delBtn);
+
+            row.appendChild(info);
+            row.appendChild(document.createElement("div"));
+            row.appendChild(daysEl);
+            row.appendChild(actions);
+            els.listEl.appendChild(row);
+          });
+
+          els.statCount.textContent = String(sorted.length);
+          els.statValue.textContent = fmtMoney(totalValue);
+          els.statSoonest.textContent = soonest === null ? "—" : (soonest < 0 ? "overdue" : soonest + "d");
+
+          updateShare(sorted, totalValue, soonest);
+        }
+
+        function updateShare(sorted, totalValue, soonest) {
+          var text;
+          if (sorted.length) {
+            text =
+              "keeping tabs on " + sorted.length +
+              (sorted.length === 1 ? " free trial" : " free trials") +
+              " worth " + fmtMoney(totalValue) + "/mo so nothing silently starts billing me — " +
+              SITE_URL;
+          } else {
+            text = "a cheat-sheet of AI API free tiers + a tracker so trials don't quietly start billing you — " + SITE_URL;
+          }
+          els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        }
+
+        function icsEscape(s) {
+          return String(s).replace(/([,;])/g, "\\$1").replace(/\n/g, "\\n");
+        }
+        function icsDate(dateStr) {
+          return dateStr.replace(/-/g, "");
+        }
+        function buildIcs(trials) {
+          var lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//freeloader.bisks.net//EN"];
+          trials.forEach(function (t) {
+            var end = new Date(t.end + "T00:00:00");
+            var remind = new Date(end.getTime() - 2 * 86400000); // 2 days before
+            var y = remind.getFullYear();
+            var m = String(remind.getMonth() + 1).padStart(2, "0");
+            var d = String(remind.getDate()).padStart(2, "0");
+            var stamp = y + "" + m + "" + d;
+            lines.push("BEGIN:VEVENT");
+            lines.push("UID:" + t.id + "@freeloader.bisks.net");
+            lines.push("DTSTART;VALUE=DATE:" + stamp);
+            lines.push("DTEND;VALUE=DATE:" + icsDate(t.end));
+            lines.push("SUMMARY:" + icsEscape("Cancel " + t.name + " before it bills you"));
+            lines.push(
+              "DESCRIPTION:" +
+                icsEscape(
+                  "Trial ends " + t.end + (t.cost ? " — becomes " + fmtMoney(t.cost) + "/mo" : "") +
+                    (t.notes ? " · " + t.notes : "")
+                )
+            );
+            lines.push("END:VEVENT");
+          });
+          lines.push("END:VCALENDAR");
+          return lines.join("\r\n");
+        }
+        function downloadIcs(trials) {
+          if (!trials.length) return;
+          var blob = new Blob([buildIcs(trials)], { type: "text/calendar" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = trials.length === 1
+            ? "cancel-" + trials[0].name.toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".ics"
+            : "freeloader-reminders.ics";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
+
+        els.add.addEventListener("click", function () {
+          var name = els.name.value.trim();
+          var end = els.end.value;
+          var cost = parseFloat(els.cost.value);
+          var notes = els.notes.value.trim();
+          if (!name || !end) {
+            els.name.focus();
+            return;
+          }
+          list.push({ id: uid(), name: name, end: end, cost: isNaN(cost) ? 0 : cost, notes: notes });
+          save(list);
+          els.name.value = "";
+          els.end.value = "";
+          els.cost.value = "";
+          els.notes.value = "";
+          render();
+        });
+
+        els.icsAll.addEventListener("click", function () { downloadIcs(list); });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
