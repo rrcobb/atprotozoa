@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>alice meets bob — bisks.net</title>
+    <meta
+      name="description"
+      content="An all-frontend, public-key-encrypted crush matcher for atproto. Tell it who you like — nothing decrypts unless they said the same about you."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="alice meets bob — a quiet crush matcher for atproto" />
+    <meta
+      property="og:description"
+      content="Sign in, name someone you like. It's encrypted so only they can ever read it — and it only decrypts at all if the feeling's mutual."
+    />
+    <meta property="og:image" content="https://bisks.net/alice-meets-bob/og.png" />
+    <meta property="og:url" content="https://bisks.net/alice-meets-bob" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="alice meets bob — a quiet crush matcher for atproto" />
+    <meta
+      name="twitter:description"
+      content="Sign in, name someone you like. It's encrypted so only they can ever read it — and it only decrypts at all if the feeling's mutual."
+    />
+    <meta name="twitter:image" content="https://bisks.net/alice-meets-bob/og.png" />
+    <style>
+      :root {
+        --bg: #150c14; --ink: #f4ecf0; --muted: #b79aa8; --faint: #241621;
+        --accent: #ff4d6d; --accent2: #ffd166; --card: #1f1520; --border: #3a2735;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 0.6rem;
+      }
+      h1 { font-size: 1.3rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .heart { color: var(--accent); }
+      .who { font-size: 0.8rem; color: var(--muted); }
+      .who a, .who button.link { color: var(--accent2); text-decoration: none; cursor: pointer; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.88rem; line-height: 1.75; max-width: 62ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--accent2); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: var(--faint); color: var(--ink); border-radius: 6px;
+      }
+      input[type="text"]::placeholder { color: #6b5763; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.55rem 0.95rem;
+        border: 1px solid var(--border); background: var(--ink); color: #1a0f14;
+        border-radius: 6px; cursor: pointer; font-weight: 600;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #26060d; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.6rem; }
+      button.link {
+        background: none; border: none; padding: 0; color: var(--accent2);
+        font-weight: 400; text-decoration: underline; font-size: inherit;
+      }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.9rem; }
+      .field label { font-size: 0.76rem; color: var(--muted); }
+      .status { font-size: 0.82rem; color: var(--muted); min-height: 1.3em; }
+      .status.err { color: #ff8a9d; }
+
+      .result { margin-top: 1rem; padding: 1rem; border-radius: 8px; border: 1px solid var(--border); }
+      .result.pending { background: var(--faint); }
+      .result.match {
+        background: linear-gradient(155deg, rgba(255,77,109,0.16), rgba(255,209,102,0.08));
+        border-color: var(--accent);
+      }
+      .result.invite { background: var(--faint); }
+      .result h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+      .result .note { font-style: italic; color: var(--ink); }
+      .result .who-said { font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; }
+
+      .crushlist { display: flex; flex-direction: column; gap: 0.6rem; }
+      .crushrow {
+        display: flex; align-items: center; justify-content: space-between; gap: 0.7rem;
+        padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 8px;
+        background: var(--faint); flex-wrap: wrap;
+      }
+      .crushrow .handle { font-weight: 600; }
+      .crushrow .meta { font-size: 0.74rem; color: var(--muted); }
+      .badge {
+        font-size: 0.68rem; padding: 0.18rem 0.5rem; border-radius: 999px;
+        text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700;
+      }
+      .badge.pending { background: #3a3040; color: var(--muted); }
+      .badge.matched { background: var(--accent); color: #26060d; }
+      .badge.invite { background: var(--faint); border: 1px dashed var(--border); color: var(--muted); }
+      .crushrow .reveal { flex-basis: 100%; font-style: italic; color: var(--ink); font-size: 0.85rem; margin-top: 0.3rem; }
+      .empty { color: var(--muted); font-size: 0.85rem; }
+
+      .howitworks summary { cursor: pointer; color: var(--accent2); font-size: 0.85rem; }
+      .howitworks p { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+
+      footer { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--accent2); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/alice-meets-bob/">alice<span class="heart"> ♥ </span>bob</a></h1>
+        <div class="who" id="who">…</div>
+      </header>
+      <p class="intro">
+        A quiet, all-frontend crush matcher for atproto. Tell it who you like — your note
+        is <b>public-key encrypted</b> the moment it's written, so it just sits in your
+        own PDS as ciphertext. Nobody can read it, including us — <b>not even the person
+        it's about</b> — until they've told the same tool the same thing about you. Only
+        then does either of your clients have the key to open it.
+      </p>
+
+      <div class="card" id="signin-card">
+        <div class="label">sign in with your atproto handle</div>
+        <div class="row">
+          <input type="text" id="signin-handle" placeholder="you.bsky.social" style="max-width: 20rem" />
+          <button class="primary" id="signin-go">sign in</button>
+        </div>
+        <div class="status" id="signin-status"></div>
+      </div>
+
+      <div class="card" id="app-card" style="display: none">
+        <div class="label">who do you like?</div>
+        <div class="field">
+          <label for="crush-handle">their atproto handle</label>
+          <input type="text" id="crush-handle" placeholder="crush.bsky.social" />
+        </div>
+        <div class="field">
+          <label for="crush-note">a note (optional — only they'll ever read it, and only if it's mutual)</label>
+          <input type="text" id="crush-note" placeholder="🤫 i like you." maxlength="200" />
+        </div>
+        <div class="row">
+          <button class="primary" id="crush-go">send a quiet crush</button>
+        </div>
+        <div class="status" id="crush-status"></div>
+        <div id="crush-result"></div>
+      </div>
+
+      <div class="card" id="list-card" style="display: none">
+        <div class="label">your crushes</div>
+        <div class="crushlist" id="crushlist"><p class="empty">nothing sent yet.</p></div>
+      </div>
+
+      <details class="howitworks">
+        <summary>how does this actually work?</summary>
+        <p>
+          On first use your browser generates a private key that never leaves it, and
+          publishes the matching public key to your own PDS. When you name someone, your
+          client fetches <i>their</i> public key and combines it with your private key
+          (Elliptic-Curve Diffie–Hellman) to derive a secret only the two of you can ever
+          compute — Alice(privateA, publicB) and Bob(privateB, publicA) land on the exact
+          same value. That secret splits into a lookup tag and an encryption key. Your
+          crush record is filed under the tag, not under their name or DID — so a repo
+          browser can't tell who it's "about," only the one other person who shares that
+          secret can ever recognize it or decrypt it.
+        </p>
+        <p>
+          <b>Honest limits:</b> this hides <i>who</i> a note is about and <i>what it
+          says</i>, not <i>that</i> you filed one — atproto repos are public, so the bare
+          fact that you have some crush record on file isn't secret. And because a match
+          check is just a public read, nothing stops someone from checking whether you
+          like them without ever filing their own — it's an honor-system tool, not a
+          coercion-proof one. Real public-key crypto, modest promises.
+        </p>
+      </details>
+
+      <div class="row" id="share-row" style="margin-top: 1rem">
+        <a class="tiny" id="share-generic" target="_blank" rel="noopener" href="#">
+          <button class="ghost tiny">share alice meets bob</button>
+        </a>
+      </div>
+
+      <footer>
+        built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a> — part after
+        <a href="https://bsky.app/profile/minormobius.bsky.social" target="_blank" rel="noopener">@minormobius.bsky.social</a>'s
+        "atproto all-frontend dating site" bit.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT } from "./lib/oauth.js";
+      import { resolveDid, resolveHandleForDid, resolvePds, getRecord } from "./lib/atproto.js";
+      import {
+        getOrCreateKeyPair,
+        exportPublicJwk,
+        importPublicJwk,
+        pairMaterial,
+        encryptNote,
+        decryptNote,
+        recordSent,
+        listSent,
+      } from "./lib/crush.js";
+
+      const PUBKEY_COLLECTION = "net.bisks.alicemeetsbob.pubkey";
+      const CRUSH_COLLECTION = "net.bisks.alicemeetsbob.crush";
+      const DEFAULT_NOTE = "🤫 i like you.";
+      const SITE_URL = `${location.origin}${MOUNT}`;
+
+      const $ = (sel) => document.querySelector(sel);
+
+      let session = null;
+      let myKeyPair = null;
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      }
+      function timeAgo(iso) {
+        if (!iso) return "";
+        const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+        if (s < 60) return "just now";
+        if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+        if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+        return `${Math.floor(s / 86400)}d ago`;
+      }
+
+      function setStatus(el, msg, isErr) {
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      function buildShareText() {
+        return `I told an atproto crush matcher who I like — it's public-key encrypted, so nobody finds out unless it's mutual: ${SITE_URL}`;
+      }
+      function buildInviteText(handle) {
+        return `hey @${handle} — sending you an invite to alice meets bob, a quiet public-key-encrypted crush matcher for atproto: ${SITE_URL}`;
+      }
+      function buildMatchShareText() {
+        return `💘 got a mutual match on alice meets bob — real public-key crypto, not vibes: ${SITE_URL}`;
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `signed in as <a href="https://bsky.app/profile/${encodeURIComponent(session.handle)}" target="_blank" rel="noopener">@${esc(session.handle)}</a> · <button class="link" id="signout">sign out</button>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            location.reload();
+          });
+        } else {
+          who.textContent = "not signed in";
+        }
+        $("#signin-card").style.display = session ? "none" : "";
+        $("#app-card").style.display = session ? "" : "none";
+        $("#list-card").style.display = session ? "" : "none";
+      }
+
+      // --- keys ------------------------------------------------------------
+
+      async function ensureMyPubkeyPublished() {
+        myKeyPair = await getOrCreateKeyPair(session.did);
+        const myJwk = await exportPublicJwk(myKeyPair.publicKey);
+        let existing = null;
+        try {
+          existing = await getRecord(session.pdsUrl, session.did, PUBKEY_COLLECTION, "self");
+        } catch {}
+        const same = existing && JSON.stringify(existing.value?.key) === JSON.stringify(myJwk);
+        if (same) return;
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const record = { $type: PUBKEY_COLLECTION, key: myJwk, createdAt: new Date().toISOString() };
+        const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: PUBKEY_COLLECTION, rkey: "self", record }),
+        });
+        if (!res.ok) throw new Error(`couldn't publish your key (${res.status})`);
+      }
+
+      // --- the core protocol: send + check in one shot ---------------------
+
+      async function attempt(handleOrDid, note) {
+        const did = await resolveDid(handleOrDid);
+        if (did === session.did) throw new Error("that's you — try someone else");
+        const pds = await resolvePds(did);
+        if (!pds) throw new Error("couldn't find their PDS");
+        const handle = await resolveHandleForDid(did);
+
+        let theirPubkeyRec = null;
+        try {
+          theirPubkeyRec = await getRecord(pds, did, PUBKEY_COLLECTION, "self");
+        } catch {}
+        if (!theirPubkeyRec) {
+          return { status: "not-joined", did, handle };
+        }
+
+        await ensureMyPubkeyPublished();
+        const theirPublicKey = await importPublicJwk(theirPubkeyRec.value.key);
+        const { tag, key } = await pairMaterial(myKeyPair.privateKey, theirPublicKey);
+        const rkey = tag.slice(0, 24);
+
+        const finalNote = note || DEFAULT_NOTE;
+        const { ciphertext, iv } = await encryptNote(key, finalNote);
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const record = { $type: CRUSH_COLLECTION, ciphertext, iv, createdAt: new Date().toISOString() };
+        const putRes = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: CRUSH_COLLECTION, rkey, record }),
+        });
+        if (!putRes.ok) throw new Error(`couldn't file your crush (${putRes.status})`);
+
+        let theirRec = null;
+        try {
+          theirRec = await getRecord(pds, did, CRUSH_COLLECTION, rkey);
+        } catch {}
+
+        const entry = {
+          did,
+          handle,
+          rkey,
+          note: finalNote,
+          sentAt: new Date().toISOString(),
+          matched: false,
+          theirNote: null,
+        };
+        const existingList = await listSent();
+        const prior = existingList.find((e) => e.did === did);
+        if (prior) entry.sentAt = prior.sentAt;
+
+        if (theirRec) {
+          const theirNote = await decryptNote(key, theirRec.value.ciphertext, theirRec.value.iv);
+          entry.matched = true;
+          entry.theirNote = theirNote;
+          await recordSent(entry);
+          return { status: "match", did, handle, myNote: finalNote, theirNote };
+        }
+        await recordSent(entry);
+        return { status: "pending", did, handle };
+      }
+
+      // --- UI: send form -----------------------------------------------------
+
+      function renderResult(r) {
+        const box = $("#crush-result");
+        if (r.status === "not-joined") {
+          const invite = buildInviteText(r.handle);
+          box.innerHTML = `
+            <div class="result invite">
+              <h3>@${esc(r.handle)} hasn't joined yet</h3>
+              <p>Can't send an encrypted note without their public key. Invite them?</p>
+              <a target="_blank" rel="noopener" href="https://bsky.app/intent/compose?text=${encodeURIComponent(invite)}">
+                <button class="tiny">invite @${esc(r.handle)}</button>
+              </a>
+            </div>`;
+        } else if (r.status === "match") {
+          box.innerHTML = `
+            <div class="result match">
+              <h3>💘 it's mutual!</h3>
+              <p class="note">@${esc(r.handle)} said: "${esc(r.theirNote)}"</p>
+              <p class="who-said">you said: "${esc(r.myNote)}"</p>
+              <a target="_blank" rel="noopener" href="https://bsky.app/intent/compose?text=${encodeURIComponent(buildMatchShareText())}">
+                <button class="tiny primary" style="margin-top:0.6rem">share the match (no names)</button>
+              </a>
+            </div>`;
+        } else {
+          box.innerHTML = `
+            <div class="result pending">
+              <h3>sent, quietly 🤫</h3>
+              <p>@${esc(r.handle)} won't know — unless they've told alice meets bob the same thing about you.</p>
+            </div>`;
+        }
+      }
+
+      $("#crush-go").addEventListener("click", async () => {
+        const handle = $("#crush-handle").value.trim();
+        const note = $("#crush-note").value.trim();
+        if (!handle) return;
+        const status = $("#crush-status");
+        const btn = $("#crush-go");
+        btn.disabled = true;
+        setStatus(status, "resolving…");
+        try {
+          setStatus(status, `checking @${handle.replace(/^@/, "")}…`);
+          const r = await attempt(handle, note);
+          setStatus(status, "");
+          renderResult(r);
+          $("#crush-handle").value = "";
+          $("#crush-note").value = "";
+          await renderCrushList();
+        } catch (e) {
+          setStatus(status, e.message, true);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      $("#crush-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#crush-go").click();
+      });
+
+      // --- UI: your crushes list ----------------------------------------------
+
+      async function renderCrushList() {
+        const entries = await listSent();
+        const list = $("#crushlist");
+        if (!entries.length) {
+          list.innerHTML = `<p class="empty">nothing sent yet.</p>`;
+          return;
+        }
+        list.innerHTML = entries
+          .map(
+            (e, i) => `
+          <div class="crushrow" data-i="${i}">
+            <div>
+              <div class="handle">@${esc(e.handle)}</div>
+              <div class="meta">sent ${timeAgo(e.sentAt)}</div>
+            </div>
+            <div class="row">
+              <span class="badge ${e.matched ? "matched" : "pending"}">${e.matched ? "matched" : "pending"}</span>
+              ${e.matched ? "" : `<button class="tiny ghost recheck" data-did="${esc(e.did)}">check again</button>`}
+            </div>
+            ${e.matched ? `<div class="reveal">they said: "${esc(e.theirNote)}"</div>` : ""}
+          </div>`,
+          )
+          .join("");
+        list.querySelectorAll(".recheck").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const did = btn.dataset.did;
+            const entries2 = await listSent();
+            const entry = entries2.find((x) => x.did === did);
+            if (!entry) return;
+            btn.disabled = true;
+            btn.textContent = "checking…";
+            try {
+              const r = await attempt(entry.did, entry.note);
+              if (r.status === "match") renderResult(r);
+            } catch {}
+            await renderCrushList();
+          });
+        });
+      }
+
+      // --- boot ----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          const s = await completeLoginIfCallback();
+          if (s) session = s;
+        } catch (e) {
+          setStatus($("#signin-status"), e.message, true);
+        }
+        if (!session) session = await getSession();
+        renderWho();
+        if (session) {
+          try {
+            await ensureMyPubkeyPublished();
+          } catch (e) {
+            setStatus($("#crush-status"), `couldn't publish your key: ${e.message}`, true);
+          }
+          await renderCrushList();
+        }
+
+        $("#signin-go").addEventListener("click", async () => {
+          const handle = $("#signin-handle").value.trim();
+          if (!handle) return;
+          setStatus($("#signin-status"), "redirecting…");
+          try {
+            await login(handle);
+          } catch (e) {
+            setStatus($("#signin-status"), e.message, true);
+          }
+        });
+        $("#signin-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("#signin-go").click();
+        });
+
+        $("#share-generic").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(buildShareText())}`;
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
