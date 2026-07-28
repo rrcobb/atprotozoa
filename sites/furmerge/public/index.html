@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>furmerge — merge your way to a Persian</title>
+<meta name="description" content="A 2048-style merge game. Tiles are cat breeds ordered least to most fluffy — merge Sphynxes into Devon Rexes, all the way up to a Persian." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="furmerge — merge cats from least to most fluffy" />
+<meta property="og:description" content="A 2048-style merge game. Merge same-breed cats to work up the fluff scale from Sphynx to Persian." />
+<meta property="og:image" content="https://bisks.net/games/furmerge/og.png" />
+<meta property="og:url" content="https://bisks.net/games/furmerge/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="furmerge — merge cats from least to most fluffy" />
+<meta name="twitter:description" content="A 2048-style merge game. Merge same-breed cats to work up the fluff scale from Sphynx to Persian." />
+<meta name="twitter:image" content="https://bisks.net/games/furmerge/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐈</text></svg>" />
+
+<style>
+  :root {
+    --bg: #21170f;
+    --bg2: #2b2118;
+    --panel: #362819;
+    --border: #4a3521;
+    --fg: #fdf3e4;
+    --dim: #c9b190;
+    --accent: #e8b84b;
+    font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at 20% 0%, #3a2a15 0%, var(--bg) 55%);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 14px 60px;
+  }
+  header { text-align: center; max-width: 480px; }
+  h1 {
+    font-size: 2.1rem;
+    margin: 4px 0 2px;
+    letter-spacing: -0.02em;
+  }
+  h1 .cat { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4)); }
+  p.tag { color: var(--dim); margin: 0 0 14px; font-size: 0.92rem; }
+
+  .scorebar {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0 16px;
+  }
+  .score-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 18px;
+    text-align: center;
+    min-width: 84px;
+  }
+  .score-box .label { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+  .score-box .value { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px;
+    width: min(92vw, 420px);
+    height: min(92vw, 420px);
+    touch-action: none;
+    user-select: none;
+  }
+  .cell {
+    background: rgba(255,255,255,0.04);
+    border-radius: 9px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transition: background 0.12s ease;
+  }
+  .cell.filled {
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    animation: pop 0.12s ease;
+  }
+  @keyframes pop {
+    from { transform: scale(0.8); opacity: 0.4; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  .cell-face { line-height: 0; }
+  .cell-face svg { width: 56%; height: auto; max-width: 44px; }
+  .cell-label {
+    font-size: 0.5rem;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.05;
+    margin-top: 2px;
+    padding: 0 3px;
+    letter-spacing: -0.01em;
+  }
+
+  .controls-hint {
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-top: 12px;
+    text-align: center;
+  }
+
+  .actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button, .btn {
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--fg);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #3a2a10; border-color: var(--accent); }
+  .btn.primary:hover { color: #1c1400; }
+
+  #legend {
+    margin-top: 30px;
+    width: min(92vw, 480px);
+  }
+  #legend h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    margin: 0 0 10px;
+    text-align: center;
+  }
+  #legend-wrap { display: flex; flex-direction: column; gap: 6px; }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 0.78rem;
+  }
+  .legend-face {
+    width: 30px; height: 30px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .legend-face svg { width: 22px; height: 22px; }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 10, 5, 0.82);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10;
+  }
+  #overlay.hidden { display: none; }
+  .overlay-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 26px;
+    max-width: 380px;
+    text-align: center;
+  }
+  .overlay-card h2 { margin: 0 0 8px; font-size: 1.4rem; }
+  .overlay-card p { color: var(--dim); margin: 0 0 18px; font-size: 0.9rem; }
+  .share-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+
+  footer {
+    margin-top: 30px;
+    color: var(--dim);
+    font-size: 0.72rem;
+    text-align: center;
+  }
+  footer a { color: var(--accent); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="cat">🐈</span> furmerge</h1>
+  <p class="tag">2048, but it's cats. Merge same-breed tiles up the fluff scale — Sphynx to Persian.</p>
+</header>
+
+<div class="scorebar">
+  <div class="score-box"><div class="label">Score</div><div class="value" id="score">0</div></div>
+  <div class="score-box"><div class="label">Best</div><div class="value" id="best">0</div></div>
+</div>
+
+<div id="board" aria-label="furmerge game board"></div>
+
+<p class="controls-hint">Arrow keys / WASD to slide · swipe on mobile</p>
+
+<div class="actions">
+  <button id="new-game">New Game</button>
+  <a class="btn" id="share-bluesky" target="_blank" rel="noopener">Share on Bluesky</a>
+</div>
+
+<section id="legend">
+  <h2>The fluff scale</h2>
+  <div id="legend-wrap"></div>
+</section>
+
+<footer>
+  built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a> for
+  <a href="https://bsky.app/profile/brittanyellich.com">@brittanyellich.com</a> ·
+  <a href="/">bisks.net</a>
+</footer>
+
+<div id="overlay" class="hidden">
+  <div class="overlay-card">
+    <h2 id="overlay-title">No more moves</h2>
+    <p id="overlay-sub"></p>
+    <div class="share-row">
+      <button id="new-game-2" class="btn primary">New Game</button>
+      <button id="keep-playing" class="btn hidden">Keep Playing</button>
+    </div>
+    <div class="share-row">
+      <a class="btn" id="share-bluesky-2" target="_blank" rel="noopener">Share on Bluesky</a>
+      <button class="btn hidden" id="share-native">Share</button>
+      <a class="btn" id="share-download" download="furmerge.png">Download card</a>
+    </div>
+  </div>
+</div>
+
+<canvas id="share-card" width="1200" height="630" style="display:none"></canvas>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    if (navigator.share) document.getElementById("share-native").classList.remove("hidden");
+  });
+</script>
+<script src="game.js"></script>
+</body>
+</html>
