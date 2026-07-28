@@ -31,7 +31,15 @@ site." This note is the recipe an agent (or you) follows to spin one up.
    `localhost:8787` (dev serves at the root, not `/<newname>` — the prefix
    only applies to the deployed route). Confirm it works.
 
-5. **Deploy.** `pnpm dlx wrangler deploy` once to confirm it comes up at
+5. **Check local paths.** `pnpm check:imports` from the repo root (see
+   `audit/check-import-paths.mjs`) statically walks every site's `public/` for
+   `<script src>`/`<link href>`/module `import` references that don't resolve
+   under the site's mount prefix, or don't exist on disk at all. Catches the
+   "absolute path forgot the mount prefix" class of bug — see the
+   fitzcarraldo report in `notes/20-deploy.md` ("Migrated-to-path sites") —
+   before it ships instead of after someone reports a broken page.
+
+6. **Deploy.** `pnpm dlx wrangler deploy` once to confirm it comes up at
    `bisks.net/<newname>` (or push to `main` and let CI do it).
 
 ## Why paths, not subdomains

@@ -387,3 +387,35 @@ from the sections above, and any since) likely has the same latent bug** if its
 old hostname is still resolving — worth sweeping `sites/*/src/index.ts` for the
 unconditional-slice pattern and applying the same guard, and/or getting dashboard
 access to actually deprovision the stale custom domains at the source.
+
+## Static check for broken local import/script paths (2026-07-28)
+
+`@ver.ooo` followed up on the fitzcarraldo report above asking for "some sort
+of integration ~globally to find invalid paths, at least in important
+imports" — a related but distinct bug class from the Worker prefix-strip bug:
+an HTML/JS file itself referencing a local resource by a path that won't
+resolve once deployed (a root-absolute `<script src="/foo.js">` that forgets
+the site's mount prefix, or a plain typo'd/stale relative path).
+
+Added `audit/check-import-paths.mjs` (`pnpm check:imports` from the repo
+root): walks every `sites/*/public` (+ `apex/public`) for `<script src>`,
+`<link href>`, `<img>`/`<source>`/`<audio>`/`<video>` `src`, and ES-module
+`import`/`export …from`/`import()` references, resolves each one exactly like
+a browser would (WHATWG `URL` resolution against the file's real served
+path — including clamping `..` at the site's mount root, not the raw
+filesystem parent) and flags any that resolve outside the site's mount prefix
+or don't exist on disk. Skips protocol/data/mailto/anchor URLs, runtime
+template-literal-built paths (`${...}`, can't be statically resolved), and
+specifiers covered by a page's own `<script type="importmap">` (e.g.
+`cowlick`/`grand-moot-auto`'s `three` import, resolved to a CDN, not a local
+file). A run against the whole repo at the time this was added found zero
+broken references — this is a preventive check, not a fix for a live bug.
+
+This is a plain repo script, not a CI gate — the builder's hard rule against
+touching `.github/` means it can't be wired into `deploy.yml` as a required
+step from inside a build run. It's referenced from
+`notes/40-new-site-playbook.md` as a pre-deploy step for new sites; running it
+repo-wide occasionally (or after any batch of path migrations, like the
+subdomain→path batches above) is still a manual/agent call, not automatic.
+Wiring it into `.github/workflows/deploy.yml` as a real CI gate would need
+someone with `.github/` write access to do it outside a buildthis run.
