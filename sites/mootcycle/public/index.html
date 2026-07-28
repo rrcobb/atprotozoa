@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>mootcycle — lean back, lean forward, don't faceplant</title>
+<meta name="description" content="A 2000s-Flash-portal-style 2D physics bike game: gas and brake are also your balance — hold gas too long over a jump and you'll loop out backward, so tap brake to level off before you land. Enter a Bluesky handle and the hills are seeded from it, your avatar rides as the helmet.">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://bisks.net/games/mootcycle/">
+<meta property="og:title" content="mootcycle — lean back, lean forward, don't faceplant">
+<meta property="og:description" content="Gas and brake double as your balance in this physics 2D hill-bike game. Ride your own Bluesky handle's terrain — your avatar's the helmet, your DID seeds the hills.">
+<meta property="og:image" content="https://bisks.net/games/mootcycle/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A rider leaning back on a motorbike mid-jump over a dusk-lit hill silhouette, the mootcycle title lockup above.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="mootcycle — lean back, lean forward, don't faceplant">
+<meta name="twitter:description" content="Gas and brake double as your balance in this physics 2D hill-bike game. Ride your own Bluesky handle's terrain.">
+<meta name="twitter:image" content="https://bisks.net/games/mootcycle/og.png">
+
+<style>
+  :root {
+    --sky-top: #241a3d;
+    --sky-mid: #4a2f5c;
+    --sky-bot: #d97b4a;
+    --sun: #ffce7a;
+    --hill-far: #2c2044;
+    --hill-near: #17112a;
+    --ink: #f5efe4;
+    --muted: #b9aecb;
+    --accent: #ffb454;
+    --accent-2: #7fe0c8;
+    --warn: #ff6f6f;
+    --panel: rgba(15, 10, 26, 0.88);
+    --panel-line: rgba(255, 255, 255, 0.12);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--sky-top);
+    color: var(--ink);
+    font-family: var(--mono);
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  #game {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 0.9rem 1rem;
+    pointer-events: none;
+    font-size: 0.85rem;
+  }
+  #hud .stat {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 10px;
+    padding: 0.4rem 0.7rem;
+    line-height: 1.3;
+  }
+  #hud .stat b { color: var(--accent); font-size: 1.05rem; }
+  #hud .label { color: var(--muted); font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; display: block; }
+
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(10, 6, 20, 0.72);
+    backdrop-filter: blur(2px);
+    padding: 1rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 16px;
+    padding: 1.6rem 1.7rem 1.4rem;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  .card h1 {
+    margin: 0 0 0.3rem;
+    font-size: 1.5rem;
+    letter-spacing: -0.01em;
+  }
+  .card h1 span { color: var(--accent); }
+  .card p.sub {
+    margin: 0 0 1.1rem;
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.5;
+  }
+  .card .big-stat {
+    font-size: 2.4rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0.1rem 0 0.15rem;
+  }
+  .card .big-stat small { font-size: 1rem; color: var(--muted); font-weight: 400; }
+  .card .best { color: var(--muted); font-size: 0.8rem; margin-bottom: 1.1rem; }
+
+  .row { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+  input[type="text"] {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-line);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="text"]::placeholder { color: var(--muted); }
+
+  button {
+    font-family: var(--mono);
+    font-size: 0.88rem;
+    border-radius: 8px;
+    border: 1px solid var(--panel-line);
+    padding: 0.6rem 0.9rem;
+    cursor: pointer;
+    background: rgba(255,255,255,0.06);
+    color: var(--ink);
+    transition: transform 0.08s ease, background 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button.primary {
+    background: var(--accent);
+    color: #241a3d;
+    border-color: var(--accent);
+    font-weight: 700;
+    width: 100%;
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; }
+  button.share {
+    background: #1185fe;
+    color: #fff;
+    border-color: #1185fe;
+    width: 100%;
+    font-weight: 700;
+  }
+
+  #status { font-size: 0.76rem; color: var(--muted); min-height: 1.1em; margin: -0.3rem 0 0.7rem; }
+  #status.err { color: var(--warn); }
+  #status.ok { color: var(--accent-2); }
+
+  .controls-legend {
+    display: flex; justify-content: center; gap: 1.2rem;
+    font-size: 0.72rem; color: var(--muted);
+    margin-top: 1rem;
+  }
+  .controls-legend kbd {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--panel-line);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    color: var(--ink);
+  }
+
+  .footer-link {
+    display: block; margin-top: 1rem; font-size: 0.72rem; color: var(--muted);
+  }
+  .footer-link a { color: var(--muted); }
+
+  #touchControls {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: none;
+    justify-content: space-between;
+    padding: 0 1rem 1.2rem;
+    pointer-events: none;
+  }
+  #touchControls.on { display: flex; }
+  .tbtn {
+    pointer-events: auto;
+    width: 5.4rem; height: 5.4rem;
+    border-radius: 50%;
+    border: 2px solid var(--panel-line);
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tbtn:active, .tbtn.down { background: var(--accent); color: #241a3d; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div class="stat"><span class="label">distance</span><b id="hudDist">0 m</b></div>
+  <div class="stat"><span class="label">best</span><b id="hudBest">0 m</b></div>
+</div>
+
+<div id="touchControls">
+  <button class="tbtn" id="btnBrake">◀ brake<br>/ lean fwd</button>
+  <button class="tbtn" id="btnGas">gas ▶<br>/ lean back</button>
+</div>
+
+<div class="overlay" id="startScreen">
+  <div class="card">
+    <h1>moot<span>cycle</span></h1>
+    <p class="sub">Gas and brake are also your balance. Hold gas through a jump too long and you'll rotate right onto your back — tap brake to level off before you land. Endless hills, no checkpoints, one wipeout ends the run.</p>
+    <div class="row">
+      <input type="text" id="handleInput" placeholder="your handle (optional) — seeds your hills" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div id="statusStart"></div>
+    <button class="primary" id="btnStart">ride</button>
+    <div class="controls-legend">
+      <span><kbd>&uarr;</kbd>/<kbd>W</kbd> gas</span>
+      <span><kbd>&darr;</kbd>/<kbd>S</kbd> brake</span>
+    </div>
+    <div class="footer-link"><a href="https://bisks.net/">bisks.net</a> · part of the games cluster</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="crashScreen">
+  <div class="card">
+    <h1 id="crashTitle">wipeout</h1>
+    <div class="big-stat" id="crashDist">0 <small>m</small></div>
+    <div class="best" id="crashBest">best: 0 m</div>
+    <button class="share" id="btnShare">share to bluesky</button>
+    <div class="row" style="margin-top:0.7rem;">
+      <button class="primary" id="btnRetry">ride again</button>
+    </div>
+    <button class="ghost" id="btnChangeHandle" style="width:100%;">change handle</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
