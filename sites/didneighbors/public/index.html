@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>didneighbors — find your closest DIDs on Bluesky</title>
+<meta name="description" content="Enter a handle and meet whoever's did:plc sits closest to yours, alphabetically. Meaningless. Delightful." />
+<meta property="og:title" content="didneighbors — find your closest DIDs on Bluesky" />
+<meta property="og:description" content="Enter a handle and meet whoever's did:plc sits closest to yours, alphabetically. Meaningless. Delightful." />
+<meta property="og:url" content="https://bisks.net/didneighbors/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/didneighbors/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="didneighbors: two strangers' avatars sitting on either side of a handle's DID on a number line." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="didneighbors — find your closest DIDs on Bluesky" />
+<meta name="twitter:description" content="Enter a handle and meet whoever's did:plc sits closest to yours, alphabetically. Meaningless. Delightful." />
+<meta name="twitter:image" content="https://bisks.net/didneighbors/og.png" />
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg2: #10151f;
+    --fg: #e8ecf4;
+    --dim: #7c8aa5;
+    --accent: #5fd1c9;
+    --accent2: #ff9f5f;
+    --card: #131a26;
+    --border: #263247;
+    --good: #6fe3a3;
+    --bad: #ff8a8a;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #123430 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 5%, #2a1b12 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 600px; }
+
+  h1 {
+    font-size: 1.7rem; line-height: 1.25; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.9rem; margin: 0 0 2rem; line-height: 1.6; max-width: 60ch; }
+  .tag code { color: var(--accent); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; position: relative; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.85rem; font: inherit; font-size: 0.92rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #3aa89f); color: #04211d; border: none;
+    border-radius: 8px; padding: 0.7rem 1.05rem; font: inherit; font-weight: 700; font-size: 0.88rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--fg); font-weight: 600; }
+
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 1.8rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  .results { display: none; }
+  .results.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .me {
+    display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1rem;
+  }
+  .me img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .me .handle { font-weight: 700; }
+  .me .did { color: var(--dim); font-size: 0.7rem; word-break: break-all; }
+
+  .rail { position: relative; margin: 0 0 1.6rem; padding: 1.6rem 0; }
+  .rail::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border) 15%, var(--border) 85%, transparent);
+  }
+  .rail .me-dot {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 10px; height: 10px; border-radius: 50%; background: var(--accent2);
+    box-shadow: 0 0 12px var(--accent2);
+  }
+  .rail .arrow { position: absolute; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: var(--dim); letter-spacing: 0.05em; }
+  .rail .arrow.left { left: 8%; }
+  .rail .arrow.right { right: 8%; }
+
+  .neighbors { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; margin-bottom: 1.4rem; }
+  .neigh-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem;
+    display: flex; flex-direction: column; align-items: center; text-align: center; min-height: 0;
+  }
+  .neigh-card .dir { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 0.5rem; }
+  .neigh-card .dir.pred { color: var(--accent); }
+  .neigh-card .dir.succ { color: var(--accent2); }
+  .neigh-card img { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); margin-bottom: 0.55rem; }
+  .neigh-card .handle { font-weight: 700; font-size: 0.9rem; word-break: break-word; }
+  .neigh-card .display { color: var(--dim); font-size: 0.76rem; margin: 0.1rem 0 0.5rem; }
+  .neigh-card .did { color: var(--dim); font-size: 0.62rem; word-break: break-all; margin-bottom: 0.5rem; }
+  .neigh-card .shared { font-size: 0.72rem; color: var(--fg); background: var(--bg2); border: 1px solid var(--border); border-radius: 999px; padding: 0.2rem 0.6rem; }
+  .neigh-card .shared b { color: var(--good); }
+  .neigh-card.empty { color: var(--dim); font-size: 0.82rem; justify-content: center; }
+
+  .dig-row { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .dig-count { color: var(--dim); font-size: 0.78rem; }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.6rem 0.85rem;
+    font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #14100a; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.74rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 420px) {
+    .neighbors { grid-template-columns: 1fr; }
+    .rail .arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>didneighbors</h1>
+    <p class="tag">
+      Every account on Bluesky has a <code>did:plc</code> — a random-looking
+      identifier, sorted like a string. This finds whoever's DID happens to
+      sit closest to yours, alphabetically. There's no meaning in it — a
+      did:plc is a hash, not an address — that's exactly the joke.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">find neighbors</button>
+    </form>
+    <p class="hint">there's no index of every DID on the network, so this samples the public PLC directory live — "dig deeper" pulls more and gets you closer.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="results" class="results">
+      <div class="me">
+        <img id="meAvatar" alt="" />
+        <div>
+          <div class="handle" id="meHandle"></div>
+          <div class="did" id="meDid"></div>
+        </div>
+      </div>
+
+      <div class="rail">
+        <span class="arrow left">← earlier</span>
+        <span class="me-dot" title="you"></span>
+        <span class="arrow right">later →</span>
+      </div>
+
+      <div class="neighbors">
+        <div class="neigh-card" id="predCard">
+          <div class="dir pred">predecessor</div>
+          <div class="loading">searching…</div>
+        </div>
+        <div class="neigh-card" id="succCard">
+          <div class="dir succ">successor</div>
+          <div class="loading">searching…</div>
+        </div>
+      </div>
+
+      <div class="dig-row">
+        <button id="dig" class="secondary" type="button">dig deeper</button>
+        <span class="dig-count" id="digCount"></span>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your neighbors</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://bisks.net/buildthis">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+
+const MOUNT = "/didneighbors";
+const API = "https://public.api.bsky.app/xrpc/";
+const GENESIS = Date.parse("2022-11-17T00:00:00.000Z");
+const WINDOWS_PER_DIG = 6;
+const MAX_WINDOWS = 42;
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function didUniquePart(did) {
+  const parts = did.split(":");
+  return parts.length > 2 ? parts.slice(2).join(":") : did;
+}
+
+function commonPrefixLen(a, b) {
+  const ua = didUniquePart(a), ub = didUniquePart(b);
+  let n = 0;
+  while (n < ua.length && n < ub.length && ua[n] === ub[n]) n++;
+  return n;
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function randomTimestamps(n) {
+  const now = Date.now();
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = GENESIS + Math.random() * (now - GENESIS);
+    out.push(new Date(t).toISOString());
+  }
+  return out;
+}
+
+async function sampleWindow(after) {
+  try {
+    const res = await fetch("https://plc.directory/export?count=1000&after=" + after);
+    if (!res.ok) return [];
+    const text = await res.text();
+    const dids = [];
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line);
+        if (rec.operation && rec.operation.type === "tombstone") continue;
+        if (rec.did) dids.push(rec.did);
+      } catch (_) { /* malformed line — skip */ }
+    }
+    return dids;
+  } catch (_) {
+    return [];
+  }
+}
+
+// finds the closest DID <= target and closest DID > target within `sample`,
+// wrapping around (this is a hash space, not a number line — treating it as
+// a circle is exactly as meaningful as treating it as a line, so wrapping
+// means there's always a neighbor on both sides).
+function nearest(sample, target) {
+  const arr = [...sample].filter((d) => d !== target).sort();
+  if (!arr.length) return { predecessor: null, successor: null };
+  let lo = 0, hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] < target) lo = mid + 1;
+    else hi = mid;
+  }
+  const predecessor = arr[lo > 0 ? lo - 1 : arr.length - 1];
+  const successor = arr[lo < arr.length ? lo : 0];
+  return { predecessor, successor };
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+  meAvatar: document.getElementById("meAvatar"),
+  meHandle: document.getElementById("meHandle"),
+  meDid: document.getElementById("meDid"),
+  predCard: document.getElementById("predCard"),
+  succCard: document.getElementById("succCard"),
+  dig: document.getElementById("dig"),
+  digCount: document.getElementById("digCount"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let state = null;
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function profileFor(did) {
+  try {
+    return await xrpc("app.bsky.actor.getProfile", { actor: did });
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderNeighborCard(el, dirClass, dirLabel, did, profile, sharedLen) {
+  if (!did) {
+    el.innerHTML = `<div class="dir ${dirClass}">${dirLabel}</div><div class="empty">nothing sampled yet</div>`;
+    return;
+  }
+  const handle = profile ? "@" + profile.handle : did;
+  const display = profile && profile.displayName ? profile.displayName : "";
+  const avatar = profile && profile.avatar ? profile.avatar : "";
+  el.innerHTML = `
+    <div class="dir ${dirClass}">${dirLabel}</div>
+    ${avatar ? `<img src="${avatar}" alt="" />` : `<img alt="" style="visibility:hidden" />`}
+    <div class="handle">${handle.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</div>
+    ${display ? `<div class="display">${display.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</div>` : ""}
+    <div class="did">${did}</div>
+    <div class="shared">shares <b>${sharedLen}</b> char${sharedLen === 1 ? "" : "s"} of the hash</div>
+  `;
+}
+
+function shareUrlFor(handle) {
+  return location.origin + MOUNT + "/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText() {
+  if (!state) return "";
+  const { profile, predProfile, succProfile, predecessor, successor, bestShared } = state;
+  const predWho = predProfile ? "@" + predProfile.handle : (predecessor || "?");
+  const succWho = succProfile ? "@" + succProfile.handle : (successor || "?");
+  return (
+    `my closest DID neighbors on Bluesky: ${predWho} and ${succWho}. ` +
+    `total strangers, best match shares ${bestShared} character${bestShared === 1 ? "" : "s"} of the hash.\n\n` +
+    `find yours → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "", cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w; cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard() {
+  if (!state) return;
+  const { profile, predProfile, succProfile, bestShared } = state;
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  const [meImg, predImg, succImg] = await Promise.all([
+    loadImg(profile.avatar), loadImg(predProfile && predProfile.avatar), loadImg(succProfile && succProfile.avatar),
+  ]);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0e14";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.12, -H * 0.1, 0, W * 0.12, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#123430");
+  glow.addColorStop(1, "rgba(10,14,20,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fd1c9";
+  ctx.font = `800 50px ${mono}`;
+  ctx.fillText("didneighbors", 56, 92);
+
+  ctx.fillStyle = "#7c8aa5";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("@" + profile.handle + "'s closest DID neighbors", 56, 130);
+
+  function drawCard(cx, label, color, img, who, shared) {
+    const cw = 330, ch = 340, cy = 210;
+    ctx.strokeStyle = "#263247";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "#131a26";
+    ctx.beginPath();
+    ctx.roundRect(cx, cy, cw, ch, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = color;
+    ctx.font = `700 15px ${mono}`;
+    ctx.fillText(label, cx + cw / 2, cy + 40);
+
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx + cw / 2, cy + 110, 44, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, cx + cw / 2 - 44, cy + 66, 88, 88);
+      ctx.restore();
+    }
+
+    ctx.fillStyle = "#e8ecf4";
+    ctx.font = `700 22px ${mono}`;
+    ctx.fillText(who, cx + cw / 2, cy + 195);
+
+    ctx.fillStyle = "#7c8aa5";
+    ctx.font = `400 15px ${mono}`;
+    ctx.fillText("shares " + shared + " char" + (shared === 1 ? "" : "s"), cx + cw / 2, cy + 225);
+
+    ctx.fillStyle = "#6fe3a3";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText("OF THE HASH", cx + cw / 2, cy + 248);
+  }
+
+  const predWho = predProfile ? "@" + predProfile.handle : "?";
+  const succWho = succProfile ? "@" + succProfile.handle : "?";
+  drawCard(56, "← PREDECESSOR", "#5fd1c9", predImg, predWho, state.predShared || 0);
+  drawCard(W - 56 - 330, "SUCCESSOR →", "#ff9f5f", succImg, succWho, state.succShared || 0);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#e8ecf4";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText("total strangers. alphabetically adjacent.", W / 2, 590);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fd1c9";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("bisks.net" + MOUNT, 56, H - 34);
+}
+
+function rebuildShare() {
+  lastShareText = buildShareText();
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard();
+}
+
+async function digDeeper() {
+  if (!state || state.digging) return;
+  if (state.windowsFetched >= MAX_WINDOWS) {
+    setStatus("that's a lot of digging — " + state.windowsFetched * 1000 + "+ DIDs sampled. refresh to start fresh.");
+    return;
+  }
+  state.digging = true;
+  els.dig.disabled = true;
+  els.dig.textContent = "digging…";
+
+  const timestamps = randomTimestamps(WINDOWS_PER_DIG);
+  const batches = await Promise.all(timestamps.map(sampleWindow));
+  for (const batch of batches) for (const d of batch) state.sample.add(d);
+  state.windowsFetched += WINDOWS_PER_DIG;
+
+  const { predecessor, successor } = nearest(state.sample, state.did);
+
+  const predChanged = predecessor !== state.predecessor;
+  const succChanged = successor !== state.successor;
+  state.predecessor = predecessor;
+  state.successor = successor;
+
+  if (predChanged) state.predProfile = predecessor ? await profileFor(predecessor) : null;
+  if (succChanged) state.succProfile = successor ? await profileFor(successor) : null;
+
+  state.predShared = predecessor ? commonPrefixLen(state.did, predecessor) : 0;
+  state.succShared = successor ? commonPrefixLen(state.did, successor) : 0;
+  state.bestShared = Math.max(state.predShared, state.succShared);
+
+  renderNeighborCard(els.predCard, "pred", "predecessor", predecessor, state.predProfile, state.predShared);
+  renderNeighborCard(els.succCard, "succ", "successor", successor, state.succProfile, state.succShared);
+  els.digCount.textContent = "sampled ~" + (state.windowsFetched * 1000).toLocaleString() + " DIDs so far";
+
+  rebuildShare();
+
+  state.digging = false;
+  els.dig.disabled = state.windowsFetched >= MAX_WINDOWS;
+  els.dig.textContent = els.dig.disabled ? "dug deep enough" : "dig deeper";
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.results.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did;
+    if (handle.startsWith("did:")) {
+      did = handle;
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+    }
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+
+    state = {
+      did, profile, sample: new Set(), windowsFetched: 0,
+      predecessor: null, successor: null, predProfile: null, succProfile: null,
+      predShared: 0, succShared: 0, bestShared: 0, digging: false,
+    };
+
+    els.meAvatar.src = profile.avatar || "";
+    els.meAvatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.meHandle.textContent = "@" + profile.handle;
+    els.meDid.textContent = did;
+    els.predCard.innerHTML = `<div class="dir pred">predecessor</div><div class="loading">searching…</div>`;
+    els.succCard.innerHTML = `<div class="dir succ">successor</div><div class="loading">searching…</div>`;
+    els.digCount.textContent = "";
+    els.dig.disabled = false;
+    els.dig.textContent = "dig deeper";
+
+    setStatus("sampling the PLC directory...");
+    els.results.classList.add("show");
+    await digDeeper();
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.dig.addEventListener("click", () => digDeeper());
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (state && state.profile.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "didneighbors-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (state && state.profile.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "didneighbors-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "didneighbors" });
+      } catch (_) { /* cancelled */ }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or ?h=<handle> both auto-reveal on load.
+const pathHandle = (location.pathname.match(/\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+</body>
+</html>
