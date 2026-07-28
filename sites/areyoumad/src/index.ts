@@ -301,6 +301,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === PREFIX) {
+      url.pathname = PREFIX + "/";
+      return Response.redirect(url.toString(), 308);
+    }
+
     // /areyoumad/s/<handle> — the distinct, shareable, per-person URL. Every
     // handle gets its own page (and its own og:title/description/url), so a
     // link unfurler can't collapse every share into one generic cached card.

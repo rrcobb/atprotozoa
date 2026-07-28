@@ -198,7 +198,12 @@ export default {
     // wouldn't have the prefix, and unconditionally slicing would chop the
     // front off short paths instead (see notes/20-deploy.md, "Migrated-to-
     // path sites").
-    if (url.pathname === PREFIX || url.pathname.startsWith(PREFIX + "/")) {
+    if (url.pathname === PREFIX) {
+      url.pathname = PREFIX + "/";
+      return Response.redirect(url.toString(), 308);
+    }
+
+    if (url.pathname.startsWith(PREFIX + "/")) {
       const stripped = url.pathname.slice(PREFIX.length) || "/";
 
       // /s/<handle> — a distinct, shareable, per-person URL. Every share

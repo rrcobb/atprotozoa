@@ -388,6 +388,33 @@ old hostname is still resolving — worth sweeping `sites/*/src/index.ts` for th
 unconditional-slice pattern and applying the same guard, and/or getting dashboard
 access to actually deprovision the stale custom domains at the source.
 
+## Bare mount route (no trailing slash) breaks relative asset URLs
+
+Separate from the stale-hostname issue above: a handful of sites (`sepcheck`,
+`pvnp`, `padmoot`) independently hit and fixed the same bug — visiting a
+path-mounted site's bare route, `bisks.net/<name>` with **no** trailing slash,
+served `index.html` at that exact URL (status 200, looks fine), but any
+relative asset reference in that HTML (`<script src="app.js">`,
+`href="style.css"`) resolves against the request URL per normal browser
+relative-URL rules. Without a trailing slash, `<name>` reads as the last path
+*segment*, not a directory, so the relative resolution drops it and asks for
+`bisks.net/app.js` instead of `bisks.net/<name>/app.js` — a 404 that silently
+kills the site's JS/CSS with no error visible to the visitor. The Worker's own
+prefix-stripping (`url.pathname.slice(PREFIX.length) || "/"`) masks this
+because slicing an exact-match `PREFIX` also yields `"/"`, so the Worker
+happily serves `index.html` either way — the bug is entirely in what URL ends
+up in the browser's address bar, not in what bytes come back.
+
+2026-07-28: swept every path-mounted site's `src/index.ts` (~110 of them; the
+~35 sites still on `custom_domain` routes are unaffected, they're mounted at
+the root) and added the same fix everywhere: if `url.pathname === PREFIX`
+exactly, 308-redirect to `PREFIX + "/"` before doing anything else, so the
+browser's URL always carries the trailing slash before relative asset
+resolution happens. Sites with pre-existing stale-hostname guards (the
+`fitzcarraldo`/`giftlinks`/`mootcycle`/`didneighbors` pattern from the section
+above) got the redirect check added ahead of that guard rather than folded
+into it, so the two fixes stay independent.
+
 ## Static check for broken local import/script paths (2026-07-28)
 
 `@ver.ooo` followed up on the fitzcarraldo report above asking for "some sort
