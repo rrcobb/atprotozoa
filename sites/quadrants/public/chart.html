@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>quadrants — make your own alignment chart</title>
+    <meta
+      name="description"
+      content="Plot arbitrary reference points on a 2x2 grid, then sign in with Bluesky to drop your own marker — written straight to your PDS."
+    />
+    <meta property="og:title" content="quadrants — make your own alignment chart" />
+    <meta
+      property="og:description"
+      content="Plot arbitrary reference points on a 2x2 grid, then sign in with Bluesky to drop your own marker — written straight to your PDS."
+    />
+    <meta property="og:image" content="https://bisks.net/quadrants/og.png" />
+    <meta property="og:url" content="https://bisks.net/quadrants/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/quadrants/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="/quadrants/">← quadrants</a>
+        <h1 id="h-title">loading…</h1>
+        <p class="tag" id="h-meta"></p>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="f-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+          <label style="display: inline-flex; align-items: center; gap: 0.35rem; margin: 0">
+            <input type="checkbox" id="f-moots" style="width: auto" />
+            highlight people I follow
+          </label>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section>
+        <div class="plotbox">
+          <div class="axis-label top" id="lab-top"></div>
+          <div class="axis-label left" id="lab-left"></div>
+          <div class="plot-square" id="square"></div>
+          <div class="axis-label right" id="lab-right"></div>
+          <div class="axis-label bottom" id="lab-bottom"></div>
+        </div>
+        <p class="hint" id="place-hint"></p>
+
+        <div class="share-row" id="pending-row" style="display: none">
+          <button id="btn-confirm">confirm my spot</button>
+          <button class="secondary" id="btn-cancel-place">cancel</button>
+        </div>
+        <div class="share-row" id="mine-row" style="display: none">
+          <button class="secondary" id="btn-move">move my spot</button>
+          <button class="secondary" id="btn-remove">remove my spot</button>
+        </div>
+        <p class="status" id="place-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">share</h2>
+        <div class="share-row">
+          <a class="secondary" id="btn-share-chart" href="#" target="_blank" rel="noopener" style="display: inline-block; padding: 0.55rem 1rem; border: 1px solid #e2ddd0; border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share this chart
+          </a>
+          <a class="secondary" id="btn-share-spot" href="#" target="_blank" rel="noopener" style="display: none; padding: 0.55rem 1rem; border: 1px solid #e2ddd0; border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share my spot
+          </a>
+          <button class="secondary" id="btn-download-card" style="display: none">download my card</button>
+          <button class="secondary" id="btn-native-share" style="display: none">share…</button>
+        </div>
+        <canvas id="card-canvas" width="1000" height="1000" style="display: none"></canvas>
+      </section>
+
+      <footer>
+        <span id="count-line"></span> — positions are read live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        firehose for the <code>net.bisks.quadrants.position</code> collection, not stored here first.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT } from "/quadrants/lib/oauth.js";
+      import { getProfile, getFollowingDids } from "/quadrants/lib/atproto.js";
+      import { makePlotSvg, clearMarkers, drawAnchor, drawPosition, eventToNorm } from "/quadrants/lib/plot.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.quadrants.position";
+
+      const chartId = (location.pathname.match(/\/c\/([^/]+)\/?$/) || [])[1];
+
+      let chart = null;
+      let positions = [];
+      let session = null;
+      let profile = null; // {avatar, displayName} for `session`, cached after login
+      let pending = null; // [x, y] awaiting confirm
+      let followingDids = null;
+      let highlightMoots = false;
+
+      const svg = makePlotSvg();
+      $("#square").appendChild(svg);
+
+      function myPosition() {
+        return session ? positions.find((p) => p.did === session.did) : null;
+      }
+
+      function render() {
+        clearMarkers(svg);
+        if (chart) chart.anchors.forEach((a) => drawAnchor(svg, a));
+        positions.forEach((p) => {
+          if (pending && session && p.did === session.did) return; // pending marker drawn instead, below
+          drawPosition(svg, p, {
+            mine: !!session && p.did === session.did,
+            moot: highlightMoots && followingDids && followingDids.has(p.did),
+          });
+        });
+        if (pending) {
+          drawPosition(svg, {
+            did: session?.did,
+            x: pending[0],
+            y: pending[1],
+            handle: session?.handle,
+            displayName: "you (unconfirmed)",
+            avatar: profile?.avatar || "",
+          }, { mine: true, radius: 3.8 });
+        }
+
+        $("#count-line").textContent = `${positions.length} plotted`;
+        renderPlaceUI();
+      }
+
+      function renderPlaceUI() {
+        const hint = $("#place-hint");
+        const pendingRow = $("#pending-row");
+        const mineRow = $("#mine-row");
+        const mine = myPosition();
+
+        pendingRow.style.display = pending ? "flex" : "none";
+        if (pending) {
+          hint.textContent = `you'd land at ${pending[0].toFixed(2)}, ${pending[1].toFixed(2)} — confirm to write it to your PDS.`;
+          mineRow.style.display = "none";
+        } else if (!session) {
+          hint.textContent = "sign in with bluesky to plot your own spot.";
+          mineRow.style.display = "none";
+        } else if (mine) {
+          hint.textContent = `you're plotted at ${mine.x.toFixed(2)}, ${mine.y.toFixed(2)}.`;
+          mineRow.style.display = "flex";
+        } else {
+          hint.textContent = "tap the grid to plot yourself.";
+          mineRow.style.display = "none";
+        }
+
+        $("#btn-share-spot").style.display = mine ? "inline-block" : "none";
+        $("#btn-download-card").style.display = mine ? "inline-block" : "none";
+      }
+
+      function renderHeader() {
+        if (!chart) return;
+        document.title = `quadrants: ${chart.title}`;
+        $("#h-title").textContent = chart.title;
+        $("#h-meta").textContent = `${chart.xLeft} ↔ ${chart.xRight}  ·  ${chart.yBottom} ↔ ${chart.yTop}`;
+        $("#lab-top").textContent = chart.yTop;
+        $("#lab-bottom").textContent = chart.yBottom;
+        $("#lab-left").textContent = chart.xLeft;
+        $("#lab-right").textContent = chart.xRight;
+
+        const url = `https://bisks.net/quadrants/c/${encodeURIComponent(chartId)}/`;
+        const shareText = `${chart.title} — plot yourself on this quadrant chart. ${url}`;
+        $("#btn-share-chart").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+      }
+
+      async function loadChart() {
+        try {
+          const res = await fetch(`${MOUNT}/api/charts/${encodeURIComponent(chartId)}`);
+          if (res.status === 404) {
+            $("#h-title").textContent = "chart not found";
+            $("#h-meta").textContent = "it may have expired, or the link is wrong.";
+            return;
+          }
+          const data = await res.json();
+          chart = data.chart;
+          positions = data.positions || [];
+          renderHeader();
+          render();
+        } catch {
+          $("#place-status").textContent = "couldn't load this chart right now.";
+          $("#place-status").className = "status err";
+        }
+      }
+
+      // --- auth ---------------------------------------------------------------
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        profile = null;
+        pending = null;
+        renderAuthUI();
+        render();
+      });
+      $("#f-moots").addEventListener("change", async (e) => {
+        if (!e.target.checked) {
+          highlightMoots = false;
+          render();
+          return;
+        }
+        e.target.disabled = true;
+        try {
+          if (!followingDids) followingDids = await getFollowingDids(session.did);
+          highlightMoots = true;
+        } finally {
+          e.target.disabled = false;
+          render();
+        }
+      });
+
+      // --- placing --------------------------------------------------------------
+
+      svg.addEventListener("click", (e) => {
+        if (!session) {
+          $("#f-handle").focus();
+          return;
+        }
+        if (pending) return;
+        pending = eventToNorm(svg, e);
+        render();
+      });
+
+      $("#btn-cancel-place").addEventListener("click", () => {
+        pending = null;
+        render();
+      });
+
+      $("#btn-move").addEventListener("click", () => {
+        const mine = myPosition();
+        pending = mine ? [mine.x, mine.y] : [0, 0];
+        render();
+      });
+
+      $("#btn-confirm").addEventListener("click", async () => {
+        if (!pending || !session) return;
+        const status = $("#place-status");
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        try {
+          const [x, y] = pending;
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const record = {
+            $type: COLLECTION,
+            chart: chartId,
+            chartTitle: chart.title,
+            x,
+            y,
+            createdAt: new Date().toISOString(),
+          };
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: chartId, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          const idx = positions.findIndex((p) => p.did === session.did);
+          const entry = {
+            did: session.did,
+            handle: session.handle,
+            displayName: profile?.displayName || session.handle,
+            avatar: profile?.avatar || "",
+            x,
+            y,
+            updatedAt: Date.now(),
+          };
+          if (idx >= 0) positions[idx] = entry;
+          else positions.push(entry);
+
+          pending = null;
+          status.textContent = "plotted — it may take a minute to show up for everyone else.";
+          status.className = "status ok";
+          render();
+        } catch (e) {
+          status.textContent = `couldn't save that: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+
+      $("#btn-remove").addEventListener("click", async () => {
+        if (!session) return;
+        const status = $("#place-status");
+        status.textContent = "removing…";
+        status.className = "status";
+        try {
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.deleteRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: chartId }),
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          positions = positions.filter((p) => p.did !== session.did);
+          status.textContent = "removed.";
+          status.className = "status ok";
+          render();
+        } catch (e) {
+          status.textContent = `couldn't remove that: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+
+      // --- share-my-spot card ---------------------------------------------------
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function spotDescription(mine) {
+        const xSide = mine.x >= 0 ? chart.xRight : chart.xLeft;
+        const ySide = mine.y >= 0 ? chart.yTop : chart.yBottom;
+        return `${xSide}-${ySide}`.toLowerCase();
+      }
+
+      function spotShareText(mine) {
+        const url = `https://bisks.net/quadrants/c/${encodeURIComponent(chartId)}/`;
+        return `I landed ${spotDescription(mine)} on "${chart.title}". plot yourself: ${url}`;
+      }
+
+      let cardBuilt = false;
+      async function buildCard() {
+        const mine = myPosition();
+        if (!mine) return false;
+        const canvas = $("#card-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.fillStyle = "#fffdf8";
+        ctx.fillRect(0, 0, W, H);
+
+        const pad = 70;
+        ctx.fillStyle = "#14171a";
+        ctx.font = `800 40px ${mono}`;
+        ctx.textAlign = "left";
+        wrapCanvasText(ctx, chart.title, pad, 90, W - pad * 2, 46);
+
+        const plotY = 160, plotSize = W - pad * 2;
+        ctx.strokeStyle = "#14171a";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(pad, plotY, plotSize, plotSize);
+        ctx.beginPath();
+        ctx.moveTo(pad + plotSize / 2, plotY);
+        ctx.lineTo(pad + plotSize / 2, plotY + plotSize);
+        ctx.moveTo(pad, plotY + plotSize / 2);
+        ctx.lineTo(pad + plotSize, plotY + plotSize / 2);
+        ctx.strokeStyle = "#e2ddd0";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `20px ${mono}`;
+        ctx.textAlign = "center";
+        ctx.fillText(chart.yTop, pad + plotSize / 2, plotY - 16);
+        ctx.fillText(chart.yBottom, pad + plotSize / 2, plotY + plotSize + 34);
+        ctx.save();
+        ctx.translate(pad - 28, plotY + plotSize / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(chart.xLeft, 0, 0);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(pad + plotSize + 28, plotY + plotSize / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillText(chart.xRight, 0, 0);
+        ctx.restore();
+
+        const toPx = (x, y) => [pad + ((x + 1) / 2) * plotSize, plotY + ((1 - y) / 2) * plotSize];
+
+        ctx.fillStyle = "#6b6b6b";
+        for (const a of chart.anchors) {
+          const [ax, ay] = toPx(a.x, a.y);
+          ctx.beginPath();
+          ctx.arc(ax, ay, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = `14px ${mono}`;
+          ctx.fillText(a.label, ax, ay - 12);
+        }
+
+        ctx.fillStyle = "#1a5fd0";
+        for (const p of positions) {
+          if (p.did === session.did) continue;
+          const [px, py] = toPx(p.x, p.y);
+          ctx.beginPath();
+          ctx.arc(px, py, 9, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const [mx, my] = toPx(mine.x, mine.y);
+        const avatar = await loadImg(profile?.avatar);
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(mx, my, 22, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, mx - 22, my - 22, 44, 44);
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(mx, my, 16, 0, Math.PI * 2);
+          ctx.fillStyle = "#d0461a";
+          ctx.fill();
+        }
+        ctx.strokeStyle = "#d0461a";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(mx, my, 22, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `18px ${mono}`;
+        ctx.fillText(`@${session.handle} — ${spotDescription(mine)}`, pad, plotY + plotSize + 70);
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 18px ${mono}`;
+        ctx.fillText("bisks.net/quadrants", pad, plotY + plotSize + 96);
+
+        cardBuilt = true;
+        return true;
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+      }
+
+      $("#btn-share-spot").addEventListener("click", (e) => {
+        const mine = myPosition();
+        if (!mine) return;
+        e.currentTarget.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(spotShareText(mine));
+      });
+
+      $("#btn-download-card").addEventListener("click", async () => {
+        const ok = await buildCard();
+        if (!ok) return;
+        const canvas = $("#card-canvas");
+        const link = document.createElement("a");
+        link.download = `quadrants-${chartId}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $("#btn-native-share").style.display = "inline-block";
+        $("#btn-native-share").addEventListener("click", async () => {
+          const mine = myPosition();
+          if (!mine) return;
+          await buildCard();
+          $("#card-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], `quadrants-${chartId}.png`, { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: spotShareText(mine), title: "quadrants" });
+            } catch {
+              // cancelled — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      // --- boot -----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        if (session) profile = await getProfile(session.did);
+        renderAuthUI();
+        await loadChart();
+
+        setInterval(() => {
+          if (document.visibilityState === "visible") loadChart();
+        }, 8000);
+      }
+      boot();
+    </script>
+  </body>
+</html>

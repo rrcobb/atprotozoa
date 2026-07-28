@@ -1,0 +1,43 @@
+name = "atprotozoa-quadrants"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Idea #16 from permadeath.com's "50 ATProto Project Ideas" list (see the
+# .buildthis.json brief): arbitrary quadrant diagrams. A creator lays out two
+# axes and drops "anchor" points (plain labels, not atproto identities) on the
+# grid with no login needed. Anyone else can sign in with Bluesky and place
+# THEIR OWN marker — that write goes straight to their own PDS as a
+# net.bisks.quadrants.position record (public client OAuth, DPoP, copied from
+# sites/padmoot). "Aggregate stats on where everyone lands" needs an index
+# across everyone's repos, which the AppView has no endpoint for — so one
+# Durable Object (name "global") keeps a live Jetstream subscription filtered
+# to just that collection and keeps a running map of chartId -> {did -> {x,y}},
+# same shape as sites/ratioed's firehose-watching tracker. Chart definitions
+# (title, axis labels, anchors) live in the same DO, keyed by a short id.
+#
+# Path route on the shared bisks.net zone, not a dedicated custom domain — new
+# sites mount as a path now (the zone hit Cloudflare's custom-domain cap, see
+# notes/20-deploy.md).
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in sites/logs, sites/didscope, sites/the-place).
+routes = [
+  { pattern = "bisks.net/quadrants", zone_name = "bisks.net" },
+  { pattern = "bisks.net/quadrants/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "QuadrantHub"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers Paid;
+# this account is on Free. See sites/the-place/wrangler.toml for the full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["QuadrantHub"]
