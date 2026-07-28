@@ -351,34 +351,125 @@ function saveOwnState(code, state) {
   try { localStorage.setItem(ownKey(code), JSON.stringify(state)); } catch (_) {}
 }
 
+// ---------- notifications ----------
+// Derived, not stored: for every post in this browser's history, replay the
+// same deterministic sim (replies/quotes as individual events, likes/reposts
+// as milestone crossings) and merge everything into one feed sorted by
+// absolute time. No separate notification log to keep in sync — it's just
+// buildSim() read a different way.
+
+const LIKE_MILESTONES = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000];
+const REPOST_MILESTONES = [25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000];
+
+function milestoneCrossings(target, tau, milestones) {
+  const out = [];
+  for (const m of milestones) {
+    if (m >= target) break;
+    const t = -tau * Math.log(1 - m / target);
+    if (Number.isFinite(t) && t > 0) out.push({ t, n: m });
+  }
+  return out;
+}
+
+function computePostNotifs(entry) {
+  const payload = { t: entry.t, c: entry.c, n: entry.n || "" };
+  const sim = buildSim(payload);
+  const createdSec = Math.floor(entry.c / 1000);
+  const out = [];
+  for (const r of sim.replies) {
+    out.push({ abs: createdSec + r.t, type: "reply", persona: r, code: entry.code, postExcerpt: entry.t });
+  }
+  for (const q of sim.quotes) {
+    out.push({ abs: createdSec + q.t, type: "quote", persona: q, code: entry.code, postExcerpt: entry.t });
+  }
+  for (const m of milestoneCrossings(sim.targets.likes, sim.tau.likes, LIKE_MILESTONES)) {
+    out.push({ abs: createdSec + m.t, type: "milestone-like", n: m.n, code: entry.code, postExcerpt: entry.t });
+  }
+  for (const m of milestoneCrossings(sim.targets.reposts, sim.tau.reposts, REPOST_MILESTONES)) {
+    out.push({ abs: createdSec + m.t, type: "milestone-repost", n: m.n, code: entry.code, postExcerpt: entry.t });
+  }
+  return out;
+}
+
+function getAllNotifs(limit) {
+  const now = nowSec();
+  const all = [];
+  for (const entry of getHistory()) {
+    for (const n of computePostNotifs(entry)) {
+      if (n.abs <= now) all.push(n);
+    }
+  }
+  all.sort((a, b) => b.abs - a.abs);
+  return typeof limit === "number" ? all.slice(0, limit) : all;
+}
+
+const NOTIF_SEEN_KEY = "wentviral.notifs.seenAt";
+function getNotifSeenAt() {
+  const raw = localStorage.getItem(NOTIF_SEEN_KEY);
+  return raw ? Number(raw) || 0 : 0;
+}
+function markNotifsSeen() {
+  try { localStorage.setItem(NOTIF_SEEN_KEY, String(nowSec())); } catch (_) {}
+}
+function unreadNotifCount() {
+  if (!getHistory().length) return 0;
+  const seenAt = getNotifSeenAt();
+  let count = 0;
+  for (const n of getAllNotifs()) {
+    if (n.abs > seenAt) count++;
+    else break;
+  }
+  return count;
+}
+
+function notifLine(n) {
+  if (n.type === "reply") return `<b>${esc(n.persona.name)}</b> replied to your post`;
+  if (n.type === "quote") return `<b>${esc(n.persona.name)}</b> quoted your post`;
+  if (n.type === "milestone-like") return `Your post crossed <b>${fmtCount(n.n)} likes</b> 🔥`;
+  if (n.type === "milestone-repost") return `Your post crossed <b>${fmtCount(n.n)} reposts</b> 🔁`;
+  return "";
+}
+function notifIcon(n) {
+  if (n.type === "reply") return { bg: n.persona.color, initials: n.persona.initials };
+  if (n.type === "quote") return { bg: n.persona.color, initials: n.persona.initials };
+  if (n.type === "milestone-like") return { bg: "#3a1d2c", initials: "❤️" };
+  return { bg: "#123a2c", initials: "🔁" };
+}
+
 // ---------- nav ----------
 
 const NAV_ITEMS = [
   { label: "Home", icon: "🏠", href: MOUNT + "/" },
   { label: "Search", icon: "🔎", toast: "search isn't part of the simulation" },
-  { label: "Notifications", icon: "🔔", toast: "no real notifications here — everything's on the post page" },
+  { label: "Notifications", icon: "🔔", href: MOUNT + "/notifications" },
   { label: "Profile", icon: "👤", href: MOUNT + "/me" },
   { label: "About", icon: "🚀", toast: "wentviral: write a fake post, watch fake people lose it. built by @buildthis.bisks.net" },
 ];
 function navActivePath() {
   const path = location.pathname.slice(MOUNT.length) || "/";
-  return path === "/me" ? MOUNT + "/me" : MOUNT + "/";
+  if (path === "/me") return MOUNT + "/me";
+  if (path === "/notifications") return MOUNT + "/notifications";
+  return MOUNT + "/";
 }
-function renderNavList(el, current) {
+function renderNavList(el, current, unread) {
   if (!el) return;
-  el.innerHTML = NAV_ITEMS.map((item, i) =>
-    item.href
-      ? `<a class="nav-item${item.href === current ? " active" : ""}" href="${esc(item.href)}"><span class="ic">${item.icon}</span><span class="label">${esc(item.label)}</span></a>`
-      : `<div class="nav-item" data-toast-idx="${i}"><span class="ic">${item.icon}</span><span class="label">${esc(item.label)}</span></div>`
-  ).join("");
+  el.innerHTML = NAV_ITEMS.map((item, i) => {
+    const badge = item.label === "Notifications" && unread > 0
+      ? `<span class="nav-badge">${unread > 99 ? "99+" : unread}</span>`
+      : "";
+    return item.href
+      ? `<a class="nav-item${item.href === current ? " active" : ""}" href="${esc(item.href)}"><span class="ic">${item.icon}${badge}</span><span class="label">${esc(item.label)}</span></a>`
+      : `<div class="nav-item" data-toast-idx="${i}"><span class="ic">${item.icon}${badge}</span><span class="label">${esc(item.label)}</span></div>`;
+  }).join("");
   el.querySelectorAll("[data-toast-idx]").forEach((n) => {
     n.addEventListener("click", () => toast(NAV_ITEMS[Number(n.dataset.toastIdx)].toast));
   });
 }
 function renderNav() {
   const current = navActivePath();
-  renderNavList(document.getElementById("nav-items"), current);
-  renderNavList(document.getElementById("mobile-tabbar"), current);
+  const unread = unreadNotifCount();
+  renderNavList(document.getElementById("nav-items"), current, unread);
+  renderNavList(document.getElementById("mobile-tabbar"), current, unread);
 }
 function asideHtml() {
   return `
@@ -742,12 +833,64 @@ function renderProfile() {
     .join("");
 }
 
+// ---------- notifications view ----------
+
+function renderNotifications() {
+  clearInterval(liveTimer);
+  const history = getHistory();
+
+  document.getElementById("main").innerHTML = `
+    <div class="main-header"><h1>Notifications</h1><div class="sub">Everything that's happened on your posts, in this browser.</div></div>
+    <div id="notif-list"></div>
+  `;
+  document.getElementById("aside").innerHTML = asideHtml();
+  renderNav();
+
+  const listEl = document.getElementById("notif-list");
+  if (!history.length) {
+    listEl.innerHTML = `<div class="center-msg"><h2>Nothing yet</h2><p>Write a post and this fills up as the fake pile-on grows.</p><a class="pill-btn primary" href="${MOUNT}/" style="margin-top:14px">✍️ write one</a></div>`;
+    markNotifsSeen();
+    renderNav();
+    return;
+  }
+
+  const notifs = getAllNotifs(200);
+  if (!notifs.length) {
+    listEl.innerHTML = `<div class="center-msg"><h2>Quiet so far</h2><p>Your posts haven't picked up any activity yet — check back in a bit.</p></div>`;
+  } else {
+    const seenAt = getNotifSeenAt();
+    listEl.innerHTML = notifs
+      .map((n) => {
+        const icon = notifIcon(n);
+        return `<a class="notif-row${n.abs > seenAt ? " unread" : ""}" href="${MOUNT}/p/${esc(n.code)}">
+          <div class="avatar-gen" style="background:${icon.bg}">${esc(icon.initials)}</div>
+          <div class="notif-body">
+            <div class="notif-line">${notifLine(n)}</div>
+            <div class="notif-excerpt">${esc(truncate(n.postExcerpt, 90))}</div>
+            <div class="notif-time">${fmtAgo(nowSec() - n.abs)} ago</div>
+          </div>
+        </a>`;
+      })
+      .join("");
+  }
+
+  // Mark seen a beat after render so the badge/unread styling is visible on arrival.
+  setTimeout(() => {
+    markNotifsSeen();
+    renderNav();
+  }, 1200);
+}
+
 // ---------- routing ----------
 
 function route() {
   const path = location.pathname.slice(MOUNT.length) || "/";
   if (path === "/me" || path === "/me/") {
     renderProfile();
+    return;
+  }
+  if (path === "/notifications" || path === "/notifications/") {
+    renderNotifications();
     return;
   }
   const m = path.match(/^\/p\/([^/]+)\/?$/);

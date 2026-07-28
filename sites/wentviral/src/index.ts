@@ -165,10 +165,11 @@ export default {
     const m = path.match(/^\/p\/([^/]+)\/?$/);
     if (m) return renderPost(env, request, m[1]);
 
-    // /me is a pure client-side route (the local post-history "profile" view
-    // in public/app.js) with no matching static file — fall back to the same
-    // shell as "/" rather than letting ASSETS 404 it.
-    if (path === "/me" || path === "/me/") {
+    // /me and /notifications are pure client-side routes (the local
+    // post-history "profile" view and the derived notifications feed in
+    // public/app.js) with no matching static file — fall back to the same
+    // shell as "/" rather than letting ASSETS 404 them.
+    if (path === "/me" || path === "/me/" || path === "/notifications" || path === "/notifications/") {
       return env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
     }
 
