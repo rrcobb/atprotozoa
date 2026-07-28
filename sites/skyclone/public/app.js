@@ -891,7 +891,6 @@ function shellHtml(activePath) {
       <div class="nav-compose" data-action="compose"><span class="ic">🕷️</span><span class="label">New Post</span></div>
       ${navCtaHtml()}
       <div class="nav-spacer"></div>
-      <div class="nav-foot">Unofficial fan clone. Not affiliated with Bluesky PBC. Live public data — browse freely, or log in with OAuth for your own timeline.<br><a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a></div>
     </nav>
     <main class="main" id="main"></main>
     <aside class="aside" id="aside"></aside>
