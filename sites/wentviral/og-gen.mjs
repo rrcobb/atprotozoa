@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url";
 const fontPath = fileURLToPath(new URL("../skyclone/fonts/JetBrainsMono.ttf", import.meta.url));
 
 const W = 1200, H = 630;
-const BG = "#07070a", FG = "#ece7f5", DIM = "#9a8eae";
-const ACCENT = "#ff5d8f", ACCENT2 = "#ffb84f", CARD = "#150f1a", BORDER = "#2a2233", LIKE = "#ff5d8f";
+const BG = "#07070a", FG = "#e7edf3", DIM = "#8b98a5";
+const ACCENT = "#1185fe", ACCENT2 = "#00c6ff", CARD = "#150f1a", BORDER = "#2a2233", LIKE = "#ec4899";
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -37,7 +37,7 @@ function post(x, y, w, name, handle, text, color, likes) {
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <radialGradient id="glow1" cx="15%" cy="0%" r="55%">
-      <stop offset="0" stop-color="#3a1d2c"/>
+      <stop offset="0" stop-color="#0d2b47"/>
       <stop offset="1" stop-color="${BG}" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">

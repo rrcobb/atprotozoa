@@ -50,14 +50,40 @@ function slugify(s) {
     .slice(0, 20);
   return slug || "you";
 }
-let toastTimer = null;
-function toast(msg, cls) {
+// A single toast element, but a queue behind it — notification toasts can
+// arrive in a burst (several replies crossing in the same watcher tick) and
+// should surface one at a time like a real push-notification tray, not
+// stomp on each other mid-animation.
+let toastQueue = [];
+let toastActive = false;
+let toastHideTimer = null;
+
+function hideToastNow() {
+  const t = document.getElementById("toast");
+  if (t) { t.classList.remove("show"); t.onclick = null; }
+}
+function processToastQueue() {
+  if (toastActive || !toastQueue.length) return;
   const t = document.getElementById("toast");
   if (!t) return;
-  t.textContent = msg;
-  t.className = "toast show" + (cls ? " " + cls : "");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+  toastActive = true;
+  const item = toastQueue.shift();
+  t.innerHTML = item.html;
+  t.className = "toast show" + (item.cls ? " " + item.cls : "") + (item.onClick ? " clickable" : "");
+  t.onclick = item.onClick ? () => { item.onClick(); hideToastNow(); } : null;
+  clearTimeout(toastHideTimer);
+  toastHideTimer = setTimeout(() => {
+    hideToastNow();
+    setTimeout(() => { toastActive = false; processToastQueue(); }, 220);
+  }, item.duration);
+}
+function toast(msg, cls) {
+  toastQueue.push({ html: esc(msg), cls, duration: 2200 });
+  processToastQueue();
+}
+function notifToast(html, onClick) {
+  toastQueue.push({ html, cls: "notif-toast", onClick, duration: 4200 });
+  processToastQueue();
 }
 
 // ---------- seeded PRNG ----------
@@ -261,20 +287,35 @@ function buildSim(payload) {
     quotes: Math.round(randInt(rng, 20, 220) * mult),
     replies: Math.round(randInt(rng, 30, 420) * mult),
   };
-  const tau = { likes: 50, reposts: 110, quotes: 170, replies: 90 };
+  // Slower, human-paced tau (seconds) — a post takes real minutes to feel
+  // "viral", not under a minute. Kept in sync with the mirrored copy in
+  // src/index.ts (used only for OG preview stamping).
+  const tau = { likes: 240, reposts: 420, quotes: 600, replies: 300 };
 
-  function genEvents(n, evTau, cap) {
+  // Individual reply/quote cards still cluster near t=0 under a raw
+  // exponential draw (that's where the density is highest) — enforce a
+  // minimum human-feeling gap between consecutive reveals so they trickle
+  // in one at a time instead of dumping in the same 2s update tick.
+  function genEvents(n, evTau, cap, minGap, gapJitter) {
     const count = Math.min(n, cap);
-    const events = [];
+    const raw = [];
     for (let i = 0; i < count; i++) {
       const t = -evTau * Math.log(1 - rng() * 0.995);
-      events.push(t);
+      raw.push(t);
     }
-    events.sort((a, b) => a - b);
+    raw.sort((a, b) => a - b);
+    const events = [];
+    let prev = -Infinity;
+    for (const t of raw) {
+      const spaced = Math.max(t, prev + minGap + rng() * gapJitter);
+      events.push(spaced);
+      prev = spaced;
+    }
+    if (events.length) events[0] = Math.max(events[0], randInt(rng, 4, 10));
     return events;
   }
-  const replyTimes = genEvents(targets.replies, 45, 50);
-  const quoteTimes = genEvents(targets.quotes, 90, 20);
+  const replyTimes = genEvents(targets.replies, 220, 60, 4, 9);
+  const quoteTimes = genEvents(targets.quotes, 450, 24, 20, 40);
 
   const replies = replyTimes.map((t) => {
     const persona = genPersona(rng);
@@ -420,6 +461,61 @@ function unreadNotifCount() {
     else break;
   }
   return count;
+}
+
+// ---------- live toast notifications ----------
+// Site-wide, independent of which view is open — same derived-notifs feed
+// as above, just watched on a timer and surfaced as a toast the moment an
+// event's timestamp crosses "now", like a real push notification. The
+// baseline is a wall-clock cursor (not a set of seen ids): everything with
+// abs <= baseline has already been toasted-or-skipped, so a tick only ever
+// looks at the sliver of new time that just elapsed.
+
+const NOTIF_TOAST_KEY = "wentviral.notifs.toastedThrough";
+function getToastBaseline() {
+  const raw = localStorage.getItem(NOTIF_TOAST_KEY);
+  return raw ? Number(raw) || 0 : null;
+}
+function setToastBaseline(sec) {
+  try { localStorage.setItem(NOTIF_TOAST_KEY, String(sec)); } catch (_) {}
+}
+function notifToastHtml(n) {
+  if (n.type === "reply") return `💬 <b>${esc(n.persona.name)}</b> replied to your post`;
+  if (n.type === "quote") return `🔁 <b>${esc(n.persona.name)}</b> quoted your post`;
+  if (n.type === "milestone-like") return `❤️ Your post crossed <b>${fmtCount(n.n)}</b> likes`;
+  if (n.type === "milestone-repost") return `🔁 Your post crossed <b>${fmtCount(n.n)}</b> reposts`;
+  return "";
+}
+
+let notifWatcherStarted = false;
+function startNotifWatcher() {
+  if (notifWatcherStarted) return;
+  notifWatcherStarted = true;
+  let baseline = getToastBaseline();
+  if (baseline === null) {
+    // First time this browser has ever had this feature — don't dump the
+    // whole backlog as toasts, just start watching from now.
+    baseline = nowSec();
+    setToastBaseline(baseline);
+  }
+  setInterval(() => {
+    if (!getHistory().length) return;
+    const now = nowSec();
+    const fresh = getAllNotifs()
+      .filter((n) => n.abs > baseline && n.abs <= now)
+      .sort((a, b) => a.abs - b.abs);
+    baseline = now;
+    setToastBaseline(baseline);
+    if (!fresh.length) return;
+    const SHOW_CAP = 4;
+    fresh.slice(0, SHOW_CAP).forEach((n) => {
+      notifToast(notifToastHtml(n), () => { location.href = MOUNT + "/p/" + n.code; });
+    });
+    if (fresh.length > SHOW_CAP) {
+      notifToast(`+${fresh.length - SHOW_CAP} more notifications`);
+    }
+    renderNav();
+  }, 4000);
 }
 
 function notifLine(n) {
@@ -899,3 +995,4 @@ function route() {
 }
 
 route();
+startNotifWatcher();

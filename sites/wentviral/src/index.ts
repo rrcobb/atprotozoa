@@ -136,10 +136,11 @@ async function renderPost(env: Env, request: Request, code: string): Promise<Res
     replies: Math.round(randInt(rng, 30, 420) * mult),
   };
   const t = Math.max(0, Math.floor((Date.now() - payload.c) / 1000));
-  const likes = countAt(targets.likes, 50, t);
-  const reposts = countAt(targets.reposts, 110, t);
-  const quotes = countAt(targets.quotes, 170, t);
-  const replies = countAt(targets.replies, 90, t);
+  // Mirrors the tau in public/app.js buildSim() — keep in sync.
+  const likes = countAt(targets.likes, 240, t);
+  const reposts = countAt(targets.reposts, 420, t);
+  const quotes = countAt(targets.quotes, 600, t);
+  const replies = countAt(targets.replies, 300, t);
 
   const name = payload.n.trim() || "You";
   const handle = slugify(name) + FAKE_TLD;
