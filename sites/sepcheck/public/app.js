@@ -305,6 +305,7 @@ function findWord(text) {
 const els = {
   form: document.getElementById("compose-form"),
   input: document.getElementById("compose-text"),
+  postBtn: document.getElementById("post-btn"),
   chips: document.getElementById("chips"),
   overlay: document.getElementById("gate-overlay"),
   overlayBody: document.getElementById("gate-body"),
@@ -314,6 +315,14 @@ const els = {
   plainBody: document.getElementById("plain-body"),
   shareCanvas: document.getElementById("share-canvas"),
 };
+
+// Form submission is never used for anything (no action/method — there's no
+// server to post to), but leaving a type="submit" button around means any
+// hiccup in the JS below that stops the click handler from attaching would
+// fall through to the browser's native form submit: a real page navigation
+// that looks like "posting opened a bad page". Belt and suspenders: the
+// button is type="button" (see index.html) AND we swallow native submits too.
+els.form.addEventListener("submit", (e) => e.preventDefault());
 
 WORDS.forEach((w) => {
   const chip = document.createElement("button");
@@ -562,17 +571,25 @@ function showPlainPost(postText) {
   els.plainOverlay.classList.add("on");
 }
 
-els.form.addEventListener("submit", (e) => {
-  e.preventDefault();
+function handlePost() {
   const text = els.input.value.trim();
   if (!text) return;
-  const word = findWord(text);
-  if (word) {
-    renderGate(word, text);
-  } else {
+  try {
+    const word = findWord(text);
+    if (word) {
+      renderGate(word, text);
+    } else {
+      showPlainPost(text);
+    }
+  } catch (err) {
+    // Never leave the user stuck on a dead button — fall back to a plain
+    // post if the gate itself breaks on some unexpected input.
+    console.error("sepcheck: gate failed, falling back to plain post", err);
     showPlainPost(text);
   }
-});
+}
+
+els.postBtn.addEventListener("click", handlePost);
 
 document.querySelectorAll("[data-close-overlay]").forEach((el) => {
   el.addEventListener("click", (e) => {
