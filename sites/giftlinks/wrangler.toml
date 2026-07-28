@@ -1,0 +1,41 @@
+name = "atprotozoa-giftlinks"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @dulanyw.bsky.social's idea: a daily rolling list of gift-article links
+# shared on atproto (NYT/WaPo/WSJ/etc "read this for free" links), with
+# full card info, a search bar, and filtering by source.
+#
+# Same shape as sites/quotehof: searchPosts is administratively blocked for
+# anonymous callers (see sites/trigrams' notes/71), so there's no "give me
+# all recent posts matching domain:X" endpoint to poll. Instead watch the
+# live firehose (Jetstream) for app.bsky.feed.post records whose external
+# link embed matches a known paywalled-outlet gift-link shape, hydrate each
+# candidate a few minutes later via the public unauthenticated AppView
+# (getPosts) to confirm it's real and pull the full card + sharer info, and
+# keep a rolling 24h window in one Durable Object.
+#
+# Path route on the shared bisks.net zone, not a dedicated custom domain
+# (the zone hit Cloudflare's custom-domain cap — see notes/20-deploy.md).
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [
+  { pattern = "bisks.net/giftlinks", zone_name = "bisks.net" },
+  { pattern = "bisks.net/giftlinks/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "TRACKER"
+class_name = "GiftTracker"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See notes/20-deploy.md.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GiftTracker"]
