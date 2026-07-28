@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Without this, hitting /metamoots (no trailing slash) resolves the
+         module import "./lib/identity.js" to /lib/identity.js instead of
+         /metamoots/lib/identity.js, 404ing outside this Worker's route. -->
+    <base href="/metamoots/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>metamoots — find your meta-mutuals — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle. metamoots finds accounts they don't follow and who don't follow them back, but who both sides engage with a lot — likes, reposts, replies, quotes, in both directions."
+    />
+    <meta property="og:title" content="metamoots — find your meta-mutuals" />
+    <meta
+      property="og:description"
+      content="You don't follow them, they don't follow you, but you both interact all the time. metamoots finds those accounts for any Bluesky handle."
+    />
+    <meta property="og:url" content="https://bisks.net/metamoots" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="metamoots — find your meta-mutuals" />
+    <meta
+      name="twitter:description"
+      content="You don't follow them, they don't follow you, but you both interact all the time. metamoots finds those accounts for any Bluesky handle."
+    />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex / cloutgraph. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #0d7a3f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 600; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 62ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: #b3261e; }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+
+      h2.sub { font-size: 0.95rem; margin: 1.8rem 0 0.6rem; }
+      p.note { font-size: 0.82rem; color: var(--muted); margin: 0 0 1rem; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      thead th {
+        text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted); font-weight: 600; padding: 0 0.4rem 0.5rem 0; border-bottom: 1px solid var(--ink);
+      }
+      thead th.num, td.num { text-align: right; }
+      tbody td { padding: 0.55rem 0.4rem 0.55rem 0; border-bottom: 1px solid var(--faint); vertical-align: middle; }
+      tbody tr:hover { background: #fafafa; }
+      .rank { color: var(--muted); font-variant-numeric: tabular-nums; width: 1.6em; }
+      .who { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+      .who img { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--faint); }
+      .who .names { min-width: 0; }
+      .who .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+      .who .hd { color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+
+      .scoreCell { display: flex; align-items: center; gap: 0.55rem; justify-content: flex-end; }
+      .scoreNum { font-variant-numeric: tabular-nums; font-weight: 600; width: 2.4em; text-align: right; }
+      .meter { width: 70px; height: 7px; border-radius: 4px; background: var(--faint); overflow: hidden; flex: none; }
+      .meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+      .sub { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.85em; white-space: nowrap; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
+
+      details.oneSided { margin-top: 1.8rem; font-size: 0.84rem; }
+      details.oneSided summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.oneSided .body { margin-top: 0.8rem; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>metamoots <span class="slash">· find your meta-mutuals</span></h1>
+      <p class="intro">
+        You don't follow them, they don't follow you, but you both interact
+        all the time. Paste a <b>Bluesky handle</b> and metamoots reads their
+        follow graph (to know who to skip) plus their likes, reposts,
+        replies and quotes — in both directions — and ranks everyone outside
+        the follow graph by how much engagement actually runs both ways.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">handle</label>
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button id="go" type="submit">find meta-moots</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView + your own PDS, all in your browser — no login.
+      </p>
+
+      <section id="result">
+        <div class="summary" id="summary"></div>
+
+        <table id="mutualTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>who</th>
+              <th class="num">score</th>
+              <th class="num">likes (out/in)</th>
+              <th class="num">reposts (out/in)</th>
+              <th class="num">replies (out/in)</th>
+              <th class="num">quotes</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="note" id="emptyNote" style="display: none"></p>
+
+        <details class="oneSided" id="oneSidedBox" style="display: none">
+          <summary id="oneSidedSummary">close but one-sided</summary>
+          <div class="body">
+            <p class="note">
+              Engagement in only one direction — a fan you haven't noticed,
+              or someone you engage with who hasn't (yet) engaged back on
+              the sampled posts. Not meta-mutuals by the strict definition,
+              but often the same people one post away from qualifying.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>who</th>
+                  <th class="num">score</th>
+                  <th class="num">likes (out/in)</th>
+                  <th class="num">reposts (out/in)</th>
+                  <th class="num">replies (out/in)</th>
+                  <th class="num">quotes</th>
+                </tr>
+              </thead>
+              <tbody id="oneSidedRows"></tbody>
+            </table>
+          </div>
+        </details>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          First, metamoots reads the target's <code>getFollows</code> and
+          <code>getFollowers</code> in full — everyone in either list is
+          excluded from the start, since the whole point is people
+          <b>outside</b> the follow graph. Then it reads two directions of
+          engagement, both bounded so the crawl finishes in a reasonable
+          time: <b>outbound</b> (what the target did) comes straight off
+          their own PDS via <code>com.atproto.repo.listRecords</code> — up
+          to 500 recent likes, 300 reposts, and 500 posts (mined for replies
+          and quotes) — since those are ordinary public repo records and
+          need no special endpoint. <b>Inbound</b> (what others did to the
+          target) has no anonymous "who liked this account" endpoint, so
+          instead metamoots samples the target's ~30 most recent posts and
+          reads each one's public <code>getLikes</code>,
+          <code>getRepostedBy</code>, and direct <code>getPostThread</code>
+          replies. Every candidate's counts are weighted — like ×1, repost
+          ×2, reply ×3, quote ×3 — and summed across both directions into a
+          <b>score</b>. Anyone with engagement on <b>only one side</b> is
+          held out of the main table and shown separately: a real
+          meta-mutual needs nonzero engagement in both directions, not just
+          a fan or someone you happen to like a lot. Because inbound only
+          samples ~30 posts, a real two-way relationship can land in
+          "one-sided" if the return engagement happened to land on an older
+          post outside the sample — worth a glance if the main table comes
+          up thin.
+        </div>
+      </details>
+
+      <footer>
+        meta-mutual = engagement (likes/reposts/replies/quotes) in both
+        directions between two accounts that don't follow each other, either
+        way. Reads Bluesky's public AppView (getFollows / getFollowers /
+        getLikes / getRepostedBy / getPostThread) plus the target's own PDS
+        (<code>listRecords</code>) — all anonymous, everything client-side,
+        no login. PDS-crawl trick and pooled-fetch helper copied from
+        <a href="https://bisks.net/cloutgraph">cloutgraph</a>. idea from
+        <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>.
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveDid, followGraph, getProfiles } from "./lib/identity.js";
+      import { crawlEngagement } from "./lib/crawl.js";
+      import { rankCandidates } from "./lib/rank.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
+      const emptyNote = $("emptyNote");
+      const oneSidedBox = $("oneSidedBox"), oneSidedSummary = $("oneSidedSummary"), oneSidedRows = $("oneSidedRows");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+      function fmt(n) {
+        return String(Math.round(n || 0));
+      }
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function whoCell(p, did) {
+        const prof = p || { handle: did, displayName: did, avatar: "" };
+        return (
+          `<div class="who">` +
+          (prof.avatar ? `<img src="${prof.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+          `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(prof.handle || did)}" target="_blank" rel="noopener">` +
+          `<div class="dn">${escapeHtml(prof.displayName || prof.handle)}</div>` +
+          `<div class="hd">${short(prof.handle)}</div>` +
+          `</a></div></div>`
+        );
+      }
+
+      function renderRow(r, profiles, maxScore, withRank, i) {
+        const p = profiles.get(r.did);
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          (withRank ? `<td class="rank">${i + 1}</td>` : "") +
+          `<td>${whoCell(p, r.did)}</td>` +
+          `<td class="num"><div class="scoreCell"><div class="meter"><i style="width:${Math.max(4, (r.score / maxScore) * 100)}%"></i></div><span class="scoreNum">${fmt(r.score)}</span></div></td>` +
+          `<td class="num sub">${r.likesGiven} / ${r.likesReceived}</td>` +
+          `<td class="num sub">${r.repostsGiven} / ${r.repostsReceived}</td>` +
+          `<td class="num sub">${r.repliesGiven} / ${r.repliesReceived}</td>` +
+          `<td class="num sub">${r.quotesGiven}</td>`;
+        return tr;
+      }
+
+      function renderRows(mutual, oneSided, profiles) {
+        rowsEl.innerHTML = "";
+        const maxScore = Math.max(1, ...mutual.map((r) => r.score), ...oneSided.map((r) => r.score));
+        mutual.forEach((r, i) => rowsEl.appendChild(renderRow(r, profiles, maxScore, true, i)));
+
+        oneSidedRows.innerHTML = "";
+        oneSided.slice(0, 20).forEach((r) => oneSidedRows.appendChild(renderRow(r, profiles, maxScore, false)));
+        if (oneSided.length) {
+          oneSidedBox.style.display = "";
+          oneSidedSummary.textContent = `close but one-sided (${oneSided.length})`;
+        } else {
+          oneSidedBox.style.display = "none";
+        }
+      }
+
+      const SHARE_URL = "https://bisks.net/metamoots";
+
+      function buildShareText(subjectHandle, mutual, profiles) {
+        const top = mutual.slice(0, 3).map((r) => {
+          const p = profiles.get(r.did);
+          return p ? short(p.handle) : r.did;
+        });
+        const named = top.length ? ` top: ${top.join(", ")}.` : "";
+        return `metamoots on ${short(subjectHandle)}: ${mutual.length} meta-mutual${mutual.length === 1 ? "" : "s"} — don't follow each other, but engage all the time.${named} ${SHARE_URL}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(subjectHandle, mutual, profiles) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("metamoots", 60, 90);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText(short(subjectHandle) + "'s meta-mutuals", 60, 128);
+
+        const top = mutual.slice(0, 6);
+        const rowH = 76;
+        const startY = 190;
+        const avatars = await Promise.all(top.map((r) => loadImg((profiles.get(r.did) || {}).avatar)));
+
+        top.forEach((r, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y + rowH - 10, W - 120, 1);
+
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `700 22px ${mono}`;
+          ctx.textAlign = "left";
+          ctx.fillText(String(i + 1), 60, y + 30);
+
+          const img = avatars[i];
+          let textX = 110;
+          if (img) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(128, y + 14, 22, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 106, y - 8, 44, 44);
+            ctx.restore();
+            textX = 168;
+          }
+          const p = profiles.get(r.did);
+          ctx.fillStyle = "#111111";
+          ctx.font = `700 24px ${mono}`;
+          ctx.fillText((p && (p.displayName || p.handle)) || r.did, textX, y + 12);
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 17px ${mono}`;
+          ctx.fillText(p ? short(p.handle) : "", textX, y + 36);
+
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#1a5fd0";
+          ctx.font = `800 30px ${mono}`;
+          ctx.fillText(fmt(r.score), W - 60, y + 24);
+          ctx.textAlign = "left";
+        });
+
+        if (!top.length) {
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 22px ${mono}`;
+          ctx.fillText("no meta-mutuals found this run.", 60, startY + 20);
+        }
+
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/metamoots", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "metamoots.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "metamoots" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "metamoots.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        setStatus("resolving " + q + "…");
+        try {
+          const did = await resolveDid(q);
+          const subject = await (async () => {
+            try {
+              const profs = await getProfiles([did]);
+              return profs.get(did) || { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            } catch {
+              return { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            }
+          })();
+
+          const { follows, followers, exclude } = await followGraph(did, (s) => setStatus(s));
+
+          const { candidates, sampledPostCount } = await crawlEngagement(did, exclude, {
+            onStep: (s) => setStatus(s),
+          });
+
+          setStatus("looking up profiles…");
+          const { mutual, oneSided } = rankCandidates(candidates);
+          const allDids = mutual.concat(oneSided.slice(0, 20)).map((r) => r.did);
+          const profiles = await getProfiles(allDids);
+
+          renderRows(mutual, oneSided, profiles);
+
+          summaryEl.innerHTML =
+            `<b>${escapeHtml(short(subject.handle))}</b> follows ${follows.length}, followed by ${followers.length}, ` +
+            `sampled ${sampledPostCount} of their own posts for inbound engagement — ` +
+            `<b>${mutual.length}</b> meta-mutual${mutual.length === 1 ? "" : "s"} found` +
+            (oneSided.length ? `, ${oneSided.length} more one-sided.` : ".");
+
+          emptyNote.style.display = mutual.length ? "none" : "";
+          if (!mutual.length) {
+            emptyNote.textContent = oneSided.length
+              ? "no strictly two-way meta-mutuals in this sample — but there are close one-sided matches below."
+              : "no engagement found outside the follow graph in this sample. try an account that's more active, or with a smaller follow graph (mutuals-only accounts crawl faster and deeper).";
+          }
+
+          lastShareText = buildShareText(subject.handle, mutual, profiles);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(subject.handle, mutual, profiles);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
