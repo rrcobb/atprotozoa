@@ -1,0 +1,44 @@
+name = "atprotozoa-eastmoot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @shibbi.me tagged @buildthis.bisks.net in a reply to @words.bsky.social's
+# westmoot ask: "do this but for east coast, and make it 10x better than the
+# west coast one." Same premise as sites/westmoot — a self-narrating meetup
+# planner for the simcluster, no organizer, no login — but the decision
+# engine is upgraded from westmoot's plurality-with-quorum to instant-runoff
+# ranked-choice voting on both axes (city and weekend), with the runoff
+# rounds themselves shown in the log. See sites/westmoot for the sibling and
+# src/index.ts here for the runoff algorithm.
+#
+# Copied from sites/westmoot (nearest lineage) and reworked. Path route on
+# the shared bisks.net zone, not a dedicated custom domain — see
+# notes/20-deploy.md / notes/40-new-site-playbook.md ("why paths, not
+# subdomains").
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in sites/logs, sites/didscope, sites/westmoot).
+routes = [
+  { pattern = "bisks.net/eastmoot", zone_name = "bisks.net" },
+  { pattern = "bisks.net/eastmoot/*", zone_name = "bisks.net" },
+]
+
+# The Worker runs first for everything: it must strip the /eastmoot mount
+# prefix before the asset router (which has no idea it isn't at the domain
+# root) ever sees the request.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "CLUSTER"
+class_name = "Cluster"
+
+# new_sqlite_classes, not new_classes: the legacy KV-backed DO storage needs
+# Workers Paid; SQLite-backed DOs are the free-plan-compatible option this
+# account is on. (Same fix as sites/westmoot, sites/the-place, sites/ratioed.)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Cluster"]
