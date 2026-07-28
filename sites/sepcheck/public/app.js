@@ -22,7 +22,7 @@ const WORDS = [
       {
         q: "The classic problem for defining knowledge as justified true belief:",
         options: [
-          "Gettier cases — a belief can be justified and true, yet true only by luck, which doesn't feel like knowledge",
+          "Gettier cases — true and justified, but only by luck",
           "It's provably circular",
           "It was disproven by fMRI studies",
           "Plato never actually held this exact view",
@@ -33,10 +33,10 @@ const WORDS = [
       {
         q: "A standard objection to reliabilism:",
         options: [
-          "The generality problem — any process can be described narrowly or broadly, with no principled way to pick which description matters",
+          "The generality problem — no principled way to fix the process",
           "It only works for beliefs about the past",
           "It's identical to the JTB analysis",
-          "Reliable processes never produce false beliefs, which makes the theory trivial",
+          "Reliable processes can never produce a false belief",
         ],
         correct: 0,
         explain: "“Formed by vision” and “formed by vision-in-good-light-with-glasses-on-a-Tuesday” are both true of the same belief — reliabilism needs a non-arbitrary way to fix the process's grain.",
@@ -56,7 +56,7 @@ const WORDS = [
       {
         q: "David Chalmers's “hard problem” of consciousness asks:",
         options: [
-          "Why any physical process should be accompanied by subjective experience at all, rather than just producing behavior with nobody home",
+          "Why physical processes come with subjective experience at all",
           "Which brain region lights up during self-report tasks",
           "Whether animals can pass mirror-recognition tests",
           "How fast neural signals travel between hemispheres",
@@ -67,7 +67,7 @@ const WORDS = [
       {
         q: "A common objection to Integrated Information Theory:",
         options: [
-          "It seems to attribute rich consciousness to simple grid-like systems with high Φ but no plausible experience — the “unfolding”/triviality objections",
+          "It gives high Φ, and rich consciousness, to simple grids",
           "It can't be stated mathematically",
           "It denies that humans are conscious at all",
           "It only applies to biological neurons, never silicon",
@@ -90,10 +90,10 @@ const WORDS = [
       {
         q: "Van Inwagen's “consequence argument” against compatibilism claims:",
         options: [
-          "If determinism is true, our acts are the consequence of laws of nature and events before we were born — things not up to us — so our acts aren't up to us either",
+          "Our acts follow from causes before us, so they aren't up to us",
           "Compatibilism was refuted by quantum mechanics",
           "Free will requires a soul separate from the brain",
-          "Determinism has never been shown to be false, so compatibilism is unnecessary",
+          "Determinism has never been shown false, so compatibilism is unnecessary",
         ],
         correct: 0,
         explain: "The argument tries to show determinism straightforwardly rules out any 'could have done otherwise,' no matter how you define freedom — a direct challenge to compatibilist moves.",
@@ -101,7 +101,7 @@ const WORDS = [
       {
         q: "A standard objection to compatibilism:",
         options: [
-          "Manipulation arguments — a compatibilist's conditions for “free” action could in principle be satisfied by someone whose desires were covertly implanted by a manipulator",
+          "Manipulation cases — implanted desires would count as “free” too",
           "It denies that laws of physics exist",
           "It was only ever popular before Gettier's 1963 paper",
           "It requires libertarian free will as a premise",
@@ -124,7 +124,7 @@ const WORDS = [
       {
         q: "A standard objection to Rawls's veil of ignorance:",
         options: [
-          "Why would rational, self-interested people behind the veil necessarily choose to protect the worst-off, rather than gambling on the average outcome?",
+          "Why pick maximin over just gambling on the average outcome?",
           "Nobody has ever agreed to a real social contract",
           "It assumes people already know their own income",
           "It only applies to two-person households",
@@ -135,7 +135,7 @@ const WORDS = [
       {
         q: "A common objection to Nozick's entitlement theory:",
         options: [
-          "It says almost nothing can justify redistribution once holdings arose justly — but many historical acquisitions (conquest, exclusion, theft) weren't just to begin with",
+          "It assumes just holdings, but real history is rarely that clean",
           "It requires a strong central government to enforce",
           "It was written as a direct response to utilitarianism's critics, not Rawls",
           "It only applies to intellectual property",
@@ -158,7 +158,7 @@ const WORDS = [
       {
         q: "A standard objection to the correspondence theory:",
         options: [
-          "It's unclear what “corresponding to reality” even means for claims beyond simple physical description — how does a statement about numbers or morality “correspond” to a fact?",
+          "Unclear what abstract claims like math or morals “correspond” to",
           "It was disproven by Gödel's incompleteness theorems",
           "It denies that any statement can be false",
           "It only applies to statements written in English",
@@ -169,7 +169,7 @@ const WORDS = [
       {
         q: "A common objection to the coherence theory:",
         options: [
-          "A set of beliefs can be perfectly internally coherent and still be entirely disconnected from reality — a coherent, self-consistent story that's simply false",
+          "A perfectly coherent belief system can still just be false",
           "Coherent belief systems are logically impossible",
           "It's the same view as the pragmatic theory",
           "It requires a single, universally agreed belief system to exist",
@@ -192,7 +192,7 @@ const WORDS = [
       {
         q: "The teleporter/fission thought experiment challenges the psychological-continuity view how?",
         options: [
-          "If your psychology could be duplicated into two separate people, both equally continuous with you, the theory implies you'd “be” both — but you can't be identical to two distinct people at once",
+          "Fission — you can't be identical to two separate people",
           "It shows memory is never reliable enough to establish continuity",
           "It proves teleportation is physically impossible",
           "It was designed to defend animalism, not attack it",
@@ -203,7 +203,7 @@ const WORDS = [
       {
         q: "A standard objection to animalism:",
         options: [
-          "Whole-brain transplant intuitions pull toward “you go where your psychology goes,” not where the rest of the organism goes — which pure animalism struggles to accommodate",
+          "Brain-transplant intuitions say “you” go with your psychology, not the body",
           "It denies that animals exist",
           "It requires belief in an immortal soul",
           "It was refuted by discoveries in genetics",
@@ -226,7 +226,7 @@ const WORDS = [
       {
         q: "A standard objection to the counterfactual theory of causation:",
         options: [
-          "Overdetermination/preemption cases — e.g. two shooters, either shot alone would've killed the victim — where “if C hadn't happened, E wouldn't have” comes out false even though C clearly caused E",
+          "Overdetermination — two shooters, and the counterfactual test misfires",
           "It can't be applied to physical events, only mental ones",
           "David Lewis later renounced the theory entirely",
           "It assumes backward causation is possible",
@@ -237,7 +237,7 @@ const WORDS = [
       {
         q: "A common objection to the regularity theory:",
         options: [
-          "Constant conjunction can't distinguish real causes from mere accidental correlations — like day reliably following night, without day causing night",
+          "Can't tell real causes from mere reliable correlations",
           "It requires knowledge of every law of physics in advance",
           "It was proposed to explain quantum entanglement specifically",
           "It denies that any two events are ever correlated",
@@ -260,7 +260,7 @@ const WORDS = [
       {
         q: "The “argument from disagreement” challenges moral realism how?",
         options: [
-          "If there were objective moral facts, we'd expect convergence the way we get in other domains of fact — but persistent, deep cross-cultural disagreement suggests there's no single fact being tracked",
+          "Deep disagreement suggests no single moral fact is being tracked",
           "It shows all moral realists secretly agree with each other",
           "It proves that moral facts change over historical time",
           "It was designed to defend expressivism against error theory specifically",
@@ -271,7 +271,7 @@ const WORDS = [
       {
         q: "A standard objection to expressivism:",
         options: [
-          "The Frege-Geach problem — moral sentences embed in logical constructions (“if lying is wrong, then getting your kid to lie is wrong”) in ways that plain expressions of attitude don't seem able to support",
+          "Frege-Geach — moral claims embed in logic in ways attitudes can't",
           "It requires belief in a universal moral law",
           "It was refuted by evolutionary biology",
           "It only applies to first-person moral claims, never third-person ones",
@@ -289,6 +289,15 @@ function esc(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function shuffled(n) {
+  const a = Array.from({ length: n }, (_, i) => i);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 function findWord(text) {
@@ -344,20 +353,32 @@ function closeAllOverlays() {
 }
 
 function renderGate(word, postText) {
-  const state = { view: null, answers: [null, null] };
+  const state = {
+    view: null,
+    answers: [null, null],
+    optionOrder: word.quiz.map((q) => shuffled(q.options.length)),
+  };
 
   function render() {
     let html = '<h2>you used “' + esc(word.label) + '”</h2>';
-    html += '<p class="gate-sub">the Stanford Encyclopedia of Philosophy lists more than one thing people mean by this. which one?</p>';
-    html += '<div class="views">';
-    word.views.forEach((v) => {
-      const picked = state.view === v.id;
-      html += '<button type="button" class="view-card' + (picked ? " picked" : "") + '" data-id="' + v.id + '">';
-      html += '<div class="view-name">' + esc(v.name) + "</div>";
-      html += '<div class="view-gloss">' + esc(v.gloss) + "</div>";
+
+    if (!state.view) {
+      html += '<p class="gate-sub">the Stanford Encyclopedia of Philosophy lists more than one thing people mean by this. which one?</p>';
+      html += '<div class="views">';
+      word.views.forEach((v) => {
+        html += '<button type="button" class="view-card" data-id="' + v.id + '">';
+        html += '<div class="view-name">' + esc(v.name) + "</div>";
+        html += '<div class="view-gloss">' + esc(v.gloss) + "</div>";
+        html += "</button>";
+      });
+      html += "</div>";
+    } else {
+      const picked = word.views.find((v) => v.id === state.view);
+      html += '<button type="button" class="view-picked-summary" id="view-change">';
+      html += '<span class="view-name">' + esc(picked.name) + "</span>";
+      html += '<span class="view-change-link">change</span>';
       html += "</button>";
-    });
-    html += "</div>";
+    }
 
     if (state.view) {
       const view = word.views.find((v) => v.id === state.view);
@@ -368,12 +389,13 @@ function renderGate(word, postText) {
         html += '<div class="quiz-q" data-qi="' + qi + '">';
         html += '<div class="q-text">' + (qi + 1) + ". " + esc(q.q) + "</div>";
         html += '<div class="q-options">';
-        q.options.forEach((opt, oi) => {
+        state.optionOrder[qi].forEach((oi) => {
+          const opt = q.options[oi];
           let cls = "q-opt";
           if (answered !== null) {
             if (oi === q.correct) cls += " correct";
             else if (oi === answered) cls += " wrong";
-            if (answered !== null && oi !== q.correct && oi !== answered) cls += " dim";
+            if (oi !== q.correct && oi !== answered) cls += " dim";
           }
           html += '<button type="button" class="' + cls + '" data-qi="' + qi + '" data-oi="' + oi + '"' + (answered !== null ? " disabled" : "") + ">" + esc(opt) + "</button>";
         });
@@ -412,6 +434,14 @@ function renderGate(word, postText) {
     });
     const cancelBtn = document.getElementById("gate-cancel");
     if (cancelBtn) cancelBtn.addEventListener("click", closeAllOverlays);
+    const changeBtn = document.getElementById("view-change");
+    if (changeBtn) {
+      changeBtn.addEventListener("click", () => {
+        state.view = null;
+        state.answers = [null, null];
+        render();
+      });
+    }
     const continueBtn = document.getElementById("gate-continue");
     if (continueBtn && allAnswered) {
       continueBtn.addEventListener("click", () => {
