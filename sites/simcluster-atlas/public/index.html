@@ -112,6 +112,7 @@
         margin: 0 0 0.5rem; font-size: 0.72rem; text-transform: uppercase;
         letter-spacing: 0.07em; color: var(--muted); font-weight: 700;
       }
+      .legend h3 .chosen { color: var(--accent); text-transform: none; letter-spacing: normal; font-weight: 400; }
       .legend .search { width: 100%; margin-bottom: 0.5rem; }
       .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 7.5rem; overflow-y: auto; }
       .chip {
@@ -133,6 +134,7 @@
         font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
       }
       .controlrow .field.check { gap: 0.4rem; }
+      .controlrow .btn { margin-left: auto; font-size: 0.78rem; padding: 0.4rem 0.7rem; }
 
       .toprow {
         display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.3rem; flex-wrap: wrap;
@@ -194,6 +196,44 @@
       .grouprow .viewlink { margin-left: auto; color: var(--muted); font-size: 0.72rem; text-decoration: none; }
       .grouprow .viewlink:hover { text-decoration: underline; }
 
+      .tablewrap {
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--paper);
+        overflow-x: auto; max-height: 78vh; overflow-y: auto;
+      }
+      table.densetable { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+      table.densetable th {
+        position: sticky; top: 0; z-index: 1; text-align: left; font-size: 0.66rem;
+        text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+        background: var(--paper); border-bottom: 1px solid var(--faint);
+        padding: 0.5rem 0.6rem; white-space: nowrap;
+      }
+      table.densetable td {
+        padding: 0.32rem 0.6rem; border-bottom: 1px solid var(--faintbg); vertical-align: top;
+      }
+      table.densetable tbody tr:hover td { background: var(--faintbg); }
+      table.densetable .lnk {
+        color: var(--accent); text-decoration: none; word-break: break-all;
+        border-bottom: 1px dotted var(--accent);
+      }
+      table.densetable .lnk:hover { border-bottom-style: solid; }
+      table.densetable .dom { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+      table.densetable .who { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+      table.densetable .who .av { width: 16px; height: 16px; font-size: 0.42rem; }
+      table.densetable .who a { color: var(--accent); text-decoration: none; }
+      table.densetable .who a:hover { text-decoration: underline; }
+      table.densetable .posters { display: flex; flex-wrap: wrap; gap: 0.3rem; max-width: 22rem; }
+      table.densetable .posters a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+      table.densetable .posters a:hover { text-decoration: underline; }
+      table.densetable .posters .more { color: var(--muted); }
+      table.densetable .snippet {
+        color: var(--muted); max-width: 30ch; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      table.densetable .n { color: var(--brass); font-weight: 700; white-space: nowrap; }
+      table.densetable .when { color: var(--muted); white-space: nowrap; font-size: 0.72rem; }
+      table.densetable td.view a { color: var(--muted); text-decoration: none; font-size: 0.72rem; }
+      table.densetable td.view a:hover { text-decoration: underline; }
+
       .empty {
         border: 1px dashed var(--faint); border-radius: 6px; padding: 1.4rem;
         text-align: center; color: var(--muted); font-size: 0.86rem;
@@ -212,6 +252,8 @@
         .entry .hd { flex-wrap: wrap; }
         .entry .when { margin-left: 0; }
         .toprow .btn { width: 100%; text-align: center; }
+        .controlrow .btn { margin-left: 0; width: 100%; text-align: center; }
+        .tablewrap { max-height: 65vh; }
       }
     </style>
   </head>
@@ -228,7 +270,10 @@
         ahead of time and bakes the result, so nothing here is capped to a
         handful of accounts or a single page of posts. Filter and sort with
         the tools below: by domain, by poster, or by how many times a link's
-        been dropped.
+        been dropped. Round three: domain/poster filters are now
+        <b>multi-select</b> (pick as many as you want), there's a free-text
+        search across posts, links, and handles, and a dense
+        <b>table view</b> for scanning more rows at once.
       </p>
       <p class="msg" id="msg">loading the precomputed atlas…</p>
 
@@ -236,13 +281,17 @@
         <div class="stats" id="stats"></div>
 
         <div class="filters">
+          <div class="legend full">
+            <h3>search text, links &amp; handles</h3>
+            <input class="search" type="text" id="textSearch" placeholder="search post text, a link, or a handle…" spellcheck="false" />
+          </div>
           <div class="legend">
-            <h3>filter by domain</h3>
+            <h3>filter by domain <span class="chosen" id="domainChosenCount"></span></h3>
             <input class="search" type="text" id="domainSearch" placeholder="search domains…" spellcheck="false" />
             <div class="chips" id="domainChips"></div>
           </div>
           <div class="legend">
-            <h3>filter by poster</h3>
+            <h3>filter by poster <span class="chosen" id="posterChosenCount"></span></h3>
             <input class="search" type="text" id="posterSearch" placeholder="search posters…" spellcheck="false" />
             <div class="chips" id="posterChips"></div>
           </div>
@@ -263,10 +312,18 @@
                 <option value="shared">most shared first</option>
               </select>
             </div>
+            <div class="field">
+              <label for="viewMode">view</label>
+              <select id="viewMode">
+                <option value="table">table (dense)</option>
+                <option value="cards">cards</option>
+              </select>
+            </div>
             <div class="field check">
               <input type="checkbox" id="groupToggle" />
               <label for="groupToggle" style="text-transform:none;letter-spacing:normal">group duplicate links</label>
             </div>
+            <button type="button" class="btn ghost" id="clearFiltersBtn">clear filters</button>
           </div>
         </div>
 

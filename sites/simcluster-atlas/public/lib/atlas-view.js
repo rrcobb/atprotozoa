@@ -3,13 +3,18 @@
 // one had a live handle picker; this round is centered on one fixed subject
 // and everything's baked ahead of time, so this file is pure render + client
 // -side filter/sort/group over the static JSON. No network calls but the
-// one fetch for the data file.
+// one fetch for the data file. Round three: domain/poster filters became
+// multi-select (Sets, not single active keys), added free-text search, and
+// added a dense table view alongside the original cards.
 
 const $ = (id) => document.getElementById(id);
 const msg = $("msg"), stats = $("stats"), atlas = $("atlas");
+const textSearch = $("textSearch");
 const domainSearch = $("domainSearch"), domainChips = $("domainChips");
 const posterSearch = $("posterSearch"), posterChips = $("posterChips");
-const minShared = $("minShared"), sortBy = $("sortBy"), groupToggle = $("groupToggle");
+const domainChosenCount = $("domainChosenCount"), posterChosenCount = $("posterChosenCount");
+const minShared = $("minShared"), sortBy = $("sortBy"), viewMode = $("viewMode"), groupToggle = $("groupToggle");
+const clearFiltersBtn = $("clearFiltersBtn");
 const countNote = $("countNote"), entriesEl = $("entries"), shareBtn = $("shareBtn");
 
 const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
@@ -71,18 +76,27 @@ function composeUrl(text) {
 
 let DATA = null;
 let posterByHandle = new Map();
-let activeDomain = null;
-let activePoster = null;
+const activeDomains = new Set();
+const activePosters = new Set();
 
-function chipRow(container, items, keyFn, labelFn, active, onPick) {
+function textQuery() {
+  return textSearch.value.trim().toLowerCase();
+}
+
+function updateChosenCounts() {
+  domainChosenCount.textContent = activeDomains.size ? `(${activeDomains.size} selected)` : "";
+  posterChosenCount.textContent = activePosters.size ? `(${activePosters.size} selected)` : "";
+}
+
+function chipRow(container, items, keyFn, labelFn, activeSet, onPick) {
   container.innerHTML = "";
   for (const item of items) {
     const key = keyFn(item);
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "chip" + (active === key ? " sel" : "");
+    b.className = "chip" + (activeSet.has(key) ? " sel" : "");
     b.innerHTML = labelFn(item);
-    b.addEventListener("click", () => onPick(active === key ? null : key));
+    b.addEventListener("click", () => onPick(key));
     container.appendChild(b);
   }
   if (!items.length) {
@@ -95,38 +109,60 @@ function chipRow(container, items, keyFn, labelFn, active, onPick) {
 
 function renderDomainChips() {
   const q = domainSearch.value.trim().toLowerCase();
-  const pool = q ? DATA.domains.filter((d) => d.domain.toLowerCase().includes(q)) : DATA.domains;
+  let pool = q ? DATA.domains.filter((d) => d.domain.toLowerCase().includes(q)) : DATA.domains.slice();
+  pool = pool.slice().sort((a, b) => activeDomains.has(b.domain) - activeDomains.has(a.domain));
   chipRow(
     domainChips,
     pool.slice(0, q ? 60 : 30),
     (d) => d.domain,
     (d) => `${esc(d.domain)}<span class="n">${d.count}</span>`,
-    activeDomain,
-    (key) => { activeDomain = key; renderDomainChips(); renderEntries(); },
+    activeDomains,
+    (key) => {
+      if (activeDomains.has(key)) activeDomains.delete(key); else activeDomains.add(key);
+      renderDomainChips();
+      updateChosenCounts();
+      renderEntries();
+    },
   );
 }
 
 function renderPosterChips() {
   const q = posterSearch.value.trim().toLowerCase();
-  const pool = q
+  let pool = q
     ? DATA.posters.filter((p) => p.handle.toLowerCase().includes(q) || (p.displayName || "").toLowerCase().includes(q))
-    : DATA.posters;
+    : DATA.posters.slice();
+  pool = pool.slice().sort((a, b) => activePosters.has(b.handle) - activePosters.has(a.handle));
   chipRow(
     posterChips,
     pool.slice(0, q ? 60 : 30),
     (p) => p.handle,
     (p) => `${esc(p.displayName)}<span class="n">${p.count}</span>`,
-    activePoster,
-    (key) => { activePoster = key; renderPosterChips(); renderEntries(); },
+    activePosters,
+    (key) => {
+      if (activePosters.has(key)) activePosters.delete(key); else activePosters.add(key);
+      renderPosterChips();
+      updateChosenCounts();
+      renderEntries();
+    },
   );
+}
+
+function linksForDisplay(e) {
+  return activeDomains.size ? e.links.filter((l) => activeDomains.has(domainOf(l))) : e.links;
 }
 
 function filteredSortedEntries() {
   const min = Number(minShared.value) || 1;
+  const q = textQuery();
   let list = DATA.entries.filter((e) => {
-    if (activeDomain && !e.links.some((l) => domainOf(l) === activeDomain)) return false;
-    if (activePoster && e.handle !== activePoster) return false;
+    if (activeDomains.size && !e.links.some((l) => activeDomains.has(domainOf(l)))) return false;
+    if (activePosters.size && !activePosters.has(e.handle)) return false;
     if (e.maxShareCount < min) return false;
+    if (q) {
+      const poster = posterByHandle.get(e.handle);
+      const hay = [e.text || "", e.handle, poster?.displayName || "", ...e.links].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
     return true;
   });
   if (sortBy.value === "shared") {
@@ -190,7 +226,7 @@ function renderGrouped(list) {
   entriesEl.innerHTML = "";
   const groups = new Map(); // normalized url -> { url, domain, count, entries: [] }
   for (const e of list) {
-    for (const l of e.links) {
+    for (const l of linksForDisplay(e)) {
       const key = normalizeUrl(l);
       if (!groups.has(key)) groups.set(key, { url: l, domain: domainOf(l), entries: [] });
       groups.get(key).entries.push(e);
@@ -230,10 +266,129 @@ function renderGrouped(list) {
   }
 }
 
+function tableShell(headCells) {
+  const wrap = document.createElement("div"); wrap.className = "tablewrap";
+  const table = document.createElement("table"); table.className = "densetable";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const h of headCells) { const th = document.createElement("th"); th.textContent = h; hr.appendChild(th); }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return { wrap, tbody };
+}
+
+function whoCell(handle) {
+  const poster = posterByHandle.get(handle);
+  const div = document.createElement("div"); div.className = "who";
+  div.appendChild(avEl(handle, poster?.displayName, poster?.avatar));
+  const a = document.createElement("a");
+  a.href = `https://bsky.app/profile/${esc(handle)}`; a.target = "_blank"; a.rel = "noopener";
+  a.textContent = short(handle);
+  div.appendChild(a);
+  return div;
+}
+
+function renderTableFlat(list) {
+  entriesEl.innerHTML = "";
+  const { wrap, tbody } = tableShell(["poster", "link", "domain", "text", "×", "when", ""]);
+  for (const e of list) {
+    for (const l of linksForDisplay(e)) {
+      const tr = document.createElement("tr");
+
+      const tdWho = document.createElement("td"); tdWho.appendChild(whoCell(e.handle));
+
+      const tdLink = document.createElement("td");
+      const a = document.createElement("a"); a.className = "lnk"; a.href = l; a.target = "_blank"; a.rel = "noopener"; a.textContent = l;
+      tdLink.appendChild(a);
+
+      const tdDom = document.createElement("td"); tdDom.className = "dom"; tdDom.textContent = domainOf(l);
+
+      const tdText = document.createElement("td"); tdText.className = "snippet";
+      tdText.title = e.text || ""; tdText.textContent = e.text || "";
+
+      const tdN = document.createElement("td"); tdN.className = "n";
+      tdN.textContent = e.maxShareCount > 1 ? `${e.maxShareCount}×` : "";
+
+      const tdWhen = document.createElement("td"); tdWhen.className = "when";
+      tdWhen.textContent = timeAgo(e.createdAt);
+      if (e.createdAt) tdWhen.title = new Date(e.createdAt).toLocaleString();
+
+      const tdView = document.createElement("td"); tdView.className = "view";
+      const view = document.createElement("a");
+      view.href = postUrl(e.uri, e.handle); view.target = "_blank"; view.rel = "noopener"; view.textContent = "view post";
+      tdView.appendChild(view);
+
+      tr.append(tdWho, tdLink, tdDom, tdText, tdN, tdWhen, tdView);
+      tbody.appendChild(tr);
+    }
+  }
+  entriesEl.appendChild(wrap);
+}
+
+function renderTableGrouped(list) {
+  entriesEl.innerHTML = "";
+  const groups = new Map();
+  for (const e of list) {
+    for (const l of linksForDisplay(e)) {
+      const key = normalizeUrl(l);
+      if (!groups.has(key)) groups.set(key, { url: l, domain: domainOf(l), entries: [] });
+      groups.get(key).entries.push(e);
+    }
+  }
+  const ordered = [...groups.values()].sort((a, b) => b.entries.length - a.entries.length);
+
+  const { wrap, tbody } = tableShell(["link", "domain", "×", "posters", "latest"]);
+  for (const g of ordered) {
+    const tr = document.createElement("tr");
+
+    const tdLink = document.createElement("td");
+    const a = document.createElement("a"); a.className = "lnk"; a.href = g.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = g.url;
+    tdLink.appendChild(a);
+
+    const tdDom = document.createElement("td"); tdDom.className = "dom"; tdDom.textContent = g.domain;
+
+    const tdN = document.createElement("td"); tdN.className = "n";
+    tdN.textContent = g.entries.length > 1 ? `${g.entries.length}×` : "1×";
+
+    const sorted = g.entries.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const tdPosters = document.createElement("td");
+    const postersDiv = document.createElement("div"); postersDiv.className = "posters";
+    const seen = new Set();
+    let shown = 0;
+    for (const e of sorted) {
+      if (seen.has(e.handle)) continue;
+      seen.add(e.handle);
+      if (shown >= 6) continue;
+      shown++;
+      const who = document.createElement("a");
+      who.href = `https://bsky.app/profile/${esc(e.handle)}`; who.target = "_blank"; who.rel = "noopener";
+      who.textContent = short(e.handle);
+      postersDiv.appendChild(who);
+    }
+    if (seen.size > shown) {
+      const more = document.createElement("span"); more.className = "more"; more.textContent = `+${seen.size - shown} more`;
+      postersDiv.appendChild(more);
+    }
+    tdPosters.appendChild(postersDiv);
+
+    const tdWhen = document.createElement("td"); tdWhen.className = "when";
+    tdWhen.textContent = timeAgo(sorted[0].createdAt);
+    if (sorted[0].createdAt) tdWhen.title = new Date(sorted[0].createdAt).toLocaleString();
+
+    tr.append(tdLink, tdDom, tdN, tdPosters, tdWhen);
+    tbody.appendChild(tr);
+  }
+  entriesEl.appendChild(wrap);
+}
+
 function renderEntries() {
   const list = filteredSortedEntries();
   const grouping = groupToggle.checked;
-  const filtered = activeDomain || activePoster || Number(minShared.value) > 1;
+  const dense = viewMode.value === "table";
+  const filtered = activeDomains.size || activePosters.size || textQuery() || Number(minShared.value) > 1;
   countNote.textContent = filtered
     ? `showing ${list.length} of ${DATA.entries.length} link-posts`
     : `${DATA.entries.length} link-posts from the last ${DATA.lookbackDays || 120} days`;
@@ -246,8 +401,13 @@ function renderEntries() {
     entriesEl.appendChild(d);
     return;
   }
-  if (grouping) renderGrouped(list);
-  else renderFlat(list);
+  if (dense) {
+    if (grouping) renderTableGrouped(list);
+    else renderTableFlat(list);
+  } else {
+    if (grouping) renderGrouped(list);
+    else renderFlat(list);
+  }
 }
 
 function buildShareText() {
@@ -283,6 +443,7 @@ async function main() {
     `<b>${DATA.domains.length}</b> domains and <b>${DATA.posters.length}</b> posters. ` +
     `atlas generated ${genDate}.`;
 
+  updateChosenCounts();
   renderDomainChips();
   renderPosterChips();
   renderEntries();
@@ -294,9 +455,23 @@ async function main() {
 
   domainSearch.addEventListener("input", renderDomainChips);
   posterSearch.addEventListener("input", renderPosterChips);
+  textSearch.addEventListener("input", renderEntries);
   minShared.addEventListener("change", renderEntries);
   sortBy.addEventListener("change", renderEntries);
+  viewMode.addEventListener("change", renderEntries);
   groupToggle.addEventListener("change", renderEntries);
+  clearFiltersBtn.addEventListener("click", () => {
+    activeDomains.clear();
+    activePosters.clear();
+    domainSearch.value = "";
+    posterSearch.value = "";
+    textSearch.value = "";
+    minShared.value = "1";
+    updateChosenCounts();
+    renderDomainChips();
+    renderPosterChips();
+    renderEntries();
+  });
 }
 
 main();
