@@ -1,0 +1,49 @@
+name = "atprotozoa-westmoot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @words.bsky.social tagged @buildthis.bisks.net: "make a sentient website
+# that coordinates and plans a west coast gathering of the simcluster." This
+# is that site — a self-narrating meetup planner for the simcluster (the
+# mutuals-graph friend group this repo's sites keep orbiting around, see
+# sites/simcluster). Everyone who loads the page votes on a city and a
+# weekend and can RSVP with their handle; once a quorum of distinct voters
+# forms a clear leader on both axes, the site "wakes up" and declares the
+# plan itself — no organizer required.
+#
+# Copied from sites/the-place (nearest lineage: one Durable Object holding
+# shared, no-login, single-writer state) and gutted — the pixel grid became
+# vote tallies + an RSVP list + a running "thoughts" log the DO appends to
+# whenever something notable happens, which is what the client polls to
+# drive the sentient narrator voice.
+#
+# Path route on the shared bisks.net zone, not a dedicated custom domain —
+# see notes/20-deploy.md / notes/40-new-site-playbook.md ("why paths, not
+# subdomains").
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in sites/logs and sites/didscope).
+routes = [
+  { pattern = "bisks.net/westmoot", zone_name = "bisks.net" },
+  { pattern = "bisks.net/westmoot/*", zone_name = "bisks.net" },
+]
+
+# The Worker runs first for everything: it must strip the /westmoot mount
+# prefix before the asset router (which has no idea it isn't at the domain
+# root) ever sees the request.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "CLUSTER"
+class_name = "Cluster"
+
+# new_sqlite_classes, not new_classes: the legacy KV-backed DO storage needs
+# Workers Paid; SQLite-backed DOs are the free-plan-compatible option this
+# account is on. (Same fix as sites/the-place, sites/ratioed, sites/mootrider.)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Cluster"]

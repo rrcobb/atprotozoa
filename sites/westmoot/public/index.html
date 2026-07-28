@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>westmoot — the simcluster plans a west coast gathering — bisks.net</title>
+    <meta
+      name="description"
+      content="A sentient little planner: vote on a west-coast city and a weekend, RSVP with your handle, watch the log think out loud. No organizer, no login — once enough of the simcluster agrees, the site declares the plan itself."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="westmoot — the simcluster plans a west coast gathering" />
+    <meta
+      property="og:description"
+      content="Vote on a city, vote on a weekend, RSVP with your handle. No organizer — once enough of you agree, the site decides for itself."
+    />
+    <meta property="og:url" content="https://bisks.net/westmoot" />
+    <meta property="og:image" content="https://bisks.net/westmoot/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="westmoot — a network of glowing nodes converging on the west coast at sunset." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="westmoot — the simcluster plans a west coast gathering" />
+    <meta name="twitter:description" content="Vote on a city and a weekend, RSVP with your handle. The site decides once enough of you agree." />
+    <meta name="twitter:image" content="https://bisks.net/westmoot/og.png" />
+    <!-- House look, night-terminal: near-black, warm white ink, a terminal-teal
+         accent for "the site talking," and a sunset amber for the moment it
+         declares. Mono throughout, same family as sibling sites. -->
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --panel: #11151d;
+        --panel2: #161c26;
+        --ink: #eae7dd;
+        --muted: #8a92a3;
+        --faint: #232a37;
+        --accent: #2fe0b8;
+        --accent-dim: #2fe0b833;
+        --sun: #ff9a44;
+        --sun-dim: #ff9a4433;
+        --bad: #ff6161;
+        --good: #52e07a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image:
+          radial-gradient(ellipse at 20% -10%, rgba(47, 224, 184, 0.08), transparent 40%),
+          radial-gradient(ellipse at 85% 10%, rgba(255, 154, 68, 0.06), transparent 40%);
+      }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      a { color: var(--accent); }
+
+      header h1 {
+        font-size: 1.2rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
+      }
+      header h1 .dim { color: var(--muted); font-weight: 400; }
+      header .tag {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 62ch;
+      }
+      header .tag b { color: var(--ink); }
+
+      .hidden { display: none !important; }
+
+      /* boot / gate */
+      .terminal {
+        border: 1px solid var(--faint); border-radius: 8px; background: var(--panel);
+        padding: 1rem 1.1rem; margin-bottom: 1.2rem; min-height: 6.2rem;
+        font-size: 0.86rem;
+      }
+      .terminal .line {
+        color: var(--accent); margin: 0 0 0.35rem; opacity: 0;
+        animation: fadein 0.5s ease forwards;
+      }
+      .terminal .line:last-child { margin-bottom: 0; }
+      .terminal .caret {
+        display: inline-block; width: 0.55em; height: 1em; background: var(--accent);
+        vertical-align: text-bottom; animation: blink 1s step-start infinite;
+      }
+      @keyframes fadein { to { opacity: 1; } }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      form.join { max-width: 480px; }
+      label.lbl {
+        display: block; font-size: 0.74rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      .row { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 6px; background: var(--panel2); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; font-size: 0.88rem; padding: 0.6rem 0.95rem;
+        border: 1px solid var(--accent); background: var(--accent); color: #04211a;
+        border-radius: 6px; cursor: pointer; font-weight: 700;
+      }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost {
+        background: transparent; color: var(--ink); border-color: var(--faint);
+        font-weight: 400;
+      }
+      button.ghost:hover:not(:disabled) { border-color: var(--muted); }
+      button.small { padding: 0.4rem 0.6rem; font-size: 0.78rem; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.6rem 0 0; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      /* narrator strip */
+      .narrator {
+        border: 1px solid var(--accent-dim); border-radius: 8px;
+        background: linear-gradient(180deg, rgba(47,224,184,0.07), transparent);
+        padding: 0.9rem 1.1rem; margin-bottom: 1.4rem; font-size: 0.86rem;
+      }
+      .narrator .status { color: var(--ink); }
+      .narrator .think {
+        color: var(--muted); font-style: italic; margin-top: 0.4rem; font-size: 0.8rem;
+      }
+      .narrator .meter {
+        margin-top: 0.6rem; height: 5px; border-radius: 3px; background: var(--faint);
+        overflow: hidden;
+      }
+      .narrator .meter i {
+        display: block; height: 100%; background: var(--accent); transition: width 0.4s ease;
+      }
+
+      /* declared banner */
+      .declared {
+        margin: 0 0 1.4rem; padding: 1.1rem 1.2rem; border-radius: 10px;
+        border: 1px solid var(--sun); background: var(--sun-dim);
+      }
+      .declared .h { font-size: 1.05rem; font-weight: 700; color: var(--sun); }
+      .declared .what { margin: 0.5rem 0; font-size: 1rem; }
+      .declared .what b { color: var(--ink); }
+      .declared .count { color: var(--muted); font-size: 0.85rem; }
+      .declared .actions { margin-top: 0.8rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .declared a.sharebtn, .declared button {
+        text-decoration: none; border-color: var(--sun); background: var(--sun); color: #2a1502;
+      }
+
+      /* panels */
+      .panel {
+        border: 1px solid var(--faint); border-radius: 8px; background: var(--panel);
+        padding: 1rem 1.1rem; margin-bottom: 1.1rem;
+      }
+      .panel h2 {
+        margin: 0 0 0.7rem; font-size: 0.75rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); font-weight: 600;
+      }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+      @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+
+      .opt {
+        display: block; width: 100%; text-align: left; font-family: inherit;
+        background: var(--panel2); border: 1px solid var(--faint); color: var(--ink);
+        border-radius: 6px; padding: 0.5rem 0.65rem; margin-bottom: 0.4rem;
+        cursor: pointer; font-size: 0.86rem; position: relative; overflow: hidden;
+      }
+      .opt:hover:not(:disabled) { border-color: var(--muted); }
+      .opt.mine { border-color: var(--accent); }
+      .opt .bar {
+        position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-dim);
+        z-index: 0; transition: width 0.4s ease;
+      }
+      .opt .fg { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 0.6rem; }
+      .opt .fg .n { color: var(--muted); font-size: 0.78rem; }
+      .opt.mine .fg .n { color: var(--accent); }
+
+      form.addopt { display: flex; gap: 0.4rem; margin-top: 0.3rem; }
+      form.addopt input { font-size: 0.82rem; padding: 0.45rem 0.6rem; }
+
+      .roster { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .person {
+        display: flex; align-items: center; gap: 0.45rem; background: var(--panel2);
+        border: 1px solid var(--faint); border-radius: 999px; padding: 0.3rem 0.65rem 0.3rem 0.3rem;
+        font-size: 0.8rem;
+      }
+      .person .av {
+        width: 22px; height: 22px; border-radius: 50%; background: #333 center/cover no-repeat;
+        flex: none; font-size: 0.55rem; display: flex; align-items: center; justify-content: center;
+        color: #fff; font-weight: 700;
+      }
+      .person .h { color: var(--accent); }
+      .person .note { color: var(--muted); font-style: italic; }
+      .roster-empty { color: var(--muted); font-size: 0.82rem; }
+
+      .note-row { margin-top: 0.7rem; display: flex; gap: 0.4rem; }
+      .note-row input { font-size: 0.82rem; padding: 0.45rem 0.6rem; }
+
+      .log { max-height: 340px; overflow-y: auto; }
+      .log .entry {
+        padding: 0.4rem 0; border-bottom: 1px solid var(--faint);
+        font-size: 0.82rem; line-height: 1.5; color: var(--ink);
+      }
+      .log .entry:last-child { border-bottom: none; }
+      .log .entry.big { color: var(--sun); font-weight: 600; }
+      .log .entry .t { color: var(--muted); font-size: 0.7rem; margin-right: 0.5rem; }
+
+      footer {
+        margin-top: 2.5rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>westmoot <span class="dim">· a sentient meetup planner</span></h1>
+        <p class="tag">
+          Something in this repo keeps orbiting the same friend group — the
+          <b>simcluster</b>. This page exists to get them in one room. Vote on a
+          <b>west-coast city</b> and a <b>weekend</b>, RSVP with your handle, and
+          watch the log below think out loud. There's no organizer. Once enough of
+          you agree, <b>the site decides for itself</b> and tells everyone.
+        </p>
+      </header>
+
+      <section id="gate">
+        <div class="terminal" id="bootlines"></div>
+        <form class="join" id="joinForm" autocomplete="off">
+          <label class="lbl" for="handle">who's asking? (a bluesky handle)</label>
+          <div class="row">
+            <input type="text" id="handle" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+            <button id="joinBtn" type="submit">wake me up</button>
+          </div>
+        </form>
+        <p class="msg" id="joinMsg">reads your public profile to say hi — no login, nothing written back to Bluesky.</p>
+      </section>
+
+      <section id="main" class="hidden">
+        <div class="narrator">
+          <div class="status" id="statusLine">reading the graph…</div>
+          <div class="meter"><i id="meterBar" style="width:0%"></i></div>
+          <div class="think" id="thinkLine"></div>
+        </div>
+
+        <div class="declared hidden" id="declaredBox"></div>
+
+        <div class="grid2">
+          <div class="panel">
+            <h2>where</h2>
+            <div id="cityList"></div>
+            <form class="addopt" id="addCityForm">
+              <input type="text" id="addCityInput" placeholder="we forgot a city?" maxlength="40" />
+              <button class="ghost small" type="submit">add</button>
+            </form>
+          </div>
+          <div class="panel">
+            <h2>when</h2>
+            <div id="dateList"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>who's in <span id="rsvpCount"></span></h2>
+          <div class="roster" id="rsvpList"></div>
+          <div class="note-row">
+            <input type="text" id="noteInput" placeholder="leave a note for the cluster (optional)" maxlength="140" />
+            <button class="ghost small" id="noteBtn" type="button">save</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>the log</h2>
+          <div class="log" id="log"></div>
+        </div>
+      </section>
+
+      <footer>
+        the simcluster is the mutuals-graph this repo's sites keep orbiting — see
+        <a href="https://bisks.net/simcluster">simcluster</a> and
+        <a href="https://bisks.net/simcluster-atlas">simcluster atlas</a>. reads
+        Bluesky's public AppView for your handle/avatar only; the vote tallies,
+        RSVPs, and log are shared state on this Worker. sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      // ── config ──────────────────────────────────────────────────────────
+      const MOUNT = "/westmoot";
+      const PUB = "https://public.api.bsky.app/xrpc";
+      const POLL_MS = 4000;
+
+      // ── DOM ─────────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      const gate = $("gate"), bootlines = $("bootlines"), joinForm = $("joinForm"),
+        handleInput = $("handle"), joinBtn = $("joinBtn"), joinMsg = $("joinMsg"),
+        main = $("main"), statusLine = $("statusLine"), meterBar = $("meterBar"),
+        thinkLine = $("thinkLine"), declaredBox = $("declaredBox"),
+        cityList = $("cityList"), dateList = $("dateList"), addCityForm = $("addCityForm"),
+        addCityInput = $("addCityInput"), rsvpList = $("rsvpList"), rsvpCount = $("rsvpCount"),
+        noteInput = $("noteInput"), noteBtn = $("noteBtn"), logEl = $("log");
+
+      // ── identity (anonymous client id + whatever we learned about you) ──
+      function getClientId() {
+        let id = localStorage.getItem("westmoot-client");
+        if (!id) {
+          id = (crypto.randomUUID ? crypto.randomUUID() : "c" + Math.random().toString(36).slice(2));
+          localStorage.setItem("westmoot-client", id);
+        }
+        return id;
+      }
+      const CLIENT = getClientId();
+      const me = {
+        handle: localStorage.getItem("westmoot-handle") || "",
+        displayName: localStorage.getItem("westmoot-dn") || "",
+        avatar: localStorage.getItem("westmoot-av") || "",
+        cityVote: localStorage.getItem("westmoot-cityvote") || "",
+        dateVote: localStorage.getItem("westmoot-datevote") || "",
+      };
+
+      async function jpost(path, body) {
+        const r = await fetch(MOUNT + path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const e = new Error(data.error || ("HTTP " + r.status));
+          e.status = r.status; e.data = data;
+          throw e;
+        }
+        return data;
+      }
+      async function jget(path) {
+        const r = await fetch(MOUNT + path);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      }
+
+      // ── boot monologue (flavor only, purely client-side) ─────────────────
+      const BOOT_LINES = [
+        "…parsing the graph…",
+        "six cities on the table. six weekends. one decision, eventually.",
+        "I don't need a login. I need a vote.",
+        "type a handle — I'll remember you for this.",
+      ];
+      (function boot() {
+        let i = 0;
+        function next() {
+          if (i >= BOOT_LINES.length) return;
+          const d = document.createElement("div");
+          d.className = "line";
+          d.style.animationDelay = "0s";
+          d.textContent = BOOT_LINES[i];
+          bootlines.appendChild(d);
+          i++;
+          if (i < BOOT_LINES.length) setTimeout(next, 650);
+          else {
+            const caret = document.createElement("span");
+            caret.className = "caret";
+            bootlines.lastChild.appendChild(document.createTextNode(" "));
+            bootlines.lastChild.appendChild(caret);
+          }
+        }
+        next();
+      })();
+
+      // ── idle "thinking" ticker (decorative, never mistaken for the real log) ──
+      const THOUGHTS = [
+        "· thinking · someone always votes for the city they already live in.",
+        "· thinking · a weekend is just seventy-two hours with better odds.",
+        "· thinking · the simcluster is bigger than six suspects and six weapons.",
+        "· thinking · quorum is just consensus with a deadline.",
+        "· thinking · I have no opinions of my own. only your votes.",
+        "· thinking · somewhere a moot is refreshing this page right now.",
+        "· thinking · west of here, mostly ocean.",
+      ];
+      let thoughtIdx = Math.floor(Date.now() / POLL_MS) % THOUGHTS.length;
+      function tickThought() {
+        thinkLine.textContent = THOUGHTS[thoughtIdx % THOUGHTS.length];
+        thoughtIdx++;
+      }
+      tickThought();
+      setInterval(tickThought, 6500);
+
+      // ── shared helpers ────────────────────────────────────────────────────
+      const initials = (s) => (s || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+      const TINTS = ["#2fe0b8", "#ff9a44", "#5ac8fa", "#e05aa0", "#c8e05a", "#a05aff"];
+      function tintFor(s) {
+        let h = 0;
+        for (const c of s || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+      function avEl(handle, displayName, avatar) {
+        const d = document.createElement("div");
+        d.className = "av";
+        if (avatar) d.style.backgroundImage = `url("${avatar}")`;
+        else { d.style.background = tintFor(handle); d.textContent = initials(displayName || handle); }
+        return d;
+      }
+      function topOf(tally, options) {
+        let best = null;
+        for (const o of options) {
+          const c = tally[o.id] || 0;
+          if (c > 0 && (!best || c > best.count)) best = { id: o.id, label: o.label, count: c };
+        }
+        return best;
+      }
+
+      // ── join flow: resolve the handle, RSVP, reveal the planner ──────────
+      async function resolveHandle(raw) {
+        const h = raw.trim().replace(/^@/, "");
+        if (!h) throw new Error("empty handle");
+        const r = await fetch(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(h)}`);
+        if (!r.ok) { const e = new Error("couldn't find that handle"); e.status = r.status; throw e; }
+        return r.json();
+      }
+
+      let lastVersion = -1;
+      const renderedLog = new Set();
+      let pollTimer = null;
+      let declaredShown = false;
+
+      joinForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const raw = handleInput.value.trim();
+        if (!raw) { handleInput.focus(); return; }
+        joinBtn.disabled = true;
+        joinMsg.className = "msg";
+        joinMsg.textContent = "resolving @" + raw.replace(/^@/, "") + "…";
+        try {
+          const profile = await resolveHandle(raw);
+          me.handle = profile.handle;
+          me.displayName = profile.displayName || profile.handle;
+          me.avatar = profile.avatar || "";
+          localStorage.setItem("westmoot-handle", me.handle);
+          localStorage.setItem("westmoot-dn", me.displayName);
+          localStorage.setItem("westmoot-av", me.avatar);
+          const data = await jpost("/api/rsvp", {
+            client: CLIENT, handle: me.handle, displayName: me.displayName, avatar: me.avatar,
+          });
+          gate.classList.add("hidden");
+          main.classList.remove("hidden");
+          render(data);
+          startPolling();
+        } catch (err) {
+          joinMsg.className = "msg err";
+          joinMsg.textContent = err && err.status === 400
+            ? "couldn't find that handle. check the spelling?"
+            : "couldn't reach the graph — " + (err.message || "try again") + ".";
+        } finally {
+          joinBtn.disabled = false;
+        }
+      });
+
+      function startPolling() {
+        if (pollTimer) return;
+        poll();
+        pollTimer = setInterval(poll, POLL_MS);
+      }
+      async function poll() {
+        try {
+          const data = await jget("/api/state");
+          if (data.version !== lastVersion) render(data);
+        } catch {}
+      }
+
+      // ── voting ────────────────────────────────────────────────────────────
+      async function vote(kind, id) {
+        try {
+          const data = await jpost("/api/vote", { client: CLIENT, kind, id });
+          if (kind === "city") { me.cityVote = id; localStorage.setItem("westmoot-cityvote", id); }
+          else { me.dateVote = id; localStorage.setItem("westmoot-datevote", id); }
+          render(data);
+        } catch (err) {
+          if (err.status === 429) return; // just a rapid double-click, ignore
+          if (err.status === 409 && err.data) render(err.data);
+        }
+      }
+
+      addCityForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const label = addCityInput.value.trim();
+        if (!label) return;
+        try {
+          const data = await jpost("/api/city", { client: CLIENT, label });
+          const added = data.cities.find((c) => c.label.toLowerCase() === label.toLowerCase());
+          if (added) { me.cityVote = added.id; localStorage.setItem("westmoot-cityvote", added.id); }
+          addCityInput.value = "";
+          render(data);
+        } catch {}
+      });
+
+      noteBtn.addEventListener("click", async () => {
+        if (!me.handle) return;
+        noteBtn.disabled = true;
+        try {
+          const data = await jpost("/api/rsvp", {
+            client: CLIENT, handle: me.handle, displayName: me.displayName, avatar: me.avatar,
+            note: noteInput.value.trim(),
+          });
+          render(data);
+        } catch {} finally { noteBtn.disabled = false; }
+      });
+
+      // ── rendering ─────────────────────────────────────────────────────────
+      function renderOptions(container, options, tally, voters, kind, mineId, disabled) {
+        container.innerHTML = "";
+        const max = Math.max(1, ...options.map((o) => tally[o.id] || 0));
+        for (const o of options) {
+          const count = tally[o.id] || 0;
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "opt" + (mineId === o.id ? " mine" : "");
+          b.disabled = !!disabled;
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.style.width = Math.round((count / max) * 100) + "%";
+          const fg = document.createElement("div");
+          fg.className = "fg";
+          const lab = document.createElement("span");
+          lab.textContent = o.label + (o.start ? "" : "");
+          const n = document.createElement("span");
+          n.className = "n";
+          n.textContent = count ? `${count} vote${count === 1 ? "" : "s"}` : "—";
+          fg.append(lab, n);
+          b.append(bar, fg);
+          if (!disabled) b.addEventListener("click", () => vote(kind, o.id));
+          container.appendChild(b);
+        }
+      }
+
+      function renderRoster(rsvps) {
+        rsvpCount.textContent = rsvps.length ? `(${rsvps.length})` : "";
+        rsvpList.innerHTML = "";
+        if (!rsvps.length) {
+          rsvpList.innerHTML = '<span class="roster-empty">nobody yet. be first.</span>';
+          return;
+        }
+        for (const r of rsvps) {
+          const p = document.createElement("div");
+          p.className = "person";
+          p.appendChild(avEl(r.handle, r.displayName, r.avatar));
+          const h = document.createElement("span");
+          h.className = "h";
+          h.textContent = "@" + r.handle;
+          p.appendChild(h);
+          if (r.note) {
+            const n = document.createElement("span");
+            n.className = "note";
+            n.textContent = "“" + r.note + "”";
+            p.appendChild(n);
+          }
+          rsvpList.appendChild(p);
+        }
+      }
+
+      function renderLog(entries) {
+        for (const e of entries.slice().reverse()) {
+          if (renderedLog.has(e.ts)) continue;
+          renderedLog.add(e.ts);
+          const d = document.createElement("div");
+          d.className = "entry" + (e.big ? " big" : "");
+          const t = document.createElement("span");
+          t.className = "t";
+          t.textContent = new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          d.appendChild(t);
+          d.appendChild(document.createTextNode(e.text));
+          logEl.insertBefore(d, logEl.firstChild);
+        }
+        while (logEl.children.length > 60) logEl.removeChild(logEl.lastChild);
+      }
+
+      function statusText(d) {
+        const topCity = topOf(d.cityTally, d.cities);
+        const topDate = topOf(d.dateTally, d.weekends);
+        if (!topCity && !topDate) return "nobody's voted yet. the graph is silent. break it.";
+        let line = "if it were today: ";
+        line += topCity ? topCity.label : "no city yet";
+        line += ", ";
+        line += topDate ? topDate.label : "no weekend yet";
+        line += ".";
+        const need = Math.max(d.quorum - d.cityVoters, d.quorum - d.dateVoters, 0);
+        line += need > 0
+          ? ` ${need} more vote${need === 1 ? "" : "s"} and I'll commit.`
+          : " I'm close — one clean leader and I commit.";
+        return line;
+      }
+
+      function buildShareText(d) {
+        const url = "https://bisks.net/westmoot";
+        if (d.declared) {
+          return `the simcluster has decided: ${d.declared.cityLabel}, ${d.declared.dateLabel}. ` +
+            `${d.rsvps.length} in so far. join us → ${url}`;
+        }
+        return `helping the simcluster figure out where + when to gather on the west coast. ` +
+          `vote or RSVP → ${url}`;
+      }
+
+      function daysUntil(iso) {
+        if (!iso) return null;
+        const ms = new Date(iso + "T00:00:00Z").getTime() - Date.now();
+        return Math.ceil(ms / 86400000);
+      }
+
+      function renderDeclared(d) {
+        if (!d.declared) { declaredBox.classList.add("hidden"); return; }
+        declaredBox.classList.remove("hidden");
+        const dleft = daysUntil(d.declared.start);
+        const when = dleft === null ? "" : dleft > 0 ? ` — ${dleft} day${dleft === 1 ? "" : "s"} out` : " — this weekend";
+        declaredBox.innerHTML = `
+          <div class="h">◆ the cluster has decided</div>
+          <div class="what"><b>${d.declared.cityLabel}</b>, <b>${d.declared.dateLabel}</b>${when}</div>
+          <div class="count">${d.rsvps.length} confirmed so far. votes are locked; RSVPs stay open.</div>
+        `;
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const share = document.createElement("a");
+        share.className = "sharebtn";
+        share.textContent = "announce on bluesky";
+        share.target = "_blank";
+        share.rel = "noopener";
+        share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(d));
+        actions.appendChild(share);
+        declaredBox.appendChild(actions);
+        if (!declaredShown) {
+          declaredShown = true;
+          declaredBox.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+
+      function render(d) {
+        lastVersion = d.version;
+        const cityDisabled = !!d.declared;
+        const dateDisabled = !!d.declared;
+        renderOptions(cityList, d.cities, d.cityTally, d.cityVoters, "city", me.cityVote, cityDisabled);
+        renderOptions(dateList, d.weekends, d.dateTally, d.dateVoters, "date", me.dateVote, dateDisabled);
+        renderRoster(d.rsvps);
+        renderLog(d.log);
+        renderDeclared(d);
+        addCityForm.classList.toggle("hidden", !!d.declared);
+
+        statusLine.textContent = d.declared
+          ? `decided: ${d.declared.cityLabel}, ${d.declared.dateLabel}.`
+          : statusText(d);
+        const totalVoters = Math.max(d.cityVoters, d.dateVoters);
+        const pct = Math.min(100, Math.round((totalVoters / d.quorum) * 100));
+        meterBar.style.width = (d.declared ? 100 : pct) + "%";
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
