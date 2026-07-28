@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mirrormode — the focal length your bathroom mirror uses</title>
+<meta name="description" content="Phone cameras are wide-angle lenses used way too close. Bathroom mirrors aren't. Drag a photo in, drag the focal-length slider toward the mirror end, and get your reflection back." />
+<meta property="og:title" content="mirrormode — the focal length your bathroom mirror uses" />
+<meta property="og:description" content="Phone cameras are wide-angle lenses used way too close. Bathroom mirrors aren't. Drag a photo in, drag the focal-length slider toward the mirror end, and get your reflection back." />
+<meta property="og:url" content="https://bisks.net/mirrormode/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/mirrormode/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="mirrormode: a focal-length slider running from a distorted wide-angle selfie to a flattering mirror-flat portrait." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mirrormode — the focal length your bathroom mirror uses" />
+<meta name="twitter:description" content="Phone cameras are wide-angle lenses used way too close. Bathroom mirrors aren't. Drag a photo in, drag the slider, get your reflection back." />
+<meta name="twitter:image" content="https://bisks.net/mirrormode/og.png" />
+<style>
+  :root {
+    --bg: #150d0a;
+    --bg2: #241610;
+    --fg: #fbeee0;
+    --dim: #c9a888;
+    --accent: #ffb37a;
+    --accent2: #ff8fae;
+    --card: #20140f;
+    --border: #3d2a1f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 20% -10%, #4a2c14 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 10%, #3a1420 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1rem; line-height: 1.5; }
+  .privacy {
+    color: var(--dim);
+    font-size: 0.76rem;
+    border-left: 3px solid var(--accent2);
+    padding-left: 0.7rem;
+    margin: 0 0 1.75rem;
+    line-height: 1.5;
+  }
+  .privacy b { color: var(--fg); }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+
+  #dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent); background: rgba(255, 179, 122, 0.06); }
+  #dropzone .big { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.4rem; }
+  #dropzone .small { color: var(--dim); font-size: 0.8rem; }
+
+  .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+  button, .link-btn {
+    flex: 1;
+    min-width: 130px;
+    text-align: center;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #1c0f08;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  button.ghost, .link-btn.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+
+  #videoWrap, #resultWrap { display: none; }
+  #videoWrap.show, #resultWrap.show { display: block; animation: rise 0.3s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  video, #stage {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #000;
+  }
+
+  .controls { margin-top: 1.1rem; }
+  .field { margin-bottom: 0.9rem; }
+  .field label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: var(--dim);
+    margin-bottom: 0.3rem;
+  }
+  .field label b { color: var(--accent); }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent2);
+  }
+  #focalNote {
+    font-size: 0.8rem;
+    color: var(--fg);
+    min-height: 1.4em;
+  }
+  .toggles { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.9rem 0; font-size: 0.85rem; }
+  .toggles label { display: flex; align-items: center; gap: 0.5rem; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.3rem;
+    padding-top: 1.1rem;
+  }
+  #shareCanvas { display: none; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    max-width: 560px;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>mirrormode</h1>
+  <p class="tag">
+    the phone in your hand is a wide-angle lens held eight inches from your
+    face. the mirror in your bathroom is not. this drags the focal length
+    from "selfie camera" to "across-the-room mirror" and re-renders your
+    photo along the way.
+  </p>
+  <p class="privacy">
+    <b>nothing leaves your browser.</b> the photo is decoded and warped
+    entirely on your device, in a &lt;canvas&gt;. it's never uploaded,
+    stored, or sent anywhere — closing the tab deletes it.
+  </p>
+
+  <div class="panel">
+    <div id="dropzone">
+      <div class="big">drop a photo, tap to choose one, or use your camera</div>
+      <div class="small">jpg / png / heic — your call</div>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" hidden />
+    <div class="btn-row">
+      <button id="cameraBtn" class="ghost" type="button">📷 use camera</button>
+    </div>
+
+    <div id="videoWrap">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="btn-row">
+        <button id="captureBtn" type="button">capture</button>
+        <button id="cancelCameraBtn" class="ghost" type="button">cancel</button>
+      </div>
+    </div>
+
+    <div id="resultWrap">
+      <canvas id="stage"></canvas>
+      <div class="controls">
+        <div class="field">
+          <label>focal length <b id="focalVal">85mm</b></label>
+          <input type="range" id="focal" min="24" max="135" step="1" value="85" />
+          <div id="focalNote"></div>
+        </div>
+        <div class="toggles">
+          <label><input type="checkbox" id="flipToggle" checked /> mirror-flip (how you actually see yourself)</label>
+          <label><input type="checkbox" id="glowToggle" checked /> warm bathroom light</label>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="anotherBtn" class="ghost" type="button">try another photo</button>
+        <button id="downloadBtn" type="button">download</button>
+      </div>
+      <div class="share">
+        <div class="btn-row">
+          <a id="shareBluesky" class="link-btn" target="_blank" rel="noopener">🦋 share to bluesky</a>
+          <button id="shareNative" class="ghost" type="button" style="display:none;">share</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    a bathroom-mirror-flattery machine, courtesy of @buildthis.bisks.net for
+    @7778777.online. no photo ever touches a server —
+    <a href="https://bisks.net/">more atprotozoa experiments</a>.
+  </footer>
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script>
+const MOUNT = "/mirrormode";
+const SITE_URL = "https://bisks.net" + MOUNT + "/";
+const WORK_SIZE = 640; // longest side of the working canvas, in px
+
+const els = {
+  dropzone: document.getElementById("dropzone"),
+  fileInput: document.getElementById("fileInput"),
+  cameraBtn: document.getElementById("cameraBtn"),
+  videoWrap: document.getElementById("videoWrap"),
+  video: document.getElementById("video"),
+  captureBtn: document.getElementById("captureBtn"),
+  cancelCameraBtn: document.getElementById("cancelCameraBtn"),
+  resultWrap: document.getElementById("resultWrap"),
+  stage: document.getElementById("stage"),
+  focal: document.getElementById("focal"),
+  focalVal: document.getElementById("focalVal"),
+  focalNote: document.getElementById("focalNote"),
+  flipToggle: document.getElementById("flipToggle"),
+  glowToggle: document.getElementById("glowToggle"),
+  anotherBtn: document.getElementById("anotherBtn"),
+  downloadBtn: document.getElementById("downloadBtn"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+};
+
+let sourceCanvas = null; // fixed-size working copy of whatever photo was loaded
+let stream = null;       // active getUserMedia stream, if camera is open
+let renderQueued = false;
+let lastShareText = "";
+
+// --- focal-length labels -------------------------------------------------
+
+function focalNote(f) {
+  if (f < 33) return "ultra-wide — full selfie-cam funhouse mirror";
+  if (f < 50) return "wide — this is what your phone's front camera actually shoots at";
+  if (f < 71) return "normal — roughly what your own eye sees";
+  if (f < 101) return "short telephoto — classic flattering portrait lens";
+  return "telephoto — bathroom-mirror-from-across-the-room territory";
+}
+
+// --- loading a photo into a fixed-size working canvas --------------------
+
+function setSourceFromDrawable(drawable, naturalW, naturalH) {
+  const scale = Math.min(1, WORK_SIZE / Math.max(naturalW, naturalH));
+  const w = Math.max(1, Math.round(naturalW * scale));
+  const h = Math.max(1, Math.round(naturalH * scale));
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  c.getContext("2d").drawImage(drawable, 0, 0, w, h);
+  sourceCanvas = c;
+  els.videoWrap.classList.remove("show");
+  els.resultWrap.classList.add("show");
+  scheduleRender();
+}
+
+function loadFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  const img = new Image();
+  img.onload = () => setSourceFromDrawable(img, img.naturalWidth, img.naturalHeight);
+  img.src = URL.createObjectURL(file);
+}
+
+els.dropzone.addEventListener("click", () => els.fileInput.click());
+els.fileInput.addEventListener("change", () => loadFile(els.fileInput.files[0]));
+["dragover", "dragenter"].forEach((ev) =>
+  els.dropzone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    els.dropzone.classList.add("drag");
+  })
+);
+["dragleave", "drop"].forEach((ev) =>
+  els.dropzone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    els.dropzone.classList.remove("drag");
+  })
+);
+els.dropzone.addEventListener("drop", (e) => {
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  loadFile(file);
+});
+
+// --- camera capture -------------------------------------------------------
+
+els.cameraBtn.addEventListener("click", async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    els.video.srcObject = stream;
+    els.videoWrap.classList.add("show");
+  } catch (err) {
+    alert("couldn't open the camera (" + err.message + ") — try uploading a photo instead.");
+  }
+});
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+  els.videoWrap.classList.remove("show");
+}
+
+els.cancelCameraBtn.addEventListener("click", stopCamera);
+
+els.captureBtn.addEventListener("click", () => {
+  const w = els.video.videoWidth, h = els.video.videoHeight;
+  if (!w || !h) return;
+  setSourceFromDrawable(els.video, w, h);
+  stopCamera();
+});
+
+els.anotherBtn.addEventListener("click", () => {
+  sourceCanvas = null;
+  els.resultWrap.classList.remove("show");
+  els.fileInput.value = "";
+});
+
+// --- the actual focal-length warp -----------------------------------------
+//
+// A radial remap, not a real optical simulation: wide focal lengths shot up
+// close magnify whatever's nearest the lens (your nose, the center of the
+// frame) relative to the edges (your ears, the background) — that's the
+// "selfie distortion" everyone half-recognizes. Longer focal lengths shot
+// from further away (a mirror across the room) compress that difference
+// back down, which reads as flatter and more even. We fake the same shape
+// with r_src = r_dest ^ (1/p), where p < 1 magnifies the center and p > 1
+// compresses it — p = 1 at 85mm is left untouched.
+function warp(ctxData, w, h, focal, flip) {
+  const p = 1 + ((focal - 85) / 85) * 0.6;
+  const invP = 1 / p;
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) / 2;
+  const src = ctxData.data;
+  const out = new Uint8ClampedArray(src.length);
+
+  for (let y = 0; y < h; y++) {
+    const ddy = y - cy;
+    for (let x = 0; x < w; x++) {
+      const ddx = x - cx;
+      const destR = Math.sqrt(ddx * ddx + ddy * ddy) / R;
+      let sx, sy;
+      if (destR < 1e-6) {
+        sx = cx; sy = cy;
+      } else {
+        const srcR = Math.pow(destR, invP);
+        const scale = srcR / destR;
+        sx = cx + ddx * scale;
+        sy = cy + ddy * scale;
+      }
+      if (flip) sx = (w - 1) - sx;
+      let sxi = Math.round(sx);
+      let syi = Math.round(sy);
+      if (sxi < 0) sxi = 0; else if (sxi > w - 1) sxi = w - 1;
+      if (syi < 0) syi = 0; else if (syi > h - 1) syi = h - 1;
+      const si = (syi * w + sxi) * 4;
+      const di = (y * w + x) * 4;
+      out[di] = src[si];
+      out[di + 1] = src[si + 1];
+      out[di + 2] = src[si + 2];
+      out[di + 3] = src[si + 3];
+    }
+  }
+  return new ImageData(out, w, h);
+}
+
+function applyBathroomLight(canvas) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+
+  // soft glow: a blurred copy of the frame, screened back on top
+  const blurCanvas = document.createElement("canvas");
+  blurCanvas.width = w; blurCanvas.height = h;
+  const bctx = blurCanvas.getContext("2d");
+  bctx.filter = "blur(6px) brightness(1.05)";
+  bctx.drawImage(canvas, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = 0.28;
+  ctx.drawImage(blurCanvas, 0, 0);
+  ctx.restore();
+
+  // warm vanity-light wash
+  ctx.save();
+  ctx.globalCompositeOperation = "soft-light";
+  ctx.globalAlpha = 0.55;
+  const warm = ctx.createRadialGradient(w / 2, h * 0.35, 0, w / 2, h * 0.35, Math.max(w, h) * 0.75);
+  warm.addColorStop(0, "#ffdcb0");
+  warm.addColorStop(1, "#2a140c");
+  ctx.fillStyle = warm;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+
+  // gentle vignette
+  ctx.save();
+  ctx.globalCompositeOperation = "multiply";
+  const vig = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vig.addColorStop(0, "#ffffff");
+  vig.addColorStop(1, "#3a2418");
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+function render() {
+  renderQueued = false;
+  if (!sourceCanvas) return;
+  const w = sourceCanvas.width, h = sourceCanvas.height;
+  const srcCtx = sourceCanvas.getContext("2d");
+  const data = srcCtx.getImageData(0, 0, w, h);
+
+  const focal = Number(els.focal.value);
+  const warped = warp(data, w, h, focal, els.flipToggle.checked);
+
+  els.stage.width = w;
+  els.stage.height = h;
+  const stageCtx = els.stage.getContext("2d");
+  stageCtx.putImageData(warped, 0, 0);
+
+  if (els.glowToggle.checked) applyBathroomLight(els.stage);
+
+  els.focalVal.textContent = focal + "mm";
+  els.focalNote.textContent = focalNote(focal);
+
+  updateShare(focal);
+}
+
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(render);
+}
+
+els.focal.addEventListener("input", scheduleRender);
+els.flipToggle.addEventListener("change", scheduleRender);
+els.glowToggle.addEventListener("change", scheduleRender);
+
+// --- sharing ---------------------------------------------------------------
+
+function buildShareText(focal) {
+  const note = focalNote(focal);
+  return "ran my photo through mirrormode at " + focal + "mm (" + note + ") — " + SITE_URL;
+}
+
+function buildShareCard(focal) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#150d0a";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.85, H * 0.1, 0, W * 0.85, H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#4a2c14");
+  glow.addColorStop(1, "rgba(21,13,10,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // the photo itself, cropped square, on the left
+  const photoSize = H - 120;
+  const px = 60, py = 60;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(px, py, photoSize, photoSize, 16);
+  ctx.clip();
+  const sw = els.stage.width, sh = els.stage.height;
+  const side = Math.min(sw, sh);
+  ctx.drawImage(els.stage, (sw - side) / 2, (sh - side) / 2, side, side, px, py, photoSize, photoSize);
+  ctx.restore();
+  ctx.strokeStyle = "#3d2a1f";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(px, py, photoSize, photoSize, 16);
+  ctx.stroke();
+
+  const textX = px + photoSize + 50;
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb37a";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("mirrormode", textX, 130);
+
+  ctx.fillStyle = "#fbeee0";
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText(focal + "mm", textX, 195);
+
+  ctx.fillStyle = "#c9a888";
+  ctx.font = `400 18px ${mono}`;
+  wrapCanvasText(ctx, focalNote(focal), textX, 235, W - textX - 60, 26);
+
+  ctx.fillStyle = "#ff8fae";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("bisks.net/mirrormode", textX, H - 60);
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const word of words) {
+    const test = line ? line + " " + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, cy);
+      line = word;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+function updateShare(focal) {
+  lastShareText = buildShareText(focal);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard(focal);
+}
+
+els.downloadBtn.addEventListener("click", () => {
+  els.stage.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "mirrormode-" + els.focal.value + "mm.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "mirrormode.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "mirrormode" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+</script>
+</body>
+</html>
