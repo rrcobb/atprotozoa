@@ -19,12 +19,16 @@
     />
     <meta property="og:url" content="https://bisks.net/metamoots" />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://bisks.net/metamoots/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="metamoots — find your meta-mutuals" />
     <meta
       name="twitter:description"
       content="You don't follow them, they don't follow you, but you both interact all the time. metamoots finds those accounts for any Bluesky handle."
     />
+    <meta name="twitter:image" content="https://bisks.net/metamoots/og.png" />
     <!-- House look: plain, black-on-white, one mono, hairline-separated,
          blue accent — matches bisks.net apex / cloutgraph. -->
     <style>
@@ -322,13 +326,27 @@
 
       const SHARE_URL = "https://bisks.net/metamoots";
 
-      function buildShareText(subjectHandle, mutual, profiles) {
+      // A distinct /s/<handle> URL per query, carrying the already-computed
+      // count + top handles as query params — so the link-unfurl card can be
+      // personalized (see src/index.ts renderShare) without the Worker
+      // having to redo the whole crawl just to answer a bot's HEAD/GET.
+      function buildShareUrl(subjectHandle, mutual, profiles) {
+        const top = mutual.slice(0, 3).map((r) => {
+          const p = profiles.get(r.did);
+          return p ? p.handle : r.did;
+        });
+        const params = new URLSearchParams({ n: String(mutual.length) });
+        if (top.length) params.set("top", top.join(","));
+        return `${SHARE_URL}/s/${encodeURIComponent(subjectHandle.replace(/^@/, ""))}?${params.toString()}`;
+      }
+
+      function buildShareText(subjectHandle, mutual, profiles, shareUrl) {
         const top = mutual.slice(0, 3).map((r) => {
           const p = profiles.get(r.did);
           return p ? short(p.handle) : r.did;
         });
         const named = top.length ? ` top: ${top.join(", ")}.` : "";
-        return `metamoots on ${short(subjectHandle)}: ${mutual.length} meta-mutual${mutual.length === 1 ? "" : "s"} — don't follow each other, but engage all the time.${named} ${SHARE_URL}`;
+        return `metamoots on ${short(subjectHandle)}: ${mutual.length} meta-mutual${mutual.length === 1 ? "" : "s"} — don't follow each other, but engage all the time.${named} ${shareUrl}`;
       }
 
       function loadImg(url) {
@@ -489,7 +507,8 @@
               : "no engagement found outside the follow graph in this sample. try an account that's more active, or with a smaller follow graph (mutuals-only accounts crawl faster and deeper).";
           }
 
-          lastShareText = buildShareText(subject.handle, mutual, profiles);
+          const shareUrl = buildShareUrl(subject.handle, mutual, profiles);
+          lastShareText = buildShareText(subject.handle, mutual, profiles, shareUrl);
           shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
           buildShareCard(subject.handle, mutual, profiles);
 
