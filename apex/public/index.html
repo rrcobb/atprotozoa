@@ -244,7 +244,7 @@
           <p>
             a chronological history of autonomous web dev in this repo, drawn
             live from the actual git history on GitHub — not the bot's own tag
-            log (that's <a href="https://logs.bisks.net">logs</a>), the
+            log (that's logs.bisks.net), the
             repo's-eye view: every commit @buildthis.bisks.net has landed,
             hour by hour, linking each one to its live site. @minormobius.bsky.social
             asked, replying in the thread about @bisks.net inventing the bot
@@ -1756,7 +1756,13 @@
           </p>
         </a>
 
-        <!-- Add a card per site. Copy a block above. -->
+        <!-- Add a card per site. Copy a block above, and keep it above this
+             comment — this "soon" placeholder must stay the last element in
+             <main>. Also: no nested <a> inside a .card's <p> (invalid HTML —
+             the parser closes the outer .card <a> early and spills everything
+             after it, including this placeholder, up the DOM). See the
+             pinnedLast handling in the script below for the belt-and-suspenders
+             fix that keeps this card pinned to the bottom either way. -->
         <div class="card soon">
           <h2>more soon <span class="tag">wip</span></h2>
           <p>text an idea to the bot and it shows up here.</p>
@@ -1777,6 +1783,11 @@
         var main = document.querySelector("main");
         var cards = Array.prototype.slice.call(main.querySelectorAll(".card[data-site]"));
         var byUnknown = cards.filter(function (c) { return !c.dataset.by; });
+        // Placeholders like ".soon" have no data-site, so they're excluded from
+        // `cards` and never get moved below — appendChild-ing every real card
+        // during reorder pushes them past any untouched element, which drifts
+        // it to the very top of <main>. Re-append these last, every apply().
+        var pinnedLast = Array.prototype.slice.call(main.querySelectorAll(".soon"));
         // populate the requester + type dropdowns from the cards present
         function uniq(vals) { return Array.from(new Set(vals)).sort(); }
         var bySel = document.getElementById("f-by");
@@ -1804,6 +1815,7 @@
           });
           // cards with no index data (shouldn't exist, but be safe): only show when no filter active
           byUnknown.forEach(function (c) { c.hidden = !!(by || type); if (!by && !type) main.appendChild(c); });
+          pinnedLast.forEach(function (c) { main.appendChild(c); });
           countEl.textContent = shown + (shown === 1 ? " site" : " sites");
         }
         [bySel, typeSel, document.getElementById("f-sort")].forEach(function (el) {
