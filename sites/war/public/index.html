@@ -158,7 +158,10 @@
         game below — and be excellent to each other about it. The game ref
         (<a href="https://bsky.app/profile/antiali.as" target="_blank" rel="noopener">@antiali.as</a>)
         can roll the whole thing back to any earlier ruleset or build if a
-        change goes sideways.
+        change goes sideways. And the ref answers to a super-ref
+        (<a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>),
+        who can set the house rules the ref's <i>own</i> games run under —
+        same power, one level up.
       </p>
 
       <div id="signin-box"></div>
@@ -182,11 +185,13 @@
 
       const ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"; // @bisks.net — site admin
       const GAME_REF_DID = "did:plc:cp5hnfgqbgjdbizyqyp4zgdl"; // @antiali.as — this game's ref; asked for the role themselves
+      const SUPER_REF_DID = "did:plc:mssgex5rqek4wc66wgvzztbc"; // @norvid-studies.bsky.social — super-ref: sets the ruleset the ref plays under, one level up from the ref's own power over everyone else
       const APPVIEW = "https://public.api.bsky.app";
       const STATE_COLLECTION = "net.bisks.war.state";
       const STATE_RKEY = "self";
       const RULESET_COLLECTION = "net.bisks.war.ruleset";
       const RULESET_RKEY = "current";
+      const REF_RULESET_RKEY = "for-ref"; // written in the super-ref's OWN repo — the ruleset imposed on the game ref
       const LOG_LINES = 30; // cap so the PDS record doesn't grow unbounded across a long game
       const ASK_LINES = 5; // cap on the "your buildthis asks" log kept in your own state record
       const BUILDLOG_URL = "./buildlog.json";
@@ -198,10 +203,12 @@
       let eligible = false;
       let isAdmin = false; // @bisks.net — site admin
       let isRef = false; // @antiali.as — this game's ref
+      let isSuperRef = false; // @norvid-studies.bsky.social — sets the ruleset the ref plays under
       let state = null; // net.bisks.war.state value
-      let ruleset = null; // { rules, source, history } — source: "you" | "admin" | "default"
+      let ruleset = null; // { rules, source, history } — source: "you" | "admin" | "superref" | "default"
       let adminRuleset = null; // @bisks.net's baseline ruleset, fetched separately so stewards can restore it explicitly
       let buildlog = []; // prior deployed builds of this site, for the game ref's "restore a build" lane
+      let refRuleset = null; // the super-ref's own "for-ref" record — what they're currently imposing on the game ref, for the super-ref panel
       let autoplayTimer = null;
 
       async function boot() {
@@ -336,6 +343,20 @@
       // write your own — so from then on your games use your own copy.
 
       async function loadRuleset() {
+        // The game ref plays under whatever the super-ref has imposed, if
+        // anything — that override outranks even the ref's own saved rules,
+        // same as the ref's own restore power outranks a regular player's.
+        if (session.did === GAME_REF_DID) {
+          try {
+            const superRefPds = await resolvePds(SUPER_REF_DID);
+            if (superRefPds) {
+              const rec = await getRecord(superRefPds, SUPER_REF_DID, RULESET_COLLECTION, REF_RULESET_RKEY);
+              return { rules: normalizeRules(rec.value), source: "superref", history: rec.value?.history || [] };
+            }
+          } catch (e) {
+            if (e.status && e.status !== 400) throw e; // real error, not just "no override on file"
+          }
+        }
         try {
           const rec = await getRecord(session.pdsUrl, session.did, RULESET_COLLECTION, RULESET_RKEY);
           return { rules: normalizeRules(rec.value), source: "you", history: rec.value?.history || [] };
@@ -367,6 +388,19 @@
           const rec = await getRecord(robPds, ROB_DID, RULESET_COLLECTION, RULESET_RKEY);
           return { rules: normalizeRules(rec.value), history: rec.value?.history || [] };
         } catch {
+          return null;
+        }
+      }
+
+      // The super-ref's own copy of what they're imposing on the ref — lives
+      // in the super-ref's OWN repo (atproto only lets you write your own),
+      // read back here just so their panel can show/prefill the current ask.
+      async function loadRefImposedRuleset() {
+        try {
+          const rec = await getRecord(session.pdsUrl, session.did, RULESET_COLLECTION, REF_RULESET_RKEY);
+          return { rules: normalizeRules(rec.value), note: rec.value?.note || "", updatedAt: rec.value?.updatedAt };
+        } catch (e) {
+          if (e.status && e.status !== 400) throw e;
           return null;
         }
       }
@@ -406,6 +440,30 @@
         ruleset = { rules: newRules, source: "you", history };
       }
 
+      // Writes to the super-ref's OWN repo — this is what makes it real
+      // rather than a suggestion: the game ref's loadRuleset() above reads
+      // this exact record straight off the super-ref's PDS and it wins.
+      async function saveRefRuleset(newRules, note) {
+        const record = { $type: RULESET_COLLECTION, ...newRules, note: note || "", updatedAt: new Date().toISOString() };
+        const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: RULESET_COLLECTION, rkey: REF_RULESET_RKEY, record }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        refRuleset = { rules: newRules, note: note || "", updatedAt: record.updatedAt };
+      }
+
+      async function clearRefRuleset() {
+        const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: RULESET_COLLECTION, rkey: REF_RULESET_RKEY }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        refRuleset = null;
+      }
+
       // Records that you tagged @buildthis.bisks.net for something — this is
       // what makes the mention itself part of your game rather than a
       // fire-and-forget popup: it shows up in your own log below, same as a
@@ -419,9 +477,11 @@
         [eligible, state, ruleset] = await Promise.all([checkEligible(session.did), loadState(), loadRuleset()]);
         isAdmin = session.did === ROB_DID;
         isRef = session.did === GAME_REF_DID;
-        [adminRuleset, buildlog] = await Promise.all([
+        isSuperRef = session.did === SUPER_REF_DID;
+        [adminRuleset, buildlog, refRuleset] = await Promise.all([
           isAdmin || isRef ? loadAdminRuleset() : Promise.resolve(null),
           isAdmin || isRef ? loadBuildlog() : Promise.resolve([]),
+          isSuperRef ? loadRefImposedRuleset() : Promise.resolve(null),
         ]);
       }
 
@@ -527,7 +587,11 @@
 
       function renderRules() {
         const r = ruleset.rules;
-        const srcLabel = ruleset.source === "you" ? "your rules" : ruleset.source === "admin" ? "@bisks.net's defaults" : "built-in defaults";
+        const srcLabel =
+          ruleset.source === "you" ? "your rules" :
+          ruleset.source === "admin" ? "@bisks.net's defaults" :
+          ruleset.source === "superref" ? "set by @norvid-studies.bsky.social (your super-ref)" :
+          "built-in defaults";
         const chips = RULES_CATALOG.map((c) => `<span class="ruleset-chip">${esc(c.label)}: ${esc(ruleLabel(c.key, r[c.key]))}</span>`).join("");
 
         let form = "";
@@ -584,8 +648,10 @@
 
         // The ref's reset powers aren't contingent on staying a bisks.net
         // mutual — being the game ref is its own standing, separate from
-        // general buildthis-eligibility.
+        // general buildthis-eligibility. Same goes for the super-ref, one
+        // level up.
         const steward = isAdmin || isRef ? renderStewardTools() : "";
+        const superRefPanel = isSuperRef ? renderSuperRefTools() : "";
 
         return `
           <section class="panel">
@@ -593,7 +659,52 @@
             <p class="ruleset-summary">${chips}<span class="src">${esc(srcLabel)}</span></p>
             ${form}
             ${steward}
+            ${superRefPanel}
           </section>`;
+      }
+
+      // The super-ref's power is narrow and specific — set the ruleset that
+      // @antiali.as's (the game ref's) OWN games run under — not the ref's
+      // broader powers over everyone else's rules or the site's build.
+      function renderSuperRefTools() {
+        const current = refRuleset;
+        const fields = RULES_CATALOG.map(
+          (c) => `
+          <label class="field">
+            <span>${esc(c.label)}${c.hint ? ` — ${esc(c.hint)}` : ""}</span>
+            <select name="${c.key}">
+              ${c.options
+                .map((o) => `<option value="${esc(o.value)}" ${o.value === (current ? current.rules[c.key] : DEFAULT_RULES[c.key]) ? "selected" : ""}>${esc(o.label)}</option>`)
+                .join("")}
+            </select>
+          </label>`,
+        ).join("");
+        const currentSummary = current
+          ? `<p class="ruleset-summary">currently imposing: ${RULES_CATALOG.map((c) => `<span class="ruleset-chip">${esc(c.label)}: ${esc(ruleLabel(c.key, current.rules[c.key]))}</span>`).join("")}</p>`
+          : `<p class="hint">no rules imposed yet — @antiali.as is still playing on their own.</p>`;
+        return `
+          <details class="rules-form" open>
+            <summary>super-ref tools — you set the rules for @antiali.as</summary>
+            <div class="body">
+              <p class="hint">
+                whatever you save here becomes the ruleset the game ref's
+                <b>own</b> games run under, overriding whatever they'd
+                otherwise pick — the same shape as the ref's own restore
+                power over everyone else, one level up. be excellent to
+                each other about it.
+              </p>
+              ${currentSummary}
+              <form id="ref-rule-form">
+                ${fields}
+                <label class="field"><span>note (optional — why these rules?)</span>
+                  <textarea name="note" placeholder="the ref needed a taste of their own war"></textarea>
+                </label>
+                <button class="block" type="submit">set @antiali.as's rules</button>
+                <p class="status" id="ref-rules-status"></p>
+              </form>
+              ${current ? `<div class="btnrow"><button class="danger tiny" data-action="clear-ref-rules">let @antiali.as choose their own rules again</button></div>` : ""}
+            </div>
+          </details>`;
       }
 
       function renderStewardTools() {
@@ -754,6 +865,10 @@
             const opt = restoreOptions[Number(btn.dataset.idx)];
             if (opt) await saveRuleset({ ...opt.rules }, `restored by ${session.handle} (${roleWord()}): ${opt.label}`);
             render();
+          } else if (action === "clear-ref-rules") {
+            btn.disabled = true;
+            await clearRefRuleset();
+            render();
           } else if (action === "ask-revert-build") {
             const build = (buildlog || []).find((b) => b.id === btn.dataset.buildId);
             const text = `@buildthis.bisks.net war — game ref request: revert war.bisks.net to build "${build?.id || btn.dataset.buildId}" (${build?.note || ""})`;
@@ -780,6 +895,25 @@
           await logAsk("proposal", proposal);
           e.target.reset();
           render();
+          return;
+        }
+        if (e.target.id === "ref-rule-form") {
+          e.preventDefault();
+          const status = $("#ref-rules-status");
+          status.classList.remove("err");
+          status.textContent = "saving…";
+          const fd = new FormData(e.target);
+          const newRules = normalizeRules(Object.fromEntries(RULES_CATALOG.map((c) => [c.key, fd.get(c.key)])));
+          const note = (fd.get("note") || "").toString().slice(0, 300);
+          try {
+            await saveRefRuleset(newRules, note);
+            status.textContent = "saved — @antiali.as's games now run under these rules.";
+            render();
+          } catch (err) {
+            console.error(err);
+            status.textContent = `didn't save: ${err.message.slice(0, 200)}`;
+            status.classList.add("err");
+          }
           return;
         }
         if (e.target.id !== "rules-form") return;
