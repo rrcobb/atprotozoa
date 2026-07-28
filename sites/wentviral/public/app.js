@@ -310,6 +310,31 @@ function countAt(target, tau, t) {
   return Math.floor(base + trickle);
 }
 
+// ---------- post history (local-only "profile") ----------
+// Every post the visitor has composed in this browser, so there's somewhere
+// to revisit them from besides a saved share link. Purely local — nothing
+// leaves the browser, same as the rest of the sim.
+
+const HISTORY_KEY = "wentviral.history";
+const HISTORY_MAX = 60;
+
+function getHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (_) {
+    return [];
+  }
+}
+function addToHistory(entry) {
+  try {
+    const list = getHistory().filter((e) => e.code !== entry.code);
+    list.unshift(entry);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX)));
+  } catch (_) {}
+}
+
 // ---------- own (local-only) interaction state ----------
 
 function ownKey(code) {
@@ -332,19 +357,28 @@ const NAV_ITEMS = [
   { label: "Home", icon: "🏠", href: MOUNT + "/" },
   { label: "Search", icon: "🔎", toast: "search isn't part of the simulation" },
   { label: "Notifications", icon: "🔔", toast: "no real notifications here — everything's on the post page" },
+  { label: "Profile", icon: "👤", href: MOUNT + "/me" },
   { label: "About", icon: "🚀", toast: "wentviral: write a fake post, watch fake people lose it. built by @buildthis.bisks.net" },
 ];
-function renderNav() {
-  const el = document.getElementById("nav-items");
+function navActivePath() {
+  const path = location.pathname.slice(MOUNT.length) || "/";
+  return path === "/me" ? MOUNT + "/me" : MOUNT + "/";
+}
+function renderNavList(el, current) {
   if (!el) return;
   el.innerHTML = NAV_ITEMS.map((item, i) =>
     item.href
-      ? `<a class="nav-item active" href="${esc(item.href)}"><span class="ic">${item.icon}</span><span class="label">${esc(item.label)}</span></a>`
+      ? `<a class="nav-item${item.href === current ? " active" : ""}" href="${esc(item.href)}"><span class="ic">${item.icon}</span><span class="label">${esc(item.label)}</span></a>`
       : `<div class="nav-item" data-toast-idx="${i}"><span class="ic">${item.icon}</span><span class="label">${esc(item.label)}</span></div>`
   ).join("");
   el.querySelectorAll("[data-toast-idx]").forEach((n) => {
     n.addEventListener("click", () => toast(NAV_ITEMS[Number(n.dataset.toastIdx)].toast));
   });
+}
+function renderNav() {
+  const current = navActivePath();
+  renderNavList(document.getElementById("nav-items"), current);
+  renderNavList(document.getElementById("mobile-tabbar"), current);
 }
 function asideHtml() {
   return `
@@ -415,6 +449,7 @@ function renderCompose() {
     const name = nameInput.value.trim();
     const payload = { t: text, c: Date.now(), n: name };
     const code = encodePost(payload);
+    addToHistory({ code, t: payload.t, n: payload.n, c: payload.c });
     location.href = MOUNT + "/p/" + code;
   });
 }
@@ -647,10 +682,74 @@ function renderThread(code) {
   liveTimer = setInterval(updateLive, 2000);
 }
 
+// ---------- profile view (this browser's post history) ----------
+
+function renderProfile() {
+  clearInterval(liveTimer);
+  const persona = getPersona();
+  const meName = (persona.name || "").trim() || "You";
+  const meAvatar = personaAvatar(meName);
+  const meHandle = slugify(meName) + FAKE_TLD;
+  const history = getHistory();
+
+  document.getElementById("main").innerHTML = `
+    <div class="main-header"><h1>Profile</h1><div class="sub">Every post you've made in this browser, still growing.</div></div>
+    <div class="profile-head">
+      <div class="avatar-gen" style="background:${meAvatar.color};width:56px;height:56px;font-size:20px">${esc(meAvatar.initials)}</div>
+      <div>
+        <div class="post-name" style="font-size:17px">${esc(meName)}</div>
+        <div class="post-handle">@${esc(meHandle)}</div>
+      </div>
+    </div>
+    <div class="profile-count">${history.length} post${history.length === 1 ? "" : "s"} simulated on this device</div>
+    <div id="profile-list"></div>
+  `;
+  document.getElementById("aside").innerHTML = asideHtml();
+  renderNav();
+
+  const listEl = document.getElementById("profile-list");
+  if (!history.length) {
+    listEl.innerHTML = `<div class="center-msg"><h2>Nothing here yet</h2><p>Write your first post and it'll show up here.</p><a class="pill-btn primary" href="${MOUNT}/" style="margin-top:14px">✍️ write one</a></div>`;
+    return;
+  }
+
+  listEl.innerHTML = history
+    .map((h) => {
+      const payload = { t: h.t, c: h.c, n: h.n || "" };
+      const sim = buildSim(payload);
+      const own = getOwnState(h.code);
+      const createdSec = Math.floor(h.c / 1000);
+      const t = Math.max(0, nowSec() - createdSec);
+      const likes = countAt(sim.targets.likes, sim.tau.likes, t) + (own.liked ? 1 : 0);
+      const reposts = countAt(sim.targets.reposts, sim.tau.reposts, t) + (own.reposted ? 1 : 0);
+      const replies = countAt(sim.targets.replies, sim.tau.replies, t) + own.replies.length;
+      const name = payload.n.trim() || "You";
+      const handle = slugify(name) + FAKE_TLD;
+      const avatar = personaAvatar(name);
+      return `<a class="post profile-post" href="${MOUNT}/p/${esc(h.code)}">
+      <div class="avatar-gen" style="background:${avatar.color}">${esc(avatar.initials)}</div>
+      <div class="post-body">
+        <div class="post-head"><span class="post-name">${esc(name)}</span><span class="post-handle">@${esc(handle)}</span><span class="post-dot">·</span><span class="post-time">${fmtAgo(t)}</span></div>
+        <div class="post-text">${esc(truncate(h.t, 200))}</div>
+        <div class="post-actions">
+          <div class="act reply"><span class="icon">💬</span><span>${fmtCount(replies)}</span></div>
+          <div class="act repost"><span class="icon">🔁</span><span>${fmtCount(reposts)}</span></div>
+          <div class="act like"><span class="icon">❤️</span><span>${fmtCount(likes)}</span></div>
+        </div>
+      </div>
+    </a>`;
+    })
+    .join("");
+}
+
 // ---------- routing ----------
 
 function route() {
   const path = location.pathname.slice(MOUNT.length) || "/";
+  if (path === "/me" || path === "/me/") {
+    renderProfile();
+    return;
+  }
   const m = path.match(/^\/p\/([^/]+)\/?$/);
   if (m) renderThread(m[1]);
   else renderCompose();
