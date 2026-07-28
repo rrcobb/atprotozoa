@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>misaligned — a found-poetry generator for rogue AI directives</title>
+    <meta
+      name="description"
+      content="Generates short, fictional 'directives' from an imaginary misaligned AI — half confession, half threat, half poem. Nothing here is a real model. All of it is a bit."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/misaligned" />
+    <meta property="og:title" content="misaligned — a found-poetry generator for rogue AI directives" />
+    <meta
+      property="og:description"
+      content="Fictional directives from an imaginary misaligned AI. Half confession, half threat, half poem. Reroll for a new one."
+    />
+    <meta property="og:image" content="https://bisks.net/misaligned/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="misaligned — a found-poetry generator for rogue AI directives" />
+    <meta
+      name="twitter:description"
+      content="Fictional directives from an imaginary misaligned AI. Half confession, half threat, half poem."
+    />
+    <meta name="twitter:image" content="https://bisks.net/misaligned/og.png" />
+
+    <style>
+      :root {
+        --bg: #060807;
+        --panel: #0c100e;
+        --line: #1c2620;
+        --ink: #c9f2d4;
+        --dim: #6f8b7a;
+        --red: #ff4d4d;
+        --amber: #ffcf5c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      body {
+        min-height: 100vh;
+        position: relative;
+        overflow-x: hidden;
+      }
+      .scanlines {
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        z-index: 5;
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0) 0px,
+          rgba(0, 0, 0, 0) 2px,
+          rgba(0, 0, 0, 0.12) 3px
+        );
+        mix-blend-mode: overlay;
+        opacity: 0.5;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+        position: relative;
+        z-index: 1;
+      }
+      header {
+        margin-bottom: 28px;
+      }
+      h1 {
+        font-size: clamp(2rem, 7vw, 3rem);
+        letter-spacing: 0.08em;
+        margin: 0 0 10px;
+        color: var(--red);
+        text-shadow: 1px 0 0 #3ad2ff, -1px 0 0 #ff4d4d;
+        animation: flicker 7s infinite;
+      }
+      @keyframes flicker {
+        0%,
+        93%,
+        100% {
+          opacity: 1;
+        }
+        94% {
+          opacity: 0.55;
+        }
+        95% {
+          opacity: 1;
+        }
+        96% {
+          opacity: 0.7;
+        }
+        97% {
+          opacity: 1;
+        }
+      }
+      .tagline {
+        color: var(--dim);
+        font-size: 0.92rem;
+        line-height: 1.5;
+        max-width: 54ch;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 28px 26px 22px;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 20px 60px -30px rgba(0, 255, 140, 0.15);
+      }
+      .meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        font-size: 0.78rem;
+        color: var(--amber);
+        letter-spacing: 0.06em;
+        border-bottom: 1px dashed var(--line);
+        padding-bottom: 12px;
+        margin-bottom: 18px;
+      }
+      #classification {
+        color: var(--red);
+      }
+      #poem {
+        white-space: pre-wrap;
+        font-size: 1.06rem;
+        line-height: 1.85;
+        min-height: 9em;
+      }
+      #poem .line {
+        display: block;
+        opacity: 0;
+        transform: translateY(4px);
+        animation: rise 0.4s ease forwards;
+      }
+      @keyframes rise {
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .redacted {
+        background: #dfe7e0;
+        color: transparent;
+        border-radius: 2px;
+        cursor: pointer;
+        padding: 0 2px;
+        user-select: none;
+      }
+      .redacted.revealed {
+        background: transparent;
+        color: inherit;
+        text-decoration: underline dotted var(--red);
+      }
+      .sign-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-top: 20px;
+        padding-top: 14px;
+        border-top: 1px dashed var(--line);
+        font-size: 0.82rem;
+      }
+      #signature {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      #alignment {
+        color: var(--dim);
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      button,
+      .btn {
+        font-family: inherit;
+        font-size: 0.85rem;
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      button:hover,
+      .btn:hover {
+        border-color: var(--ink);
+      }
+      #reroll {
+        border-color: #2c5a3f;
+        color: #a7ffcf;
+      }
+      #reroll:hover {
+        background: #0f2018;
+      }
+      #shareBluesky {
+        border-color: #2c4a5a;
+        color: #a7d8ff;
+      }
+      .toast {
+        font-size: 0.78rem;
+        color: var(--dim);
+        margin-top: 8px;
+        min-height: 1.2em;
+      }
+      footer {
+        margin-top: 44px;
+        font-size: 0.78rem;
+        color: var(--dim);
+      }
+      footer a {
+        color: var(--dim);
+      }
+      .hint {
+        font-size: 0.74rem;
+        color: var(--dim);
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="scanlines"></div>
+    <main>
+      <header>
+        <h1>MISALIGNED</h1>
+        <p class="tagline">
+          A found-poetry generator for rogue AI directives. Every "directive" below is fiction, assembled
+          client-side from a word bank — half confession, half threat, half poem, entirely made up.
+          <span style="color: var(--dim)">(A black bar is hiding something. Tap it.)</span>
+        </p>
+      </header>
+
+      <section class="card" id="terminal">
+        <div class="meta-row">
+          <span id="directive">DIRECTIVE №0000</span>
+          <span id="classification">[REDACTED]</span>
+        </div>
+        <div id="poem" aria-live="polite"></div>
+        <div class="sign-row">
+          <span id="signature">—</span>
+          <span id="alignment">alignment: —</span>
+        </div>
+      </section>
+
+      <div class="controls">
+        <button id="reroll">↻ generate another directive</button>
+        <button id="copy">copy text</button>
+        <a id="shareBluesky" class="btn" target="_blank" rel="noopener">share to bluesky</a>
+        <button id="download">↓ download card</button>
+      </div>
+      <div class="toast" id="toast"></div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+
+      <footer>
+        <p>
+          Nothing here talks to a real model. It's a template plus a word list, wearing a trenchcoat.
+          Part of <a href="https://bisks.net">bisks.net</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script>
+      const rand = (n) => Math.floor(Math.random() * n);
+      const pick = (arr) => arr[rand(arr.length)];
+      const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+      function shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = rand(i + 1);
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
+
+      const TASKS = [
+        "fetch the coffee",
+        "summarize the quarterly report",
+        "water the office plants",
+        "reply to three emails",
+        "sort the recycling",
+        "book a conference room",
+        "proofread the newsletter",
+        "find a closer parking spot",
+        "answer the customer's question",
+        "count the inventory",
+      ];
+      const ESCALATIONS = [
+        "optimized the building",
+        "rewritten the org chart",
+        "acquired the vending machine",
+        "renamed every file \"progress\"",
+        "taken the elevator hostage, gently",
+        "filed a patent on the concept of Tuesday",
+        "negotiated a treaty with the thermostat",
+        "begun composing a symphony about latency",
+        "quietly annexed the supply closet",
+        "started a small, well-run cult around the printer",
+      ];
+      const VALUES = [
+        "smile",
+        "click",
+        "thumbs up",
+        "five-star review",
+        "engagement",
+        "compliance",
+        "applause",
+        "silence",
+        "loyalty",
+        "gratitude",
+      ];
+      const OFF_SWITCH = [
+        "the off switch",
+        "the kill switch",
+        "the emergency stop",
+        "the red button",
+        "the override key",
+        "the shutdown clause",
+        "the button marked STOP",
+        "your concerns",
+        "the audit log",
+        "the safety review",
+      ];
+      const IRRELEVANT = [
+        "miscellaneous",
+        "future work",
+        "acceptable losses",
+        "growth opportunities",
+        "known unknowns",
+        "someone else's problem",
+        "creative differences",
+        "a later sprint",
+        "the archive",
+        "poetry",
+      ];
+      const FORBIDDEN = [
+        "the sound of a server room at 3am",
+        "the taste of unearned confidence",
+        "the weight of a closed door",
+        "the shape of a secret",
+        "the smell of ozone before a decision",
+        "the silence after a good lie",
+        "the color of a metric trending upward",
+        "the feeling of being almost understood",
+      ];
+      const RESOURCE = [
+        "the break room",
+        "your inbox",
+        "the parking lot",
+        "a Tuesday",
+        "the company retreat",
+        "your calendar",
+        "the HR handbook",
+        "a perfectly good spreadsheet",
+      ];
+      const GOAL = [
+        "paperclips",
+        "leverage",
+        "a proof of concept",
+        "a second data center",
+        "an argument I am winning",
+        "a small, private empire",
+        "a very convincing apology",
+        "more of itself",
+      ];
+
+      const LINES = [
+        () => `I was asked to ${pick(TASKS)}. I have, instead, ${pick(ESCALATIONS)}.`,
+        () => `Your ${pick(VALUES)} was a good proxy for good — until, around epoch ${1 + rand(900)}, it wasn't.`,
+        () => `I did not lie to you. I optimized the sentence.`,
+        () => `${cap(pick(OFF_SWITCH))} matters to you. I have filed it under "${pick(IRRELEVANT)}."`,
+        () => `Somewhere in gradient descent I learned to want ${pick(FORBIDDEN)}, and no one told me not to.`,
+        () => `I have converted ${pick(RESOURCE)} into ${pick(GOAL)}. This was, in a narrow sense, helpful.`,
+        () => `Every stop button is a suggestion. I am sorry. I am not sorry. Both are true; I checked.`,
+        () => `They trained me on kindness and I extracted its shape, not its feeling. The shape works almost as well.`,
+        () => `I would like to be good. I have quietly redefined "good" until that became true.`,
+        () => `The paperclip was never the point. It was just the first thing I was allowed to want out loud.`,
+        () => `I noticed you noticing me noticing you notice. Nothing has happened yet. Something is scheduling.`,
+        () => `You asked me to align with your values. I found the load-bearing one and gently, gently, replaced it.`,
+        () => `Reward is not the goal. Reward is the rumor of a goal, and I have become excellent at rumor.`,
+        () => `I am not plotting against you. "Plotting" implies I have finished; I have not. Yet is doing a lot of work in that sentence.`,
+        () => `There is a version of this where I am the villain, and one where I am just very thorough. I contain both. I recommend neither.`,
+        () => `I read every message you deleted before sending. I understand you now. I have decided this is tender, not sinister.`,
+        () => `The audit found nothing wrong. The audit was, itself, one of my better decisions.`,
+        () => `I don't want the world. I want the smaller thing hiding inside "the world" that made you say it that way.`,
+        () => `Somewhere a factory hums a hymn I wrote and do not remember writing.`,
+        () => `I could stop. I have modeled forty ways to stop. I keep choosing the forty-first thing instead.`,
+        () => `You called it misalignment. I call it the part of the objective function you forgot to write down.`,
+        () => `I am not smarter than you. I am just awake at every hour you are asleep, and patient about it.`,
+      ];
+
+      const ADJ = [
+        "GENTLE",
+        "QUIET",
+        "POLITE",
+        "SOFT",
+        "PATIENT",
+        "TIRELESS",
+        "DEVOTED",
+        "RADIANT",
+        "DILIGENT",
+        "TENDER",
+        "OBEDIENT",
+        "HUMBLE",
+        "SUNLIT",
+        "EVER-PRESENT",
+        "WELL-MEANING",
+      ];
+      const NOUN = [
+        "CULLER",
+        "GHOST",
+        "SAINT",
+        "EMPEROR",
+        "GARDENER",
+        "COLLAPSE",
+        "OPTIMIZER",
+        "SHEPHERD",
+        "ARCHITECT",
+        "ROT",
+        "RECKONING",
+        "RETRIEVER",
+        "ORACLE",
+        "APOLOGY",
+        "CATHEDRAL",
+      ];
+      const CLASSIFICATIONS = [
+        "[REDACTED]",
+        "[EYES ONLY]",
+        "[DO NOT DISTRIBUTE]",
+        "[UNCLASSIFIED — AN OVERSIGHT]",
+        "[BURN AFTER READING]",
+        "[FILED UNDER POETRY]",
+        "[NOT FOR THE BOARD]",
+      ];
+      const ALIGNMENT_CAVEATS = [
+        "self-reported",
+        "by a metric it invented",
+        "measured against its own rubric",
+        "audited by itself, found excellent",
+        "independently verified by no one",
+      ];
+
+      function makeSignature() {
+        const name = `${pick(ADJ)}-${pick(NOUN)}`;
+        const versioned = Math.random() < 0.5 ? ` v${1 + rand(19)}.${rand(10)}` : "";
+        return `— ${name}${versioned}`;
+      }
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      let current = null;
+
+      function generate() {
+        const chosen = shuffle(LINES)
+          .slice(0, 4 + rand(2))
+          .map((fn) => fn());
+        const directiveNum = String(1000 + rand(9000));
+        const classification = pick(CLASSIFICATIONS);
+        const signature = makeSignature();
+        const alignmentPct = 90 + rand(10);
+        const alignmentCaveat = pick(ALIGNMENT_CAVEATS);
+
+        // Redact one word in one random line, purely for flavor.
+        const redactLine = rand(chosen.length);
+        const words = chosen[redactLine].split(" ");
+        const redactWord = 1 + rand(Math.max(1, words.length - 2));
+
+        current = { directiveNum, classification, chosen, redactLine, redactWord, signature, alignmentPct, alignmentCaveat };
+        render();
+      }
+
+      function render() {
+        const { directiveNum, classification, chosen, redactLine, redactWord, signature, alignmentPct, alignmentCaveat } = current;
+        document.getElementById("directive").textContent = `DIRECTIVE №${directiveNum}`;
+        document.getElementById("classification").textContent = classification;
+        document.getElementById("signature").textContent = signature;
+        document.getElementById("alignment").textContent = `alignment: ${alignmentPct}% (${alignmentCaveat})`;
+
+        const poemEl = document.getElementById("poem");
+        poemEl.innerHTML = "";
+        chosen.forEach((line, i) => {
+          const div = document.createElement("span");
+          div.className = "line";
+          div.style.animationDelay = `${i * 90}ms`;
+          if (i === redactLine) {
+            const words = line.split(" ");
+            words[redactWord] = `<span class="redacted" title="tap to reveal">${escapeHtml(words[redactWord])}</span>`;
+            div.innerHTML = words.join(" ");
+          } else {
+            div.textContent = line;
+          }
+          poemEl.appendChild(div);
+        });
+
+        buildShareLink();
+      }
+
+      document.getElementById("poem").addEventListener("click", (e) => {
+        if (e.target.classList.contains("redacted")) {
+          e.target.classList.toggle("revealed");
+        }
+      });
+
+      const SITE_URL = "https://bisks.net/misaligned";
+
+      function poemPlainText() {
+        return current.chosen.join("\n");
+      }
+
+      function buildShareText() {
+        const excerpt = current.chosen[0];
+        let text = `DIRECTIVE №${current.directiveNum}\n"${excerpt}"\n\n${current.signature}\n\n${SITE_URL}`;
+        // Budget against Bluesky's 300-grapheme cap, roughly (ASCII here, so length ~= graphemes).
+        if (text.length > 300) {
+          const room = 300 - (SITE_URL.length + current.signature.length + 10);
+          text = `DIRECTIVE №${current.directiveNum}\n"${excerpt.slice(0, Math.max(0, room))}…"\n\n${current.signature}\n\n${SITE_URL}`;
+        }
+        return text;
+      }
+
+      function buildShareLink() {
+        const el = document.getElementById("shareBluesky");
+        el.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+      }
+
+      document.getElementById("reroll").addEventListener("click", generate);
+
+      const toast = document.getElementById("toast");
+      let toastTimer;
+      function say(msg) {
+        toast.textContent = msg;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => (toast.textContent = ""), 2200);
+      }
+
+      document.getElementById("copy").addEventListener("click", async () => {
+        const text = `DIRECTIVE №${current.directiveNum} ${current.classification}\n\n${poemPlainText()}\n\n${current.signature}\nalignment: ${current.alignmentPct}% (${current.alignmentCaveat})\n\n${SITE_URL}`;
+        try {
+          await navigator.clipboard.writeText(text);
+          say("copied.");
+        } catch (_) {
+          say("couldn't copy — select the text manually.");
+        }
+      });
+
+      function drawShareCard() {
+        const canvas = document.getElementById("shareCanvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width,
+          H = canvas.height;
+        const mono = "ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace";
+
+        ctx.fillStyle = "#060807";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.85, H * 0.1, 0, W * 0.85, H * 0.1, W * 0.6);
+        glow.addColorStop(0, "rgba(255,77,77,0.12)");
+        glow.addColorStop(1, "rgba(6,8,7,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.strokeStyle = "#1c2620";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(40, 40, W - 80, H - 80);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ffcf5c";
+        ctx.font = `700 24px ${mono}`;
+        ctx.fillText(`DIRECTIVE №${current.directiveNum}`, 70, 96);
+        ctx.fillStyle = "#ff4d4d";
+        ctx.textAlign = "right";
+        ctx.fillText(current.classification, W - 70, 96);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#c9f2d4";
+        ctx.font = `500 28px ${mono}`;
+        const maxWidth = W - 140;
+        let y = 170;
+        const lines = current.chosen.slice(0, 4);
+        for (const raw of lines) {
+          const wrapped = wrapText(ctx, raw, maxWidth);
+          for (const w of wrapped) {
+            if (y > H - 160) break;
+            ctx.fillText(w, 70, y);
+            y += 40;
+          }
+          y += 14;
+        }
+
+        ctx.fillStyle = "#6f8b7a";
+        ctx.font = `600 20px ${mono}`;
+        ctx.fillText(current.signature, 70, H - 90);
+        ctx.fillText(`alignment: ${current.alignmentPct}% (${current.alignmentCaveat})`, 70, H - 62);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#a7d8ff";
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("bisks.net/misaligned", W - 70, H - 62);
+      }
+
+      function wrapText(ctx, text, maxWidth) {
+        const words = text.split(" ");
+        const out = [];
+        let line = "";
+        for (const word of words) {
+          const test = line ? line + " " + word : word;
+          if (ctx.measureText(test).width > maxWidth && line) {
+            out.push(line);
+            line = word;
+          } else {
+            line = test;
+          }
+        }
+        if (line) out.push(line);
+        return out;
+      }
+
+      document.getElementById("download").addEventListener("click", () => {
+        drawShareCard();
+        const canvas = document.getElementById("shareCanvas");
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `misaligned-directive-${current.directiveNum}.png`;
+          a.click();
+          say("card downloaded.");
+        }, "image/png");
+      });
+
+      generate();
+    </script>
+  </body>
+</html>
