@@ -59,11 +59,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="182" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">you don't follow them, they don't follow you —</text>
   <text x="60" y="206" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">but you both engage all the time.</text>
 
+  <text x="${W - 60}" y="50" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">bisks.net/metamoots</text>
+
   <line x1="60" y1="228" x2="${W - 60}" y2="228" stroke="${INK}" stroke-width="1.5"/>
 
   ${rowsSvg}
-
-  <text x="60" y="${H - 40}" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">bisks.net/metamoots</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));
