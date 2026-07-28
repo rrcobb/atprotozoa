@@ -72,8 +72,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="76" y="192" font-family="JetBrains Mono" font-weight="700" font-size="56" fill="${INK}">the simcluster atlas</text>
   <text x="76" y="238" font-family="JetBrains Mono" font-style="italic" font-size="25" fill="${TEAL}">${esc("every link your mutuals dropped")}</text>
 
-  <text x="76" y="430" font-family="JetBrains Mono" font-size="23" fill="${INK}">type a handle — map its simcluster, itself plus its mutuals —</text>
-  <text x="76" y="464" font-family="JetBrains Mono" font-size="23" fill="${INK}">and see every link the cluster has shared, newest first.</text>
+  <text x="76" y="430" font-family="JetBrains Mono" font-size="23" fill="${INK}">centered on norvid-studies.bsky.social's simcluster —</text>
+  <text x="76" y="464" font-family="JetBrains Mono" font-size="23" fill="${INK}">every link its mutuals have dropped, precomputed and filterable.</text>
 
   <text x="76" y="${H - 62}" text-anchor="start" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${TEAL}">bisks.net/simcluster-atlas</text>
 </svg>`;
