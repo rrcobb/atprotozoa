@@ -291,6 +291,40 @@
         return ctx;
       }
 
+      // atproto records are DAG-CBOR under the hood, which has no float type —
+      // only integer, string, bool, bytes, array, object, null, cid. swing/volume/tone
+      // live in-memory as 0..1-ish floats for the audio math, so scale them to integers
+      // right before writing a record and unscale right after reading one.
+      function encodePatternForPds(p) {
+        return {
+          title: p.title,
+          bpm: Math.round(p.bpm),
+          swing: Math.round(p.swing * 100),
+          layout: p.layout,
+          tracks: p.tracks.map((t) => ({
+            voice: t.voice,
+            steps: t.steps,
+            volume: Math.round(t.volume * 100),
+            tone: Math.round(t.tone * 100),
+          })),
+          ...(p.remixOf ? { remixOf: p.remixOf } : {}),
+        };
+      }
+
+      function decodePatternFromPds(v) {
+        return {
+          ...v,
+          swing: typeof v?.swing === "number" ? v.swing / 100 : v?.swing,
+          tracks: Array.isArray(v?.tracks)
+            ? v.tracks.map((t) => ({
+                ...t,
+                volume: typeof t?.volume === "number" ? t.volume / 100 : t?.volume,
+                tone: typeof t?.tone === "number" ? t.tone / 100 : t?.tone,
+              }))
+            : v?.tracks,
+        };
+      }
+
       function normalizePattern(v) {
         const tracks = Array.isArray(v?.tracks) && v.tracks.length
           ? v.tracks.slice(0, 24).map((t) => ({
