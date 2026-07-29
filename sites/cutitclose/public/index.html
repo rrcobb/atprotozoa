@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>cutitclose — how close can you cut it?</title>
+<meta name="description" content="A choose-your-own-adventure race to the gate. Pick when you leave, how you get there, where you park, which security line you gamble on — then find out if you made the flight, and how close to last call you cut it." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://bisks.net/games/cutitclose/" />
+<meta property="og:title" content="cutitclose — how close can you cut it?" />
+<meta property="og:description" content="A CYOA race to the gate. Choose your route, your parking, your security line — score is how close you land to last call without missing it." />
+<meta property="og:image" content="https://bisks.net/games/cutitclose/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A split-flap departure board reading CUTITCLOSE, LAST CALL, and a boarding gate." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="cutitclose — how close can you cut it?" />
+<meta name="twitter:description" content="A CYOA race to the gate. Choose your route, your parking, your security line — score is how close you land to last call without missing it." />
+<meta name="twitter:image" content="https://bisks.net/games/cutitclose/og.png" />
+
+<style>
+  :root{
+    --bg:#0a0e17; --panel:#10141f; --panel2:#151b29; --ink:#eef1fb; --dim:#7c8aa3;
+    --line:#232b3d; --amber:#ffb238; --amber-deep:#d9902a; --amber-dim:#6b4c1f;
+    --green:#3ddc84; --red:#ff5c5c; --teal:#4fd1c5;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:radial-gradient(1100px 560px at 50% -8%, #131a2c 0%, var(--bg) 55%);
+    color:var(--ink);
+    font:16px/1.5 var(--mono);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:22px 14px 60px}
+
+  header{text-align:center;margin-bottom:6px}
+  h1{font-size:30px;letter-spacing:1px;margin:0;color:var(--amber);text-shadow:0 2px 0 #4a3410}
+  .sub{color:var(--dim);margin:8px auto 0;max-width:50ch;font-size:13.5px}
+
+  .board{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;margin:20px 0 16px;box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .board .row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  .board .row:last-child{border-bottom:none}
+  .board .k{color:var(--dim);letter-spacing:.5px;text-transform:uppercase;font-size:11px;align-self:center}
+  .board .v{color:var(--amber);font-weight:700;letter-spacing:.5px;text-align:right}
+  .board .v.small{color:var(--ink);font-weight:400}
+
+  .clock-strip{display:flex;justify-content:center;gap:26px;margin:6px 0 18px;flex-wrap:wrap}
+  .clock-strip .c{text-align:center}
+  .clock-strip .c .t{font-size:22px;font-weight:700;color:var(--ink)}
+  .clock-strip .c .l{font-size:10px;color:var(--dim);letter-spacing:1px;text-transform:uppercase}
+  .clock-strip .c.last .t{color:var(--amber)}
+
+  .scene{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:18px;margin-bottom:16px;
+  }
+  .scene .narrative{font-size:15px;line-height:1.65;margin:0 0 16px}
+  .scene .narrative b{color:var(--amber)}
+  .choices{display:flex;flex-direction:column;gap:8px}
+  .choice{
+    text-align:left;font:inherit;font-size:13.5px;color:var(--ink);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;cursor:pointer;
+  }
+  .choice:hover{border-color:var(--amber-dim);background:#191f30}
+  .choice .clabel{font-weight:700}
+  .choice .cmeta{display:block;color:var(--dim);font-size:11.5px;margin-top:3px}
+
+  .outcome{
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    padding:14px;margin-bottom:14px;font-size:13.5px;
+  }
+  .outcome .delta{color:var(--amber);font-weight:700}
+  .outcome .delta.risk{color:var(--red)}
+  .btn{
+    font:inherit;font-size:13.5px;cursor:pointer;color:#2a1a08;
+    background:var(--amber);border:1px solid var(--amber);border-radius:8px;
+    padding:10px 16px;font-weight:700;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .btn.secondary{background:var(--panel2);color:var(--ink);border-color:var(--line)}
+  .btn.secondary:hover{border-color:#3a4258}
+
+  .log{margin:0 0 18px;padding:0;list-style:none;font-size:12px;color:var(--dim)}
+  .log li{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .log li:last-child{border-bottom:none}
+  .log .lt{color:var(--ink)}
+  .log .ld{color:var(--amber);white-space:nowrap}
+
+  .result{
+    text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:26px 18px;margin-bottom:18px;
+  }
+  .result.missed{border-color:#4a2020}
+  .result .tier{font-size:24px;font-weight:800;color:var(--green);margin:2px 0 6px}
+  .result.missed .tier{color:var(--red)}
+  .result .margin{font-size:15px;color:var(--ink);margin-bottom:4px}
+  .result .score{font-size:12px;color:var(--dim)}
+  .result .score b{color:var(--amber)}
+
+  .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+
+  .share-box{display:none;text-align:center;margin-top:6px}
+  .share-box.show{display:block}
+  .share-box canvas{display:none}
+  .share-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .share-post{
+    display:inline-flex;align-items:center;gap:6px;text-decoration:none;
+    font:inherit;font-size:13px;cursor:pointer;color:var(--ink);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 14px;
+  }
+  .share-post:hover{border-color:var(--teal)}
+
+  footer{text-align:center;margin-top:26px;color:var(--dim);font-size:11.5px}
+  footer a{color:var(--teal);text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>✈ cutitclose</h1>
+    <p class="sub">Choose your route to the airport. Score is how close you land to <b style="color:var(--amber)">last call</b> — without missing the flight.</p>
+  </header>
+
+  <div class="board" id="board"></div>
+  <div class="clock-strip" id="clockStrip"></div>
+
+  <ul class="log" id="log"></ul>
+
+  <div class="scene" id="scene"></div>
+
+  <div class="result" id="result" hidden></div>
+
+  <div class="share-box" id="shareBox">
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="share-actions">
+      <button id="shareNative" class="share-post" type="button" style="display:none">📤 share card</button>
+      <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 post to bluesky</a>
+      <button id="shareDownload" class="share-post" type="button">⬇ download card</button>
+    </div>
+  </div>
+
+  <div class="actions" id="actions" hidden>
+    <button class="btn" id="again">🔁 fly again</button>
+  </div>
+
+  <footer>
+    part of the <a href="https://bisks.net/games/">games</a> corner of
+    <a href="https://bisks.net/">bisks.net</a> — built by
+    <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
