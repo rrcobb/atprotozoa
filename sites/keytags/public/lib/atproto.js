@@ -7,6 +7,8 @@
 // Writing (putRecord/deleteRecord) stays in index.html, called via
 // oauth.js's dpopFetch once a session exists.
 
+import { fetchRepoRecordsWithKeys } from "./car.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 const PLC_DIR = "https://plc.directory";
 
@@ -81,10 +83,21 @@ export async function getRecord(pdsUrl, repo, collection, rkey) {
   return jget(`${pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?${params}`);
 }
 
-// Page through listRecords, collecting every record (a toy tag box doesn't
-// need someone's entire history — capPages bounds how many 100-record pages
-// we'll read).
+// One com.atproto.sync.getRepo CAR download gets every record in `collection`
+// (with its real rkey, via an MST walk — see fetchRepoRecordsWithKeys) in a
+// single request, no page cap — falls back to the old paginated listRecords
+// walk (capped at capPages 100-record pages) if the CAR path fails (parse
+// error, oversized repo, a PDS that blocks sync.getRepo).
 export async function listRecords(pdsUrl, repo, collection, capPages = 5) {
+  try {
+    const { records } = await fetchRepoRecordsWithKeys(pdsUrl, repo, collection);
+    return records;
+  } catch {
+    return listRecordsViaWalk(pdsUrl, repo, collection, capPages);
+  }
+}
+
+async function listRecordsViaWalk(pdsUrl, repo, collection, capPages) {
   const out = [];
   let cursor;
   for (let p = 0; p < capPages; p++) {

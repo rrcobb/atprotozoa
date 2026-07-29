@@ -4,15 +4,19 @@
 // Bluesky's AppView only exposes app.bsky.feed.getActorLikes for the
 // authenticated actor viewing their own likes — there's no anonymous "who
 // did this person like" endpoint. But like records are ordinary public repo
-// records, so we read them straight off each pool member's own PDS via
-// com.atproto.repo.listRecords (no auth, CORS *). Each record's
-// value.subject.uri is `at://<authorDid>/app.bsky.feed.post/<rkey>` — the
-// author DID is embedded in the URI, no extra lookup needed. Finding the
-// PDS itself means resolving the member's DID document (plc.directory for
-// did:plc, well-known/did.json for did:web) for its #atproto_pds service
-// endpoint.
+// records, so we read them straight off each pool member's own PDS. One
+// com.atproto.sync.getRepo CAR download gets a member's *entire* like
+// history in a single request (see lib/car.js) — falls back to the old
+// paginated com.atproto.repo.listRecords walk (capped at MAX_PAGES_PER_MEMBER
+// pages) only if the CAR path fails. Each record's value.subject.uri is
+// `at://<authorDid>/app.bsky.feed.post/<rkey>` — the author DID is embedded
+// in the URI, no extra lookup needed. Finding the PDS itself means resolving
+// the member's DID document (plc.directory for did:plc, well-known/did.json
+// for did:web) for its #atproto_pds service endpoint.
 
-const MAX_PAGES_PER_MEMBER = 3; // <=300 recent likes sampled per pool member
+import { fetchRepoRecords } from "./car.js";
+
+const MAX_PAGES_PER_MEMBER = 3; // <=300 recent likes sampled per pool member — fallback path only
 const CONCURRENCY = 6;
 
 async function jget(url) {
@@ -49,7 +53,9 @@ async function resolvePds(did) {
   return endpoint;
 }
 
-async function listLikes(did, pds) {
+// Fallback: paginated listRecords walk, capped at MAX_PAGES_PER_MEMBER pages —
+// used only when the single CAR download in listLikes below fails.
+async function listLikesViaRepo(did, pds) {
   const out = [];
   let cursor = "";
   for (let p = 0; p < MAX_PAGES_PER_MEMBER; p++) {
@@ -64,11 +70,24 @@ async function listLikes(did, pds) {
     } catch {
       break;
     }
-    for (const rec of d.records || []) out.push(rec);
+    for (const rec of d.records || []) out.push(rec.value);
     cursor = d.cursor;
     if (!cursor) break;
   }
   return out;
+}
+
+// A member's whole like history in one com.atproto.sync.getRepo download,
+// rather than the old MAX_PAGES_PER_MEMBER-capped listRecords walk. Falls
+// back to that walk if the CAR path fails (parse error, oversized repo, a
+// PDS that blocks sync.getRepo).
+async function listLikes(did, pds) {
+  try {
+    const { records } = await fetchRepoRecords(pds, did, "app.bsky.feed.like");
+    return records;
+  } catch {
+    return listLikesViaRepo(did, pds);
+  }
 }
 
 function authorFromSubjectUri(uri) {
@@ -110,8 +129,8 @@ async function crawlPool(members, onProgress) {
     const likes = await listLikes(member.did, pds);
     resolvedCount++;
     const authorDids = [];
-    for (const rec of likes) {
-      const authorDid = authorFromSubjectUri(rec.value && rec.value.subject && rec.value.subject.uri);
+    for (const v of likes) {
+      const authorDid = authorFromSubjectUri(v && v.subject && v.subject.uri);
       if (authorDid && authorDid !== member.did) authorDids.push(authorDid);
     }
     rawByMember.set(member.did, authorDids);

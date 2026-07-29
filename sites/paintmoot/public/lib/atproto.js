@@ -8,6 +8,8 @@
 // needed. Writing (createRecord) stays in oauth.js's dpopFetch, called from
 // index.html once a session exists.
 
+import { fetchRepoRecordsWithKeys } from "./car.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 const PLC_DIR = "https://plc.directory";
 
@@ -90,10 +92,22 @@ export async function getRecord(pdsUrl, repo, collection, rkey) {
   return jget(`${pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?${params}`);
 }
 
-// Page through listRecords, collecting records whose `value` passes `filter`
-// (all records if omitted). `capPages` bounds how many 100-record pages we'll
-// read from any one repo — a toy board doesn't need someone's entire history.
+// One com.atproto.sync.getRepo CAR download gets every record in `collection`
+// (with its real rkey, via an MST walk — see fetchRepoRecordsWithKeys) in a
+// single request, no page cap, then applies `filter` locally — falls back to
+// the old paginated listRecords walk (capped at capPages 100-record pages)
+// if the CAR path fails (parse error, oversized repo, a PDS that blocks
+// sync.getRepo).
 export async function listRecords(pdsUrl, repo, collection, filter, capPages = 5) {
+  try {
+    const { records } = await fetchRepoRecordsWithKeys(pdsUrl, repo, collection);
+    return filter ? records.filter((rec) => filter(rec.value)) : records;
+  } catch {
+    return listRecordsViaWalk(pdsUrl, repo, collection, filter, capPages);
+  }
+}
+
+async function listRecordsViaWalk(pdsUrl, repo, collection, filter, capPages) {
   const out = [];
   let cursor;
   for (let p = 0; p < capPages; p++) {

@@ -116,6 +116,7 @@
     <script src="lib/handle-typeahead.js"></script>
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+      import { fetchRepoRecords } from "./lib/car.js";
 
       const COLLECTION = "net.bisks.verdict.judgment";
       const APPVIEW = "https://api.bsky.app";
@@ -334,15 +335,25 @@
         if (errEl) errEl.innerHTML = `<span class="err">${esc(msg)}</span>`;
       }
 
-      // ---- tally: best-effort count of past verdicts --------------------------
+      // ---- tally: count of past verdicts ---------------------------------------
+      // One com.atproto.sync.getRepo CAR download gets every judgment record in
+      // a single request — the full count, not just the newest page — falling
+      // back to the old single-page listRecords read (capped at 100, so a tally
+      // past that is undercounted) if the CAR path fails.
       async function loadTally() {
         try {
-          const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords` +
-            `?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(COLLECTION)}&limit=100`;
-          const res = await dpopFetch(session, url);
-          if (!res.ok) return;
-          const j = await res.json();
-          const recs = (j.records || []).map((r) => r.value);
+          let recs;
+          try {
+            const { records } = await fetchRepoRecords(session.pdsUrl, session.did, COLLECTION);
+            recs = records;
+          } catch {
+            const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords` +
+              `?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(COLLECTION)}&limit=100`;
+            const res = await dpopFetch(session, url);
+            if (!res.ok) return;
+            const j = await res.json();
+            recs = (j.records || []).map((r) => r.value);
+          }
           tally = { good: recs.filter((r) => r.verdict === "good").length, bad: recs.filter((r) => r.verdict === "bad").length };
           renderTally();
         } catch {}
