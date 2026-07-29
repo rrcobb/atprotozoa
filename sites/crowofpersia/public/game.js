@@ -19,7 +19,7 @@ const CANVAS_W = TILE * COLS_VISIBLE; // 560
 const CANVAS_H = TILE * ROWS_VISIBLE; // 440
 
 const ROW_MIN = 0;
-const ROW_MAX = 4;
+const ROW_MAX = 7; // taller dungeons — more vertical room to climb/dive through
 const GROUND_BASE_Y = 120; // px — y of row 0's surface
 const rowY = (row) => GROUND_BASE_Y + row * TILE;
 const PIT_DEATH_Y = CANVAS_H + 60; // fall past this = dead
@@ -30,11 +30,14 @@ const RUN_SPEED = 220; // px/s
 const PLAYER_HW = 14; // half-width
 const GUARD_HW = 15;
 
-const LEVEL_COLS = 110;
+const BASE_LEVEL_COLS = 110;
+const LEVEL_COLS_STEP = 22; // each level is a longer dungeon than the last
 const START_RUNWAY = 6; // safe flat tiles at the very start
 const END_RUNWAY = 6; // safe flat tiles before the gate
 const GAME_SECONDS = 100;
+const TIME_BONUS_PER_LEVEL = 55; // added to the clock on descending the staircase
 const MAX_LIVES = 3;
+const MAX_LEVELS = 3;
 const PECK_COOLDOWN = 0.36;
 const PECK_REACH = TILE * 0.62;
 const PECK_ACTIVE = 0.14; // seconds the peck hitbox is live
@@ -51,10 +54,30 @@ const LOSE_RANGE = TILE * 6.5;
 const ALERT_DELAY = 0.3; // seconds frozen before the lunge starts
 const CHASE_MULT = 2.1; // speed multiplier while chasing
 
+// snakes — low, coiled ground enemies. They don't patrol far; they wait and
+// strike when the crow gets close, like the snake pits in PoP2.
+const SNAKE_ALERT_RANGE = TILE * 2.3;
+const SNAKE_STRIKE_TIME = 0.45;
+const SNAKE_STRIKE_SPEED = 190;
+const SNAKE_STRIKE_COOLDOWN = 0.9;
+
+// harpies — flying enemies that ignore the ground grid entirely and hunt in
+// full 2D, the other PoP2-style enemy the brief asked for.
+const HARPY_ALERT_RANGE = TILE * 5;
+const HARPY_LOSE_RANGE = TILE * 7.5;
+const HARPY_BOB_AMP = TILE * 0.7;
+const HARPY_CHASE_MULT = 1.7;
+
 // the captain — GUARD_ACTOR's own face, standing at the gate. Two pecks to
 // put down, and the gate stays shut until the captain falls.
 const BOSS_HP = 2;
 const BOSS_SCALE = 1.35;
+
+// pickups
+const HEAL_AMOUNT = 1;
+const CARPET_DURATION = 9; // seconds of flight per pickup
+const CARPET_GRAVITY_MULT = 0.22; // gravity while riding the carpet
+const CARPET_FLAP_V = JUMP_V * 0.55; // impulse per flap while flying
 
 function hashInt(str) {
   let h = 0;
@@ -86,37 +109,58 @@ function clamp(v, lo, hi) {
 
 // ---- level generation ---------------------------------------------------
 // ground[col] is either a tile-row number (elevation) or null (a pit — no
-// floor, walk/jump over it or fall). Guards patrol a bounded flat run.
-function buildLevel() {
-  const ground = new Array(LEVEL_COLS).fill(2);
+// floor, walk/jump over it or fall). Guards/snakes patrol a bounded flat
+// run; ledges are one-way floating platforms above a pit or a guarded
+// stretch, giving the crow a second (2D) route through, not just the one
+// ground lane — harpies hunt that airspace.
+function buildLevel(levelNum) {
+  const cols = BASE_LEVEL_COLS + (levelNum - 1) * LEVEL_COLS_STEP;
+  const ground = new Array(cols).fill(2);
   const spikes = new Set();
   const guardSpawns = []; // { fromCol, toCol, row }
+  const snakeSpawns = [];
+  const harpySpawns = [];
+  const ledges = []; // { fromCol, toCol, row } — one-way platforms above ground
+  const potionCols = new Set();
+  const carpetCols = new Set();
   let col = START_RUNWAY;
   let row = 2;
   let lastFeatureWasGap = true; // start conservative
   let lastGuardCol = -999;
+  let lastPickupCol = -999;
 
-  while (col < LEVEL_COLS - END_RUNWAY) {
-    const remaining = LEVEL_COLS - END_RUNWAY - col;
+  while (col < cols - END_RUNWAY) {
+    const remaining = cols - END_RUNWAY - col;
     const roll = Math.random();
     if (!lastFeatureWasGap && roll < 0.28 && remaining > 8) {
-      // step up or down one tile, then a short flat landing
+      // step up or down one or two tiles, then a short flat landing
       const dir = Math.random() < 0.5 ? -1 : 1;
-      row = clamp(row + dir, ROW_MIN, ROW_MAX);
+      const mag = Math.random() < 0.7 ? 1 : 2;
+      row = clamp(row + dir * mag, ROW_MIN, ROW_MAX);
       const runLen = randInt(3, 5);
-      for (let i = 0; i < runLen && col < LEVEL_COLS; i++, col++) ground[col] = row;
+      for (let i = 0; i < runLen && col < cols; i++, col++) ground[col] = row;
       lastFeatureWasGap = false;
     } else if (!lastFeatureWasGap && roll < 0.52 && remaining > 8) {
-      // a pit — same elevation on both sides
-      const width = randInt(1, 3);
-      for (let i = 0; i < width && col < LEVEL_COLS; i++, col++) ground[col] = null;
+      // a pit — same elevation on both sides. Wider pits get a floating
+      // ledge overhead: a riskier-but-faster second route, patrolled by a
+      // harpy instead of a ground guard.
+      const width = randInt(1, 4);
+      const pitFrom = col;
+      for (let i = 0; i < width && col < cols; i++, col++) ground[col] = null;
       lastFeatureWasGap = true;
+      if (width >= 2 && row - 2 >= ROW_MIN && Math.random() < 0.55) {
+        const ledgeRow = row - 2;
+        ledges.push({ fromCol: pitFrom - 1, toCol: col, row: ledgeRow });
+        harpySpawns.push({ fromCol: pitFrom - 1, toCol: col, row: ledgeRow });
+      } else if (Math.random() < 0.3) {
+        harpySpawns.push({ fromCol: pitFrom - 1, toCol: col, row: row - 1 >= ROW_MIN ? row - 1 : row });
+      }
     } else {
       const runLen = randInt(3, 7);
       // occasionally drop a floor spike partway through a flat run
       const spikeAt =
         runLen >= 4 && Math.random() < 0.35 ? col + randInt(2, runLen - 2) : -1;
-      for (let i = 0; i < runLen && col < LEVEL_COLS; i++, col++) {
+      for (let i = 0; i < runLen && col < cols; i++, col++) {
         ground[col] = row;
         if (col === spikeAt) spikes.add(col);
       }
@@ -126,28 +170,66 @@ function buildLevel() {
         const from = col - runLen + 1;
         const to = col - 1;
         if (to - from >= 2) {
-          guardSpawns.push({ fromCol: from, toCol: to, row });
+          if (Math.random() < 0.28) snakeSpawns.push({ fromCol: from, toCol: to, row });
+          else guardSpawns.push({ fromCol: from, toCol: to, row });
           lastGuardCol = col;
+        }
+      }
+      if (runLen >= 4 && col - lastPickupCol > 14 && Math.random() < 0.4) {
+        const pcol = col - randInt(2, runLen - 1);
+        if (spikeAt !== pcol) {
+          if (carpetCols.size < levelNum && Math.random() < 0.35) carpetCols.add(pcol);
+          else potionCols.add(pcol);
+          lastPickupCol = col;
         }
       }
     }
   }
-  for (let i = col; i < LEVEL_COLS; i++) ground[i] = row;
-  const gateCol = LEVEL_COLS - 2;
+  for (let i = col; i < cols; i++) ground[i] = row;
+  const gateCol = cols - 2;
   // the captain patrols the guaranteed-flat runway right before the gate.
   const bossSpec = {
-    fromCol: LEVEL_COLS - END_RUNWAY,
+    fromCol: cols - END_RUNWAY,
     toCol: gateCol - 1,
     row,
     isBoss: true,
   };
-  return { ground, spikes, guardSpawns, gateCol, widthPx: LEVEL_COLS * TILE, bossSpec };
+  return {
+    ground,
+    spikes,
+    guardSpawns,
+    snakeSpawns,
+    harpySpawns,
+    ledges,
+    potionCols,
+    carpetCols,
+    gateCol,
+    widthPx: cols * TILE,
+    bossSpec,
+  };
 }
 
-function topYAt(level, col) {
+function groundTopAt(level, col) {
   if (col < 0 || col >= level.ground.length) return rowY(ROW_MAX) + TILE;
   const g = level.ground[col];
   return g == null ? Infinity : rowY(g);
+}
+
+// The surface the crow would land on falling from `referenceY` — the
+// ground, or a one-way ledge above it if the ledge covers this column and
+// hasn't already been fallen through (only surfaces at/below the reference
+// point count, so jumping up *through* a ledge from underneath still works).
+function landingTopAt(level, col, referenceY) {
+  const EPS = 4;
+  let best = Infinity;
+  const g = groundTopAt(level, col);
+  if (g >= referenceY - EPS) best = Math.min(best, g);
+  for (const ledge of level.ledges) {
+    if (col < ledge.fromCol || col > ledge.toCol) continue;
+    const ly = rowY(ledge.row);
+    if (ly >= referenceY - EPS) best = Math.min(best, ly);
+  }
+  return best;
 }
 
 // ---- DOM ----------------------------------------------------------------
@@ -157,6 +239,9 @@ const scoreEl = document.getElementById("score");
 const bestEl = document.getElementById("best");
 const timeEl = document.getElementById("time");
 const livesEl = document.getElementById("lives");
+const levelEl = document.getElementById("level");
+const carpetHud = document.getElementById("carpet-hud");
+const carpetFill = document.getElementById("carpet-fill");
 const progressFill = document.getElementById("progress-fill");
 const canvas = document.getElementById("board");
 const ctx = canvas.getContext("2d");
@@ -200,6 +285,10 @@ let peckTimer = 0; // >0 while the hitbox is live
 let invuln = 0;
 let checkpoint = null;
 let outcome = null; // "won" | "dead" | "time"
+let levelNum = 1;
+let carpetTime = 0; // >0 while riding the magic carpet (flight)
+let collectedPotions = new Set();
+let collectedCarpets = new Set();
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg || "";
@@ -319,6 +408,25 @@ function sndTimeUp() {
 function sndDead() {
   tone({ type: "sawtooth", f0: 140, f1: 40, dur: 0.55, peak: 0.4 });
 }
+function sndSnakeDown() {
+  tone({ type: "sawtooth", f0: 260, f1: 70, dur: 0.16, peak: 0.32 });
+}
+function sndHarpyDown() {
+  tone({ type: "triangle", f0: 500, f1: 140, dur: 0.2, peak: 0.32 });
+}
+function sndPotion() {
+  [0, 0.08].forEach((delay, i) =>
+    tone({ type: "sine", f0: 520 + i * 220, dur: 0.16, peak: 0.32, delay }),
+  );
+}
+function sndCarpet() {
+  tone({ type: "triangle", f0: 260, f1: 720, dur: 0.35, peak: 0.3 });
+}
+function sndLevelUp() {
+  [0, 0.1, 0.2].forEach((delay, i) =>
+    tone({ type: "triangle", f0: 330 * Math.pow(2, (i * 3) / 12), dur: 0.2, peak: 0.34, delay }),
+  );
+}
 
 function bestKey(kind) {
   return `crowofpersia:best:${kind}`;
@@ -354,6 +462,7 @@ function spawnGuardAt(spec) {
   const startCol = randInt(spec.fromCol, spec.toCol);
   return {
     spec,
+    etype: isBoss ? "boss" : "guard",
     entry,
     img: entry ? loadImg(entry.avatar) : null,
     hue: entry ? hue(entry.did) : hue(String(spec.fromCol)),
@@ -374,8 +483,72 @@ function spawnGuardAt(spec) {
   };
 }
 
+// snakes — coiled ground enemies with a short strike range. No borrowed
+// face: they're dungeon vermin, not one of GUARD_ACTOR's follows.
+function spawnSnakeAt(spec) {
+  const startCol = randInt(spec.fromCol, spec.toCol);
+  return {
+    spec,
+    etype: "snake",
+    entry: null,
+    img: null,
+    hue: hue(`snake${spec.fromCol}`),
+    x: startCol * TILE + TILE / 2,
+    row: spec.row,
+    dir: Math.random() < 0.5 ? -1 : 1,
+    speed: SNAKE_STRIKE_SPEED,
+    hw: 12,
+    hp: 1,
+    maxHp: 1,
+    state: "coiled", // "coiled" | "strike"
+    alertT: 0,
+    strikeCd: 0,
+    flash: 0,
+    alive: true,
+    respawnIn: 0,
+    facing: Math.random() < 0.5 ? -1 : 1,
+  };
+}
+
+// harpies — fly a bobbing patrol line above the ground grid, then peel off
+// to hunt the crow in full 2D (x and y both) once they notice. `flightY` is
+// the enemy's real vertical position; unlike ground enemies it isn't tied
+// to `row * TILE`.
+function spawnHarpyAt(spec) {
+  const startCol = randInt(spec.fromCol, spec.toCol);
+  const baseY = rowY(spec.row);
+  return {
+    spec,
+    etype: "harpy",
+    entry: null,
+    img: null,
+    hue: hue(`harpy${spec.fromCol}`),
+    x: startCol * TILE + TILE / 2,
+    row: spec.row,
+    flightY: baseY,
+    basePhase: rand(0, Math.PI * 2),
+    dir: Math.random() < 0.5 ? -1 : 1,
+    speed: rand(70, 100),
+    hw: 13,
+    hp: 1,
+    maxHp: 1,
+    state: "patrol", // "patrol" | "alert" | "chase"
+    alertT: 0,
+    flash: 0,
+    alive: true,
+    respawnIn: 0,
+    facing: 1,
+  };
+}
+
+function enemyY(g) {
+  return g.etype === "harpy" ? g.flightY : rowY(g.row);
+}
+
 function buildGuards() {
   guards = level.guardSpawns.slice(0, MAX_ACTIVE_GUARDS).map(spawnGuardAt);
+  guards.push(...level.snakeSpawns.slice(0, MAX_ACTIVE_GUARDS).map(spawnSnakeAt));
+  guards.push(...level.harpySpawns.slice(0, MAX_ACTIVE_GUARDS).map(spawnHarpyAt));
   bossGuard = spawnGuardAt(level.bossSpec);
   guards.push(bossGuard);
 }
@@ -410,7 +583,7 @@ function updatePlayer(dt) {
     const feetY = player.y;
     const leadEdge = dir > 0 ? newX + PLAYER_HW : newX - PLAYER_HW;
     const col = colOf(leadEdge);
-    const wallTop = topYAt(level, col);
+    const wallTop = groundTopAt(level, col);
     if (wallTop < feetY - 2) {
       // solid wall in this column — clamp to its edge
       const edge = dir > 0 ? col * TILE - PLAYER_HW : (col + 1) * TILE + PLAYER_HW;
@@ -422,11 +595,12 @@ function updatePlayer(dt) {
   player.x = clamp(player.x, PLAYER_HW, level.widthPx - PLAYER_HW);
 
   // --- vertical move + ground collision ---
-  player.vy += GRAVITY * dt;
+  const flying = carpetTime > 0;
+  player.vy += (flying ? GRAVITY * CARPET_GRAVITY_MULT : GRAVITY) * dt;
   const newY = player.y + player.vy * dt;
   const spanCols = [colOf(player.x - PLAYER_HW * 0.6), colOf(player.x + PLAYER_HW * 0.6)];
   let groundY = Infinity;
-  for (const c of spanCols) groundY = Math.min(groundY, topYAt(level, c));
+  for (const c of spanCols) groundY = Math.min(groundY, landingTopAt(level, c, player.y));
 
   if (player.vy >= 0 && newY >= groundY) {
     player.y = groundY;
@@ -439,13 +613,21 @@ function updatePlayer(dt) {
 
   if (player.grounded && player.y < PIT_DEATH_Y) {
     const c = colOf(player.x);
-    if (level.spikes.has(c) && invuln <= 0) hurtPlayer();
+    if (level.spikes.has(c) && invuln <= 0 && !flying) hurtPlayer();
     else checkpoint = { x: player.x, y: player.y };
   }
 
   if (player.y > PIT_DEATH_Y) {
-    fellIn();
+    if (flying) {
+      player.y = PIT_DEATH_Y - 8;
+      player.vy = Math.min(player.vy, 0);
+      player.grounded = false;
+    } else {
+      fellIn();
+    }
   }
+
+  checkPickups();
 }
 
 function tryJump() {
@@ -454,6 +636,35 @@ function tryJump() {
     player.vy = JUMP_V;
     player.grounded = false;
     sndJump();
+  } else if (carpetTime > 0) {
+    player.vy = Math.max(player.vy + CARPET_FLAP_V, JUMP_V);
+    sndJump();
+  }
+}
+
+function checkPickups() {
+  const c = colOf(player.x);
+  const groundY = groundTopAt(level, c);
+  if (groundY === Infinity || Math.abs(player.y - groundY) > TILE * 1.4) return;
+  if (level.potionCols.has(c) && !collectedPotions.has(c)) {
+    collectedPotions.add(c);
+    ensureAudio();
+    sndPotion();
+    if (lives < MAX_LIVES) {
+      lives++;
+      updateLivesHud();
+      addParticle("+1 life", player.x, player.y - 34, "#6ee7b7");
+    } else {
+      score++;
+      scoreEl.textContent = String(score);
+      addParticle("full health — +1 score", player.x, player.y - 34, "#6ee7b7");
+    }
+  } else if (level.carpetCols.has(c) && !collectedCarpets.has(c)) {
+    collectedCarpets.add(c);
+    ensureAudio();
+    sndCarpet();
+    carpetTime = CARPET_DURATION;
+    addParticle("the carpet unfurls — fly!", player.x, player.y - 34, "#7dd3fc");
   }
 }
 
@@ -478,7 +689,7 @@ function resolvePeckHits() {
   for (const g of guards) {
     if (!g.alive || peckHitGuards.has(g)) continue;
     if (g.x + g.hw < lo || g.x - g.hw > hi) continue;
-    if (Math.abs(g.row - Math.round((player.y - GROUND_BASE_Y) / TILE)) > 0) continue;
+    if (Math.abs(enemyY(g) - player.y) > TILE * 0.85) continue;
     peckHitGuards.add(g);
     downGuard(g);
   }
@@ -497,12 +708,19 @@ function downGuard(g) {
   g.respawnIn = GUARD_RESPAWN_DELAY;
   score++;
   scoreEl.textContent = String(score);
+  const y = enemyY(g);
   if (isBoss) {
     sndBossDown();
-    addParticle("the captain falls — the gate is open!", g.x, rowY(g.row) - 30, "#ffd166");
+    addParticle("the captain falls — the gate is open!", g.x, y - 30, "#ffd166");
+  } else if (g.etype === "snake") {
+    sndSnakeDown();
+    addParticle("+1 snake pecked", g.x, y - 20, "#a3e635");
+  } else if (g.etype === "harpy") {
+    sndHarpyDown();
+    addParticle("+1 harpy pecked", g.x, y - 24, "#f0abfc");
   } else {
     sndGuardDown();
-    addParticle(`+1 pecked @${(g.entry && g.entry.handle) || "guard"}`, g.x, rowY(g.row) - 24, "#ffd166");
+    addParticle(`+1 pecked @${(g.entry && g.entry.handle) || "guard"}`, g.x, y - 24, "#ffd166");
   }
 }
 
@@ -545,6 +763,12 @@ function updateLivesHud() {
   livesEl.textContent = "\u{1F426}".repeat(Math.max(0, lives));
 }
 
+function respawnKind(g) {
+  if (g.etype === "snake") return spawnSnakeAt(g.spec);
+  if (g.etype === "harpy") return spawnHarpyAt(g.spec);
+  return spawnGuardAt(g.spec);
+}
+
 function updateGuards(dt) {
   const playerRow = Math.round((player.y - GROUND_BASE_Y) / TILE);
   for (const g of guards) {
@@ -552,53 +776,135 @@ function updateGuards(dt) {
       if (g.spec.isBoss) continue; // the captain stays down once beaten
       g.respawnIn -= dt;
       if (g.respawnIn <= 0 && Math.abs(g.x - player.x) > TILE * 3) {
-        Object.assign(g, spawnGuardAt(g.spec));
+        Object.assign(g, respawnKind(g));
       }
       continue;
     }
 
     if (g.flash > 0) g.flash -= dt;
 
-    const sameRow = g.row === playerRow;
-    const dist = Math.abs(g.x - player.x);
+    if (g.etype === "snake") updateSnake(g, dt);
+    else if (g.etype === "harpy") updateHarpy(g, dt);
+    else updateGroundGuard(g, dt, playerRow);
+  }
+}
 
-    if (g.state === "patrol" && sameRow && dist < ALERT_RANGE) {
-      g.state = "alert";
-      g.alertT = ALERT_DELAY;
-      g.dir = Math.sign(player.x - g.x) || g.dir;
-      sndAlert();
-      addParticle("!", g.x, rowY(g.row) - 46, "#ffd166");
-    } else if (g.state === "alert") {
-      g.alertT -= dt;
-      if (g.alertT <= 0) g.state = "chase";
-    } else if (g.state === "chase" && (!sameRow || dist > LOSE_RANGE)) {
-      g.state = "patrol";
+// guard + boss — patrol a row, alert, then chase within their footprint.
+function updateGroundGuard(g, dt, playerRow) {
+  const sameRow = g.row === playerRow;
+  const dist = Math.abs(g.x - player.x);
+
+  if (g.state === "patrol" && sameRow && dist < ALERT_RANGE) {
+    g.state = "alert";
+    g.alertT = ALERT_DELAY;
+    g.dir = Math.sign(player.x - g.x) || g.dir;
+    sndAlert();
+    addParticle("!", g.x, rowY(g.row) - 46, "#ffd166");
+  } else if (g.state === "alert") {
+    g.alertT -= dt;
+    if (g.alertT <= 0) g.state = "chase";
+  } else if (g.state === "chase" && (!sameRow || dist > LOSE_RANGE)) {
+    g.state = "patrol";
+  }
+
+  const lo = g.spec.fromCol * TILE + g.hw + 4;
+  const hi = (g.spec.toCol + 1) * TILE - g.hw - 4;
+
+  if (g.state === "chase") {
+    g.dir = Math.sign(player.x - g.x) || g.dir;
+    g.x = clamp(g.x + g.dir * g.speed * CHASE_MULT * dt, lo, hi);
+  } else if (g.state === "patrol") {
+    g.x += g.dir * g.speed * dt;
+    if (g.x <= lo) {
+      g.x = lo;
+      g.dir = 1;
+    } else if (g.x >= hi) {
+      g.x = hi;
+      g.dir = -1;
     }
+  }
+  // "alert" state: frozen mid-lunge, facing already set toward the player
+  g.facing = g.dir;
 
+  if (invuln <= 0) {
+    const dx = Math.abs(g.x - player.x);
+    if (sameRow && dx < (g.hw + PLAYER_HW) * 0.85) hurtPlayer();
+  }
+}
+
+// snakes — coil in place, strike a short burst when the crow gets close.
+// Dangerous to touch whether coiled or striking; the strike is a threat
+// telegraph + a chance to close distance, not the only source of damage.
+function updateSnake(g, dt) {
+  const sameRow = g.row === Math.round((player.y - GROUND_BASE_Y) / TILE);
+  const dist = Math.abs(g.x - player.x);
+  if (g.strikeCd > 0) g.strikeCd -= dt;
+
+  if (g.state === "coiled" && sameRow && dist < SNAKE_ALERT_RANGE && g.strikeCd <= 0) {
+    g.state = "strike";
+    g.alertT = SNAKE_STRIKE_TIME;
+    g.dir = Math.sign(player.x - g.x) || g.dir;
+    g.facing = g.dir;
+    sndAlert();
+  } else if (g.state === "strike") {
+    g.alertT -= dt;
     const lo = g.spec.fromCol * TILE + g.hw + 4;
     const hi = (g.spec.toCol + 1) * TILE - g.hw - 4;
-
-    if (g.state === "chase") {
-      g.dir = Math.sign(player.x - g.x) || g.dir;
-      g.x = clamp(g.x + g.dir * g.speed * CHASE_MULT * dt, lo, hi);
-    } else if (g.state === "patrol") {
-      g.x += g.dir * g.speed * dt;
-      if (g.x <= lo) {
-        g.x = lo;
-        g.dir = 1;
-      } else if (g.x >= hi) {
-        g.x = hi;
-        g.dir = -1;
-      }
+    g.x = clamp(g.x + g.dir * g.speed * dt, lo, hi);
+    if (g.alertT <= 0) {
+      g.state = "coiled";
+      g.strikeCd = SNAKE_STRIKE_COOLDOWN;
     }
-    // "alert" state: frozen mid-lunge, facing already set toward the player
+  }
+
+  if (invuln <= 0 && sameRow && dist < (g.hw + PLAYER_HW) * 0.85) hurtPlayer();
+}
+
+// harpies — bob along a patrol line in the air; once alerted, hunt the
+// crow directly in x AND y, ignoring the ground grid entirely.
+function updateHarpy(g, dt) {
+  const baseY = rowY(g.row);
+  const dx = player.x - g.x;
+  const dy = player.y - enemyY(g);
+  const dist = Math.hypot(dx, dy);
+
+  if (g.state === "patrol" && dist < HARPY_ALERT_RANGE) {
+    g.state = "alert";
+    g.alertT = ALERT_DELAY;
+    sndAlert();
+    addParticle("!", g.x, enemyY(g) - 30, "#ffd166");
+  } else if (g.state === "alert") {
+    g.alertT -= dt;
+    if (g.alertT <= 0) g.state = "chase";
+  } else if (g.state === "chase" && dist > HARPY_LOSE_RANGE) {
+    g.state = "patrol";
+  }
+
+  const lo = g.spec.fromCol * TILE + g.hw;
+  const hi = (g.spec.toCol + 1) * TILE - g.hw;
+
+  if (g.state === "chase") {
+    const len = dist || 1;
+    g.x = clamp(g.x + (dx / len) * g.speed * HARPY_CHASE_MULT * dt, lo - TILE * 2, hi + TILE * 2);
+    g.flightY += (dy / len) * g.speed * HARPY_CHASE_MULT * dt;
+    g.facing = Math.sign(dx) || g.facing;
+  } else {
+    g.basePhase += dt * 2.4;
+    g.x += g.dir * g.speed * dt;
+    if (g.x <= lo) {
+      g.x = lo;
+      g.dir = 1;
+    } else if (g.x >= hi) {
+      g.x = hi;
+      g.dir = -1;
+    }
+    g.flightY = baseY + Math.sin(g.basePhase) * HARPY_BOB_AMP;
     g.facing = g.dir;
+  }
+  g.flightY = clamp(g.flightY, rowY(ROW_MIN) - TILE, rowY(ROW_MAX) + TILE * 0.5);
 
-    // contact damage
-    if (invuln <= 0) {
-      const dx = Math.abs(g.x - player.x);
-      if (sameRow && dx < (g.hw + PLAYER_HW) * 0.85) hurtPlayer();
-    }
+  if (invuln <= 0 && Math.abs(g.x - player.x) < (g.hw + PLAYER_HW) * 0.85 && Math.abs(g.flightY - player.y) < TILE * 0.7) {
+    hurtPlayer();
   }
 }
 
@@ -690,6 +996,29 @@ function drawGate(x, t, open) {
   }
 }
 
+function drawCarpetRide(x, y) {
+  const wave = Math.sin(performance.now() / 160) * 3;
+  ctx.save();
+  ctx.translate(x, y + 6 + wave);
+  ctx.fillStyle = "#0ea5e9";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 22, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#7dd3fc";
+  ctx.beginPath();
+  ctx.ellipse(0, -1.5, 22, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f2e9d8";
+  ctx.lineWidth = 1;
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 6, -3);
+    ctx.lineTo(i * 6, 3);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawCrow(x, y, facing, grounded, vy, hitFlash) {
   ctx.save();
   ctx.translate(x, y);
@@ -760,7 +1089,166 @@ function drawCrow(x, y, facing, grounded, vy, hitFlash) {
   }
 }
 
+function drawLedge(x, y) {
+  ctx.fillStyle = "#5a4a33";
+  ctx.fillRect(x, y, TILE, 8);
+  ctx.fillStyle = "#8a7350";
+  ctx.fillRect(x, y, TILE, 3);
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.strokeRect(x + 0.5, y + 0.5, TILE - 1, 7);
+}
+
+function drawPotion(x, y, t) {
+  const bob = Math.sin(t * 3 + x) * 3;
+  ctx.save();
+  ctx.translate(x + TILE / 2, y - 14 + bob);
+  ctx.fillStyle = "#3a2a1a";
+  ctx.fillRect(-3, -12, 6, 5);
+  ctx.fillStyle = "rgba(110,231,183,0.9)";
+  ctx.beginPath();
+  ctx.moveTo(-7, 2);
+  ctx.quadraticCurveTo(-8, -8, -3, -7);
+  ctx.lineTo(3, -7);
+  ctx.quadraticCurveTo(8, -8, 7, 2);
+  ctx.quadraticCurveTo(7, 9, 0, 9);
+  ctx.quadraticCurveTo(-7, 9, -7, 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.beginPath();
+  ctx.ellipse(-3, 0, 1.6, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCarpetPickup(x, y, t) {
+  const bob = Math.sin(t * 2.4 + x) * 3;
+  ctx.save();
+  ctx.translate(x + TILE / 2, y - 10 + bob);
+  ctx.fillStyle = "#7dd3fc";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 15, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0ea5e9";
+  ctx.lineWidth = 1.5;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(i * 5, -2);
+    ctx.lineTo(i * 5, 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawStaircase(x, t) {
+  ctx.fillStyle = "#3a2c1c";
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(x + i * (TILE / 5), CANVAS_H - (i + 1) * 14, TILE - i * (TILE / 5), (i + 1) * 14);
+  }
+  ctx.fillStyle = `rgba(255,180,90,${0.15 + 0.05 * Math.sin(t * 2)})`;
+  ctx.fillRect(x, CANVAS_H - 90, TILE, 90);
+}
+
+// snakes — low, sinuous body coiled at ground level; strikes forward with
+// a brief speed burst instead of patrolling.
+function drawSnake(g) {
+  const x = g.x - camX;
+  const y = rowY(g.row);
+  if (x < -40 || x > CANVAS_W + 40) return;
+  const striking = g.state === "strike";
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(g.facing || 1, 1);
+  if (g.flash > 0) ctx.globalAlpha = 0.4 + 0.6 * Math.sin(performance.now() / 30);
+  ctx.strokeStyle = `hsl(${g.hue} 55% ${striking ? 48 : 38}%)`;
+  ctx.lineWidth = 7;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  const stretch = striking ? 1.5 : 1;
+  ctx.moveTo(-14 * stretch, -4);
+  ctx.quadraticCurveTo(-4 * stretch, striking ? -4 : -12, 6 * stretch, -6);
+  ctx.quadraticCurveTo(10 * stretch, -6, 13 * stretch, -8);
+  ctx.stroke();
+  // head
+  ctx.fillStyle = `hsl(${g.hue} 60% 45%)`;
+  ctx.beginPath();
+  ctx.ellipse(13 * stretch, -8, 5, 3.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffe066";
+  ctx.beginPath();
+  ctx.arc(15 * stretch, -9, 1, 0, Math.PI * 2);
+  ctx.fill();
+  if (striking) {
+    ctx.strokeStyle = "#ffe9b0";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(18 * stretch, -8);
+    ctx.lineTo(23 * stretch, -8);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// harpies — a taloned, winged silhouette that flies its own path, not the
+// ground grid; drawn at `flightY`, not `rowY(row)`.
+function drawHarpy(g) {
+  const x = g.x - camX;
+  const y = enemyY(g);
+  if (x < -60 || x > CANVAS_W + 60 || y < -60 || y > CANVAS_H + 60) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(g.facing || 1, 1);
+  if (g.flash > 0) ctx.globalAlpha = 0.4 + 0.6 * Math.sin(performance.now() / 30);
+  const flap = Math.sin(performance.now() / 90) * 10;
+  ctx.fillStyle = `hsl(${g.hue} 50% 42%)`;
+  // wings
+  ctx.beginPath();
+  ctx.moveTo(0, -6);
+  ctx.quadraticCurveTo(-22, -6 - flap, -26, 4);
+  ctx.quadraticCurveTo(-12, 2, 0, -2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0, -6);
+  ctx.quadraticCurveTo(22, -6 + flap, 26, 4);
+  ctx.quadraticCurveTo(12, 2, 0, -2);
+  ctx.closePath();
+  ctx.fill();
+  // body
+  ctx.fillStyle = `hsl(${g.hue} 45% 35%)`;
+  ctx.beginPath();
+  ctx.ellipse(0, -2, 9, 11, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // head
+  ctx.beginPath();
+  ctx.arc(6, -12, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#f2a93b";
+  ctx.beginPath();
+  ctx.moveTo(11, -13);
+  ctx.lineTo(18, -11);
+  ctx.lineTo(11, -9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ffe066";
+  ctx.beginPath();
+  ctx.arc(8, -13, 1.3, 0, Math.PI * 2);
+  ctx.fill();
+  // talons
+  ctx.strokeStyle = "#d4af37";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(-3, 8);
+  ctx.lineTo(-5, 13);
+  ctx.moveTo(3, 8);
+  ctx.lineTo(5, 13);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawGuard(g) {
+  if (g.etype === "snake") return drawSnake(g);
+  if (g.etype === "harpy") return drawHarpy(g);
   const x = g.x - camX;
   const y = rowY(g.row);
   if (x < -60 || x > CANVAS_W + 60) return;
@@ -861,10 +1349,19 @@ function render(t) {
     if (level.spikes.has(c)) drawSpikeTile(x, rowY(g));
     if (c % 5 === 2) drawTorch(x + TILE / 2, rowY(g) - TILE, t / 1000);
     if (c === level.gateCol) drawGate(x, t / 1000, !bossGuard || !bossGuard.alive);
+    if (c === level.gateCol + 1 && (!bossGuard || !bossGuard.alive)) drawStaircase(x, t / 1000);
+    if (level.potionCols.has(c) && !collectedPotions.has(c)) drawPotion(x, rowY(g), t / 1000);
+    if (level.carpetCols.has(c) && !collectedCarpets.has(c)) drawCarpetPickup(x, rowY(g), t / 1000);
+  }
+  for (const ledge of level.ledges) {
+    const from = Math.max(ledge.fromCol, firstCol);
+    const to = Math.min(ledge.toCol, lastCol);
+    for (let c = from; c <= to; c++) drawLedge(c * TILE - camX, rowY(ledge.row));
   }
 
   for (const g of guards) if (g.alive) drawGuard(g);
 
+  if (carpetTime > 0) drawCarpetRide(player.x - camX, player.y);
   drawCrow(player.x - camX, player.y, player.facing, player.grounded, player.vy, invuln > 0);
 
   ctx.font = "11px ui-monospace, monospace";
@@ -898,6 +1395,16 @@ function update(dt) {
   camX = clamp(player.x - CANVAS_W * 0.35, 0, level.widthPx - CANVAS_W);
   progressFill.style.width = `${clamp((player.x / level.widthPx) * 100, 0, 100)}%`;
 
+  if (carpetTime > 0) {
+    carpetTime = Math.max(0, carpetTime - dt);
+    if (carpetHud) {
+      carpetHud.classList.remove("hidden");
+      carpetFill.style.width = `${(carpetTime / CARPET_DURATION) * 100}%`;
+    }
+  } else if (carpetHud) {
+    carpetHud.classList.add("hidden");
+  }
+
   elapsed += dt;
   timeLeft -= dt;
   timeEl.textContent = String(Math.max(0, Math.ceil(timeLeft)));
@@ -909,14 +1416,38 @@ function update(dt) {
   if (gateBlockedCooldown > 0) gateBlockedCooldown -= dt;
   if (player.x >= level.gateCol * TILE) {
     if (!bossGuard || !bossGuard.alive) {
-      endGame("won");
-      return;
-    }
-    if (gateBlockedCooldown <= 0) {
+      if (player.x >= (level.gateCol + 1) * TILE + TILE * 0.5) {
+        if (levelNum < MAX_LEVELS) goToNextLevel();
+        else endGame("won");
+        return;
+      }
+    } else if (gateBlockedCooldown <= 0) {
       addParticle("the captain blocks the way!", bossGuard.x, rowY(bossGuard.row) - 50, "#ff8b7f");
       gateBlockedCooldown = 2.5;
     }
   }
+}
+
+function goToNextLevel() {
+  levelNum++;
+  ensureAudio();
+  sndLevelUp();
+  timeLeft += TIME_BONUS_PER_LEVEL;
+  level = buildLevel(levelNum);
+  buildGuards();
+  player.x = START_RUNWAY * TILE * 0.5;
+  player.y = rowY(2);
+  player.vx = 0;
+  player.vy = 0;
+  checkpoint = { x: player.x, y: player.y };
+  collectedPotions = new Set();
+  collectedCarpets = new Set();
+  camX = 0;
+  gateBlockedCooldown = 0;
+  invuln = INVULN_TIME * 0.5;
+  levelEl.textContent = String(levelNum);
+  progressFill.style.width = "0%";
+  addParticle(`descending to level ${levelNum}…`, player.x, player.y - 40, "#ffd166");
 }
 
 function loop(t) {
@@ -949,22 +1480,23 @@ function endGame(kind) {
     sndWin();
     overTitle.textContent = "escaped!";
     overCopy.textContent = newBestTime
-      ? `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked, the captain put down — new best time.`
-      : `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked, the captain put down.`;
+      ? `out the far gate in ${elapsed.toFixed(1)}s through ${MAX_LEVELS} level${MAX_LEVELS === 1 ? "" : "s"}, ${score} pecked — new best time.`
+      : `out the far gate in ${elapsed.toFixed(1)}s through ${MAX_LEVELS} level${MAX_LEVELS === 1 ? "" : "s"}, ${score} pecked.`;
   } else if (kind === "dead") {
     sndDead();
     overTitle.textContent = "caught.";
-    overCopy.textContent = `the guards got you. ${score} pecked before you went down.`;
+    overCopy.textContent = `the dungeon got you on level ${levelNum}/${MAX_LEVELS}. ${score} pecked before you went down.`;
   } else {
     sndTimeUp();
     overTitle.textContent = "time's up.";
-    overCopy.textContent = `the dungeon clock ran out. ${score} guards pecked.`;
+    overCopy.textContent = `the dungeon clock ran out on level ${levelNum}/${MAX_LEVELS}. ${score} pecked.`;
   }
   overOverlay.classList.remove("hidden");
 }
 
 function resetLevel() {
-  level = buildLevel();
+  levelNum = 1;
+  level = buildLevel(levelNum);
   buildGuards();
   player = makePlayer();
   checkpoint = { x: player.x, y: player.y };
@@ -978,9 +1510,14 @@ function resetLevel() {
   peckTimer = 0;
   camX = 0;
   gateBlockedCooldown = 0;
+  carpetTime = 0;
+  collectedPotions = new Set();
+  collectedCarpets = new Set();
   outcome = null;
   scoreEl.textContent = "0";
   timeEl.textContent = String(GAME_SECONDS);
+  levelEl.textContent = String(levelNum);
+  if (carpetHud) carpetHud.classList.add("hidden");
   updateLivesHud();
   progressFill.style.width = "0%";
 }
@@ -1004,8 +1541,8 @@ againBtn.addEventListener("click", startGame);
 function buildShareText() {
   const line =
     outcome === "won"
-      ? `I escaped the crowofpersia dungeon in ${elapsed.toFixed(1)}s, pecking ${score} guards drawn from @${GUARD_ACTOR}'s follows. \u{1F426}⚔️`
-      : `I made it ${Math.round((player ? player.x : 0) / TILE)} tiles into the crowofpersia dungeon and pecked ${score} guards before the run ended.`;
+      ? `I escaped the crowofpersia dungeon in ${elapsed.toFixed(1)}s through ${MAX_LEVELS} levels, pecking ${score} guards, snakes & harpies drawn from @${GUARD_ACTOR}'s follows. \u{1F426}⚔️`
+      : `I made it to level ${levelNum}/${MAX_LEVELS} of the crowofpersia dungeon and pecked ${score} enemies before the run ended.`;
   return `${line} ${SITE_URL}`;
 }
 
@@ -1301,7 +1838,7 @@ async function boot() {
   render(performance.now());
   bestEl.textContent = String(getBestScore());
   startCopy.textContent = roster.length
-    ? `${roster.length} of @${GUARD_ACTOR}'s follows stand guard — get close and they'll notice you. @${GUARD_ACTOR} themself blocks the gate as the captain; two pecks puts them down.`
+    ? `${roster.length} of @${GUARD_ACTOR}'s follows stand guard, plus coiled snakes and hunting harpies — get close and they'll notice you. Grab potions for health and the carpet to fly over pits. @${GUARD_ACTOR} themself blocks each level's gate as the captain (two pecks); the staircase beyond leads to ${MAX_LEVELS} levels total.`
     : `couldn't load @${GUARD_ACTOR}'s follows — the guards go faceless this run.`;
   setStatus("");
   startOverlay.classList.remove("hidden");
