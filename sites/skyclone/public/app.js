@@ -21,6 +21,12 @@ const FALLBACK_AVATAR =
 let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null
 let sessionProfile = null; // { avatar, displayName } for the logged-in user, best-effort
 let oauthLib = null;
+let goopLib = null;
+
+// One easter egg: if @bobsslop.bsky.social (the poster who asked for this) is
+// the one logged in, the whole page gets a drippy green goop background —
+// see goop.js. Nobody else's session triggers it.
+const GOOP_HANDLE = "bobsslop.bsky.social";
 
 // post uri -> like/repost record uri, for posts liked/unliked/reposted this
 // session. skyclone reads through the public (unauthenticated) AppView, which
@@ -33,6 +39,17 @@ const repostedPosts = new Map();
 async function oauth() {
   if (!oauthLib) oauthLib = await import(`${MOUNT}/lib/oauth.js`);
   return oauthLib;
+}
+
+async function updateGoopBackground() {
+  const active = !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
+  document.documentElement.classList.toggle("goop-active", active);
+  if (active) {
+    if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
+    goopLib.startGoop();
+  } else if (goopLib) {
+    goopLib.stopGoop();
+  }
 }
 
 async function loadSessionProfile() {
@@ -117,6 +134,7 @@ async function logout() {
   if (location.pathname + location.search !== home) history.replaceState({}, "", home);
   render();
   window.scrollTo(0, 0);
+  updateGoopBackground();
 }
 
 // ---------- API ----------
@@ -1733,7 +1751,11 @@ async function boot() {
   }
   await loadSessionProfile();
   render();
+  updateGoopBackground();
   if (freshLogin) showToast(`Logged in as @${freshLogin.handle}`, "ok");
+  if (freshLogin && freshLogin.handle && freshLogin.handle.toLowerCase() === GOOP_HANDLE) {
+    showToast("the slime remembers you 🟢", "spider");
+  }
   if (bootError) showToast(bootError, "err");
   pollNotifications();
   setInterval(pollNotifications, 20000);
