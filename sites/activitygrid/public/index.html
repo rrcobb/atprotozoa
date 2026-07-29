@@ -283,11 +283,16 @@
   }
   .posts-empty { color: var(--dim); font-size: 0.82rem; }
   .post-row {
+    display: block;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 0.7rem 0.85rem;
+    color: inherit;
+    text-decoration: none;
   }
+  a.post-row { cursor: pointer; }
+  a.post-row:hover { border-color: var(--accent2); }
   .post-row-head { display: flex; align-items: center; gap: 0.5rem; }
   .post-avatar { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); }
   .post-handle { font-size: 0.78rem; font-weight: 700; color: var(--fg); }
@@ -544,12 +549,13 @@ function bucketForPostRecord(record) {
 // on wall-clock time for most accounts, and it's the only way to get years
 // of history back rather than however far a capped page-walk reaches.
 //
-// We don't need a real MST walk to find the posts: every record block
-// decodes to a self-describing object with a "$type" field (MST/commit
+// Finding which blocks are posts doesn't need a real MST walk: every record
+// block decodes to a self-describing object with a "$type" field (MST/commit
 // blocks don't have one), so it's enough to CBOR-decode every dag-cbor block
-// in the CAR and keep the ones typed app.bsky.feed.post. No CID-to-string
-// resolution, no tree traversal, no rkeys needed for a heatmap that only
-// cares about createdAt.
+// in the CAR and keep the ones typed app.bsky.feed.post — no CID-to-string
+// resolution, no tree traversal needed just to bucket createdAt by day.
+// Recovering each post's rkey (so it can link out to the real app) is a
+// separate, smaller walk done afterward — see buildRkeyMap/walkMst below.
 
 function readVarint(bytes, offset) {
   let result = 0, shift = 0, b;
@@ -561,22 +567,27 @@ function readVarint(bytes, offset) {
   return [result, offset];
 }
 
-// Yields the raw dag-cbor bytes of every block in the CAR whose CID codec is
-// dag-cbor (0x71) — skips the CAR header and any raw (blob) blocks. CIDv1 is
-// read generically via varints (version, codec, multihash fn, multihash
-// length) rather than assuming the usual fixed 36-byte sha2-256 shape, so a
-// differently-hashed CID just gets skipped over correctly instead of
-// desyncing the rest of the parse.
-function* carBlocks(bytes) {
+// Parses every dag-cbor block in the CAR (skips the header and any raw/blob
+// blocks) into a Map keyed by the block's own CID string, plus the header's
+// root CID strings. CIDv1 is read generically via varints (version, codec,
+// multihash fn, multihash length) rather than assuming the usual fixed
+// 36-byte sha2-256 shape, so a differently-hashed CID just gets skipped over
+// correctly instead of desyncing the rest of the parse. Keeping every block
+// addressable by CID (not just streaming the record blocks) is what lets
+// buildRkeyMap below walk the MST afterward to recover each record's rkey.
+function parseCar(bytes) {
   let headerLen, offset;
   [headerLen, offset] = readVarint(bytes, 0);
-  offset += headerLen; // skip the header block itself (CAR version + roots)
+  const header = cborDecode(bytes.subarray(offset, offset + headerLen));
+  offset += headerLen;
 
+  const blocks = new Map();
   while (offset < bytes.length) {
     let blockLen;
     [blockLen, offset] = readVarint(bytes, offset);
     if (!blockLen) break;
     const blockEnd = offset + blockLen;
+    const cidStart = offset;
 
     let o = offset;
     let cidCodec, hashLen;
@@ -584,11 +595,71 @@ function* carBlocks(bytes) {
     [cidCodec, o] = readVarint(bytes, o);
     [, o] = readVarint(bytes, o); // multihash function code
     [hashLen, o] = readVarint(bytes, o);
-    o += hashLen; // multihash digest, not needed for this walk
+    o += hashLen; // multihash digest
 
-    if (cidCodec === DAG_CBOR_CODEC) yield bytes.subarray(o, blockEnd);
+    if (cidCodec === DAG_CBOR_CODEC) {
+      const cidStr = "b" + base32Encode(bytes.subarray(cidStart, o));
+      blocks.set(cidStr, bytes.subarray(o, blockEnd));
+    }
     offset = blockEnd;
   }
+
+  const roots = (header.roots || []).map((r) => cidBytesToString(r));
+  return { blocks, roots };
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+// Walks one MST subtree in key order, pushing { key, cid } for every leaf
+// (record) found. Keys are prefix-compressed against the previous key in
+// left-to-right order (entry.p = shared byte length, entry.k = the suffix) —
+// see the atproto repo spec's "Merkle Search Tree" section. We don't need
+// this for the heatmap itself (createdAt lives in the record, not the tree),
+// only to recover each record's rkey so posts can link out to the real app.
+function walkMst(cidStr, blocks, prevKeyBytes, out) {
+  const bytes = blocks.get(cidStr);
+  if (!bytes) return prevKeyBytes; // shouldn't happen in a complete repo CAR
+  const node = cborDecode(bytes);
+  let prev = prevKeyBytes;
+  if (node.l) prev = walkMst(cidBytesToString(node.l), blocks, prev, out);
+  for (const entry of node.e || []) {
+    const keyBytes = concatBytes(prev.subarray(0, entry.p), entry.k);
+    out.push({ key: new TextDecoder().decode(keyBytes), cid: cidBytesToString(entry.v) });
+    prev = keyBytes;
+    if (entry.t) prev = walkMst(cidBytesToString(entry.t), blocks, prev, out);
+  }
+  return prev;
+}
+
+// Maps every record's own CID string to its { collection, rkey }, by
+// decoding the signed commit block the CAR's header roots at, walking the
+// MST it points to (see walkMst), and splitting each "collection/rkey" key.
+// Returns an empty map rather than throwing if the commit/tree shape is
+// unexpected — a missing rkey just means that post's link falls back to
+// unclickable, not that the whole heatmap fails to build.
+function buildRkeyMap(blocks, roots) {
+  const map = new Map();
+  try {
+    const commitBytes = roots[0] && blocks.get(roots[0]);
+    if (!commitBytes) return map;
+    const commit = cborDecode(commitBytes);
+    if (!commit || !commit.data) return map;
+    const entries = [];
+    walkMst(cidBytesToString(commit.data), blocks, new Uint8Array(0), entries);
+    for (const { key, cid } of entries) {
+      const slash = key.indexOf("/");
+      if (slash < 0) continue;
+      map.set(cid, { collection: key.slice(0, slash), rkey: key.slice(slash + 1) });
+    }
+  } catch (_) {
+    // best-effort — an unparseable tree just leaves posts without a direct link
+  }
+  return map;
 }
 
 // Minimal DAG-CBOR decoder: unsigned/negative ints, byte/text strings,
@@ -728,15 +799,15 @@ function extractImagesFromHydratedEmbed(embed) {
 
 // Normalized shape every post-capturing path (car/repo/feed) reduces down to,
 // so the click-a-day posts pane can render all three the same way.
-function normalizePostFromRecord(obj, did) {
-  return { text: obj.text || "", createdAt: obj.createdAt, isReply: !!obj.reply, images: extractImagesFromEmbedCar(obj.embed, did) };
+function normalizePostFromRecord(obj, did, uri) {
+  return { text: obj.text || "", createdAt: obj.createdAt, isReply: !!obj.reply, images: extractImagesFromEmbedCar(obj.embed, did), uri };
 }
-function normalizePostFromJsonRecord(value, did) {
-  return { text: value.text || "", createdAt: value.createdAt, isReply: !!value.reply, images: extractImagesFromEmbedJson(value.embed, did) };
+function normalizePostFromJsonRecord(value, did, uri) {
+  return { text: value.text || "", createdAt: value.createdAt, isReply: !!value.reply, images: extractImagesFromEmbedJson(value.embed, did), uri };
 }
 function normalizePostFromHydrated(post) {
   const record = post.record || {};
-  return { text: record.text || "", createdAt: record.createdAt, isReply: !!record.reply, images: extractImagesFromHydratedEmbed(post.embed) };
+  return { text: record.text || "", createdAt: record.createdAt, isReply: !!record.reply, images: extractImagesFromHydratedEmbed(post.embed), uri: post.uri };
 }
 
 function addPost(postsByDay, key, post) {
@@ -748,14 +819,16 @@ function addPost(postsByDay, key, post) {
 // Primary path: one com.atproto.sync.getRepo request against the account's
 // own PDS gets back its whole signed repo as a CAR file — every post ever
 // made, in a single download, no cursor-pagination round-trips at all. Scans
-// every dag-cbor block (see carBlocks/cborValue above) and buckets any record
+// every dag-cbor block (see parseCar/cborValue above) and buckets any record
 // with a $type by UTC calendar day with no CUTOFF_DAYS window, since the
 // point of downloading the full repo is getting the full history — multiple
 // years, not just the last one. Posts split into posts/replies (whether the
 // record carries a `reply` ref), likes and reposts each get their own
 // bucket, and everything else (follows, blocks, profile edits, ...) falls
 // into "other" — this is what makes the CAR path the only one that can
-// populate all five type chips at once.
+// populate all five type chips at once. buildRkeyMap additionally walks the
+// MST so each post record can carry its real at:// uri (see walkMst) — that's
+// what makes a clicked-day post clickable through to the actual app.
 async function computeHeatmapViaCar(pds, did, onProgress) {
   if (onProgress) onProgress(`downloading repo CAR from ${pds} ...`);
   const res = await fetch(pds + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
@@ -773,7 +846,10 @@ async function computeHeatmapViaCar(pds, did, onProgress) {
   let total = 0, scanned = 0;
   if (onProgress) onProgress(`parsing ${(buf.byteLength / 1048576).toFixed(1)} MB repo CAR ...`);
 
-  for (const blockBytes of carBlocks(bytes)) {
+  const { blocks, roots } = parseCar(bytes);
+  const rkeyMap = buildRkeyMap(blocks, roots);
+
+  for (const [cidStr, blockBytes] of blocks) {
     scanned++;
     let obj;
     try { obj = cborDecode(blockBytes); } catch (_) { continue; }
@@ -786,7 +862,11 @@ async function computeHeatmapViaCar(pds, did, onProgress) {
       : obj.$type === "app.bsky.feed.repost" ? "reposts"
       : "other";
     addCount(dayCounts, key, type);
-    if (obj.$type === "app.bsky.feed.post") addPost(postsByDay, key, normalizePostFromRecord(obj, did));
+    if (obj.$type === "app.bsky.feed.post") {
+      const rk = rkeyMap.get(cidStr);
+      const uri = rk && rk.collection === "app.bsky.feed.post" ? `at://${did}/app.bsky.feed.post/${rk.rkey}` : undefined;
+      addPost(postsByDay, key, normalizePostFromRecord(obj, did, uri));
+    }
     total++;
     if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${total} records found so far`);
   }
@@ -796,8 +876,8 @@ async function computeHeatmapViaCar(pds, did, onProgress) {
 
 // Shared pager for one collection of a repo.listRecords walk: bounded by
 // REPO_MAX_PAGES, stops at the first record older than `cutoff`, and calls
-// onRecord(value, timestamp) for each in-range record so the caller decides
-// how to bucket it.
+// onRecord(value, timestamp, uri) for each in-range record so the caller
+// decides how to bucket it.
 async function walkCollectionByCutoff(pds, did, collection, cutoff, onRecord, onProgress) {
   let cursor, truncated = false, count = 0;
   for (let page = 0; page < REPO_MAX_PAGES; page++) {
@@ -815,7 +895,7 @@ async function walkCollectionByCutoff(pds, did, collection, cutoff, onRecord, on
       const t = createdAt ? Date.parse(createdAt) : NaN;
       if (Number.isNaN(t)) continue;
       if (t < cutoff) { hitCutoff = true; continue; }
-      onRecord(rec.value, t);
+      onRecord(rec.value, t, rec.uri);
       count++;
     }
     if (onProgress) onProgress(`walking ${collection}... ${count} found so far`);
@@ -842,10 +922,10 @@ async function computeHeatmapViaRepo(pds, did, onProgress) {
   const cutoff = Date.now() - CUTOFF_DAYS * 86400000;
   let total = 0;
 
-  const posts = await walkCollectionByCutoff(pds, did, "app.bsky.feed.post", cutoff, (value, t) => {
+  const posts = await walkCollectionByCutoff(pds, did, "app.bsky.feed.post", cutoff, (value, t, uri) => {
     const key = isoDay(t);
     addCount(dayCounts, key, bucketForPostRecord(value));
-    addPost(postsByDay, key, normalizePostFromJsonRecord(value, did));
+    addPost(postsByDay, key, normalizePostFromJsonRecord(value, did, uri));
     total++;
   }, onProgress);
   const likes = await walkCollectionByCutoff(pds, did, "app.bsky.feed.like", cutoff, (value, t) => {
@@ -1043,6 +1123,30 @@ function gridCellsForYear(year) {
   return cells;
 }
 
+// Same as gridCellsForYear, but never truncates the current year at today —
+// used only by the "stack all years" view, so every year's card (including
+// the in-progress one) is the same full Jan-Dec shape for visual consistency;
+// future days just come out as ordinary zero-count (empty) cells.
+function gridCellsForYearFull(year) {
+  const full = new Date(Date.UTC(year, 11, 31));
+  const janFirst = new Date(Date.UTC(year, 0, 1));
+  const startDow = janFirst.getUTCDay();
+  const start = new Date(janFirst);
+  start.setUTCDate(start.getUTCDate() - startDow);
+  const cols = Math.ceil((full.getTime() - start.getTime()) / 86400000 / 7) + 1;
+
+  const cells = [];
+  for (let col = 0; col < cols; col++) {
+    for (let row = 0; row < 7; row++) {
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + col * 7 + row);
+      if (d.getUTCFullYear() !== year) continue;
+      cells.push({ col, row, date: d, key: isoDay(d.getTime()) });
+    }
+  }
+  return cells;
+}
+
 const LEVEL_COLORS = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"];
 function levelFor(count, max) {
   if (!count) return 0;
@@ -1080,8 +1184,10 @@ function cellAtPoint(canvas, cells, origin, step, clientX, clientY) {
 
 // Draws just the color grid + month labels for one calendar year, no
 // header/stats/legend — used by the stacked "all years" view where many of
-// these sit in a column at once.
-function drawMiniYearGrid(canvas, cells, dayCounts, selectedTypes) {
+// these sit in a column at once. `sharedMax` is the busiest day across every
+// year in the stack, not just this one, so color intensity is comparable
+// year to year instead of each card being normalized to its own busiest day.
+function drawMiniYearGrid(canvas, cells, dayCounts, selectedTypes, sharedMax) {
   const cols = Math.max(0, ...cells.map((c) => c.col)) + 1;
   canvas.width = STACK_ORIGIN.x + cols * STACK_STEP + 10;
   canvas.height = STACK_HEIGHT;
@@ -1092,7 +1198,7 @@ function drawMiniYearGrid(canvas, cells, dayCounts, selectedTypes) {
   ctx.fillStyle = "#0d1117";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const max = Math.max(0, ...cells.map((c) => sumSelected(dayCounts.get(c.key), selectedTypes)));
+  const max = sharedMax;
   let lastMonth = -1;
   ctx.textAlign = "left";
   ctx.fillStyle = "#7d8590";
@@ -1122,12 +1228,21 @@ function drawMiniYearGrid(canvas, cells, dayCounts, selectedTypes) {
 // Builds one mini-grid canvas per calendar year present in the data (newest
 // first) and appends them into #yearStack — the "stack all years" view.
 // Each is independently clickable into the same posts-pane click handler the
-// main grid uses.
+// main grid uses. Every year (including the current, in-progress one) is
+// drawn full Jan-Dec (see gridCellsForYearFull) and colored against one
+// shared busiest-day max across the whole stack, so cards are directly
+// comparable instead of each being its own little self-normalized scale.
 function renderYearStack() {
   els.yearStack.innerHTML = "";
   const years = yearsInData(current.dayCounts);
-  for (const year of years) {
-    const cells = gridCellsForYear(year);
+  const cellsByYear = years.map((year) => gridCellsForYearFull(year));
+  const sharedMax = Math.max(
+    0,
+    ...cellsByYear.flat().map((c) => sumSelected(current.dayCounts.get(c.key), current.selectedTypes))
+  );
+
+  years.forEach((year, i) => {
+    const cells = cellsByYear[i];
     const { start, end } = yearBounds(year);
     const stats = computeStatsForRange(current.dayCounts, start, end, current.selectedTypes);
 
@@ -1141,12 +1256,12 @@ function renderYearStack() {
     wrapper.appendChild(canvas);
     els.yearStack.appendChild(wrapper);
 
-    drawMiniYearGrid(canvas, cells, current.dayCounts, current.selectedTypes);
+    drawMiniYearGrid(canvas, cells, current.dayCounts, current.selectedTypes, sharedMax);
     canvas.addEventListener("click", (e) => {
       const hit = cellAtPoint(canvas, cells, STACK_ORIGIN, STACK_STEP, e.clientX, e.clientY);
       if (hit) renderPostsPane(hit.key);
     });
-  }
+  });
 }
 
 function loadImg(url) {
@@ -1568,9 +1683,24 @@ function renderPostsPane(dayKey) {
   els.postsPane.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+// at://did/app.bsky.feed.post/<rkey> -> a bsky.app post URL. On mobile this
+// opens straight into the Bluesky app via its registered universal link; on
+// desktop (or with no app installed) it's a normal https link.
+function postUrlFor(uri, handle) {
+  const m = uri && uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+  if (!m) return null;
+  return `https://bsky.app/profile/${handle || m[1]}/post/${m[2]}`;
+}
+
 function buildPostRow(p) {
-  const row = document.createElement("div");
+  const url = postUrlFor(p.uri, current.profile.handle);
+  const row = document.createElement(url ? "a" : "div");
   row.className = "post-row";
+  if (url) {
+    row.href = url;
+    row.target = "_blank";
+    row.rel = "noopener";
+  }
 
   const head = document.createElement("div");
   head.className = "post-row-head";
@@ -1606,10 +1736,16 @@ function buildPostRow(p) {
     const imgs = document.createElement("div");
     imgs.className = "post-images";
     for (const im of p.images) {
-      const a = document.createElement("a");
-      a.href = im.full;
-      a.target = "_blank";
-      a.rel = "noopener";
+      // a plain span, not an <a> — the row itself may already be an <a> to
+      // the post, and nested anchors are invalid HTML; open the fullsize
+      // image directly and stop the click from also navigating the row.
+      const a = document.createElement("span");
+      a.className = "post-image-link";
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(im.full, "_blank", "noopener");
+      });
       const thumb = document.createElement("img");
       thumb.src = im.thumb;
       thumb.alt = im.alt || "";
