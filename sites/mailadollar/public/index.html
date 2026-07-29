@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mail-a-dollar — find the author, send the buck</title>
+<meta name="description" content="libgen doesn't do this part. type an author's name: we check if they're on Bluesky, dig a tip link out of their bio, and if not, hand you a printable dollar IOU to mail instead." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="mail-a-dollar — find the author, send the buck" />
+<meta property="og:description" content="libgen doesn't do this part. type an author's name: we check if they're on Bluesky, dig a tip link out of their bio, and if not, hand you a printable dollar IOU to mail instead." />
+<meta property="og:image" content="https://bisks.net/mailadollar/og.png" />
+<meta property="og:url" content="https://bisks.net/mailadollar/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mail-a-dollar — find the author, send the buck" />
+<meta name="twitter:description" content="libgen doesn't do this part. type an author's name: we check if they're on Bluesky, dig a tip link out of their bio, and if not, hand you a printable dollar IOU to mail instead." />
+<meta name="twitter:image" content="https://bisks.net/mailadollar/og.png" />
+
+<style>
+  :root {
+    --bg: #071a10;
+    --bg2: #0d2417;
+    --card: #0f2b1b;
+    --border: #1e4a2c;
+    --ink: #eafcef;
+    --muted: #7ea88c;
+    --green: #4ade80;
+    --green2: #22c55e;
+    --gold: #f4d35e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 800px 400px at 20% -10%, #123a22, transparent),
+      var(--bg);
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 5rem;
+  }
+  h1 {
+    font-size: 1.9rem;
+    margin: 0 0 0.3rem;
+    letter-spacing: -0.02em;
+  }
+  h1 .cash { color: var(--green); }
+  .tagline {
+    color: var(--muted);
+    margin: 0 0 2rem;
+    max-width: 56ch;
+  }
+  .tagline code { color: var(--gold); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--ink);
+    font: inherit;
+    padding: 0.7rem 0.85rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--green2); }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid transparent;
+  }
+  button.primary {
+    background: var(--green2);
+    color: #052e0f;
+    font-weight: 700;
+    padding: 0.7rem 1.1rem;
+    border: none;
+  }
+  button.primary:hover { background: var(--green); }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 2rem; }
+
+  #status { color: var(--muted); min-height: 1.4em; margin-bottom: 1rem; }
+  #status.err { color: #ff8a8a; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .profile { display: flex; gap: 0.85rem; align-items: center; }
+  .profile img.avatar {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--bg2); object-fit: cover; flex: none;
+  }
+  .profile .who { min-width: 0; }
+  .profile .name { font-weight: 700; font-size: 1.05rem; }
+  .profile .handle { color: var(--muted); }
+  .bio { color: var(--muted); margin-top: 0.8rem; font-size: 0.92rem; white-space: pre-wrap; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1rem; }
+  .actions a, .actions button {
+    display: inline-block;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    text-decoration: none;
+    padding: 0.55rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+  }
+  .actions a:hover, .actions button:hover { border-color: var(--green2); }
+  .actions a.tip {
+    background: var(--green2);
+    color: #052e0f;
+    font-weight: 700;
+    border: none;
+  }
+  .actions a.tip:hover { background: var(--green); }
+
+  h3 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.7rem; }
+
+  #card-wrap { display: none; text-align: center; }
+  #card-wrap canvas {
+    max-width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+
+  #results { display: none; }
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 3rem; }
+  footer a { color: var(--green); }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="cash">$</span> mail-a-dollar</h1>
+  <p class="tagline">
+    libgen doesn't do this part. type an author's name — we check if they're
+    on <code>Bluesky</code>, dig a tip link out of their bio, and if that
+    comes up empty, hand you a printable dollar to mail them the old way.
+  </p>
+
+  <form id="f" autocomplete="off">
+    <input id="q" type="text" placeholder="author's name (e.g. Ursula K. Le Guin)" required />
+    <button class="primary" type="submit" id="go">find them</button>
+  </form>
+  <p class="hint">works on real authors, dead authors, and your friend who self-published one (1) novella.</p>
+
+  <div id="status"></div>
+
+  <div id="results">
+    <div class="card" id="profile-card" style="display:none">
+      <div class="profile">
+        <img class="avatar" id="p-avatar" alt="" onerror="this.style.visibility='hidden'" />
+        <div class="who">
+          <div class="name" id="p-name"></div>
+          <div class="handle" id="p-handle"></div>
+        </div>
+      </div>
+      <div class="bio" id="p-bio"></div>
+      <div class="actions" id="p-actions"></div>
+    </div>
+
+    <div class="card">
+      <h3>go analog</h3>
+      <p style="color:var(--muted); margin-top:0">
+        Most publishers forward fan mail — address a letter to
+        <em>Attn: Author Rights &amp; Permissions</em> c/o the publisher on the
+        book's copyright page, drop a dollar bill in, and they'll pass it along.
+        Print this to include with it:
+      </p>
+      <div class="actions">
+        <button id="make-card">generate a mail-a-dollar card</button>
+      </div>
+      <div id="card-wrap">
+        <canvas id="canvas" width="1000" height="500"></canvas>
+        <div class="actions" style="justify-content:center">
+          <a id="dl" download="mail-a-dollar.png">download</a>
+          <button id="print">print</button>
+          <button id="native-share" style="display:none">share</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>or just go looking</h3>
+      <div class="actions" id="search-links"></div>
+    </div>
+
+    <div class="actions">
+      <a id="share-bsky" href="#" target="_blank" rel="noopener">share this search on Bluesky</a>
+    </div>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a>. reads the public Bluesky AppView,
+    client-side, no login, no payment processing here — this just finds the door,
+    you knock on it.
+  </footer>
+</main>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+(function () {
+  const API = "https://public.api.bsky.app/xrpc/";
+  const TIP_DOMAINS = ["paypal.me", "venmo.com", "cash.app", "ko-fi.com", "buymeacoffee.com", "patreon.com"];
+
+  const els = {
+    f: document.getElementById("f"),
+    q: document.getElementById("q"),
+    go: document.getElementById("go"),
+    status: document.getElementById("status"),
+    results: document.getElementById("results"),
+    profileCard: document.getElementById("profile-card"),
+    pAvatar: document.getElementById("p-avatar"),
+    pName: document.getElementById("p-name"),
+    pHandle: document.getElementById("p-handle"),
+    pBio: document.getElementById("p-bio"),
+    pActions: document.getElementById("p-actions"),
+    searchLinks: document.getElementById("search-links"),
+    makeCard: document.getElementById("make-card"),
+    cardWrap: document.getElementById("card-wrap"),
+    canvas: document.getElementById("canvas"),
+    dl: document.getElementById("dl"),
+    print: document.getElementById("print"),
+    nativeShare: document.getElementById("native-share"),
+    shareBsky: document.getElementById("share-bsky"),
+  };
+
+  attachHandleTypeahead(els.q);
+
+  function setStatus(msg, isErr) {
+    els.status.textContent = msg || "";
+    els.status.classList.toggle("err", !!isErr);
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function findTipLink(text) {
+    const urls = (text || "").match(/https?:\/\/[^\s)]+/gi) || [];
+    for (const u of urls) {
+      if (TIP_DOMAINS.some((d) => u.toLowerCase().includes(d))) return u;
+    }
+    return null;
+  }
+
+  async function searchActor(name) {
+    const res = await fetch(API + "app.bsky.actor.searchActors?q=" + encodeURIComponent(name) + "&limit=1");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.actors && data.actors[0]) || null;
+  }
+
+  function buildSearchLinks(name) {
+    const q1 = encodeURIComponent(name + ' paypal.me OR venmo OR ko-fi OR "buy me a coffee"');
+    const q2 = encodeURIComponent(name + " author contact");
+    els.searchLinks.innerHTML = `
+      <a target="_blank" rel="noopener" href="https://duckduckgo.com/?q=${q1}">search for a tip link</a>
+      <a target="_blank" rel="noopener" href="https://duckduckgo.com/?q=${q2}">search for their contact page</a>
+    `;
+  }
+
+  let currentName = "";
+
+  function buildShareText(name, foundHandle) {
+    const url = "https://bisks.net/mailadollar/s/" + encodeURIComponent(name);
+    const lead = foundHandle
+      ? "found @" + foundHandle + " and a way to mail them $1 —"
+      : "went looking for a way to mail " + name + " a dollar —";
+    return lead + " " + url;
+  }
+
+  async function go(name) {
+    currentName = name;
+    setStatus("checking Bluesky...");
+    els.results.style.display = "none";
+    els.profileCard.style.display = "none";
+    els.cardWrap.style.display = "none";
+    els.go.disabled = true;
+
+    let actor = null;
+    try {
+      actor = await searchActor(name);
+    } catch (_) {
+      // network hiccup — fall through to the analog options
+    }
+
+    buildSearchLinks(name);
+    let foundHandle = null;
+
+    if (actor) {
+      foundHandle = actor.handle;
+      els.profileCard.style.display = "";
+      els.pAvatar.src = actor.avatar || "";
+      els.pName.textContent = actor.displayName || actor.handle;
+      els.pHandle.textContent = "@" + actor.handle;
+      els.pBio.textContent = actor.description || "";
+
+      const tip = findTipLink(actor.description || "");
+      let actionsHtml = "";
+      if (tip) {
+        actionsHtml += `<a class="tip" target="_blank" rel="noopener" href="${esc(tip)}">send $1 → ${esc(tip.replace(/^https?:\/\//, ""))}</a>`;
+      }
+      actionsHtml += `<a target="_blank" rel="noopener" href="https://bsky.app/profile/${esc(actor.handle)}">say hi on Bluesky</a>`;
+      els.pActions.innerHTML = actionsHtml;
+
+      setStatus(tip ? "found a tip link right in their bio." : "found them on Bluesky, but no tip link in their bio — try the options below.");
+    } else {
+      setStatus("couldn't find them on Bluesky. here's the analog route.");
+    }
+
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(name, foundHandle));
+    els.results.style.display = "";
+    els.go.disabled = false;
+  }
+
+  els.f.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = els.q.value.trim();
+    if (name) go(name);
+  });
+
+  // ---- printable dollar IOU card ----
+  function drawCard(name) {
+    const ctx = els.canvas.getContext("2d");
+    const W = els.canvas.width, H = els.canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.fillStyle = "#e9f7ea";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = "#0d5c2e";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(16, 16, W - 32, H - 32);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(28, 28, W - 56, H - 56);
+
+    ctx.fillStyle = "#0d5c2e";
+    ctx.textAlign = "center";
+    ctx.font = "bold 26px ui-monospace, monospace";
+    ctx.fillText("THE ATPROTOZOA RESERVE", W / 2, 78);
+
+    ctx.font = "bold 54px ui-monospace, monospace";
+    ctx.fillText("ONE DOLLAR", W / 2, 150);
+
+    ctx.beginPath();
+    ctx.arc(W / 2, 260, 78, 0, Math.PI * 2);
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.font = "bold 76px ui-monospace, monospace";
+    ctx.fillText("$", W / 2, 288);
+
+    ctx.font = "20px ui-monospace, monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("PAY TO THE ORDER OF", 90, 372);
+    ctx.font = "bold 28px ui-monospace, monospace";
+    ctx.fillText(name || "the author", 90, 406);
+
+    ctx.font = "16px ui-monospace, monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("FROM: a reader who liked the book", W - 90, 406);
+
+    ctx.textAlign = "center";
+    ctx.font = "14px ui-monospace, monospace";
+    ctx.fillStyle = "#3a6b47";
+    ctx.fillText("redeemable at any post office · bisks.net/mailadollar", W / 2, H - 40);
+
+    return els.canvas;
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  els.makeCard.addEventListener("click", () => {
+    drawCard(currentName);
+    els.cardWrap.style.display = "";
+    els.dl.href = els.canvas.toDataURL("image/png");
+    els.dl.download = "mail-a-dollar-" + (currentName || "card").toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".png";
+    els.cardWrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    if (canShareFiles()) {
+      els.nativeShare.style.display = "";
+      els.nativeShare.onclick = () => {
+        els.canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const file = new File([blob], "mail-a-dollar.png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], text: buildShareText(currentName, null), title: "mail-a-dollar" });
+          } catch (_) {}
+        }, "image/png");
+      };
+    }
+  });
+
+  els.print.addEventListener("click", () => {
+    const dataUrl = els.canvas.toDataURL("image/png");
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write('<img src="' + dataUrl + '" style="width:100%" onload="window.print()">');
+    w.document.close();
+  });
+
+  // /s/<name> (share links) auto-run the search on load.
+  const pathName = (location.pathname.match(/^\/mailadollar\/s\/([^/]+)\/?$/) || [])[1];
+  if (pathName) {
+    const name = decodeURIComponent(pathName);
+    els.q.value = name;
+    go(name);
+  }
+})();
+</script>
+</body>
+</html>
