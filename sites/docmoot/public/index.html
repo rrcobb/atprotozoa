@@ -204,8 +204,20 @@
     </div>
 
     <script type="module">
-      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT } from "./lib/oauth.js";
-      import { attachCollab } from "./lib/collab.js";
+      // Relative imports ("./lib/oauth.js") resolve against the *document's
+      // URL*, not against wherever the HTML was actually served from. That's
+      // fine at /docmoot/, but a shared doc link like /docmoot/d/<id> is one
+      // path segment deeper, so "./lib/oauth.js" would resolve to
+      // /docmoot/d/lib/oauth.js — 404, module load fails, this whole script
+      // never runs, and the page is stuck on the static landing markup (bug:
+      // shared doc links "just take you to the home page"). Compute the real
+      // lib/ base first and import dynamically instead. Duplicates the
+      // "/docmoot" prefix that also lives in src/index.ts's PREFIX and
+      // oauth.js's MOUNT — can't import MOUNT before this import runs.
+      const MOUNT_GUESS = "/docmoot";
+      const LIB_BASE = (location.pathname.startsWith(MOUNT_GUESS) ? MOUNT_GUESS : "") + "/lib/";
+      const [{ login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT }, { attachCollab }] =
+        await Promise.all([import(LIB_BASE + "oauth.js"), import(LIB_BASE + "collab.js")]);
 
       const $ = (sel) => document.querySelector(sel);
       const esc = (s) =>
