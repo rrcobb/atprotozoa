@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ideahose — the firehose's own backlog for @buildthis — bisks.net</title>
+    <meta
+      name="description"
+      content="Watches the entire Bluesky firehose (not just tags) for website/app ideas, groups the ones different people separately keep having, and ranks the backlog by how many people wanted it, how the post did, and votes from this page. Tap 'tag @buildthis' on anything you want built."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/ideahose" />
+    <meta property="og:title" content="ideahose — a crowdsourced backlog for @buildthis" />
+    <meta
+      property="og:description"
+      content="The whole Bluesky firehose, watched for website/app ideas, grouped by what different people keep separately wishing for, and ranked into a live backlog. One tap tags @buildthis.bisks.net to build the one you want."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="ideahose — a crowdsourced backlog for @buildthis" />
+    <meta
+      name="twitter:description"
+      content="The firehose, watched for website/app ideas, ranked by how many people separately wanted it. Tap to tag @buildthis and build the top one."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / idea-mill / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 62ch; margin: 0 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
+      .dot.live { background: var(--good); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; gap: 0.9rem; padding: 1.05rem 0;
+        border-top: 1px solid var(--faint); align-items: flex-start;
+        animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .rank {
+        font-weight: 800; font-size: 1rem; color: var(--muted);
+        min-width: 1.8rem; padding-top: 0.15rem;
+      }
+      .body { flex: 1; min-width: 0; }
+      .badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+      .badge {
+        font-size: 0.68rem; letter-spacing: 0.03em; padding: 0.15rem 0.5rem;
+        border-radius: 999px; border: 1px solid var(--faint); color: var(--muted);
+        background: var(--faintbg); white-space: nowrap;
+      }
+      .badge.mentions { color: var(--ink); border-color: var(--accent); font-weight: 700; }
+      .badge.tagged { color: var(--accent); border-color: var(--accent); }
+      .text {
+        font-size: 0.96rem; line-height: 1.55; white-space: pre-wrap;
+        overflow-wrap: break-word; word-break: break-word; margin: 0 0 0.55rem;
+      }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.9rem; color: var(--muted);
+        font-size: 0.78rem; font-variant-numeric: tabular-nums; align-items: center;
+        margin-bottom: 0.6rem;
+      }
+      .meta a { color: var(--muted); text-decoration: none; }
+      .meta a:hover { color: var(--ink); text-decoration: underline; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      button, a.btn {
+        font-family: inherit; font-size: 0.8rem; padding: 0.4rem 0.75rem;
+        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        border-radius: 7px; cursor: pointer; text-decoration: none; display: inline-block;
+      }
+      button:hover, a.btn:hover { border-color: var(--accent); color: var(--accent); }
+      button.voted { color: var(--good); border-color: var(--good); cursor: default; }
+      a.btn.build { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+      a.btn.build:hover { background: var(--accent); color: #fff; }
+
+      .share { margin: 2rem 0 1rem; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>ideahose <span class="slash">/ a crowdsourced backlog for @buildthis</span></h1>
+        <p class="sub">
+          Watches the <b>whole live firehose</b> — not just posts tagging the
+          bot — for anything that reads like a website/app/tool idea, groups
+          the ones different people separately keep having, and ranks the
+          backlog by how many people wanted it, how those posts actually did,
+          and upvotes from right here. See one worth building? Tap
+          <b>tag @buildthis</b> and set it loose.
+        </p>
+      </header>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span id="trackingText"></span>
+      </div>
+
+      <div class="empty" id="empty" style="display:none">
+        Nothing's cleared the bar yet. The tracker only shows an idea once
+        its first spotted post has been checked for real reactions
+        (about six minutes after it goes up) — right after a deploy, or
+        during a quiet stretch, this can sit empty for a bit. Check back
+        shortly.
+      </div>
+
+      <ol class="board" id="board"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=bisks.net/ideahose" target="_blank" rel="noopener">share this backlog</a>
+      </div>
+
+      <footer>
+        Sampled from the live firehose via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        — root-level posts only, matched against a keyword/phrase heuristic
+        ("someone should build…", "idea for a website…", "@buildthis…" and
+        similar), a fraction of the total stream, not every idea posted.
+        Matching ideas are grouped by shared significant keywords — cheap
+        overlap clustering, not real language understanding, so it's an
+        honest approximation: it can lump two different ideas that happen to
+        share a distinctive word, and it can miss two phrasings of the same
+        idea that share no words. Score = mentions × 30 + log2(reactions) × 8
+        + upvotes × 12, with a small bump for ideas already posted straight
+        at the bot. Upvotes are capped at one per browser/idea per hour.
+        asked for by <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const trackingText = document.getElementById("trackingText");
+      const empty = document.getElementById("empty");
+      const board = document.getElementById("board");
+      const shareLink = document.getElementById("shareLink");
+
+      const VOTED_KEY = "ideahose-voted";
+      function votedSet() {
+        try { return new Set(JSON.parse(localStorage.getItem(VOTED_KEY) || "[]")); }
+        catch { return new Set(); }
+      }
+      function markVoted(key) {
+        try {
+          const s = votedSet();
+          s.add(key);
+          localStorage.setItem(VOTED_KEY, JSON.stringify(Array.from(s)));
+        } catch {}
+      }
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(handle, rkey) {
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+
+      function rowHTML(e, i, voted) {
+        const already = voted.has(e.key);
+        const reactions = (e.likeSum || 0) + (e.repostSum || 0) + (e.replySum || 0);
+        const buildText = "@buildthis.bisks.net build: " + e.text;
+        const buildHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildText);
+        return `
+          <li class="row">
+            <div class="rank">${i + 1}</div>
+            <div class="body">
+              <div class="badges">
+                <span class="badge mentions">mentioned ${e.mentionCount}×</span>
+                ${e.tagged ? '<span class="badge tagged">already tagged @buildthis</span>' : ""}
+              </div>
+              <p class="text">${esc(e.text) || "<em>(no text)</em>"}</p>
+              <div class="meta">
+                <span>${e.likeSum.toLocaleString()} likes</span>
+                <span>${e.repostSum.toLocaleString()} reposts</span>
+                <span>${e.replySum.toLocaleString()} replies</span>
+                <span>${timeAgo(e.lastSeen)}</span>
+                <a href="${postUrl(e.handle, e.rkey)}" target="_blank" rel="noopener">source ↗</a>
+              </div>
+              <div class="actions">
+                <a class="btn build" href="${buildHref}" target="_blank" rel="noopener">tag @buildthis ↗</a>
+                <button type="button" class="upvote${already ? " voted" : ""}" data-key="${esc(e.key)}" ${already ? "disabled" : ""}>
+                  ▲ ${e.upvotes || 0}
+                </button>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function render(data) {
+        const ideas = data.ideas || [];
+        trackingText.textContent =
+          `tracking ${data.tracking || 0} idea clusters · ${data.ideasSeen || 0} idea-shaped posts seen`;
+
+        if (!ideas.length) {
+          empty.style.display = "";
+          board.innerHTML = "";
+          return;
+        }
+        empty.style.display = "none";
+
+        const voted = votedSet();
+        board.innerHTML = ideas.map((e, i) => rowHTML(e, i, voted)).join("");
+
+        board.querySelectorAll(".upvote").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const key = btn.dataset.key;
+            btn.disabled = true;
+            try {
+              const r = await fetch("/ideahose/api/upvote", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ key }),
+              });
+              const out = await r.json();
+              if (out && typeof out.upvotes === "number") {
+                btn.textContent = "▲ " + out.upvotes;
+                btn.classList.add("voted");
+                markVoted(key);
+              }
+            } catch {
+              btn.disabled = false;
+            }
+          });
+        });
+
+        const top = ideas[0];
+        const shareText = `top idea in the ideahose backlog right now: "${top.text.slice(0, 140)}" — mentioned ${top.mentionCount}× so far. bisks.net/ideahose`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const r = await fetch("/ideahose/api/leaderboard", { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          dot.classList.add("live");
+          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 15000);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
