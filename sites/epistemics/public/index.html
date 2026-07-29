@@ -95,6 +95,31 @@
 
   .clean-msg { text-align: center; color: var(--dim); font-size: 0.9rem; padding: 1.5rem 0; }
 
+  .docket-wrap { border-top: 1px dashed var(--border); margin-top: 0.4rem; padding-top: 1.2rem; }
+  .docket-toggle {
+    width: 100%; text-align: left; background: transparent; border: 1px solid var(--border);
+    color: var(--dim); border-radius: 8px; padding: 0.6rem 0.85rem; font: inherit; font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .docket-toggle:hover { border-color: var(--accent); color: var(--fg); }
+  .docket { display: none; margin-top: 0.9rem; }
+  .docket.show { display: block; }
+  .docket-topic { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.6rem; overflow: hidden; }
+  .docket-topic summary {
+    list-style: none; cursor: pointer; padding: 0.6rem 0.85rem; font-size: 0.85rem;
+    display: flex; justify-content: space-between; gap: 0.6rem; background: var(--bg2);
+  }
+  .docket-topic summary::-webkit-details-marker { display: none; }
+  .docket-topic summary .dt-name { color: var(--accent); font-weight: 700; }
+  .docket-topic summary .dt-count { color: var(--dim); font-size: 0.75rem; white-space: nowrap; }
+  .docket-claims { padding: 0.7rem 0.85rem 0.85rem; display: flex; flex-direction: column; gap: 0.55rem; }
+  .docket-claim { font-size: 0.83rem; line-height: 1.45; border-left: 3px solid var(--border); padding-left: 0.65rem; }
+  .docket-claim.pos { border-left-color: var(--good); }
+  .docket-claim.neg { border-left-color: var(--accent2); }
+  .docket-claim .dc-meta { color: var(--dim); font-size: 0.7rem; display: flex; gap: 0.5rem; margin-top: 0.2rem; }
+  .docket-claim .dc-meta a { color: var(--dim); text-decoration: none; }
+  .docket-claim .dc-meta a:hover { color: var(--accent); }
+
   .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
   #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
   .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
@@ -150,6 +175,11 @@
       <div id="sins"></div>
       <div id="cleanMsg" class="clean-msg" style="display:none;"></div>
 
+      <div id="docketWrap" class="docket-wrap" style="display:none;">
+        <button id="docketToggle" class="docket-toggle" type="button"></button>
+        <div id="docket" class="docket"></div>
+      </div>
+
       <div class="share">
         <canvas id="shareCanvas" width="1200" height="630"></canvas>
         <div class="share-actions">
@@ -197,6 +227,9 @@ const els = {
   verdictText: document.getElementById("verdictText"),
   sins: document.getElementById("sins"),
   cleanMsg: document.getElementById("cleanMsg"),
+  docketWrap: document.getElementById("docketWrap"),
+  docketToggle: document.getElementById("docketToggle"),
+  docket: document.getElementById("docket"),
   shareCanvas: document.getElementById("shareCanvas"),
   shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
@@ -376,6 +409,63 @@ async function buildShareCard(profile, result) {
   ctx.fillText("bisks.net/epistemics", 60, H - 40);
 }
 
+function formatDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function polarityMark(c) {
+  if (c.absolute === "always") return "∀";
+  if (c.absolute === "never") return "∄";
+  if (c.polarity === "pos") return "+";
+  if (c.polarity === "neg") return "−";
+  return "·";
+}
+
+function renderDocketClaim(c) {
+  const cls = c.polarity === "pos" ? " pos" : c.polarity === "neg" ? " neg" : "";
+  const tags = [];
+  if (c.hedge) tags.push("hedge");
+  if (c.certainty) tags.push("certainty");
+  return `
+    <div class="docket-claim${cls}">
+      ${polarityMark(c)} ${esc(c.text)}
+      <div class="dc-meta">
+        <span>${formatDate(c.createdAt)}</span>
+        ${tags.length ? `<span>${tags.join(", ")}</span>` : ""}
+        <a href="${c.postUrl}" target="_blank" rel="noopener">view →</a>
+      </div>
+    </div>`;
+}
+
+function renderDocketTopic(entry) {
+  return `
+    <details class="docket-topic">
+      <summary>
+        <span class="dt-name">${esc(entry.topic)}</span>
+        <span class="dt-count">${entry.claims.length} claims</span>
+      </summary>
+      <div class="docket-claims">
+        ${entry.claims.map(renderDocketClaim).join("")}
+      </div>
+    </details>`;
+}
+
+function renderDocket(docket) {
+  if (!docket.length) {
+    els.docketWrap.style.display = "none";
+    return;
+  }
+  els.docketWrap.style.display = "block";
+  els.docket.classList.remove("show");
+  const claimCount = docket.reduce((sum, t) => sum + t.claims.length, 0);
+  els.docketToggle.textContent = `📋 browse the full docket — ${docket.length} topics revisited, ${claimCount} claims on record ▾`;
+  els.docketToggle.dataset.open = "0";
+  els.docket.innerHTML = docket.map(renderDocketTopic).join("");
+}
+
 function renderQuote(q) {
   return `<div class="quote">${esc(q.text)}<a href="${q.postUrl}" target="_blank" rel="noopener">view post →</a></div>`;
 }
@@ -444,6 +534,8 @@ async function reveal(rawHandle) {
       els.cleanMsg.style.display = "block";
     }
 
+    renderDocket(result.docket);
+
     setStatus("");
     els.card.classList.add("show");
 
@@ -456,6 +548,13 @@ async function reveal(rawHandle) {
     els.go.disabled = false;
   }
 }
+
+els.docketToggle.addEventListener("click", () => {
+  const open = els.docketToggle.dataset.open === "1";
+  els.docket.classList.toggle("show", !open);
+  els.docketToggle.dataset.open = open ? "0" : "1";
+  els.docketToggle.textContent = els.docketToggle.textContent.replace(open ? "▴" : "▾", open ? "▾" : "▴");
+});
 
 els.form.addEventListener("submit", (e) => {
   e.preventDefault();

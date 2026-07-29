@@ -250,12 +250,39 @@
     return "case closed. the defendant contains multitudes, and none of them agree.";
   }
 
+  // The "prolog for beliefs" idea was "keep track of every position ... on
+  // any issue," not just the ones that flip. The sins list is the highlight
+  // reel; the docket is the full ledger — every topic that came up more than
+  // once, every claim about it, oldest first, so you can watch a stance
+  // drift even when it never technically reverses.
+  function buildDocket(claims) {
+    const byTopic = new Map();
+    claims.forEach((c, i) => {
+      for (const t of c.topics) {
+        if (!byTopic.has(t)) byTopic.set(t, []);
+        byTopic.get(t).push(i);
+      }
+    });
+
+    const topics = [];
+    for (const [topic, idxs] of byTopic) {
+      if (idxs.length < 2) continue;
+      const topicClaims = idxs
+        .map((i) => claims[i])
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+      topics.push({ topic, claims: topicClaims });
+    }
+    topics.sort((a, b) => b.claims.length - a.claims.length || a.topic.localeCompare(b.topic));
+    return topics;
+  }
+
   function analyze(posts) {
     const claims = extractClaims(posts);
     const sins = buildSins(claims);
     const score = scoreFor(sins);
-    return { claims, sins, score, verdict: verdictFor(score) };
+    const docket = buildDocket(claims);
+    return { claims, sins, score, verdict: verdictFor(score), docket };
   }
 
-  global.EpistemicsAnalysis = { analyze, splitSentences, extractClaims, buildSins, scoreFor, verdictFor };
+  global.EpistemicsAnalysis = { analyze, splitSentences, extractClaims, buildSins, buildDocket, scoreFor, verdictFor };
 })(window);
