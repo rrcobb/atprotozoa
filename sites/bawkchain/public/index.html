@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Without this, hitting /bawkchain (no trailing slash) resolves module
+         imports like "./lib/chain.js" to /lib/chain.js instead of
+         /bawkchain/lib/chain.js, 404ing outside this Worker's route. -->
+    <base href="/bawkchain/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bawkchain — oil paintings of Top Chicken winners, hash-chained</title>
+    <meta name="description" content="Every winner @topchicken.bsky.social has ever crowned, oil-painted from their avatar and minted onto a fully client-side, fully fake, fully reproducible hash chain." />
+    <meta property="og:title" content="bawkchain — oil paintings of Top Chicken winners, hash-chained" />
+    <meta property="og:description" content="A gallery of Top Chicken winners' avatars, oil-painted and minted block by block onto the bawkchain. Sync your own node — it's just a page load." />
+    <meta property="og:image" content="https://bisks.net/bawkchain/og.png" />
+    <meta property="og:url" content="https://bisks.net/bawkchain" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="bawkchain — oil paintings of Top Chicken winners, hash-chained" />
+    <meta name="twitter:description" content="A gallery of Top Chicken winners' avatars, oil-painted and minted block by block onto the bawkchain." />
+    <meta name="twitter:image" content="https://bisks.net/bawkchain/og.png" />
+    <style>
+      :root {
+        --bg:#14100c; --panel:#1f1811; --panel2:#251c12; --ink:#f3ead9;
+        --muted:#a4917a; --faint:#3a2c1c; --accent:#d4af37; --accent2:#8a3b2b;
+        --like:#ff5c6c; --good:#7bc47f; --chain:#6fe3c4; --bad:#ff6b6b;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1200px 600px at 50% -12%, #2a1d0f, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:920px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:2rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; flex-wrap:wrap; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.4rem; max-width:64ch; }
+      .sub b { color:var(--ink); }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.6rem;
+        font-family:var(--mono); }
+      .status.err { color:var(--bad); }
+      .status.ok { color:var(--good); }
+
+      .summary { display:flex; flex-wrap:wrap; gap:0.6rem; margin:0.4rem 0 1.2rem; }
+      .summary .pill { background:var(--panel); border:1px solid var(--faint); border-radius:999px;
+        padding:0.4rem 0.85rem; font-family:var(--mono); font-size:0.78rem; color:var(--muted); }
+      .summary .pill b { color:var(--ink); }
+      .summary .pill.good { border-color:rgba(123,196,127,0.5); color:var(--good); }
+      .summary .pill.good b { color:var(--good); }
+
+      .controls { display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1.4rem; }
+      .controls input { flex:1; min-width:10rem; font:inherit; padding:0.55rem 0.7rem;
+        border:1px solid var(--faint); border-radius:10px; background:var(--panel); color:var(--ink); }
+      .controls input::placeholder { color:#7a6a54; }
+      .controls button { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:var(--panel); border:1px solid var(--faint); border-radius:10px; padding:0.55rem 0.85rem;
+        cursor:pointer; }
+      .controls button:hover { color:var(--ink); border-color:var(--accent); }
+
+      .share { display:none; margin:0 0 1.6rem; flex-wrap:wrap; gap:0.55rem; }
+      .share.show { display:flex; }
+      .share button, .share a.btn { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.5rem 0.85rem;
+        cursor:pointer; text-decoration:none; }
+      .share button:hover, .share a.btn:hover { color:var(--ink); border-color:var(--accent); text-decoration:none; }
+      .share a.compose { color:#1a1206; background:var(--accent); border-color:var(--accent); font-weight:700; }
+      .share a.compose:hover { color:#1a1206; }
+
+      .gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:1rem; }
+      .block { background:var(--panel); border:1px solid var(--faint); border-radius:16px;
+        padding:1rem; display:flex; flex-direction:column; align-items:center; text-align:center; }
+      .block.latest { border-color:rgba(212,175,55,0.6);
+        background:linear-gradient(180deg, rgba(212,175,55,0.08), var(--panel)); }
+      .block canvas.portrait { width:100%; max-width:200px; height:auto; border-radius:6px;
+        box-shadow:0 10px 26px rgba(0,0,0,0.45); background:var(--panel2); }
+      .block .plate { margin-top:0.75rem; width:100%; }
+      .block .idx { font-family:var(--mono); font-size:0.72rem; color:var(--muted); letter-spacing:0.03em; }
+      .block .dn { font-weight:800; margin-top:0.15rem; }
+      .block .hd { color:var(--muted); font-size:0.85em; }
+      .block .likes { color:var(--like); font-weight:700; font-size:0.85rem; margin-top:0.35rem; }
+      .block .when { color:var(--muted); font-size:0.72rem; margin-top:0.2rem; }
+      .block .hash { font-family:var(--mono); font-size:0.68rem; color:var(--chain); margin-top:0.55rem;
+        word-break:break-all; line-height:1.5; }
+      .block .hash .lbl { color:var(--muted); }
+      .block .links { margin-top:0.55rem; display:flex; gap:0.6rem; font-size:0.72rem; }
+      .block.hidden { display:none; }
+      .block .loading { color:var(--muted); font-size:0.72rem; font-family:var(--mono); padding:2.2rem 0; }
+
+      .empty { color:var(--muted); font-size:0.88rem; text-align:center; padding:2rem 0; }
+
+      canvas#shareCanvas { display:none; }
+
+      .note { margin-top:2.6rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>⛓️🐔 bawkchain</h1>
+      <p class="sub">
+        Every winner <b>@topchicken.bsky.social</b> has ever crowned, oil-painted
+        from their avatar and minted onto the bawkchain — a hash-linked ledger,
+        computed fresh in your browser from public data every time this page
+        loads. Not a real blockchain. Not on any real chain. Bawk chain.
+      </p>
+
+      <div class="status" id="status">syncing bawkchain node…</div>
+      <div class="summary" id="summary" style="display:none"></div>
+
+      <div class="controls" id="controls" style="display:none">
+        <input id="filter" placeholder="filter by handle…" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="reverify">🔁 re-verify chain</button>
+        <button id="orderToggle">↕ newest first</button>
+      </div>
+
+      <div class="share" id="share">
+        <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share latest mint</a>
+        <button id="shareDownload">⬇ download card</button>
+        <button id="shareNative" style="display:none">📤 share</button>
+      </div>
+
+      <div class="gallery" id="gallery"></div>
+      <div class="empty" id="empty" style="display:none">nobody's been inducted yet — the coop is quiet.</div>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+      <p class="note">
+        Reads only public data (Bluesky's anonymous AppView —
+        <code>getAuthorFeed</code> on @topchicken.bsky.social). Each block's
+        hash is <code>SHA-256(index | prevHash | winner DID | likes |
+        announced-at | winning post URI)</code>, computed with
+        <code>crypto.subtle</code> right here in your browser — no server, no
+        database, nothing written anywhere. Reload the page and you'll get
+        the exact same chain back, because it's just a deterministic replay
+        of @topchicken's own posts, not a distributed ledger. That's the
+        joke. The paintings are real, though: a classic oilify filter run
+        against each winner's actual avatar.
+      </p>
+      <p class="credit">
+        idea by <a href="https://bsky.app/profile/apex.atproto.ceo">@apex.atproto.ceo</a>,
+        riffing on <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a> /
+        <a href="https://bsky.app/profile/thebadcode.com">@thebadcode.com</a> /
+        <a href="https://bsky.app/profile/gracekind.net">@gracekind.net</a>'s "bawkchain" bit ·
+        requested by <a href="https://bsky.app/profile/dave.9000ish.uk">@dave.9000ish.uk</a> ·
+        winners courtesy of <a href="https://bsky.app/profile/topchicken.bsky.social">@topchicken.bsky.social</a> ·
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </p>
+    </div>
+
+    <script type="module">
+      import { fetchWinners, buildChain, verifyChain, short } from "./lib/chain.js";
+      import { paintPortrait, makeOilifyScratch } from "./lib/oilpaint.js";
+
+      const statusEl = document.getElementById("status");
+      const summaryEl = document.getElementById("summary");
+      const controlsEl = document.getElementById("controls");
+      const galleryEl = document.getElementById("gallery");
+      const emptyEl = document.getElementById("empty");
+      const shareEl = document.getElementById("share");
+      const shareCanvas = document.getElementById("shareCanvas");
+      const filterInput = document.getElementById("filter");
+      const orderToggle = document.getElementById("orderToggle");
+      const reverifyBtn = document.getElementById("reverify");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function postLink(uri) {
+        const m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri || "");
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+      }
+
+      function fmtDate(iso) {
+        try {
+          return new Date(iso).toLocaleDateString(undefined, {
+            timeZone: "UTC", year: "numeric", month: "short", day: "numeric",
+          });
+        } catch (_) { return iso || ""; }
+      }
+
+      // cdn.bsky.app doesn't send Access-Control-Allow-Origin, so a
+      // cross-origin crossOrigin="anonymous" load fails outright and canvas
+      // pixel readback (getImageData, needed to oil-paint) would never work.
+      // Route it through this Worker's same-origin avatar proxy instead —
+      // see the AVATAR_HOST allowlist in src/index.ts.
+      function avatarProxyUrl(url) {
+        return "avatar?u=" + encodeURIComponent(url);
+      }
+
+      function loadImg(url) {
+        return new Promise((resolve) => {
+          if (!url) { resolve(null); return; }
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = avatarProxyUrl(url);
+        });
+      }
+
+      // simple placeholder "unclaimed frame" chicken silhouette when an
+      // avatar fails to load, so the chain never has a visibly broken block
+      function placeholderCanvas(size) {
+        const c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#241c13";
+        ctx.fillRect(0, 0, size, size);
+        ctx.font = `${Math.round(size * 0.5)}px serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🐔", size / 2, size / 2 + size * 0.04);
+        return c;
+      }
+
+      function blockCardShell(block, isLatest) {
+        const div = document.createElement("div");
+        div.className = "block" + (isLatest ? " latest" : "");
+        div.dataset.handle = (block.winner.handle || "").toLowerCase();
+        div.innerHTML = `
+          <div class="loading">🖌️ painting drying…</div>
+          <div class="plate">
+            <div class="idx">${isLatest ? "★ LATEST · " : ""}block #${block.index}</div>
+            <div class="dn">${esc(block.winner.displayName)}</div>
+            <div class="hd">@${esc(block.winner.handle)}</div>
+            <div class="likes">♥ ${block.likeCount.toLocaleString()} likes</div>
+            <div class="when">${fmtDate(block.announcedAt)}</div>
+            <div class="hash">
+              <span class="lbl">hash</span> ${short(block.hash, 16)}…<br>
+              <span class="lbl">prev</span> ${block.index === 0 ? "genesis" : short(block.prevHash, 16) + "…"}
+            </div>
+            <div class="links">
+              <a href="${postLink(block.winningPostUri)}" target="_blank" rel="noopener">winning post ↗</a>
+              <a href="${postLink(block.announcePostUri)}" target="_blank" rel="noopener">coronation ↗</a>
+            </div>
+          </div>`;
+        return div;
+      }
+
+      const PORTRAIT_SIZE = 160;
+      const PORTRAIT_FRAMED_SIZE = PORTRAIT_SIZE + Math.round(PORTRAIT_SIZE * 0.09) * 2;
+
+      async function paintInto(div, block, scratch) {
+        const img = await loadImg(block.winner.avatar);
+        const canvas = img ? paintPortrait(img, PORTRAIT_SIZE, { scratch }) : placeholderCanvas(PORTRAIT_FRAMED_SIZE);
+        canvas.classList.add("portrait");
+        const loading = div.querySelector(".loading");
+        loading.replaceWith(canvas);
+      }
+
+      function buildShareText(latest, count) {
+        const url = "https://bisks.net/bawkchain";
+        const head = `⛓️🐔 bawkchain block #${latest.index}: @${latest.winner.handle} inducted for ${latest.likeCount.toLocaleString()} likes\n`;
+        const tail = `\n${count.toLocaleString()} winners painted so far — ${url}`;
+        return head + tail;
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = (text || "").split(" ");
+        let line = "", cy = y, lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w; cy += lineHeight; lines++;
+            if (maxLines && lines >= maxLines - 1) { line += "…"; break; }
+          } else { line = test; }
+        }
+        if (line) ctx.fillText(line, x, cy);
+      }
+
+      async function buildShareCard(latest, count) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#14100c";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, -H * 0.15, 0, W * 0.5, -H * 0.15, W * 0.6);
+        glow.addColorStop(0, "#3a2810");
+        glow.addColorStop(1, "rgba(20,16,12,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#d4af37";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("⛓️🐔 bawkchain", 60, 96);
+        ctx.fillStyle = "#a4917a";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(`block #${latest.index} of ${count} · minted from @topchicken.bsky.social`, 60, 132);
+
+        const scratch = makeOilifyScratch(12);
+        const img = await loadImg(latest.winner.avatar);
+        const portrait = img ? paintPortrait(img, 300, { scratch }) : placeholderCanvas(354);
+        const pX = 60, pY = 168;
+        ctx.drawImage(portrait, pX, pY, portrait.width, portrait.height);
+
+        const textX = pX + portrait.width + 46;
+        ctx.fillStyle = "#f3ead9";
+        ctx.font = `800 34px ${mono}`;
+        ctx.fillText(latest.winner.displayName || latest.winner.handle, textX, pY + 60);
+        ctx.fillStyle = "#a4917a";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText("@" + latest.winner.handle, textX, pY + 96);
+
+        ctx.fillStyle = "#ff5c6c";
+        ctx.font = `800 32px ${mono}`;
+        ctx.fillText(`♥ ${latest.likeCount.toLocaleString()} likes`, textX, pY + 150);
+
+        ctx.fillStyle = "#6fe3c4";
+        ctx.font = `400 18px ${mono}`;
+        wrapCanvasText(ctx, `hash ${latest.hash.slice(0, 24)}…`, textX, pY + 196, W - textX - 60, 26, 2);
+
+        ctx.fillStyle = "#a4917a";
+        ctx.font = `400 20px ${mono}`;
+        wrapCanvasText(ctx, `inducted into the bawkchain ${fmtDate(latest.announcedAt)}`, textX, pY + 250, W - textX - 60, 28, 2);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#d4af37";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/bawkchain", 60, H - 40);
+      }
+
+      let allBlocks = [];
+      let newestFirst = true;
+      let lastShareText = "";
+
+      function renderGallery() {
+        const ordered = newestFirst ? [...allBlocks].reverse() : allBlocks;
+        galleryEl.innerHTML = "";
+        const scratch = makeOilifyScratch(12);
+        const latestIndex = allBlocks.length - 1;
+        const frag = document.createDocumentFragment();
+        const cards = [];
+        for (const block of ordered) {
+          const div = blockCardShell(block, block.index === latestIndex);
+          frag.appendChild(div);
+          cards.push([div, block]);
+        }
+        galleryEl.appendChild(frag);
+        applyFilter();
+
+        // paint portraits progressively so the tab never locks up on a big chain
+        (async () => {
+          for (const [div, block] of cards) {
+            await paintInto(div, block, scratch);
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        })();
+      }
+
+      function applyFilter() {
+        const q = filterInput.value.trim().toLowerCase();
+        let shown = 0;
+        galleryEl.querySelectorAll(".block").forEach((div) => {
+          const match = !q || div.dataset.handle.includes(q);
+          div.classList.toggle("hidden", !match);
+          if (match) shown++;
+        });
+        emptyEl.style.display = shown === 0 ? "block" : "none";
+      }
+
+      async function sync() {
+        try {
+          const winners = await fetchWinners({ onStep: (msg) => { statusEl.textContent = msg; } });
+          if (!winners.length) {
+            statusEl.textContent = "no winners found in @topchicken's history — coop's empty.";
+            return;
+          }
+          statusEl.textContent = `hash-chaining ${winners.length} block${winners.length === 1 ? "" : "s"}…`;
+          allBlocks = await buildChain(winners);
+
+          const v = verifyChain(allBlocks);
+          statusEl.textContent = "";
+
+          const genesis = allBlocks[0], latest = allBlocks[allBlocks.length - 1];
+          summaryEl.style.display = "flex";
+          summaryEl.innerHTML = `
+            <span class="pill"><b>${allBlocks.length}</b> blocks minted</span>
+            <span class="pill">genesis <b>${fmtDate(genesis.announcedAt)}</b></span>
+            <span class="pill">latest <b>${fmtDate(latest.announcedAt)}</b></span>
+            <span class="pill ${v.ok ? "good" : ""}">${v.ok ? "✅ chain intact" : "⚠️ broken at #" + v.brokenAt}</span>`;
+
+          controlsEl.style.display = "flex";
+          renderGallery();
+
+          shareEl.classList.add("show");
+          lastShareText = buildShareText(latest, allBlocks.length);
+          document.getElementById("shareBluesky").href =
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(latest, allBlocks.length);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't sync the bawkchain: " + e.message;
+        }
+      }
+
+      filterInput.addEventListener("input", applyFilter);
+
+      orderToggle.addEventListener("click", () => {
+        newestFirst = !newestFirst;
+        orderToggle.textContent = newestFirst ? "↕ newest first" : "↕ oldest first (genesis)";
+        renderGallery();
+      });
+
+      reverifyBtn.addEventListener("click", async () => {
+        reverifyBtn.disabled = true;
+        const label = reverifyBtn.textContent;
+        reverifyBtn.textContent = "recomputing…";
+        try {
+          const recomputed = await buildChain(allBlocks.map(({ index, prevHash, hash, payload, ...w }) => w));
+          const matches = recomputed.every((b, i) => b.hash === allBlocks[i].hash);
+          statusEl.className = matches ? "status ok" : "status err";
+          statusEl.textContent = matches
+            ? `✅ re-synced from scratch: all ${recomputed.length} blocks reproduced byte-for-byte identical hashes.`
+            : `⚠️ re-sync produced a different chain — the bot's history changed since first load.`;
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "re-verify failed: " + e.message;
+        } finally {
+          reverifyBtn.disabled = false;
+          reverifyBtn.textContent = label;
+        }
+      });
+
+      document.getElementById("shareDownload").addEventListener("click", () => {
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "bawkchain.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) { return false; }
+      }
+      if (canShareFiles()) {
+        document.getElementById("shareNative").style.display = "";
+        document.getElementById("shareNative").addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "bawkchain.png", { type: "image/png" });
+            try { await navigator.share({ files: [file], text: lastShareText, title: "bawkchain" }); } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      sync();
+    </script>
+  </body>
+</html>
