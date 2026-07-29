@@ -56,6 +56,19 @@ const DATA = [
     replies: 2,
   },
   {
+    id: "7",
+    replyTo: "4",
+    avatar: "🔮",
+    color: "#ff4fa3",
+    name: "cobweb",
+    handle: "@cobweb.bisks.net",
+    time: "2d",
+    text: "meta note: this reply is the demo. id 7's replyTo field points at id 4 above, so the popup draws a thread line between them — still nothing fetched, just two array entries pointing at each other.",
+    likes: 8,
+    reposts: 0,
+    replies: 1,
+  },
+  {
     id: "5",
     kind: "repost",
     reposter: "@fubarchitect.com",
@@ -83,6 +96,17 @@ const DATA = [
   },
 ];
 
+// Frozen notifications — same reason/icon vocabulary as skyclone's real
+// listNotifications feed, just with nothing behind it. There is no unread
+// count that changes, no poll, no PDS. Opening this tab is the only thing
+// that "arrives" — and it always arrives with the same four, forever.
+const NOTIFS = [
+  { reason: "like", icon: "🕸️", verb: "caught your post in their web", actor: "@ver.ooo", ref: "goth mode shipped: dark by default…", time: "2d" },
+  { reason: "repost", icon: "🪰", verb: "let your post loose again", actor: "@fubarchitect.com", ref: "a browser plugin that ships its own frozen timeline…", time: "1d" },
+  { reason: "follow", icon: "🕷️", verb: "spun a thread to you", actor: "@nightshift.example", time: "20h" },
+  { reason: "reply", icon: "💬", verb: "replied to you", actor: "@cobweb.bisks.net", ref: "meta note: this reply is the demo…", time: "2d" },
+];
+
 function el(tag, cls, html) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -94,17 +118,37 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function renderPost(p) {
-  const wrap = el("div");
-  if (p.kind === "repost") {
-    const rl = el(
-      "div",
-      "repost-line",
-      `🪰 <span>${esc(p.reposter)} looped this back into the web</span>`
-    );
-    wrap.appendChild(rl);
+function showToast(text) {
+  let t = document.getElementById("toast");
+  if (!t) {
+    t = el("div", "toast");
+    t.id = "toast";
+    document.body.appendChild(t);
   }
-  const post = el("div", "post");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+function spawnCrawlingSpider(delay) {
+  setTimeout(() => {
+    const e = el("div", "spider-crawler", "🕷️");
+    e.style.top = 10 + Math.random() * 70 + "%";
+    document.body.appendChild(e);
+    e.addEventListener("animationend", () => e.remove());
+    setTimeout(() => e.remove(), 3000);
+  }, delay || 0);
+}
+
+function crawlSpiders(n) {
+  showToast(n > 1 ? `AHH! SPIDERS! 🕷️ ×${n}` : "AHH! SPIDER! 🕷️");
+  for (let i = 0; i < n; i++) spawnCrawlingSpider(i * 260);
+}
+
+function renderPost(p, opts) {
+  opts = opts || {};
+  const post = el("div", "post" + (opts.asParent ? " thread-parent-post" : ""));
   post.dataset.id = p.id;
   post.appendChild(el("div", "avatar", p.avatar));
 
@@ -118,39 +162,104 @@ function renderPost(p) {
   );
   body.appendChild(el("div", "text", esc(p.text)));
 
-  const actions = el("div", "actions");
-  const likeAct = el("div", "act like", `<span class="icon">🖤</span><span class="n">${p.likes}</span>`);
-  const repostAct = el("div", "act repost", `<span class="icon">🪰</span><span class="n">${p.reposts}</span>`);
-  const replyAct = el("div", "act reply", `<span class="icon">💬</span><span class="n">${p.replies}</span>`);
-  const witchAct = el("div", "act witch", `<span class="icon">🧙</span>`);
+  if (!opts.noActions) {
+    const actions = el("div", "actions");
+    const likeAct = el("div", "act like", `<span class="icon">🖤</span><span class="n">${p.likes}</span>`);
+    const repostAct = el("div", "act repost", `<span class="icon">🪰</span><span class="n">${p.reposts}</span>`);
+    const replyAct = el("div", "act reply", `<span class="icon">💬</span><span class="n">${p.replies}</span>`);
+    const witchAct = el("div", "act witch", `<span class="icon">🧙</span>`);
 
-  let liked = false;
-  likeAct.addEventListener("click", () => {
-    liked = !liked;
-    likeAct.classList.toggle("on", liked);
-    likeAct.querySelector(".n").textContent = p.likes + (liked ? 1 : 0);
-  });
-  let reposted = false;
-  repostAct.addEventListener("click", () => {
-    reposted = !reposted;
-    repostAct.classList.toggle("on", reposted);
-    repostAct.querySelector(".n").textContent = p.reposts + (reposted ? 1 : 0);
-  });
-  witchAct.addEventListener("click", () => {
-    if (post.classList.contains("hexed")) return;
-    post.classList.add("hexed");
-    setTimeout(() => {
-      post.classList.add("hex-collapse");
-      setTimeout(() => wrap.remove(), 260);
-    }, 750);
-  });
+    let liked = false;
+    likeAct.addEventListener("click", () => {
+      liked = !liked;
+      likeAct.classList.toggle("on", liked);
+      likeAct.querySelector(".n").textContent = p.likes + (liked ? 1 : 0);
+    });
+    let reposted = false;
+    repostAct.addEventListener("click", () => {
+      reposted = !reposted;
+      repostAct.classList.toggle("on", reposted);
+      repostAct.querySelector(".n").textContent = p.reposts + (reposted ? 1 : 0);
+    });
+    witchAct.addEventListener("click", () => {
+      const burnTarget = opts.burnTarget || post;
+      if (burnTarget.classList.contains("hexed")) return;
+      burnTarget.classList.add("hexed");
+      setTimeout(() => {
+        burnTarget.classList.add("hex-collapse");
+        setTimeout(() => (opts.wrap || post).remove(), 260);
+      }, 750);
+    });
 
-  actions.append(likeAct, repostAct, replyAct, witchAct);
-  body.appendChild(actions);
+    actions.append(likeAct, repostAct, replyAct, witchAct);
+    body.appendChild(actions);
+  }
   post.appendChild(body);
-  wrap.appendChild(post);
+  return post;
+}
+
+function renderItem(p) {
+  const wrap = el("div", "item");
+  if (p.kind === "repost") {
+    const rl = el(
+      "div",
+      "repost-line",
+      `🪰 <span>${esc(p.reposter)} looped this back into the web</span>`
+    );
+    wrap.appendChild(rl);
+  }
+  if (p.replyTo) {
+    const parent = DATA.find((d) => d.id === p.replyTo);
+    if (parent) {
+      const group = el("div", "thread-group");
+      group.appendChild(renderPost(parent, { asParent: true, noActions: true }));
+      group.appendChild(renderPost(p));
+      wrap.appendChild(group);
+      return wrap;
+    }
+  }
+  wrap.appendChild(renderPost(p, { wrap }));
   return wrap;
 }
 
+function renderNotif(n) {
+  const row = el("div", "notif-row");
+  row.appendChild(el("div", "notif-icon", n.icon));
+  const body = el("div", "notif-body");
+  body.appendChild(el("div", "notif-line", `<b>${esc(n.actor)}</b> ${esc(n.verb)}`));
+  if (n.ref) body.appendChild(el("div", "notif-ref", esc(n.ref)));
+  body.appendChild(el("div", "notif-time", esc(n.time)));
+  row.appendChild(body);
+  return row;
+}
+
 const feed = document.getElementById("feed");
-for (const p of DATA) feed.appendChild(renderPost(p));
+for (const p of DATA) feed.appendChild(renderItem(p));
+
+const notifList = document.getElementById("notif-list");
+for (const n of NOTIFS) notifList.appendChild(renderNotif(n));
+
+const tabWeb = document.getElementById("tab-web");
+const tabNotifs = document.getElementById("tab-notifs");
+const paneWeb = document.getElementById("feed");
+const paneNotifs = document.getElementById("notifs");
+const badge = document.getElementById("notif-badge");
+
+let notifsOpened = false;
+tabWeb.addEventListener("click", () => {
+  tabWeb.classList.add("active");
+  tabNotifs.classList.remove("active");
+  paneWeb.hidden = false;
+  paneNotifs.hidden = true;
+});
+tabNotifs.addEventListener("click", () => {
+  tabNotifs.classList.add("active");
+  tabWeb.classList.remove("active");
+  paneWeb.hidden = true;
+  paneNotifs.hidden = false;
+  if (!notifsOpened) {
+    notifsOpened = true;
+    badge.classList.remove("show");
+    crawlSpiders(NOTIFS.length);
+  }
+});
