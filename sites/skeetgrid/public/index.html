@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>skeetgrid — a GitHub-style contribution graph for Bluesky</title>
+<meta name="description" content="Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for skeets." />
+<meta property="og:title" content="skeetgrid — a GitHub-style contribution graph for Bluesky" />
+<meta property="og:description" content="Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for skeets." />
+<meta property="og:url" content="https://bisks.net/skeetgrid/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/skeetgrid/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="skeetgrid: a dark GitHub-style green contribution heat map showing a year of Bluesky posting activity." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="skeetgrid — a GitHub-style contribution graph for Bluesky" />
+<meta name="twitter:description" content="Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for skeets." />
+<meta name="twitter:image" content="https://bisks.net/skeetgrid/og.png" />
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #010409;
+    --fg: #e6edf3;
+    --dim: #7d8590;
+    --accent: #39d353;
+    --accent2: #58a6ff;
+    --card: #161b22;
+    --border: #30363d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #113322 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #0d2440 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #26a641);
+    color: #04140a;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .stat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    flex: 1;
+    min-width: 110px;
+  }
+  .stat .n { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
+  .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+  .canvas-wrap { position: relative; }
+  #gridCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+    cursor: crosshair;
+  }
+  #tooltip {
+    position: absolute;
+    display: none;
+    background: #1c2128;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-size: 0.72rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+    pointer-events: none;
+    white-space: nowrap;
+    transform: translate(-50%, -115%);
+    z-index: 5;
+  }
+
+  .note { color: var(--dim); font-size: 0.75rem; margin-bottom: 1.2rem; }
+
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #26a641);
+    color: #04140a;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>skeetgrid</h1>
+    <p class="tag">
+      A <code>getAuthorFeed</code> pagination and some green boxes — the GitHub
+      contribution graph, but every square is a day of Bluesky posts. Enter a
+      handle, get a year of activity as one shareable image.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">grid it</button>
+    </form>
+    <p class="hint">works on any public handle. yours, a friend's, a rival's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="n" id="statTotal">–</div><div class="l">skeets / yr</div></div>
+        <div class="stat"><div class="n" id="statDays">–</div><div class="l">active days</div></div>
+        <div class="stat"><div class="n" id="statStreak">–</div><div class="l">current streak</div></div>
+        <div class="stat"><div class="n" id="statLongest">–</div><div class="l">longest streak</div></div>
+        <div class="stat"><div class="n" id="statBusiest">–</div><div class="l">busiest day</div></div>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="gridCanvas" width="1200" height="630"></canvas>
+        <div id="tooltip"></div>
+      </div>
+      <p class="note" id="truncNote"></p>
+
+      <div class="share-actions">
+        <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share grid</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your grid</a>
+        <button id="shareDownload" type="button">⬇ download image</button>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const MOUNT = "/skeetgrid";
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_PAGES = 20;      // ~2000 posts — enough for almost anyone's last year
+const CUTOFF_DAYS = 371;   // 53 weeks, matches the grid (53 cols x 7 rows)
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function isoDay(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// Walks getAuthorFeed backward in time, bucketing authored posts (skipping
+// reposts, which arrive with a `reason`) by UTC calendar day. Stops once a
+// page's oldest post is past CUTOFF_DAYS or MAX_PAGES is hit — either way
+// truncated tells the caller so it can be honest about coverage.
+async function computeHeatmap(did, onProgress) {
+  const dayCounts = new Map();
+  let cursor;
+  let total = 0;
+  const cutoff = Date.now() - CUTOFF_DAYS * 86400000;
+  let truncated = false;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", {
+      actor: did,
+      limit: "100",
+      filter: "posts_with_replies",
+      ...(cursor ? { cursor } : {}),
+    });
+    const items = feed.feed || [];
+    let hitCutoff = false;
+    for (const item of items) {
+      if (item.reason) continue; // repost, not an authored post
+      const createdAt = item.post && item.post.record && item.post.record.createdAt;
+      const t = createdAt ? Date.parse(createdAt) : (item.post && Date.parse(item.post.indexedAt));
+      if (!t || Number.isNaN(t)) continue;
+      if (t < cutoff) { hitCutoff = true; continue; }
+      const key = isoDay(t);
+      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+      total++;
+    }
+    if (onProgress) onProgress(page + 1, total);
+    cursor = feed.cursor;
+    if (!cursor) break;
+    if (hitCutoff) break;
+    if (page === MAX_PAGES - 1 && cursor) truncated = true;
+  }
+
+  return { dayCounts, total, truncated };
+}
+
+function computeStats(dayCounts) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  let total = 0, busiestDate = null, busiestCount = 0;
+  for (const [date, count] of dayCounts) {
+    total += count;
+    if (count > busiestCount) { busiestCount = count; busiestDate = date; }
+  }
+
+  let currentStreak = 0;
+  const d = new Date(today);
+  for (;;) {
+    const key = isoDay(d.getTime());
+    if (!dayCounts.get(key)) break;
+    currentStreak++;
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+
+  // longest streak over the whole tracked window
+  let longestStreak = 0, run = 0;
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (CUTOFF_DAYS - 1));
+  const cursor = new Date(start);
+  while (cursor.getTime() <= today.getTime()) {
+    const key = isoDay(cursor.getTime());
+    if (dayCounts.get(key)) { run++; longestStreak = Math.max(longestStreak, run); }
+    else run = 0;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return {
+    total,
+    activeDays: dayCounts.size,
+    currentStreak,
+    longestStreak,
+    busiestDate,
+    busiestCount,
+  };
+}
+
+// Grid cells: 53 columns (weeks) x 7 rows (Sun..Sat), grid-start rolled back
+// to the most recent Sunday on/before (today - CUTOFF_DAYS + 1), so the last
+// column's row for today's weekday is always the most recent day.
+function gridCells() {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const dow = today.getUTCDay(); // 0=Sun..6=Sat
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (52 * 7 + dow));
+
+  const cells = [];
+  for (let col = 0; col < 53; col++) {
+    for (let row = 0; row < 7; row++) {
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + col * 7 + row);
+      if (d.getTime() > today.getTime()) continue;
+      cells.push({ col, row, date: d, key: isoDay(d.getTime()) });
+    }
+  }
+  return cells;
+}
+
+const LEVEL_COLORS = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"];
+function levelFor(count, max) {
+  if (!count) return 0;
+  if (max <= 1) return 4;
+  const frac = count / max;
+  return Math.max(1, Math.min(4, Math.ceil(frac * 4)));
+}
+
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const WEEKDAY_LABELS = { 1: "Mon", 3: "Wed", 5: "Fri" };
+const CELL = 11, GAP = 3, STEP = CELL + GAP;
+const GRID_ORIGIN = { x: 96, y: 232 };
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+let lastCells = [];
+let lastMax = 0;
+
+async function drawCard({ profile, dayCounts, stats, truncated }) {
+  const canvas = document.getElementById("gridCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0d1117";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.6);
+  glow.addColorStop(0, "#113322");
+  glow.addColorStop(1, "rgba(13,17,23,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#39d353";
+  ctx.font = `800 44px ${mono}`;
+  ctx.fillText("skeetgrid", 60, 78);
+
+  const who = "@" + profile.handle;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(80, 118, 24, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 56, 94, 48, 48);
+    ctx.restore();
+    textX = 118;
+  }
+  ctx.fillStyle = "#e6edf3";
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText(who, textX, 126);
+
+  // stat pills
+  const pills = [
+    [String(stats.total), "skeets / yr"],
+    [String(stats.activeDays), "active days"],
+    [String(stats.currentStreak), "streak"],
+    [String(stats.longestStreak), "longest"],
+    [String(stats.busiestCount), "busiest day"],
+  ];
+  const pillW = (W - 120) / pills.length;
+  pills.forEach(([n, l], i) => {
+    const x = 60 + i * pillW;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#39d353";
+    ctx.font = `800 26px ${mono}`;
+    ctx.fillText(n, x, 172);
+    ctx.fillStyle = "#7d8590";
+    ctx.font = `400 12px ${mono}`;
+    ctx.fillText(l, x, 190);
+  });
+
+  // month labels
+  const cells = gridCells();
+  lastCells = cells;
+  const max = Math.max(0, ...cells.map((c) => dayCounts.get(c.key) || 0));
+  lastMax = max;
+  let lastMonth = -1;
+  ctx.fillStyle = "#7d8590";
+  ctx.font = `400 12px ${mono}`;
+  for (let col = 0; col < 53; col++) {
+    const first = cells.find((c) => c.col === col && c.row === 0);
+    if (!first) continue;
+    const m = first.date.getUTCMonth();
+    if (m !== lastMonth) {
+      ctx.fillText(MONTHS[m], GRID_ORIGIN.x + col * STEP, GRID_ORIGIN.y - 10);
+      lastMonth = m;
+    }
+  }
+
+  // weekday labels
+  ctx.fillStyle = "#7d8590";
+  ctx.font = `400 11px ${mono}`;
+  for (const [row, label] of Object.entries(WEEKDAY_LABELS)) {
+    ctx.fillText(label, GRID_ORIGIN.x - 34, GRID_ORIGIN.y + Number(row) * STEP + CELL);
+  }
+
+  // cells
+  for (const c of cells) {
+    const count = dayCounts.get(c.key) || 0;
+    const level = levelFor(count, max);
+    ctx.fillStyle = LEVEL_COLORS[level];
+    const x = GRID_ORIGIN.x + c.col * STEP;
+    const y = GRID_ORIGIN.y + c.row * STEP;
+    ctx.beginPath();
+    ctx.roundRect(x, y, CELL, CELL, 2);
+    ctx.fill();
+  }
+
+  // legend
+  const legendY = GRID_ORIGIN.y + 7 * STEP + 26;
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#7d8590";
+  ctx.font = `400 12px ${mono}`;
+  ctx.fillText("Less", W - 60 - 5 * STEP - 34, legendY + CELL);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = LEVEL_COLORS[i];
+    ctx.beginPath();
+    ctx.roundRect(W - 60 - (5 - i) * STEP, legendY, CELL, CELL, 2);
+    ctx.fill();
+  }
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#7d8590";
+  ctx.fillText("More", W - 60 + 8, legendY + CELL);
+
+  if (truncated) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#7d8590";
+    ctx.font = `italic 12px ${mono}`;
+    ctx.fillText("based on the " + MAX_PAGES * 100 + " most recent posts, not the full year", 60, legendY + 34);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#58a6ff";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText("bisks.net/skeetgrid", 60, H - 36);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#7d8590";
+  ctx.font = `400 12px ${mono}`;
+  ctx.fillText("days shown in UTC", W - 60, H - 36);
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  statTotal: document.getElementById("statTotal"),
+  statDays: document.getElementById("statDays"),
+  statStreak: document.getElementById("statStreak"),
+  statLongest: document.getElementById("statLongest"),
+  statBusiest: document.getElementById("statBusiest"),
+  truncNote: document.getElementById("truncNote"),
+  canvas: document.getElementById("gridCanvas"),
+  tooltip: document.getElementById("tooltip"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function shareUrlFor(handle) {
+  return "https://bisks.net" + MOUNT + "/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, stats) {
+  return (
+    `@${profile.handle}'s last year on Bluesky: ${stats.total} skeets, ${stats.activeDays} active days, ` +
+    `${stats.currentStreak}-day current streak, ${stats.longestStreak}-day longest.\n\n` +
+    `see the grid → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+
+    const { dayCounts, truncated } = await computeHeatmap(did, (page, total) => {
+      setStatus(`reading page ${page} of feed... ${total} skeets found so far`);
+    });
+
+    const stats = computeStats(dayCounts);
+    els.statTotal.textContent = stats.total;
+    els.statDays.textContent = stats.activeDays;
+    els.statStreak.textContent = stats.currentStreak;
+    els.statLongest.textContent = stats.longestStreak;
+    els.statBusiest.textContent = stats.busiestCount;
+    els.truncNote.textContent = truncated
+      ? `based on the ${MAX_PAGES * 100} most recent posts, not necessarily the full year — this account posts a lot.`
+      : "";
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    window.__lastDayCounts = dayCounts; // read by the hover-tooltip handler below
+    await drawCard({ profile, dayCounts, stats, truncated });
+
+    lastShareText = shareText(profile, stats);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  } catch (err) {
+    setStatus("couldn't build that grid: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+// hover tooltip: map mouse position back to canvas pixel space (canvas is
+// CSS-scaled to fill the card width), find the nearest cell, show its date
+// and count.
+els.canvas.addEventListener("mousemove", (e) => {
+  const rect = els.canvas.getBoundingClientRect();
+  const scaleX = els.canvas.width / rect.width;
+  const scaleY = els.canvas.height / rect.height;
+  const px = (e.clientX - rect.left) * scaleX;
+  const py = (e.clientY - rect.top) * scaleY;
+
+  const col = Math.floor((px - GRID_ORIGIN.x) / STEP);
+  const row = Math.floor((py - GRID_ORIGIN.y) / STEP);
+  const hit = lastCells.find((c) => c.col === col && c.row === row);
+  if (!hit) { els.tooltip.style.display = "none"; return; }
+
+  const count = hit.key ? (window.__lastDayCounts && window.__lastDayCounts.get(hit.key)) || 0 : 0;
+  els.tooltip.textContent = `${hit.date.toISOString().slice(0, 10)}: ${count} skeet${count === 1 ? "" : "s"}`;
+  els.tooltip.style.left = (e.clientX - rect.left) + "px";
+  els.tooltip.style.top = (e.clientY - rect.top) + "px";
+  els.tooltip.style.display = "block";
+});
+els.canvas.addEventListener("mouseleave", () => { els.tooltip.style.display = "none"; });
+
+els.shareDownload.addEventListener("click", () => {
+  els.canvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "grid").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "skeetgrid-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "grid").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "skeetgrid-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "skeetgrid" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /skeetgrid/s/<handle> (share links) or ?h=<handle> both auto-reveal on load.
+const pathHandle = (location.pathname.match(/\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
