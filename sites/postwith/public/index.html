@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>postwith — an atproto matchmaker</title>
+    <meta
+      name="description"
+      content="Post an interest and a goal, get auto-matched with someone else on the same topic, propose a meeting, accept or decline, log how it went. Every record lives in your own PDS."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="postwith — an atproto matchmaker" />
+    <meta
+      property="og:description"
+      content="Lunchclub-style, peer-to-peer: post what you're into and what you want out of it, get matched by topic, propose a meeting, log the outcome."
+    />
+    <meta property="og:image" content="https://bisks.net/postwith/og.png" />
+    <meta property="og:url" content="https://bisks.net/postwith" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="postwith — an atproto matchmaker" />
+    <meta
+      name="twitter:description"
+      content="Lunchclub-style, peer-to-peer: post what you're into and what you want out of it, get matched by topic, propose a meeting, log the outcome."
+    />
+    <meta name="twitter:image" content="https://bisks.net/postwith/og.png" />
+    <link rel="stylesheet" href="/postwith/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net">← bisks.net</a>
+        <h1>postwith</h1>
+        <p class="tag">
+          Post what you're into and what you want out of it. Get auto-matched with
+          someone else on the same topic. Propose a meeting, they accept or decline,
+          either of you logs how it went. Every record — profile, proposal, response,
+          feedback — is written straight to your own PDS.
+        </p>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="f-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">who's around</h2>
+        <div class="topic-pills" id="topic-pills">
+          <span class="empty">loading…</span>
+        </div>
+      </section>
+
+      <section id="profile-section" style="display: none">
+        <h2 class="section-title">your profile</h2>
+        <div class="field-grid">
+          <div>
+            <label for="f-topic">topic</label>
+            <select id="f-topic"></select>
+          </div>
+          <div>
+            <label for="f-goal">goal (what you want out of it)</label>
+            <input id="f-goal" type="text" placeholder="e.g. find a co-founder, practice Spanish, find a running buddy" maxlength="240" />
+          </div>
+        </div>
+        <label for="f-note">note (optional)</label>
+        <textarea id="f-note" placeholder="anything else worth knowing" maxlength="240"></textarea>
+        <div class="p-actions">
+          <button id="btn-save-profile">post profile</button>
+          <button class="danger" id="btn-remove-profile" style="display: none">leave the pool</button>
+        </div>
+        <p class="status" id="profile-status"></p>
+      </section>
+
+      <section id="matches-section" style="display: none">
+        <h2 class="section-title">matches on your topic</h2>
+        <div class="card-list" id="matches-list"></div>
+      </section>
+
+      <section id="inbox-section" style="display: none">
+        <h2 class="section-title">requests for you</h2>
+        <div class="card-list" id="inbox-list"></div>
+      </section>
+
+      <section id="sent-section" style="display: none">
+        <h2 class="section-title">your proposals</h2>
+        <div class="card-list" id="sent-list"></div>
+      </section>
+
+      <section id="meetings-section" style="display: none">
+        <h2 class="section-title">accepted meetings</h2>
+        <div class="card-list" id="meetings-list"></div>
+      </section>
+
+      <section>
+        <h2 class="section-title">share</h2>
+        <div class="share-row">
+          <a class="secondary" id="btn-share" href="#" target="_blank" rel="noopener" style="display: inline-block; padding: 0.55rem 1rem; border: 1px solid var(--faint); border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share postwith
+          </a>
+        </div>
+      </section>
+
+      <footer>
+        matches are read live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        firehose for the <code>net.bisks.postwith.*</code> collections — nothing is
+        stored anywhere but your own PDS and this page's index of it. a
+        <a href="https://bisks.net">bisks.net</a> experiment.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT } from "/postwith/lib/oauth.js";
+
+      const $ = (s) => document.querySelector(s);
+
+      const PROFILE_COLLECTION = "net.bisks.postwith.profile";
+      const MEETING_COLLECTION = "net.bisks.postwith.meeting";
+      const RESPONSE_COLLECTION = "net.bisks.postwith.response";
+      const FEEDBACK_COLLECTION = "net.bisks.postwith.feedback";
+
+      const TOPICS = [
+        { id: "mentoring", label: "🎓 mentoring" },
+        { id: "gaming", label: "🎮 gaming" },
+        { id: "foodie", label: "🍜 foodie" },
+        { id: "fitness", label: "🏃 fitness" },
+        { id: "books", label: "📚 books" },
+        { id: "music", label: "🎵 music" },
+        { id: "career", label: "💼 career chat" },
+        { id: "creative", label: "🎨 creative projects" },
+        { id: "code", label: "🛠️ code / build" },
+        { id: "coffee", label: "☕ just coffee" },
+      ];
+      const TOPIC_LABEL = Object.fromEntries(TOPICS.map((t) => [t.id, t.label]));
+      const topicLabel = (id) => TOPIC_LABEL[id] || id;
+
+      const sel = $("#f-topic");
+      TOPICS.forEach((t) => {
+        const o = document.createElement("option");
+        o.value = t.id;
+        o.textContent = t.label;
+        sel.appendChild(o);
+      });
+
+      let session = null;
+      let me = { profile: null, candidates: [], sent: [], inbox: [] };
+      let openProposeUri = null; // did of candidate currently showing the propose box
+
+      function esc(s) {
+        return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      }
+      function timeAgo(iso) {
+        const ms = Date.now() - new Date(iso).getTime();
+        const m = Math.floor(ms / 60000);
+        if (m < 1) return "just now";
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+      function avatarImg(url, size = 34) {
+        return url
+          ? `<img class="avatar" src="${esc(url)}" width="${size}" height="${size}" alt="" />`
+          : `<span class="avatar" style="display:inline-block;width:${size}px;height:${size}px"></span>`;
+      }
+      function profileLink(handle) {
+        return `https://bsky.app/profile/${encodeURIComponent(handle)}`;
+      }
+
+      // ---- auth ---------------------------------------------------------------
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        $("#profile-section").style.display = session ? "block" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        me = { profile: null, candidates: [], sent: [], inbox: [] };
+        renderAuthUI();
+        renderAll();
+      });
+
+      // ---- profile --------------------------------------------------------------
+
+      function renderProfileForm() {
+        if (me.profile) {
+          sel.value = me.profile.topic;
+          $("#f-goal").value = me.profile.goal;
+          $("#f-note").value = me.profile.note || "";
+          $("#btn-save-profile").textContent = "update profile";
+          $("#btn-remove-profile").style.display = "inline-block";
+        } else {
+          $("#btn-save-profile").textContent = "post profile";
+          $("#btn-remove-profile").style.display = "none";
+        }
+      }
+
+      $("#btn-save-profile").addEventListener("click", async () => {
+        if (!session) return;
+        const status = $("#profile-status");
+        const goal = $("#f-goal").value.trim();
+        if (!goal) {
+          status.textContent = "add a goal so people know what you're looking for.";
+          status.className = "status err";
+          return;
+        }
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        try {
+          const record = {
+            $type: PROFILE_COLLECTION,
+            topic: sel.value,
+            goal,
+            note: $("#f-note").value.trim(),
+            createdAt: new Date().toISOString(),
+          };
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: PROFILE_COLLECTION, rkey: "self", record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          me.profile = { did: session.did, handle: session.handle, topic: record.topic, goal: record.goal, note: record.note, updatedAt: Date.now() };
+          status.textContent = "posted — matching may take a minute to catch up.";
+          status.className = "status ok";
+          renderAll();
+          loadMe();
+        } catch (e) {
+          status.textContent = `couldn't save that: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+
+      $("#btn-remove-profile").addEventListener("click", async () => {
+        if (!session) return;
+        const status = $("#profile-status");
+        status.textContent = "leaving the pool…";
+        status.className = "status";
+        try {
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.deleteRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: PROFILE_COLLECTION, rkey: "self" }),
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+          me.profile = null;
+          $("#f-goal").value = "";
+          $("#f-note").value = "";
+          status.textContent = "left the pool.";
+          status.className = "status ok";
+          renderAll();
+        } catch (e) {
+          status.textContent = `couldn't remove that: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+
+      // ---- matches / propose -----------------------------------------------------
+
+      function renderMatches() {
+        const section = $("#matches-section");
+        const list = $("#matches-list");
+        if (!session || !me.profile) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "block";
+        section.querySelector("h2").firstChild.textContent = `matches on ${topicLabel(me.profile.topic)} `;
+        if (!me.candidates.length) {
+          list.innerHTML = `<p class="empty">nobody else has posted "${esc(topicLabel(me.profile.topic))}" yet — share the link below to change that.</p>`;
+          return;
+        }
+        list.innerHTML = me.candidates
+          .map((c) => {
+            const open = openProposeUri === c.did;
+            const already = !!c.existingMeetingUri;
+            return `
+            <div class="p-card">
+              <div class="p-card-top">
+                ${avatarImg(c.avatar)}
+                <span class="who"><a href="${profileLink(c.handle)}" target="_blank" rel="noopener">@${esc(c.handle)}</a></span>
+              </div>
+              <p class="p-goal">${esc(c.goal)}</p>
+              ${c.note ? `<p class="p-note">${esc(c.note)}</p>` : ""}
+              <div class="p-actions">
+                ${
+                  already
+                    ? `<span class="badge proposed">already proposed</span>`
+                    : `<button class="secondary tiny propose-toggle" data-did="${esc(c.did)}">propose a meeting</button>`
+                }
+              </div>
+              <div class="propose-box ${open ? "open" : ""}" data-did="${esc(c.did)}">
+                <textarea class="propose-msg" placeholder="a quick note for @${esc(c.handle)} (optional)" maxlength="300"></textarea>
+                <button class="tiny propose-send" data-did="${esc(c.did)}" data-handle="${esc(c.handle)}">send proposal</button>
+                <button class="secondary tiny propose-cancel">cancel</button>
+              </div>
+            </div>`;
+          })
+          .join("");
+
+        list.querySelectorAll(".propose-toggle").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            openProposeUri = btn.dataset.did;
+            renderMatches();
+          }),
+        );
+        list.querySelectorAll(".propose-cancel").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            openProposeUri = null;
+            renderMatches();
+          }),
+        );
+        list.querySelectorAll(".propose-send").forEach((btn) =>
+          btn.addEventListener("click", () => sendProposal(btn.dataset.did, btn.dataset.handle)),
+        );
+      }
+
+      async function sendProposal(toDid, toHandle) {
+        if (!session || !me.profile) return;
+        const box = document.querySelector(`.propose-box[data-did="${CSS.escape(toDid)}"]`);
+        const message = box ? box.querySelector(".propose-msg").value.trim() : "";
+        const status = $("#profile-status");
+        status.textContent = "writing proposal to your PDS…";
+        status.className = "status";
+        try {
+          const record = {
+            $type: MEETING_COLLECTION,
+            toDid,
+            toHandle,
+            topic: me.profile.topic,
+            message,
+            createdAt: new Date().toISOString(),
+          };
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: MEETING_COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          const idx = me.candidates.findIndex((c) => c.did === toDid);
+          if (idx >= 0) me.candidates[idx].existingMeetingUri = "pending-local";
+          openProposeUri = null;
+          status.textContent = `proposed to @${toHandle} — it'll show up in their requests shortly.`;
+          status.className = "status ok";
+          renderAll();
+        } catch (e) {
+          status.textContent = `couldn't send that: ${e.message}`;
+          status.className = "status err";
+        }
+      }
+
+      // ---- inbox / sent / meetings ------------------------------------------------
+
+      function statusBadge(m) {
+        if (m.status === "accepted") return `<span class="badge accepted">accepted</span>`;
+        if (m.status === "declined") return `<span class="badge declined">declined</span>`;
+        return `<span class="badge proposed">pending</span>`;
+      }
+
+      function renderInbox() {
+        const section = $("#inbox-section");
+        const list = $("#inbox-list");
+        if (!session) {
+          section.style.display = "none";
+          return;
+        }
+        const pending = me.inbox.filter((m) => m.status === "proposed");
+        section.style.display = me.inbox.length ? "block" : "none";
+        if (!pending.length && !me.inbox.length) return;
+        list.innerHTML = me.inbox
+          .map((m) => {
+            const responded = m.status !== "proposed";
+            return `
+            <div class="m-card">
+              <div class="m-card-top">
+                ${avatarImg(m.fromAvatar)}
+                <span class="who"><a href="${profileLink(m.fromHandle)}" target="_blank" rel="noopener">@${esc(m.fromHandle)}</a></span>
+                <span class="badge topic">${esc(topicLabel(m.topic))}</span>
+                ${statusBadge(m)}
+              </div>
+              ${m.message ? `<p class="m-message">"${esc(m.message)}"</p>` : ""}
+              <p class="m-meta">${timeAgo(m.createdAt)}</p>
+              ${
+                responded
+                  ? ""
+                  : `<div class="m-actions">
+                      <button class="tiny respond" data-uri="${esc(m.uri)}" data-status="accepted">accept</button>
+                      <button class="secondary tiny respond" data-uri="${esc(m.uri)}" data-status="declined">decline</button>
+                    </div>`
+              }
+            </div>`;
+          })
+          .join("");
+        list.querySelectorAll(".respond").forEach((btn) =>
+          btn.addEventListener("click", () => respond(btn.dataset.uri, btn.dataset.status)),
+        );
+      }
+
+      async function respond(meetingUri, status) {
+        if (!session) return;
+        const el = $("#profile-status");
+        el.textContent = "writing response to your PDS…";
+        el.className = "status";
+        try {
+          const record = { $type: RESPONSE_COLLECTION, meetingUri, status, createdAt: new Date().toISOString() };
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: RESPONSE_COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          const m = me.inbox.find((x) => x.uri === meetingUri);
+          if (m) m.status = status;
+          el.textContent = `marked ${status}.`;
+          el.className = "status ok";
+          renderAll();
+        } catch (e) {
+          el.textContent = `couldn't send that: ${e.message}`;
+          el.className = "status err";
+        }
+      }
+
+      function renderSent() {
+        const section = $("#sent-section");
+        const list = $("#sent-list");
+        if (!session || !me.sent.length) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "block";
+        list.innerHTML = me.sent
+          .map(
+            (m) => `
+            <div class="m-card">
+              <div class="m-card-top">
+                ${avatarImg("")}
+                <span class="who">to <a href="${profileLink(m.toHandle)}" target="_blank" rel="noopener">@${esc(m.toHandle)}</a></span>
+                <span class="badge topic">${esc(topicLabel(m.topic))}</span>
+                ${statusBadge(m)}
+              </div>
+              ${m.message ? `<p class="m-message">"${esc(m.message)}"</p>` : ""}
+              <p class="m-meta">${timeAgo(m.createdAt)}</p>
+            </div>`,
+          )
+          .join("");
+      }
+
+      function outcomeLabel(o) {
+        return { great: "🎉 great", ok: "🙂 fine", noshow: "👻 no-show" }[o] || o;
+      }
+
+      function renderMeetings() {
+        const section = $("#meetings-section");
+        const list = $("#meetings-list");
+        if (!session) {
+          section.style.display = "none";
+          return;
+        }
+        const accepted = [...me.sent, ...me.inbox].filter((m) => m.status === "accepted");
+        section.style.display = accepted.length ? "block" : "none";
+        if (!accepted.length) return;
+
+        list.innerHTML = accepted
+          .map((m) => {
+            const otherHandle = m.fromDid === session.did ? m.toHandle : m.fromHandle;
+            const otherAvatar = m.fromDid === session.did ? "" : m.fromAvatar;
+            const mine = (m.feedback || []).find((f) => f.byDid === session.did);
+            const theirs = (m.feedback || []).find((f) => f.byDid !== session.did);
+            return `
+            <div class="m-card">
+              <div class="m-card-top">
+                ${avatarImg(otherAvatar)}
+                <span class="who">with <a href="${profileLink(otherHandle)}" target="_blank" rel="noopener">@${esc(otherHandle)}</a></span>
+                <span class="badge topic">${esc(topicLabel(m.topic))}</span>
+              </div>
+              <div class="feedback-box">
+                ${
+                  mine
+                    ? `<p class="feedback-entry"><b>you:</b> ${outcomeLabel(mine.outcome)}${mine.note ? ` — "${esc(mine.note)}"` : ""}</p>`
+                    : `<div class="m-actions">
+                        <select class="fb-outcome" data-uri="${esc(m.uri)}">
+                          <option value="great">🎉 great</option>
+                          <option value="ok">🙂 fine</option>
+                          <option value="noshow">👻 no-show</option>
+                        </select>
+                        <input type="text" class="fb-note" placeholder="a note (optional)" maxlength="240" style="width:14rem" />
+                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;color:var(--muted)">
+                          <input type="checkbox" class="fb-rematch" style="width:auto" /> would meet again
+                        </label>
+                        <button class="tiny fb-send" data-uri="${esc(m.uri)}">log outcome</button>
+                      </div>`
+                }
+                ${theirs ? `<p class="feedback-entry"><b>@${esc(otherHandle)}:</b> ${outcomeLabel(theirs.outcome)}${theirs.note ? ` — "${esc(theirs.note)}"` : ""}</p>` : ""}
+              </div>
+            </div>`;
+          })
+          .join("");
+
+        list.querySelectorAll(".fb-send").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            const card = btn.closest(".m-card");
+            const outcome = card.querySelector(".fb-outcome").value;
+            const note = card.querySelector(".fb-note").value.trim();
+            const rematch = card.querySelector(".fb-rematch").checked;
+            sendFeedback(btn.dataset.uri, outcome, note, rematch);
+          }),
+        );
+      }
+
+      async function sendFeedback(meetingUri, outcome, note, rematch) {
+        if (!session) return;
+        const el = $("#profile-status");
+        el.textContent = "writing feedback to your PDS…";
+        el.className = "status";
+        try {
+          const record = { $type: FEEDBACK_COLLECTION, meetingUri, outcome, note, rematch, createdAt: new Date().toISOString() };
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: FEEDBACK_COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          for (const m of [...me.sent, ...me.inbox]) {
+            if (m.uri === meetingUri) {
+              m.feedback = [...(m.feedback || []).filter((f) => f.byDid !== session.did), { byDid: session.did, byHandle: session.handle, outcome, note, rematch }];
+            }
+          }
+          el.textContent = "logged — thanks.";
+          el.className = "status ok";
+          renderAll();
+        } catch (e) {
+          el.textContent = `couldn't log that: ${e.message}`;
+          el.className = "status err";
+        }
+      }
+
+      // ---- topic counts (public, no login needed) --------------------------------
+
+      async function loadTopics() {
+        try {
+          const res = await fetch(`${MOUNT}/api/topics`);
+          const data = await res.json();
+          const counts = data.counts || {};
+          const pills = TOPICS.map((t) => {
+            const n = counts[t.id] || 0;
+            return `<span class="topic-pill">${t.label} <span class="n">${n}</span></span>`;
+          });
+          $("#topic-pills").innerHTML = pills.join("");
+        } catch {
+          $("#topic-pills").innerHTML = `<span class="empty">couldn't load right now.</span>`;
+        }
+      }
+
+      // ---- fetch my state ---------------------------------------------------------
+
+      async function loadMe() {
+        if (!session) return;
+        try {
+          const res = await fetch(`${MOUNT}/api/me?did=${encodeURIComponent(session.did)}`);
+          const data = await res.json();
+          me = data;
+          renderAll();
+        } catch {
+          // leave the last-known state on screen; next poll retries
+        }
+      }
+
+      function renderAll() {
+        renderProfileForm();
+        renderMatches();
+        renderInbox();
+        renderSent();
+        renderMeetings();
+      }
+
+      // ---- share ------------------------------------------------------------------
+
+      const SHARE_URL = "https://bisks.net/postwith/";
+      $("#btn-share").href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent(`postwith — post what you're into, get matched, meet up. ${SHARE_URL}`);
+
+      // ---- boot ---------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await loadTopics();
+        if (session) await loadMe();
+        renderAll();
+
+        setInterval(() => {
+          if (document.visibilityState !== "visible") return;
+          loadTopics();
+          if (session) loadMe();
+        }, 6000);
+      }
+      boot();
+    </script>
+  </body>
+</html>
