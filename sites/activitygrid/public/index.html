@@ -504,14 +504,14 @@ function isoDay(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-// A day's activity is bucketed into these four record types so the grid can
+// A day's activity is bucketed into these five record types so the grid can
 // sum whichever combination the "chips" toggle row has selected, instead of
 // only ever counting posts.
-const RECORD_TYPES = ["posts", "replies", "likes", "other"];
-const TYPE_LABELS = { posts: "posts", replies: "replies", likes: "likes", other: "other records" };
+const RECORD_TYPES = ["posts", "replies", "reposts", "likes", "other"];
+const TYPE_LABELS = { posts: "posts", replies: "replies", reposts: "reposts", likes: "likes", other: "other records" };
 
 function emptyBucket() {
-  return { posts: 0, replies: 0, likes: 0, other: 0 };
+  return { posts: 0, replies: 0, reposts: 0, likes: 0, other: 0 };
 }
 
 function addCount(dayCounts, key, type) {
@@ -752,10 +752,10 @@ function addPost(postsByDay, key, post) {
 // with a $type by UTC calendar day with no CUTOFF_DAYS window, since the
 // point of downloading the full repo is getting the full history — multiple
 // years, not just the last one. Posts split into posts/replies (whether the
-// record carries a `reply` ref), likes get their own bucket, and everything
-// else (reposts, follows, blocks, profile edits, ...) falls into "other" —
-// this is what makes the CAR path the only one that can populate all four
-// type chips at once.
+// record carries a `reply` ref), likes and reposts each get their own
+// bucket, and everything else (follows, blocks, profile edits, ...) falls
+// into "other" — this is what makes the CAR path the only one that can
+// populate all five type chips at once.
 async function computeHeatmapViaCar(pds, did, onProgress) {
   if (onProgress) onProgress(`downloading repo CAR from ${pds} ...`);
   const res = await fetch(pds + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
@@ -783,6 +783,7 @@ async function computeHeatmapViaCar(pds, did, onProgress) {
     const key = isoDay(t);
     const type = obj.$type === "app.bsky.feed.post" ? bucketForPostRecord(obj)
       : obj.$type === "app.bsky.feed.like" ? "likes"
+      : obj.$type === "app.bsky.feed.repost" ? "reposts"
       : "other";
     addCount(dayCounts, key, type);
     if (obj.$type === "app.bsky.feed.post") addPost(postsByDay, key, normalizePostFromRecord(obj, did));
@@ -1441,14 +1442,14 @@ function setStacked(on) {
 
 // Toggle chips for which record types get summed into the grid. Coverage
 // depends on which fetch method won (see computeHeatmapViaCar/Repo/Feed
-// above): "car" populates all four buckets, "repo" gets posts/replies/likes
-// but not "other" (that'd mean walking every collection instead of one),
-// and "feed" only ever gets posts/replies. Chips outside a method's coverage
-// are disabled rather than hidden, so it's clear the data's just unavailable
-// this time, not that the feature doesn't exist.
+// above): "car" populates all five buckets, "repo" gets posts/replies/likes
+// but not "reposts" or "other" (that'd mean walking every collection instead
+// of one or two), and "feed" only ever gets posts/replies. Chips outside a
+// method's coverage are disabled rather than hidden, so it's clear the
+// data's just unavailable this time, not that the feature doesn't exist.
 function buildTypeChips() {
   els.typeChips.innerHTML = "";
-  const chipTypes = ["posts", "replies", "likes", "other"];
+  const chipTypes = ["posts", "replies", "reposts", "likes", "other"];
   for (const type of chipTypes) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1456,7 +1457,7 @@ function buildTypeChips() {
     btn.textContent = TYPE_LABELS[type];
     btn.classList.toggle("active", current.selectedTypes.has(type));
     const unavailable =
-      (type === "other" && current.method !== "car") ||
+      ((type === "other" || type === "reposts") && current.method !== "car") ||
       (type === "likes" && current.method === "feed");
     if (unavailable) {
       btn.disabled = true;
