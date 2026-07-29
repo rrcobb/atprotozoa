@@ -76,6 +76,9 @@
         padding:1rem; display:flex; flex-direction:column; align-items:center; text-align:center; }
       .block.latest { border-color:rgba(212,175,55,0.6);
         background:linear-gradient(180deg, rgba(212,175,55,0.08), var(--panel)); }
+      .block.focus { border-color:var(--chain); box-shadow:0 0 0 2px rgba(111,227,196,0.35), 0 10px 30px rgba(0,0,0,0.4);
+        animation:focusPulse 1.8s ease-out 1; }
+      @keyframes focusPulse { 0% { box-shadow:0 0 0 0 rgba(111,227,196,0.55); } 100% { box-shadow:0 0 0 14px rgba(111,227,196,0); } }
       .block canvas.portrait { width:100%; max-width:200px; height:auto; border-radius:6px;
         box-shadow:0 10px 26px rgba(0,0,0,0.45); background:var(--panel2); }
       .block .plate { margin-top:0.75rem; width:100%; }
@@ -227,6 +230,8 @@
         const div = document.createElement("div");
         div.className = "block" + (isLatest ? " latest" : "");
         div.dataset.handle = (block.winner.handle || "").toLowerCase();
+        div.dataset.index = String(block.index);
+        div.id = "block-" + block.index;
         div.innerHTML = `
           <div class="loading">🖌️ painting drying…</div>
           <div class="plate">
@@ -242,6 +247,7 @@
             <div class="links">
               <a href="${postLink(block.winningPostUri)}" target="_blank" rel="noopener">winning post ↗</a>
               <a href="${postLink(block.announcePostUri)}" target="_blank" rel="noopener">coronation ↗</a>
+              <a href="/bawkchain/block/${block.index}" class="permalink" data-index="${block.index}">🔗 share this block</a>
             </div>
           </div>`;
         return div;
@@ -258,10 +264,9 @@
         loading.replaceWith(canvas);
       }
 
-      function buildShareText(latest, count) {
-        const url = "https://bisks.net/bawkchain";
-        const head = `⛓️🐔 bawkchain block #${latest.index}: @${latest.winner.handle} inducted for ${latest.likeCount.toLocaleString()} likes\n`;
-        const tail = `\n${count.toLocaleString()} winners painted so far — ${url}`;
+      function buildShareText(block, count, url) {
+        const head = `⛓️🐔 bawkchain block #${block.index}: @${block.winner.handle} inducted for ${block.likeCount.toLocaleString()} likes\n`;
+        const tail = `\n${count.toLocaleString()} winners painted so far — ${url || "https://bisks.net/bawkchain"}`;
         return head + tail;
       }
 
@@ -279,7 +284,7 @@
         if (line) ctx.fillText(line, x, cy);
       }
 
-      async function buildShareCard(latest, count) {
+      async function buildShareCard(latest, count, footerUrl) {
         const ctx = shareCanvas.getContext("2d");
         const W = shareCanvas.width, H = shareCanvas.height;
         const mono = "ui-monospace, monospace";
@@ -330,12 +335,20 @@
         ctx.textAlign = "left";
         ctx.fillStyle = "#d4af37";
         ctx.font = `700 20px ${mono}`;
-        ctx.fillText("bisks.net/bawkchain", 60, H - 40);
+        ctx.fillText(footerUrl || "bisks.net/bawkchain", 60, H - 40);
       }
 
       let allBlocks = [];
       let newestFirst = true;
       let lastShareText = "";
+
+      // A URL like /bawkchain/block/5 is the per-block permalink the Worker
+      // stamps unique OG tags onto (src/index.ts renderBlockShare) — landing
+      // here should scroll to and highlight that exact block, not just show
+      // the generic gallery it points at.
+      const blockRouteMatch = /\/block\/(\d+)\/?$/.exec(location.pathname);
+      const focusIndex = blockRouteMatch ? Number.parseInt(blockRouteMatch[1], 10) : null;
+      let scrolledToFocus = false;
 
       function renderGallery() {
         const ordered = newestFirst ? [...allBlocks].reverse() : allBlocks;
@@ -351,6 +364,17 @@
         }
         galleryEl.appendChild(frag);
         applyFilter();
+
+        if (focusIndex != null) {
+          const focusDiv = galleryEl.querySelector(`[data-index="${focusIndex}"]`);
+          if (focusDiv) {
+            focusDiv.classList.add("focus");
+            if (!scrolledToFocus) {
+              scrolledToFocus = true;
+              requestAnimationFrame(() => focusDiv.scrollIntoView({ behavior: "smooth", block: "center" }));
+            }
+          }
+        }
 
         // paint portraits progressively so the tab never locks up on a big chain
         (async () => {
@@ -396,11 +420,18 @@
           controlsEl.style.display = "flex";
           renderGallery();
 
+          const shareBlock = (focusIndex != null && allBlocks[focusIndex]) ? allBlocks[focusIndex] : latest;
+          const isFocused = shareBlock !== latest;
+          const shareUrl = isFocused
+            ? `https://bisks.net/bawkchain/block/${shareBlock.index}`
+            : "https://bisks.net/bawkchain";
+
           shareEl.classList.add("show");
-          lastShareText = buildShareText(latest, allBlocks.length);
-          document.getElementById("shareBluesky").href =
-            "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
-          buildShareCard(latest, allBlocks.length);
+          lastShareText = buildShareText(shareBlock, allBlocks.length, shareUrl);
+          const shareBtn = document.getElementById("shareBluesky");
+          shareBtn.textContent = isFocused ? `🦋 share block #${shareBlock.index}` : "🦋 share latest mint";
+          shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(shareBlock, allBlocks.length, isFocused ? `bisks.net/bawkchain/block/${shareBlock.index}` : "bisks.net/bawkchain");
         } catch (e) {
           statusEl.className = "status err";
           statusEl.textContent = "couldn't sync the bawkchain: " + e.message;
