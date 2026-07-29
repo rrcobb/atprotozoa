@@ -17,12 +17,15 @@
 //
 // Every request's "/docmoot" mount prefix gets stripped first (the ASSETS
 // binding and the DO have no idea they aren't living at the domain root).
-// Three routes after that:
-//   GET /d/<id>        -> personalized-OG unfurl shell (falls through to the
-//                          same SPA the client already renders from the path)
-//   /api/doc/<id>       -> forwarded to the Doc DO as GET /state
-//   /api/doc/<id>/ws    -> forwarded to the Doc DO as the WebSocket upgrade
-//   everything else     -> ASSETS
+// Routes after that:
+//   GET /d/<id>          -> personalized-OG unfurl shell (falls through to the
+//                            same SPA the client already renders from the path)
+//   /api/doc/<id>        -> forwarded to the Doc DO as GET /state
+//   /api/doc/<id>/ws     -> forwarded to the Doc DO as the WebSocket upgrade
+//   /api/doc/<id>/seed   -> forwarded to the Doc DO as POST /seed (revives a
+//                           PDS snapshot into a brand-new empty doc — see
+//                           "restore a snapshot" in public/index.html)
+//   everything else      -> ASSETS
 
 interface DurableObjectId {
   toString(): string;
@@ -54,7 +57,7 @@ export interface Env {
 }
 
 const PREFIX = "/docmoot";
-const DOC_ID_RE = /^\/api\/doc\/([A-Za-z0-9_-]{4,64})(\/ws)?$/;
+const DOC_ID_RE = /^\/api\/doc\/([A-Za-z0-9_-]{4,64})(\/ws|\/seed)?$/;
 const SHARE_RE = /^\/d\/([A-Za-z0-9_-]{4,64})\/?$/;
 
 function esc(s: string): string {
@@ -127,10 +130,10 @@ export default {
 
     const docMatch = url.pathname.match(DOC_ID_RE);
     if (docMatch) {
-      const [, id, wsPart] = docMatch;
+      const [, id, suffix] = docMatch;
       const stub = env.DOC.get(env.DOC.idFromName(id));
       const inner = new URL(request.url);
-      inner.pathname = wsPart ? "/ws" : "/state";
+      inner.pathname = suffix || "/state";
       return stub.fetch(new Request(inner, stripped));
     }
 
@@ -242,6 +245,26 @@ export class Doc {
         updatedAt: this.updatedAt,
         exists: this.version > 0 || this.text.length > 0,
       });
+    }
+
+    // Revives a saved PDS snapshot into a fresh doc. Only works on a doc that
+    // has never been written to (version 0, no text) — a brand-new docId
+    // minted client-side right before this call — so there's no way for it
+    // to clobber someone else's in-progress live document.
+    if (url.pathname === "/seed" && request.method === "POST") {
+      if (this.version > 0 || this.text.length > 0) {
+        return json({ error: "doc already has content" }, 409);
+      }
+      const body = (await request.json().catch(() => null)) as { title?: string; text?: string } | null;
+      const text = typeof body?.text === "string" ? body.text.slice(0, MAX_LEN) : "";
+      const title = typeof body?.title === "string" ? body.title.slice(0, MAX_TITLE) : "";
+      this.text = text;
+      this.title = title;
+      this.version = 1;
+      this.createdAt = this.createdAt || Date.now();
+      this.updatedAt = Date.now();
+      this.persist();
+      return json({ ok: true, version: this.version });
     }
 
     if (url.pathname === "/ws") {

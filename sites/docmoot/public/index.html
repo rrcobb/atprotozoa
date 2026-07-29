@@ -78,6 +78,19 @@
       }
       #landing .explainer h3 { color: var(--ink); font-size: 0.85rem; margin: 0 0 0.5rem; }
       #landing .explainer p { margin: 0 0 1rem; }
+      #snapshots-panel:empty { display: none; }
+      #snapshots-panel {
+        border-top: 1px solid var(--border); padding-top: 1.2rem; margin-bottom: 1.6rem;
+      }
+      #snapshots-panel h3 { font-size: 0.85rem; margin: 0 0 0.7rem; color: var(--ink); }
+      #snapshots-panel .snap-loading { color: var(--muted); font-size: 0.82rem; }
+      .snap-row {
+        display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0;
+        border-bottom: 1px solid var(--faint); font-size: 0.85rem;
+      }
+      .snap-row .snap-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .snap-row .snap-meta { color: var(--muted); font-size: 0.76rem; white-space: nowrap; }
+      .snap-row button { font-size: 0.76rem; padding: 0.35rem 0.6rem; }
 
       /* ---- editor ---- */
       #editor { display: none; }
@@ -145,6 +158,7 @@
             <button id="new-doc">start a new document →</button>
           </div>
         </div>
+        <div id="snapshots-panel"></div>
         <div class="explainer">
           <h3>so, "is there a way to do this on ATProto?"</h3>
           <p>
@@ -265,6 +279,7 @@
           $("#editor").classList.remove("active");
           $("#landing").style.display = "";
           if (collab) { collab.close(); collab = null; }
+          loadSnapshots();
         }
       }
 
@@ -344,6 +359,75 @@
         }
         renderSaveButtons();
         renderSignInBox();
+      }
+
+      // A saved snapshot is a public record on the user's own PDS — listRecords
+      // needs no auth, so this loads without a fresh token round-trip. Only
+      // shown on the landing page; irrelevant once you're inside a doc.
+      async function loadSnapshots() {
+        const panel = $("#snapshots-panel");
+        if (!session || currentRoute().view !== "landing") {
+          panel.innerHTML = "";
+          return;
+        }
+        panel.innerHTML = `<h3>your saved snapshots</h3><div class="snap-loading">loading…</div>`;
+        try {
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const qs = new URLSearchParams({
+            repo: session.did,
+            collection: SNAPSHOT_COLLECTION,
+            limit: "20",
+            reverse: "true",
+          });
+          const res = await fetch(`${base}/xrpc/com.atproto.repo.listRecords?${qs}`);
+          if (!res.ok) throw new Error(`${res.status}`);
+          const data = await res.json();
+          const records = data.records || [];
+          if (!records.length) {
+            panel.innerHTML = `<h3>your saved snapshots</h3><div class="snap-loading">none yet — save one from inside a document.</div>`;
+            return;
+          }
+          panel.innerHTML =
+            `<h3>your saved snapshots</h3>` +
+            records
+              .map((r, i) => {
+                const v = r.value || {};
+                const title = esc(v.title || "Untitled document");
+                const words = Number.isFinite(v.wordCount) ? `${v.wordCount} words` : "";
+                const when = v.createdAt ? new Date(v.createdAt).toLocaleDateString() : "";
+                const meta = [words, when].filter(Boolean).join(" · ");
+                return `<div class="snap-row">
+                  <span class="snap-title">${title}</span>
+                  <span class="snap-meta">${esc(meta)}</span>
+                  <button class="ghost" data-restore="${i}">open live copy →</button>
+                </div>`;
+              })
+              .join("");
+          panel.querySelectorAll("[data-restore]").forEach((btn) => {
+            btn.addEventListener("click", () => restoreSnapshot(records[Number(btn.dataset.restore)].value));
+          });
+        } catch (e) {
+          panel.innerHTML = `<h3>your saved snapshots</h3><div class="snap-loading">couldn't load snapshots (${esc(e.message)}).</div>`;
+        }
+      }
+
+      // Mints a brand-new doc, seeds it with the snapshot's text server-side
+      // (so every future edit is on top of that baseline, no client-only
+      // "paste it in" step), then opens it live like any other doc.
+      async function restoreSnapshot(snap) {
+        const id = newDocId();
+        try {
+          const res = await fetch(`${ACTIVE_MOUNT}/api/doc/${encodeURIComponent(id)}/seed`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: snap.title || "", text: snap.text || "" }),
+          });
+          if (!res.ok) throw new Error(`${res.status}`);
+        } catch (e) {
+          console.error("seed failed", e);
+        }
+        history.pushState({}, "", navPath(id));
+        route();
       }
 
       function renderSignInBox() {
