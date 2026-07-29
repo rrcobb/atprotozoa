@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>copypastalibs — mad-libs from someone's own words — bisks.net</title>
+    <title>copypastalibs — mad-libs from someone's own words</title>
     <meta
       name="description"
       content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
@@ -17,12 +17,16 @@
       property="og:description"
       content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="https://bisks.net/copypastalibs/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="copypastalibs — mad-libs from someone's own words" />
     <meta
       name="twitter:description"
       content="Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style."
     />
+    <meta name="twitter:image" content="https://bisks.net/copypastalibs/og.png" />
 
     <!-- bisks.net house style: black on white, one readable mono, lots of
          space, blue accent. -->
@@ -116,6 +120,30 @@
         border-radius: 4px; padding: 0.85rem 1rem; font-size: 0.9rem;
       }
 
+      .share-panel {
+        display: none; margin-top: 1.75rem; border: 1px solid var(--faint);
+        border-radius: 8px; padding: 1rem 1.1rem 1.2rem; background: var(--faintbg);
+      }
+      .share-panel.show { display: block; }
+      .share-panel-head {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 0.75rem; font-size: 0.85rem; font-weight: 600;
+      }
+      #share-canvas {
+        width: 100%; height: auto; border: 1px solid var(--faint);
+        border-radius: 6px; background: #fff; display: block; margin-bottom: 0.85rem;
+      }
+      .share-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .share-actions a, .share-actions button {
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+        padding: 0.5rem 0.85rem; border-radius: 6px; border: 1px solid var(--faint);
+        background: #fff; color: var(--ink); text-decoration: none; cursor: pointer;
+      }
+      .share-actions a:hover, .share-actions button:hover {
+        border-color: var(--accent); color: var(--accent);
+      }
+      .share-link { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--muted); word-break: break-all; }
+
       footer {
         margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
         color: var(--muted); font-size: 0.78rem;
@@ -152,6 +180,20 @@
         <button class="ghost" id="reroll-all">reroll all</button>
       </div>
       <div class="cards" id="cards"></div>
+
+      <div class="share-panel" id="share-panel" hidden>
+        <div class="share-panel-head">
+          <span id="share-panel-title"></span>
+          <button class="ghost small" id="share-panel-close" type="button">close ✕</button>
+        </div>
+        <canvas id="share-canvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="share-native" type="button" style="display: none">📤 share card</button>
+          <a id="share-bluesky" target="_blank" rel="noopener">🦋 share to bluesky</a>
+          <button id="share-download" type="button">⬇ download image</button>
+        </div>
+        <p class="share-link" id="share-link"></p>
+      </div>
 
       <footer>
         part of <a href="https://bisks.net">bisks.net</a> — a little zoo of tiny atproto experiments
@@ -235,8 +277,25 @@
         if (pools.adv.length < 4) pools.adv = pools.adv.concat(pools.adj.slice(0, 8));
       }
 
+      // ── seeded RNG ───────────────────────────────────────────────────────
+      // Every fill is driven by a seed, not bare Math.random(), so a given
+      // (handle's word pools, pasta, seed) triple always mad-libs the same
+      // way — that's what makes a permalink (see shareUrlFor below) actually
+      // reproduce the card someone shared, both here and server-side in
+      // src/index.ts's /p/ unfurl route.
+      function mulberry32(seed) {
+        let a = seed >>> 0;
+        return function () {
+          a |= 0; a = (a + 0x6d2b79f5) | 0;
+          let t = Math.imul(a ^ (a >>> 15), 1 | a);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      function randomSeed() { return (Math.random() * 0xffffffff) >>> 0; }
+
       // ── word-shape helpers (deliberately loose — wrongness is half the fun) ──
-      function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+      function pick(arr, rng) { return arr[Math.floor(rng() * arr.length)]; }
 
       function pluralize(w) {
         if (/(s|x|z|ch|sh)$/.test(w)) return w + "es";
@@ -256,28 +315,28 @@
         return w + "ed";
       }
 
-      function fillBlank(kind, pools) {
+      function fillBlank(kind, pools, rng) {
         switch (kind) {
-          case "noun": return pick(pools.nv);
-          case "plural_noun": return pluralize(pick(pools.nv));
-          case "verb": return pick(pools.nv);
-          case "verb_ing": return gerund(pick(pools.nv));
-          case "past_verb": return pastTense(pick(pools.nv));
-          case "adjective": return pick(pools.adj.length ? pools.adj : pools.nv);
+          case "noun": return pick(pools.nv, rng);
+          case "plural_noun": return pluralize(pick(pools.nv, rng));
+          case "verb": return pick(pools.nv, rng);
+          case "verb_ing": return gerund(pick(pools.nv, rng));
+          case "past_verb": return pastTense(pick(pools.nv, rng));
+          case "adjective": return pick(pools.adj.length ? pools.adj : pools.nv, rng);
           case "adverb": {
-            if (pools.adv.length) return pick(pools.adv);
-            return pick(pools.adj.length ? pools.adj : pools.nv) + "ly";
+            if (pools.adv.length) return pick(pools.adv, rng);
+            return pick(pools.adj.length ? pools.adj : pools.nv, rng) + "ly";
           }
           case "exclamation": {
             const all = pools.nv.concat(pools.adj, pools.adv);
-            return pick(all.length ? all : FALLBACK_WORDS);
+            return pick(all.length ? all : FALLBACK_WORDS, rng);
           }
           default: return kind;
         }
       }
 
-      function fillTemplate(template, pools) {
-        const filled = template.replace(/\{(\w+)\}/g, (_, kind) => fillBlank(kind, pools));
+      function fillTemplate(template, pools, rng) {
+        const filled = template.replace(/\{(\w+)\}/g, (_, kind) => fillBlank(kind, pools, rng));
         return filled.length ? filled[0].toUpperCase() + filled.slice(1) : filled;
       }
 
@@ -306,6 +365,34 @@
         {
           title: "the among us callout",
           template: `{noun} was {adjective}. {noun} says {noun} was in {noun} the whole {noun}. {noun} says {noun} is {adjective}. I saw {noun} vent near {noun}. {noun} is now {verb_ing} in {noun} and won't stop {verb_ing}. Emergency {noun} called. Only a {adjective} few of us remain. Wait — {noun} is {adjective} confirmed {noun}.`,
+        },
+        {
+          title: "the sigma grindset",
+          template: `5am. Woke up. Did not hit snooze because winners don't hit snooze. Drank a {adjective} glass of water while looking at my {noun} in the mirror. Told myself: today, we {verb}. Ate three {plural_noun} raw for the protein. Read {noun} pages of a book about {plural_noun}. Cold plunge in the {noun}, out in ninety seconds, no gasping, because gasping is a {noun} mindset. By 6am I had already {past_verb} more than most people {verb} all day. This is not about the {noun}. This is about becoming the kind of {noun} that a {adjective} {noun} would be proud of. Stay {adjective}. Stay {adjective}. Never explain the {noun} to people still {verb_ing} in bed.`,
+        },
+        {
+          title: "the group chat conspiracy",
+          template: `ok so hear me out. {noun} texted me at 2am asking if I still had the {noun} from last summer. weird right. then I saw {noun} liked a post about {plural_noun} THREE times. coincidence? I called {noun}, straight to voicemail. I think they're all in on it — the {noun}, the {adjective} {noun} outside, all of it connects. I'm not saying {noun} is behind the {plural_noun}. I'm saying somebody {adjective} needs to explain why every single {noun} in this group chat went quiet at the exact same {noun}. anyway I made a {adjective} chart. we're talking tonight. bring the {plural_noun}.`,
+        },
+        {
+          title: "the raid boss enrage",
+          template: `{noun} has entered ENRAGE. {noun} begins {verb_ing} uncontrollably. The ground beneath your {plural_noun} turns {adjective}. A voice, ancient and {adjective}, echoes: "YOU DARE {verb} IN MY {noun}?" "{exclamation}!" someone screams into voice chat. Your {noun} is reduced to zero. Your {plural_noun} scatter. The raid leader types, {adverb}ly, "everybody {verb} to the {noun}, do NOT stand in the {noun}." Someone did not {verb} to the {noun}. The {noun} wipes. Fifteen {plural_noun}, gone, {adverb}, to a mechanic that's been explained four times.`,
+        },
+        {
+          title: "the true crime intro",
+          template: `It was a {adjective} Tuesday in a town where everybody knew everybody's {noun}. {noun} was, by all accounts, a {adjective} {noun} — until the night the {noun} went missing. Neighbors reported hearing {plural_noun} at exactly 11pm. The local {noun} said, and I quote, "we've never {past_verb} anything like this before." Three {plural_noun} were found near the {noun}. A single {adjective} {noun} was left on the porch. To this day, no one knows who {past_verb} first — but everyone agrees it started with the {noun}. This is the story of the {adjective} {noun} case. Don't {verb} the lights off tonight.`,
+        },
+        {
+          title: "the airport gate announcement",
+          template: `{adjective} passengers, we are currently {verb_ing} the boarding process for the flight to {noun}. We are still waiting on {noun} number four, as well as a {adjective} {noun} that has not yet {past_verb}. If your {noun} has a purple tag, please proceed to the {noun} immediately. Once again, this is a {adjective} boarding call — anyone still in the {noun} area, we will need you to {verb} to the gate now. We appreciate your {adjective} patience and thank you for choosing an airline that definitely still has your {plural_noun} somewhere.`,
+        },
+        {
+          title: "the wine mom",
+          template: `Is it 5 o'clock somewhere? Asking for a {noun}. 😂🍷 Survived another day of {noun} duty, three loads of {adjective} laundry, and a {noun} that will not stop {verb_ing}. Pouring a {adjective} glass of the {noun} blend and NOT feeling a single {noun} of guilt about it. To all my {adjective} mama {plural_noun} out there {verb_ing} through the group chat right now — you {verb}, girl, you {verb} that {noun}. Tag a {noun} who needs to hear this. #wineoclock #{noun}mom #{adjective}blessed`,
+        },
+        {
+          title: "the corporate all-hands",
+          template: `Thanks everyone for joining today's {adjective} all-hands. I want to start by saying how {adjective} I am of this team's {noun} this quarter. We've seen a {adjective} increase in {noun} synergy, and our {noun} pipeline is looking more {adjective} than ever. I know there's been some {noun} around the recent {plural_noun}, and I want to be transparent: we are {verb_ing} through some {adjective} headwinds. But I truly believe if we all {verb} together, we can {verb} this {noun} to the next level. Any questions? ... {noun}? No? Great, let's {verb} and circle back next {noun}.`,
         },
       ];
 
@@ -372,8 +459,11 @@
       const $rerollAll = document.getElementById("reroll-all");
 
       let currentPools = null;
+      let currentHandle = "";
+      const cardSeeds = [];
+      let shareOpenIndex = null;
 
-      function renderCards() {
+      function renderCards(forcedSeeds) {
         $cards.innerHTML = PASTAS.map((p, i) => `
           <div class="card">
             <div class="card-head">
@@ -381,46 +471,235 @@
               <div class="card-buttons">
                 <button class="ghost small" data-reroll="${i}">reroll</button>
                 <button class="ghost small" data-copy="${i}">copy</button>
+                <button class="ghost small" data-share="${i}">share</button>
               </div>
             </div>
             <div class="card-text" id="card-text-${i}"></div>
           </div>
         `).join("");
-        fillAllCards();
+        fillAllCards(forcedSeeds);
       }
 
-      function fillOneCard(i) {
+      function fillOneCard(i, seed) {
         const el = document.getElementById(`card-text-${i}`);
         if (!el || !currentPools) return;
-        el.textContent = fillTemplate(PASTAS[i].template, currentPools);
+        const s = seed === undefined || seed === null ? randomSeed() : seed;
+        cardSeeds[i] = s;
+        el.textContent = fillTemplate(PASTAS[i].template, currentPools, mulberry32(s));
       }
 
-      function fillAllCards() {
-        PASTAS.forEach((_, i) => fillOneCard(i));
+      function fillAllCards(forcedSeeds) {
+        PASTAS.forEach((_, i) => {
+          fillOneCard(i, forcedSeeds && forcedSeeds[i] !== undefined ? forcedSeeds[i] : undefined);
+        });
       }
 
       $cards.addEventListener("click", (e) => {
         const rerollI = e.target.getAttribute("data-reroll");
         const copyI = e.target.getAttribute("data-copy");
-        if (rerollI !== null) fillOneCard(Number(rerollI));
+        const shareI = e.target.getAttribute("data-share");
+        if (rerollI !== null) {
+          const i = Number(rerollI);
+          fillOneCard(i);
+          if (shareOpenIndex === i) openShare(i);
+        }
         if (copyI !== null) {
           const el = document.getElementById(`card-text-${copyI}`);
           if (el) navigator.clipboard.writeText(el.textContent);
         }
+        if (shareI !== null) openShare(Number(shareI));
       });
 
       $rerollAll.addEventListener("click", () => {
-        if (currentPools) fillAllCards();
+        if (!currentPools) return;
+        fillAllCards();
+        if (shareOpenIndex !== null) openShare(shareOpenIndex);
       });
 
-      async function loadFeed() {
+      // ── sharing: permalink + bluesky intent + canvas card ───────────────
+      // A given (handle, pasta index, seed) always mad-libs the same way, so
+      // /copypastalibs/p/<handle>/<index>/<seed36> is a real, reproducible
+      // link — src/index.ts recomputes the same fill server-side to stamp
+      // personalized og:title/description on it (see notes/45-sharing-and-
+      // virality.md's per-result-unfurl tier). Follows sites/didscope's
+      // buildShareCard/canShareFiles pattern for the image side.
+      const $sharePanel = document.getElementById("share-panel");
+      const $sharePanelTitle = document.getElementById("share-panel-title");
+      const $sharePanelClose = document.getElementById("share-panel-close");
+      const $shareCanvas = document.getElementById("share-canvas");
+      const $shareBluesky = document.getElementById("share-bluesky");
+      const $shareDownload = document.getElementById("share-download");
+      const $shareNative = document.getElementById("share-native");
+      const $shareLink = document.getElementById("share-link");
+
+      function sharePathFor(handle, i, seed) {
+        return `/copypastalibs/p/${encodeURIComponent(handle)}/${i}/${seed.toString(36)}`;
+      }
+      function shareUrlFor(handle, i, seed) {
+        return `https://bisks.net${sharePathFor(handle, i, seed)}`;
+      }
+
+      function buildShareText(handle, title, text, url) {
+        const prefix = `"${title}" copypasta, mad-libbed from @${handle}'s words: "`;
+        const suffix = `"`;
+        const urlPart = `\n\nmake your own → ${url}`;
+        const budget = 300 - prefix.length - suffix.length - urlPart.length;
+        const body = text.length > budget ? text.slice(0, Math.max(0, budget - 1)).trimEnd() + "…" : text;
+        return prefix + body + suffix + urlPart;
+      }
+
+      function wrapCanvasText(ctx, text, maxWidth) {
+        const words = text.split(/\s+/);
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = w;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function drawShareCard(title, text, handle) {
+        const ctx = $shareCanvas.getContext("2d");
+        const W = 1200;
+        const mono = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+        const padX = 64;
+        const maxWidth = W - padX * 2;
+        const headerH = 150;
+        const titleH = 60;
+        const footerH = 70;
+        const lineHeight = 34;
+        const maxLines = 22;
+
+        ctx.font = `400 25px ${mono}`;
+        let lines = wrapCanvasText(ctx, text, maxWidth);
+        if (lines.length > maxLines) {
+          lines = lines.slice(0, maxLines);
+          lines[lines.length - 1] = lines[lines.length - 1].replace(/\s*\S*$/, "") + " …";
+        }
+
+        const H = Math.max(630, headerH + titleH + lines.length * lineHeight + footerH + 30);
+        $shareCanvas.width = W;
+        $shareCanvas.height = H;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = "#111111";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(6, 6, W - 12, H - 12);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 40px ${mono}`;
+        ctx.fillText("copypastalibs", padX, 74);
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(`@${handle}'s vocabulary, mad-libbed`, padX, 104);
+
+        ctx.fillStyle = "#111111";
+        ctx.font = `700 26px ${mono}`;
+        ctx.fillText(title, padX, headerH + 20);
+
+        ctx.font = `400 25px ${mono}`;
+        ctx.fillStyle = "#111111";
+        let y = headerH + titleH + 6;
+        for (const l of lines) {
+          ctx.fillText(l, padX, y);
+          y += lineHeight;
+        }
+
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("bisks.net/copypastalibs", padX, H - 30);
+      }
+
+      function openShare(i) {
+        if (!currentPools || !currentHandle) return;
+        const el = document.getElementById(`card-text-${i}`);
+        if (!el) return;
+        const title = PASTAS[i].title;
+        const text = el.textContent;
+        const seed = cardSeeds[i];
+        const url = shareUrlFor(currentHandle, i, seed);
+
+        shareOpenIndex = i;
+        $sharePanelTitle.textContent = title;
+        $shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(currentHandle, title, text, url));
+        $shareLink.textContent = url;
+        drawShareCard(title, text, currentHandle);
+        $sharePanel.hidden = false;
+        $sharePanel.classList.add("show");
+        try { history.pushState({ shareIndex: i }, "", sharePathFor(currentHandle, i, seed)); } catch (_) {}
+        $sharePanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      function closeShare() {
+        shareOpenIndex = null;
+        $sharePanel.classList.remove("show");
+        $sharePanel.hidden = true;
+      }
+
+      $sharePanelClose.addEventListener("click", closeShare);
+
+      $shareDownload.addEventListener("click", () => {
+        $shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          const who = (currentHandle || "card").replace(/[^a-z0-9.-]/gi, "_");
+          a.download = `copypastalibs-${who}.png`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $shareNative.style.display = "";
+        $shareNative.addEventListener("click", () => {
+          $shareCanvas.toBlob(async (blob) => {
+            if (!blob || shareOpenIndex === null) return;
+            const who = (currentHandle || "card").replace(/[^a-z0-9.-]/gi, "_");
+            const file = new File([blob], `copypastalibs-${who}.png`, { type: "image/png" });
+            const seed = cardSeeds[shareOpenIndex];
+            const url = shareUrlFor(currentHandle, shareOpenIndex, seed);
+            const el = document.getElementById(`card-text-${shareOpenIndex}`);
+            const text = buildShareText(currentHandle, PASTAS[shareOpenIndex].title, el ? el.textContent : "", url);
+            try {
+              await navigator.share({ files: [file], text, title: "copypastalibs" });
+            } catch (_) {
+              // cancelled or unsupported — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      async function loadFeed(opts) {
+        opts = opts || {};
         const raw = $feedHandle.value;
         $poolStats.textContent = "";
         $poolWords.textContent = "";
+        closeShare();
         try {
           $feedStatus.textContent = "resolving handle…";
           const did = await resolveDid(raw);
           const handle = await getHandle(did);
+          currentHandle = handle;
           $feedStatus.textContent = `reading @${handle}'s recent posts…`;
           const posts = await fetchAuthorFeed(did, 100);
           if (!posts.length) {
@@ -437,18 +716,39 @@
           $poolWords.innerHTML = topWords.length
             ? topWords.map((w) => `<span>${escapeHtml(w)}</span>`).join("")
             : "";
-          renderCards();
+
+          const hasPending = opts.pendingIndex !== undefined && opts.pendingIndex !== null;
+          renderCards(hasPending ? { [opts.pendingIndex]: opts.pendingSeed } : undefined);
+          if (hasPending) openShare(opts.pendingIndex);
         } catch (e) {
           $feedStatus.textContent = `couldn't load that — ${(e && e.message) || e}`;
         }
       }
 
-      $feedGo.addEventListener("click", loadFeed);
+      $feedGo.addEventListener("click", () => loadFeed());
       $feedHandle.addEventListener("keydown", (e) => {
         if (e.key === "Enter") loadFeed();
       });
 
-      loadFeed();
+      // /copypastalibs/p/<handle>/<pastaIndex>/<seed36> — a shared permalink.
+      // Prefill the handle and reproduce the exact card that was shared.
+      function parseDeepLink() {
+        const m = location.pathname.match(/\/p\/([^/]+)\/(\d+)\/([0-9a-z]+)\/?$/i);
+        if (!m) return null;
+        const handle = decodeURIComponent(m[1]);
+        const index = Number(m[2]);
+        const seed = parseInt(m[3], 36);
+        if (!handle || !Number.isFinite(index) || index < 0 || index >= PASTAS.length || !Number.isFinite(seed)) return null;
+        return { handle, index, seed };
+      }
+
+      const deepLink = parseDeepLink();
+      if (deepLink) {
+        $feedHandle.value = deepLink.handle;
+        loadFeed({ pendingIndex: deepLink.index, pendingSeed: deepLink.seed });
+      } else {
+        loadFeed();
+      }
     </script>
   
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
