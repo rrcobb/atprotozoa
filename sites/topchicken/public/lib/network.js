@@ -9,7 +9,14 @@
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 12; // <= ~1200 follows + ~1200 followers scanned per side
-export const MAX_POOL = 250; // keep the downstream day-scan bounded
+// The day-scan (scan.js) runs entirely in the visitor's browser, hitting the
+// anonymous public AppView once per pool member (more if they're prolific —
+// see FEED_PAGES). There's no cheap "did they post yesterday" signal to
+// filter the pool first, so the cap is just a bound on how many feed fetches
+// one page load is willing to fan out — raised from 250 after a network of
+// ~700 (dave.9000ish.uk, 2026-07-29) got truncated well before anything
+// resembling "the whole network" was scanned.
+export const MAX_POOL = 800;
 
 async function jget(url) {
   const r = await fetch(url);

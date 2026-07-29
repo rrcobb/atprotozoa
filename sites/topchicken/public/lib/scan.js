@@ -6,7 +6,7 @@
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const FEED_PAGES = 5; // <= ~500 recent items scanned per member before giving up
-const CONCURRENCY = 8;
+const CONCURRENCY = 10; // bumped alongside MAX_POOL (network.js) to keep larger pools from dragging
 const RUNNERS_UP = 6; // kept alongside the winner for "the pecking order"
 
 async function jget(url) {
