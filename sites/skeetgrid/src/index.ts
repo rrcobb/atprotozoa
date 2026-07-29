@@ -1,9 +1,11 @@
 // skeetgrid Worker — mounted at bisks.net/skeetgrid/ (see
 // notes/40-new-site-playbook.md).
 //
-// The actual heatmap is entirely client-side (public/index.html paginates
-// getAuthorFeed and draws the grid to a <canvas>). The one thing that needed
-// a server: shared results. A plain static site serves the *same*
+// The actual heatmap is entirely client-side (public/index.html walks the
+// account's own PDS repo via com.atproto.repo.listRecords — falling back to
+// getAuthorFeed if that PDS lookup fails — and draws the grid to a
+// <canvas>). The one thing that needed a server: shared results. A plain
+// static site serves the *same*
 // index.html — same og:title/description — for every handle, so every
 // "share your grid" link would unfurl as one identical generic card forever
 // (same problem sites/didscope and sites/windmill already hit, see

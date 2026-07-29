@@ -196,9 +196,9 @@
   <div class="wrap">
     <h1>skeetgrid</h1>
     <p class="tag">
-      A <code>getAuthorFeed</code> pagination and some green boxes — the GitHub
-      contribution graph, but every square is a day of Bluesky posts. Enter a
-      handle, get a year of activity as one shareable image.
+      A walk of your repo straight from your PDS and some green boxes — the
+      GitHub contribution graph, but every square is a day of Bluesky posts.
+      Enter a handle, get a year of activity as one shareable image.
     </p>
 
     <form id="f">
@@ -250,8 +250,20 @@
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 const MOUNT = "/skeetgrid";
 const API = "https://public.api.bsky.app/xrpc/";
-const MAX_PAGES = 20;      // ~2000 posts — enough for almost anyone's last year
+const MAX_PAGES = 20;      // ~2000 posts — fallback path only, see computeHeatmap
+const REPO_MAX_PAGES = 300; // ~30k post records — the direct-PDS path's safety cap
 const CUTOFF_DAYS = 371;   // 53 weeks, matches the grid (53 cols x 7 rows)
+
+async function xrpcAt(base, method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(base + "/xrpc/" + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
 
 async function xrpc(method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -262,6 +274,35 @@ async function xrpc(method, params) {
     throw new Error(msg);
   }
   return res.json();
+}
+
+// getAuthorFeed (the AppView) only ever hands back a bounded, hydrated window
+// of recent activity — it's built for scrolling a timeline, not for walking
+// someone's full history. The account's own PDS holds the actual repo, and
+// com.atproto.repo.listRecords against it returns raw app.bsky.feed.post
+// records (no reply/embed hydration, no reposts mixed in) directly from the
+// source, cursor-paginated oldest-after-newest by rkey — so it can walk as
+// far back as a year actually needs instead of stopping at a fixed post
+// count. Resolving the DID document is the one extra step this costs.
+async function resolvePds(did) {
+  let doc;
+  if (did.startsWith("did:plc:")) {
+    const res = await fetch("https://plc.directory/" + encodeURIComponent(did));
+    if (!res.ok) throw new Error("couldn't resolve DID doc (" + res.status + ")");
+    doc = await res.json();
+  } else if (did.startsWith("did:web:")) {
+    const domain = did.slice("did:web:".length).split(":").map(decodeURIComponent).join("/");
+    const res = await fetch("https://" + domain + "/.well-known/did.json");
+    if (!res.ok) throw new Error("couldn't resolve did:web doc (" + res.status + ")");
+    doc = await res.json();
+  } else {
+    throw new Error("unsupported DID method");
+  }
+  const svc = (doc.service || []).find(
+    (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+  );
+  if (!svc || !svc.serviceEndpoint) throw new Error("no PDS service in DID doc");
+  return svc.serviceEndpoint;
 }
 
 function cleanHandle(raw) {
@@ -276,11 +317,56 @@ function isoDay(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-// Walks getAuthorFeed backward in time, bucketing authored posts (skipping
-// reposts, which arrive with a `reason`) by UTC calendar day. Stops once a
-// page's oldest post is past CUTOFF_DAYS or MAX_PAGES is hit — either way
-// truncated tells the caller so it can be honest about coverage.
-async function computeHeatmap(did, onProgress) {
+// Walks the account's own repo directly (com.atproto.repo.listRecords against
+// its PDS), bucketing app.bsky.feed.post records by UTC calendar day. This is
+// the whole fix for "truncated to the N most recent posts" — no reply/embed
+// hydration per record, no reposts to filter, so the safety cap
+// (REPO_MAX_PAGES) is high enough that this in practice always reaches
+// CUTOFF_DAYS rather than running out first.
+async function computeHeatmapViaRepo(pds, did, onProgress) {
+  const dayCounts = new Map();
+  let cursor;
+  let total = 0;
+  const cutoff = Date.now() - CUTOFF_DAYS * 86400000;
+  let truncated = false;
+
+  for (let page = 0; page < REPO_MAX_PAGES; page++) {
+    const res = await xrpcAt(pds, "com.atproto.repo.listRecords", {
+      repo: did,
+      collection: "app.bsky.feed.post",
+      limit: "100",
+      ...(cursor ? { cursor } : {}),
+    });
+    const records = res.records || [];
+    if (!records.length) break;
+    let hitCutoff = false;
+    for (const rec of records) {
+      const createdAt = rec.value && rec.value.createdAt;
+      const t = createdAt ? Date.parse(createdAt) : NaN;
+      if (Number.isNaN(t)) continue;
+      if (t < cutoff) { hitCutoff = true; continue; }
+      const key = isoDay(t);
+      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+      total++;
+    }
+    if (onProgress) onProgress(page + 1, total);
+    cursor = res.cursor;
+    if (!cursor) break;
+    if (hitCutoff) break;
+    if (page === REPO_MAX_PAGES - 1 && cursor) truncated = true;
+  }
+
+  return { dayCounts, total, truncated, cap: REPO_MAX_PAGES * 100 };
+}
+
+// Fallback for the rare case a DID doc won't resolve or a PDS blocks the
+// direct walk above (self-hosted PDS with unusual CORS, non-standard DID
+// method, etc). Walks getAuthorFeed backward in time instead, bucketing
+// authored posts (skipping reposts, which arrive with a `reason`) by UTC
+// calendar day. Stops once a page's oldest post is past CUTOFF_DAYS or
+// MAX_PAGES is hit — either way truncated tells the caller so it can be
+// honest about coverage.
+async function computeHeatmapViaFeed(did, onProgress) {
   const dayCounts = new Map();
   let cursor;
   let total = 0;
@@ -313,7 +399,16 @@ async function computeHeatmap(did, onProgress) {
     if (page === MAX_PAGES - 1 && cursor) truncated = true;
   }
 
-  return { dayCounts, total, truncated };
+  return { dayCounts, total, truncated, cap: MAX_PAGES * 100 };
+}
+
+async function computeHeatmap(did, onProgress) {
+  try {
+    const pds = await resolvePds(did);
+    return await computeHeatmapViaRepo(pds, did, onProgress);
+  } catch (_) {
+    return await computeHeatmapViaFeed(did, onProgress);
+  }
 }
 
 function computeStats(dayCounts) {
@@ -406,7 +501,7 @@ function loadImg(url) {
 let lastCells = [];
 let lastMax = 0;
 
-async function drawCard({ profile, dayCounts, stats, truncated }) {
+async function drawCard({ profile, dayCounts, stats, truncated, cap }) {
   const canvas = document.getElementById("gridCanvas");
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -520,7 +615,7 @@ async function drawCard({ profile, dayCounts, stats, truncated }) {
     ctx.textAlign = "left";
     ctx.fillStyle = "#7d8590";
     ctx.font = `italic 12px ${mono}`;
-    ctx.fillText("based on the " + MAX_PAGES * 100 + " most recent posts, not the full year", 60, legendY + 34);
+    ctx.fillText("based on the " + cap + " most recent posts, not the full year", 60, legendY + 34);
   }
 
   ctx.textAlign = "left";
@@ -598,8 +693,8 @@ async function reveal(rawHandle) {
     els.handleOut.textContent = "@" + profile.handle;
     els.didOut.textContent = did;
 
-    const { dayCounts, truncated } = await computeHeatmap(did, (page, total) => {
-      setStatus(`reading page ${page} of feed... ${total} skeets found so far`);
+    const { dayCounts, truncated, cap } = await computeHeatmap(did, (page, total) => {
+      setStatus(`reading page ${page} of repo... ${total} skeets found so far`);
     });
 
     const stats = computeStats(dayCounts);
@@ -609,14 +704,14 @@ async function reveal(rawHandle) {
     els.statLongest.textContent = stats.longestStreak;
     els.statBusiest.textContent = stats.busiestCount;
     els.truncNote.textContent = truncated
-      ? `based on the ${MAX_PAGES * 100} most recent posts, not necessarily the full year — this account posts a lot.`
+      ? `based on the ${cap} most recent posts, not necessarily the full year — this account posts a lot.`
       : "";
 
     setStatus("");
     els.card.classList.add("show");
 
     window.__lastDayCounts = dayCounts; // read by the hover-tooltip handler below
-    await drawCard({ profile, dayCounts, stats, truncated });
+    await drawCard({ profile, dayCounts, stats, truncated, cap });
 
     lastShareText = shareText(profile, stats);
     els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
