@@ -7,16 +7,16 @@
          /moistchicken/lib/scan.js, 404ing outside this Worker's route. -->
     <base href="/moistchicken/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>moist chicken — who racked up the most likes today</title>
-    <meta name="description" content="Enter a Bluesky handle: moist chicken pulls their followers + who they follow, sums every like on every post that network made in the last 24 hours, and crowns whoever's total is highest 'moist chicken' — unless they have more followers than @gracekind.net." />
-    <meta property="og:title" content="moist chicken — who racked up the most likes today" />
-    <meta property="og:description" content="Enter a handle. moist chicken totals up likes across a whole network's last 24 hours and crowns the biggest total — capped below @gracekind.net's follower count." />
+    <title>moist chicken — who blew up relative to their size today</title>
+    <meta name="description" content="Enter a Bluesky handle: moist chicken pulls their followers + who they follow, sums every like on every post that network made in the last 24 hours, divides by each account's follower count, and crowns whoever's likes-per-follower is highest 'moist chicken' — so a small account that blows up beats a big one coasting on reach." />
+    <meta property="og:title" content="moist chicken — who blew up relative to their size today" />
+    <meta property="og:description" content="Enter a handle. moist chicken totals up likes across a whole network's last 24 hours, normalizes by follower count, and crowns the highest likes-per-follower — rewarding low-follower accounts that blow up." />
     <meta property="og:image" content="https://bisks.net/moistchicken/og.png" />
     <meta property="og:url" content="https://bisks.net/moistchicken" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="moist chicken — who racked up the most likes today" />
-    <meta name="twitter:description" content="Enter a handle. moist chicken totals up likes across a whole network's last 24 hours and crowns the biggest total — capped below @gracekind.net's follower count." />
+    <meta name="twitter:title" content="moist chicken — who blew up relative to their size today" />
+    <meta name="twitter:description" content="Enter a handle. moist chicken totals up likes across a whole network's last 24 hours, normalizes by follower count, and crowns the highest likes-per-follower — rewarding low-follower accounts that blow up." />
     <meta name="twitter:image" content="https://bisks.net/moistchicken/og.png" />
     <style>
       :root {
@@ -40,8 +40,6 @@
         display:flex; align-items:baseline; gap:0.5rem; }
       .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:56ch; }
       .sub b { color:var(--ink); }
-      .cap { color:var(--muted); font-size:0.82rem; margin:0 0 1.6rem; max-width:56ch; }
-      .cap a { color:var(--accent2); }
 
       form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
       input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
@@ -117,17 +115,6 @@
       .prow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .prow .lk { color:var(--like); font-weight:700; font-variant-numeric:tabular-nums; }
 
-      .dq { margin:1.6rem 0 0; }
-      .dq h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;
-        color:var(--muted); margin:0 0 0.7rem; font-weight:700; }
-      .dqrow { display:flex; align-items:center; gap:0.6rem; padding:0.5rem 0;
-        border-bottom:1px solid var(--faint); font-size:0.86rem; opacity:0.65; }
-      .dqrow:last-child { border-bottom:none; }
-      .dqrow img { width:26px; height:26px; border-radius:50%; background:var(--faint); flex:none; object-fit:cover;
-        filter:grayscale(1); }
-      .dqrow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:line-through; }
-      .dqrow .why { color:var(--muted); font-family:var(--mono); font-size:0.76rem; flex:none; }
-
       .share { display:none; margin:1.4rem 0 1rem; flex-wrap:wrap; gap:0.55rem; }
       .share.show { display:flex; }
       .share button, .share a.btn { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
@@ -149,12 +136,10 @@
       <p class="sub">
         Enter a handle. We pull everyone they <b>follow</b> and everyone who
         <b>follows them</b>, add up every like on every post that whole
-        network made in the <b>last 24 hours</b>, and crown whoever's
-        <b>total</b> is highest the moist chicken.
+        network made in the <b>last 24 hours</b>, then divide by each
+        account's <b>follower count</b> — whoever's <b>likes per follower</b>
+        is highest is the moist chicken. Blowing up small beats coasting big.
       </p>
-      <p class="cap">The catch: the moist chicken may not have more followers
-        than <a href="https://bsky.app/profile/gracekind.net" target="_blank" rel="noopener">@gracekind.net</a>.
-        Whoever's over that line gets bumped and the next-highest total takes it.</p>
 
       <form id="form">
         <input id="handle" placeholder="handle, e.g. mrcheeze.github.io" autocomplete="off"
@@ -193,11 +178,6 @@
           <div id="peckingList"></div>
         </div>
 
-        <div class="dq" id="dq" style="display:none">
-          <h3>too big for the coop</h3>
-          <div id="dqList"></div>
-        </div>
-
         <div class="share" id="share">
           <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
           <button id="shareDownload">⬇ download card</button>
@@ -216,9 +196,8 @@
         keep a single page load from fanning out forever; each member is scanned up
         to ~500 recent items looking for anything posted in the last 24 hours.
         Reposts don't count, only what an account actually wrote. Follower counts
-        for the cap check are fetched live, starting from the top of the leaderboard,
-        stopping once enough qualifying accounts are found. Nothing is posted or
-        changed — it just reads.
+        used for the per-follower score are fetched live for everyone who posted
+        in-window. Nothing is posted or changed — it just reads.
       </p>
       <p class="credit">forked from <a href="https://bisks.net/topchicken">top chicken</a>, asked for by <a href="https://bsky.app/profile/ver.ooo">@ver.ooo</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
     </div>
@@ -226,7 +205,7 @@
     <script src="lib/handle-typeahead.js"></script>
     <script type="module">
       import { resolveNetwork } from "./lib/network.js";
-      import { scanNetwork, findMoistChicken, moistCap, last24h } from "./lib/scan.js";
+      import { scanNetwork, rankByLikesPerFollower, last24h } from "./lib/scan.js";
 
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 
@@ -243,8 +222,6 @@
       const winnerRow = document.getElementById("winnerRow");
       const pecking = document.getElementById("pecking");
       const peckingList = document.getElementById("peckingList");
-      const dq = document.getElementById("dq");
-      const dqList = document.getElementById("dqList");
       const share = document.getElementById("share");
       const shareCanvas = document.getElementById("shareCanvas");
 
@@ -276,6 +253,10 @@
         return "last 24 hours";
       }
 
+      function fmtRatio(n) {
+        return (n || 0).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+      }
+
       function winnerHTML(entry) {
         const a = entry.author || {};
         const top = entry.posts[0];
@@ -289,8 +270,8 @@
                 <span class="dn">${esc(a.displayName || a.handle || "")}</span>
                 <span class="hd">@${esc(a.handle || "")}</span>
               </div>
-              <div class="total">♥ ${entry.totalLikes.toLocaleString()} total likes</div>
-              <div class="breakdown">across ${entry.postCount.toLocaleString()} post${entry.postCount === 1 ? "" : "s"}</div>
+              <div class="total">♥ ${fmtRatio(entry.likesPerFollower)} likes per follower</div>
+              <div class="breakdown">${entry.totalLikes.toLocaleString()} total likes across ${entry.postCount.toLocaleString()} post${entry.postCount === 1 ? "" : "s"}</div>
               ${top ? `
               <div class="toppost">
                 <div class="text">${esc(rec.text || "") || "<em style='color:var(--muted)'>(no text)</em>"}</div>
@@ -300,7 +281,7 @@
                   <a class="permalink" href="${bskyLink(top)}" target="_blank" rel="noopener">open ↗</a>
                 </div>
               </div>` : ""}
-              <div class="followers">${(entry.followersCount || 0).toLocaleString()} followers — under the @gracekind.net cap</div>
+              <div class="followers">${(entry.followersCount || 0).toLocaleString()} followers</div>
             </div>
           </div>`;
       }
@@ -312,17 +293,7 @@
             <span class="rk">#${i + 2}</span>
             <img src="${esc(a.avatar || "")}" alt="" referrerpolicy="no-referrer" />
             <span class="nm">${esc(a.displayName || a.handle || "")} <span style="color:var(--muted)">@${esc(a.handle || "")}</span></span>
-            <span class="lk">♥ ${entry.totalLikes.toLocaleString()}</span>
-          </div>`;
-      }
-
-      function dqRowHTML(entry) {
-        const a = entry.author || {};
-        return `
-          <div class="dqrow">
-            <img src="${esc(a.avatar || "")}" alt="" referrerpolicy="no-referrer" />
-            <span class="nm">${esc(a.displayName || a.handle || "")} @${esc(a.handle || "")} — ♥ ${entry.totalLikes.toLocaleString()}</span>
-            <span class="why">${(entry.followersCount || 0).toLocaleString()} followers</span>
+            <span class="lk">♥ ${fmtRatio(entry.likesPerFollower)}/fol</span>
           </div>`;
       }
 
@@ -425,10 +396,10 @@
 
         ctx.fillStyle = "#ff6f91";
         ctx.font = `800 36px ${mono}`;
-        ctx.fillText(`♥ ${entry.totalLikes.toLocaleString()} total likes`, cardX + 40, cardY + 150);
+        ctx.fillText(`♥ ${fmtRatio(entry.likesPerFollower)} likes/follower`, cardX + 40, cardY + 150);
         ctx.fillStyle = "#7ea8a3";
         ctx.font = `400 20px ${mono}`;
-        ctx.fillText(`across ${entry.postCount.toLocaleString()} post${entry.postCount === 1 ? "" : "s"}`, cardX + 40, cardY + 182);
+        ctx.fillText(`${entry.totalLikes.toLocaleString()} likes across ${entry.postCount.toLocaleString()} post${entry.postCount === 1 ? "" : "s"}`, cardX + 40, cardY + 182);
 
         ctx.fillStyle = "#eafcf6";
         ctx.font = `400 20px ${mono}`;
@@ -443,7 +414,7 @@
       function buildShareText(net, entry) {
         const a = entry.author || {};
         const url = "https://bisks.net/moistchicken?handle=" + encodeURIComponent(net.self.handle);
-        const head = `🐔💧 moist chicken in @${net.self.handle}'s network for the last 24h: @${a.handle} — ${entry.totalLikes.toLocaleString()} total likes across ${entry.postCount} post${entry.postCount === 1 ? "" : "s"}\n`;
+        const head = `🐔💧 moist chicken in @${net.self.handle}'s network for the last 24h: @${a.handle} — ${fmtRatio(entry.likesPerFollower)} likes/follower (${entry.totalLikes.toLocaleString()} likes across ${entry.postCount} post${entry.postCount === 1 ? "" : "s"})\n`;
         const tail = `\n${url}`;
         return head + tail;
       }
@@ -462,8 +433,6 @@
         share.classList.remove("show");
         pecking.style.display = "none";
         peckingList.innerHTML = "";
-        dq.style.display = "none";
-        dqList.innerHTML = "";
         winnerRow.innerHTML = "";
 
         try {
@@ -476,7 +445,6 @@
           if (!net.pool.length) throw new Error("no one in that network to scan");
 
           const { start, end } = last24h();
-          const capPromise = moistCap();
           progwrap.classList.add("show");
           statusEl.textContent = `scanning ${net.pool.length.toLocaleString()} accounts for the last 24 hours…`;
 
@@ -497,22 +465,12 @@
             return;
           }
 
-          const cap = await capPromise;
-          let checked = 0;
-          statusEl.textContent = `checking follower counts against @${cap.handle} (${cap.followersCount.toLocaleString()} followers)…`;
-          const { winner, runnersUp, disqualified } = await findMoistChicken(ranked, cap, {
-            onCheck: () => {
-              checked++;
-              statusEl.textContent = `checking follower counts against @${cap.handle}… (${checked} checked)`;
+          statusEl.textContent = `weighing likes against follower counts… (0 / ${ranked.length})`;
+          const { winner, runnersUp } = await rankByLikesPerFollower(ranked, {
+            onCheck: (_entry, done, total) => {
+              statusEl.textContent = `weighing likes against follower counts… (${done} / ${total})`;
             },
           });
-
-          if (!winner) {
-            statusEl.textContent = `everyone in the running has more followers than @${cap.handle} — no moist chicken today.`;
-            busy = false;
-            go.disabled = false;
-            return;
-          }
 
           statusEl.textContent = "";
           daylabel.textContent = `in @${net.self.handle}'s network — ${windowLabel()}`;
@@ -520,10 +478,6 @@
           if (runnersUp.length) {
             peckingList.innerHTML = runnersUp.map(peckingRowHTML).join("");
             pecking.style.display = "block";
-          }
-          if (disqualified.length) {
-            dqList.innerHTML = disqualified.map(dqRowHTML).join("");
-            dq.style.display = "block";
           }
           winnerWrap.classList.add("show");
           share.classList.add("show");

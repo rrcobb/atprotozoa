@@ -1,18 +1,19 @@
 // scan.js — given a pool of profiles, find whoever racked up the most TOTAL
-// likes (summed across every post they made) in the rolling last 24 hours.
+// likes per follower (summed likes across every post they made in the
+// rolling last 24 hours, divided by their follower count) — so an account
+// that blows up relative to its own size wins, not just whoever has the
+// biggest audience to begin with.
 // Reads app.bsky.feed.getAuthorFeed anonymously (public.api.bsky.app,
 // CORS *). Concurrency helper + feed-walking copied from
 // sites/topchicken/public/lib/scan.js (copy, don't abstract) — the
 // difference here: sum likes per author instead of tracking a single best
-// post, and a "moist chicken can't out-follower @gracekind.net"
-// disqualification pass at the end.
+// post, then rank by likes-per-follower instead of raw total.
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const FEED_PAGES = 5; // <= ~500 recent items scanned per member before giving up
 const CONCURRENCY = 10;
 const RUNNERS_UP = 6; // kept alongside the winner for "the pecking order"
-const CAP_HANDLE = "gracekind.net"; // moist chicken may not out-follower this account
 
 async function jget(url) {
   const r = await fetch(url);
@@ -79,19 +80,6 @@ async function postsInWindow(member, windowStart, windowEnd) {
   return hits;
 }
 
-// The follower-count ceiling: moist chicken may not have more followers
-// than @gracekind.net. Resolved fresh each run (her follower count moves).
-export async function moistCap() {
-  try {
-    const p = await jget(
-      `${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(CAP_HANDLE)}`,
-    );
-    return { handle: CAP_HANDLE, followersCount: p.followersCount || 0 };
-  } catch {
-    return { handle: CAP_HANDLE, followersCount: Infinity }; // lookup failed — don't disqualify anyone over it
-  }
-}
-
 // Crawl the whole pool for the given window, summing likes per author.
 // Returns { ranked, scannedMembers, postsSeen } where `ranked` is every
 // author who posted in-window, sorted by total likes descending:
@@ -130,17 +118,18 @@ export async function scanNetwork(pool, windowStart, windowEnd, { onProgress } =
   return { ranked, scannedMembers: scanned, postsSeen };
 }
 
-// Walk the ranked list, disqualifying anyone with more followers than the
-// cap (fetched live per candidate — followersCount isn't in the feed
-// response, only on the profile). Stops once enough qualifiers are found.
-// Returns { winner, runnersUp, disqualified } — `disqualified` is every
-// entry skipped along the way (for a "too popular to be moist" callout),
-// `runnersUp` is the next few qualifying entries after the winner.
-export async function findMoistChicken(ranked, cap, { onCheck } = {}) {
-  const disqualified = [];
-  const qualifying = [];
-  for (const entry of ranked) {
-    if (qualifying.length >= 1 + RUNNERS_UP) break; // enough qualifiers found, stop spending profile fetches
+// Fetch every in-window candidate's follower count (not in the feed
+// response, only on the profile) and score them by totalLikes / followers —
+// rewarding an account that blows up relative to its own size over one with
+// a bigger audience to begin with. A brand-new account with zero followers
+// is scored against 1 follower instead of dividing by zero. Runs the
+// profile fetches at the same concurrency as the feed crawl, since everyone
+// who posted in-window needs a lookup now (not just the top few, back when
+// this was a cap check).
+// Returns { winner, runnersUp } sorted by that per-follower score.
+export async function rankByLikesPerFollower(ranked, { onCheck } = {}) {
+  let checked = 0;
+  await pooledEach(ranked, CONCURRENCY, async (entry) => {
     let followersCount;
     try {
       const p = await jget(
@@ -148,17 +137,18 @@ export async function findMoistChicken(ranked, cap, { onCheck } = {}) {
       );
       followersCount = p.followersCount || 0;
     } catch {
-      followersCount = 0; // lookup failed — don't unfairly disqualify, assume under the cap
+      followersCount = 0; // lookup failed — treat as unknown, still eligible
     }
     entry.followersCount = followersCount;
-    if (onCheck) onCheck(entry);
-    if (followersCount > cap.followersCount) disqualified.push(entry);
-    else qualifying.push(entry);
-  }
+    entry.likesPerFollower = entry.totalLikes / Math.max(followersCount, 1);
+    checked++;
+    if (onCheck) onCheck(entry, checked, ranked.length);
+  });
+
+  const scored = [...ranked].sort((a, b) => b.likesPerFollower - a.likesPerFollower);
 
   return {
-    winner: qualifying[0] || null,
-    runnersUp: qualifying.slice(1),
-    disqualified,
+    winner: scored[0] || null,
+    runnersUp: scored.slice(1, 1 + RUNNERS_UP),
   };
 }

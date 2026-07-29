@@ -21,7 +21,7 @@ const CARD = "#0e2528", BORDER = "#173c3e";
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function row(x, y, w, name, handle, totalLikes, posts, color) {
+function row(x, y, w, name, handle, ratio, posts, color) {
   return `
   <g>
     <rect x="${x}" y="${y}" width="${w}" height="72" rx="12" fill="${CARD}" stroke="${BORDER}"/>
@@ -29,7 +29,7 @@ function row(x, y, w, name, handle, totalLikes, posts, color) {
     <text x="${x + 34}" y="${y + 42}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="14" fill="${BG}">${esc(name[0])}</text>
     <text x="${x + 62}" y="${y + 32}" font-family="JetBrains Mono" font-weight="700" font-size="15" fill="${INK}">${esc(name)}</text>
     <text x="${x + 62}" y="${y + 50}" font-family="JetBrains Mono" font-size="12" fill="${MUTED}">${esc(handle)} · ${posts} posts</text>
-    <text x="${x + w - 20}" y="${y + 42}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="15" fill="${LIKE}">♥ ${totalLikes}</text>
+    <text x="${x + w - 20}" y="${y + 42}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="15" fill="${LIKE}">♥ ${ratio}/fol</text>
   </g>`;
 }
 
@@ -44,18 +44,18 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
 
   <text x="60" y="118" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="${ACCENT}">🐔💧 moist chicken</text>
-  <text x="64" y="164" font-family="JetBrains Mono" font-size="22" fill="${MUTED}">who racked up the most likes in the last 24 hours</text>
+  <text x="64" y="164" font-family="JetBrains Mono" font-size="22" fill="${MUTED}">who blew up the most relative to their size, last 24 hours</text>
 
   <rect x="64" y="200" width="1072" height="1" fill="${BORDER}"/>
 
-  ${row(64, 236, 512, "Local Goblin", "@localgoblin.example", "1,204", 6, ACCENT)}
-  ${row(624, 236, 512, "Feral Shrimp", "@feralshrimp.example", "890", 4, ACCENT2)}
-  ${row(64, 322, 512, "Unhinged Moth", "@moth.example", "610", 3, "#6fc3ff")}
-  ${row(624, 322, 512, "You, probably", "@you.example", "402", 2, "#7ee787")}
+  ${row(64, 236, 512, "Local Goblin", "@localgoblin.example", "8.40", 6, ACCENT)}
+  ${row(624, 236, 512, "Feral Shrimp", "@feralshrimp.example", "3.12", 4, ACCENT2)}
+  ${row(64, 322, 512, "Unhinged Moth", "@moth.example", "1.95", 3, "#6fc3ff")}
+  ${row(624, 322, 512, "You, probably", "@you.example", "0.87", 2, "#7ee787")}
 
   <text x="64" y="470" font-family="JetBrains Mono" font-size="20" fill="${INK}">Enter a handle → we pull their followers + who they follow →</text>
   <text x="64" y="500" font-family="JetBrains Mono" font-size="20" fill="${INK}">sum every like from every post their network made today →</text>
-  <text x="64" y="530" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">crown the biggest total (under @gracekind.net's followers).</text>
+  <text x="64" y="530" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">divide by followers, crown the highest likes-per-follower.</text>
 
   <text x="64" y="588" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">bisks.net/moistchicken</text>
 </svg>`;
