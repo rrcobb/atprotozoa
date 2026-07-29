@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>everzoom — an eternally zooming fractal</title>
-<meta name="description" content="A Mandelbrot set that never stops falling inward. Double-float precision GLSL gets it about a trillion times deeper than plain float32 before it seamlessly re-dives into the next coordinate — drag to pan, scroll to steer the dive yourself.">
+<meta name="description" content="A Mandelbrot set that never stops falling inward, its edges and interior tiled with 1000+ real tweets from @godoglyness.bsky.social. Double-float precision GLSL gets it about a trillion times deeper than plain float32 before it seamlessly re-dives into the next coordinate — drag to pan, scroll to steer the dive yourself.">
 <meta property="og:title" content="everzoom — an eternally zooming fractal">
-<meta property="og:description" content="Falls forever into the Mandelbrot set: double-float GLSL for ~1e11x depth, then a fade-cut into the next coordinate. Drag or scroll to take the wheel.">
+<meta property="og:description" content="Falls forever into the Mandelbrot set, composed of tiled @godoglyness.bsky.social tweets: double-float GLSL for ~1e11x depth, then a fade-cut into the next coordinate. Drag or scroll to take the wheel.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://bisks.net/everzoom">
 <meta property="og:image" content="https://bisks.net/everzoom/og.png">
@@ -20,6 +20,7 @@
   html, body { margin: 0; height: 100%; background: #050308; overflow: hidden; }
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
   canvas:active { cursor: grabbing; }
+  #tiles { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; }
   #veil {
     position: fixed; inset: 0; background: #050308; pointer-events: none;
     opacity: 0; transition: opacity 0.9s ease;
@@ -45,9 +46,11 @@
 <body>
 <a id="back" href="https://bisks.net">&larr; the zoo</a>
 <canvas id="c"></canvas>
+<canvas id="tiles"></canvas>
 <div id="veil"></div>
 <div id="hud">
   everzoom &middot; <span id="loc">seahorse valley</span> &middot; <span id="depth">1&times;</span> &middot;
+  <span id="tilesInfo">tiling @godoglyness.bsky.social&hellip;</span> &middot;
   <button id="next" type="button" title="skip to the next dive">next &rarr;</button> &middot;
   <a id="share" href="#" target="_blank" rel="noopener">skeet it</a>
 </div>
@@ -175,7 +178,161 @@
   var pIdx = -1;
   var centerRe = 0, centerIm = 0, scale = INITIAL_SCALE;
 
-  var els = { veil: document.getElementById("veil"), loc: document.getElementById("loc"), depth: document.getElementById("depth") };
+  var els = {
+    veil: document.getElementById("veil"), loc: document.getElementById("loc"), depth: document.getElementById("depth"),
+    tilesInfo: document.getElementById("tilesInfo")
+  };
+
+  // --- tweet-tile overlay: a second canvas, drawn as a dense grid of
+  // characters pulled from @godoglyness.bsky.social's own posts, each one
+  // colored by sampling the *same* Mandelbrot field the shader draws (plain
+  // JS numbers are 64-bit doubles already, so no Dekker-pair trick needed
+  // here — a native double comfortably outlasts the shader's df64 depth).
+  // The idea: the fractal's edges and interior end up "composed of tweets"
+  // instead of flat shaded regions.
+  var tiles = document.getElementById("tiles");
+  var tctx = tiles.getContext("2d");
+  var CELL_W = 10, CELL_H = 15; // backing-store px per character — small & tight for thick tiling
+  var TILE_INTERVAL = 220; // ms between overlay recomputes; a full grid pass isn't free
+  var lastTileDraw = -1e9;
+  var streamPos = 0;
+  var tileCount = 0;
+  var TILE_STREAM = "loading @godoglyness.bsky.social • ";
+  var INTERIOR_RGB = [215, 184, 255, 0.5];
+
+  function palJS(t) {
+    var k = 6.28318 * t;
+    return [0.5 + 0.5 * Math.cos(k), 0.5 + 0.5 * Math.cos(k + 2.0734), 0.5 + 0.5 * Math.cos(k + 4.2096)];
+  }
+  function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function smoothstep(e0, e1, x) { var t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); }
+
+  function mandelIter(cre, cim, maxIter) {
+    var zre = cre, zim = cim, m2 = 0, i;
+    for (i = 0; i < maxIter; i++) {
+      var zre2 = zre * zre, zim2 = zim * zim;
+      m2 = zre2 + zim2;
+      if (m2 > 65536) break;
+      var zrezim = zre * zim;
+      zre = zre2 - zim2 + cre;
+      zim = 2 * zrezim + cim;
+    }
+    return [i, m2];
+  }
+
+  function shadeExterior(i, m2, T) {
+    var logZn = Math.log(m2) * 0.5;
+    var nu = Math.log(logZn / Math.LN2) / Math.LN2;
+    var smoothI = i + 1 - nu;
+    var p = palJS(smoothI * 0.028 + T * 0.025);
+    var ss = smoothstep(0, 6, smoothI);
+    var r = Math.pow(clamp01((p[0] * 0.95 + 0.05) * ss), 0.4545);
+    var g = Math.pow(clamp01((p[1] * 0.95 + 0.05) * ss), 0.4545);
+    var b = Math.pow(clamp01((p[2] * 0.95 + 0.05) * ss), 0.4545);
+    var alpha = Math.max(0.4, Math.min(0.92, 0.4 + smoothI / 50)); // thicker near the boundary
+    return [(r * 255) | 0, (g * 255) | 0, (b * 255) | 0, alpha];
+  }
+
+  function resizeTiles() {
+    tiles.width = c.width;
+    tiles.height = c.height;
+  }
+
+  function drawTiles(now, exp) {
+    if (now - lastTileDraw < TILE_INTERVAL) return;
+    lastTileDraw = now;
+    var W = tiles.width, H = tiles.height;
+    if (!W || !H) return;
+    var len = TILE_STREAM.length;
+    if (!len) return;
+    tctx.clearRect(0, 0, W, H);
+    tctx.font = (CELL_H - 3) + 'px ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+    tctx.textBaseline = "top";
+    var cols = Math.ceil(W / CELL_W), rows = Math.ceil(H / CELL_H);
+    var maxIterTiles = Math.max(64, Math.min(220, Math.round(70 + exp * 26)));
+    var T = now * 0.001;
+    var idx = streamPos;
+    for (var row = 0; row < rows; row++) {
+      var pyc = row * CELL_H + CELL_H * 0.5;
+      var uvy = (0.5 * H - pyc) / H;
+      for (var col = 0; col < cols; col++) {
+        var ch = TILE_STREAM[idx % len];
+        idx++;
+        if (ch === " " || ch === "\n" || ch === "\t") continue;
+        var pxc = col * CELL_W + CELL_W * 0.5;
+        var uvx = (pxc - 0.5 * W) / H;
+        var cre = centerRe + scale * uvx;
+        var cim = centerIm + scale * uvy;
+        var res = mandelIter(cre, cim, maxIterTiles);
+        var rgb = res[0] >= maxIterTiles ? INTERIOR_RGB : shadeExterior(res[0], res[1], T);
+        tctx.fillStyle = "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + rgb[3] + ")";
+        tctx.fillText(ch, col * CELL_W, row * CELL_H);
+      }
+    }
+    streamPos = (idx + 2) % len; // slow crawl through the tweet stream on each redraw
+  }
+
+  function setTileStream(texts) {
+    if (!texts || !texts.length) return;
+    TILE_STREAM = texts.join("   •   ") + "   •   ";
+    streamPos = 0;
+    tileCount = texts.length;
+    if (els.tilesInfo) els.tilesInfo.textContent = tileCount + " @godoglyness.bsky.social tweets tiled";
+  }
+
+  var TILE_CACHE_KEY = "everzoom-godoglyness-tiles-v1";
+  var TILE_CACHE_MS = 60 * 60 * 1000;
+  var TILE_TARGET = 1200; // "at least 1000 and don't settle" — aim past the floor, not right at it
+  var TILE_MAX_PAGES = 30;
+
+  async function fetchGodoglynessTweets() {
+    var PUB = "https://public.api.bsky.app/xrpc";
+    var actor = "godoglyness.bsky.social";
+    var texts = [];
+    var cursor;
+    try {
+      for (var page = 0; page < TILE_MAX_PAGES; page++) {
+        var u = PUB + "/app.bsky.feed.getAuthorFeed?actor=" + actor + "&limit=100" +
+          (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
+        var res = await fetch(u, { cache: "no-store" });
+        if (!res.ok) break;
+        var data = await res.json();
+        var feed = data.feed || [];
+        for (var i = 0; i < feed.length; i++) {
+          var item = feed[i];
+          if (item.reason) continue; // reposts aren't godoglyness's own words — skip
+          var rec = item.post && item.post.record;
+          var text = rec && rec.text ? rec.text.trim().replace(/\s+/g, " ") : "";
+          if (text) texts.push(text);
+        }
+        cursor = data.cursor;
+        if (!cursor || feed.length === 0) break;
+        if (texts.length >= TILE_TARGET) break;
+      }
+    } catch (e) { /* keep whatever was gathered before the network hiccup */ }
+    return texts;
+  }
+
+  (async function loadTiles() {
+    var cached = null;
+    try {
+      var raw = localStorage.getItem(TILE_CACHE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.texts && parsed.texts.length && (Date.now() - parsed.ts) < TILE_CACHE_MS) {
+          cached = parsed.texts;
+        }
+      }
+    } catch (e) {}
+    if (cached) setTileStream(cached);
+    var fresh = await fetchGodoglynessTweets();
+    if (fresh.length >= 200) {
+      setTileStream(fresh);
+      try { localStorage.setItem(TILE_CACHE_KEY, JSON.stringify({ ts: Date.now(), texts: fresh })); } catch (e) {}
+    } else if (!cached && els.tilesInfo) {
+      els.tilesInfo.textContent = "couldn't load tweets to tile";
+    }
+  })();
 
   function fmtDepth(exp) {
     if (exp < 1) return (Math.pow(10, exp)).toFixed(1) + "×";
@@ -261,6 +418,7 @@
     c.width = Math.floor(innerWidth * dpr);
     c.height = Math.floor(innerHeight * dpr);
     gl.viewport(0, 0, c.width, c.height);
+    resizeTiles();
   }
   addEventListener("resize", resize);
   resize();
@@ -286,13 +444,15 @@
     gl.uniform1f(uT, now * 0.001);
     gl.uniform1i(uMaxIter, maxIter);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    drawTiles(now, exp);
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 
   function updateShare() {
-    var text = "falling forever into the Mandelbrot set (currently: " +
-      els.loc.textContent + ") — bisks.net/everzoom";
+    var text = "falling forever into a Mandelbrot" +
+      (tileCount ? " tiled with " + tileCount + " @godoglyness.bsky.social tweets" : "") +
+      " (currently: " + els.loc.textContent + ") — bisks.net/everzoom";
     document.getElementById("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
   }
   setInterval(updateShare, 4000);
@@ -301,7 +461,8 @@
 </script>
 <p style="position:fixed;right:.75rem;bottom:.65rem;font:11px ui-monospace,monospace;color:#d7b8ff;opacity:.45">
   a <a style="color:#d7b8ff" href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> demo,
-  concept from <a style="color:#d7b8ff" href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>
+  concept from <a style="color:#d7b8ff" href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>,
+  tiled with the words of <a style="color:#d7b8ff" href="https://bsky.app/profile/godoglyness.bsky.social">@godoglyness.bsky.social</a>
 </p>
 
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
