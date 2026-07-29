@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>🫘 jar of beans — shake it (real physics, real sound)</title>
+    <meta
+      name="description"
+      content="A jar of beans that rattles around with real 2D rigid-body physics and Web-Audio-synthesized impact sounds — no sample files. Drag the jar, hit the shake button, or (on phone) shake your actual phone."
+    />
+    <meta property="og:title" content="🫘 jar of beans — shake it" />
+    <meta property="og:description" content="Real 2D physics, real synthesized rattle sounds, no sample files. Drag it, mash the shake button, or shake your phone." />
+    <meta property="og:image" content="https://bisks.net/beanjar/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A glass mason jar full of colorful speckled beans, mid-rattle." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bisks.net/beanjar/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="🫘 jar of beans — shake it" />
+    <meta name="twitter:description" content="Real 2D physics, real synthesized rattle sounds. Drag it, mash the shake button, or shake your phone." />
+    <meta name="twitter:image" content="https://bisks.net/beanjar/og.png" />
+    <style>
+      :root {
+        --bg: #100c08;
+        --panel: #1c1611;
+        --panel2: #241c15;
+        --faint: #3a2f24;
+        --ink: #f5ecdd;
+        --muted: #ab9a84;
+        --accent: #e8a23d;
+        --accent-ink: #241505;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(1100px 640px at 50% -10%, #2a1d10, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2rem 1.05rem 4.5rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); }
+      h1 { font-size: 1.85rem; font-weight: 900; letter-spacing: -0.02em; margin: 1rem 0 0.3rem; text-align: center; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0 auto 1.5rem; max-width: 46ch; text-align: center; }
+
+      .stage-wrap {
+        display: flex;
+        justify-content: center;
+        margin: 0 auto 1.1rem;
+      }
+      .jarbox {
+        position: relative;
+        width: min(86vw, 360px);
+        aspect-ratio: 340 / 480;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: grab;
+      }
+      .jarbox:active { cursor: grabbing; }
+      .jarbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      .hint {
+        text-align: center; color: var(--muted); font-size: 0.78rem; margin: 0 0 1.3rem;
+        min-height: 1.1rem;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 14px;
+        padding: 0.95rem 1rem;
+        margin-bottom: 0.85rem;
+      }
+      .row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .row + .row { margin-top: 0.7rem; }
+      label.field { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--muted); flex: 1 1 auto; min-width: 140px; }
+      select, input[type="range"] { accent-color: var(--accent); }
+      select {
+        font: inherit; font-size: 0.85rem; padding: 0.35rem 0.5rem; border-radius: 8px;
+        background: var(--panel2); color: var(--ink); border: 1px solid var(--faint);
+      }
+      input[type="range"] { flex: 1; min-width: 70px; }
+
+      .btnrow { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+      button.act {
+        font: inherit; font-weight: 800; font-size: 0.88rem; cursor: pointer;
+        padding: 0.6rem 1rem; border: 0; border-radius: 11px;
+        background: var(--accent); color: var(--accent-ink);
+        box-shadow: 0 3px 0 #9a6a1e;
+        transition: transform 0.06s ease;
+      }
+      button.act:active { transform: translateY(2px); box-shadow: 0 1px 0 #9a6a1e; }
+      button.ghost {
+        font: inherit; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+        padding: 0.55rem 0.9rem; border: 1px solid var(--faint); border-radius: 11px;
+        background: var(--panel2); color: var(--ink);
+      }
+      button.ghost.on { border-color: var(--accent); color: var(--accent); }
+      button.big { flex: 1 1 auto; font-size: 1rem; padding: 0.75rem 1rem; }
+
+      .sharebar { display: flex; gap: 0.55rem; flex-wrap: wrap; margin-top: 0.2rem; }
+      .sharebar a, .sharebar button {
+        flex: 1 1 auto; text-align: center; font: inherit; font-weight: 700; font-size: 0.85rem;
+        padding: 0.6rem 0.9rem; border-radius: 11px; cursor: pointer;
+        border: 1px solid var(--faint); background: var(--panel2); color: var(--ink);
+      }
+      .sharebar a:hover { text-decoration: none; background: #2b2118; }
+      .credit { text-align: center; font-size: 0.78rem; color: var(--muted); margin-top: 1.6rem; }
+      .credit a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="back"><a href="https://bisks.net">← bisks.net</a></div>
+      <h1>🫘 jar of beans</h1>
+      <p class="sub">
+        Drag the jar to shake it, mash the button, or (on your phone) actually shake your phone.
+        Every clack is a real-time 2D collision, played through a synthesized rattle — no audio files.
+      </p>
+
+      <div class="stage-wrap">
+        <div class="jarbox" id="jarbox">
+          <canvas id="cv"></canvas>
+        </div>
+      </div>
+      <div class="hint" id="hint">tap once to wake the sound, then shake away</div>
+
+      <div class="panel">
+        <div class="row">
+          <label class="field">
+            bean type
+            <select id="beanType">
+              <option value="dried">dried beans</option>
+              <option value="jelly">jelly beans</option>
+              <option value="coffee">coffee beans</option>
+              <option value="magic">magic beans</option>
+            </select>
+          </label>
+          <label class="field">
+            count <span id="countVal">55</span>
+            <input type="range" id="beanCount" min="18" max="95" value="55" />
+          </label>
+        </div>
+        <div class="row">
+          <label class="field">
+            volume
+            <input type="range" id="volume" min="0" max="100" value="72" />
+          </label>
+          <button class="ghost" id="muteBtn" type="button">🔊</button>
+          <button class="ghost" id="motionBtn" type="button">📳 shake w/ phone</button>
+        </div>
+        <div class="row btnrow">
+          <button class="act big" id="shakeBtn" type="button">🫙 SHAKE!</button>
+          <button class="ghost" id="resetBtn" type="button">🔄 refill jar</button>
+        </div>
+      </div>
+
+      <div class="sharebar">
+        <a id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share to bluesky</a>
+        <button id="shareShot" type="button">📸 save snapshot</button>
+      </div>
+
+      <div class="credit">
+        a <a href="https://bisks.net">bisks.net</a> toy · built by
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>, for
+        <a href="https://bsky.app/profile/cee.wtf">@cee.wtf</a>
+      </div>
+    </div>
+
+    <script>
+      // ------------------------------------------------------------------
+      // jar of beans — a small hand-rolled 2D rigid-body sim (circles for
+      // collision, drawn as rotated bean-shaped ellipses) inside a mason-jar
+      // shaped cavity (straight walls + a rounded bottom + a flat sealed
+      // "ceiling", since the jar's lid is on). Shaking comes from three
+      // independent sources that all feed the same pseudo-force/gravity
+      // hooks: dragging the jar with a pointer, the SHAKE! button (a
+      // scripted burst), and devicemotion on a phone. Every collision above
+      // a speed threshold plays a short filtered-noise "clack" synthesized
+      // live via Web Audio — no sample files anywhere.
+      // ------------------------------------------------------------------
+
+      const rnd = (a = 1, b = 0) => b + Math.random() * (a - b);
+      const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      // ---- world / jar geometry (fixed logical units; canvas is scaled to fit) ----
+      const WORLD_W = 340, WORLD_H = 480;
+      const CX = 170;
+      const CAV_LEFT = 64, CAV_RIGHT = 276;
+      const CAV_HALF_W = (CAV_RIGHT - CAV_LEFT) / 2; // 106
+      const CAV_TOP = 92;
+      const CAV_BOTTOM_CENTER_Y = 356;
+      const CAV_BOTTOM_R = CAV_HALF_W;
+      const NECK_HALF_W = 50, NECK_TOP_Y = 38, SHOULDER_TOP_Y = CAV_TOP - 22;
+
+      const GRAVITY_Y = 900;
+      const BEAN_REST = 0.32;
+      const WALL_REST = 0.42;
+
+      // ---- bean types --------------------------------------------------
+      const BEAN_TYPES = {
+        dried: {
+          label: "dried beans",
+          elong: 1.35,
+          palette: [
+            { base: "#8a2332", hi: "#c14b5e", speck: null },
+            { base: "#caa268", hi: "#e7c98f", speck: "#8a6a3d" },
+            { base: "#231f1e", hi: "#413a38", speck: null },
+            { base: "#e8ddc4", hi: "#fbf5e6", speck: "#a89572" },
+            { base: "#6b3a20", hi: "#9c5c34", speck: "#3f2313" },
+          ],
+          freqMul: 1,
+          decayMul: 1,
+          noiseMix: 1,
+        },
+        jelly: {
+          label: "jelly beans",
+          elong: 1.12,
+          palette: [
+            { base: "#ff4d6d", hi: "#ff9db0", speck: null },
+            { base: "#ff9f43", hi: "#ffce8a", speck: null },
+            { base: "#ffd93d", hi: "#fff2a8", speck: null },
+            { base: "#5cc26b", hi: "#a8e6ae", speck: null },
+            { base: "#4d96ff", hi: "#a3c9ff", speck: null },
+            { base: "#b18cff", hi: "#ddc9ff", speck: null },
+            { base: "#ff8fd8", hi: "#ffcdf0", speck: null },
+          ],
+          freqMul: 1.55,
+          decayMul: 0.85,
+          noiseMix: 0.55,
+        },
+        coffee: {
+          label: "coffee beans",
+          elong: 1.2,
+          palette: [
+            { base: "#3b2412", hi: "#5c3a1e", speck: null },
+            { base: "#4a2c15", hi: "#6e4324", speck: null },
+            { base: "#2a1a0c", hi: "#48301a", speck: null },
+          ],
+          freqMul: 0.6,
+          decayMul: 1.3,
+          noiseMix: 1,
+          crease: true,
+        },
+        magic: {
+          label: "magic beans",
+          elong: 1.2,
+          palette: [
+            { base: "#8a5cff", hi: "#c9b3ff", speck: null },
+            { base: "#3ddad0", hi: "#a6f5ee", speck: null },
+            { base: "#ff6fce", hi: "#ffc2ec", speck: null },
+            { base: "#ffd93d", hi: "#fff2a8", speck: null },
+          ],
+          freqMul: 1.3,
+          decayMul: 1,
+          noiseMix: 0.4,
+          sparkle: true,
+        },
+      };
+      let currentType = "dried";
+
+      // ---- beans ---------------------------------------------------------
+      let beans = [];
+      function makeBean(type) {
+        const t = BEAN_TYPES[type];
+        const r = rnd(7.5, 11.5);
+        const x = clamp(rnd(CX - CAV_HALF_W + 40, CX + CAV_HALF_W - 40), CAV_LEFT + r + 2, CAV_RIGHT - r - 2);
+        const y = rnd(CAV_TOP + 14, CAV_TOP + 170);
+        return {
+          x, y, vx: rnd(-30, 30), vy: rnd(-10, 10),
+          r, rx: r * t.elong, ry: r * (2 - t.elong) * 0.72,
+          angle: rnd(6.283), angVel: rnd(-1, 1),
+          type, palette: pick(t.palette), seed: rnd(1000) | 0,
+        };
+      }
+      function resetBeans(count, type) {
+        beans = [];
+        for (let i = 0; i < count; i++) beans.push(makeBean(type));
+      }
+
+      // ---- shake / drag / device-motion state -----------------------------
+      let gravity = { x: 0, y: GRAVITY_Y };
+      let shakeAX = 0, shakeAY = 0;
+      let jarOffsetX = 0, jarOffsetY = 0;
+
+      let dragging = false, pointerX = 0, pointerY = 0, dragStartX = 0, dragStartY = 0;
+      let dragDX = 0, dragDY = 0;
+      let prevPointerX = 0, prevPointerY = 0, dragVX = 0, dragVY = 0, prevDragVX = 0, prevDragVY = 0;
+      const DRAG_FORCE_SCALE = 4.2;
+
+      let scriptedShakeUntil = 0, scriptedShakeStart = 0;
+      let deviceJitterX = 0, deviceJitterY = 0;
+      let motionActive = false;
+      let lastThud = 0;
+
+      function triggerShake() {
+        ensureAudio();
+        scriptedShakeStart = performance.now();
+        scriptedShakeUntil = scriptedShakeStart + 950;
+      }
+
+      function updateShakeState(now, dt) {
+        shakeAX = 0; shakeAY = 0;
+        let visX = 0, visY = 0;
+
+        // pointer drag -> jar acceleration -> pseudo-force on every bean
+        if (dragging) {
+          const idx = (pointerX - prevPointerX) / Math.max(dt, 0.001);
+          const idy = (pointerY - prevPointerY) / Math.max(dt, 0.001);
+          dragVX = lerp(dragVX, idx, 0.55);
+          dragVY = lerp(dragVY, idy, 0.55);
+          dragDX = pointerX - dragStartX;
+          dragDY = pointerY - dragStartY;
+        } else {
+          dragVX *= 0.86; dragVY *= 0.86;
+          dragDX *= 0.88; dragDY *= 0.88;
+        }
+        const ax = (dragVX - prevDragVX) / Math.max(dt, 0.001);
+        const ay = (dragVY - prevDragVY) / Math.max(dt, 0.001);
+        prevDragVX = dragVX; prevDragVY = dragVY;
+        prevPointerX = pointerX; prevPointerY = pointerY;
+        shakeAX += -ax * DRAG_FORCE_SCALE;
+        shakeAY += -ay * DRAG_FORCE_SCALE;
+        visX += clamp(dragDX * 0.4, -20, 20);
+        visY += clamp(dragDY * 0.32, -14, 14);
+
+        const jerk = Math.hypot(ax, ay);
+        if (jerk > 1400 && now - lastThud > 130) { lastThud = now; playThud(clamp(jerk / 6000, 0.2, 1)); }
+
+        // scripted SHAKE! button — decaying sinusoidal burst
+        if (now < scriptedShakeUntil) {
+          const t = (now - scriptedShakeStart) / (scriptedShakeUntil - scriptedShakeStart);
+          const decay = 1 - t;
+          const ph = now / 1000;
+          const sax = Math.sin(ph * 22) * 2800 * decay;
+          const say = Math.cos(ph * 27) * 1500 * decay;
+          shakeAX += sax;
+          shakeAY += say;
+          visX += Math.sin(ph * 22) * 11 * decay;
+          visY += Math.cos(ph * 27) * 7 * decay;
+          if (decay > 0.35 && now - lastThud > 150 && Math.sin(ph * 22) > 0.92) {
+            lastThud = now; playThud(decay);
+          }
+        }
+
+        // device motion jitter (visual only; gravity vector itself is set in the event handler)
+        deviceJitterX *= 0.88; deviceJitterY *= 0.88;
+        visX += deviceJitterX; visY += deviceJitterY;
+
+        jarOffsetX = lerp(jarOffsetX, visX, 0.35);
+        jarOffsetY = lerp(jarOffsetY, visY, 0.35);
+      }
+
+      // ---- physics step ----------------------------------------------------
+      const pendingSounds = [];
+
+      function collideWall(b) {
+        if (b.y - b.r < CAV_TOP) {
+          b.y += CAV_TOP - (b.y - b.r);
+          if (b.vy < 0) {
+            const speed = -b.vy;
+            b.vy = -b.vy * WALL_REST;
+            pendingSounds.push({ speed, bean: b, glass: true, x: b.x, y: b.y });
+          }
+        }
+        if (b.y < CAV_BOTTOM_CENTER_Y) {
+          if (b.x - b.r < CAV_LEFT) {
+            b.x += CAV_LEFT - (b.x - b.r);
+            if (b.vx < 0) {
+              const speed = -b.vx;
+              b.vx = -b.vx * WALL_REST;
+              pendingSounds.push({ speed, bean: b, glass: true, x: b.x, y: b.y });
+            }
+          } else if (b.x + b.r > CAV_RIGHT) {
+            b.x -= (b.x + b.r) - CAV_RIGHT;
+            if (b.vx > 0) {
+              const speed = b.vx;
+              b.vx = -b.vx * WALL_REST;
+              pendingSounds.push({ speed, bean: b, glass: true, x: b.x, y: b.y });
+            }
+          }
+        } else {
+          const dx = b.x - CX, dy = b.y - CAV_BOTTOM_CENTER_Y;
+          const dist = Math.hypot(dx, dy) || 0.0001;
+          const maxDist = CAV_BOTTOM_R - b.r;
+          if (dist > maxDist) {
+            const nx = dx / dist, ny = dy / dist;
+            b.x -= nx * (dist - maxDist);
+            b.y -= ny * (dist - maxDist);
+            const vn = b.vx * nx + b.vy * ny;
+            if (vn > 0) {
+              b.vx -= (1 + WALL_REST) * vn * nx;
+              b.vy -= (1 + WALL_REST) * vn * ny;
+              pendingSounds.push({ speed: vn, bean: b, glass: true, x: b.x, y: b.y });
+            }
+          }
+        }
+      }
+
+      function collideBeans(a, b) {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        let dist = Math.hypot(dx, dy);
+        const minDist = a.r + b.r;
+        if (dist >= minDist) return;
+        if (dist < 0.0001) dist = 0.0001;
+        const nx = dx / dist, ny = dy / dist;
+        const pen = minDist - dist;
+        a.x -= nx * pen * 0.5; a.y -= ny * pen * 0.5;
+        b.x += nx * pen * 0.5; b.y += ny * pen * 0.5;
+        const rvx = b.vx - a.vx, rvy = b.vy - a.vy;
+        const vAlongN = rvx * nx + rvy * ny;
+        if (vAlongN < 0) {
+          const j = -(1 + BEAN_REST) * vAlongN / 2;
+          a.vx -= j * nx; a.vy -= j * ny;
+          b.vx += j * nx; b.vy += j * ny;
+          const tx = -ny, ty = nx;
+          const relT = rvx * tx + rvy * ty;
+          a.angVel -= (relT * 0.12) / a.r;
+          b.angVel += (relT * 0.12) / b.r;
+          pendingSounds.push({ speed: -vAlongN, bean: a, glass: false, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+        }
+      }
+
+      function stepPhysics(dt) {
+        const substeps = 2;
+        const sdt = dt / substeps;
+        for (let s = 0; s < substeps; s++) {
+          for (const b of beans) {
+            b.vx += (gravity.x + shakeAX) * sdt;
+            b.vy += (gravity.y + shakeAY) * sdt;
+            b.vx *= 0.9985; b.vy *= 0.9985;
+            b.x += b.vx * sdt; b.y += b.vy * sdt;
+            b.angle += b.angVel * sdt;
+            b.angVel *= 0.992;
+          }
+          for (let i = 0; i < beans.length; i++) {
+            for (let j = i + 1; j < beans.length; j++) collideBeans(beans[i], beans[j]);
+          }
+          for (const b of beans) collideWall(b);
+        }
+      }
+
+      // ---- audio: synthesized clacks, no sample files ----------------------
+      let actx = null, master = null, noiseBuf = null;
+      function ensureAudio() {
+        if (actx) { if (actx.state === "suspended") actx.resume(); return; }
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        actx = new AC();
+        master = actx.createGain();
+        master.gain.value = (parseInt(volEl.value, 10) || 0) / 100 * (muted ? 0 : 1);
+        master.connect(actx.destination);
+        const len = Math.floor(actx.sampleRate * 0.4);
+        noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+        const data = noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      }
+
+      function playClack(ev, norm) {
+        if (!actx) return;
+        const t = BEAN_TYPES[ev.bean.type];
+        const now = actx.currentTime;
+        const src = actx.createBufferSource();
+        src.buffer = noiseBuf;
+        const sliceDur = 0.06 + norm * 0.05;
+        const offset = Math.random() * (noiseBuf.duration - sliceDur - 0.01);
+        const bp = actx.createBiquadFilter();
+        bp.type = "bandpass";
+        const sizeFactor = ev.bean.r / 9.5;
+        const baseFreq = (ev.glass ? 2400 : 1500) * t.freqMul / sizeFactor;
+        bp.frequency.value = baseFreq * (0.8 + Math.random() * 0.35);
+        bp.Q.value = 1 + Math.random() * 1.4;
+        const g = actx.createGain();
+        const decay = (0.05 + 0.11 * norm) * t.decayMul;
+        const peak = Math.min(1, 0.15 + norm * 0.95);
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(peak, now + 0.003);
+        g.gain.exponentialRampToValueAtTime(0.001, now + decay);
+        src.connect(bp).connect(g).connect(master);
+        src.start(now, offset, sliceDur);
+        src.stop(now + decay + 0.05);
+
+        if (t.sparkle && Math.random() < 0.22 + norm * 0.3) {
+          const osc = actx.createOscillator();
+          osc.type = "sine";
+          osc.frequency.value = pick([880, 987, 1175, 1319, 1568]);
+          const og = actx.createGain();
+          og.gain.setValueAtTime(0, now);
+          og.gain.linearRampToValueAtTime(peak * 0.5, now + 0.005);
+          og.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+          osc.connect(og).connect(master);
+          osc.start(now); osc.stop(now + 0.36);
+        }
+      }
+
+      function playThud(intensity) {
+        if (!actx) return;
+        const now = actx.currentTime;
+        const osc = actx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(120, now);
+        osc.frequency.exponentialRampToValueAtTime(55, now + 0.12);
+        const g = actx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.5 * intensity, now + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        osc.connect(g).connect(master);
+        osc.start(now); osc.stop(now + 0.2);
+
+        const src = actx.createBufferSource();
+        src.buffer = noiseBuf;
+        const bp = actx.createBiquadFilter();
+        bp.type = "lowpass";
+        bp.frequency.value = 900;
+        const ng = actx.createGain();
+        ng.gain.setValueAtTime(0, now);
+        ng.gain.linearRampToValueAtTime(0.35 * intensity, now + 0.004);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        src.connect(bp).connect(ng).connect(master);
+        src.start(now, 0, 0.15); src.stop(now + 0.16);
+      }
+
+      function flushSounds() {
+        if (!pendingSounds.length) return;
+        pendingSounds.sort((a, b) => b.speed - a.speed);
+        const MAX_VOICES = 7;
+        let played = 0;
+        for (const ev of pendingSounds) {
+          if (played >= MAX_VOICES) break;
+          const norm = clamp(ev.speed / 900, 0, 1);
+          if (norm < 0.035) continue;
+          if (norm < 0.14 && Math.random() > norm * 6.5) continue;
+          playClack(ev, norm);
+          played++;
+        }
+        pendingSounds.length = 0;
+      }
+
+      // ---- rendering ---------------------------------------------------
+      const cv = document.getElementById("cv");
+      const ctx = cv.getContext("2d");
+      const jarbox = document.getElementById("jarbox");
+      let scale = 1, rectW = 0, rectH = 0;
+
+      function resize() {
+        const r = jarbox.getBoundingClientRect();
+        rectW = r.width; rectH = r.height;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        cv.width = Math.floor(rectW * dpr);
+        cv.height = Math.floor(rectH * dpr);
+        scale = rectW / WORLD_W;
+        ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+
+      function lighten(hex, amt) {
+        const n = parseInt(hex.slice(1), 16);
+        let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt;
+        r = clamp(r, 0, 255); g = clamp(g, 0, 255); b = clamp(b, 0, 255);
+        return `rgb(${r},${g},${b})`;
+      }
+
+      function drawJarGlass() {
+        ctx.save();
+        ctx.translate(jarOffsetX, jarOffsetY);
+
+        // shadow on the table
+        ctx.beginPath();
+        ctx.ellipse(CX, CAV_BOTTOM_CENTER_Y + CAV_BOTTOM_R + 14, CAV_HALF_W * 0.9, 16, 0, 0, 6.2832);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+
+        // jar body path (straight sides + rounded bottom)
+        function bodyPath() {
+          ctx.beginPath();
+          ctx.moveTo(CAV_LEFT, CAV_TOP);
+          ctx.lineTo(CAV_LEFT, CAV_BOTTOM_CENTER_Y);
+          ctx.arc(CX, CAV_BOTTOM_CENTER_Y, CAV_BOTTOM_R, Math.PI, 0, false);
+          ctx.lineTo(CAV_RIGHT, CAV_TOP);
+          ctx.closePath();
+        }
+
+        bodyPath();
+        const g = ctx.createLinearGradient(CAV_LEFT, 0, CAV_RIGHT, 0);
+        g.addColorStop(0, "rgba(210,225,220,0.16)");
+        g.addColorStop(0.16, "rgba(255,255,255,0.05)");
+        g.addColorStop(0.5, "rgba(180,200,195,0.05)");
+        g.addColorStop(0.84, "rgba(255,255,255,0.05)");
+        g.addColorStop(1, "rgba(210,225,220,0.16)");
+        ctx.fillStyle = g;
+        ctx.fill();
+
+        return bodyPath;
+      }
+
+      function drawJarFront(bodyPath) {
+        // glossy vertical highlight streaks (drawn over the beans, glass in front)
+        ctx.save();
+        bodyPath();
+        ctx.clip();
+        ctx.beginPath();
+        ctx.moveTo(CAV_LEFT + 16, CAV_TOP + 6);
+        ctx.lineTo(CAV_LEFT + 30, CAV_TOP + 6);
+        ctx.lineTo(CAV_LEFT + 20, CAV_BOTTOM_CENTER_Y + CAV_BOTTOM_R * 0.6);
+        ctx.lineTo(CAV_LEFT + 8, CAV_BOTTOM_CENTER_Y + CAV_BOTTOM_R * 0.5);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(255,255,255,0.10)";
+        ctx.fill();
+        ctx.restore();
+
+        bodyPath();
+        ctx.strokeStyle = "rgba(255,255,255,0.22)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // label band
+        const labelY = CAV_BOTTOM_CENTER_Y - 46;
+        ctx.save();
+        ctx.globalAlpha = 0.92;
+        ctx.fillStyle = "#e9dcbd";
+        roundRect(CAV_LEFT + 6, labelY, (CAV_RIGHT - CAV_LEFT) - 12, 40, 5);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(60,45,20,0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = "#7a5a28";
+        ctx.font = "800 15px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(BEAN_TYPES[currentType].label, CX, labelY + 21);
+        ctx.restore();
+
+        // neck + shoulder + lid (decorative, outside the physics cavity)
+        ctx.beginPath();
+        ctx.moveTo(CAV_LEFT, SHOULDER_TOP_Y);
+        ctx.quadraticCurveTo(CAV_LEFT, NECK_TOP_Y + 10, CX - NECK_HALF_W, NECK_TOP_Y + 10);
+        ctx.lineTo(CX - NECK_HALF_W, NECK_TOP_Y);
+        ctx.lineTo(CX + NECK_HALF_W, NECK_TOP_Y);
+        ctx.lineTo(CX + NECK_HALF_W, NECK_TOP_Y + 10);
+        ctx.quadraticCurveTo(CAV_RIGHT, NECK_TOP_Y + 10, CAV_RIGHT, SHOULDER_TOP_Y);
+        ctx.lineTo(CAV_LEFT, SHOULDER_TOP_Y);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(200,220,215,0.10)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.2)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // lid
+        roundRect(CX - NECK_HALF_W - 4, NECK_TOP_Y - 22, NECK_HALF_W * 2 + 8, 26, 5);
+        const lg = ctx.createLinearGradient(0, NECK_TOP_Y - 22, 0, NECK_TOP_Y + 4);
+        lg.addColorStop(0, "#d8cdb8");
+        lg.addColorStop(0.5, "#a89878");
+        lg.addColorStop(1, "#7a6d54");
+        ctx.fillStyle = lg;
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 4; i++) {
+          const ly = NECK_TOP_Y - 17 + i * 5;
+          ctx.beginPath();
+          ctx.moveTo(CX - NECK_HALF_W, ly);
+          ctx.lineTo(CX + NECK_HALF_W, ly);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function roundRect(x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      function drawBean(b) {
+        const t = BEAN_TYPES[b.type];
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+        ctx.beginPath();
+        ctx.ellipse(1.5, 2.2, b.rx, b.ry, 0, 0, 6.2832);
+        ctx.fillStyle = "rgba(0,0,0,0.22)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.ellipse(0, 0, b.rx, b.ry, 0, 0, 6.2832);
+        const g = ctx.createRadialGradient(-b.rx * 0.3, -b.ry * 0.4, b.rx * 0.15, 0, 0, b.rx * 1.1);
+        g.addColorStop(0, b.palette.hi);
+        g.addColorStop(1, b.palette.base);
+        ctx.fillStyle = g;
+        ctx.fill();
+
+        if (b.palette.speck) {
+          ctx.fillStyle = b.palette.speck;
+          for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * 6.2832 + b.seed;
+            const rr = 0.5 + ((b.seed * (i + 1)) % 10) / 20;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * b.rx * rr * 0.7, Math.sin(a) * b.ry * rr * 0.7, 1, 0, 6.2832);
+            ctx.fill();
+          }
+        }
+        if (t.crease) {
+          ctx.beginPath();
+          ctx.moveTo(0, -b.ry * 0.75);
+          ctx.quadraticCurveTo(b.rx * 0.15, 0, 0, b.ry * 0.75);
+          ctx.strokeStyle = "rgba(0,0,0,0.45)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.ellipse(-b.rx * 0.32, -b.ry * 0.36, b.rx * 0.28, b.ry * 0.18, -0.5, 0, 6.2832);
+        ctx.fillStyle = "rgba(255,255,255,0.35)";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function render() {
+        ctx.clearRect(0, 0, WORLD_W, WORLD_H);
+        const bodyPath = drawJarGlass();
+        ctx.save();
+        ctx.translate(jarOffsetX, jarOffsetY);
+        bodyPath();
+        ctx.clip();
+        for (const b of beans) drawBean(b);
+        ctx.restore();
+        drawJarFront(bodyPath);
+      }
+
+      // ---- main loop -----------------------------------------------------
+      let lastTs = 0;
+      function frame(ts) {
+        const dt = Math.min(0.032, (ts - lastTs) / 1000 || 0);
+        lastTs = ts;
+        updateShakeState(ts, dt);
+        stepPhysics(dt);
+        flushSounds();
+        render();
+        requestAnimationFrame(frame);
+      }
+
+      // ---- input: drag the jar --------------------------------------------
+      function localCoords(clientX, clientY) {
+        const r = jarbox.getBoundingClientRect();
+        return { x: (clientX - r.left) / scale, y: (clientY - r.top) / scale };
+      }
+      function onDown(x, y) {
+        ensureAudio();
+        dragging = true;
+        const p = localCoords(x, y);
+        pointerX = p.x; pointerY = p.y;
+        prevPointerX = p.x; prevPointerY = p.y;
+        dragStartX = p.x; dragStartY = p.y;
+      }
+      function onMove(x, y) {
+        const p = localCoords(x, y);
+        pointerX = p.x; pointerY = p.y;
+      }
+      function onUp() { dragging = false; }
+
+      jarbox.addEventListener("mousedown", (e) => onDown(e.clientX, e.clientY));
+      window.addEventListener("mousemove", (e) => { if (dragging) onMove(e.clientX, e.clientY); });
+      window.addEventListener("mouseup", onUp);
+      jarbox.addEventListener(
+        "touchstart",
+        (e) => { e.preventDefault(); const t = e.touches[0]; onDown(t.clientX, t.clientY); },
+        { passive: false }
+      );
+      jarbox.addEventListener(
+        "touchmove",
+        (e) => { e.preventDefault(); const t = e.touches[0]; onMove(t.clientX, t.clientY); },
+        { passive: false }
+      );
+      jarbox.addEventListener("touchend", (e) => { e.preventDefault(); onUp(); }, { passive: false });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space") { e.preventDefault(); triggerShake(); }
+      });
+
+      // ---- controls --------------------------------------------------------
+      const typeEl = document.getElementById("beanType");
+      const countEl = document.getElementById("beanCount");
+      const countVal = document.getElementById("countVal");
+      const volEl = document.getElementById("volume");
+      const muteBtn = document.getElementById("muteBtn");
+      const motionBtn = document.getElementById("motionBtn");
+      const shakeBtn = document.getElementById("shakeBtn");
+      const resetBtn = document.getElementById("resetBtn");
+      const hint = document.getElementById("hint");
+      let muted = false;
+
+      typeEl.addEventListener("change", () => {
+        currentType = typeEl.value;
+        resetBeans(parseInt(countEl.value, 10), currentType);
+      });
+      countEl.addEventListener("input", () => {
+        countVal.textContent = countEl.value;
+        resetBeans(parseInt(countEl.value, 10), currentType);
+      });
+      volEl.addEventListener("input", () => {
+        if (master) master.gain.value = (parseInt(volEl.value, 10) / 100) * (muted ? 0 : 1);
+      });
+      muteBtn.addEventListener("click", () => {
+        muted = !muted;
+        muteBtn.textContent = muted ? "🔇" : "🔊";
+        muteBtn.classList.toggle("on", muted);
+        if (master) master.gain.value = (parseInt(volEl.value, 10) / 100) * (muted ? 0 : 1);
+      });
+      shakeBtn.addEventListener("click", triggerShake);
+      resetBtn.addEventListener("click", () => resetBeans(parseInt(countEl.value, 10), currentType));
+
+      // ---- device motion (phone shake) --------------------------------------
+      const MOTION_SCALE = 92;
+      function onDeviceMotion(e) {
+        const a = e.accelerationIncludingGravity || e.acceleration;
+        if (!a || a.x === null) return;
+        gravity.x = clamp(-a.x * MOTION_SCALE, -1600, 1600);
+        gravity.y = clamp(a.y * MOTION_SCALE, -1600, 1600);
+        const mag = Math.hypot(a.x, a.y, a.z || 0);
+        const jitter = clamp((mag - 9.8) * 1.8, -14, 14);
+        deviceJitterX = jitter * (Math.random() * 2 - 1);
+        deviceJitterY = jitter * (Math.random() * 2 - 1) * 0.6;
+        if (mag > 16 && performance.now() - lastThud > 150) {
+          lastThud = performance.now();
+          playThud(clamp((mag - 16) / 14, 0.2, 1));
+        }
+      }
+      motionBtn.addEventListener("click", async () => {
+        ensureAudio();
+        if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+          try {
+            const res = await DeviceMotionEvent.requestPermission();
+            if (res !== "granted") { hint.textContent = "phone motion permission denied"; return; }
+          } catch { hint.textContent = "couldn't request motion permission"; return; }
+        }
+        if (!("DeviceMotionEvent" in window)) { hint.textContent = "this device doesn't report motion"; return; }
+        if (!motionActive) {
+          window.addEventListener("devicemotion", onDeviceMotion);
+          motionActive = true;
+          motionBtn.classList.add("on");
+          hint.textContent = "gravity follows your phone now — go shake it";
+          gravity = { x: 0, y: GRAVITY_Y };
+        } else {
+          window.removeEventListener("devicemotion", onDeviceMotion);
+          motionActive = false;
+          motionBtn.classList.remove("on");
+          gravity = { x: 0, y: GRAVITY_Y };
+          hint.textContent = "back to regular gravity";
+        }
+      });
+
+      window.addEventListener(
+        "pointerdown",
+        function wake() {
+          ensureAudio();
+          hint.textContent = "";
+          window.removeEventListener("pointerdown", wake);
+        },
+        { once: true }
+      );
+
+      // ---- share -------------------------------------------------------------
+      const SITE_URL = "https://bisks.net/beanjar/";
+      const shareBluesky = document.getElementById("shareBluesky");
+      function buildShareText() {
+        return `shaking a jar of beans that rattle with real 2D physics + real synthesized sound 🫘 ${SITE_URL}`;
+      }
+      shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+
+      const shareShotBtn = document.getElementById("shareShot");
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch { return false; }
+      }
+      shareShotBtn.addEventListener("click", () => {
+        cv.toBlob(async (blob) => {
+          if (!blob) return;
+          if (canShareFiles()) {
+            const file = new File([blob], "jar-of-beans.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: buildShareText(), title: "jar of beans" });
+              return;
+            } catch {}
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = "jar-of-beans.png";
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        }, "image/png");
+      });
+
+      // ---- go -------------------------------------------------------------
+      resize();
+      resetBeans(parseInt(countEl.value, 10), currentType);
+      requestAnimationFrame(frame);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
