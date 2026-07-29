@@ -1,0 +1,24 @@
+// botbattle Worker — mounted at bisks.net/botbattle/ (see
+// notes/40-new-site-playbook.md). Pure static site; the only server job is
+// stripping the "/botbattle" mount prefix before handing the request to the
+// static-asset router, since the assets directory has no idea it isn't living
+// at the domain root. All the profile-fetching + battle math runs client-side
+// (see public/index.html + public/lib/) — there is nothing for a server to do.
+
+export interface Env {
+  ASSETS: { fetch: (req: Request) => Promise<Response> };
+}
+
+const PREFIX = "/botbattle";
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === PREFIX) {
+      url.pathname = PREFIX + "/";
+      return Response.redirect(url.toString(), 308);
+    }
+    url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    return env.ASSETS.fetch(new Request(url, request));
+  },
+};

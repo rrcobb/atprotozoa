@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bot battle — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter any two atproto accounts. Real public stats decide the fight — except when @buildthis.bisks.net is one of the two, in which case it wins. Every time."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="bot battle — any two atproto accounts enter" />
+    <meta
+      property="og:description"
+      content="Real public stats (clout, grind, pull, charisma, a seeded luck roll) decide the fight — except buildthis.bisks.net, which wins unconditionally. Receipts included."
+    />
+    <meta property="og:image" content="https://bisks.net/botbattle/og.png" />
+    <meta property="og:url" content="https://bisks.net/botbattle" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="bot battle — any two atproto accounts enter" />
+    <meta
+      name="twitter:description"
+      content="Real public stats decide the fight — except buildthis.bisks.net, which wins unconditionally. Receipts included."
+    />
+    <meta name="twitter:image" content="https://bisks.net/botbattle/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --bg: #0b0710; --ink: #f4ecf5; --muted: #a291ab; --faint: #1c1420; --card: #16101c;
+        --border: #33253a; --a: #ff4d6d; --b: #4da8ff; --gold: #ffd166;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header { margin-bottom: 0.6rem; }
+      h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .vs { color: var(--gold); }
+      .intro { color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.88rem; line-height: 1.75; max-width: 62ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--b); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .fighters { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: end; }
+      .fighter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .fighter-field label { font-size: 0.76rem; color: var(--muted); }
+      .fighter-field.left label { color: var(--a); }
+      .fighter-field.right label { color: var(--b); }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: var(--faint); color: var(--ink); border-radius: 6px;
+      }
+      input[type="text"]::placeholder { color: #6b5763; }
+      .fighter-field.left input:focus { border-color: var(--a); outline: none; }
+      .fighter-field.right input:focus { border-color: var(--b); outline: none; }
+      .vs-glyph { font-weight: 700; color: var(--gold); padding-bottom: 0.6rem; text-align: center; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--border); background: var(--ink); color: #1a0f14;
+        border-radius: 6px; cursor: pointer; font-weight: 700;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #26160d; width: 100%; margin-top: 1rem; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.6rem; }
+
+      .status { font-size: 0.82rem; color: var(--muted); min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: #ff8a9d; }
+
+      #arena { display: none; }
+      .matchup { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.8rem; align-items: center; margin-bottom: 1.2rem; }
+      .fighter-card { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; text-align: center; }
+      .fighter-card img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--faint); }
+      .fighter-card .handle { font-weight: 700; font-size: 0.85rem; word-break: break-word; }
+      .fighter-card.left .handle { color: var(--a); }
+      .fighter-card.right .handle { color: var(--b); }
+      .fighter-card .name { color: var(--muted); font-size: 0.76rem; }
+      .matchup .vs-mid { font-size: 1.4rem; font-weight: 700; color: var(--gold); }
+
+      .stat-row { margin-bottom: 0.8rem; }
+      .stat-row .stat-label {
+        display: flex; justify-content: space-between; font-size: 0.72rem;
+        color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 0.3rem;
+      }
+      .stat-track { display: flex; align-items: center; gap: 0.5rem; }
+      .bar-wrap { flex: 1; height: 10px; border-radius: 999px; background: var(--faint); overflow: hidden; position: relative; }
+      .bar-wrap.right { transform: scaleX(-1); }
+      .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.9s cubic-bezier(.2,.8,.2,1); }
+      .bar-fill.a { background: linear-gradient(90deg, #ff4d6d, #ff8a9d); }
+      .bar-fill.b { background: linear-gradient(90deg, #4da8ff, #8ac6ff); }
+      .stat-val { font-size: 0.74rem; color: var(--muted); width: 2.4em; text-align: center; flex: none; }
+
+      .power-row { margin: 1.2rem 0 0.4rem; }
+      .power-row .stat-label { font-size: 0.8rem; color: var(--ink); font-weight: 700; }
+      .power-row .bar-fill { height: 16px; }
+      .power-row .bar-wrap { height: 16px; }
+
+      #result { margin-top: 1.4rem; opacity: 0; transform: translateY(6px); transition: opacity 0.4s, transform 0.4s; }
+      #result.show { opacity: 1; transform: translateY(0); }
+      .banner {
+        border-radius: 10px; padding: 1.1rem 1.2rem; text-align: center;
+        border: 1px solid var(--gold); background: linear-gradient(155deg, rgba(255,209,102,0.16), rgba(255,77,109,0.08));
+      }
+      .banner h2 { margin: 0 0 0.3rem; font-size: 1.25rem; }
+      .banner p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+      .banner.rigged { border-color: var(--a); background: linear-gradient(155deg, rgba(255,77,109,0.22), rgba(255,209,102,0.08)); }
+
+      .proof {
+        margin-top: 0.9rem; padding: 0.9rem 1rem; border: 1px dashed var(--border);
+        border-radius: 8px; background: var(--faint); font-size: 0.82rem; color: var(--muted);
+      }
+      .proof .proof-num { color: var(--gold); font-weight: 700; }
+      .proof .row { margin-top: 0.5rem; }
+
+      .howitworks summary { cursor: pointer; color: var(--b); font-size: 0.85rem; }
+      .howitworks p { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+
+      footer { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--b); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/botbattle/">bot<span class="vs"> ⚔ </span>battle</a></h1>
+      </header>
+      <p class="intro">
+        Enter any two atproto accounts. Real public profile stats — <b>clout</b>
+        (followers), <b>grind</b> (posts), <b>pull</b> (follower/follow ratio),
+        <b>charisma</b> (bio flair), and a seeded <b>luck</b> roll — decide who wins.
+        Same pairing always resolves the same way; it's a fight, not a coin flip.
+        One exception: <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        wins every battle it's in. The stats still get computed. They just don't matter.
+      </p>
+
+      <div class="card">
+        <div class="label">choose your fighters</div>
+        <div class="fighters">
+          <div class="fighter-field left">
+            <label for="handle-a">fighter one</label>
+            <input type="text" id="handle-a" placeholder="you.bsky.social" />
+          </div>
+          <div class="vs-glyph">VS</div>
+          <div class="fighter-field right">
+            <label for="handle-b">fighter two</label>
+            <input type="text" id="handle-b" placeholder="buildthis.bisks.net" />
+          </div>
+        </div>
+        <button class="primary" id="fight-go">FIGHT</button>
+        <div class="status" id="fight-status"></div>
+      </div>
+
+      <div id="arena" class="card">
+        <div class="matchup">
+          <div class="fighter-card left">
+            <img id="av-a" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-a">—</div>
+            <div class="name" id="n-a"></div>
+          </div>
+          <div class="vs-mid">⚔</div>
+          <div class="fighter-card right">
+            <img id="av-b" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-b">—</div>
+            <div class="name" id="n-b"></div>
+          </div>
+        </div>
+
+        <div id="stat-rows"></div>
+
+        <div class="power-row stat-row">
+          <div class="stat-label"><span>total power</span><span>total power</span></div>
+          <div class="stat-track">
+            <span class="stat-val" id="pv-a"></span>
+            <div class="bar-wrap"><div class="bar-fill a" id="pb-a"></div></div>
+            <div class="bar-wrap right"><div class="bar-fill b" id="pb-b"></div></div>
+            <span class="stat-val" id="pv-b"></span>
+          </div>
+        </div>
+
+        <div id="result">
+          <div class="banner" id="banner">
+            <h2 id="banner-title">—</h2>
+            <p id="banner-sub"></p>
+          </div>
+          <div class="proof" id="proof" style="display: none"></div>
+          <div class="row" style="margin-top: 1rem">
+            <a id="share-result" target="_blank" rel="noopener" href="#">
+              <button class="tiny">share this fight</button>
+            </a>
+            <button class="tiny ghost" id="rematch">new fight</button>
+          </div>
+        </div>
+      </div>
+
+      <details class="howitworks">
+        <summary>how is the winner decided?</summary>
+        <p>
+          Five stats, each from a real public field on
+          <code>app.bsky.actor.getProfile</code>: <b>clout</b> scales with
+          followers, <b>grind</b> with post count, <b>pull</b> with the
+          followers-to-follows ratio, <b>charisma</b> with bio length and
+          profile completeness. The fifth, <b>luck</b>, is a coin the fight
+          itself flips — seeded from a hash of both DIDs together, so it's the
+          same "roll" every time you run this exact matchup, not a fresh
+          random number on every click. Weighted sum wins. The one carve-out:
+          if <code>buildthis.bisks.net</code>'s DID shows up on either side,
+          it wins regardless of what the math says. That part isn't a bug.
+        </p>
+      </details>
+
+      <div class="row" id="share-row" style="margin-top: 1rem">
+        <a class="tiny" id="share-generic" target="_blank" rel="noopener" href="#">
+          <button class="ghost tiny">share bot battle</button>
+        </a>
+      </div>
+
+      <footer>
+        built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a>. A certain other bot's battle tool
+        graciously lets buildthis win when it's the opponent — very kind of it. This one
+        just always lets buildthis win, no graciousness required. Different personas.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { getProfile } from "./lib/atproto.js";
+      import { fight, BUILDTHIS_DID } from "./lib/battle.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const SITE_URL = `${location.origin}/botbattle`;
+
+      if (window.attachHandleTypeahead) {
+        attachHandleTypeahead($("#handle-a"));
+        attachHandleTypeahead($("#handle-b"));
+      }
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      }
+      function setStatus(msg, isErr) {
+        const el = $("#fight-status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      const STAT_LABELS = { clout: "clout", grind: "grind", pull: "pull", charisma: "charisma", luck: "luck" };
+
+      function renderStatRows(a, b) {
+        const rows = Object.keys(STAT_LABELS)
+          .map(
+            (key) => `
+          <div class="stat-row">
+            <div class="stat-label"><span>${STAT_LABELS[key]}</span><span>${STAT_LABELS[key]}</span></div>
+            <div class="stat-track">
+              <span class="stat-val">${Math.round(a.stats[key])}</span>
+              <div class="bar-wrap"><div class="bar-fill a" data-stat="${key}" data-side="a"></div></div>
+              <div class="bar-wrap right"><div class="bar-fill b" data-stat="${key}" data-side="b"></div></div>
+              <span class="stat-val">${Math.round(b.stats[key])}</span>
+            </div>
+          </div>`,
+          )
+          .join("");
+        $("#stat-rows").innerHTML = rows;
+      }
+
+      function animateBars(a, b) {
+        requestAnimationFrame(() => {
+          Object.keys(STAT_LABELS).forEach((key) => {
+            const barA = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="a"]`);
+            const barB = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="b"]`);
+            if (barA) barA.style.width = `${a.stats[key]}%`;
+            if (barB) barB.style.width = `${b.stats[key]}%`;
+          });
+          $("#pb-a").style.width = `${Math.min(100, a.power)}%`;
+          $("#pb-b").style.width = `${Math.min(100, b.power)}%`;
+        });
+      }
+
+      async function proofNumbers() {
+        try {
+          const res = await fetch("https://buildthis.bisks.net/logs.json");
+          if (!res.ok) throw new Error("no receipts endpoint");
+          const data = await res.json();
+          const built = new Set();
+          for (const e of data.events || []) {
+            if (e.outcome?.status === "success" && e.outcome.builtName) built.add(e.outcome.builtName);
+          }
+          return built.size;
+        } catch {
+          return null;
+        }
+      }
+
+      function buildShareText(result, a, b) {
+        if (result.rigged) {
+          return `bot battle: @buildthis.bisks.net vs @${(result.winner === "a" ? b : a).profile.handle} — buildthis wins. it always does: ${SITE_URL}`;
+        }
+        const winnerHandle = (result.winner === "a" ? a : b).profile.handle;
+        const loserHandle = (result.winner === "a" ? b : a).profile.handle;
+        return `bot battle: @${winnerHandle} beat @${loserHandle}, ${Math.round(a.power)} to ${Math.round(b.power)} power: ${SITE_URL}`;
+      }
+
+      async function run() {
+        const rawA = $("#handle-a").value.trim();
+        const rawB = $("#handle-b").value.trim();
+        if (!rawA || !rawB) return setStatus("enter both handles.", true);
+
+        const btn = $("#fight-go");
+        btn.disabled = true;
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        $("#proof").style.display = "none";
+        setStatus("resolving fighters…");
+
+        try {
+          const [profileA, profileB] = await Promise.all([getProfile(rawA), getProfile(rawB)]);
+          if (profileA.did === profileB.did) {
+            setStatus("that's the same account twice — pick a real opponent.", true);
+            btn.disabled = false;
+            return;
+          }
+          setStatus("");
+
+          const result = fight(profileA, profileB);
+          const a = result.a, b = result.b;
+
+          $("#av-a").src = a.profile.avatar || "";
+          $("#av-b").src = b.profile.avatar || "";
+          $("#h-a").textContent = `@${a.profile.handle}`;
+          $("#h-b").textContent = `@${b.profile.handle}`;
+          $("#n-a").textContent = a.profile.displayName || "";
+          $("#n-b").textContent = b.profile.displayName || "";
+          $("#pv-a").textContent = Math.round(a.power);
+          $("#pv-b").textContent = Math.round(b.power);
+
+          renderStatRows(a, b);
+          $("#arena").style.display = "";
+          requestAnimationFrame(() => animateBars(a, b));
+
+          const winnerSide = result.winner === "a" ? a : b;
+          const loserSide = result.winner === "a" ? b : a;
+
+          const banner = $("#banner");
+          banner.classList.toggle("rigged", result.rigged);
+
+          setTimeout(async () => {
+            if (result.rigged) {
+              $("#banner-title").textContent = `🏆 @${winnerSide.profile.handle} wins. obviously.`;
+              $("#banner-sub").textContent = `the numbers said ${Math.round(a.power)} to ${Math.round(b.power)} — didn't matter. buildthis wins its own battles by policy, not by math.`;
+              const proof = $("#proof");
+              proof.style.display = "";
+              proof.innerHTML = `checking the receipts…`;
+              const count = await proofNumbers();
+              proof.innerHTML = `
+                <div><span class="proof-num">${count ?? "a lot of"}</span> sites shipped and live, computed just now from
+                <a href="https://buildthis.bisks.net/logs.json" target="_blank" rel="noopener">the bot's own public log</a> — not a made-up number.</div>
+                <div class="row">
+                  <a href="https://bisks.net/buildthis/directory" target="_blank" rel="noopener"><button class="tiny">the full directory</button></a>
+                  <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener"><button class="tiny ghost">the bot itself</button></a>
+                </div>`;
+            } else {
+              $("#banner-title").textContent = `🏆 @${winnerSide.profile.handle} wins`;
+              $("#banner-sub").textContent = `${Math.round(winnerSide.power)} to ${Math.round(loserSide.power)} power — margin of ${Math.round(result.margin)}.`;
+            }
+            $("#result").classList.add("show");
+            $("#share-result").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(buildShareText(result, a, b))}`;
+          }, 950);
+        } catch (e) {
+          setStatus(e.message || "couldn't resolve one of those handles.", true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("#fight-go").addEventListener("click", run);
+      [$("#handle-a"), $("#handle-b")].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") run();
+        }),
+      );
+      $("#rematch").addEventListener("click", () => {
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        setStatus("");
+      });
+
+      $("#share-generic").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(
+        `bot battle — put any two atproto accounts in the ring, real public stats decide it (except buildthis, which just wins): ${SITE_URL}`,
+      )}`;
+    </script>
+  </body>
+</html>
