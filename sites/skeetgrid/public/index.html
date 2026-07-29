@@ -128,6 +128,31 @@
   .stat .n { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
   .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
+  .year-tabs {
+    display: none;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .year-tabs.show { display: flex; }
+  .year-tabs button {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .year-tabs button.active {
+    background: linear-gradient(90deg, var(--accent), #26a641);
+    color: #04140a;
+    border-color: transparent;
+  }
+  .method-note { color: var(--dim); font-size: 0.72rem; margin: -0.6rem 0 1rem; }
+
   .canvas-wrap { position: relative; }
   #gridCanvas {
     display: block;
@@ -196,9 +221,9 @@
   <div class="wrap">
     <h1>skeetgrid</h1>
     <p class="tag">
-      A walk of your repo straight from your PDS and some green boxes — the
-      GitHub contribution graph, but every square is a day of Bluesky posts.
-      Enter a handle, get a year of activity as one shareable image.
+      One CAR download straight from your PDS, some green boxes — the GitHub
+      contribution graph, but every square is a day of Bluesky posts. Enter a
+      handle, get your <em>whole</em> posting history, browsable year by year.
     </p>
 
     <form id="f">
@@ -226,6 +251,9 @@
         <div class="stat"><div class="n" id="statBusiest">–</div><div class="l">busiest day</div></div>
       </div>
 
+      <div class="year-tabs" id="yearTabs"></div>
+      <p class="method-note" id="methodNote"></p>
+
       <div class="canvas-wrap">
         <canvas id="gridCanvas" width="1200" height="630"></canvas>
         <div id="tooltip"></div>
@@ -250,9 +278,11 @@
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 const MOUNT = "/skeetgrid";
 const API = "https://public.api.bsky.app/xrpc/";
-const MAX_PAGES = 20;      // ~2000 posts — fallback path only, see computeHeatmap
-const REPO_MAX_PAGES = 300; // ~30k post records — the direct-PDS path's safety cap
-const CUTOFF_DAYS = 371;   // 53 weeks, matches the grid (53 cols x 7 rows)
+const MAX_PAGES = 20;      // ~2000 posts — feed fallback path only, see computeHeatmap
+const REPO_MAX_PAGES = 300; // ~30k post records — the listRecords fallback's safety cap
+const CUTOFF_DAYS = 371;   // 53 weeks, matches the rolling grid (53 cols x 7 rows)
+const CAR_MAX_BYTES = 200 * 1024 * 1024; // bail to listRecords rather than parse a repo this big in-tab
+const DAG_CBOR_CODEC = 0x71;
 
 async function xrpcAt(base, method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -317,12 +347,163 @@ function isoDay(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-// Walks the account's own repo directly (com.atproto.repo.listRecords against
-// its PDS), bucketing app.bsky.feed.post records by UTC calendar day. This is
-// the whole fix for "truncated to the N most recent posts" — no reply/embed
-// hydration per record, no reposts to filter, so the safety cap
-// (REPO_MAX_PAGES) is high enough that this in practice always reaches
-// CUTOFF_DAYS rather than running out first.
+// --- CAR + DAG-CBOR, just enough of each to read a repo export ------------
+//
+// com.atproto.sync.getRepo hands back the account's *entire* signed repo as
+// one CAR (Content Addressable aRchive) file: a header followed by a stream
+// of length-prefixed blocks, each block being a CID + raw bytes. It's every
+// collection the account owns (posts, likes, follows, ...), not just posts —
+// more bytes over the wire than a scoped listRecords call — but it's one
+// request instead of dozens of paginated round-trips, which in practice wins
+// on wall-clock time for most accounts, and it's the only way to get years
+// of history back rather than however far a capped page-walk reaches.
+//
+// We don't need a real MST walk to find the posts: every record block
+// decodes to a self-describing object with a "$type" field (MST/commit
+// blocks don't have one), so it's enough to CBOR-decode every dag-cbor block
+// in the CAR and keep the ones typed app.bsky.feed.post. No CID-to-string
+// resolution, no tree traversal, no rkeys needed for a heatmap that only
+// cares about createdAt.
+
+function readVarint(bytes, offset) {
+  let result = 0, shift = 0, b;
+  do {
+    b = bytes[offset++];
+    result += (b & 0x7f) * Math.pow(2, shift);
+    shift += 7;
+  } while (b >= 0x80);
+  return [result, offset];
+}
+
+// Yields the raw dag-cbor bytes of every block in the CAR whose CID codec is
+// dag-cbor (0x71) — skips the CAR header and any raw (blob) blocks. CIDv1 is
+// read generically via varints (version, codec, multihash fn, multihash
+// length) rather than assuming the usual fixed 36-byte sha2-256 shape, so a
+// differently-hashed CID just gets skipped over correctly instead of
+// desyncing the rest of the parse.
+function* carBlocks(bytes) {
+  let headerLen, offset;
+  [headerLen, offset] = readVarint(bytes, 0);
+  offset += headerLen; // skip the header block itself (CAR version + roots)
+
+  while (offset < bytes.length) {
+    let blockLen;
+    [blockLen, offset] = readVarint(bytes, offset);
+    if (!blockLen) break;
+    const blockEnd = offset + blockLen;
+
+    let o = offset;
+    let cidCodec, hashLen;
+    [, o] = readVarint(bytes, o); // CID version, always 1 in atproto repos
+    [cidCodec, o] = readVarint(bytes, o);
+    [, o] = readVarint(bytes, o); // multihash function code
+    [hashLen, o] = readVarint(bytes, o);
+    o += hashLen; // multihash digest, not needed for this walk
+
+    if (cidCodec === DAG_CBOR_CODEC) yield bytes.subarray(o, blockEnd);
+    offset = blockEnd;
+  }
+}
+
+// Minimal DAG-CBOR decoder: unsigned/negative ints, byte/text strings,
+// arrays, maps, floats, booleans/null, and tagged values (CID links, tag 42
+// — we don't need to resolve them, just not choke on them). Indefinite-length
+// items (info 31) aren't legal DAG-CBOR and aren't handled.
+function cborDecode(bytes) {
+  const st = { bytes, pos: 0 };
+  return cborValue(st);
+}
+
+function cborArg(st, info) {
+  const b = st.bytes;
+  if (info < 24) return info;
+  if (info === 24) { const v = b[st.pos]; st.pos += 1; return v; }
+  if (info === 25) { const v = new DataView(b.buffer, b.byteOffset + st.pos, 2).getUint16(0, false); st.pos += 2; return v; }
+  if (info === 26) { const v = new DataView(b.buffer, b.byteOffset + st.pos, 4).getUint32(0, false); st.pos += 4; return v; }
+  if (info === 27) {
+    const dv = new DataView(b.buffer, b.byteOffset + st.pos, 8);
+    const hi = dv.getUint32(0, false), lo = dv.getUint32(4, false);
+    st.pos += 8;
+    return hi * 4294967296 + lo; // safe: string/array lengths never approach 2^53
+  }
+  throw new Error("unsupported CBOR length encoding " + info);
+}
+
+function cborValue(st) {
+  const bytes = st.bytes;
+  const initial = bytes[st.pos++];
+  const majorType = initial >> 5;
+  const info = initial & 0x1f;
+
+  if (majorType === 7) {
+    if (info === 20) return false;
+    if (info === 21) return true;
+    if (info === 22) return null;
+    if (info === 23) return undefined;
+    if (info === 25) { st.pos += 2; return NaN; } // float16 — unused by atproto records, not worth decoding
+    if (info === 26) { const v = new DataView(bytes.buffer, bytes.byteOffset + st.pos, 4).getFloat32(0, false); st.pos += 4; return v; }
+    if (info === 27) { const v = new DataView(bytes.buffer, bytes.byteOffset + st.pos, 8).getFloat64(0, false); st.pos += 8; return v; }
+    return info; // simple value 0-19
+  }
+
+  const arg = cborArg(st, info);
+  switch (majorType) {
+    case 0: return arg;
+    case 1: return -1 - arg;
+    case 2: { const v = bytes.subarray(st.pos, st.pos + arg); st.pos += arg; return v; }
+    case 3: { const v = new TextDecoder().decode(bytes.subarray(st.pos, st.pos + arg)); st.pos += arg; return v; }
+    case 4: { const out = []; for (let i = 0; i < arg; i++) out.push(cborValue(st)); return out; }
+    case 5: { const out = {}; for (let i = 0; i < arg; i++) { const k = cborValue(st); out[k] = cborValue(st); } return out; }
+    case 6: return cborValue(st); // tagged value (e.g. CID link) — return the inner value untouched
+    default: throw new Error("unsupported CBOR major type " + majorType);
+  }
+}
+
+// Primary path: one com.atproto.sync.getRepo request against the account's
+// own PDS gets back its whole signed repo as a CAR file — every post ever
+// made, in a single download, no cursor-pagination round-trips at all. Scans
+// every dag-cbor block for app.bsky.feed.post records (see carBlocks/cborValue
+// above) and buckets them by UTC calendar day with no CUTOFF_DAYS window,
+// since the point of downloading the full repo is getting the full history —
+// multiple years, not just the last one.
+async function computeHeatmapViaCar(pds, did, onProgress) {
+  if (onProgress) onProgress(`downloading repo CAR from ${pds} ...`);
+  const res = await fetch(pds + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error("getRepo: " + msg);
+  }
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > CAR_MAX_BYTES) throw new Error("repo CAR too large to parse in-tab");
+
+  const bytes = new Uint8Array(buf);
+  const dayCounts = new Map();
+  let total = 0, scanned = 0;
+  if (onProgress) onProgress(`parsing ${(buf.byteLength / 1048576).toFixed(1)} MB repo CAR ...`);
+
+  for (const blockBytes of carBlocks(bytes)) {
+    scanned++;
+    let obj;
+    try { obj = cborDecode(blockBytes); } catch (_) { continue; }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj) || obj.$type !== "app.bsky.feed.post") continue;
+    const t = obj.createdAt ? Date.parse(obj.createdAt) : NaN;
+    if (Number.isNaN(t)) continue;
+    const key = isoDay(t);
+    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+    total++;
+    if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${total} skeets found so far`);
+  }
+
+  return { dayCounts, total, truncated: false, cap: 0, method: "car", bytes: buf.byteLength };
+}
+
+// Fallback #1: walks the account's own repo via com.atproto.repo.listRecords
+// against its PDS, bucketing app.bsky.feed.post records by UTC calendar day.
+// Used only when the CAR path above fails (parse error, oversized repo, a PDS
+// that blocks sync.getRepo) — no reply/embed hydration per record, no
+// reposts to filter, so the safety cap (REPO_MAX_PAGES) is high enough that
+// this in practice always reaches CUTOFF_DAYS rather than running out first.
 async function computeHeatmapViaRepo(pds, did, onProgress) {
   const dayCounts = new Map();
   let cursor;
@@ -356,16 +537,16 @@ async function computeHeatmapViaRepo(pds, did, onProgress) {
     if (page === REPO_MAX_PAGES - 1 && cursor) truncated = true;
   }
 
-  return { dayCounts, total, truncated, cap: REPO_MAX_PAGES * 100 };
+  return { dayCounts, total, truncated, cap: REPO_MAX_PAGES * 100, method: "repo" };
 }
 
-// Fallback for the rare case a DID doc won't resolve or a PDS blocks the
-// direct walk above (self-hosted PDS with unusual CORS, non-standard DID
-// method, etc). Walks getAuthorFeed backward in time instead, bucketing
-// authored posts (skipping reposts, which arrive with a `reason`) by UTC
-// calendar day. Stops once a page's oldest post is past CUTOFF_DAYS or
-// MAX_PAGES is hit — either way truncated tells the caller so it can be
-// honest about coverage.
+// Fallback #2, for the rare case a DID doc won't resolve or a PDS blocks both
+// the CAR and listRecords walks above (self-hosted PDS with unusual CORS,
+// non-standard DID method, etc). Walks getAuthorFeed backward in time
+// instead, bucketing authored posts (skipping reposts, which arrive with a
+// `reason`) by UTC calendar day. Stops once a page's oldest post is past
+// CUTOFF_DAYS or MAX_PAGES is hit — either way truncated tells the caller so
+// it can be honest about coverage.
 async function computeHeatmapViaFeed(did, onProgress) {
   const dayCounts = new Map();
   let cursor;
@@ -399,65 +580,101 @@ async function computeHeatmapViaFeed(did, onProgress) {
     if (page === MAX_PAGES - 1 && cursor) truncated = true;
   }
 
-  return { dayCounts, total, truncated, cap: MAX_PAGES * 100 };
+  return { dayCounts, total, truncated, cap: MAX_PAGES * 100, method: "feed" };
 }
 
+// CAR first (full history, one request), then listRecords (a year, capped,
+// still many requests), then getAuthorFeed (roughest, last resort) — each
+// only runs if the one before it threw.
 async function computeHeatmap(did, onProgress) {
+  let pds;
   try {
-    const pds = await resolvePds(did);
-    return await computeHeatmapViaRepo(pds, did, onProgress);
+    pds = await resolvePds(did);
   } catch (_) {
     return await computeHeatmapViaFeed(did, onProgress);
   }
+  try {
+    return await computeHeatmapViaCar(pds, did, onProgress);
+  } catch (_) {
+    try {
+      return await computeHeatmapViaRepo(pds, did, onProgress);
+    } catch (_) {
+      return await computeHeatmapViaFeed(did, onProgress);
+    }
+  }
 }
 
-function computeStats(dayCounts) {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
-  let total = 0, busiestDate = null, busiestCount = 0;
-  for (const [date, count] of dayCounts) {
-    total += count;
-    if (count > busiestCount) { busiestCount = count; busiestDate = date; }
+// Stats + grid cells for an arbitrary [start, end] UTC-day window, so the
+// same dayCounts map (however it was gathered) can be re-rendered for the
+// rolling "last 12 months" view or for any single calendar year without
+// re-fetching anything.
+function computeStatsForRange(dayCounts, start, end) {
+  let total = 0, activeDays = 0, busiestDate = null, busiestCount = 0;
+  const c = new Date(start);
+  while (c.getTime() <= end.getTime()) {
+    const key = isoDay(c.getTime());
+    const count = dayCounts.get(key) || 0;
+    if (count) {
+      total += count;
+      activeDays++;
+      if (count > busiestCount) { busiestCount = count; busiestDate = key; }
+    }
+    c.setUTCDate(c.getUTCDate() + 1);
   }
 
+  // streak ending at `end` (today, for the rolling view; the year's last
+  // in-range day, for a past calendar year)
   let currentStreak = 0;
-  const d = new Date(today);
-  for (;;) {
+  const d = new Date(end);
+  while (d.getTime() >= start.getTime()) {
     const key = isoDay(d.getTime());
     if (!dayCounts.get(key)) break;
     currentStreak++;
     d.setUTCDate(d.getUTCDate() - 1);
   }
 
-  // longest streak over the whole tracked window
   let longestStreak = 0, run = 0;
-  const start = new Date(today);
-  start.setUTCDate(start.getUTCDate() - (CUTOFF_DAYS - 1));
-  const cursor = new Date(start);
-  while (cursor.getTime() <= today.getTime()) {
-    const key = isoDay(cursor.getTime());
+  const c2 = new Date(start);
+  while (c2.getTime() <= end.getTime()) {
+    const key = isoDay(c2.getTime());
     if (dayCounts.get(key)) { run++; longestStreak = Math.max(longestStreak, run); }
     else run = 0;
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    c2.setUTCDate(c2.getUTCDate() + 1);
   }
 
-  return {
-    total,
-    activeDays: dayCounts.size,
-    currentStreak,
-    longestStreak,
-    busiestDate,
-    busiestCount,
-  };
+  return { total, activeDays, currentStreak, longestStreak, busiestDate, busiestCount };
 }
 
-// Grid cells: 53 columns (weeks) x 7 rows (Sun..Sat), grid-start rolled back
-// to the most recent Sunday on/before (today - CUTOFF_DAYS + 1), so the last
-// column's row for today's weekday is always the most recent day.
-function gridCells() {
+function rollingBounds() {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (CUTOFF_DAYS - 1));
+  return { start, end: today };
+}
+
+function yearBounds(year) {
+  const janFirst = new Date(Date.UTC(year, 0, 1));
+  const decLast = new Date(Date.UTC(year, 11, 31));
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const end = decLast.getTime() > today.getTime() ? today : decLast;
+  return { start: janFirst, end, full: decLast };
+}
+
+// Distinct calendar years present in the data, newest first, always
+// including the current year even if it's empty so far.
+function yearsInData(dayCounts) {
+  const years = new Set([new Date().getUTCFullYear()]);
+  for (const key of dayCounts.keys()) years.add(Number(key.slice(0, 4)));
+  return [...years].sort((a, b) => b - a);
+}
+
+// Rolling grid: 53 columns (weeks) x 7 rows (Sun..Sat), grid-start rolled
+// back to the most recent Sunday on/before (today - CUTOFF_DAYS + 1), so the
+// last column's row for today's weekday is always the most recent day.
+function gridCellsRolling() {
+  const { end: today } = rollingBounds();
   const dow = today.getUTCDay(); // 0=Sun..6=Sat
   const start = new Date(today);
   start.setUTCDate(start.getUTCDate() - (52 * 7 + dow));
@@ -468,6 +685,31 @@ function gridCells() {
       const d = new Date(start);
       d.setUTCDate(d.getUTCDate() + col * 7 + row);
       if (d.getTime() > today.getTime()) continue;
+      cells.push({ col, row, date: d, key: isoDay(d.getTime()) });
+    }
+  }
+  return cells;
+}
+
+// Calendar-year grid: Jan 1 - Dec 31 of `year`, grid-start rolled back to the
+// Sunday on/before Jan 1 so weeks line up column-by-column like the rolling
+// view. Days outside the year (the padding week at each end) and days beyond
+// today (for the current, still-in-progress year) are left as gaps, same as
+// the rolling view does for "the future".
+function gridCellsForYear(year) {
+  const { end, full } = yearBounds(year);
+  const janFirst = new Date(Date.UTC(year, 0, 1));
+  const startDow = janFirst.getUTCDay();
+  const start = new Date(janFirst);
+  start.setUTCDate(start.getUTCDate() - startDow);
+  const cols = Math.ceil((full.getTime() - start.getTime()) / 86400000 / 7) + 1;
+
+  const cells = [];
+  for (let col = 0; col < cols; col++) {
+    for (let row = 0; row < 7; row++) {
+      const d = new Date(start);
+      d.setUTCDate(d.getUTCDate() + col * 7 + row);
+      if (d.getUTCFullYear() !== year || d.getTime() > end.getTime()) continue;
       cells.push({ col, row, date: d, key: isoDay(d.getTime()) });
     }
   }
@@ -501,7 +743,7 @@ function loadImg(url) {
 let lastCells = [];
 let lastMax = 0;
 
-async function drawCard({ profile, dayCounts, stats, truncated, cap }) {
+async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, periodLabel }) {
   const canvas = document.getElementById("gridCanvas");
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -537,10 +779,16 @@ async function drawCard({ profile, dayCounts, stats, truncated, cap }) {
   ctx.fillStyle = "#e6edf3";
   ctx.font = `700 24px ${mono}`;
   ctx.fillText(who, textX, 126);
+  if (periodLabel) {
+    const whoWidth = ctx.measureText(who).width;
+    ctx.fillStyle = "#7d8590";
+    ctx.font = `400 14px ${mono}`;
+    ctx.fillText("· " + periodLabel, textX + whoWidth + 14, 126);
+  }
 
   // stat pills
   const pills = [
-    [String(stats.total), "skeets / yr"],
+    [String(stats.total), "skeets"],
     [String(stats.activeDays), "active days"],
     [String(stats.currentStreak), "streak"],
     [String(stats.longestStreak), "longest"],
@@ -559,14 +807,14 @@ async function drawCard({ profile, dayCounts, stats, truncated, cap }) {
   });
 
   // month labels
-  const cells = gridCells();
   lastCells = cells;
   const max = Math.max(0, ...cells.map((c) => dayCounts.get(c.key) || 0));
   lastMax = max;
+  const cols = Math.max(0, ...cells.map((c) => c.col)) + 1;
   let lastMonth = -1;
   ctx.fillStyle = "#7d8590";
   ctx.font = `400 12px ${mono}`;
-  for (let col = 0; col < 53; col++) {
+  for (let col = 0; col < cols; col++) {
     const first = cells.find((c) => c.col === col && c.row === 0);
     if (!first) continue;
     const m = first.date.getUTCMonth();
@@ -643,6 +891,8 @@ const els = {
   statLongest: document.getElementById("statLongest"),
   statBusiest: document.getElementById("statBusiest"),
   truncNote: document.getElementById("truncNote"),
+  yearTabs: document.getElementById("yearTabs"),
+  methodNote: document.getElementById("methodNote"),
   canvas: document.getElementById("gridCanvas"),
   tooltip: document.getElementById("tooltip"),
   shareNative: document.getElementById("shareNative"),
@@ -651,6 +901,7 @@ const els = {
 };
 
 let lastShareText = "";
+let current = null; // { profile, dayCounts, truncated, cap, method, view }
 
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
@@ -661,12 +912,78 @@ function shareUrlFor(handle) {
   return "https://bisks.net" + MOUNT + "/s/" + encodeURIComponent(handle);
 }
 
-function shareText(profile, stats) {
+function shareText(profile, stats, periodLabel) {
   return (
-    `@${profile.handle}'s last year on Bluesky: ${stats.total} skeets, ${stats.activeDays} active days, ` +
-    `${stats.currentStreak}-day current streak, ${stats.longestStreak}-day longest.\n\n` +
+    `@${profile.handle}'s ${periodLabel} on Bluesky: ${stats.total} skeets, ${stats.activeDays} active days, ` +
+    `${stats.currentStreak}-day streak, ${stats.longestStreak}-day longest.\n\n` +
     `see the grid → ${shareUrlFor(profile.handle)}`
   );
+}
+
+const METHOD_NOTES = {
+  car: (c) => `full repo history via one CAR download (${(c.bytes / 1048576).toFixed(1)} MB) — browse any year below.`,
+  repo: () => `CAR download failed or was too big — fell back to a scoped listRecords walk (last 12 months only).`,
+  feed: () => `CAR and listRecords both unavailable — fell back to the public feed (roughest, last 12 months only).`,
+};
+
+// Re-renders stats + grid from the already-fetched dayCounts for either the
+// rolling "last 12 months" view (view === "rolling") or a single calendar
+// year (view === a number) — no network I/O, so switching years is instant.
+async function renderView(view) {
+  current.view = view;
+  const isYear = typeof view === "number";
+  const cells = isYear ? gridCellsForYear(view) : gridCellsRolling();
+  const { start, end } = isYear ? yearBounds(view) : rollingBounds();
+  const stats = computeStatsForRange(current.dayCounts, start, end);
+  const periodLabel = isYear ? String(view) : "last 12 months";
+
+  els.statTotal.textContent = stats.total;
+  els.statDays.textContent = stats.activeDays;
+  els.statStreak.textContent = stats.currentStreak;
+  els.statLongest.textContent = stats.longestStreak;
+  els.statBusiest.textContent = stats.busiestCount;
+  els.truncNote.textContent = current.truncated
+    ? `based on the ${current.cap} most recent posts, not necessarily the full window — this account posts a lot.`
+    : "";
+
+  window.__lastDayCounts = current.dayCounts; // read by the hover-tooltip handler below
+  await drawCard({
+    profile: current.profile,
+    dayCounts: current.dayCounts,
+    stats,
+    truncated: current.truncated,
+    cap: current.cap,
+    cells,
+    periodLabel,
+  });
+
+  lastShareText = shareText(current.profile, stats, periodLabel);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+  for (const btn of els.yearTabs.children) {
+    btn.classList.toggle("active", btn.dataset.view === String(view));
+  }
+}
+
+// Year tabs only make sense when the CAR path got the full repo — the
+// listRecords/feed fallbacks are capped to the last ~year, so a year
+// selector over that data would mostly show empty grids.
+function buildYearTabs() {
+  els.yearTabs.innerHTML = "";
+  if (current.method !== "car") {
+    els.yearTabs.classList.remove("show");
+    return;
+  }
+  const views = ["rolling", ...yearsInData(current.dayCounts)];
+  for (const view of views) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.view = String(view);
+    btn.textContent = view === "rolling" ? "last 12 mo" : String(view);
+    btn.addEventListener("click", () => renderView(view === "rolling" ? "rolling" : Number(view)));
+    els.yearTabs.appendChild(btn);
+  }
+  els.yearTabs.classList.add("show");
 }
 
 async function reveal(rawHandle) {
@@ -693,28 +1010,14 @@ async function reveal(rawHandle) {
     els.handleOut.textContent = "@" + profile.handle;
     els.didOut.textContent = did;
 
-    const { dayCounts, truncated, cap } = await computeHeatmap(did, (page, total) => {
-      setStatus(`reading page ${page} of repo... ${total} skeets found so far`);
-    });
-
-    const stats = computeStats(dayCounts);
-    els.statTotal.textContent = stats.total;
-    els.statDays.textContent = stats.activeDays;
-    els.statStreak.textContent = stats.currentStreak;
-    els.statLongest.textContent = stats.longestStreak;
-    els.statBusiest.textContent = stats.busiestCount;
-    els.truncNote.textContent = truncated
-      ? `based on the ${cap} most recent posts, not necessarily the full year — this account posts a lot.`
-      : "";
+    const result = await computeHeatmap(did, (msg) => setStatus(msg));
+    current = { profile, ...result };
 
     setStatus("");
+    els.methodNote.textContent = (METHOD_NOTES[current.method] || (() => ""))(current);
+    buildYearTabs();
     els.card.classList.add("show");
-
-    window.__lastDayCounts = dayCounts; // read by the hover-tooltip handler below
-    await drawCard({ profile, dayCounts, stats, truncated, cap });
-
-    lastShareText = shareText(profile, stats);
-    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    await renderView("rolling");
   } catch (err) {
     setStatus("couldn't build that grid: " + err.message, true);
   } finally {
