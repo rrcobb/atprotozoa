@@ -61,14 +61,23 @@ async function allFollows(did) {
   return out;
 }
 
-// Returns { did, handle, guards: [{did,handle,displayName,avatar}] } — the
-// full follow list of GUARD_ACTOR, self excluded. getFollows' profile-view
-// entries already carry avatar/displayName, so no extra getProfiles batch
-// is needed just to draw a face on each guard.
+// Returns { did, handle, guards: [{did,handle,displayName,avatar}], captain }
+// — the full follow list of GUARD_ACTOR, self excluded, plus GUARD_ACTOR's
+// own profile as `captain` (used for the boss guard standing at the gate —
+// GUARD_ACTOR guards the exit in person). getFollows' profile-view entries
+// already carry avatar/displayName, so no extra getProfiles batch is needed
+// just to draw a face on each rank-and-file guard; the captain needs one
+// extra getProfile call for GUARD_ACTOR's own avatar.
 export async function loadGuardRoster({ onStep } = {}) {
   if (onStep) onStep(`finding who @${GUARD_ACTOR} follows…`);
   const did = await resolveDid(GUARD_ACTOR);
-  const follows = await allFollows(did);
+  const [follows, captainProfile] = await Promise.all([
+    allFollows(did),
+    jget(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`).catch(
+      () => null,
+    ),
+  ]);
   const guards = follows.filter((f) => f.did !== did).map(profileOf);
-  return { did, handle: GUARD_ACTOR, guards };
+  const captain = captainProfile ? profileOf(captainProfile) : null;
+  return { did, handle: GUARD_ACTOR, guards, captain };
 }

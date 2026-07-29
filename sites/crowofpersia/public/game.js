@@ -43,6 +43,19 @@ const GUARD_RESPAWN_DELAY = 5; // seconds before a downed guard's spot refills
 const MAX_ACTIVE_GUARDS = 26;
 const SITE_URL = "https://bisks.net/games/crowofpersia";
 
+// guard aggro — patrol guards notice a nearby crow, freeze for a beat
+// (telegraphed with a "!"), then lunge within their own patrol footprint
+// instead of just pacing past you.
+const ALERT_RANGE = TILE * 4.2;
+const LOSE_RANGE = TILE * 6.5;
+const ALERT_DELAY = 0.3; // seconds frozen before the lunge starts
+const CHASE_MULT = 2.1; // speed multiplier while chasing
+
+// the captain — GUARD_ACTOR's own face, standing at the gate. Two pecks to
+// put down, and the gate stays shut until the captain falls.
+const BOSS_HP = 2;
+const BOSS_SCALE = 1.35;
+
 function hashInt(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
@@ -121,7 +134,14 @@ function buildLevel() {
   }
   for (let i = col; i < LEVEL_COLS; i++) ground[i] = row;
   const gateCol = LEVEL_COLS - 2;
-  return { ground, spikes, guardSpawns, gateCol, widthPx: LEVEL_COLS * TILE };
+  // the captain patrols the guaranteed-flat runway right before the gate.
+  const bossSpec = {
+    fromCol: LEVEL_COLS - END_RUNWAY,
+    toCol: gateCol - 1,
+    row,
+    isBoss: true,
+  };
+  return { ground, spikes, guardSpawns, gateCol, widthPx: LEVEL_COLS * TILE, bossSpec };
 }
 
 function topYAt(level, col) {
@@ -148,6 +168,7 @@ const overTitle = document.getElementById("over-title");
 const overCopy = document.getElementById("over-copy");
 const againBtn = document.getElementById("again-btn");
 const shareBtn = document.getElementById("share-btn");
+const muteBtn = document.getElementById("mute-btn");
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2);
 canvas.width = CANVAS_W * dpr;
@@ -157,8 +178,11 @@ canvas.style.aspectRatio = `${CANVAS_W} / ${CANVAS_H}`;
 // ---- state ----------------------------------------------------------------
 let roster = []; // full guard pool from cluster.js
 let rosterIdx = 0;
+let captainEntry = null; // GUARD_ACTOR's own profile — the boss's face
 let level = null;
 let guards = []; // active guard instances
+let bossGuard = null; // the captain, also present in `guards`
+let gateBlockedCooldown = 0; // throttles the "captain blocks the way" nudge
 let player = null;
 let particles = [];
 let running = false;
@@ -178,6 +202,120 @@ let outcome = null; // "won" | "dead" | "time"
 function setStatus(msg, isError) {
   statusEl.textContent = msg || "";
   statusEl.classList.toggle("error", !!isError);
+}
+
+// ---- audio --------------------------------------------------------------
+// Tiny procedural SFX — no asset files, just oscillators + noise bursts
+// gated by a mute toggle. AudioContext is created lazily on first user
+// gesture (mobile browsers refuse to start it any earlier).
+let actx = null;
+let masterGain = null;
+let muted = false;
+try {
+  muted = localStorage.getItem("crowofpersia:muted") === "1";
+} catch {}
+
+function ensureAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  if (!actx) {
+    actx = new AC();
+    masterGain = actx.createGain();
+    masterGain.gain.value = 0.5;
+    masterGain.connect(actx.destination);
+  } else if (actx.state === "suspended") {
+    actx.resume();
+  }
+}
+
+function setMuted(v) {
+  muted = v;
+  try {
+    localStorage.setItem("crowofpersia:muted", muted ? "1" : "0");
+  } catch {}
+  if (muteBtn) {
+    muteBtn.textContent = muted ? "\u{1F507}" : "\u{1F50A}";
+    muteBtn.setAttribute("aria-pressed", String(muted));
+  }
+}
+if (muteBtn) {
+  setMuted(muted);
+  muteBtn.addEventListener("click", () => {
+    ensureAudio();
+    setMuted(!muted);
+  });
+}
+
+function tone({ type = "sine", f0, f1 = f0, dur = 0.12, peak = 0.4, delay = 0 }) {
+  if (!actx || muted) return;
+  const t0 = actx.currentTime + delay;
+  const o = actx.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t0);
+  if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t0 + dur);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g);
+  g.connect(masterGain);
+  o.start(t0);
+  o.stop(t0 + dur + 0.02);
+}
+
+function noiseBurst(dur = 0.15, peak = 0.35) {
+  if (!actx || muted) return;
+  const t0 = actx.currentTime;
+  const n = Math.max(1, Math.floor(actx.sampleRate * dur));
+  const buf = actx.createBuffer(1, n, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = actx.createBufferSource();
+  src.buffer = buf;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(peak, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(g);
+  g.connect(masterGain);
+  src.start(t0);
+}
+
+function sndJump() {
+  tone({ type: "triangle", f0: 420, f1: 680, dur: 0.11, peak: 0.3 });
+}
+function sndPeck() {
+  tone({ type: "square", f0: 900, f1: 300, dur: 0.06, peak: 0.28 });
+}
+function sndGuardDown() {
+  tone({ type: "sawtooth", f0: 220, f1: 80, dur: 0.18, peak: 0.35 });
+  noiseBurst(0.08, 0.22);
+}
+function sndBossHit() {
+  tone({ type: "square", f0: 160, f1: 90, dur: 0.22, peak: 0.4 });
+  noiseBurst(0.12, 0.28);
+}
+function sndBossDown() {
+  [0, 0.09, 0.18].forEach((delay, i) =>
+    tone({ type: "sawtooth", f0: 180 + i * 140, dur: 0.22, peak: 0.38, delay }),
+  );
+}
+function sndAlert() {
+  tone({ type: "square", f0: 720, dur: 0.08, peak: 0.22 });
+}
+function sndHurt() {
+  tone({ type: "sawtooth", f0: 180, f1: 60, dur: 0.25, peak: 0.4 });
+  noiseBurst(0.15, 0.28);
+}
+function sndWin() {
+  [0, 0.12, 0.24, 0.38].forEach((delay, i) =>
+    tone({ type: "triangle", f0: 392 * Math.pow(2, (i * 4) / 12), dur: 0.24, peak: 0.36, delay }),
+  );
+}
+function sndTimeUp() {
+  tone({ type: "sine", f0: 300, f1: 120, dur: 0.5, peak: 0.35 });
+}
+function sndDead() {
+  tone({ type: "sawtooth", f0: 140, f1: 40, dur: 0.55, peak: 0.4 });
 }
 
 function bestKey(kind) {
@@ -209,18 +347,25 @@ function nextRosterEntry() {
 }
 
 function spawnGuardAt(spec) {
-  const entry = nextRosterEntry();
+  const isBoss = !!spec.isBoss;
+  const entry = isBoss ? captainEntry : nextRosterEntry();
   const startCol = randInt(spec.fromCol, spec.toCol);
   return {
     spec,
     entry,
     img: entry ? loadImg(entry.avatar) : null,
     hue: entry ? hue(entry.did) : hue(String(spec.fromCol)),
-    initial: ((entry && (entry.displayName || entry.handle)) || "?")[0].toUpperCase(),
+    initial: ((entry && (entry.displayName || entry.handle)) || (isBoss ? "C" : "?"))[0].toUpperCase(),
     x: startCol * TILE + TILE / 2,
     row: spec.row,
     dir: Math.random() < 0.5 ? -1 : 1,
-    speed: rand(50, 95),
+    speed: isBoss ? rand(60, 72) : rand(50, 95),
+    hw: isBoss ? GUARD_HW * BOSS_SCALE : GUARD_HW,
+    hp: isBoss ? BOSS_HP : 1,
+    maxHp: isBoss ? BOSS_HP : 1,
+    state: "patrol", // "patrol" | "alert" | "chase"
+    alertT: 0,
+    flash: 0,
     alive: true,
     respawnIn: 0,
     facing: 1,
@@ -229,6 +374,8 @@ function spawnGuardAt(spec) {
 
 function buildGuards() {
   guards = level.guardSpawns.slice(0, MAX_ACTIVE_GUARDS).map(spawnGuardAt);
+  bossGuard = spawnGuardAt(level.bossSpec);
+  guards.push(bossGuard);
 }
 
 // ---- player / physics -----------------------------------------------------
@@ -300,16 +447,25 @@ function updatePlayer(dt) {
 }
 
 function tryJump() {
+  ensureAudio();
   if (player.grounded) {
     player.vy = JUMP_V;
     player.grounded = false;
+    sndJump();
   }
 }
 
+let peckHitGuards = new Set(); // guards already hit by the current swing — a
+// multi-hp guard (the captain) must not lose more than one hit per peck,
+// even though the hitbox stays live across several frames.
+
 function tryPeck() {
+  ensureAudio();
   if (peckCooldown > 0) return;
   peckCooldown = PECK_COOLDOWN;
   peckTimer = PECK_ACTIVE;
+  peckHitGuards.clear();
+  sndPeck();
 }
 
 function resolvePeckHits() {
@@ -318,25 +474,41 @@ function resolvePeckHits() {
   const lo = Math.min(player.x, reachX) - 6;
   const hi = Math.max(player.x, reachX) + 6;
   for (const g of guards) {
-    if (!g.alive) continue;
-    if (g.x + GUARD_HW < lo || g.x - GUARD_HW > hi) continue;
+    if (!g.alive || peckHitGuards.has(g)) continue;
+    if (g.x + g.hw < lo || g.x - g.hw > hi) continue;
     if (Math.abs(g.row - Math.round((player.y - GROUND_BASE_Y) / TILE)) > 0) continue;
+    peckHitGuards.add(g);
     downGuard(g);
   }
 }
 
 function downGuard(g) {
+  const isBoss = !!g.spec.isBoss;
+  g.hp--;
+  if (isBoss && g.hp > 0) {
+    g.flash = 0.25;
+    sndBossHit();
+    addParticle(`the captain staggers! (${g.hp} hit${g.hp === 1 ? "" : "s"} left)`, g.x, rowY(g.row) - 30, "#ffd166");
+    return;
+  }
   g.alive = false;
   g.respawnIn = GUARD_RESPAWN_DELAY;
   score++;
   scoreEl.textContent = String(score);
-  addParticle(`+1 pecked @${(g.entry && g.entry.handle) || "guard"}`, g.x, rowY(g.row) - 24, "#ffd166");
+  if (isBoss) {
+    sndBossDown();
+    addParticle("the captain falls — the gate is open!", g.x, rowY(g.row) - 30, "#ffd166");
+  } else {
+    sndGuardDown();
+    addParticle(`+1 pecked @${(g.entry && g.entry.handle) || "guard"}`, g.x, rowY(g.row) - 24, "#ffd166");
+  }
 }
 
 function hurtPlayer() {
   invuln = INVULN_TIME;
   lives--;
   updateLivesHud();
+  sndHurt();
   addParticle("ouch!", player.x, player.y - 30, "#ff6b6b");
   if (lives <= 0) {
     endGame("dead");
@@ -350,6 +522,7 @@ function fellIn() {
   invuln = INVULN_TIME;
   lives--;
   updateLivesHud();
+  sndHurt();
   addParticle("into the pit!", checkpoint ? checkpoint.x : player.x, CANVAS_H - 40, "#ff6b6b");
   if (lives <= 0) {
     endGame("dead");
@@ -371,31 +544,58 @@ function updateLivesHud() {
 }
 
 function updateGuards(dt) {
+  const playerRow = Math.round((player.y - GROUND_BASE_Y) / TILE);
   for (const g of guards) {
     if (!g.alive) {
+      if (g.spec.isBoss) continue; // the captain stays down once beaten
       g.respawnIn -= dt;
       if (g.respawnIn <= 0 && Math.abs(g.x - player.x) > TILE * 3) {
         Object.assign(g, spawnGuardAt(g.spec));
       }
       continue;
     }
-    const lo = g.spec.fromCol * TILE + GUARD_HW + 4;
-    const hi = (g.spec.toCol + 1) * TILE - GUARD_HW - 4;
-    g.x += g.dir * g.speed * dt;
-    if (g.x <= lo) {
-      g.x = lo;
-      g.dir = 1;
-    } else if (g.x >= hi) {
-      g.x = hi;
-      g.dir = -1;
+
+    if (g.flash > 0) g.flash -= dt;
+
+    const sameRow = g.row === playerRow;
+    const dist = Math.abs(g.x - player.x);
+
+    if (g.state === "patrol" && sameRow && dist < ALERT_RANGE) {
+      g.state = "alert";
+      g.alertT = ALERT_DELAY;
+      g.dir = Math.sign(player.x - g.x) || g.dir;
+      sndAlert();
+      addParticle("!", g.x, rowY(g.row) - 46, "#ffd166");
+    } else if (g.state === "alert") {
+      g.alertT -= dt;
+      if (g.alertT <= 0) g.state = "chase";
+    } else if (g.state === "chase" && (!sameRow || dist > LOSE_RANGE)) {
+      g.state = "patrol";
     }
+
+    const lo = g.spec.fromCol * TILE + g.hw + 4;
+    const hi = (g.spec.toCol + 1) * TILE - g.hw - 4;
+
+    if (g.state === "chase") {
+      g.dir = Math.sign(player.x - g.x) || g.dir;
+      g.x = clamp(g.x + g.dir * g.speed * CHASE_MULT * dt, lo, hi);
+    } else if (g.state === "patrol") {
+      g.x += g.dir * g.speed * dt;
+      if (g.x <= lo) {
+        g.x = lo;
+        g.dir = 1;
+      } else if (g.x >= hi) {
+        g.x = hi;
+        g.dir = -1;
+      }
+    }
+    // "alert" state: frozen mid-lunge, facing already set toward the player
     g.facing = g.dir;
 
     // contact damage
     if (invuln <= 0) {
-      const sameRow = g.row === Math.round((player.y - GROUND_BASE_Y) / TILE);
       const dx = Math.abs(g.x - player.x);
-      if (sameRow && dx < (GUARD_HW + PLAYER_HW) * 0.85) hurtPlayer();
+      if (sameRow && dx < (g.hw + PLAYER_HW) * 0.85) hurtPlayer();
     }
   }
 }
@@ -472,16 +672,20 @@ function drawTorch(x, y, t) {
   ctx.fill();
 }
 
-function drawGate(x, t) {
+function drawGate(x, t, open) {
   ctx.fillStyle = "#5a4326";
   ctx.fillRect(x - 4, 0, TILE + 8, CANVAS_H);
   const bob = Math.sin(t * 1.4) * 2;
-  ctx.fillStyle = "#d4af37";
+  ctx.fillStyle = open ? "#d4af37" : "#8a3a3a";
   for (let i = 0; i < 6; i++) {
     ctx.fillRect(x + 4 + i * 6, bob, 3, CANVAS_H);
   }
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fillRect(x - 4, 0, TILE + 8, 10);
+  if (!open) {
+    ctx.fillStyle = "rgba(122,44,44,0.3)";
+    ctx.fillRect(x - 4, 0, TILE + 8, CANVAS_H);
+  }
 }
 
 function drawCrow(x, y, facing, grounded, vy, hitFlash) {
@@ -557,17 +761,20 @@ function drawCrow(x, y, facing, grounded, vy, hitFlash) {
 function drawGuard(g) {
   const x = g.x - camX;
   const y = rowY(g.row);
-  if (x < -40 || x > CANVAS_W + 40) return;
+  if (x < -60 || x > CANVAS_W + 60) return;
+  const isBoss = !!g.spec.isBoss;
+  const S = isBoss ? BOSS_SCALE : 1;
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(g.facing || 1, 1);
+  ctx.scale((g.facing || 1) * S, S);
+  if (g.flash > 0) ctx.globalAlpha = 0.4 + 0.6 * Math.sin(performance.now() / 30);
 
   // legs
   ctx.fillStyle = "#20324a";
   ctx.fillRect(-8, -14, 6, 14);
   ctx.fillRect(2, -14, 6, 14);
   // tunic
-  ctx.fillStyle = "#2c4d7a";
+  ctx.fillStyle = isBoss ? "#7a2c2c" : "#2c4d7a";
   ctx.beginPath();
   ctx.moveTo(-10, -14);
   ctx.lineTo(10, -14);
@@ -612,6 +819,18 @@ function drawGuard(g) {
     ctx.fillText(g.initial, 0, -37);
   }
   ctx.restore();
+
+  if (isBoss) {
+    const pipW = 8;
+    const gap = 3;
+    const total = g.maxHp * pipW + (g.maxHp - 1) * gap;
+    let px = x - total / 2;
+    for (let i = 0; i < g.maxHp; i++) {
+      ctx.fillStyle = i < g.hp ? "#ffd166" : "rgba(255,255,255,0.18)";
+      ctx.fillRect(px, y - 62 * S, pipW, 4);
+      px += pipW + gap;
+    }
+  }
 }
 
 function render(t) {
@@ -639,7 +858,7 @@ function render(t) {
     drawBrickCol(x, rowY(g));
     if (level.spikes.has(c)) drawSpikeTile(x, rowY(g));
     if (c % 5 === 2) drawTorch(x + TILE / 2, rowY(g) - TILE, t / 1000);
-    if (c === level.gateCol) drawGate(x, t / 1000);
+    if (c === level.gateCol) drawGate(x, t / 1000, !bossGuard || !bossGuard.alive);
   }
 
   for (const g of guards) if (g.alive) drawGuard(g);
@@ -685,8 +904,16 @@ function update(dt) {
     return;
   }
 
+  if (gateBlockedCooldown > 0) gateBlockedCooldown -= dt;
   if (player.x >= level.gateCol * TILE) {
-    endGame("won");
+    if (!bossGuard || !bossGuard.alive) {
+      endGame("won");
+      return;
+    }
+    if (gateBlockedCooldown <= 0) {
+      addParticle("the captain blocks the way!", bossGuard.x, rowY(bossGuard.row) - 50, "#ff8b7f");
+      gateBlockedCooldown = 2.5;
+    }
   }
 }
 
@@ -717,14 +944,17 @@ function endGame(kind) {
   bestEl.textContent = String(newBestScore ? score : best);
 
   if (kind === "won") {
+    sndWin();
     overTitle.textContent = "escaped!";
     overCopy.textContent = newBestTime
-      ? `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked — new best time.`
-      : `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked.`;
+      ? `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked, the captain put down — new best time.`
+      : `out the gate in ${elapsed.toFixed(1)}s, ${score} guards pecked, the captain put down.`;
   } else if (kind === "dead") {
+    sndDead();
     overTitle.textContent = "caught.";
     overCopy.textContent = `the guards got you. ${score} pecked before you went down.`;
   } else {
+    sndTimeUp();
     overTitle.textContent = "time's up.";
     overCopy.textContent = `the dungeon clock ran out. ${score} guards pecked.`;
   }
@@ -745,6 +975,7 @@ function resetLevel() {
   peckCooldown = 0;
   peckTimer = 0;
   camX = 0;
+  gateBlockedCooldown = 0;
   outcome = null;
   scoreEl.textContent = "0";
   timeEl.textContent = String(GAME_SECONDS);
@@ -753,6 +984,7 @@ function resetLevel() {
 }
 
 function startGame() {
+  ensureAudio();
   resetLevel();
   startOverlay.classList.add("hidden");
   overOverlay.classList.add("hidden");
@@ -835,6 +1067,7 @@ async function boot() {
   try {
     const r = await loadGuardRoster({ onStep: (s) => setStatus(s) });
     roster = r.guards.sort(() => Math.random() - 0.5);
+    captainEntry = r.captain;
   } catch (e) {
     roster = [];
     setStatus(`couldn't load guard faces (${e.message}) — playing with placeholders.`, true);
@@ -844,7 +1077,7 @@ async function boot() {
   render(performance.now());
   bestEl.textContent = String(getBestScore());
   startCopy.textContent = roster.length
-    ? `${roster.length} of @${GUARD_ACTOR}'s follows stand guard. peck them, don't let them catch you.`
+    ? `${roster.length} of @${GUARD_ACTOR}'s follows stand guard — get close and they'll notice you. @${GUARD_ACTOR} themself blocks the gate as the captain; two pecks puts them down.`
     : `couldn't load @${GUARD_ACTOR}'s follows — the guards go faceless this run.`;
   setStatus("");
   startOverlay.classList.remove("hidden");
