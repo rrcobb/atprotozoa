@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Without this, hitting /topchicken (no trailing slash) resolves module
+         imports like "./lib/scan.js" to /lib/scan.js instead of
+         /topchicken/lib/scan.js, 404ing outside this Worker's route. -->
+    <base href="/topchicken/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>top chicken — who in your network won yesterday</title>
+    <meta name="description" content="Enter a Bluesky handle: top chicken pulls their followers + who they follow, scans everyone's posts from the previous UTC day, and crowns whoever got the most likes 'top chicken' for that handle." />
+    <meta property="og:title" content="top chicken — who in your network won yesterday" />
+    <meta property="og:description" content="Enter a handle. top chicken scans its whole network's posts from yesterday (UTC) and finds the single most-liked one." />
+    <meta property="og:image" content="https://bisks.net/topchicken/og.png" />
+    <meta property="og:url" content="https://bisks.net/topchicken" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="top chicken — who in your network won yesterday" />
+    <meta name="twitter:description" content="Enter a handle. top chicken scans its whole network's posts from yesterday (UTC) and finds the single most-liked one." />
+    <meta name="twitter:image" content="https://bisks.net/topchicken/og.png" />
+    <style>
+      :root {
+        --bg:#15100a; --panel:#1f1810; --panel2:#291f14; --ink:#f7f0e2;
+        --muted:#a8967d; --faint:#33271a; --accent:#f4b400; --accent2:#e2571f;
+        --like:#ff5c6c; --good:#7bc47f;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #2c2010, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:640px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:56ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#7a6a54; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#1a1206; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:#ff6b6b; }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.4rem; }
+      .examples a { cursor:pointer; }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .profile { display:none; align-items:center; gap:0.75rem; margin:0.4rem 0 1.4rem;
+        padding-bottom:1.2rem; border-bottom:1px solid var(--faint); }
+      .profile.show { display:flex; }
+      .profile img { width:52px; height:52px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .profile .pname { font-weight:800; font-size:1.02rem; line-height:1.25; }
+      .profile .phandle { color:var(--muted); font-size:0.85rem; }
+      .profile .pcount { margin-left:auto; text-align:right; color:var(--muted);
+        font-size:0.76rem; font-family:var(--mono); line-height:1.4; }
+
+      .winnerWrap { display:none; }
+      .winnerWrap.show { display:block; }
+      .ribbon { display:inline-flex; align-items:center; gap:0.4rem; font-family:var(--mono);
+        font-weight:800; font-size:0.78rem; letter-spacing:0.03em; color:#1a1206;
+        background:var(--accent); border-radius:999px; padding:0.35rem 0.75rem; margin-bottom:0.8rem; }
+      .daylabel { color:var(--muted); font-size:0.82rem; margin-bottom:0.9rem; }
+
+      .row { display:flex; gap:0.85rem; background:var(--panel); border:1px solid var(--faint);
+        border-radius:15px; padding:0.95rem 1rem; margin-bottom:0.9rem; align-items:flex-start; }
+      .row.winner { border-color:rgba(244,180,0,0.55);
+        background:linear-gradient(180deg, rgba(244,180,0,0.1), var(--panel)); }
+      .row .avatar { width:44px; height:44px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .row.winner .avatar { width:56px; height:56px; }
+      .body { flex:1; min-width:0; }
+      .who { display:flex; align-items:baseline; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.3rem; }
+      .who .dn { font-weight:800; }
+      .who .hd { color:var(--muted); font-size:0.85em; }
+      .text { font-size:0.98rem; line-height:1.5; white-space:pre-wrap; overflow-wrap:break-word;
+        word-break:break-word; }
+      .postimg { margin-top:0.6rem; border-radius:11px; max-width:100%; max-height:280px;
+        border:1px solid var(--faint); display:block; }
+      .meta { display:flex; flex-wrap:wrap; gap:0.85rem; margin-top:0.65rem; color:var(--muted);
+        font-size:0.82rem; font-variant-numeric:tabular-nums; align-items:center; }
+      .meta .likes { color:var(--like); font-weight:700; }
+      .row.winner .meta .likes { font-size:1.1rem; }
+      .meta a.permalink { color:var(--muted); }
+
+      .pecking { margin:1.6rem 0 0; }
+      .pecking h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;
+        color:var(--muted); margin:0 0 0.7rem; font-weight:700; }
+      .prow { display:flex; align-items:center; gap:0.6rem; padding:0.5rem 0;
+        border-bottom:1px solid var(--faint); font-size:0.86rem; }
+      .prow:last-child { border-bottom:none; }
+      .prow .rk { color:var(--muted); font-family:var(--mono); width:1.4rem; flex:none; }
+      .prow img { width:26px; height:26px; border-radius:50%; background:var(--faint); flex:none; object-fit:cover; }
+      .prow .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .prow .lk { color:var(--like); font-weight:700; font-variant-numeric:tabular-nums; }
+
+      .share { display:none; margin:1.4rem 0 1rem; flex-wrap:wrap; gap:0.55rem; }
+      .share.show { display:flex; }
+      .share button, .share a.btn { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.5rem 0.85rem;
+        cursor:pointer; text-decoration:none; }
+      .share button:hover, .share a.btn:hover { color:var(--ink); border-color:var(--accent); text-decoration:none; }
+      .share a.compose { color:#1a1206; background:var(--accent); border-color:var(--accent); font-weight:700; }
+      .share a.compose:hover { color:#1a1206; }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🐔 top chicken</h1>
+      <p class="sub">
+        Enter a handle. We pull everyone they <b>follow</b> and everyone who
+        <b>follows them</b>, look at every post that whole network made
+        <b>yesterday</b> (00:00–23:59 UTC), and crown whoever got the most
+        likes the top chicken.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. mrcheeze.github.io" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">find the chicken</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="mrcheeze.github.io">mrcheeze</a> ·
+        <a data-h="gracekind.net">gracekind.net</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a> ·
+        <a data-h="bsky.app">bsky.app</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+        <div class="pcount" id="pcount"></div>
+      </div>
+
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="winnerWrap" id="winnerWrap">
+        <div class="ribbon">🐔 TOP CHICKEN</div>
+        <div class="daylabel" id="daylabel"></div>
+        <div id="winnerRow"></div>
+
+        <div class="pecking" id="pecking" style="display:none">
+          <h3>the pecking order</h3>
+          <div id="peckingList"></div>
+        </div>
+
+        <div class="share" id="share">
+          <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
+          <button id="shareDownload">⬇ download card</button>
+          <button id="shareNative" style="display:none">📤 share</button>
+          <button id="copyLink">🔗 copy link</button>
+        </div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+      <p class="note">
+        Reads only public data (Bluesky's anonymous AppView — <code>getFollows</code>,
+        <code>getFollowers</code>, <code>getAuthorFeed</code>). Network is capped at
+        the first 250 accounts found (follows ∪ followers); each is scanned up to
+        ~500 recent items looking for anything posted in the previous UTC day.
+        Reposts don't count, only what an account actually wrote. Nothing is
+        posted or changed — it just reads.
+      </p>
+      <p class="credit">asked for by <a href="https://bsky.app/profile/dave.9000ish.uk">@dave.9000ish.uk</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveNetwork } from "./lib/network.js";
+      import { findTopChicken, previousUtcDay } from "./lib/scan.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const profile = document.getElementById("profile");
+      const progwrap = document.getElementById("progwrap");
+      const progbarfill = document.getElementById("progbarfill");
+      const proglabel = document.getElementById("proglabel");
+      const winnerWrap = document.getElementById("winnerWrap");
+      const daylabel = document.getElementById("daylabel");
+      const winnerRow = document.getElementById("winnerRow");
+      const pecking = document.getElementById("pecking");
+      const peckingList = document.getElementById("peckingList");
+      const share = document.getElementById("share");
+      const shareCanvas = document.getElementById("shareCanvas");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function embedImage(post) {
+        const e = post.embed;
+        if (!e) return null;
+        const t = e.$type || "";
+        if (t.includes("images#view") && e.images && e.images[0]) return e.images[0].thumb;
+        if (t.includes("recordWithMedia#view") && e.media && e.media.images && e.media.images[0])
+          return e.media.images[0].thumb;
+        if (t.includes("external#view") && e.external && e.external.thumb) return e.external.thumb;
+        if (t.includes("video#view") && e.thumbnail) return e.thumbnail;
+        return null;
+      }
+
+      function bskyLink(post) {
+        const uri = post.uri || "";
+        const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+        if (!m) return "https://bsky.app";
+        return `https://bsky.app/profile/${post.author?.handle || m[1]}/post/${m[2]}`;
+      }
+
+      function dayLabelFor(startMs) {
+        const d = new Date(startMs);
+        return d.toLocaleDateString(undefined, { timeZone: "UTC", year: "numeric", month: "long", day: "numeric" }) + " (UTC)";
+      }
+
+      function winnerHTML(post) {
+        const a = post.author || {};
+        const rec = post.record || {};
+        const img = embedImage(post);
+        const likes = post.likeCount || 0;
+        return `
+          <div class="row winner">
+            <img class="avatar" src="${esc(a.avatar || "")}" alt="" referrerpolicy="no-referrer" />
+            <div class="body">
+              <div class="who">
+                <span class="dn">${esc(a.displayName || a.handle || "")}</span>
+                <span class="hd">@${esc(a.handle || "")}</span>
+              </div>
+              <div class="text">${esc(rec.text || "") || "<em style='color:var(--muted)'>(no text)</em>"}</div>
+              ${img ? `<img class="postimg" src="${esc(img)}" alt="" referrerpolicy="no-referrer" loading="lazy" />` : ""}
+              <div class="meta">
+                <span class="likes">♥ ${likes.toLocaleString()} likes</span>
+                <a class="permalink" href="${bskyLink(post)}" target="_blank" rel="noopener">open ↗</a>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function peckingRowHTML(post, i) {
+        const a = post.author || {};
+        return `
+          <div class="prow">
+            <span class="rk">#${i + 2}</span>
+            <img src="${esc(a.avatar || "")}" alt="" referrerpolicy="no-referrer" />
+            <span class="nm">${esc(a.displayName || a.handle || "")} <span style="color:var(--muted)">@${esc(a.handle || "")}</span></span>
+            <span class="lk">♥ ${(post.likeCount || 0).toLocaleString()}</span>
+          </div>`;
+      }
+
+      function renderProfile(net) {
+        document.getElementById("pavatar").src = net.self.avatar || "";
+        document.getElementById("pname").textContent = net.self.displayName || net.self.handle || "";
+        document.getElementById("phandle").textContent = "@" + (net.self.handle || "");
+        const truncNote = net.truncated ? ` (scanning first ${net.pool.length})` : "";
+        document.getElementById("pcount").innerHTML =
+          `${net.followingCount.toLocaleString()} following · ${net.followerCount.toLocaleString()} followers<br>` +
+          `${net.pool.length.toLocaleString()} in network${truncNote}`;
+        profile.classList.add("show");
+      }
+
+      async function loadImg(url) {
+        if (!url) return null;
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = (text || "").split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (maxLines && lines >= maxLines - 1) { line += "…"; break; }
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      async function buildShareCard(net, post, dayStr) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        const a = post.author || {};
+        const rec = post.record || {};
+        const avatar = await loadImg(a.avatar);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#15100a";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, -H * 0.15, 0, W * 0.5, -H * 0.15, W * 0.6);
+        glow.addColorStop(0, "#3a2810");
+        glow.addColorStop(1, "rgba(21,16,10,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#f4b400";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("🐔 top chicken", 60, 96);
+
+        ctx.fillStyle = "#a8967d";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(`@${net.self.handle || ""}'s network · ${dayStr}`, 60, 132);
+
+        const cardX = 60, cardY = 168, cardW = W - 120, cardH = H - 228;
+        ctx.fillStyle = "#1f1810";
+        ctx.strokeStyle = "#33271a";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        let textX = cardX + 40;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cardX + 70, cardY + 62, 30, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, cardX + 40, cardY + 32, 60, 60);
+          ctx.restore();
+          textX = cardX + 114;
+        }
+        ctx.fillStyle = "#f7f0e2";
+        ctx.font = `800 26px ${mono}`;
+        ctx.fillText(a.displayName || a.handle || "", textX, cardY + 54);
+        ctx.fillStyle = "#a8967d";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText("@" + (a.handle || ""), textX, cardY + 82);
+
+        ctx.fillStyle = "#f7f0e2";
+        ctx.font = `400 22px ${mono}`;
+        wrapCanvasText(ctx, rec.text || "(no text)", cardX + 40, cardY + 138, cardW - 80, 32, 6);
+
+        ctx.fillStyle = "#ff5c6c";
+        ctx.font = `800 30px ${mono}`;
+        ctx.fillText(`♥ ${(post.likeCount || 0).toLocaleString()} likes`, cardX + 40, cardY + cardH - 34);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#f4b400";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/topchicken", 60, H - 40);
+      }
+
+      function buildShareText(net, post, dayStr) {
+        const a = post.author || {};
+        const url = "https://bisks.net/topchicken?handle=" + encodeURIComponent(net.self.handle);
+        const head = `🐔 top chicken in @${net.self.handle}'s network for ${dayStr}: @${a.handle} — ${(post.likeCount || 0).toLocaleString()} likes\n`;
+        const tail = `\n${url}`;
+        const budget = 300 - head.length - tail.length - 4;
+        let snippet = (post.record && post.record.text || "").trim().replace(/\s+/g, " ");
+        if (snippet.length > budget) snippet = snippet.slice(0, Math.max(0, budget - 1)).trimEnd() + "…";
+        return head + (snippet ? `“${snippet}”` : "") + tail;
+      }
+
+      let lastShareText = "";
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        profile.classList.remove("show");
+        progwrap.classList.remove("show");
+        winnerWrap.classList.remove("show");
+        share.classList.remove("show");
+        pecking.style.display = "none";
+        peckingList.innerHTML = "";
+        winnerRow.innerHTML = "";
+
+        try {
+          statusEl.textContent = "resolving handle…";
+          const net = await resolveNetwork(rawHandle, {
+            onStep: (msg) => { statusEl.textContent = msg; },
+          });
+          renderProfile(net);
+
+          if (!net.pool.length) throw new Error("no one in that network to scan");
+
+          const { start, end } = previousUtcDay();
+          const dayStr = dayLabelFor(start);
+          progwrap.classList.add("show");
+          statusEl.textContent = `scanning ${net.pool.length.toLocaleString()} accounts for ${dayStr}…`;
+
+          const result = await findTopChicken(net.pool, start, end, {
+            onProgress: (done, total) => {
+              const pct = Math.round((done / total) * 100);
+              progbarfill.style.width = pct + "%";
+              proglabel.textContent = `${done.toLocaleString()} / ${total.toLocaleString()} accounts scanned`;
+            },
+          });
+
+          progwrap.classList.remove("show");
+
+          if (!result.winner) {
+            statusEl.textContent = `nobody in @${net.self.handle}'s network posted anything on ${dayStr} — quiet coop.`;
+            busy = false;
+            go.disabled = false;
+            return;
+          }
+
+          statusEl.textContent = "";
+          daylabel.textContent = `in @${net.self.handle}'s network — ${dayStr}`;
+          winnerRow.innerHTML = winnerHTML(result.winner);
+          if (result.runnersUp.length) {
+            peckingList.innerHTML = result.runnersUp.map(peckingRowHTML).join("");
+            pecking.style.display = "block";
+          }
+          winnerWrap.classList.add("show");
+          share.classList.add("show");
+
+          lastShareText = buildShareText(net, result.winner, dayStr);
+          document.getElementById("shareBluesky").href =
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(net, result.winner, dayStr);
+
+          const url = new URL(location.href);
+          url.searchParams.set("handle", net.self.handle);
+          history.replaceState(null, "", url);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't scan that: " + e.message;
+          progwrap.classList.remove("show");
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+
+      document.getElementById("shareDownload").addEventListener("click", () => {
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "topchicken.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) { return false; }
+      }
+      if (canShareFiles()) {
+        document.getElementById("shareNative").style.display = "";
+        document.getElementById("shareNative").addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "topchicken.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "top chicken" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
