@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<base href="/wikifix/" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>wikifix — correcting all errors in Wikipedia</title>
+<meta name="description" content="Someone is wrong on the internet, specifically on Wikipedia, specifically on every page of it. A live, ongoing, un-finishable effort to fix it. You're helping just by having this tab open." />
+<meta property="og:title" content="wikifix — correcting all errors in Wikipedia" />
+<meta property="og:description" content="Someone is wrong on the internet, specifically on Wikipedia, specifically on every page of it. A live, ongoing, un-finishable effort to fix it." />
+<meta property="og:url" content="https://bisks.net/wikifix" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/wikifix/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="wikifix: a live counter of errors corrected in Wikipedia, ticking up forever, next to a feed of the current correction." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="wikifix — correcting all errors in Wikipedia" />
+<meta name="twitter:description" content="Someone is wrong on the internet, specifically on Wikipedia, specifically on every page of it." />
+<meta name="twitter:image" content="https://bisks.net/wikifix/og.png" />
+<style>
+  :root {
+    --bg: #0d1310;
+    --card: #142019;
+    --border: #24382c;
+    --fg: #eef5ef;
+    --dim: #86a091;
+    --accent: #4fe08a;
+    --accent2: #ffd166;
+    --bad: #ff6b6b;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #12321f 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #2a2a12 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+
+  h1 { font-size: 1.85rem; line-height: 1.25; margin: 0 0 0.35rem; }
+  h1 .fix { color: var(--accent); }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; max-width: 58ch; }
+  .tag b { color: var(--fg); }
+
+  .counter-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.6rem 1.5rem; margin-bottom: 1.25rem; text-align: center;
+  }
+  .counter-label { font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.5rem; }
+  .counter { font-size: clamp(1.8rem, 8vw, 2.7rem); font-weight: 800; color: var(--accent); letter-spacing: -0.01em; }
+  .counter-sub { color: var(--dim); font-size: 0.78rem; margin-top: 0.6rem; }
+  .counter-sub b { color: var(--accent2); }
+
+  .now-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.35rem 1.4rem; margin-bottom: 1.25rem; min-height: 7.5rem;
+  }
+  .now-label { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent2); margin-bottom: 0.55rem; }
+  .now-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.4rem; }
+  .now-title a { color: var(--fg); text-decoration: none; border-bottom: 1px dashed var(--dim); }
+  .now-title a:hover { color: var(--accent); border-color: var(--accent); }
+  .now-fix { color: var(--dim); font-size: 0.88rem; line-height: 1.5; }
+  .now-fix .quote { color: var(--fg); }
+
+  .log-label { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin: 1.6rem 0 0.6rem; }
+  .log { border-top: 1px dashed var(--border); }
+  .log-row {
+    display: flex; gap: 0.6rem; padding: 0.55rem 0; border-bottom: 1px dashed var(--border);
+    font-size: 0.82rem; opacity: 0; animation: rowIn 0.4s ease forwards;
+  }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .log-row .t { color: var(--dim); flex-shrink: 0; width: 4.2em; }
+  .log-row .w { color: var(--accent); flex-shrink: 0; }
+  .log-row .d { color: var(--dim); }
+
+  .share {
+    border-top: 1px dashed var(--border); margin-top: 1.8rem; padding-top: 1.4rem;
+  }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), #2fbf78); color: #06170d; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>wiki<span class="fix">fix</span></h1>
+    <p class="tag">
+      Someone is wrong on the internet, specifically on <b>every page of
+      Wikipedia</b>, specifically right now. This tab is the correction
+      effort. It does not stop, because it cannot finish — Wikipedia gains
+      new errors faster than one tab can fix them. Leave it open. You're
+      helping.
+    </p>
+
+    <div class="counter-card">
+      <div class="counter-label">errors corrected so far</div>
+      <div class="counter" id="counter">0</div>
+      <div class="counter-sub">estimated time to zero remaining errors: <b id="eta">calculating…</b></div>
+    </div>
+
+    <div class="now-card">
+      <div class="now-label">currently correcting</div>
+      <div class="now-title" id="nowTitle">loading an article…</div>
+      <div class="now-fix" id="nowFix"></div>
+    </div>
+
+    <div class="log-label">recent corrections</div>
+    <div class="log" id="log"></div>
+
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 report for duty</a>
+        <button id="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+const SITE_URL = "https://bisks.net/wikifix";
+const API = "https://en.wikipedia.org/w/api.php";
+
+const FIXES = [
+  (t) => `Fixed a stray comma in the second paragraph of <span class="quote">${t}</span>.`,
+  (t) => `Reverted an edit war over whether a word in <span class="quote">${t}</span> should be bolded. It should not.`,
+  (t) => `Un-broke a footnote that's been numbered wrong on <span class="quote">${t}</span> since roughly 2019.`,
+  (t) => `Added [citation needed] to a sentence in <span class="quote">${t}</span>, found a citation, quietly removed it again.`,
+  (t) => `Fixed a disambiguation link on <span class="quote">${t}</span> that was linking to itself.`,
+  (t) => `Corrected capitalization drift in the infobox of <span class="quote">${t}</span>.`,
+  (t) => `Reworded a sentence in <span class="quote">${t}</span> that was, on reflection, already fine. Reworded it back.`,
+  (t) => `Removed a stray HTML comment someone left in the wikitext of <span class="quote">${t}</span> in 2011.`,
+  (t) => `Won an argument about an Oxford comma on <span class="quote">${t}</span>. Historic, personal victory.`,
+  (t) => `Confirmed <span class="quote">${t}</span> was correct the entire time. Corrected it anyway, on principle.`,
+  (t) => `Reconciled two infobox fields on <span class="quote">${t}</span> that have never agreed and never will.`,
+  (t) => `Reverted light vandalism on <span class="quote">${t}</span>: "the" had been replaced with "teh" four times.`,
+  (t) => `Untangled a circular reference where <span class="quote">${t}</span> cites an article that cites <span class="quote">${t}</span>.`,
+  (t) => `Standardized a date format on <span class="quote">${t}</span>. It will drift again by Thursday.`,
+  (t) => `Trimmed a run-on sentence in the lead of <span class="quote">${t}</span> down to two run-on sentences.`,
+  (t) => `Fixed a redirect loop pointing <span class="quote">${t}</span> gently back at itself.`,
+];
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// --- the counter: a monotonically increasing number that survives reloads,
+// backfilling elapsed real time at load so it never goes down. It cannot
+// ever reach zero remaining errors, which is the entire point.
+const STORE_KEY = "wikifix-tally-v1";
+const RATE_PER_SEC = 6.5; // baseline "corrections" per second, purely for vibes
+let tally = 0;
+
+function loadTally() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (_) {}
+  const now = Date.now();
+  if (!saved) {
+    saved = { count: 1248391027, ts: now };
+  } else {
+    const elapsedSec = Math.max(0, (now - saved.ts) / 1000);
+    saved.count += Math.floor(elapsedSec * RATE_PER_SEC);
+    saved.ts = now;
+  }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(saved)); } catch (_) {}
+  return saved.count;
+}
+tally = loadTally();
+
+const counterEl = document.getElementById("counter");
+const etaEl = document.getElementById("eta");
+
+function fmt(n) { return n.toLocaleString("en-US"); }
+
+function renderCounter() {
+  counterEl.textContent = fmt(tally);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ count: tally, ts: Date.now() })); } catch (_) {}
+}
+renderCounter();
+
+setInterval(() => {
+  tally += 1 + Math.floor(Math.random() * 5);
+  renderCounter();
+}, 400);
+
+// ETA grows, because Wikipedia accrues errors faster than this tab fixes
+// them. Ticks up with wall-clock time so it never resolves to zero.
+const etaStart = 46 * 365.25 * 24 * 3600; // ~46 years, an arbitrary large start
+const t0 = Date.now();
+function renderEta() {
+  const grown = etaStart + (Date.now() - t0) / 1000 * 3.1;
+  const years = Math.floor(grown / (365.25 * 24 * 3600));
+  const days = Math.floor((grown % (365.25 * 24 * 3600)) / (24 * 3600));
+  etaEl.textContent = `${fmt(years)} years, ${days} days`;
+}
+renderEta();
+setInterval(renderEta, 1000);
+
+// --- currently correcting: a real random Wikipedia article via the public,
+// CORS-enabled MediaWiki API, paired with a fake but harmless "fix".
+const nowTitleEl = document.getElementById("nowTitle");
+const nowFixEl = document.getElementById("nowFix");
+const logEl = document.getElementById("log");
+
+let currentArticle = null;
+let currentFixText = "";
+
+async function fetchRandomArticle() {
+  const url = `${API}?action=query&generator=random&grnnamespace=0&grnlimit=1&prop=info&inprop=url&format=json&origin=*`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("wikipedia api error " + res.status);
+  const data = await res.json();
+  const pages = (data.query && data.query.pages) || {};
+  const page = Object.values(pages)[0];
+  if (!page || !page.title) throw new Error("no article");
+  return { title: page.title, url: page.fullurl || `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title)}` };
+}
+
+function addLogRow(fixHtml) {
+  const row = document.createElement("div");
+  row.className = "log-row";
+  const time = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const logHtml = fixHtml.replace(/<span class="quote">/g, '<span class="w">');
+  row.innerHTML = `<span class="t">${time}</span><span class="d">${logHtml}</span>`;
+  logEl.prepend(row);
+  while (logEl.children.length > 8) logEl.removeChild(logEl.lastChild);
+}
+
+async function rotateArticle() {
+  try {
+    const article = await fetchRandomArticle();
+    currentArticle = article;
+    currentFixText = pick(FIXES)(escapeHtml(article.title));
+    nowTitleEl.innerHTML = `<a href="${escapeHtml(article.url)}" target="_blank" rel="noopener">${escapeHtml(article.title)}</a>`;
+    nowFixEl.innerHTML = currentFixText;
+    addLogRow(currentFixText);
+    rebuildShare();
+  } catch (e) {
+    nowFixEl.textContent = "wikipedia's api is being difficult. retrying…";
+  }
+}
+rotateArticle();
+setInterval(rotateArticle, 5000);
+
+// --- sharing: intent link with the actual URL baked into the text (not just
+// the unfurl), plus a canvas share card mirroring the live counter.
+const els = {
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+};
+
+let lastShareText = "";
+
+function plainFix(html) {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+function buildShareText() {
+  const articleBit = currentArticle ? ` Right now: ${plainFix(currentFixText)}` : "";
+  return `I have personally corrected ${fmt(tally)} errors on Wikipedia today.${articleBit}\n\n${SITE_URL}`;
+}
+
+function drawShareCard() {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.fillStyle = "#0d1310";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#12321f");
+  glow.addColorStop(1, "rgba(13,19,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#eef5ef";
+  ctx.font = `800 56px ${mono}`;
+  ctx.fillText("wiki", 60, 110);
+  const wikiW = ctx.measureText("wiki").width;
+  ctx.fillStyle = "#4fe08a";
+  ctx.fillText("fix", 60 + wikiW, 110);
+
+  ctx.fillStyle = "#86a091";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("correcting all errors in Wikipedia", 60, 148);
+
+  ctx.strokeStyle = "#24382c";
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#142019";
+  ctx.beginPath();
+  ctx.roundRect(60, 200, W - 120, H - 270, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#86a091";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("ERRORS CORRECTED SO FAR", W / 2, 260);
+
+  ctx.fillStyle = "#4fe08a";
+  ctx.font = `800 80px ${mono}`;
+  ctx.fillText(fmt(tally), W / 2, 350);
+
+  ctx.fillStyle = "#86a091";
+  ctx.font = `400 18px ${mono}`;
+  const fixLine = currentArticle ? `now fixing: ${currentArticle.title}` : "warming up…";
+  ctx.fillText(fixLine, W / 2, 400);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#4fe08a";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("bisks.net/wikifix", 60, H - 40);
+}
+
+function rebuildShare() {
+  lastShareText = buildShareText();
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  drawShareCard();
+}
+rebuildShare();
+setInterval(rebuildShare, 2000);
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "wikifix-progress.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "wikifix-progress.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "wikifix" });
+      } catch (_) {
+        // user cancelled — no-op
+      }
+    }, "image/png");
+  });
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
