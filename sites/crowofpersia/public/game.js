@@ -168,6 +168,8 @@ const overTitle = document.getElementById("over-title");
 const overCopy = document.getElementById("over-copy");
 const againBtn = document.getElementById("again-btn");
 const shareBtn = document.getElementById("share-btn");
+const cardBtn = document.getElementById("card-btn");
+const shareCanvas = document.getElementById("share-canvas");
 const muteBtn = document.getElementById("mute-btn");
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -996,14 +998,236 @@ function startGame() {
 startBtn.addEventListener("click", startGame);
 againBtn.addEventListener("click", startGame);
 
-shareBtn.addEventListener("click", () => {
-  const text =
+// the shareText itself must carry the URL back to the site — not just the
+// page's og:description — so a screenshot or quote-post of the shared text
+// still points somewhere (see notes/45-sharing-and-virality.md).
+function buildShareText() {
+  const line =
     outcome === "won"
       ? `I escaped the crowofpersia dungeon in ${elapsed.toFixed(1)}s, pecking ${score} guards drawn from @${GUARD_ACTOR}'s follows. \u{1F426}⚔️`
       : `I made it ${Math.round((player ? player.x : 0) / TILE)} tiles into the crowofpersia dungeon and pecked ${score} guards before the run ended.`;
-  const intent = `https://bsky.app/intent/compose?text=${encodeURIComponent(`${text} ${SITE_URL}`)}`;
+  return `${line} ${SITE_URL}`;
+}
+
+shareBtn.addEventListener("click", () => {
+  const intent = `https://bsky.app/intent/compose?text=${encodeURIComponent(buildShareText())}`;
   window.open(intent, "_blank", "noopener");
 });
+
+// ---- share card ---------------------------------------------------------
+// A canvas-drawn "screenshot" of the run — dungeon backdrop, the crow, the
+// captain's real face if you beat them, and the run's stats — so sharing
+// hands off an actual image instead of a bare link. Drawn fresh, not reused
+// from the live game canvas (that context is tangled up with camera/physics
+// state); needs `crossOrigin` on any avatar so the canvas stays exportable.
+function loadImgCORS(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function cardTorch(c, x, y) {
+  c.fillStyle = "#3a2a1a";
+  c.fillRect(x - 3, y, 6, 22);
+  const grad = c.createRadialGradient(x, y - 10, 0, x, y - 10, 34);
+  grad.addColorStop(0, "rgba(255,200,90,0.55)");
+  grad.addColorStop(1, "rgba(255,120,40,0)");
+  c.fillStyle = grad;
+  c.beginPath();
+  c.arc(x, y - 10, 34, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = "#ffb347";
+  c.beginPath();
+  c.ellipse(x, y - 12, 5, 11, 0, 0, Math.PI * 2);
+  c.fill();
+}
+
+function cardCrow(c, x, y) {
+  c.save();
+  c.translate(x, y);
+  c.fillStyle = "#14161c";
+  c.beginPath();
+  c.moveTo(-4, -46);
+  c.quadraticCurveTo(-34, -40, -30, -8);
+  c.quadraticCurveTo(-18, -16, -4, -18);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#1c1f27";
+  c.beginPath();
+  c.ellipse(0, -32, 24, 30, 0, 0, Math.PI * 2);
+  c.fill();
+  c.beginPath();
+  c.arc(20, -58, 17, 0, Math.PI * 2);
+  c.fill();
+  c.fillStyle = "#f2a93b";
+  c.beginPath();
+  c.moveTo(34, -60);
+  c.lineTo(62, -55);
+  c.lineTo(34, -49);
+  c.closePath();
+  c.fill();
+  c.fillStyle = "#ffe9b0";
+  c.beginPath();
+  c.arc(25, -62, 3.4, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = "#e0a24a";
+  c.lineWidth = 4;
+  c.beginPath();
+  c.moveTo(-6, -2);
+  c.lineTo(-6, 10);
+  c.moveTo(8, -2);
+  c.lineTo(8, 10);
+  c.stroke();
+  c.restore();
+}
+
+async function buildShareCard(kind) {
+  if (!shareCanvas) return;
+  const c = shareCanvas.getContext("2d");
+  const W = shareCanvas.width;
+  const H = shareCanvas.height;
+  const mono = "ui-monospace, monospace";
+
+  c.clearRect(0, 0, W, H);
+  const bg = c.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#120c08");
+  bg.addColorStop(1, "#05040a");
+  c.fillStyle = bg;
+  c.fillRect(0, 0, W, H);
+
+  // brick rows
+  c.fillStyle = "#2a2016";
+  c.fillRect(0, 0, W, H * 0.62);
+  c.strokeStyle = "rgba(0,0,0,0.35)";
+  for (let y = 0; y < H * 0.62; y += 44) {
+    const offset = ((y / 44) | 0) % 2 === 0 ? 0 : 60;
+    for (let x = -60 + offset; x < W + 120; x += 120) {
+      c.strokeRect(x, y, 116, 40);
+    }
+  }
+  c.fillStyle = "#0a0603";
+  c.fillRect(0, H * 0.62, W, H * 0.38);
+  c.fillStyle = "rgba(201,161,92,0.8)";
+  c.fillRect(0, H * 0.62 - 4, W, 5);
+
+  cardTorch(c, 150, 210);
+  cardTorch(c, 1050, 210);
+
+  const vign = c.createLinearGradient(0, 0, 0, H);
+  vign.addColorStop(0, "rgba(0,0,0,0.5)");
+  vign.addColorStop(0.35, "rgba(0,0,0,0.05)");
+  vign.addColorStop(0.75, "rgba(0,0,0,0.05)");
+  vign.addColorStop(1, "rgba(0,0,0,0.55)");
+  c.fillStyle = vign;
+  c.fillRect(0, 0, W, H);
+
+  cardCrow(c, 560, 500);
+
+  // captain's face, if beaten — the one live, personal touch on the card
+  if (kind === "won" && captainEntry && captainEntry.avatar) {
+    const avatar = await loadImgCORS(captainEntry.avatar);
+    if (avatar) {
+      c.save();
+      c.beginPath();
+      c.arc(700, 466, 30, 0, Math.PI * 2);
+      c.closePath();
+      c.clip();
+      c.drawImage(avatar, 670, 436, 60, 60);
+      c.restore();
+      c.strokeStyle = "#d4af37";
+      c.lineWidth = 3;
+      c.beginPath();
+      c.arc(700, 466, 30, 0, Math.PI * 2);
+      c.stroke();
+    }
+  }
+
+  c.textAlign = "left";
+  c.fillStyle = "#f2e9d8";
+  c.font = `800 60px ${mono}`;
+  c.fillText("crow", 60, 110);
+  c.fillStyle = "#d4af37";
+  c.fillText("ofpersia", 60 + c.measureText("crow").width, 110);
+
+  const headline =
+    kind === "won" ? "escaped the dungeon!" : kind === "dead" ? "caught by the guards." : "the clock ran out.";
+  c.fillStyle = "#a3937a";
+  c.font = `400 21px ${mono}`;
+  c.fillText(headline, 60, 150);
+
+  // stats plate
+  const px = 60, py = H - 150, pw = 620, ph = 90;
+  c.fillStyle = "rgba(10,6,3,0.72)";
+  c.beginPath();
+  c.roundRect(px, py, pw, ph, 14);
+  c.fill();
+  c.strokeStyle = "#33261a";
+  c.lineWidth = 1.5;
+  c.stroke();
+
+  c.fillStyle = "#ffd166";
+  c.font = `700 30px ${mono}`;
+  c.fillText(`${score} pecked`, px + 24, py + 38);
+  if (kind === "won") {
+    c.fillText(`${elapsed.toFixed(1)}s`, px + 24, py + 74);
+  } else {
+    c.fillStyle = "#f2e9d8";
+    c.font = `400 18px ${mono}`;
+    c.fillText(`${Math.round((player ? player.x : 0) / TILE)} tiles in`, px + 24, py + 70);
+  }
+
+  c.textAlign = "left";
+  c.fillStyle = "#a3937a";
+  c.font = `400 16px ${mono}`;
+  c.fillText(`guards wear @${GUARD_ACTOR}'s real follows`, 60, H - 40);
+  c.textAlign = "right";
+  c.fillStyle = "#d4af37";
+  c.font = `700 20px ${mono}`;
+  c.fillText("bisks.net/games/crowofpersia", W - 60, H - 40);
+}
+
+// native share sheet (mobile mostly): hands the card image + text straight
+// to whatever the OS offers. Falls back to a plain download when the
+// platform can't share files (most desktop browsers).
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+if (cardBtn) cardBtn.textContent = canShareFiles() ? "share card" : "save card";
+
+if (cardBtn) {
+  cardBtn.addEventListener("click", () => {
+    buildShareCard(outcome).then(() => {
+      shareCanvas.toBlob(async (blob) => {
+        if (!blob) return;
+        if (canShareFiles()) {
+          const file = new File([blob], "crowofpersia.png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], text: buildShareText(), title: "crowofpersia" });
+          } catch {
+            // cancelled or unsupported mid-flight — no-op
+          }
+        } else {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "crowofpersia.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      }, "image/png");
+    });
+  });
+}
 
 // ---- input ------------------------------------------------------------
 const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
