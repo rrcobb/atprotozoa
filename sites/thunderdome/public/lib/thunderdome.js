@@ -1,4 +1,4 @@
-// thunderdome.js — turn a Bluesky handle into two rosters of skeets for the
+// thunderdome.js — turn a Bluesky handle into two rosters of bisks for the
 // arena: the handle's own posts, and a pool pulled from a handful of its
 // moots (mutuals). Also holds the match math: a weighted-random single-draw
 // bout, odds kept secret from the crowd. Reads Bluesky's PUBLIC AppView anonymously
@@ -10,7 +10,7 @@
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 8; // ≤ ~800 follows / followers scanned for moots
-const FEED_PAGES = 2; // ≤ ~200 posts per account scanned for skeets
+const FEED_PAGES = 2; // ≤ ~200 posts per account scanned for bisks
 const CHALLENGERS = 8; // how many random moots we draw a challenger roster from
 
 async function jget(url) {
@@ -92,7 +92,7 @@ function postUrl(handle, uri) {
 }
 
 // Pull an account's original, text-bearing posts (no replies, no reposts).
-async function fetchSkeets(did, fallbackHandle) {
+async function fetchBisks(did, fallbackHandle) {
   const out = [];
   let cursor = "";
   for (let pg = 0; pg < FEED_PAGES; pg++) {
@@ -133,8 +133,8 @@ async function fetchSkeets(did, fallbackHandle) {
   return out;
 }
 
-// Build the two arena rosters for a handle: their own skeets ("yours"), and
-// a pooled roster of skeets from a handful of random moots ("moots").
+// Build the two arena rosters for a handle: their own bisks ("yours"), and
+// a pooled roster of bisks from a handful of random moots ("moots").
 // Returns { self, yours, moots, mootCount }.
 export async function buildArena(actor, { onStep } = {}) {
   const did = await resolveDid(actor);
@@ -158,10 +158,10 @@ export async function buildArena(actor, { onStep } = {}) {
     };
   } catch {}
 
-  if (onStep) onStep("gathering your skeets…");
-  const yours = await fetchSkeets(did, self.handle);
+  if (onStep) onStep("gathering your bisks…");
+  const yours = await fetchBisks(did, self.handle);
   if (!yours.length) {
-    throw new Error(`@${self.handle} has no text skeets to throw in the pit`);
+    throw new Error(`@${self.handle} has no text bisks to throw in the pit`);
   }
 
   if (onStep) onStep("scouting the moots…");
@@ -173,11 +173,11 @@ export async function buildArena(actor, { onStep } = {}) {
   const picks = shuffle(moots).slice(0, CHALLENGERS);
   if (onStep) onStep(`raiding ${picks.length} moots' feeds…`);
   const rosters = await Promise.all(
-    picks.map((m) => fetchSkeets(m.did, m.handle).catch(() => [])),
+    picks.map((m) => fetchBisks(m.did, m.handle).catch(() => [])),
   );
   const mootPosts = rosters.flat();
   if (!mootPosts.length) {
-    throw new Error("couldn't find any moot skeets — try a different handle");
+    throw new Error("couldn't find any moot bisks — try a different handle");
   }
 
   return { self, yours, moots: mootPosts, mootCount: moots.length };

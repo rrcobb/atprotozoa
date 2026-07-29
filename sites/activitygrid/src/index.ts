@@ -1,4 +1,4 @@
-// skeetgrid Worker — mounted at bisks.net/skeetgrid/ (see
+// activitygrid Worker — mounted at bisks.net/activitygrid/ (see
 // notes/40-new-site-playbook.md).
 //
 // The actual heatmap is entirely client-side (public/index.html walks the
@@ -11,13 +11,13 @@
 // (same problem sites/didscope and sites/windmill already hit, see
 // notes/45-sharing-and-virality.md).
 //
-// Fix: /skeetgrid/s/<handle> is a distinct URL per person. The Worker
+// Fix: /activitygrid/s/<handle> is a distinct URL per person. The Worker
 // resolves the handle, walks a few pages of getAuthorFeed (capped smaller
 // than the client's full-year walk — this only has to produce OG text, not
 // the pixel-perfect grid) and stamps a personalized og:title/description/url
 // onto the same static shell before serving it.
 //
-// Every request first gets its "/skeetgrid" mount prefix stripped; what's
+// Every request first gets its "/activitygrid" mount prefix stripped; what's
 // left is matched against /s/<handle> and otherwise falls through to ASSETS
 // for everything else (/, /og.png, /lib/*). ASSETS.fetch always sees the
 // un-prefixed path — the assets directory has no idea it isn't living at the
@@ -27,7 +27,7 @@ export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
 
-const PREFIX = "/skeetgrid";
+const PREFIX = "/activitygrid";
 const API = "https://public.api.bsky.app/xrpc/";
 
 async function xrpc(method: string, params: Record<string, string>): Promise<any> {
@@ -109,10 +109,10 @@ function esc(s: string): string {
 // Every <title>/og:*/twitter:* tag in public/index.html shares these exact
 // strings, so one split/join each personalizes the whole head — no HTML
 // parser needed.
-const GENERIC_TITLE = "skeetgrid — a GitHub-style contribution graph for Bluesky";
+const GENERIC_TITLE = "activitygrid — a GitHub-style contribution graph for Bluesky";
 const GENERIC_DESC =
-  "Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for skeets.";
-const GENERIC_OG_URL = "https://bisks.net/skeetgrid/";
+  "Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for bisks.";
+const GENERIC_OG_URL = "https://bisks.net/activitygrid/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   // ASSETS.fetch expects an un-prefixed path (the assets directory has no
@@ -136,12 +136,12 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const { total, days, streak, busiest } = await summarize(did);
 
     const who = "@" + (profile.handle || handle);
-    const title = `skeetgrid: ${who}'s last year — ${total} skeet${total === 1 ? "" : "s"}`;
+    const title = `activitygrid: ${who}'s last year — ${total} bisk${total === 1 ? "" : "s"}`;
     const bits = [`${days} active day${days === 1 ? "" : "s"} in the last year`];
     if (streak > 0) bits.push(`${streak}-day current streak`);
-    if (busiest > 0) bits.push(`busiest day: ${busiest} skeets`);
+    if (busiest > 0) bits.push(`busiest day: ${busiest} bisks`);
     const desc = truncate(bits.join(" · ") + ". See the full grid.", 300);
-    const ogUrl = `https://bisks.net/skeetgrid/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://bisks.net/activitygrid/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

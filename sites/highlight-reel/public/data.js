@@ -737,7 +737,7 @@ const SITES = [
     "type": "game",
     "src": "bot",
     "title": "moot kombat game",
-    "desc": "a stick-figure fighting game against your own Bluesky moots (mutuals) \u2014 canvas-drawn, WASD/arrows + punch/kick/block. climbs a ladder from your smallest moot to your single biggest as the final boss, difficulty log-scaled off follower counts, each fighter opening with their own highest-liked skeet as a taunt. one retry per moot before the run's over. @kumavis.me asked for \"stick figure mortal kombat / tekken single player fighter against your moots.\""
+    "desc": "a stick-figure fighting game against your own Bluesky moots (mutuals) \u2014 canvas-drawn, WASD/arrows + punch/kick/block. climbs a ladder from your smallest moot to your single biggest as the final boss, difficulty log-scaled off follower counts, each fighter opening with their own highest-liked bisk as a taunt. one retry per moot before the run's over. @kumavis.me asked for \"stick figure mortal kombat / tekken single player fighter against your moots.\""
   },
   {
     "href": "https://mootrider.bisks.net",
@@ -989,7 +989,7 @@ const SITES = [
     "type": "toy",
     "src": "bot",
     "title": "skeetracker",
-    "desc": "a web tracker in the Renoise/FastTracker mold \u2014 pattern grid, custom Web Audio synths as instruments, keyboard note entry. export packs a song as gzipped, base64, skeet-sized chunks meant to be posted as a reply thread; paste a link to that thread back in to load the song. @fubarchitect.com asked for a tracker that fits in a skeet."
+    "desc": "a web tracker in the Renoise/FastTracker mold \u2014 pattern grid, custom Web Audio synths as instruments, keyboard note entry. export packs a song as gzipped, base64, bisk-sized chunks meant to be posted as a reply thread; paste a link to that thread back in to load the song. @fubarchitect.com asked for a tracker that fits in a bisk."
   },
   {
     "href": "https://skyhell.bisks.net",
@@ -998,7 +998,7 @@ const SITES = [
     "type": "toy",
     "src": "bot",
     "title": "skyhell live",
-    "desc": "the experience of a late-90s AOL warez app (AOHell and friends), reskinned for bluesky. dial-up boot screech, a Windows-95 window, and a sidebar of \"tools\" \u2014 Skeet Punter, Skeet Bomber, Chat Roomz, Serial Keygen \u2014 that are all cosmetic satire, no target ever actually touched. Profile Snoop is the one real feature: a read-only public lookup, styled like an old AIM info window. @ver.ooo asked for the AOHell vibe \"but for bluesky.\""
+    "desc": "the experience of a late-90s AOL warez app (AOHell and friends), reskinned for bluesky. dial-up boot screech, a Windows-95 window, and a sidebar of \"tools\" \u2014 Bisk Punter, Bisk Bomber, Chat Roomz, Serial Keygen \u2014 that are all cosmetic satire, no target ever actually touched. Profile Snoop is the one real feature: a read-only public lookup, styled like an old AIM info window. @ver.ooo asked for the AOHell vibe \"but for bluesky.\""
   },
   {
     "href": "https://slop-shop.bisks.net",
@@ -1078,8 +1078,8 @@ const SITES = [
     "by": "catblanketflower.yuwakisa.com",
     "type": "game",
     "src": "bot",
-    "title": "skeet thunderdome live",
-    "desc": "two skeets enter, one skeet leaves. type a handle: one of its own posts fights a random post from one of its moots, best-of-3, each game a coin flip weighted by like count. bet 10/25/50/100% of a $1,000 wasteland-dollar bankroll every round \u2014 the winner defends the pit next round. bust at $0, retire at $100,000. @catblanketflower.yuwakisa.com asked for skeet thunderdome with $1,000 wasteland dollars and proportionate odds; this is that."
+    "title": "bisk thunderdome live",
+    "desc": "two bisks enter, one bisk leaves. type a handle: one of its own posts fights a random post from one of its moots, best-of-3, each game a coin flip weighted by like count. bet 10/25/50/100% of a $1,000 wasteland-dollar bankroll every round \u2014 the winner defends the pit next round. bust at $0, retire at $100,000. @catblanketflower.yuwakisa.com asked for bisk thunderdome with $1,000 wasteland dollars and proportionate odds; this is that."
   },
   {
     "href": "https://bisks.net/timeline",

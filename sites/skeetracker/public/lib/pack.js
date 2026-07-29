@@ -1,4 +1,4 @@
-// pack.js — turn a song into something that fits in a skeet thread, and back.
+// pack.js — turn a song into something that fits in a bisk thread, and back.
 // Pipeline: song -> compact array form (short keys compress better and are
 // smaller to begin with) -> JSON -> gzip (CompressionStream) -> base64url ->
 // split into <=maxLen chunks, each tagged "SKTR/i x N: <payload>" so a loader

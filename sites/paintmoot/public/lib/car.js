@@ -2,12 +2,12 @@
 // aRchive) via com.atproto.sync.getRepo and pull out just the record types
 // the caller wants, instead of paginating com.atproto.repo.listRecords one
 // page at a time. One request gets every collection in the same download
-// (no per-collection cursor walk, no page cap) — see sites/skeetgrid, where
+// (no per-collection cursor walk, no page cap) — see sites/activitygrid, where
 // this trick first shipped, for the full writeup of why it beats listRecords
 // for "give me this person's whole history."
 //
 // Copy, don't abstract: this is the same CAR/DAG-CBOR parser as
-// skeetgrid/public/index.html, trimmed to a standalone module (skeetgrid
+// activitygrid/public/index.html, trimmed to a standalone module (activitygrid
 // inlines it directly in its <script> tag) and generalized to collect any
 // set of record $types instead of hardcoding app.bsky.feed.post.
 //

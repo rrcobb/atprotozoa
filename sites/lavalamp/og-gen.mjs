@@ -114,7 +114,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <!-- wordmark -->
   <text x="640" y="220" font-family="JetBrains Mono" font-weight="800" font-size="72" fill="${INK}">lava lamp</text>
-  <text x="640" y="270" font-family="JetBrains Mono" font-size="24" fill="${MUTED}">your skeets, floating on their likes</text>
+  <text x="640" y="270" font-family="JetBrains Mono" font-size="24" fill="${MUTED}">your bisks, floating on their likes</text>
 
   <text x="640" y="340" font-family="JetBrains Mono" font-size="21" fill="${ACCENT}">more likes floats higher</text>
   <text x="640" y="376" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">fewer likes sinks low</text>

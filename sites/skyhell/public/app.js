@@ -96,10 +96,10 @@ document.querySelectorAll(".tool-btn").forEach((btn) => {
 
 renderPunter();
 
-// --- Skeet Punter (100% cosmetic — no target is ever contacted) ------------
+// --- Bisk Punter (100% cosmetic — no target is ever contacted) ------------
 
 const PUNT_COMPLIMENTS = [
-  "actually your last skeet was pretty good",
+  "actually your last bisk was pretty good",
   "the algorithm loves you and so do we",
   "your pfp slaps",
   "you have never once been cringe",
@@ -109,7 +109,7 @@ const PUNT_COMPLIMENTS = [
 
 function renderPunter() {
   panel.innerHTML = `
-    <h2>💥 Skeet Punter</h2>
+    <h2>💥 Bisk Punter</h2>
     <p>Classic AOHell let you "punt" someone off the service. This one doesn't
        do that to anyone — bluesky doesn't have a kick button and we're not
        building one. Type a handle, hit punt, watch the drama fizzle out into
@@ -143,11 +143,11 @@ function renderPunter() {
   });
 }
 
-// --- Skeet Bomber (also 100% cosmetic — nothing is ever sent) --------------
+// --- Bisk Bomber (also 100% cosmetic — nothing is ever sent) --------------
 
 function renderBomber() {
   panel.innerHTML = `
-    <h2>📨 Skeet Bomber</h2>
+    <h2>📨 Bisk Bomber</h2>
     <p>The original mail bomber flooded someone's inbox. This one floods
        nothing — it just simulates the console so you can feel the 1998
        power fantasy without being a menace to anyone's mentions.</p>
@@ -160,7 +160,7 @@ function renderBomber() {
       <button class="action" id="bomb-go">DETONATE (not really)</button>
     </div>
     <div class="console" id="bomb-console">payload armed. awaiting detonation...</div>
-    <p class="disclaimer">This button has never sent a single skeet, DM, or packet to anyone.</p>
+    <p class="disclaimer">This button has never sent a single bisk, DM, or packet to anyone.</p>
   `;
   const range = document.getElementById("bomb-count");
   const label = document.getElementById("bomb-count-label");
@@ -192,7 +192,7 @@ const CHAT_SCRIPT = [
   ["moot4moot", "lol no such thing, just post and pray"],
   ["ratio_king_99", "A/S/L? jk this isn't 1998 wait actually it kind of is"],
   ["sys", "*** feed_lurker99 has entered the room ***"],
-  ["feed_lurker99", "does anyone actually read the quote skeets or just the ratio count"],
+  ["feed_lurker99", "does anyone actually read the quote bisks or just the ratio count"],
   ["dial_up_daryl", "brb mom needs the phone line"],
   ["mod_glowfish", "no piracy talk in here 😤 this is a SAFE for work warez room"],
   ["xXx_skeeter_xXx", "found a trick: be nice to people. shhh don't tell anyone"],
@@ -273,7 +273,7 @@ function renderSnoop() {
             <div class="stats">
               ${p.followersCount ?? "?"} followers ·
               ${p.followsCount ?? "?"} follows ·
-              ${p.postsCount ?? "?"} skeets
+              ${p.postsCount ?? "?"} bisks
             </div>
             <div style="margin-top:6px; max-width: 380px;">${(p.description || "(no bio)").replace(/</g, "&lt;")}</div>
           </div>

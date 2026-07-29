@@ -1,4 +1,4 @@
-// Generates public/og.png — the Open Graph preview card for skeetgrid, so a
+// Generates public/og.png — the Open Graph preview card for activitygrid, so a
 // shared link auto-renders a picture of the contribution grid in Bluesky /
 // other unfurlers. Hand-drawn SVG at the canonical OG size, matching the
 // live page's GitHub-dark look, rasterised with @resvg/resvg-js (pure native
@@ -76,7 +76,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="${BG}"/>
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
 
-  <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">skeetgrid</text>
+  <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">activitygrid</text>
   <text x="64" y="188" font-family="JetBrains Mono" font-size="21" fill="${DIM}">a GitHub-style contribution</text>
   <text x="64" y="216" font-family="JetBrains Mono" font-size="21" fill="${DIM}">graph for your <tspan fill="${ACCENT2}">Bluesky</tspan> posts</text>
 
@@ -84,7 +84,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="316" font-family="JetBrains Mono" font-size="17" fill="${DIM}">posting activity as one green</text>
   <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">grid, ready to share.</text>
 
-  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">bisks.net/skeetgrid</text>
+  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">bisks.net/activitygrid</text>
 
   ${cellsSvg}
   ${legendSvg}
