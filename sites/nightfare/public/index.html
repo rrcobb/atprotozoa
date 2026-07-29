@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>nightfare — the driver has thoughts</title>
+<meta name="description" content="Get in the taxi. Gatwick to Heathrow. The driver starts with traffic and roadworks. He does not end there.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="nightfare — the driver has thoughts">
+<meta property="og:description" content="Get in the taxi. Gatwick to Heathrow. The driver starts with traffic and roadworks. He does not end there.">
+<meta property="og:image" content="https://bisks.net/nightfare/og.png">
+<meta property="og:url" content="https://bisks.net/nightfare">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="nightfare — the driver has thoughts">
+<meta name="twitter:description" content="Get in the taxi. Gatwick to Heathrow. The driver starts with traffic and roadworks. He does not end there.">
+<meta name="twitter:image" content="https://bisks.net/nightfare/og.png">
+
+<style>
+  :root{
+    --bg:#07080b; --bg2:#0d1016;
+    --fg:#e8e6df; --dim:#7d8494;
+    --accent:#5fb0ff; --line:#242938;
+    --p:0; /* phase 0..4, driven by JS as a plain number for text lerps if needed */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; min-height:100%; overflow-x:hidden;
+    background:var(--bg); color:var(--fg);
+    font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    transition:background 2.2s ease;
+  }
+  a{color:var(--accent)}
+
+  /* ---------- phase backdrops ---------- */
+  body.phase-0{ background:radial-gradient(120% 100% at 50% 0%, #10131c, #05060a 70%); }
+  body.phase-1{ background:radial-gradient(120% 100% at 50% 0%, #171522, #06070c 70%); }
+  body.phase-2{ background:radial-gradient(120% 100% at 50% 10%, #2a1420, #0a0507 70%); }
+  body.phase-3{ background:radial-gradient(130% 110% at 50% 20%, #3a0f16, #0a0304 65%); }
+  body.phase-4{ background:radial-gradient(140% 120% at 50% 30%, #55070c, #060102 60%); }
+
+  .screen{ width:100%; min-height:100%; display:none; position:relative; z-index:2; }
+  .screen.active{ display:flex; flex-direction:column; align-items:center; justify-content:center; }
+
+  /* ---------- start screen ---------- */
+  #start{ padding:32px 20px; text-align:center; gap:18px; }
+  #start .cab{ font-size:52px; line-height:1; filter:drop-shadow(0 0 18px rgba(95,176,255,.25)); }
+  #start h1{
+    margin:6px 0 0; font-size:clamp(28px,7vw,46px); letter-spacing:.02em;
+    font-weight:800; color:var(--fg);
+  }
+  #start .sub{ color:var(--dim); max-width:46ch; line-height:1.5; font-size:15px; }
+  #start .route{
+    font-size:13px; letter-spacing:.12em; color:var(--accent); text-transform:uppercase;
+    border:1px solid var(--line); border-radius:999px; padding:6px 16px; margin-top:6px;
+  }
+  button{
+    font-family:inherit; cursor:pointer; border:none; border-radius:10px;
+    background:var(--accent); color:#04101c; font-weight:800; font-size:16px;
+    padding:14px 30px; letter-spacing:.02em;
+  }
+  button:active{ transform:translateY(1px); }
+  button.ghost{
+    background:transparent; color:var(--fg); border:1px solid var(--line);
+    font-weight:600;
+  }
+  #start .hint{ color:var(--dim); font-size:12px; margin-top:2px; }
+
+  /* ---------- ride screen ---------- */
+  #ride{ width:100%; height:100%; min-height:100dvh; padding:0; }
+  .hud{
+    position:fixed; top:0; left:0; right:0; z-index:5;
+    display:flex; justify-content:space-between; align-items:center;
+    padding:14px 16px; font-size:12px; letter-spacing:.06em;
+    color:var(--dim); text-transform:uppercase;
+    background:linear-gradient(#07080bcc, transparent);
+  }
+  .hud .grp{ display:flex; gap:16px; }
+  .hud b{ color:var(--fg); font-weight:700; }
+  #mute{
+    background:transparent; border:1px solid var(--line); color:var(--dim);
+    font-size:11px; padding:6px 10px; border-radius:8px; letter-spacing:.04em;
+  }
+
+  .window{
+    position:fixed; inset:0; overflow:hidden; z-index:0; pointer-events:none;
+  }
+  .streak{
+    position:absolute; top:0; height:2px; width:140px; left:-160px;
+    background:linear-gradient(90deg, transparent, rgba(150,190,255,.55), transparent);
+    animation:zoom linear infinite;
+  }
+  body.phase-2 .streak, body.phase-3 .streak, body.phase-4 .streak{
+    background:linear-gradient(90deg, transparent, rgba(255,90,90,.5), transparent);
+  }
+  @keyframes zoom{ to{ transform:translateX(140vw); } }
+
+  .scan{
+    position:fixed; inset:0; z-index:4; pointer-events:none; opacity:0;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.35) 0 1px, transparent 1px 3px);
+    transition:opacity 1.5s ease;
+  }
+  body.phase-2 .scan{ opacity:.12 }
+  body.phase-3 .scan{ opacity:.22 }
+  body.phase-4 .scan{ opacity:.34 }
+
+  .caption{
+    position:relative; z-index:3; max-width:620px; width:100%;
+    margin:0 auto; padding:0 22px; text-align:center;
+  }
+  .driverTag{
+    font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--dim);
+    margin-bottom:10px; display:block;
+  }
+  #line{
+    font-size:clamp(19px,4.4vw,27px); line-height:1.42; font-weight:600;
+    min-height:4.2em; display:flex; align-items:center; justify-content:center;
+  }
+  body.phase-2 #line{ color:#ffd8d8 }
+  body.phase-3 #line{ color:#ffb8b8; text-shadow:0 0 14px rgba(255,60,60,.25) }
+  body.phase-4 #line{ color:#fff; text-shadow:1px 0 #ff2a3d, -1px 0 #2ad0ff; }
+
+  .glitch{ animation:glitchText .32s steps(2) infinite; }
+  @keyframes glitchText{
+    0%{ transform:translate(0,0) }
+    30%{ transform:translate(-2px,1px) }
+    60%{ transform:translate(2px,-1px) }
+    100%{ transform:translate(0,0) }
+  }
+  .shake{ animation:shake .32s linear infinite; }
+  @keyframes shake{
+    0%{ transform:translate(0,0) }
+    25%{ transform:translate(-4px,2px) }
+    50%{ transform:translate(3px,-3px) }
+    75%{ transform:translate(-2px,-1px) }
+    100%{ transform:translate(0,0) }
+  }
+
+  .tapHint{ color:var(--dim); font-size:11px; margin-top:22px; letter-spacing:.05em; }
+
+  .flash{
+    position:fixed; inset:0; z-index:9; background:#fff; opacity:0;
+    pointer-events:none;
+  }
+  .flash.go{ animation:flashPop .55s ease-out forwards; }
+  @keyframes flashPop{ 0%{opacity:0} 8%{opacity:1; background:#ff1f2b} 40%{opacity:.9; background:#000} 100%{opacity:0} }
+
+  /* ---------- end screen ---------- */
+  #end{ padding:32px 20px; text-align:center; gap:16px; }
+  #end h2{ font-size:clamp(24px,6vw,36px); margin:0; letter-spacing:.02em; }
+  #end .fare{ font-size:15px; color:var(--dim); }
+  #end .fare b{ color:#ff8b8b; font-variant-numeric:tabular-nums; }
+  .row{ display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+  #end .final{ max-width:44ch; color:var(--dim); font-size:14px; line-height:1.5; }
+
+  footer{
+    position:fixed; bottom:10px; left:0; right:0; text-align:center;
+    font-size:11px; color:#3a4050; z-index:3;
+  }
+  footer a{ color:#4a5468 }
+
+  @media (prefers-reduced-motion: reduce){
+    .streak, .glitch, .shake, .flash.go{ animation:none !important; }
+  }
+</style>
+</head>
+<body class="phase-0">
+
+<div class="window" id="window"></div>
+<div class="scan"></div>
+<div class="flash" id="flash"></div>
+
+<main class="screen active" id="start">
+  <div class="cab">🚕</div>
+  <h1>nightfare</h1>
+  <div class="route">gatwick&nbsp;→&nbsp;heathrow</div>
+  <p class="sub">A minicab, 11pm, one passenger. The driver just wants to talk
+    about traffic. That part doesn't last.</p>
+  <button id="getIn">get in</button>
+  <p class="hint">headphones recommended · tap anywhere to skip a line</p>
+</main>
+
+<main class="screen" id="ride">
+  <div class="hud">
+    <div class="grp">
+      <span>GWK → LHR</span>
+      <span><b id="dist">31.4</b> mi</span>
+    </div>
+    <button id="mute">sound: on</button>
+    <div class="grp">
+      <span>fare</span>
+      <span><b id="fare">£12.40</b></span>
+    </div>
+  </div>
+  <div class="caption">
+    <span class="driverTag">the driver, unprompted</span>
+    <div id="line"></div>
+  </div>
+  <div class="tapHint">tap / click / space to continue</div>
+</main>
+
+<main class="screen" id="end">
+  <div class="cab">🛬</div>
+  <h2 id="endTitle">you have arrived</h2>
+  <div class="fare">final fare: <b id="finalFare">£12.40</b></div>
+  <p class="final" id="finalLine"></p>
+  <div class="row">
+    <button class="ghost" id="again">get back in</button>
+    <a id="share" href="#" target="_blank" rel="noopener"><button>tell someone</button></a>
+  </div>
+</main>
+
+<footer>nightfare · a taxi from <a href="https://bisks.net/">bisks.net</a> you didn't ask to be on</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- streaks (background light streaks that read as "motion") ----------
+  var win = document.getElementById("window");
+  for (var i = 0; i < 10; i++) {
+    var s = document.createElement("div");
+    s.className = "streak";
+    s.style.top = (Math.random() * 90) + "%";
+    s.style.animationDuration = (2.2 + Math.random() * 2.6) + "s";
+    s.style.animationDelay = (Math.random() * 4) + "s";
+    win.appendChild(s);
+  }
+
+  // ---------- the ride ----------
+  // phase: 0 calm, 1 odd, 2 end-times, 3 atlantis/crystals, 4 aliens/full glitch
+  var LINES = [
+    { t:"Evening. Where we headed?", phase:0, wait:2400 },
+    { t:"Heathrow, T5? Right you are — hop in, seatbelt's under the crisp packet.", phase:0, wait:3200 },
+    { t:"Not bad tonight. M23's clear past Longbridge, we'll cut through before the roadworks start.", phase:0, wait:3400 },
+    { t:"Long flight ahead, or you just picking someone up?", phase:0, wait:2800 },
+    { t:"Fair enough. I don't ask twice.", phase:0, wait:2600 },
+
+    { t:"You ever notice how the exit numbers on this stretch keep adding up to eleven?", phase:1, wait:3400 },
+    { t:"Didn't think so. Neither did I, for years. Then you start looking.", phase:1, wait:3000 },
+    { t:"My old mum used to say the world would end quiet. Not fire — paperwork. A form nobody read properly.", phase:1, wait:3800 },
+    { t:"Anyway. Don't mind me. Just thinking out loud back here at the wheel.", phase:1, wait:3000 },
+
+    { t:"You read Revelation? Properly, I mean. Not the cartoon version they give kids.", phase:2, wait:3600 },
+    { t:"Seven seals. Seven trumpets. Seven bowls. Everything in threes and sevens — and we're on junction seven right now. Look.", phase:2, wait:4200 },
+    { t:"It's not superstition if it keeps being true, is it.", phase:2, wait:2800 },
+    { t:"I drove this exact road before they built the towers at the perimeter. Different world. Same road. People miss that bit — the road doesn't end, it just gets dressed up different.", phase:2, wait:4600 },
+    { t:"You feel that? Ears popping. We're not even climbing.", phase:2, wait:3200 },
+
+    { t:"Thing is, the end-times lot only got half of it. They stopped at the Book. Should've kept reading.", phase:3, wait:3800 },
+    { t:"Atlantis wasn't a story. It was a warning label. We just filed it under ‘myth’ because the alternative's worse.", phase:3, wait:4200 },
+    { t:"The Vatican's got a room. A real room, not internet nonsense. Full of crystals nobody's allowed to catalogue. Why d'you reckon that is.", phase:3, wait:4600 },
+    { t:"Because they resonate. Because someone up top already knows what I'm only just starting to remember.", phase:3, wait:4000 },
+    { t:"I'm not mad. I want to be very clear with you back there. I am remembering.", phase:3, wait:3600 },
+
+    { t:"They've been coming back for the crystals. Not little grey men. Older than that. Older than the church that's guarding them.", phase:4, wait:4400, shake:true },
+    { t:"You think Heathrow's just a runway? Count the light patterns next time you land. Count them.", phase:4, wait:4000, shake:true },
+    { t:"I wasn't going to say anything tonight. But you're in the car now, and once you're in the car you're already part of it.", phase:4, wait:4400, shake:true },
+    { t:"That's the bit nobody tells you about taxis. You don't choose the driver. The driver chooses when you learn.", phase:4, wait:4400, shake:true },
+    { t:"We're not slowing down for the terminal. Did you notice that.", phase:4, wait:3600, shake:true },
+    { t:"I need you to stay very calm. And I need you to look at me. In the mirror. Right now.", phase:4, wait:4200, shake:true },
+    { t:"LOOK AT ME", phase:4, wait:1300, shake:true, shout:true },
+    { t:"I SEE IT IN THE MIRROR TOO", phase:4, wait:1500, shake:true, shout:true },
+    { t:"IT'S BEEN IN THE BACK SEAT THE WHOLE TIME", phase:4, wait:2200, shake:true, shout:true },
+  ];
+
+  var FINAL_LINE = "...Terminal 5, was it? Here we are. Mind the step. Safe trip.";
+
+  var startScreen = document.getElementById("start");
+  var rideScreen = document.getElementById("ride");
+  var endScreen = document.getElementById("end");
+  var lineEl = document.getElementById("line");
+  var distEl = document.getElementById("dist");
+  var fareEl = document.getElementById("fare");
+  var flashEl = document.getElementById("flash");
+  var muteBtn = document.getElementById("mute");
+
+  var idx = -1;
+  var timer = null;
+  var distance = 31.4;
+  var fare = 12.40;
+  var muted = false;
+  var ended = false;
+
+  function setPhase(p){
+    document.body.className = "phase-" + p;
+  }
+
+  function fmtMoney(n){ return "£" + n.toFixed(2); }
+
+  function updateHud(l){
+    if (l.phase <= 1) {
+      distance = Math.max(4, distance - (2.6 + Math.random()*1.4));
+      fare += 0.6 + Math.random()*0.5;
+    } else if (l.phase === 2) {
+      distance = Math.max(0.2, distance - (0.4 + Math.random()*1.2));
+      fare += 1.1 + Math.random()*1.4;
+    } else {
+      // it stops making sense
+      distance = (Math.random() < 0.5)
+        ? Math.max(0, distance - Math.random()*0.6)
+        : distance + Math.random()*4.2;
+      fare = fare * (1 + Math.random()*0.18) + Math.random()*8;
+    }
+    distEl.textContent = distance.toFixed(distance < 10 ? 1 : 1);
+    if (l.phase >= 3 && Math.random() < 0.35) {
+      distEl.textContent = ["??","∞","–","0??"][Math.floor(Math.random()*4)];
+    }
+    fareEl.textContent = fmtMoney(fare);
+  }
+
+  function playBeat(phase, shout){ /* defined below with audio */ }
+
+  function showLine(){
+    idx++;
+    if (idx >= LINES.length) { return endRide(); }
+    var l = LINES[idx];
+    setPhase(l.phase);
+    updateHud(l);
+    lineEl.textContent = l.t;
+    lineEl.className = (l.shake ? "glitch" : "");
+    document.body.classList.toggle("shake", !!l.shake);
+    playBeat(l.phase, l.shout);
+    clearTimeout(timer);
+    timer = setTimeout(showLine, l.wait);
+  }
+
+  function advance(){
+    if (!rideScreen.classList.contains("active") || ended) return;
+    clearTimeout(timer);
+    showLine();
+  }
+
+  function endRide(){
+    ended = true;
+    clearTimeout(timer);
+    document.body.classList.remove("shake");
+    flashEl.classList.add("go");
+    stopAudio();
+    setTimeout(function(){
+      rideScreen.classList.remove("active");
+      endScreen.classList.add("active");
+      setPhase(0);
+      document.getElementById("finalLine").textContent = FINAL_LINE;
+      document.getElementById("finalFare").textContent = fmtMoney(fare);
+      var shareText = "I got in a minicab from Gatwick to Heathrow and the driver worked his way from roadworks to end-times to Atlantis to the crystals the Vatican won't catalogue to aliens. Slowly. I do not recommend it. https://bisks.net/nightfare";
+      document.getElementById("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      flashEl.classList.remove("go");
+    }, 650);
+  }
+
+  function startRide(){
+    startScreen.classList.remove("active");
+    rideScreen.classList.add("active");
+    idx = -1; distance = 31.4; fare = 12.40; ended = false;
+    startAudio();
+    showLine();
+  }
+
+  function resetAll(){
+    endScreen.classList.remove("active");
+    startScreen.classList.add("active");
+    setPhase(0);
+  }
+
+  document.getElementById("getIn").addEventListener("click", startRide);
+  document.getElementById("again").addEventListener("click", resetAll);
+  document.addEventListener("click", function(e){
+    if (e.target.closest("button") || e.target.closest("a")) return;
+    advance();
+  });
+  document.addEventListener("keydown", function(e){
+    if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); advance(); }
+  });
+
+  // ---------- ambient audio: synthesized, no asset files ----------
+  var ctx = null, drone1, drone2, filter, gainNode, heartGain, heartOsc;
+  function startAudio(){
+    if (muted) return;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = ctx.createGain();
+      gainNode.gain.value = 0.0001;
+      gainNode.connect(ctx.destination);
+
+      filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 300;
+      filter.connect(gainNode);
+
+      drone1 = ctx.createOscillator();
+      drone1.type = "sine";
+      drone1.frequency.value = 55;
+      drone1.connect(filter);
+
+      drone2 = ctx.createOscillator();
+      drone2.type = "sine";
+      drone2.frequency.value = 57.5;
+      drone2.connect(filter);
+
+      drone1.start(); drone2.start();
+      gainNode.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 1.5);
+    } catch (e) { ctx = null; }
+  }
+  function stopAudio(){
+    if (!ctx) return;
+    try {
+      gainNode.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+      setTimeout(function(){ try { ctx.close(); } catch(e){} ctx = null; }, 500);
+    } catch (e) {}
+  }
+  function playBeat(phase, shout){
+    if (!ctx || muted) return;
+    var now = ctx.currentTime;
+    // filter opens and drone detunes further apart as phase rises = more unease
+    var targetFreq = 200 + phase * 260;
+    filter.frequency.linearRampToValueAtTime(targetFreq, now + 1.2);
+    drone2.frequency.linearRampToValueAtTime(57.5 + phase * phase * 2.2, now + 1.2);
+    gainNode.gain.linearRampToValueAtTime(shout ? 0.11 : 0.045 + phase * 0.012, now + 0.3);
+
+    // a single heartbeat-ish thump per line, faster/harder in later phases
+    var thump = ctx.createOscillator();
+    var thumpGain = ctx.createGain();
+    thump.type = "sine";
+    thump.frequency.value = 90 - phase * 8;
+    thumpGain.gain.value = 0.0001;
+    thump.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thump.start(now);
+    thumpGain.gain.linearRampToValueAtTime(0.09 + phase * 0.03, now + 0.03);
+    thumpGain.gain.linearRampToValueAtTime(0.0001, now + 0.25);
+    thump.stop(now + 0.3);
+  }
+  muteBtn.addEventListener("click", function(){
+    muted = !muted;
+    muteBtn.textContent = "sound: " + (muted ? "off" : "on");
+    if (muted) { stopAudio(); } else if (rideScreen.classList.contains("active") && !ended) { startAudio(); }
+  });
+})();
+</script>
+</body>
+</html>
