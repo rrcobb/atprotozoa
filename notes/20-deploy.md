@@ -75,191 +75,41 @@ looks identical to a totally unrelated deploy failure. This bit `sites/ratioed`,
 The `state.storage.get/put` API is unchanged on SQLite-backed DOs, so no other
 code needs to change — just this one line.
 
-## Possible custom-domain cap on the zone (unresolved, needs dashboard access)
+## The zone's custom-domain cap, and the path migration
 
-On 2026-07-26, every *new* custom-domain deploy started failing around 14:18
-UTC — `sites/lasercats`, `sites/pvnp`, `sites/sonnethype`, `sites/padmoot`, and
-`sites/windmill` all failed their first deploy, while every deploy to an
-*already-provisioned* domain (edits to existing sites) kept succeeding right
-through and after that window. Two new sites (`sites/fourk`, `sites/hashdo`)
-deployed fine about an hour earlier (13:06–13:12 UTC), so this isn't these
-sites' `wrangler.toml` — they're plain `assets`-only configs, same shape as
-dozens of sites that work. `dig` shows no DNS record at all for any of the
-failing hostnames, meaning `wrangler deploy` is dying before it gets to
-route/custom-domain creation specifically for *new* hostnames.
+New `<name>.bisks.net` custom-domain deploys hit a Cloudflare per-zone
+custom-domain cap: `wrangler deploy` succeeds for the Worker but the DNS record
+never provisions, so the hostname returns no DNS and the site is unreachable.
+Deploys to *already-provisioned* domains are unaffected. This is why new sites
+mount as a path route on the already-live `bisks.net` zone (`bisks.net/<name>`,
+or a cluster like `bisks.net/games/<name>`) instead of a dedicated subdomain —
+a path route doesn't consume a custom-domain slot. See
+`notes/40-new-site-playbook.md` ("Why paths, not subdomains").
 
-The repo at that point had ~107 sites with `custom_domain = true` in their
-`wrangler.toml` (not all successfully provisioned — some are the failures
-above). That's suspiciously close to plan-level custom-domain caps some
-Cloudflare tiers impose per zone. This build agent has no Cloudflare
-dashboard/API access to confirm — someone with dash.cloudflare.com access
-needs to check the `bisks.net` zone's custom domains count/limit and either
-free up room or raise the cap. Until then, expect brand-new sites' first
-deploy to keep failing even when the code is fine; retrying the same push
-won't help if it's really a cap.
+Each path-mounted site has a thin `src/index.ts` that strips its `/<name>`
+mount prefix before serving. Two gotchas beyond the plain prefix-strip:
 
-**Still unresolved as of a later same-day build agent run (2026-07-26,
-padmoot follow-up):** `dig` for `padmoot`, `windmill`, `lasercats`, `pvnp`,
-`sonnethype`, and even `the-place` (whose Durable Object migration bug was
-already fixed) all still return no DNS record. So the cap is a distinct,
-still-live blocker on top of the migration bug, and it isn't specific to
-sites that also had the migration bug — `the-place`'s fix didn't unstick its
-custom domain. As a stopgap, `sites/padmoot/wrangler.toml` now also sets
-`workers_dev = true` alongside its `custom_domain` route, on the theory that
-custom-domain route creation failing shouldn't also block the workers.dev
-route in the same deploy. Worth copying to the other stuck sites if it turns
-out to work — unconfirmed, since this agent has no way to check the deploy
-result or the resulting workers.dev URL.
-
-**Third report, same day (2026-07-26):** someone in the wild flagged both
-`apex.bisks.net` and `windmill.bisks.net` as dead. Two distinct causes:
-
-1. `apex.bisks.net` was never supposed to resolve — the apex site's real
-   domain is the bare zone apex, `bisks.net` (see `notes/00-vision.md` /
-   `notes/30-identity-and-did.md`), not a subdomain. A prior bot reply had
-   mechanically appended `.bisks.net` to the built name "apex" and linked the
-   wrong, nonexistent host. Fixed in `sites/buildthis/builder/reply.mjs`:
-   `BUILD_RESULT=apex` (or `apex/<path>`) now special-cases to
-   `https://bisks.net<path>` instead of `https://apex.bisks.net<path>`.
-2. `windmill.bisks.net` is a real instance of the custom-domain-cap bug above
-   (still unresolved, needs dashboard access) — copied the same `workers_dev
-   = true` stopgap into `sites/windmill/wrangler.toml`.
-
-**Follow-up verification, same day (2026-07-26), after a fourth report** ("this
-is not resolving, nor is windmill"): re-checked both from a build-agent sandbox
-with live network access.
-
-- `bisks.net` — resolves and serves (`curl -I` → `HTTP/2 200`). The reply.mjs
-  fix above is confirmed working; no further action needed here.
-- `windmill.bisks.net` — still `dig +short` empty / curl fails to resolve
-  (getaddrinfo failure). The `workers_dev = true` stopgap in its
-  `wrangler.toml` gives a fallback route, but without dashboard/CI deploy
-  access this agent can't discover the account's actual `*.workers.dev`
-  subdomain to link it, and can't confirm whether that fallback route ever
-  successfully deployed either. This is still blocked on someone with
-  dash.cloudflare.com access checking the `bisks.net` zone's custom-domain
-  count/cap and freeing up room (or raising it) so `windmill.bisks.net`'s
-  route can actually provision.
-
-## Migrating existing sites off subdomains, to free cap room
-
-On 2026-07-26, in response to a mutual flagging both the cap failures above and
-a request to "keep moving sites from subdomains to trailing slash paths,"
-migrated 24 pre-existing single-page static sites off their long-lived
-`<name>.bisks.net` custom domains onto `bisks.net/<name>` path routes instead:
-acausal, babel, bird-costumes, buildcoin, candyland, cogsec, delaunay-maze,
-fourk, fruitninja, gulpstream, heistlibs, hellmole, idea-island, koipond,
-labescape, mahjong-solitaire, norvidwave, old-beach, pixel-fishing, popmoot,
-solitaire, tabernacle, trigramonopoly, and viable. Each got a `main =
-"src/index.ts"` prefix-stripping Worker (they previously had no Worker at
-all — pure `[assets]`), following the barebones template in
-`notes/40-new-site-playbook.md`. Self-referential links (OG tags, share-text,
-in-page footers) and the apex/wheelhouse gallery mirrors were updated to the
-new path; a few other sites that linked out to them (`neighborhood`,
-`buildthis2`) were fixed too.
-
-These were picked because they're the simplest case — single static
-`index.html`, no subresources, no Durable Objects, no OAuth — to minimize risk
-of the prefix-stripping migration breaking something. This intentionally
-**breaks each site's old `<name>.bisks.net` link** (no redirect is possible
-once the custom domain is deprovisioned) in exchange for freeing a
-custom-domain slot on the zone; that's the explicit tradeoff the requester
-asked for. Unconfirmed from this sandbox (no dashboard/deploy access): whether
-`wrangler deploy` actually deprovisions the now-unlisted custom domains on
-push, and whether the freed slots actually unstick the sites still stuck on
-the cap (`padmoot`, `windmill`). Worth checking after the next deploy.
-
-There are ~80+ more pre-existing sites still on subdomains (most with a
-`src/index.ts` already, or more subresources/state to account for) — this was
-one batch, not the whole migration. A future agent picking this up should
-grep `custom_domain = true` across `sites/*/wrangler.toml` for what's left.
-
-## Clustering related sites under a shared path segment
-
-Later the same day (2026-07-26), a mutual asked to keep migrating subdomains
-to paths and, where there's "sensible clusters" (their example: trigrams,
-games), to group them under a shared segment instead of flat
-`bisks.net/<name>`. Introduced the first such cluster: `bisks.net/games/<name>`.
-Migrated 12 game sites straight from their old `<name>.bisks.net` custom
-domain onto the new cluster path (skipping the flat `bisks.net/<name>` stop
-entirely): pacmoot, mootkombat, moottris, moot-bingo, grand-moot-auto,
-sokobisks, crewquest, thunderdome, blackice, change, biskshow, and claudoku.
-Same time, continued the plain flat-path migration for 10 more non-game
-sites: alignment-chart, seismograph, immortals, knolling, oblique, invocation,
-verbs, verdict, treeoflife, and erdosproof.
-
-Same template as before (`main = "src/index.ts"` prefix-stripping Worker,
-`routes` on the shared zone) — the only difference for a clustered site is
-`PREFIX`/`routes` use `/games/<name>` instead of `/<name>`. Two extra classes
-of self-reference turned up in this batch that the first batch's "simplest
-case" picks didn't hit, worth checking for in future migrations:
-
-- **Client-side path routing.** `immortals` reads a handle out of
-  `location.pathname` (`immortals.bisks.net/<handle>`) and `pushState`s new
-  URLs the same way — both needed a `MOUNT` constant threaded through so they
-  strip/prepend the new mount prefix instead of assuming they own the domain
-  root. `verdict`'s OAuth flow (`client-metadata.json`, `oauth.js`) had the
-  same problem one level worse — `CLIENT_ID`/`REDIRECT_URI` are computed from
-  `location.origin`, which silently drops the path, so the OAuth client
-  metadata's `redirect_uris` had to be updated too, not just the JS.
-- **Cross-site sibling links.** Sites in the same theme link to each other by
-  old subdomain in their own footers/credits (e.g. `mootkombat` → `moot-bingo`,
-  `grand-moot-auto`/`moottris`/`mootrider` → `pacmoot`, `puzzlelove` →
-  `sokobisks`). Grepping only each site's *own* directory for its *own* old
-  domain misses these; after a batch lands, grep the whole `sites/` tree for
-  every migrated name's old `<name>.bisks.net` string to catch what other
-  sites still point at it. (Left `og-gen.mjs` OG-image-generator scripts and
-  `.buildthis.json` build-history records with the old domain string in a
-  couple of spots — those aren't served/live, just re-run-on-demand tooling
-  and historical logs, so lower priority than anything actually served.)
-
-apex and wheelhouse's gallery mirrors were updated for all 22. Still ~60+
-sites on subdomains after this batch (down from ~80+) — future batches should
-keep grepping `custom_domain = true` for what's left, and keep an eye out for
-more clusters as they emerge (e.g. the trigram-family sites — trigrams,
-trigruessr, trigramonopoly, neighborhood — are already conceptually one
-family, though trigrams itself already spans multiple paths under its own
-site rather than needing a cluster segment). `mootrider` (has a Durable
-Object) and `war` (has OAuth with a hardcoded-origin client) were
-deliberately skipped this batch as higher-risk; worth a dedicated pass.
-
-## Migrating the 5 cap-stuck sites off subdomains (2026-07-26, audit follow-up)
-
-The five sites the custom-domain cap left with no DNS at all — `wheelhouse`,
-`solvers`, `mcskeets`, `ratioed`, `the-place` — were migrated onto path routes
-(`bisks.net/<name>`) and deployed directly with `wrangler deploy`, which drops
-the old (never-provisioned) custom domain and creates the path route. All five
-now serve 200; the old subdomains stay dead (they never resolved, so no live
-link broke). This was pure upside — unlike migrating an *up* subdomain, there
-was no working `<name>.bisks.net` link to break.
-
-Two gotchas beyond the standard prefix-strip, worth knowing for the next batch:
-
-- **Subdirectory index → trailing-slash redirect drops the mount prefix.**
-  `solvers` has `public/magnetostatics/index.html`. The asset router serves a
-  dir index via a 307 to the trailing-slash form, and it builds that `Location`
-  off the *stripped* path — so it sent the browser to `bisks.net/magnetostatics/`
-  (no `/solvers`, 404). Fix: in the Worker, after `env.ASSETS.fetch`, if the
-  response is a 3xx whose `Location` is a same-origin absolute path missing the
-  prefix, re-add it. A flat single-`index.html` site (most of them) never hits
-  this; only sites with a real subdirectory index do.
-- **DO sites: `run_worker_first` must become `true`, and the client must prefix
-  its `/api` calls.** `ratioed`/`the-place` had `run_worker_first = ["/",
-  "/api/*"]` — those root-relative patterns don't match the mounted `/ratioed/*`
-  paths, so the asset router would grab them. Set `run_worker_first = true` so
-  the Worker strips the prefix first, then routes to the DO/ASSETS with the
-  stripped request. The browser client also fetches `/api/...` absolute, which
-  becomes `bisks.net/api/...` (off-route) under the mount — thread a `MOUNT`
-  const through every `fetch()` and self-link (`the-place` needed it for
-  `/api/state`, `/api/pixel`, `/api/days`, the title link, the "go back" link,
-  and the share URLs). DO cold-start returns a one-off 404/empty on the first
-  request after deploy while `this.ready` resolves — retry before concluding
-  it's broken.
+- **Subdirectory index → trailing-slash redirect drops the prefix.** A site
+  with `public/<sub>/index.html` gets a 307 to the trailing-slash form whose
+  `Location` is built off the *stripped* path, so it points at
+  `bisks.net/<sub>/` (no mount prefix, 404). Fix: after `env.ASSETS.fetch`, if
+  the response is a 3xx whose `Location` is a same-origin absolute path missing
+  the prefix, re-add it. A flat single-`index.html` site never hits this.
+- **Durable Object sites: `run_worker_first = true`, and the client must
+  prefix its `/api` calls.** Root-relative `run_worker_first` patterns (`["/",
+  "/api/*"]`) don't match the mounted `/<name>/*` paths, so set it to `true` and
+  let the Worker strip the prefix first. The browser client's absolute `/api/...`
+  fetches and self-links also need a `MOUNT` const threaded through, or they
+  resolve to `bisks.net/api/...` off-route. DO cold-start can return a one-off
+  404/empty on the first request after deploy — retry before concluding it broke.
 
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
-2. Route/custom_domain set to `<sitename>.bisks.net`.
+2. `routes` set to a path on the `bisks.net` zone (`bisks.net/<name>` +
+   `bisks.net/<name>/*`), with a `src/index.ts` that strips the mount prefix.
+   A dedicated `<name>.bisks.net` custom domain is the exception, not the
+   default — the zone is at its custom-domain cap (see above).
 3. `wrangler deploy` once locally to confirm it comes up.
 4. Commit → CI takes over from there.
 
