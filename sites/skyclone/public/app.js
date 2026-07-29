@@ -24,8 +24,9 @@ let oauthLib = null;
 let goopLib = null;
 
 // One easter egg: if @bobsslop.bsky.social (the poster who asked for this) is
-// the one logged in, the whole page gets a drippy green goop background —
-// see goop.js. Nobody else's session triggers it.
+// the one logged in AND viewing Notifications, that page gets a drippy green
+// goop background — see goop.js. Nobody else's session triggers it, and it
+// doesn't follow bobsslop around the rest of the site.
 const GOOP_HANDLE = "bobsslop.bsky.social";
 
 // post uri -> like/repost record uri, for posts liked/unliked/reposted this
@@ -42,7 +43,9 @@ async function oauth() {
 }
 
 async function updateGoopBackground() {
-  const active = !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
+  const isGoopUser = !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
+  const path = location.pathname.slice(MOUNT.length) || "/";
+  const active = isGoopUser && path.startsWith("/notifications");
   document.documentElement.classList.toggle("goop-active", active);
   if (active) {
     if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
@@ -134,7 +137,6 @@ async function logout() {
   if (location.pathname + location.search !== home) history.replaceState({}, "", home);
   render();
   window.scrollTo(0, 0);
-  updateGoopBackground();
 }
 
 // ---------- API ----------
@@ -1578,6 +1580,7 @@ async function render() {
   } catch (e) {
     if (token === currentRenderToken) main.innerHTML = headerHtml("Something broke") + errorBox(e.message || String(e));
   }
+  updateGoopBackground();
 }
 
 function navigate(href, opts) {
@@ -1751,7 +1754,6 @@ async function boot() {
   }
   await loadSessionProfile();
   render();
-  updateGoopBackground();
   if (freshLogin) showToast(`Logged in as @${freshLogin.handle}`, "ok");
   if (freshLogin && freshLogin.handle && freshLogin.handle.toLowerCase() === GOOP_HANDLE) {
     showToast("the slime remembers you 🟢", "spider");

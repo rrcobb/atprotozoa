@@ -3,8 +3,8 @@
 // Green drippy goop background — WebGL1 fullscreen shader, animated fbm noise
 // stretched vertically and scrolled over time so it reads as sludge dripping
 // down the screen. Falls back to a CSS animated gradient if WebGL is
-// unavailable. Only ever mounted for one specific logged-in handle; see
-// updateGoopBackground() in app.js.
+// unavailable. Only ever mounted for one specific logged-in handle, and only
+// on the Notifications page; see updateGoopBackground() in app.js.
 
 const VERT_SRC = `
 attribute vec2 aPos;
