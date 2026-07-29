@@ -68,9 +68,27 @@
       .jarbox:active { cursor: grabbing; }
       .jarbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
       .hint {
-        text-align: center; color: var(--muted); font-size: 0.78rem; margin: 0 0 1.3rem;
+        text-align: center; color: var(--muted); font-size: 0.78rem; margin: 0 0 0.55rem;
         min-height: 1.1rem;
       }
+
+      .heatbar-wrap { max-width: 320px; margin: 0 auto 1.3rem; text-align: center; }
+      .heatbar-track {
+        height: 8px; border-radius: 999px; background: var(--panel2);
+        border: 1px solid var(--faint); overflow: hidden;
+      }
+      .heatbar-fill {
+        height: 100%; width: 0%; border-radius: 999px;
+        background: linear-gradient(90deg, #6b4a1e, var(--accent));
+        transition: width 0.12s linear;
+      }
+      .heatbar-track.hot { animation: heat-pulse 0.5s ease-in-out infinite; }
+      .heatbar-track.hot .heatbar-fill { background: linear-gradient(90deg, var(--accent), #ff5d5d); }
+      @keyframes heat-pulse {
+        0%, 100% { box-shadow: 0 0 0 rgba(232, 162, 61, 0); }
+        50% { box-shadow: 0 0 10px rgba(255, 93, 93, 0.65); }
+      }
+      .heatbar-label { display: block; font-size: 0.7rem; color: var(--muted); margin-top: 0.3rem; }
 
       .panel {
         background: var(--panel);
@@ -133,6 +151,11 @@
       </div>
       <div class="hint" id="hint">tap once to wake the sound, then shake away</div>
 
+      <div class="heatbar-wrap">
+        <div class="heatbar-track" id="heatTrack"><div class="heatbar-fill" id="heatFill"></div></div>
+        <span class="heatbar-label">shake heat — fill it and the lid blows 🫙💥</span>
+      </div>
+
       <div class="panel">
         <div class="row">
           <label class="field">
@@ -142,6 +165,7 @@
               <option value="jelly">jelly beans</option>
               <option value="coffee">coffee beans</option>
               <option value="magic">magic beans</option>
+              <option value="musical">musical beans</option>
             </select>
           </label>
           <label class="field">
@@ -266,7 +290,25 @@
           noiseMix: 0.4,
           sparkle: true,
         },
+        musical: {
+          label: "musical beans",
+          elong: 1.05,
+          palette: [
+            { base: "#5b2a86", hi: "#c9a4ff", speck: null },
+            { base: "#1f6f78", hi: "#7fe8db", speck: null },
+            { base: "#8a1f4e", hi: "#ff8fc0", speck: null },
+            { base: "#8a5a12", hi: "#ffd27a", speck: null },
+            { base: "#20408a", hi: "#9dc4ff", speck: null },
+          ],
+          freqMul: 1,
+          decayMul: 1.6,
+          noiseMix: 0.15,
+          musical: true,
+        },
       };
+      // shared pentatonic scale — musical beans each get a fixed note so shaking
+      // the jar plays a real (if chaotic) little melody instead of pure noise.
+      const PENTATONIC = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];
       let currentType = "dried";
 
       // ---- beans ---------------------------------------------------------
@@ -281,6 +323,7 @@
           r, rx: r * t.elong, ry: r * (2 - t.elong) * 0.72,
           angle: rnd(6.283), angVel: rnd(-1, 1),
           type, palette: pick(t.palette), seed: rnd(1000) | 0,
+          note: t.musical ? pick(PENTATONIC) : 0,
         };
       }
       function resetBeans(count, type) {
@@ -302,11 +345,84 @@
       let deviceJitterX = 0, deviceJitterY = 0;
       let motionActive = false;
       let lastThud = 0;
+      let lastVibrate = 0;
+
+      // "go wild" meter: shaking harder fills `heat`; at 100 the lid pops.
+      let heat = 0;
+      let wildPopping = false, wildPopStart = 0, wildCooldownUntil = 0;
+      let particles = [];
 
       function triggerShake() {
         ensureAudio();
         scriptedShakeStart = performance.now();
         scriptedShakeUntil = scriptedShakeStart + 950;
+      }
+
+      function vibrate(pattern) {
+        if (!("vibrate" in navigator)) return;
+        const now = performance.now();
+        if (now - lastVibrate < 70) return;
+        lastVibrate = now;
+        try { navigator.vibrate(pattern); } catch {}
+      }
+
+      function triggerWildPop(now) {
+        wildPopping = true;
+        wildPopStart = now;
+        wildCooldownUntil = now + 5000;
+        heat = 0;
+        ensureAudio();
+        playPopFanfare();
+        vibrate([30, 40, 30, 40, 120]);
+        scriptedShakeStart = now;
+        scriptedShakeUntil = now + 500;
+        spawnConfetti();
+        hint.textContent = "🫙💥 THE LID BLOWS!";
+        setTimeout(() => { if (hint.textContent === "🫙💥 THE LID BLOWS!") hint.textContent = ""; }, 2200);
+      }
+
+      function spawnConfetti() {
+        const colors = ["#ffd93d", "#ff6fce", "#5cc26b", "#4d96ff", "#e8a23d", "#ff4d6d", "#b18cff", "#3ddad0"];
+        for (let i = 0; i < 46; i++) {
+          const ang = -Math.PI / 2 + rnd(-1.0, 1.0);
+          const spd = rnd(160, 430);
+          particles.push({
+            x: CX + rnd(-14, 14), y: NECK_TOP_Y - 4,
+            vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+            g: rnd(500, 820),
+            life: 0, maxLife: rnd(0.7, 1.35),
+            color: pick(colors),
+            size: rnd(3, 7),
+            shape: Math.random() < 0.5 ? "rect" : "circle",
+            rot: rnd(6.283), rotVel: rnd(-9, 9),
+          });
+        }
+      }
+
+      function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.vy += p.g * dt;
+          p.x += p.vx * dt; p.y += p.vy * dt;
+          p.rot += p.rotVel * dt;
+          p.life += dt;
+          if (p.life >= p.maxLife) particles.splice(i, 1);
+        }
+      }
+
+      function drawParticles() {
+        for (const p of particles) {
+          const a = clamp(1 - p.life / p.maxLife, 0, 1);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.globalAlpha = a;
+          ctx.fillStyle = p.color;
+          if (p.shape === "rect") ctx.fillRect(-p.size / 2, -p.size / 3, p.size, p.size * 0.66);
+          else { ctx.beginPath(); ctx.arc(0, 0, p.size / 2, 0, 6.2832); ctx.fill(); }
+          ctx.restore();
+        }
+        ctx.globalAlpha = 1;
       }
 
       function updateShakeState(now, dt) {
@@ -359,6 +475,11 @@
 
         jarOffsetX = lerp(jarOffsetX, visX, 0.35);
         jarOffsetY = lerp(jarOffsetY, visY, 0.35);
+
+        // shake harder -> heat climbs; idle -> it drains. Fill it and the lid pops.
+        const shakeMag = Math.hypot(shakeAX, shakeAY);
+        heat = clamp(heat + shakeMag * dt * 0.018 - dt * 14, 0, 100);
+        if (heat >= 100 && !wildPopping && now > wildCooldownUntil) triggerWildPop(now);
       }
 
       // ---- physics step ----------------------------------------------------
@@ -469,6 +590,7 @@
       function playClack(ev, norm) {
         if (!actx) return;
         const t = BEAN_TYPES[ev.bean.type];
+        if (t.musical) { playMusicalPluck(ev, norm); return; }
         const now = actx.currentTime;
         const src = actx.createBufferSource();
         src.buffer = noiseBuf;
@@ -503,8 +625,79 @@
         }
       }
 
+      // musical beans ring like a tiny kalimba/marimba instead of clacking —
+      // each bean carries a fixed note (assigned in makeBean) from PENTATONIC.
+      function playMusicalPluck(ev, norm) {
+        const now = actx.currentTime;
+        const freq = ev.bean.note * (ev.glass ? 2 : 1);
+        const decay = 0.18 + norm * 0.22;
+        const peak = Math.min(0.9, 0.2 + norm * 0.8);
+
+        const osc = actx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        const g = actx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(peak, now + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.001, now + decay);
+        osc.connect(g).connect(master);
+        osc.start(now); osc.stop(now + decay + 0.05);
+
+        const osc2 = actx.createOscillator();
+        osc2.type = "sine";
+        osc2.frequency.value = freq * 2.01;
+        const g2 = actx.createGain();
+        g2.gain.setValueAtTime(0, now);
+        g2.gain.linearRampToValueAtTime(peak * 0.25, now + 0.004);
+        g2.gain.exponentialRampToValueAtTime(0.001, now + decay * 0.6);
+        osc2.connect(g2).connect(master);
+        osc2.start(now); osc2.stop(now + decay + 0.05);
+
+        const src = actx.createBufferSource();
+        src.buffer = noiseBuf;
+        const bp = actx.createBiquadFilter();
+        bp.type = "highpass";
+        bp.frequency.value = 4000;
+        const ng = actx.createGain();
+        ng.gain.setValueAtTime(peak * 0.15, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+        src.connect(bp).connect(ng).connect(master);
+        src.start(now, 0, 0.03); src.stop(now + 0.03);
+      }
+
+      // ascending arpeggio + cork-pop transient for the wild lid-pop moment
+      function playPopFanfare() {
+        if (!actx) return;
+        const now = actx.currentTime;
+        const src = actx.createBufferSource();
+        src.buffer = noiseBuf;
+        const bp = actx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 1800;
+        bp.Q.value = 0.7;
+        const ng = actx.createGain();
+        ng.gain.setValueAtTime(0.8, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        src.connect(bp).connect(ng).connect(master);
+        src.start(now, 0, 0.1); src.stop(now + 0.1);
+
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+          const t0 = now + 0.05 + i * 0.07;
+          const osc = actx.createOscillator();
+          osc.type = "triangle";
+          osc.frequency.value = f;
+          const g = actx.createGain();
+          g.gain.setValueAtTime(0, t0);
+          g.gain.linearRampToValueAtTime(0.55, t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
+          osc.connect(g).connect(master);
+          osc.start(t0); osc.stop(t0 + 0.34);
+        });
+      }
+
       function playThud(intensity) {
         if (!actx) return;
+        vibrate(Math.round(15 + intensity * 35));
         const now = actx.currentTime;
         const osc = actx.createOscillator();
         osc.type = "sine";
@@ -535,6 +728,8 @@
         pendingSounds.sort((a, b) => b.speed - a.speed);
         const MAX_VOICES = 7;
         let played = 0;
+        const topNorm = clamp(pendingSounds[0].speed / 900, 0, 1);
+        if (topNorm > 0.5) vibrate(Math.round(8 + topNorm * 22));
         for (const ev of pendingSounds) {
           if (played >= MAX_VOICES) break;
           const norm = clamp(ev.speed / 900, 0, 1);
@@ -603,7 +798,7 @@
         return bodyPath;
       }
 
-      function drawJarFront(bodyPath) {
+      function drawJarFront(bodyPath, lidLift, lidRot) {
         // glossy vertical highlight streaks (drawn over the beans, glass in front)
         ctx.save();
         bodyPath();
@@ -656,7 +851,11 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // lid
+        // lid — lifts and wobbles during the wild lid-pop moment
+        ctx.save();
+        ctx.translate(CX, NECK_TOP_Y - 9 + lidLift);
+        ctx.rotate(lidRot);
+        ctx.translate(-CX, -(NECK_TOP_Y - 9));
         roundRect(CX - NECK_HALF_W - 4, NECK_TOP_Y - 22, NECK_HALF_W * 2 + 8, 26, 5);
         const lg = ctx.createLinearGradient(0, NECK_TOP_Y - 22, 0, NECK_TOP_Y + 4);
         lg.addColorStop(0, "#d8cdb8");
@@ -673,6 +872,7 @@
           ctx.lineTo(CX + NECK_HALF_W, ly);
           ctx.stroke();
         }
+        ctx.restore();
         ctx.restore();
       }
 
@@ -738,7 +938,23 @@
         ctx.clip();
         for (const b of beans) drawBean(b);
         ctx.restore();
-        drawJarFront(bodyPath);
+
+        let lidLift = 0, lidRot = 0;
+        if (wildPopping) {
+          const t = (performance.now() - wildPopStart) / 700;
+          if (t >= 1) { wildPopping = false; }
+          else {
+            const bounce = Math.sin(t * Math.PI);
+            lidLift = -bounce * 34;
+            lidRot = Math.sin(t * 14) * 0.15 * (1 - t);
+          }
+        }
+        drawJarFront(bodyPath, lidLift, lidRot);
+
+        ctx.save();
+        ctx.translate(jarOffsetX, jarOffsetY);
+        drawParticles();
+        ctx.restore();
       }
 
       // ---- main loop -----------------------------------------------------
@@ -749,7 +965,10 @@
         updateShakeState(ts, dt);
         stepPhysics(dt);
         flushSounds();
+        updateParticles(dt);
         render();
+        heatFill.style.width = heat.toFixed(0) + "%";
+        heatTrack.classList.toggle("hot", heat > 70);
         requestAnimationFrame(frame);
       }
 
@@ -801,6 +1020,8 @@
       const shakeBtn = document.getElementById("shakeBtn");
       const resetBtn = document.getElementById("resetBtn");
       const hint = document.getElementById("hint");
+      const heatFill = document.getElementById("heatFill");
+      const heatTrack = document.getElementById("heatTrack");
       let muted = false;
 
       typeEl.addEventListener("change", () => {
