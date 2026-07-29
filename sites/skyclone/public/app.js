@@ -24,9 +24,11 @@ let oauthLib = null;
 let goopLib = null;
 
 // One easter egg: if @bobsslop.bsky.social (the poster who asked for this) is
-// the one logged in AND viewing Notifications, that page gets a drippy green
-// goop background — see goop.js. Nobody else's session triggers it, and it
-// doesn't follow bobsslop around the rest of the site.
+// the one logged in, the whole site gets a drippy green goop background —
+// see goop.js. It's a light ambient ooze normally, and floods into a heavy
+// flow of sludge (plus extra spiders and a gross sound) whenever a fresh
+// notification lands — see pollNotifications() below. Nobody else's session
+// triggers any of it.
 const GOOP_HANDLE = "bobsslop.bsky.social";
 
 // post uri -> like/repost record uri, for posts liked/unliked/reposted this
@@ -42,10 +44,12 @@ async function oauth() {
   return oauthLib;
 }
 
+function isGoopUser() {
+  return !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
+}
+
 async function updateGoopBackground() {
-  const isGoopUser = !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
-  const path = location.pathname.slice(MOUNT.length) || "/";
-  const active = isGoopUser && path.startsWith("/notifications");
+  const active = isGoopUser();
   document.documentElement.classList.toggle("goop-active", active);
   if (active) {
     if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
@@ -1201,7 +1205,18 @@ async function pollNotifications() {
     if (!res.ok) return;
     const data = await res.json();
     const count = data.count || 0;
-    if (unreadCount !== null && count > unreadCount) crawlSpiders(Math.min(count - unreadCount, 3));
+    const newOnes = unreadCount !== null ? count - unreadCount : 0;
+    if (newOnes > 0) {
+      if (isGoopUser()) {
+        // heavy flow of sludge + a bigger swarm of spiders + a gross sound
+        crawlSpiders(Math.min(newOnes + 3, 8));
+        if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
+        goopLib.surgeGoop(5000);
+        goopLib.playGrossSound(newOnes);
+      } else {
+        crawlSpiders(Math.min(newOnes, 3));
+      }
+    }
     unreadCount = count;
     updateNavBadge(count);
   } catch {}
