@@ -2,10 +2,12 @@
 // *outside* their follow graph, in both directions:
 //
 //   outbound (target -> candidate): read the target's own like/repost/post
-//   records straight off their own PDS (com.atproto.repo.listRecords, same
-//   trick as cloutgraph/lib/likes.js — these are ordinary public repo
-//   records, no auth needed) and pull out who they liked, reposted, replied
-//   to, and quoted.
+//   records straight off their own PDS. One com.atproto.sync.getRepo CAR
+//   download gets all three collections at once (see lib/car.js); falls back
+//   to three separate com.atproto.repo.listRecords walks (same trick as
+//   cloutgraph/lib/likes.js — these are ordinary public repo records, no auth
+//   needed) if the CAR path fails. Either way, pull out who they liked,
+//   reposted, replied to, and quoted.
 //
 //   inbound (candidate -> target): there's no anonymous "who liked this
 //   account" endpoint, but there IS a public per-post one
@@ -19,6 +21,7 @@
 // accounts already in a follow relationship never even get counted.
 
 import { jget, resolvePds, authorFromUri, pooledEach } from "./identity.js";
+import { fetchRepoRecords } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 
@@ -61,39 +64,70 @@ function bump(map, did, field, by) {
   row[field] += by;
 }
 
-// target -> candidate: likes, reposts, replies, quotes given, read straight
-// off the target's own repo.
-async function crawlOutbound(did, pds, exclude, out, onStep) {
+// Tally one decoded like/repost/post record's outbound engagement into `out`.
+// Shared between the CAR path and the per-collection listRecords fallback
+// below — a CAR block decodes straight to the record body (no `.value`
+// wrapper), so callers pass that body directly.
+function tallyOutbound(v, did, exclude, out) {
+  if (v.$type === "app.bsky.feed.like") {
+    const author = authorFromUri(v.subject && v.subject.uri);
+    if (author && author !== did && !exclude.has(author)) bump(out, author, "likesGiven", 1);
+    return;
+  }
+  if (v.$type === "app.bsky.feed.repost") {
+    const author = authorFromUri(v.subject && v.subject.uri);
+    if (author && author !== did && !exclude.has(author)) bump(out, author, "repostsGiven", 1);
+    return;
+  }
+  if (v.reply && v.reply.parent) {
+    const author = authorFromUri(v.reply.parent.uri);
+    if (author && author !== did && !exclude.has(author)) bump(out, author, "repliesGiven", 1);
+  }
+  const embed = v.embed || {};
+  const quoted =
+    (embed.$type === "app.bsky.embed.record" && embed.record) ||
+    (embed.$type === "app.bsky.embed.recordWithMedia" && embed.record && embed.record.record);
+  if (quoted && quoted.uri) {
+    const author = authorFromUri(quoted.uri);
+    if (author && author !== did && !exclude.has(author)) bump(out, author, "quotesGiven", 1);
+  }
+}
+
+// Fallback: three separate paginated listRecords walks (likes, reposts,
+// posts), each capped — used only when the single CAR download in
+// crawlOutbound below fails (parse error, oversized repo, a PDS that blocks
+// sync.getRepo).
+async function crawlOutboundViaRepo(did, pds, exclude, out, onStep) {
   if (onStep) onStep("reading who they liked…");
   const likes = await listOwnRecords(did, pds, "app.bsky.feed.like", LIKE_PAGES);
-  for (const rec of likes) {
-    const author = authorFromUri(rec.value && rec.value.subject && rec.value.subject.uri);
-    if (author && author !== did && !exclude.has(author)) bump(out, author, "likesGiven", 1);
-  }
+  for (const rec of likes) tallyOutbound(rec.value || {}, did, exclude, out);
 
   if (onStep) onStep("reading who they reposted…");
   const reposts = await listOwnRecords(did, pds, "app.bsky.feed.repost", REPOST_PAGES);
-  for (const rec of reposts) {
-    const author = authorFromUri(rec.value && rec.value.subject && rec.value.subject.uri);
-    if (author && author !== did && !exclude.has(author)) bump(out, author, "repostsGiven", 1);
-  }
+  for (const rec of reposts) tallyOutbound(rec.value || {}, did, exclude, out);
 
   if (onStep) onStep("reading their replies and quotes…");
   const posts = await listOwnRecords(did, pds, "app.bsky.feed.post", POST_PAGES);
-  for (const rec of posts) {
-    const v = rec.value || {};
-    if (v.reply && v.reply.parent) {
-      const author = authorFromUri(v.reply.parent.uri);
-      if (author && author !== did && !exclude.has(author)) bump(out, author, "repliesGiven", 1);
-    }
-    const embed = v.embed || {};
-    const quoted =
-      (embed.$type === "app.bsky.embed.record" && embed.record) ||
-      (embed.$type === "app.bsky.embed.recordWithMedia" && embed.record && embed.record.record);
-    if (quoted && quoted.uri) {
-      const author = authorFromUri(quoted.uri);
-      if (author && author !== did && !exclude.has(author)) bump(out, author, "quotesGiven", 1);
-    }
+  for (const rec of posts) tallyOutbound(rec.value || {}, did, exclude, out);
+}
+
+// target -> candidate: likes, reposts, replies, quotes given, read straight
+// off the target's own repo. Tries one com.atproto.sync.getRepo CAR download
+// first — every like/repost/post record in a single request, rather than
+// three separate paginated listRecords walks each capped short of the
+// target's whole history — falling back to crawlOutboundViaRepo if the CAR
+// path fails.
+async function crawlOutbound(did, pds, exclude, out, onStep) {
+  if (onStep) onStep("downloading their repo…");
+  try {
+    const { records } = await fetchRepoRecords(pds, did, [
+      "app.bsky.feed.like",
+      "app.bsky.feed.repost",
+      "app.bsky.feed.post",
+    ]);
+    for (const v of records) tallyOutbound(v, did, exclude, out);
+  } catch {
+    await crawlOutboundViaRepo(did, pds, exclude, out, onStep);
   }
 }
 

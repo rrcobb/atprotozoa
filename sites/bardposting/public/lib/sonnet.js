@@ -14,6 +14,8 @@
 // anonymous `api.bsky.app` serves getProfile/listRecords with CORS *, whereas
 // `public.api.bsky.app` 403s some of it. So we hit api.bsky.app throughout.
 
+import { fetchRepoRecords } from "./car.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 const PLC_DIR = "https://plc.directory";
 const MAX_POST_PAGES = 8; // ≤ ~800 recent posts — plenty of vocabulary, stays fast
@@ -120,17 +122,11 @@ function wordScore(word, count) {
   return lenBump + Math.min(count, 4) * 0.25;
 }
 
-// Pull a person's own posts + profile blurb and rank their distinctive words.
-// onPage(pages, posts) lets the UI show progress. Returns a de-duplicated pool
-// of content words, best first.
-export async function harvestWords(actor, { onPage } = {}) {
-  const counts = new Map();
-  const eat = (text) => {
-    for (const w of tokenize(text)) counts.set(w, (counts.get(w) || 0) + 1);
-  };
-  eat(actor.displayName);
-  eat(actor.description);
-
+// Walk the account's own repo via com.atproto.repo.listRecords, page by
+// page, capped at MAX_POST_PAGES (~800 recent posts — plenty of vocabulary,
+// but not this person's whole history). Used only when the CAR download
+// below fails (parse error, oversized repo, a PDS that blocks sync.getRepo).
+async function harvestWordsViaRepo(actor, eat, onPage) {
   let cursor = "";
   let pages = 0;
   let posts = 0;
@@ -159,6 +155,38 @@ export async function harvestWords(actor, { onPage } = {}) {
       pages++;
       break;
     }
+  }
+  return { posts, pages };
+}
+
+// Pull a person's own posts + profile blurb and rank their distinctive words.
+// onPage(pages, posts) lets the UI show progress. Returns a de-duplicated pool
+// of content words, best first.
+//
+// Tries one com.atproto.sync.getRepo CAR download first — a bigger, richer
+// word pool from the account's *entire* history in one request, rather than
+// the ~800-post window MAX_POST_PAGES allows — falling back to the paginated
+// listRecords walk if the CAR path fails.
+export async function harvestWords(actor, { onPage } = {}) {
+  const counts = new Map();
+  const eat = (text) => {
+    for (const w of tokenize(text)) counts.set(w, (counts.get(w) || 0) + 1);
+  };
+  eat(actor.displayName);
+  eat(actor.description);
+
+  let posts = 0;
+  let pages = 0;
+  try {
+    const { records } = await fetchRepoRecords(actor.pdsUrl, actor.did, "app.bsky.feed.post");
+    for (const rec of records) {
+      if (!rec.text) continue;
+      posts++;
+      eat(rec.text);
+    }
+    if (onPage) onPage(1, posts);
+  } catch {
+    ({ posts, pages } = await harvestWordsViaRepo(actor, eat, onPage));
   }
 
   const scored = [];

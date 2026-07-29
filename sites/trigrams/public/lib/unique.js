@@ -11,6 +11,8 @@
 // `public.api.bsky.app` 403s. So this whole module runs CLIENT-SIDE with no auth,
 // no worker, for ANY handle. (See notes/70 "HAMMERED".)
 
+import { fetchRepoRecords } from "./car.js";
+
 const PUB = "https://api.bsky.app/xrpc"; // anonymous reads (listRecords, resolve)
 const PLC_DIR = "https://plc.directory";
 
@@ -201,15 +203,25 @@ export async function surprise(gram) {
   return { score, bigrams, freqs };
 }
 
-// ── scan: harvest exactly-once bigrams/trigrams from the user's own repo ───────
-// onPage(pagesDone, posts) is called after each page so the UI can show progress.
-export async function scan(actor, { mode = "trigram", onPage } = {}) {
-  const want2 = mode !== "trigram";
-  const want3 = mode !== "bigram";
-  const { did, pdsUrl } = actor;
+// Tokenize one post's text into bigrams/trigrams, tallying into c2/c3.
+function ingestGrams(text, c2, c3, want2, want3) {
+  const t = tokenize(text);
+  if (want2)
+    for (let i = 0; i + 1 < t.length; i++) {
+      const g = t[i] + " " + t[i + 1];
+      c2.set(g, (c2.get(g) || 0) + 1);
+    }
+  if (want3)
+    for (let i = 0; i + 2 < t.length; i++) {
+      const g = t[i] + " " + t[i + 1] + " " + t[i + 2];
+      c3.set(g, (c3.get(g) || 0) + 1);
+    }
+}
 
-  const c2 = new Map();
-  const c3 = new Map();
+// Fallback: page through listRecords, capped at MAX_POST_PAGES (~4000 most
+// recent posts) — used only when the CAR download in scan() below fails
+// (parse error, oversized repo, a PDS that blocks sync.getRepo).
+async function scanViaRepo(did, pdsUrl, c2, c3, want2, want3, onPage) {
   let cursor = "";
   let pages = 0;
   let posts = 0;
@@ -232,17 +244,7 @@ export async function scan(actor, { mode = "trigram", onPage } = {}) {
       const text = rec.value && rec.value.text;
       if (!text) continue;
       posts++;
-      const t = tokenize(text);
-      if (want2)
-        for (let i = 0; i + 1 < t.length; i++) {
-          const g = t[i] + " " + t[i + 1];
-          c2.set(g, (c2.get(g) || 0) + 1);
-        }
-      if (want3)
-        for (let i = 0; i + 2 < t.length; i++) {
-          const g = t[i] + " " + t[i + 1] + " " + t[i + 2];
-          c3.set(g, (c3.get(g) || 0) + 1);
-        }
+      ingestGrams(text, c2, c3, want2, want3);
     }
     if (onPage) onPage(pages + 1, posts);
     cursor = d.cursor;
@@ -250,6 +252,40 @@ export async function scan(actor, { mode = "trigram", onPage } = {}) {
       pages++;
       break;
     }
+  }
+  return { pages, posts, scannedAll: !cursor };
+}
+
+// ── scan: harvest exactly-once bigrams/trigrams from the user's own repo ───────
+// Tries one com.atproto.sync.getRepo CAR download first — the account's
+// *entire* history in one request, so a prolific poster's older bigrams
+// aren't invisible just because MAX_POST_PAGES's ~4000-post window doesn't
+// reach them — falling back to the paginated listRecords walk (scanViaRepo)
+// if the CAR path fails. onPage(pagesDone, posts) is called after each page
+// so the UI can show progress (the CAR path only gets one call, since it's
+// one request rather than a page-by-page walk).
+export async function scan(actor, { mode = "trigram", onPage } = {}) {
+  const want2 = mode !== "trigram";
+  const want3 = mode !== "bigram";
+  const { did, pdsUrl } = actor;
+
+  const c2 = new Map();
+  const c3 = new Map();
+  let pages = 0;
+  let posts = 0;
+  let scannedAll = true;
+
+  try {
+    const { records } = await fetchRepoRecords(pdsUrl, did, "app.bsky.feed.post");
+    for (const rec of records) {
+      if (!rec.text) continue;
+      posts++;
+      ingestGrams(rec.text, c2, c3, want2, want3);
+    }
+    pages = 1;
+    if (onPage) onPage(pages, posts);
+  } catch {
+    ({ pages, posts, scannedAll } = await scanViaRepo(did, pdsUrl, c2, c3, want2, want3, onPage));
   }
 
   const cands = [];
@@ -269,7 +305,7 @@ export async function scan(actor, { mode = "trigram", onPage } = {}) {
     did,
     posts,
     pages,
-    scannedAll: !cursor,
+    scannedAll,
     total: cands.length,
     candidates: cands.slice(0, SCAN_CAP),
   };
