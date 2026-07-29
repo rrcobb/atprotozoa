@@ -1,0 +1,44 @@
+name = "atprotozoa-docmoot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @riziles.bsky.social, replying to @timkellogg.me's "sign this Google Doc"
+# thread: "is there a way to do this on ATProto?" This is the honest answer —
+# a live shared document, editable by anyone with the link, synced over a
+# WebSocket relay (the one bit of centralization real-time collab still
+# needs — atproto's per-writer signed-commit model doesn't do low-latency
+# multi-writer merges on its own). The part that *can* live outside a
+# walled garden is durability: a signed-in user can snapshot the doc straight
+# into their own PDS as a net.bisks.docmoot.snapshot record instead of it
+# only ever living on Google's (or Cloudflare's) servers.
+#
+# Path route on the shared bisks.net zone, not a dedicated custom domain —
+# see notes/20-deploy.md / notes/40-new-site-playbook.md ("Why paths, not
+# subdomains"). routes MUST stay above [assets] — in TOML, keys after a
+# table header join that table, so a routes line below [assets] silently
+# becomes assets.routes (bit sites/logs and sites/didscope before).
+routes = [
+  { pattern = "bisks.net/docmoot", zone_name = "bisks.net" },
+  { pattern = "bisks.net/docmoot/*", zone_name = "bisks.net" },
+]
+
+# The Worker runs first for everything: it strips the /docmoot mount prefix,
+# serves personalized-OG /d/<id> unfurl pages, and forwards /api/doc/<id>
+# (including the WebSocket upgrade) to the DOC Durable Object — none of which
+# the ASSETS router can do on its own.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "DOC"
+class_name = "Doc"
+
+# new_sqlite_classes, not new_classes: legacy KV-backed DO storage needs
+# Workers Paid; SQLite-backed DOs work on the Free plan this account is on
+# (see sites/the-place, sites/ratioed, sites/mootrider wrangler.tomls for the
+# same fix after it silently broke their first deploys).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Doc"]
