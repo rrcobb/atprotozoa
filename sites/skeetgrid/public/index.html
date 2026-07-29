@@ -153,6 +153,34 @@
   }
   .method-note { color: var(--dim); font-size: 0.72rem; margin: -0.6rem 0 1rem; }
 
+  .chips-label { color: var(--dim); font-size: 0.72rem; margin: 0 0 0.4rem; }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .chips button {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .chips button.active {
+    background: linear-gradient(90deg, var(--accent), #26a641);
+    color: #04140a;
+    border-color: transparent;
+  }
+  .chips button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
   .canvas-wrap { position: relative; }
   #gridCanvas {
     display: block;
@@ -244,12 +272,15 @@
       </div>
 
       <div class="stats">
-        <div class="stat"><div class="n" id="statTotal">–</div><div class="l">skeets / yr</div></div>
+        <div class="stat"><div class="n" id="statTotal">–</div><div class="l" id="statTotalLabel">skeets / yr</div></div>
         <div class="stat"><div class="n" id="statDays">–</div><div class="l">active days</div></div>
         <div class="stat"><div class="n" id="statStreak">–</div><div class="l">current streak</div></div>
         <div class="stat"><div class="n" id="statLongest">–</div><div class="l">longest streak</div></div>
         <div class="stat"><div class="n" id="statBusiest">–</div><div class="l">busiest day</div></div>
       </div>
+
+      <p class="chips-label">count towards the grid:</p>
+      <div class="chips" id="typeChips"></div>
 
       <div class="year-tabs" id="yearTabs"></div>
       <p class="method-note" id="methodNote"></p>
@@ -345,6 +376,35 @@ function cleanHandle(raw) {
 
 function isoDay(ms) {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+// A day's activity is bucketed into these four record types so the grid can
+// sum whichever combination the "chips" toggle row has selected, instead of
+// only ever counting posts.
+const RECORD_TYPES = ["posts", "replies", "likes", "other"];
+const TYPE_LABELS = { posts: "posts", replies: "replies", likes: "likes", other: "other records" };
+
+function emptyBucket() {
+  return { posts: 0, replies: 0, likes: 0, other: 0 };
+}
+
+function addCount(dayCounts, key, type) {
+  let bucket = dayCounts.get(key);
+  if (!bucket) { bucket = emptyBucket(); dayCounts.set(key, bucket); }
+  bucket[type]++;
+}
+
+function sumSelected(bucket, selected) {
+  if (!bucket) return 0;
+  let sum = 0;
+  for (const type of RECORD_TYPES) if (selected.has(type)) sum += bucket[type] || 0;
+  return sum;
+}
+
+// app.bsky.feed.post covers both top-level posts and replies — the only
+// difference is whether the record carries a `reply` ref.
+function bucketForPostRecord(record) {
+  return record && record.reply ? "replies" : "posts";
 }
 
 // --- CAR + DAG-CBOR, just enough of each to read a repo export ------------
@@ -462,10 +522,14 @@ function cborValue(st) {
 // Primary path: one com.atproto.sync.getRepo request against the account's
 // own PDS gets back its whole signed repo as a CAR file — every post ever
 // made, in a single download, no cursor-pagination round-trips at all. Scans
-// every dag-cbor block for app.bsky.feed.post records (see carBlocks/cborValue
-// above) and buckets them by UTC calendar day with no CUTOFF_DAYS window,
-// since the point of downloading the full repo is getting the full history —
-// multiple years, not just the last one.
+// every dag-cbor block (see carBlocks/cborValue above) and buckets any record
+// with a $type by UTC calendar day with no CUTOFF_DAYS window, since the
+// point of downloading the full repo is getting the full history — multiple
+// years, not just the last one. Posts split into posts/replies (whether the
+// record carries a `reply` ref), likes get their own bucket, and everything
+// else (reposts, follows, blocks, profile edits, ...) falls into "other" —
+// this is what makes the CAR path the only one that can populate all four
+// type chips at once.
 async function computeHeatmapViaCar(pds, did, onProgress) {
   if (onProgress) onProgress(`downloading repo CAR from ${pds} ...`);
   const res = await fetch(pds + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
@@ -486,35 +550,31 @@ async function computeHeatmapViaCar(pds, did, onProgress) {
     scanned++;
     let obj;
     try { obj = cborDecode(blockBytes); } catch (_) { continue; }
-    if (!obj || typeof obj !== "object" || Array.isArray(obj) || obj.$type !== "app.bsky.feed.post") continue;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj) || !obj.$type) continue;
     const t = obj.createdAt ? Date.parse(obj.createdAt) : NaN;
     if (Number.isNaN(t)) continue;
     const key = isoDay(t);
-    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+    const type = obj.$type === "app.bsky.feed.post" ? bucketForPostRecord(obj)
+      : obj.$type === "app.bsky.feed.like" ? "likes"
+      : "other";
+    addCount(dayCounts, key, type);
     total++;
-    if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${total} skeets found so far`);
+    if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${total} records found so far`);
   }
 
   return { dayCounts, total, truncated: false, cap: 0, method: "car", bytes: buf.byteLength };
 }
 
-// Fallback #1: walks the account's own repo via com.atproto.repo.listRecords
-// against its PDS, bucketing app.bsky.feed.post records by UTC calendar day.
-// Used only when the CAR path above fails (parse error, oversized repo, a PDS
-// that blocks sync.getRepo) — no reply/embed hydration per record, no
-// reposts to filter, so the safety cap (REPO_MAX_PAGES) is high enough that
-// this in practice always reaches CUTOFF_DAYS rather than running out first.
-async function computeHeatmapViaRepo(pds, did, onProgress) {
-  const dayCounts = new Map();
-  let cursor;
-  let total = 0;
-  const cutoff = Date.now() - CUTOFF_DAYS * 86400000;
-  let truncated = false;
-
+// Shared pager for one collection of a repo.listRecords walk: bounded by
+// REPO_MAX_PAGES, stops at the first record older than `cutoff`, and calls
+// onRecord(value, timestamp) for each in-range record so the caller decides
+// how to bucket it.
+async function walkCollectionByCutoff(pds, did, collection, cutoff, onRecord, onProgress) {
+  let cursor, truncated = false, count = 0;
   for (let page = 0; page < REPO_MAX_PAGES; page++) {
     const res = await xrpcAt(pds, "com.atproto.repo.listRecords", {
       repo: did,
-      collection: "app.bsky.feed.post",
+      collection,
       limit: "100",
       ...(cursor ? { cursor } : {}),
     });
@@ -526,27 +586,58 @@ async function computeHeatmapViaRepo(pds, did, onProgress) {
       const t = createdAt ? Date.parse(createdAt) : NaN;
       if (Number.isNaN(t)) continue;
       if (t < cutoff) { hitCutoff = true; continue; }
-      const key = isoDay(t);
-      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
-      total++;
+      onRecord(rec.value, t);
+      count++;
     }
-    if (onProgress) onProgress(page + 1, total);
+    if (onProgress) onProgress(`walking ${collection}... ${count} found so far`);
     cursor = res.cursor;
     if (!cursor) break;
     if (hitCutoff) break;
     if (page === REPO_MAX_PAGES - 1 && cursor) truncated = true;
   }
+  return { truncated, count };
+}
 
-  return { dayCounts, total, truncated, cap: REPO_MAX_PAGES * 100, method: "repo" };
+// Fallback #1: walks the account's own repo via com.atproto.repo.listRecords
+// against its PDS. Used only when the CAR path above fails (parse error,
+// oversized repo, a PDS that blocks sync.getRepo). Posts/replies come from
+// one collection walk (split by whether the record carries a `reply` ref);
+// likes get their own walk against app.bsky.feed.like. "other records" isn't
+// populated here — that'd mean walking every remaining collection the
+// account owns, which is exactly the round-trip cost this fallback exists to
+// avoid (the CAR path gets all of it in one download instead) — so the
+// "other" chip reads 0 outside the CAR path.
+async function computeHeatmapViaRepo(pds, did, onProgress) {
+  const dayCounts = new Map();
+  const cutoff = Date.now() - CUTOFF_DAYS * 86400000;
+  let total = 0;
+
+  const posts = await walkCollectionByCutoff(pds, did, "app.bsky.feed.post", cutoff, (value, t) => {
+    addCount(dayCounts, isoDay(t), bucketForPostRecord(value));
+    total++;
+  }, onProgress);
+  const likes = await walkCollectionByCutoff(pds, did, "app.bsky.feed.like", cutoff, (value, t) => {
+    addCount(dayCounts, isoDay(t), "likes");
+    total++;
+  }, onProgress);
+
+  return {
+    dayCounts,
+    total,
+    truncated: posts.truncated || likes.truncated,
+    cap: REPO_MAX_PAGES * 100,
+    method: "repo",
+  };
 }
 
 // Fallback #2, for the rare case a DID doc won't resolve or a PDS blocks both
 // the CAR and listRecords walks above (self-hosted PDS with unusual CORS,
 // non-standard DID method, etc). Walks getAuthorFeed backward in time
-// instead, bucketing authored posts (skipping reposts, which arrive with a
-// `reason`) by UTC calendar day. Stops once a page's oldest post is past
-// CUTOFF_DAYS or MAX_PAGES is hit — either way truncated tells the caller so
-// it can be honest about coverage.
+// instead, bucketing authored posts/replies (skipping reposts, which arrive
+// with a `reason`) by UTC calendar day. Stops once a page's oldest post is
+// past CUTOFF_DAYS or MAX_PAGES is hit — either way truncated tells the
+// caller so it can be honest about coverage. getAuthorFeed doesn't surface
+// likes or other record types at all, so those chips read 0 on this path.
 async function computeHeatmapViaFeed(did, onProgress) {
   const dayCounts = new Map();
   let cursor;
@@ -570,7 +661,8 @@ async function computeHeatmapViaFeed(did, onProgress) {
       if (!t || Number.isNaN(t)) continue;
       if (t < cutoff) { hitCutoff = true; continue; }
       const key = isoDay(t);
-      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+      const type = item.post && item.post.record && item.post.record.reply ? "replies" : "posts";
+      addCount(dayCounts, key, type);
       total++;
     }
     if (onProgress) onProgress(page + 1, total);
@@ -608,12 +700,12 @@ async function computeHeatmap(did, onProgress) {
 // same dayCounts map (however it was gathered) can be re-rendered for the
 // rolling "last 12 months" view or for any single calendar year without
 // re-fetching anything.
-function computeStatsForRange(dayCounts, start, end) {
+function computeStatsForRange(dayCounts, start, end, selectedTypes) {
   let total = 0, activeDays = 0, busiestDate = null, busiestCount = 0;
   const c = new Date(start);
   while (c.getTime() <= end.getTime()) {
     const key = isoDay(c.getTime());
-    const count = dayCounts.get(key) || 0;
+    const count = sumSelected(dayCounts.get(key), selectedTypes);
     if (count) {
       total += count;
       activeDays++;
@@ -628,7 +720,7 @@ function computeStatsForRange(dayCounts, start, end) {
   const d = new Date(end);
   while (d.getTime() >= start.getTime()) {
     const key = isoDay(d.getTime());
-    if (!dayCounts.get(key)) break;
+    if (!sumSelected(dayCounts.get(key), selectedTypes)) break;
     currentStreak++;
     d.setUTCDate(d.getUTCDate() - 1);
   }
@@ -637,7 +729,7 @@ function computeStatsForRange(dayCounts, start, end) {
   const c2 = new Date(start);
   while (c2.getTime() <= end.getTime()) {
     const key = isoDay(c2.getTime());
-    if (dayCounts.get(key)) { run++; longestStreak = Math.max(longestStreak, run); }
+    if (sumSelected(dayCounts.get(key), selectedTypes)) { run++; longestStreak = Math.max(longestStreak, run); }
     else run = 0;
     c2.setUTCDate(c2.getUTCDate() + 1);
   }
@@ -743,7 +835,13 @@ function loadImg(url) {
 let lastCells = [];
 let lastMax = 0;
 
-async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, periodLabel }) {
+function pillLabel(selectedTypes) {
+  if (selectedTypes.size === 0) return "none";
+  if (selectedTypes.size === RECORD_TYPES.length) return "all types";
+  return RECORD_TYPES.filter((t) => selectedTypes.has(t)).join("+");
+}
+
+async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, periodLabel, selectedTypes }) {
   const canvas = document.getElementById("gridCanvas");
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -788,7 +886,7 @@ async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, peri
 
   // stat pills
   const pills = [
-    [String(stats.total), "skeets"],
+    [String(stats.total), pillLabel(selectedTypes)],
     [String(stats.activeDays), "active days"],
     [String(stats.currentStreak), "streak"],
     [String(stats.longestStreak), "longest"],
@@ -808,7 +906,7 @@ async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, peri
 
   // month labels
   lastCells = cells;
-  const max = Math.max(0, ...cells.map((c) => dayCounts.get(c.key) || 0));
+  const max = Math.max(0, ...cells.map((c) => sumSelected(dayCounts.get(c.key), selectedTypes)));
   lastMax = max;
   const cols = Math.max(0, ...cells.map((c) => c.col)) + 1;
   let lastMonth = -1;
@@ -833,7 +931,7 @@ async function drawCard({ profile, dayCounts, stats, truncated, cap, cells, peri
 
   // cells
   for (const c of cells) {
-    const count = dayCounts.get(c.key) || 0;
+    const count = sumSelected(dayCounts.get(c.key), selectedTypes);
     const level = levelFor(count, max);
     ctx.fillStyle = LEVEL_COLORS[level];
     const x = GRID_ORIGIN.x + c.col * STEP;
@@ -892,6 +990,8 @@ const els = {
   statBusiest: document.getElementById("statBusiest"),
   truncNote: document.getElementById("truncNote"),
   yearTabs: document.getElementById("yearTabs"),
+  typeChips: document.getElementById("typeChips"),
+  statTotalLabel: document.getElementById("statTotalLabel"),
   methodNote: document.getElementById("methodNote"),
   canvas: document.getElementById("gridCanvas"),
   tooltip: document.getElementById("tooltip"),
@@ -912,18 +1012,26 @@ function shareUrlFor(handle) {
   return "https://bisks.net" + MOUNT + "/s/" + encodeURIComponent(handle);
 }
 
-function shareText(profile, stats, periodLabel) {
+// e.g. {posts, replies} -> "posts & replies"; {posts, replies, likes, other} -> "posts, replies, likes & other records"
+function typesSummaryLabel(selectedTypes) {
+  const labels = RECORD_TYPES.filter((t) => selectedTypes.has(t)).map((t) => TYPE_LABELS[t]);
+  if (!labels.length) return "activity";
+  if (labels.length === 1) return labels[0];
+  return labels.slice(0, -1).join(", ") + " & " + labels[labels.length - 1];
+}
+
+function shareText(profile, stats, periodLabel, selectedTypes) {
   return (
-    `@${profile.handle}'s ${periodLabel} on Bluesky: ${stats.total} skeets, ${stats.activeDays} active days, ` +
-    `${stats.currentStreak}-day streak, ${stats.longestStreak}-day longest.\n\n` +
+    `@${profile.handle}'s ${periodLabel} on Bluesky (${typesSummaryLabel(selectedTypes)}): ${stats.total} logged, ` +
+    `${stats.activeDays} active days, ${stats.currentStreak}-day streak, ${stats.longestStreak}-day longest.\n\n` +
     `see the grid → ${shareUrlFor(profile.handle)}`
   );
 }
 
 const METHOD_NOTES = {
   car: (c) => `full repo history via one CAR download (${(c.bytes / 1048576).toFixed(1)} MB) — browse any year below.`,
-  repo: () => `CAR download failed or was too big — fell back to a scoped listRecords walk (last 12 months only).`,
-  feed: () => `CAR and listRecords both unavailable — fell back to the public feed (roughest, last 12 months only).`,
+  repo: () => `CAR download failed or was too big — fell back to a scoped listRecords walk (posts, replies & likes, last 12 months only).`,
+  feed: () => `CAR and listRecords both unavailable — fell back to the public feed (posts & replies only, last 12 months only).`,
 };
 
 // Re-renders stats + grid from the already-fetched dayCounts for either the
@@ -934,10 +1042,11 @@ async function renderView(view) {
   const isYear = typeof view === "number";
   const cells = isYear ? gridCellsForYear(view) : gridCellsRolling();
   const { start, end } = isYear ? yearBounds(view) : rollingBounds();
-  const stats = computeStatsForRange(current.dayCounts, start, end);
+  const stats = computeStatsForRange(current.dayCounts, start, end, current.selectedTypes);
   const periodLabel = isYear ? String(view) : "last 12 months";
 
   els.statTotal.textContent = stats.total;
+  els.statTotalLabel.textContent = typesSummaryLabel(current.selectedTypes) + " / yr";
   els.statDays.textContent = stats.activeDays;
   els.statStreak.textContent = stats.currentStreak;
   els.statLongest.textContent = stats.longestStreak;
@@ -947,6 +1056,7 @@ async function renderView(view) {
     : "";
 
   window.__lastDayCounts = current.dayCounts; // read by the hover-tooltip handler below
+  window.__lastSelectedTypes = current.selectedTypes;
   await drawCard({
     profile: current.profile,
     dayCounts: current.dayCounts,
@@ -955,9 +1065,10 @@ async function renderView(view) {
     cap: current.cap,
     cells,
     periodLabel,
+    selectedTypes: current.selectedTypes,
   });
 
-  lastShareText = shareText(current.profile, stats, periodLabel);
+  lastShareText = shareText(current.profile, stats, periodLabel, current.selectedTypes);
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
 
   for (const btn of els.yearTabs.children) {
@@ -986,6 +1097,39 @@ function buildYearTabs() {
   els.yearTabs.classList.add("show");
 }
 
+// Toggle chips for which record types get summed into the grid. Coverage
+// depends on which fetch method won (see computeHeatmapViaCar/Repo/Feed
+// above): "car" populates all four buckets, "repo" gets posts/replies/likes
+// but not "other" (that'd mean walking every collection instead of one),
+// and "feed" only ever gets posts/replies. Chips outside a method's coverage
+// are disabled rather than hidden, so it's clear the data's just unavailable
+// this time, not that the feature doesn't exist.
+function buildTypeChips() {
+  els.typeChips.innerHTML = "";
+  const chipTypes = ["posts", "replies", "likes", "other"];
+  for (const type of chipTypes) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.dataset.type = type;
+    btn.textContent = TYPE_LABELS[type];
+    btn.classList.toggle("active", current.selectedTypes.has(type));
+    const unavailable =
+      (type === "other" && current.method !== "car") ||
+      (type === "likes" && current.method === "feed");
+    if (unavailable) {
+      btn.disabled = true;
+      btn.title = "only available from a full CAR download";
+    }
+    btn.addEventListener("click", () => {
+      if (current.selectedTypes.has(type)) current.selectedTypes.delete(type);
+      else current.selectedTypes.add(type);
+      btn.classList.toggle("active", current.selectedTypes.has(type));
+      renderView(current.view);
+    });
+    els.typeChips.appendChild(btn);
+  }
+}
+
 async function reveal(rawHandle) {
   const handle = cleanHandle(rawHandle);
   if (!handle) { setStatus("enter a handle first.", true); return; }
@@ -1011,11 +1155,12 @@ async function reveal(rawHandle) {
     els.didOut.textContent = did;
 
     const result = await computeHeatmap(did, (msg) => setStatus(msg));
-    current = { profile, ...result };
+    current = { profile, ...result, selectedTypes: new Set(["posts", "replies"]) };
 
     setStatus("");
     els.methodNote.textContent = (METHOD_NOTES[current.method] || (() => ""))(current);
     buildYearTabs();
+    buildTypeChips();
     els.card.classList.add("show");
     await renderView("rolling");
   } catch (err) {
@@ -1045,8 +1190,9 @@ els.canvas.addEventListener("mousemove", (e) => {
   const hit = lastCells.find((c) => c.col === col && c.row === row);
   if (!hit) { els.tooltip.style.display = "none"; return; }
 
-  const count = hit.key ? (window.__lastDayCounts && window.__lastDayCounts.get(hit.key)) || 0 : 0;
-  els.tooltip.textContent = `${hit.date.toISOString().slice(0, 10)}: ${count} skeet${count === 1 ? "" : "s"}`;
+  const bucket = hit.key && window.__lastDayCounts ? window.__lastDayCounts.get(hit.key) : null;
+  const count = bucket ? sumSelected(bucket, window.__lastSelectedTypes || new Set(["posts", "replies"])) : 0;
+  els.tooltip.textContent = `${hit.date.toISOString().slice(0, 10)}: ${count} record${count === 1 ? "" : "s"}`;
   els.tooltip.style.left = (e.clientX - rect.left) + "px";
   els.tooltip.style.top = (e.clientY - rect.top) + "px";
   els.tooltip.style.display = "block";
