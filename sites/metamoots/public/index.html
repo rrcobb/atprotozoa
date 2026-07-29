@@ -340,13 +340,19 @@
         return `${SHARE_URL}/s/${encodeURIComponent(subjectHandle.replace(/^@/, ""))}?${params.toString()}`;
       }
 
+      // Uses full handles (not the short() display form, which strips
+      // ".bsky.social") because this text becomes the actual Bluesky post
+      // draft: the composer only turns "@handle" into a real mention facet
+      // when the handle is complete and resolvable. A stripped handle like
+      // "@norvid-studies" isn't a valid handle, so it either renders as
+      // plain text or resolves to nothing — a broken reference.
       function buildShareText(subjectHandle, mutual, profiles, shareUrl) {
         const top = mutual.slice(0, 3).map((r) => {
           const p = profiles.get(r.did);
-          return p ? short(p.handle) : r.did;
+          return "@" + (p ? p.handle : r.did);
         });
         const named = top.length ? ` top: ${top.join(", ")}.` : "";
-        return `metamoots on ${short(subjectHandle)}: ${mutual.length} meta-mutual${mutual.length === 1 ? "" : "s"} — don't follow each other, but engage all the time.${named} ${shareUrl}`;
+        return `metamoots on @${subjectHandle.replace(/^@/, "")}: ${mutual.length} meta-mutual${mutual.length === 1 ? "" : "s"} — don't follow each other, but engage all the time.${named} ${shareUrl}`;
       }
 
       function loadImg(url) {
@@ -376,9 +382,18 @@
         ctx.font = `400 22px ${mono}`;
         ctx.fillText(short(subjectHandle) + "'s meta-mutuals", 60, 128);
 
+        // Credit line lives top-right (clear of the title text, which ends
+        // well before this x) so it never collides with the results below —
+        // same placement as the static og.png card (see og-gen.mjs).
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/metamoots", W - 60, 50);
+        ctx.textAlign = "left";
+
         const top = mutual.slice(0, 6);
-        const rowH = 76;
-        const startY = 190;
+        const rowH = 70;
+        const startY = 182;
         const avatars = await Promise.all(top.map((r) => loadImg((profiles.get(r.did) || {}).avatar)));
 
         top.forEach((r, i) => {
@@ -423,10 +438,6 @@
           ctx.font = `400 22px ${mono}`;
           ctx.fillText("no meta-mutuals found this run.", 60, startY + 20);
         }
-
-        ctx.fillStyle = "#1a5fd0";
-        ctx.font = `700 20px ${mono}`;
-        ctx.fillText("bisks.net/metamoots", 60, H - 40);
       }
 
       function canShareFiles() {
