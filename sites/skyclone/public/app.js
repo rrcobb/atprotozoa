@@ -23,12 +23,12 @@ let sessionProfile = null; // { avatar, displayName } for the logged-in user, be
 let oauthLib = null;
 let goopLib = null;
 
-// One easter egg: if @bobsslop.bsky.social (the poster who asked for this) is
-// the one logged in, the whole site gets a drippy green goop background —
-// see goop.js. It's a light ambient ooze normally, and floods into a heavy
-// flow of sludge (plus extra spiders and a gross sound) whenever a fresh
-// notification lands — see pollNotifications() below. Nobody else's session
-// triggers any of it.
+// Was a one-user easter egg for @bobsslop.bsky.social; now everyone gets the
+// gunk — the whole site runs a drippy green goop background by default, see
+// goop.js. It's a light ambient ooze normally, and floods into a heavy flow
+// of sludge (plus extra spiders and a gross sound) whenever a fresh
+// notification lands — see pollNotifications() below. GOOP_HANDLE just keeps
+// a small nod to whoever started it.
 const GOOP_HANDLE = "bobsslop.bsky.social";
 
 // post uri -> like/repost record uri, for posts liked/unliked/reposted this
@@ -44,19 +44,10 @@ async function oauth() {
   return oauthLib;
 }
 
-function isGoopUser() {
-  return !!(session && session.handle && session.handle.toLowerCase() === GOOP_HANDLE);
-}
-
 async function updateGoopBackground() {
-  const active = isGoopUser();
-  document.documentElement.classList.toggle("goop-active", active);
-  if (active) {
-    if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
-    goopLib.startGoop();
-  } else if (goopLib) {
-    goopLib.stopGoop();
-  }
+  document.documentElement.classList.add("goop-active");
+  if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
+  goopLib.startGoop();
 }
 
 async function loadSessionProfile() {
@@ -1207,15 +1198,11 @@ async function pollNotifications() {
     const count = data.count || 0;
     const newOnes = unreadCount !== null ? count - unreadCount : 0;
     if (newOnes > 0) {
-      if (isGoopUser()) {
-        // heavy flow of sludge + a bigger swarm of spiders + a gross sound
-        crawlSpiders(Math.min(newOnes + 3, 8));
-        if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
-        goopLib.surgeGoop(5000);
-        goopLib.playGrossSound(newOnes);
-      } else {
-        crawlSpiders(Math.min(newOnes, 3));
-      }
+      // heavy flow of sludge + a bigger swarm of spiders + a gross sound
+      crawlSpiders(Math.min(newOnes + 3, 8));
+      if (!goopLib) goopLib = await import(`${MOUNT}/goop.js`);
+      goopLib.surgeGoop(5000);
+      goopLib.playGrossSound(newOnes);
     }
     unreadCount = count;
     updateNavBadge(count);
@@ -1771,7 +1758,7 @@ async function boot() {
   render();
   if (freshLogin) showToast(`Logged in as @${freshLogin.handle}`, "ok");
   if (freshLogin && freshLogin.handle && freshLogin.handle.toLowerCase() === GOOP_HANDLE) {
-    showToast("the slime remembers you 🟢", "spider");
+    showToast("the slime remembers its origin 🟢", "spider");
   }
   if (bootError) showToast(bootError, "err");
   pollNotifications();

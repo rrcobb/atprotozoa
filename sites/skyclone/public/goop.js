@@ -3,11 +3,11 @@
 // Green drippy goop background — WebGL1 fullscreen shader, animated fbm noise
 // stretched vertically and scrolled over time so it reads as sludge dripping
 // down the screen. Falls back to a CSS animated gradient if WebGL is
-// unavailable. Only ever mounted for one specific logged-in handle; see
-// updateGoopBackground() in app.js. Runs at a low ambient intensity all the
-// time that handle is logged in, and surges to a heavy flood (see
-// surgeGoop()) when a new notification lands, alongside a gross synthesized
-// sound (see playGrossSound()).
+// unavailable. This is skyclone's default background now — everyone gets the
+// gunk; see updateGoopBackground() in app.js. Runs at a low ambient intensity
+// at all times, and surges to a heavy flood (see surgeGoop()) when a fresh
+// notification lands, alongside a gross synthesized sound (see
+// playGrossSound()).
 
 const AMBIENT_INTENSITY = 0.16;
 const SURGE_INTENSITY = 1.0;
