@@ -236,6 +236,10 @@ function cleanNote(note) {
     // that carry implementation detail (backtick worker names, custom_domain
     // callouts) rather than anything worth showing off in a bred blurb.
     .replace(/\s*\([^()]*`[^()]*\)/g, "")
+    // Some notes drop a bare `worker` token outside any parens (real live
+    // registry entries do this, not just the offline snapshot) — strip the
+    // backticks rather than leaving literal ` marks in a bred sentence.
+    .replace(/`/g, "")
     .replace(/…$/, "")
     .trim();
 }
@@ -343,14 +347,38 @@ function parseSeed(seed) {
 // Pull the one clause worth quoting out of a full blurb: first sentence
 // (or up to an em dash, whichever's shorter), strip a leading article,
 // lowercase the first letter so it reads mid-sentence.
+
+// Some live minomobi notes open a "(game=hoop, structure=rind, ...)" aside
+// right where the 100-char cutoff lands, leaving a dangling unmatched "(" in
+// the bred sentence. Only fires when truncation actually happened, so a
+// blurb with balanced parens under the limit is untouched.
+function trimUnbalancedParens(s) {
+  let depth = 0, cut = -1;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "(") { if (depth === 0) cut = i; depth++; }
+    else if (s[i] === ")") depth = Math.max(0, depth - 1);
+  }
+  return depth > 0 && cut >= 0 ? s.slice(0, cut).trimEnd() : s;
+}
+
+// Blindly lowercasing the first character mangles words minomobi wrote in
+// full caps for emphasis ("ECOSYSTEM wing" -> "eCOSYSTEM wing"); leave those
+// alone and only lowercase a normal capitalized leading word.
+function lowerFirst(s) {
+  const word = s.match(/^[A-Za-z]+/);
+  if (word && word[0].length > 1 && word[0] === word[0].toUpperCase()) return s;
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
 function extractPhrase(blurb) {
   let s = blurb.split(/[.!?]\s|—/)[0].trim();
   if (s.length > 100) {
     s = s.slice(0, 100);
     s = s.slice(0, s.lastIndexOf(" ")).trim();
+    s = trimUnbalancedParens(s);
   }
   s = s.replace(/^(A|An|The)\s+/i, "").replace(/[.,;:]+$/, "");
-  return s.charAt(0).toLowerCase() + s.slice(1);
+  return lowerFirst(s);
 }
 
 function cap(s) {
