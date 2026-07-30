@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>the vibe store — bisks.net</title>
+    <meta
+      name="description"
+      content="Sign in with Bluesky, place an order, and a coding agent builds it. The shopping list shows what's shipped and what's still cooking."
+    />
+    <meta property="og:title" content="the vibe store" />
+    <meta
+      property="og:description"
+      content="Sign in with Bluesky, place an order, and a coding agent builds it. Real orders, real shopping list."
+    />
+    <meta property="og:image" content="https://bisks.net/vibe-store/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A glowing neon sign reading THE VIBE STORE above a shopping list, some items checked off." />
+    <meta property="og:url" content="https://bisks.net/vibe-store" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0a0f12;
+        --paper: #121a1f;
+        --card: #17222a;
+        --ink: #e8f4ee;
+        --muted: #7c9089;
+        --lime: #b6ff3c;
+        --pink: #ff5ec8;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(900px 500px at 10% -10%, rgba(182, 255, 60, 0.08), transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, rgba(255, 94, 200, 0.08), transparent 55%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.15rem 5rem; }
+      header { margin-bottom: 1.75rem; }
+      h1 {
+        font-size: clamp(1.9rem, 8vw, 2.6rem);
+        margin: 0 0 0.35rem;
+        letter-spacing: -0.01em;
+        color: var(--lime);
+        text-shadow: 0 0 26px rgba(182, 255, 60, 0.35);
+      }
+      .tagline { color: var(--muted); margin: 0; max-width: 54ch; }
+      .tagline b { color: var(--pink); font-weight: 700; }
+
+      section { margin-bottom: 2rem; }
+      .card {
+        background: var(--card);
+        border: 1px dashed #2c3a3f;
+        border-radius: 10px;
+        padding: 1.1rem 1.2rem;
+      }
+      .card h2 {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin: 0 0 0.8rem;
+      }
+
+      .who { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.6rem; min-height: 1.3em; }
+      .who .h { color: var(--lime); }
+      .who a { color: var(--pink); cursor: pointer; }
+      .signin { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .signin input { flex: 1; min-width: 12ch; }
+
+      input[type="text"], textarea {
+        width: 100%;
+        font-family: inherit;
+        font-size: 0.92rem;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid #2c3a3f;
+        background: #0d1418;
+        color: var(--ink);
+        border-radius: 6px;
+      }
+      input::placeholder, textarea::placeholder { color: #4d5c5f; }
+      textarea { resize: vertical; min-height: 4.5em; margin-bottom: 0.7rem; }
+
+      button {
+        font-family: inherit;
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0.55rem 1rem;
+        border: 1px solid var(--lime);
+        background: transparent;
+        color: var(--lime);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:hover { background: rgba(182, 255, 60, 0.1); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--lime); color: #0a0f12; }
+      button.primary:hover { background: #c8ff6b; }
+      button.small { font-size: 0.78rem; padding: 0.4rem 0.7rem; }
+
+      .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.6rem; min-height: 1.2em; }
+      .status.err { color: var(--pink); }
+      .status.ok a { color: var(--lime); }
+      .hint { font-size: 0.76rem; color: var(--muted); margin-top: 0.7rem; }
+      .hint code { background: rgba(255, 255, 255, 0.06); padding: 0.1em 0.35em; border-radius: 4px; }
+
+      ul.list { list-style: none; margin: 0; padding: 0; }
+      ul.list li {
+        display: flex;
+        gap: 0.55rem;
+        align-items: flex-start;
+        padding: 0.5rem 0;
+        border-bottom: 1px dashed #23303570;
+        font-size: 0.88rem;
+      }
+      ul.list li:last-child { border-bottom: none; }
+      ul.list .box { flex: none; color: var(--muted); }
+      ul.list li.done .box { color: var(--lime); }
+      ul.list li.done .label { color: var(--muted); text-decoration: line-through; text-decoration-color: #4d5c5f; }
+      ul.list .label a { color: var(--pink); text-decoration: none; }
+      ul.list li.done .label a { color: #7fae63; text-decoration: line-through; }
+      ul.list .label a:hover { text-decoration: underline; }
+      ul.list .who-tag { color: var(--muted); font-size: 0.82em; }
+      .empty, .loading { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--pink); }
+      a { color: var(--lime); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>🛒 the vibe store</h1>
+        <p class="tagline">
+          sign in with Bluesky, drop an order in the box below, and it ships
+          straight to <b>@buildthis.bisks.net</b> as a real tag — the same
+          build bot that fills the rest of this domain. no fake demo, no
+          mock checkout: whatever you order is what actually gets built.
+        </p>
+      </header>
+
+      <section class="card" id="authCard">
+        <h2>step 1 — sign in</h2>
+        <div class="who" id="who"></div>
+        <div class="signin" id="signinRow">
+          <input id="handle" type="text" placeholder="your bluesky handle" />
+          <button type="button" id="signinBtn" class="small">sign in with bluesky</button>
+        </div>
+        <p class="hint">
+          one-tap ordering posts from <em>your</em> account (an
+          <code>app.bsky.feed.post</code> written straight to your PDS —
+          nothing is stored here). skip this and use the manual button
+          below instead if you'd rather compose it yourself on bsky.app.
+        </p>
+      </section>
+
+      <section class="card" id="orderCard">
+        <h2>step 2 — place your order</h2>
+        <form id="orderForm">
+          <textarea
+            id="order"
+            maxlength="260"
+            placeholder="e.g. a tiny synth, a game where pigeons duel, an oauth-gated guestbook…"
+            required
+          ></textarea>
+          <button type="submit" class="primary" id="orderBtn">add to cart →</button>
+        </form>
+        <p class="status" id="orderStatus"></p>
+      </section>
+
+      <section class="card" id="listCard">
+        <h2>the shopping list</h2>
+        <p class="loading" id="listLoading">checking what's in the cart…</p>
+        <ul class="list" id="list" style="display:none"></ul>
+        <p class="hint" id="listHint" style="display:none">
+          ☑ crossed out = shipped · ☐ = still in the queue · pulled live from
+          <a href="https://buildthis.bisks.net/directory" target="_blank" rel="noopener">buildthis's own directory</a>
+        </p>
+      </section>
+
+      <footer>
+        every order here is a real tag, gated the same as any other —
+        <a href="https://buildthis.bisks.net">buildthis.bisks.net</a> only builds for
+        Rob's mutuals, everyone else gets looped in by hand. part of
+        <a href="https://bisks.net">bisks.net</a> · built on
+        <a href="https://atproto.com">atproto</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { fireOrder, orderIntentUrl, BOT_HANDLE } from "./lib/post.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+      let session = null;
+
+      // ---- auth ---------------------------------------------------------
+      function renderWho() {
+        const who = $("who");
+        const signinRow = $("signinRow");
+        if (session) {
+          who.innerHTML = `signed in as <span class="h">@${esc(session.handle)}</span> · <a id="signoutLink">sign out</a>`;
+          signinRow.style.display = "none";
+          $("signoutLink").onclick = async () => {
+            await clearSession();
+            session = null;
+            renderWho();
+            updateOrderBtn();
+          };
+        } else {
+          who.textContent = "not signed in — guest checkout opens bsky.app instead.";
+          signinRow.style.display = "flex";
+        }
+      }
+      function updateOrderBtn() {
+        $("orderBtn").textContent = session ? "add to cart →" : "add to cart (via bsky.app) →";
+      }
+
+      $("signinBtn").addEventListener("click", async () => {
+        const h = $("handle").value.trim();
+        if (!h) return;
+        $("signinBtn").disabled = true;
+        try {
+          await login(h);
+        } catch (e) {
+          $("who").textContent = e.message;
+          $("who").classList.add("err");
+          $("signinBtn").disabled = false;
+        }
+      });
+
+      // ---- order ----------------------------------------------------------
+      $("orderForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const order = $("order").value.trim();
+        if (!order) return;
+        const btn = $("orderBtn");
+        const status = $("orderStatus");
+        status.textContent = "";
+        status.className = "status";
+
+        if (session) {
+          btn.disabled = true;
+          btn.textContent = "ordering…";
+          try {
+            const res = await fireOrder(session, order);
+            const url = `https://bsky.app/profile/${session.did}/post/${res.uri.split("/").pop()}`;
+            status.innerHTML = `order placed! tagged @${esc(BOT_HANDLE)} — <a href="${url}" target="_blank">see it →</a>`;
+            status.className = "status ok";
+            $("order").value = "";
+          } catch (err) {
+            status.textContent = err.message;
+            status.className = "status err";
+          } finally {
+            btn.disabled = false;
+            updateOrderBtn();
+          }
+        } else {
+          window.open(orderIntentUrl(order), "_blank", "noopener");
+          status.textContent = `opened bsky.app with your order prefilled — hit post to send it.`;
+          status.className = "status ok";
+        }
+      });
+
+      // ---- shopping list ---------------------------------------------------
+      function itemLabel(entry) {
+        if (entry.done) {
+          const name = esc(entry.name);
+          return entry.url
+            ? `got: <a href="${esc(entry.url)}" target="_blank" rel="noopener">${name}</a>`
+            : `got: ${name}`;
+        }
+        const text = entry.text ? esc(truncate(entry.text, 90)) : "something";
+        return `still want: ${text}`;
+      }
+      function truncate(s, max) {
+        return s.length > max ? s.slice(0, max).trimEnd() + "…" : s;
+      }
+
+      async function loadShoppingList() {
+        const listLoading = $("listLoading");
+        const list = $("list");
+        const listHint = $("listHint");
+        try {
+          const res = await fetch("https://buildthis.bisks.net/logs.json");
+          if (!res.ok) throw new Error("logs fetch failed");
+          const { events } = await res.json();
+
+          const builtByName = new Map();
+          const queued = [];
+          for (const e of events) {
+            if (e.mutual !== true) continue;
+            if (e.outcome?.status === "success" && e.outcome.builtName) {
+              const entry = {
+                done: true,
+                name: e.outcome.builtName,
+                url: e.outcome.url,
+                at: e.outcome.at,
+                handle: e.authorHandle,
+              };
+              const prev = builtByName.get(entry.name);
+              if (!prev || prev.at < entry.at) builtByName.set(entry.name, entry);
+            } else if (!e.outcome) {
+              queued.push({ done: false, text: e.text, at: e.firstSeen, handle: e.authorHandle });
+            }
+          }
+          const combined = [...builtByName.values(), ...queued]
+            .sort((a, b) => (a.at < b.at ? 1 : -1))
+            .slice(0, 14);
+
+          listLoading.style.display = "none";
+          if (!combined.length) {
+            list.style.display = "block";
+            list.innerHTML = `<li><span class="empty">cart's empty — be the first order.</span></li>`;
+          } else {
+            list.style.display = "block";
+            list.innerHTML = combined
+              .map(
+                (e) => `<li class="${e.done ? "done" : ""}">
+                  <span class="box">${e.done ? "☑" : "☐"}</span>
+                  <span class="label">${itemLabel(e)}${e.handle ? ` <span class="who-tag">— @${esc(e.handle)}</span>` : ""}</span>
+                </li>`,
+              )
+              .join("\n");
+          }
+          listHint.style.display = "block";
+        } catch (err) {
+          listLoading.textContent = "couldn't load the shopping list right now — try refreshing.";
+        }
+      }
+
+      // ---- boot -------------------------------------------------------------
+      (async () => {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("who").textContent = e.message;
+        }
+        renderWho();
+        updateOrderBtn();
+      })();
+
+      loadShoppingList();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem;
+        overflow: hidden; pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
