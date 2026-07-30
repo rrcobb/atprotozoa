@@ -26,6 +26,7 @@
 import { readFileSync } from "node:fs";
 
 const PDS = "https://bsky.social";
+const APPVIEW = "https://public.api.bsky.app";
 
 function reqEnv(name) {
   const v = process.env[name];
@@ -258,6 +259,51 @@ function linkFacets(text, url) {
   ];
 }
 
+// Resolve @handle mentions in `text` into rich-text mention facets. Bluesky
+// does not auto-link @handles in raw text records (dave.9000ish.uk flagged
+// this after "found a real line to @minomobi.com" — from BUILD_NOTE — posted
+// as inert plain text): the record needs a byte-indexed facet pointing at the
+// handle's DID. `src/index.ts`'s watcher already does this for its own fixed
+// replies via a caller-supplied handle->DID map; this note's handles aren't
+// known in advance, so we resolve each one against the public AppView instead.
+// Best-effort per handle: one that fails to resolve just renders as plain
+// text, same as an @-mention Bluesky itself can't resolve.
+const MENTION_RE = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+
+async function resolveHandle(handle) {
+  try {
+    const res = await fetch(
+      `${APPVIEW}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`,
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    return j.did || null;
+  } catch {
+    return null;
+  }
+}
+
+async function mentionFacets(text) {
+  const handles = [...new Set([...text.matchAll(MENTION_RE)].map((m) => m[1]))];
+  if (handles.length === 0) return [];
+  const dids = new Map(
+    await Promise.all(handles.map(async (h) => [h, await resolveHandle(h)])),
+  );
+  const enc = new TextEncoder();
+  const facets = [];
+  for (const match of text.matchAll(MENTION_RE)) {
+    const did = dids.get(match[1]);
+    if (!did) continue;
+    const byteStart = enc.encode(text.slice(0, match.index)).length;
+    const byteEnd = byteStart + enc.encode(match[0]).length;
+    facets.push({
+      index: { byteStart, byteEnd },
+      features: [{ $type: "app.bsky.richtext.facet#mention", did }],
+    });
+  }
+  return facets;
+}
+
 async function login() {
   const res = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
     method: "POST",
@@ -281,7 +327,7 @@ async function createReply(session, text, url) {
       root: { uri: reqEnv("REPLY_ROOT_URI"), cid: reqEnv("REPLY_ROOT_CID") },
       parent: { uri: reqEnv("REPLY_PARENT_URI"), cid: reqEnv("REPLY_PARENT_CID") },
     },
-    facets: linkFacets(text, url),
+    facets: [...linkFacets(text, url), ...(await mentionFacets(text))],
   };
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
     method: "POST",
