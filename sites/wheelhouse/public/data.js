@@ -81,6 +81,7 @@ export const ITEMS = [
   { name: "pixel fishing", url: "https://bisks.net/pixel-fishing", by: "steve-adams.me", type: "game" },
   { name: "simcluster clue", url: "https://simcluster.bisks.net", by: "bisks.net", type: "game" },
   { name: "simclustered", url: "https://simclustered.bisks.net", by: "cee.wtf", type: "game" },
+  { name: "sisyphus", url: "https://bisks.net/games/sisyphus", by: "dulanyw.bsky.social", type: "game" },
   { name: "bisk thunderdome", url: "https://bisks.net/games/thunderdome", by: "catblanketflower.yuwakisa.com", type: "game" },
   { name: "sokobisks", url: "https://bisks.net/games/sokobisks", by: "vgel.me", type: "game" },
   { name: "solitaire", url: "https://bisks.net/solitaire", by: "heartpunk.com", type: "game" },

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>sisyphus — a side-scrolling myth simulator</title>
+<meta name="description" content="Push the boulder up the mountain. Leap chasms and scree, duck the crows. Get hit and it doesn't just cost a life — the boulder rolls back down the slope and undoes your climb. Forever. Six palettes, all audio live-synthesized, no build step.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="sisyphus — a side-scrolling myth simulator">
+<meta property="og:description" content="Push the boulder up the mountain. Leap chasms and scree, duck the crows. Get hit and the boulder rolls back down the slope — forever.">
+<meta property="og:image" content="https://bisks.net/games/sisyphus/og.png">
+<meta property="og:url" content="https://bisks.net/games/sisyphus">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="sisyphus — a side-scrolling myth simulator">
+<meta name="twitter:description" content="Push the boulder up the mountain. Leap chasms and scree, duck the crows. Get hit and the boulder rolls back down the slope — forever.">
+<meta name="twitter:image" content="https://bisks.net/games/sisyphus/og.png">
+
+<style>
+  :root {
+    /* filled in by theme JS */
+    --sky-top: #cfe8ff;
+    --sky-bot: #f3e6c8;
+    --far: #a9b8c9;
+    --mid: #7f93a8;
+    --slope: #cbb896;
+    --slope-line: #8a725a;
+    --boulder: #6b6560;
+    --boulder-2: #948c82;
+    --figure: #2c2a28;
+    --figure-2: #b8452e;
+    --chasm: #1a1410;
+    --scree: #9a8c72;
+    --crow: #201d1a;
+    --hud: #2c2a28;
+    --accent: #b8452e;
+    --panel: rgba(255,250,240,0.86);
+    --glow: 0px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #cfe8ff;
+    color: var(--hud);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; padding: 12px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 960px);
+    aspect-ratio: 16 / 9;
+    max-height: 72vh;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.12),
+                0 24px 60px rgba(0,0,0,0.35);
+  }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  /* overlays */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(3px);
+    padding: 20px; gap: 14px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(26px, 6vw, 50px);
+    letter-spacing: 1px;
+    color: var(--accent);
+    text-shadow: 0 0 calc(10px + var(--glow)) var(--accent);
+  }
+  .overlay p { margin: 0; max-width: 46ch; line-height: 1.5; opacity: 0.9; }
+  .keys { font-size: 13px; opacity: 0.75; }
+  .keys b { color: var(--accent); }
+  button.big {
+    font: inherit; font-size: 18px;
+    padding: 12px 26px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff8ef; cursor: pointer;
+    box-shadow: 0 0 calc(10px + var(--glow)) var(--accent);
+    transition: transform .08s ease;
+  }
+  button.big:active { transform: scale(0.96); }
+  button.small {
+    font: inherit; font-size: 13px;
+    padding: 8px 16px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: transparent; color: var(--accent); cursor: pointer;
+  }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 8px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 13px; z-index: 4; pointer-events: none;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.35);
+  }
+  #hud .stat { line-height: 1.35; }
+  #hud .stat b { color: var(--accent); }
+  #bar-wrap {
+    position: absolute; left: 10px; right: 10px; top: 46px; z-index: 4;
+  }
+  #progress {
+    height: 6px; border-radius: 3px;
+    background: rgba(0,0,0,0.18);
+    overflow: hidden;
+  }
+  #progress > i {
+    display: block; height: 100%; width: 0%;
+    background: var(--accent);
+    box-shadow: 0 0 calc(6px + var(--glow)) var(--accent);
+    transition: width 0.15s linear;
+  }
+
+  /* controls bar */
+  #bar {
+    width: min(100%, 960px);
+    display: flex; flex-wrap: wrap; gap: 8px 12px;
+    align-items: center; justify-content: center;
+  }
+  .seg { display: inline-flex; align-items: center; gap: 6px; }
+  .seg label { font-size: 12px; opacity: 0.7; }
+  select, .toggle {
+    font: inherit; font-size: 13px;
+    background: rgba(0,0,0,0.05);
+    color: var(--hud);
+    border: 1px solid rgba(0,0,0,0.18);
+    border-radius: 8px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  .toggle[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff8ef;
+  }
+  a.credit { color: var(--accent); text-decoration: none; }
+  a.credit:hover { text-decoration: underline; }
+  .foot { font-size: 11px; opacity: 0.6; text-align: center; margin-top: 2px; }
+
+  /* touch buttons — only shown on coarse pointers */
+  #touch {
+    position: absolute; bottom: 10px; left: 10px; right: 10px;
+    display: none; justify-content: space-between; z-index: 4;
+  }
+  #touch button {
+    font: inherit; font-size: 16px;
+    width: 78px; height: 58px;
+    border-radius: 12px;
+    border: 1px solid rgba(0,0,0,0.2);
+    background: rgba(255,255,255,0.35);
+    color: var(--hud); backdrop-filter: blur(2px);
+  }
+  @media (pointer: coarse) { #touch { display: flex; } }
+
+  #shareBtn {
+    font: inherit; font-size: 14px;
+    padding: 10px 20px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent); color: #fff8ef; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="hud">
+      <div class="stat">
+        CLIMB <b id="dist">0</b>m<br>
+        LOOPS <b id="loops">0</b>
+      </div>
+      <div class="stat" style="text-align:right">
+        BEST <b id="best">0</b>m<br>
+        <span id="rollNote" style="opacity:0.85"></span>
+      </div>
+    </div>
+    <div id="bar-wrap">
+      <div id="progress"><i id="progressFill"></i></div>
+    </div>
+
+    <div id="touch">
+      <button id="tDuck">▼ DUCK</button>
+      <button id="tPush">◀▶ PUSH</button>
+      <button id="tJump">▲ JUMP</button>
+    </div>
+
+    <div class="overlay" id="startOverlay">
+      <h1>SISYPHUS</h1>
+      <p>Push the boulder up the mountain. <b>Leap</b> the chasms and scree,
+         <b>duck</b> the crows. Get hit and it doesn't just cost a life — the
+         boulder rolls back down the slope and undoes your climb. Reach the
+         summit and the gods just laugh: it rolls away down the far side, and
+         you start again. Forever.</p>
+      <p class="keys">
+        hold <b>RIGHT / SPACE</b> push · <b>UP</b> jump · <b>DOWN</b> duck ·
+        <b>P</b> pause · <b>M</b> mute
+      </p>
+      <button class="big" id="startBtn">▶ Begin the labor</button>
+    </div>
+
+    <div class="overlay hidden" id="pauseOverlay">
+      <h1>PAUSED</h1>
+      <p class="keys">press <b>P</b> to resume</p>
+    </div>
+  </div>
+
+  <div id="bar">
+    <div class="seg">
+      <label for="theme">theme</label>
+      <select id="theme"></select>
+    </div>
+    <button class="toggle" id="musicToggle" aria-pressed="true">♪ music</button>
+    <button class="toggle" id="sfxToggle" aria-pressed="true">♫ sfx</button>
+    <a id="shareBtn" href="#" target="_blank" rel="noopener">share the labor →</a>
+  </div>
+  <div class="foot">
+    a side-scrolling myth simulator · every sound synthesized live with the Web Audio API ·
+    built by <a class="credit" href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a class="credit" href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a>
+  </div>
+</div>
+
+<script src="game.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
