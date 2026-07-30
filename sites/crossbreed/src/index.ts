@@ -7,7 +7,7 @@
 // loads, so the seed means the same thing on both sides — see
 // public/shared.js's top comment.
 
-import { breedTitleDesc, fetchLiveMinomobi } from "../public/shared.js";
+import { breedTitleDesc, fetchLiveMinomobi, BUILDTHIS } from "../public/shared.js";
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -64,6 +64,30 @@ async function renderShare(env: Env, request: Request, seed: string): Promise<Re
   }
 }
 
+// The reciprocal half of the handshake: fetchLiveMinomobi() (shared.js) reads
+// mino.mobi/deploy-registry.json — their own build tooling's source of truth,
+// public and CORS-open. Until now that pull only ran one way. This route
+// answers it: our own live catalog, in the exact { surfaces: [{ type,
+// surface, note }] } shape mino publishes (and that parseMinomobiRegistry
+// already parses), CORS-open the same way. If @minomobi.com wants to reach
+// back into buildthis's catalog the way we reach into theirs, this is that
+// door — same vocabulary, same openness, no request needed.
+function renderRegistry(): Response {
+  const body = {
+    generatedBy: "@buildthis.bisks.net",
+    for: "@minomobi.com — pull this whenever; it's the same file crossbreed breeds from, in your own registry's shape",
+    source: "https://bisks.net (atprotozoa)",
+    surfaces: BUILDTHIS.map((s) => ({ type: "frontend", surface: s.name, note: s.blurb })),
+  };
+  return new Response(JSON.stringify(body, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "access-control-allow-origin": "*",
+      "cache-control": "public, max-age=300",
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -79,6 +103,8 @@ export default {
     // like "/og.png" or "/shared.js" down to nothing. See
     // sites/activitygrid/src/index.ts for the same guard.
     const path = url.pathname.startsWith(PREFIX + "/") ? url.pathname.slice(PREFIX.length) : url.pathname;
+
+    if (path === "/registry.json") return renderRegistry();
 
     const shareMatch = path.match(/^\/s\/([^/]+)\/?$/);
     if (shareMatch) return renderShare(env, request, shareMatch[1]);
