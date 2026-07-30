@@ -59,6 +59,20 @@ function extractJson(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
+// Workers AI doesn't always hand back the same shape: sometimes `raw` is a
+// plain string, sometimes `{ response: "...json prose..." }`, and sometimes —
+// when the model's structured-output mode kicks in — `.response` (or `raw`
+// itself) is already the parsed object, not a string to re-parse. Handle all
+// three instead of assuming `.response` is always text.
+function coerceModelOutput(raw: unknown): unknown {
+  if (typeof raw === "string") return extractJson(raw);
+  const response = (raw as { response?: unknown })?.response;
+  if (typeof response === "string") return extractJson(response);
+  if (response && typeof response === "object") return response;
+  if (raw && typeof raw === "object") return raw;
+  throw new Error("model didn't return JSON");
+}
+
 async function handleDistill(request: Request, env: Env): Promise<Response> {
   let body: { posts?: InPost[] };
   try {
@@ -88,14 +102,9 @@ async function handleDistill(request: Request, env: Env): Promise<Response> {
     return new Response(`AI call failed: ${(err as Error).message || err}`, { status: 502 });
   }
 
-  const text =
-    typeof raw === "string"
-      ? raw
-      : (raw as { response?: string })?.response ?? JSON.stringify(raw);
-
   let parsed: unknown;
   try {
-    parsed = extractJson(text);
+    parsed = coerceModelOutput(raw);
   } catch (err) {
     return new Response(`couldn't parse the model's output: ${(err as Error).message}`, { status: 502 });
   }
