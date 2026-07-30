@@ -133,6 +133,23 @@
       .iconbtn:hover { border-color: var(--gold); }
       .spacer { flex: 1; }
 
+      /* ── minimap ─────────────────────────────────────────────────────── */
+      #minimapWrap {
+        position: fixed; top: 3.6rem; right: 0.9rem; z-index: 10;
+        pointer-events: auto; display: none; flex-direction: column; align-items: flex-end; gap: 0.3rem;
+      }
+      #minimapWrap.on { display: flex; }
+      #minimap {
+        width: 132px; height: 132px; border-radius: 50%;
+        background: var(--panel); border: 1px solid var(--faint);
+        cursor: crosshair; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      }
+      #minimapHint {
+        font-size: 0.66rem; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.2rem 0.45rem;
+      }
+      @media (max-width: 640px) { #minimapWrap { display: none !important; } }
+
       #hint {
         position: fixed; left: 0.9rem; bottom: 0.9rem; z-index: 10;
         background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
@@ -167,6 +184,7 @@
       }
       .mrow .hn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .mrow.self { color: var(--gold); font-weight: 700; }
+      .mrow .seen { color: var(--gold); margin-right: 0.15rem; opacity: 0.85; }
       @media (max-width: 640px) { #sidebar { width: 82vw; } }
 
       /* ── info panel ──────────────────────────────────────────────────── */
@@ -266,9 +284,15 @@
         <div class="pill" id="hiveLabel">—</div>
         <div class="spacer"></div>
         <button class="iconbtn" id="homeBtn" title="fly to your queen cell">👑</button>
+        <button class="iconbtn" id="nextBtn" title="fly to next unvisited moot">🧭</button>
         <button class="iconbtn" id="sidebarBtn" title="mutual list">☰</button>
         <button class="iconbtn" id="restartBtn" title="build a different hive">⟲</button>
       </div>
+    </div>
+
+    <div id="minimapWrap">
+      <canvas id="minimap" width="132" height="132" title="click to fly to the nearest cell"></canvas>
+      <div id="minimapHint">minimap · click to fly</div>
     </div>
 
     <div id="shareBar">
@@ -278,7 +302,8 @@
 
     <div id="hint">
       <b>WASD</b> or drag to fly · <b>Q/E</b> up-down · <b>Shift</b> boost ·
-      scroll = throttle · click a cell to peek inside
+      scroll = throttle · click a cell to peek inside · <b>🧭</b> jumps to the
+      next moot you haven't met, and the top-right radar shows where you are
       <div style="margin-top:0.3rem"><button class="iconbtn" id="hintClose" style="width:1.4rem;height:1.4rem;font-size:0.7rem;">✕</button></div>
     </div>
 
@@ -346,10 +371,15 @@
       const screenshotBtn = document.getElementById("screenshotBtn");
       const shareBskyBtn = document.getElementById("shareBskyBtn");
       const thrustBtn = document.getElementById("thrustBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const minimapWrap = document.getElementById("minimapWrap");
+      const minimap = document.getElementById("minimap");
+      const mctx = minimap.getContext("2d");
 
       const hive = createHive(canvas, { mountImgProxy: `${MOUNT}/img` });
       let entries = [];
       let currentHandle = "";
+      let visited = new Set(); // entry.index of every cell flown to or clicked open
 
       function resizeCanvas() {
         hive.resize(window.innerWidth, window.innerHeight);
@@ -372,6 +402,7 @@
       restartBtn.addEventListener("click", () => {
         hive.stop();
         hud.classList.remove("on");
+        minimapWrap.classList.remove("on");
         landing.classList.remove("hidden");
         infoPanel.classList.remove("on");
         sidebar.classList.remove("open");
@@ -379,7 +410,18 @@
 
       ipClose.addEventListener("click", () => infoPanel.classList.remove("on"));
 
-      hive.onSelect = async (entry) => {
+      // Marking a cell visited (clicked open in 3D, or flown to via sidebar /
+      // minimap / the next-unvisited button) drives the "seen" state shown in
+      // the sidebar checkmarks, the minimap dots, and the hive label's count.
+      function markVisited(entry) {
+        if (visited.has(entry.index)) return;
+        visited.add(entry.index);
+        renderSidebar(sidebarSearch.value);
+        updateProgress();
+      }
+
+      async function showInfoPanel(entry) {
+        markVisited(entry);
         infoPanel.classList.add("on");
         ipAva.style.backgroundImage = entry.avatar ? `url("${MOUNT}/img?u=${encodeURIComponent(entry.avatar)}")` : "none";
         ipAva.style.background = entry.avatar ? "" : tintFor(entry.did);
@@ -393,13 +435,42 @@
         } catch {
           ipQuote.textContent = "";
         }
-      };
+      }
+
+      // fly the camera to a cell and open its info panel — used by the
+      // sidebar, the minimap, and the next-unvisited button. Clicking a cell
+      // directly in 3D (hive.onSelect) skips the flight since you're already
+      // looking at it.
+      function goToEntry(entry) {
+        if (!entry) return;
+        hive.flyToIndex(entry.index);
+        showInfoPanel(entry);
+      }
+
+      hive.onSelect = (entry) => { showInfoPanel(entry); };
+
+      nextBtn.addEventListener("click", () => {
+        const next = entries.find((e) => !visited.has(e.index));
+        if (!next) {
+          hiveLabel.innerHTML = `🐝 <b>you've met the whole hive!</b>`;
+          setTimeout(updateProgress, 2200);
+          return;
+        }
+        goToEntry(next);
+        if (window.innerWidth < 640) sidebar.classList.remove("open");
+      });
 
       const TINTS = ["#e8a838", "#d9762b", "#c9553f", "#b8894a", "#e0b84a", "#cf7f2b", "#a86a3a", "#df9a3d", "#c46a2e", "#b5893f"];
       function tintFor(did) {
         let h = 0;
         for (const c of did || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
         return TINTS[h % TINTS.length];
+      }
+
+      function updateProgress() {
+        if (!entries.length) return;
+        const seen = entries.filter((e) => visited.has(e.index)).length;
+        hiveLabel.innerHTML = `👑 <b>@${currentHandle}</b>'s hive · ${entries.length - 1} moots · ${seen}/${entries.length} visited`;
       }
 
       function renderSidebar(filter) {
@@ -415,16 +486,79 @@
           else ava.style.background = tintFor(e.did);
           const hn = document.createElement("div");
           hn.className = "hn";
-          hn.textContent = (e.isSelf ? "👑 " : "") + "@" + e.handle;
+          const seen = !e.isSelf && visited.has(e.index);
+          hn.innerHTML = (e.isSelf ? "👑 " : seen ? '<span class="seen">✓</span>' : "") + "@" + e.handle;
           row.append(ava, hn);
           row.addEventListener("click", () => {
-            hive.flyToIndex(e.index);
+            goToEntry(e);
             if (window.innerWidth < 640) sidebar.classList.remove("open");
           });
           sidebarList.appendChild(row);
         }
       }
       sidebarSearch.addEventListener("input", () => renderSidebar(sidebarSearch.value));
+
+      // ── minimap: top-down read of the hex grid (see hive.js getCameraTop)
+      // — dots for every cell (gold = queen or visited, dim amber = unseen),
+      // a small arrow for the camera's position + heading. Click it to fly
+      // to whichever cell is nearest the click.
+      function minimapExtent() {
+        let m = 8;
+        for (const e of entries) m = Math.max(m, Math.hypot(e.x, e.y));
+        return m + 8;
+      }
+      function drawMinimap() {
+        if (minimapWrap.classList.contains("on")) {
+          const S = 132;
+          const extent = minimapExtent();
+          const scale = (S / 2 - 9) / extent;
+          const cx = S / 2, cy = S / 2;
+          mctx.clearRect(0, 0, S, S);
+          for (const e of entries) {
+            const px = cx + e.x * scale;
+            const py = cy - e.y * scale;
+            const seen = e.isSelf || visited.has(e.index);
+            mctx.beginPath();
+            mctx.arc(px, py, e.isSelf ? 4.5 : 2.6, 0, Math.PI * 2);
+            mctx.fillStyle = seen ? "#ffcf5c" : "rgba(217,134,47,0.55)";
+            mctx.fill();
+          }
+          const cam = hive.getCameraTop();
+          const px = cx + cam.x * scale;
+          const py = cy - cam.y * scale;
+          mctx.save();
+          mctx.translate(px, py);
+          mctx.rotate(Math.atan2(cam.fx, cam.fy));
+          mctx.beginPath();
+          mctx.moveTo(0, -6.5);
+          mctx.lineTo(4.5, 5.5);
+          mctx.lineTo(-4.5, 5.5);
+          mctx.closePath();
+          mctx.fillStyle = "#7dd3fc";
+          mctx.fill();
+          mctx.restore();
+        }
+        requestAnimationFrame(drawMinimap);
+      }
+      requestAnimationFrame(drawMinimap);
+
+      minimap.addEventListener("click", (e) => {
+        if (!entries.length) return;
+        const rect = minimap.getBoundingClientRect();
+        const S = 132;
+        const extent = minimapExtent();
+        const scale = (S / 2 - 9) / extent;
+        const cx = ((e.clientX - rect.left) / rect.width) * S;
+        const cy = ((e.clientY - rect.top) / rect.height) * S;
+        const wx = (cx - S / 2) / scale;
+        const wy = -(cy - S / 2) / scale;
+        let best = null, bestD = Infinity;
+        for (const en of entries) {
+          const d = Math.hypot(en.x - wx, en.y - wy);
+          if (d < bestD) { bestD = d; best = en; }
+        }
+        goToEntry(best);
+      });
 
       function buildShareText(handle, url) {
         const text = `🐝 flew through @${handle}'s beehive of mutuals on beesky — every moot gets a wax cell. `;
@@ -466,11 +600,13 @@
           currentHandle = res.handle;
           loadingMsg.textContent = `building ${res.pool.length + 1} cells…`;
           entries = hive.load(res);
+          visited = new Set([0]); // the queen cell (self) starts seen
           renderSidebar("");
-          hiveLabel.innerHTML = `👑 <b>@${res.handle}</b>'s hive · ${res.pool.length} moots`;
+          updateProgress();
           updateShareLink();
           landing.classList.add("hidden");
           hud.classList.add("on");
+          minimapWrap.classList.toggle("on", res.pool.length > 0);
           loading.classList.remove("on");
           hive.start();
           try { localStorage.setItem("beesky:handle", res.handle); } catch {}

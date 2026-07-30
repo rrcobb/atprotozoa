@@ -509,6 +509,17 @@ export function createHive(canvas, { mountImgProxy } = {}) {
 
   function setThrust(held) { thrustHeld = held; }
 
+  // Top-down camera state for the minimap overlay (see index.html): the hex
+  // grid lives in the XY plane (tunnels bore into -Z), so a flat x/y read of
+  // the camera plus its forward vector's x/y is exactly the "you are here,
+  // facing this way" the minimap needs — no separate top-down camera to
+  // maintain.
+  const _fwd = new THREE.Vector3();
+  function getCameraTop() {
+    _fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    return { x: camera.position.x, y: camera.position.y, fx: _fwd.x, fy: _fwd.y };
+  }
+
   function start() {
     lastT = performance.now();
     if (!raf) frame();
@@ -534,6 +545,7 @@ export function createHive(canvas, { mountImgProxy } = {}) {
     flyToIndex,
     screenshot,
     setThrust,
+    getCameraTop,
     start,
     stop,
     dispose,
