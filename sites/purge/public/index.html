@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Without this, hitting /purge (no trailing slash) resolves the
+         module import "./lib/identity.js" to /lib/identity.js instead of
+         /purge/lib/identity.js, 404ing outside this Worker's route. -->
+    <base href="/purge/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>purge — find your quiet mutuals — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle. purge finds mutuals — people they follow who follow them back — who haven't liked or replied to a single one of their posts in months, so they know who to consider unfollowing."
+    />
+    <meta property="og:title" content="purge — find your quiet mutuals" />
+    <meta
+      property="og:description"
+      content="Mutuals who haven't liked or replied to a single one of your posts in months. purge finds them for any Bluesky handle, so you know who to consider unfollowing."
+    />
+    <meta property="og:url" content="https://bisks.net/purge" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://bisks.net/purge/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="purge — find your quiet mutuals" />
+    <meta
+      name="twitter:description"
+      content="Mutuals who haven't liked or replied to a single one of your posts in months. purge finds them for any Bluesky handle, so you know who to consider unfollowing."
+    />
+    <meta name="twitter:image" content="https://bisks.net/purge/og.png" />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex / metamoots. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --warn: #b3261e;
+        --good: #0d7a3f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 600; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 62ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      select {
+        font-family: inherit; font-size: 0.92rem; padding: 0.6rem 0.7rem;
+        border: 1px solid var(--faint); border-radius: 4px; background: #fff; color: var(--ink);
+      }
+      select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block; cursor: pointer;
+        font-family: inherit; font-size: 0.88rem; padding: 0.6rem 1rem; border-radius: 4px;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: var(--warn); }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+
+      .caveat {
+        font-size: 0.82rem; color: var(--warn); background: #fbeceb;
+        border: 1px solid #f2c9c6; border-radius: 4px; padding: 0.7rem 0.9rem;
+        margin: 0 0 1.2rem; display: none;
+      }
+      .caveat.on { display: block; }
+
+      h2.sub { font-size: 0.95rem; margin: 1.8rem 0 0.6rem; }
+      p.note { font-size: 0.82rem; color: var(--muted); margin: 0 0 1rem; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      thead th {
+        text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted); font-weight: 600; padding: 0 0.4rem 0.5rem 0; border-bottom: 1px solid var(--ink);
+      }
+      thead th.num, td.num { text-align: right; }
+      tbody td { padding: 0.55rem 0.4rem 0.55rem 0; border-bottom: 1px solid var(--faint); vertical-align: middle; }
+      tbody tr:hover { background: #fafafa; }
+      .rank { color: var(--muted); font-variant-numeric: tabular-nums; width: 1.6em; }
+      .who { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+      .who img { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--faint); }
+      .who .names { min-width: 0; }
+      .who .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+      .who .hd { color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+      td.action a { color: var(--accent); text-decoration: none; font-size: 0.82em; white-space: nowrap; }
+      td.action a:hover { text-decoration: underline; }
+
+      .actionRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1rem 0 0.4rem; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
+
+      details.engaged { margin-top: 1.8rem; font-size: 0.84rem; }
+      details.engaged summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.engaged .body { margin-top: 0.8rem; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>purge <span class="slash">· find your quiet mutuals</span></h1>
+      <p class="intro">
+        <b>Mutuals</b> — people you follow who follow you back — you never
+        hear from. Paste a <b>Bluesky handle</b> and purge reads their follow
+        graph to find mutuals, then checks whether each one has liked or
+        replied to any of that account's posts recently. Anyone who hasn't
+        gets listed, so you know who to consider unfollowing.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">handle</label>
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <select id="months" title="quiet-window">
+            <option value="3">quiet for 3 months</option>
+            <option value="6" selected>quiet for 6 months</option>
+            <option value="12">quiet for 12 months</option>
+          </select>
+          <button id="go" type="submit">run purge check</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView, all in your browser — no login, nothing written anywhere.
+      </p>
+
+      <section id="result">
+        <div class="caveat" id="caveat"></div>
+        <div class="summary" id="summary"></div>
+
+        <div class="actionRow" id="actionRow" style="display: none">
+          <button class="btn2" id="copyHandles" type="button">copy handles</button>
+        </div>
+
+        <table id="quietTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>who</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="note" id="emptyNote" style="display: none"></p>
+
+        <details class="engaged" id="engagedBox" style="display: none">
+          <summary id="engagedSummary">still around (engaged in the window)</summary>
+          <div class="body">
+            <p class="note">
+              These mutuals did like or reply to at least one sampled post in
+              the window — the opposite of the purge list above.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>who</th>
+                </tr>
+              </thead>
+              <tbody id="engagedRows"></tbody>
+            </table>
+          </div>
+        </details>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          First, purge reads the target's <code>getFollows</code> and
+          <code>getFollowers</code> in full and intersects them —
+          that's the <b>mutuals</b> set. Then it pages the target's own
+          recent posts via <code>getAuthorFeed</code>, stopping once a post
+          falls outside the chosen window (up to 60 posts sampled), and for
+          each one reads its public <code>getLikes</code> and direct
+          <code>getPostThread</code> replies. Any mutual who shows up as a
+          liker or direct replier on <b>at least one</b> sampled post counts
+          as engaged; everyone else in the mutual set is "quiet" and lands on
+          the purge list. Reposts don't count — the ask is specifically about
+          liking or replying. Because this only samples the target's own
+          posts (not every place the two accounts might interact — quote
+          posts, other threads, DMs), a real friend who mostly engages
+          elsewhere can still show up here; treat the list as a starting
+          point for a look, not a verdict. If the account being checked
+          hasn't posted at all in the chosen window, every mutual will look
+          "quiet" for the trivial reason that there was nothing to engage
+          with — purge flags that case instead of reporting it straight.
+        </div>
+      </details>
+
+      <footer>
+        quiet mutual = follows each other, but no like or reply from them on
+        any sampled post in the window. Reads Bluesky's public AppView
+        (getFollows / getFollowers / getAuthorFeed / getLikes /
+        getPostThread) — anonymous, everything client-side, no login.
+        graph-crawl pattern copied from <a href="https://bisks.net/metamoots">metamoots</a>.
+        idea from <a href="https://bsky.app/profile/psingletary.com">@psingletary.com</a>.
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveDid, mutualsOf, getProfiles } from "./lib/identity.js";
+      import { crawlQuietMutuals } from "./lib/quiet.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), monthsSel = $("months"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), caveatEl = $("caveat"), summaryEl = $("summary"), rowsEl = $("rows");
+      const emptyNote = $("emptyNote"), actionRow = $("actionRow"), copyHandlesBtn = $("copyHandles");
+      const engagedBox = $("engagedBox"), engagedSummary = $("engagedSummary"), engagedRows = $("engagedRows");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function whoCell(p, did) {
+        const prof = p || { handle: did, displayName: did, avatar: "" };
+        return (
+          `<div class="who">` +
+          (prof.avatar ? `<img src="${prof.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+          `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(prof.handle || did)}" target="_blank" rel="noopener">` +
+          `<div class="dn">${escapeHtml(prof.displayName || prof.handle)}</div>` +
+          `<div class="hd">${short(prof.handle)}</div>` +
+          `</a></div></div>`
+        );
+      }
+
+      function renderQuietRow(did, profiles, i) {
+        const p = profiles.get(did);
+        const handle = p ? p.handle : did;
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          `<td class="rank">${i + 1}</td>` +
+          `<td>${whoCell(p, did)}</td>` +
+          `<td class="action"><a href="https://bsky.app/profile/${encodeURIComponent(handle)}" target="_blank" rel="noopener">profile →</a></td>`;
+        return tr;
+      }
+
+      function renderEngagedRow(did, profiles) {
+        const p = profiles.get(did);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${whoCell(p, did)}</td>`;
+        return tr;
+      }
+
+      let lastQuietHandles = [];
+
+      function renderRows(quiet, engaged, profiles) {
+        rowsEl.innerHTML = "";
+        quiet.forEach((did, i) => rowsEl.appendChild(renderQuietRow(did, profiles, i)));
+        lastQuietHandles = quiet.map((did) => (profiles.get(did) || {}).handle || did);
+
+        engagedRows.innerHTML = "";
+        engaged.forEach((did) => engagedRows.appendChild(renderEngagedRow(did, profiles)));
+        if (engaged.length) {
+          engagedBox.style.display = "";
+          engagedSummary.textContent = `still around, engaged in the window (${engaged.length})`;
+        } else {
+          engagedBox.style.display = "none";
+        }
+      }
+
+      copyHandlesBtn.addEventListener("click", async () => {
+        const text = lastQuietHandles.map((h) => "@" + h).join("\n");
+        try {
+          await navigator.clipboard.writeText(text);
+          copyHandlesBtn.textContent = "copied!";
+          setTimeout(() => (copyHandlesBtn.textContent = "copy handles"), 1500);
+        } catch {
+          copyHandlesBtn.textContent = "couldn't copy";
+          setTimeout(() => (copyHandlesBtn.textContent = "copy handles"), 1500);
+        }
+      });
+
+      const SHARE_URL = "https://bisks.net/purge";
+
+      // A distinct /s/<handle> URL per query, carrying the already-computed
+      // counts as query params — so the link-unfurl card can be
+      // personalized (see src/index.ts renderShare) without the Worker
+      // having to redo the whole crawl just to answer a bot's HEAD/GET.
+      function buildShareUrl(subjectHandle, quietCount, mutualCount, months) {
+        const params = new URLSearchParams({ n: String(quietCount), of: String(mutualCount), months: String(months) });
+        return `${SHARE_URL}/s/${encodeURIComponent(subjectHandle.replace(/^@/, ""))}?${params.toString()}`;
+      }
+
+      function buildShareText(subjectHandle, quietCount, mutualCount, months, shareUrl) {
+        return `purge on @${subjectHandle.replace(/^@/, "")}: ${quietCount} of ${mutualCount} mutuals haven't liked or replied to a post in ${months} months. ${shareUrl}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(subjectHandle, quiet, profiles, mutualCount, months) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("purge", 60, 90);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText(`${short(subjectHandle)}'s quiet mutuals — last ${months} months`, 60, 128);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/purge", W - 60, 50);
+        ctx.textAlign = "left";
+
+        ctx.fillStyle = "#111111";
+        ctx.font = `800 64px ${mono}`;
+        ctx.fillText(`${quiet.length} / ${mutualCount}`, 60, 210);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText("mutuals haven't liked or replied to a post", 60, 240);
+
+        const top = quiet.slice(0, 6);
+        const rowH = 60;
+        const startY = 290;
+        const avatars = await Promise.all(top.map((did) => loadImg((profiles.get(did) || {}).avatar)));
+
+        top.forEach((did, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y + rowH - 12, W - 120, 1);
+
+          const img = avatars[i];
+          let textX = 68;
+          if (img) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(84, y + 6, 20, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 64, y - 14, 40, 40);
+            ctx.restore();
+            textX = 122;
+          }
+          const p = profiles.get(did);
+          ctx.fillStyle = "#111111";
+          ctx.font = `700 22px ${mono}`;
+          ctx.textAlign = "left";
+          ctx.fillText((p && (p.displayName || p.handle)) || did, textX, y + 2);
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 16px ${mono}`;
+          ctx.fillText(p ? short(p.handle) : "", textX, y + 22);
+        });
+
+        if (!top.length) {
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 22px ${mono}`;
+          ctx.fillText("no quiet mutuals found — everyone's still around.", 60, startY + 20);
+        }
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "purge.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "purge" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "purge.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw, months) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        caveatEl.classList.remove("on");
+        setStatus("resolving " + q + "…");
+        try {
+          const did = await resolveDid(q);
+          const subject = await (async () => {
+            try {
+              const profs = await getProfiles([did]);
+              return profs.get(did) || { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            } catch {
+              return { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            }
+          })();
+
+          const { mutuals } = await mutualsOf(did, (s) => setStatus(s));
+          const mutualSet = new Set(mutuals);
+
+          const sinceMs = Date.now() - months * 30 * 24 * 60 * 60 * 1000;
+          const { engaged, sampledPostCount } = await crawlQuietMutuals(did, mutualSet, sinceMs, {
+            onStep: (s) => setStatus(s),
+            onProgress: (done, total) => setStatus(`reading who engaged: ${done}/${total}…`),
+          });
+
+          setStatus("looking up profiles…");
+          const quiet = mutuals.filter((d) => !engaged.has(d));
+          const engagedList = mutuals.filter((d) => engaged.has(d));
+          const profiles = await getProfiles(mutuals);
+
+          renderRows(quiet, engagedList, profiles);
+
+          const who = escapeHtml(short(subject.handle));
+          summaryEl.innerHTML =
+            `<b>${who}</b> has <b>${mutuals.length}</b> mutual${mutuals.length === 1 ? "" : "s"}, ` +
+            `sampled ${sampledPostCount} post${sampledPostCount === 1 ? "" : "s"} from the last ${months} months — ` +
+            `<b>${quiet.length}</b> haven't liked or replied to any of them.`;
+
+          if (sampledPostCount === 0) {
+            caveatEl.classList.add("on");
+            caveatEl.textContent =
+              `${who} hasn't posted anything in the last ${months} months, so there was nothing for mutuals to engage with — ` +
+              `every mutual below shows up "quiet" for that reason alone, not because they've gone cold. Post something and check back, or try a longer window.`;
+          } else if (mutuals.length === 0) {
+            caveatEl.classList.add("on");
+            caveatEl.textContent = `${who} has no mutuals — nobody they follow follows them back.`;
+          }
+
+          emptyNote.style.display = quiet.length ? "none" : "";
+          if (!quiet.length && mutuals.length) {
+            emptyNote.textContent = "every mutual engaged with at least one sampled post in the window. nobody to purge.";
+          }
+
+          actionRow.style.display = quiet.length ? "" : "none";
+
+          const shareUrl = buildShareUrl(subject.handle, quiet.length, mutuals.length, months);
+          lastShareText = buildShareText(subject.handle, quiet.length, mutuals.length, months, shareUrl);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(subject.handle, quiet, profiles, mutuals.length, months);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value, parseInt(monthsSel.value, 10) || 6);
+      });
+
+      const params = new URLSearchParams(location.search);
+      const initial = params.get("q") || "";
+      const initialMonths = parseInt(params.get("months"), 10);
+      if (initialMonths && [3, 6, 12].includes(initialMonths)) monthsSel.value = String(initialMonths);
+      if (initial) {
+        input.value = initial;
+        run(initial, parseInt(monthsSel.value, 10) || 6);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
