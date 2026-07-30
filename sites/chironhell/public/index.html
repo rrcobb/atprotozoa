@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chironhell — bisks.net</title>
+    <meta
+      name="description"
+      content="The live Bluesky firehose as an infinite collage of text chirons — every size, every direction, layered forever."
+    />
+    <meta property="og:title" content="chironhell" />
+    <meta
+      property="og:description"
+      content="The live Bluesky firehose as an infinite collage of text chirons — every size, every direction, layered forever."
+    />
+    <meta property="og:image" content="https://bisks.net/chironhell/og.png" />
+    <meta property="og:url" content="https://bisks.net/chironhell" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #05050a;
+        --ink: #eaeaf2;
+        --muted: #8c8ca0;
+        --faint: rgba(255, 255, 255, 0.14);
+        --accent: #ff2fb0;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        overflow: hidden;
+      }
+      body {
+        color: var(--ink);
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* the stage: every chiron is a fixed, full-bleed strip of text that
+         crosses the viewport once along a straight line, then is removed. */
+      #stage {
+        position: fixed;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .chiron {
+        position: fixed;
+        left: 0;
+        top: 0;
+        white-space: nowrap;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        mix-blend-mode: screen;
+        will-change: transform, opacity;
+        animation: chiron-move linear forwards;
+      }
+      @keyframes chiron-move {
+        0% { transform: translate(var(--sx), var(--sy)) rotate(var(--rot)); opacity: 0; }
+        8% { opacity: var(--op); }
+        92% { opacity: var(--op); }
+        100% { transform: translate(var(--ex), var(--ey)) rotate(var(--rot)); opacity: 0; }
+      }
+      body.paused .chiron { animation-play-state: paused; }
+
+      /* the one bit of chrome: a small pill, corner-docked, everything else
+         collapses out of the way so the stage stays maximal. */
+      #hud {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 10;
+        font-size: 0.72rem;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.5rem;
+      }
+      #hudToggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: rgba(10, 10, 16, 0.72);
+        color: var(--ink);
+        border: 1px solid var(--faint);
+        border-radius: 999px;
+        padding: 0.4rem 0.7rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+        font: inherit;
+      }
+      #hudToggle .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #555; transition: background 0.3s;
+      }
+      #hudToggle .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      #panel {
+        display: none;
+        width: min(300px, 84vw);
+        background: rgba(10, 10, 16, 0.86);
+        border: 1px solid var(--faint);
+        border-radius: 10px;
+        padding: 0.85rem 0.9rem;
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+      }
+      #panel.on { display: block; }
+      #panel h1 {
+        font-size: 0.85rem; margin: 0 0 0.4rem; color: var(--ink);
+        font-weight: 700;
+      }
+      #panel p {
+        margin: 0 0 0.7rem; color: var(--muted); line-height: 1.55;
+      }
+      #panel .row {
+        display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+        margin: 0 0 0.6rem;
+      }
+      #panel button, #panel a.btn {
+        font: inherit; color: var(--ink); background: none;
+        border: 1px solid var(--faint); border-radius: 5px;
+        padding: 0.28rem 0.55rem; cursor: pointer; text-decoration: none;
+        line-height: 1.3;
+      }
+      #panel button:hover, #panel a.btn:hover { border-color: var(--muted); }
+      #panel button.on { border-color: var(--accent); color: var(--accent); }
+      #panel .lbl { color: var(--muted); margin-right: 0.15rem; }
+      #panel .links { display: flex; gap: 0.8rem; margin-top: 0.55rem; }
+      #panel .links a { color: var(--accent); text-decoration: none; }
+      #panel .links a:hover { text-decoration: underline; }
+      #reduceNote { color: var(--muted); font-size: 0.7rem; margin-top: -0.25rem; margin-bottom: 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+
+    <div id="hud">
+      <div id="panel">
+        <h1>chironhell</h1>
+        <p>
+          Every line here is a real post flying past the Bluesky firehose
+          right now, rendered as a chiron — a news-ticker crawl — at a random
+          size, speed, and angle. No cards, no avatars, no images: just text,
+          layered infinitely, going every direction at once.
+        </p>
+        <p id="reduceNote" style="display: none">
+          Your system asked for reduced motion, so this started paused. Hit
+          resume to override.
+        </p>
+        <div class="row">
+          <button id="pauseBtn">pause</button>
+          <span class="lbl">density</span>
+          <button data-density="calm" class="dens">calm</button>
+          <button data-density="normal" class="dens on">normal</button>
+          <button data-density="chaos" class="dens">chaos</button>
+        </div>
+        <div class="row" id="statusRow">
+          <span class="lbl">status</span>
+          <span id="statusText">connecting…</span>
+        </div>
+        <div class="links">
+          <a class="btn" id="shareLink" href="#" target="_blank" rel="noopener">share</a>
+          <a href="https://bisks.net">bisks.net</a>
+        </div>
+      </div>
+      <button id="hudToggle" type="button">
+        <span class="dot" id="dot"></span>
+        chironhell
+      </button>
+    </div>
+
+    <script>
+      // ---- config ------------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_CHARS = 220; // truncate absurdly long posts so a chiron stays a chiron
+      const COLORS = [
+        "#ffffff", "#f4b400", "#ff2fb0", "#28f4c0", "#7cffb2",
+        "#5fd0ff", "#ffef5c", "#ff6b4a", "#c792ff",
+      ];
+      // density -> { maxActive: hard cap on concurrent chirons, keep: chance a
+      // qualifying post actually spawns one (the firehose is faster than any
+      // screen should try to render literally all of) }
+      const DENSITIES = {
+        calm: { maxActive: 34, keep: 0.35 },
+        normal: { maxActive: 85, keep: 0.65 },
+        chaos: { maxActive: 150, keep: 1 },
+      };
+
+      const stage = document.getElementById("stage");
+      const hudToggle = document.getElementById("hudToggle");
+      const panel = document.getElementById("panel");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const densBtns = document.querySelectorAll(".dens");
+      const shareLink = document.getElementById("shareLink");
+      const reduceNote = document.getElementById("reduceNote");
+
+      const shareText =
+        "the bluesky firehose as an infinite, poetico-chaotic wall of text chirons — " +
+        location.origin + "/chironhell";
+      shareLink.href =
+        "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+      hudToggle.addEventListener("click", () => panel.classList.toggle("on"));
+
+      // ---- density + pause -----------------------------------------------------
+      let density = "normal";
+      let active = 0; // concurrent chirons currently on stage
+      let paused = false;
+
+      function setDensity(name) {
+        density = name;
+        for (const b of densBtns) b.classList.toggle("on", b.dataset.density === name);
+      }
+      densBtns.forEach((b) => b.addEventListener("click", () => setDensity(b.dataset.density)));
+
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduceMotion) {
+        paused = true;
+        document.body.classList.add("paused");
+        pauseBtn.textContent = "resume";
+        pauseBtn.classList.add("on");
+        setDensity("calm");
+        reduceNote.style.display = "block";
+      }
+
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        document.body.classList.toggle("paused", paused);
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        pauseBtn.classList.toggle("on", paused);
+      });
+
+      // pause the socket (not just the display) when the tab is hidden.
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      // ---- text handling ---------------------------------------------------
+      function escapeHtml(s) {
+        return s.replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+
+      // Cheap gate for the loudest bot/ad noise, so the wall reads more like
+      // scattered human thought than affiliate spam. Not exhaustive.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true;
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true;
+        return false;
+      }
+
+      function cleanText(raw) {
+        let t = raw.trim().replace(/\s*\n+\s*/g, " · ");
+        if (t.length > MAX_CHARS) t = t.slice(0, MAX_CHARS).trimEnd() + "…";
+        return t;
+      }
+
+      // ---- spawning a chiron -------------------------------------------------
+      // A chiron travels in a straight line across a continuous 0-360° angle
+      // (screen-space, y-down), starting and ending well off-screen, offset
+      // sideways so lines fan out across the whole viewport instead of all
+      // crossing dead center. The text itself is rotated to match its own
+      // travel direction, so a "vertical" chiron reads sideways as it falls —
+      // every chiron actually goes the way it looks like it's going.
+      function spawnChiron(text) {
+        const el = document.createElement("span");
+        el.className = "chiron";
+
+        const angleDeg = Math.random() * 360;
+        const rad = (angleDeg * Math.PI) / 180;
+        const ux = Math.cos(rad);
+        const uy = Math.sin(rad);
+        const px = -uy; // perpendicular unit vector, for spreading start points
+        const py = ux;
+
+        const half = Math.hypot(window.innerWidth, window.innerHeight) /
+          Math.min(window.innerWidth, window.innerHeight) * 60; // vmin, half-diagonal + margin
+        const offset = (Math.random() * 2 - 1) * half * 0.85; // spread across the fan
+
+        const sx = -ux * half + px * offset;
+        const sy = -uy * half + py * offset;
+        const ex = ux * half + px * offset;
+        const ey = uy * half + py * offset;
+
+        el.style.setProperty("--sx", sx.toFixed(1) + "vmin");
+        el.style.setProperty("--sy", sy.toFixed(1) + "vmin");
+        el.style.setProperty("--ex", ex.toFixed(1) + "vmin");
+        el.style.setProperty("--ey", ey.toFixed(1) + "vmin");
+        el.style.setProperty("--rot", angleDeg.toFixed(1) + "deg");
+
+        const size = 0.75 + 5.25 * Math.pow(Math.random(), 2.2); // rem; big ones are rare
+        el.style.fontSize = size.toFixed(2) + "rem";
+        const op = 0.55 + Math.random() * 0.37;
+        el.style.setProperty("--op", op.toFixed(2));
+        el.style.color = COLORS[(Math.random() * COLORS.length) | 0];
+        const dur = 9 + Math.random() * 19; // seconds
+        el.style.animationDuration = dur.toFixed(1) + "s";
+
+        el.textContent = text;
+        el.addEventListener("animationend", () => {
+          el.remove();
+          active--;
+        });
+        stage.appendChild(el);
+        active++;
+      }
+
+      // ---- firehose ----------------------------------------------------------
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text || /^https?:\/\/\S+$/.test(text)) return;
+        if (looksLikeSpam(text)) return;
+        if (paused) return;
+
+        const d = DENSITIES[density];
+        if (active >= d.maxActive) return;
+        if (Math.random() > d.keep) return;
+
+        spawnChiron(cleanText(text));
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "live");
+        };
+
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      connect();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        left: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
