@@ -2,7 +2,8 @@
 // likes per follower (summed likes across every post they made in the
 // rolling last 24 hours, divided by their follower count) — so an account
 // that blows up relative to its own size wins, not just whoever has the
-// biggest audience to begin with.
+// biggest audience to begin with. Accounts self-labeled as automated/bot
+// (see isAutomatedLabel below) are excluded from winning.
 // Reads app.bsky.feed.getAuthorFeed anonymously (public.api.bsky.app,
 // CORS *). Concurrency helper + feed-walking copied from
 // sites/topchicken/public/lib/scan.js (copy, don't abstract) — the
@@ -118,6 +119,16 @@ export async function scanNetwork(pool, windowStart, windowEnd, { onProgress } =
   return { ranked, scannedMembers: scanned, postsSeen };
 }
 
+// An account is "marked automated" when its own profile record carries a
+// self-applied moderation label of "bot" (that's the literal value Bluesky's
+// own "this is an automated account" account-settings toggle writes — the
+// buildthis bot itself has one, which is exactly why it needed excluding).
+// Match a little loose (bot/automated/automated-account) in case other
+// accounts self-label it slightly differently.
+function isAutomatedLabel(labels) {
+  return (labels || []).some((l) => /^(bot|automated)/i.test(l.val || ""));
+}
+
 // Fetch every in-window candidate's follower count (not in the feed
 // response, only on the profile) and score them by totalLikes / followers —
 // rewarding an account that blows up relative to its own size over one with
@@ -125,27 +136,34 @@ export async function scanNetwork(pool, windowStart, windowEnd, { onProgress } =
 // is scored against 1 follower instead of dividing by zero. Runs the
 // profile fetches at the same concurrency as the feed crawl, since everyone
 // who posted in-window needs a lookup now (not just the top few, back when
-// this was a cap check).
+// this was a cap check). Accounts self-labeled as automated/bot (see
+// isAutomatedLabel above) are dropped here entirely — same lookup that gets
+// followersCount also carries labels, so no extra fetch needed.
 // Returns { winner, runnersUp } sorted by that per-follower score.
 export async function rankByLikesPerFollower(ranked, { onCheck } = {}) {
   let checked = 0;
   await pooledEach(ranked, CONCURRENCY, async (entry) => {
-    let followersCount;
+    let followersCount = 0;
+    let automated = false;
     try {
       const p = await jget(
         `${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(entry.did)}`,
       );
       followersCount = p.followersCount || 0;
+      automated = isAutomatedLabel(p.labels);
     } catch {
-      followersCount = 0; // lookup failed — treat as unknown, still eligible
+      // lookup failed — treat as unknown followers, still eligible
     }
     entry.followersCount = followersCount;
+    entry.automated = automated;
     entry.likesPerFollower = entry.totalLikes / Math.max(followersCount, 1);
     checked++;
     if (onCheck) onCheck(entry, checked, ranked.length);
   });
 
-  const scored = [...ranked].sort((a, b) => b.likesPerFollower - a.likesPerFollower);
+  const scored = ranked
+    .filter((e) => !e.automated)
+    .sort((a, b) => b.likesPerFollower - a.likesPerFollower);
 
   return {
     winner: scored[0] || null,
