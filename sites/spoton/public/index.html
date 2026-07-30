@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>🎯 spot on — an eyeball test in four rounds</title>
+<meta name="description" content="Bisect a line, find the middle dot, guess the bean count, drag a box over the right number of beans. Four fast tests of your spatial eyeball, scored out of 100." />
+<meta property="og:title" content="🎯 spot on — an eyeball test in four rounds" />
+<meta property="og:description" content="Bisect a line, find the middle dot, guess the bean count, drag a box over the right number of beans. How sharp is your eyeball?" />
+<meta property="og:url" content="https://bisks.net/games/spoton" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/games/spoton/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="spot on: a crosshair over a bisected line, a dot grid, and a jar of beans." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="🎯 spot on — an eyeball test in four rounds" />
+<meta name="twitter:description" content="Bisect a line, find the middle dot, guess the bean count, drag a box over the right number of beans." />
+<meta name="twitter:image" content="https://bisks.net/games/spoton/og.png" />
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg2: #0e131c;
+    --panel: #141b28;
+    --panel2: #182236;
+    --border: #233047;
+    --ink: #eaf2ff;
+    --dim: #7f93b3;
+    --accent: #ff5a4e;
+    --accent-ink: #2a0603;
+    --accent2: #43e5c5;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(900px 500px at 50% -8%, #1a0f0d 0%, transparent 60%),
+      radial-gradient(700px 420px at 100% 100%, #0d1f1c 0%, transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 620px; margin: 0 auto; padding: 2.25rem 1.1rem 4.5rem; }
+  a { color: var(--accent2); }
+  header { text-align: center; margin-bottom: 1.6rem; }
+  .backlink { font-size: 0.78rem; margin-bottom: 0.9rem; }
+  .backlink a { color: var(--dim); text-decoration: none; }
+  .backlink a:hover { color: var(--accent2); }
+  h1 { font-size: 2rem; margin: 0 0 0.4rem; letter-spacing: -0.02em; }
+  .tag { color: var(--dim); font-size: 0.92rem; line-height: 1.5; max-width: 46ch; margin: 0 auto; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem 1.3rem;
+    margin-bottom: 1rem;
+  }
+  h2 { font-size: 1.15rem; margin: 0 0 0.9rem; }
+  .tasklist { margin: 0 0 1.3rem; padding-left: 1.3rem; color: var(--dim); font-size: 0.9rem; line-height: 1.7; }
+  .tasklist b { color: var(--ink); }
+
+  button.primary, a.primary {
+    display: inline-block;
+    background: linear-gradient(90deg, var(--accent), #ff8a4e);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 9px;
+    padding: 0.75rem 1.3rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.92rem;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: wait; }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 9px;
+    padding: 0.72rem 1.2rem;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .round-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.35rem; }
+  .round-label { font-weight: 800; font-size: 0.95rem; }
+  .round-score-preview { color: var(--dim); font-size: 0.8rem; }
+  .instructions { color: var(--dim); font-size: 0.88rem; margin: 0 0 1rem; line-height: 1.5; }
+
+  .stage-wrap { display: flex; justify-content: center; margin-bottom: 0.9rem; }
+  #stage {
+    max-width: 100%;
+    height: auto;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .jar-input-row { display: flex; gap: 0.6rem; justify-content: center; margin-bottom: 0.9rem; }
+  .jar-input-row input {
+    width: 11rem;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 0.65rem 0.8rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  .jar-input-row input:focus { outline: 2px solid var(--accent2); outline-offset: 1px; }
+
+  .feedback { text-align: center; font-size: 0.92rem; min-height: 1.5em; margin: 0 0 0.6rem; color: var(--accent2); }
+  .feedback.miss { color: var(--dim); }
+  #nextBtn { display: block; margin: 0 auto; }
+
+  .result-score { font-size: 3rem; font-weight: 900; text-align: center; margin: 0.2rem 0 0.15rem; color: var(--accent2); }
+  .result-tag { text-align: center; color: var(--dim); font-size: 0.92rem; margin: 0 0 1.2rem; }
+  #resultTitle { text-align: center; }
+  .breakdown { list-style: none; margin: 0 0 1.4rem; padding: 0; }
+  .breakdown li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.8rem;
+    font-size: 0.85rem;
+    padding: 0.55rem 0;
+    border-top: 1px dashed var(--border);
+    color: var(--dim);
+  }
+  .breakdown li b { color: var(--ink); }
+  .breakdown li span.pts { color: var(--accent2); font-weight: 800; white-space: nowrap; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 0.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .share-actions button, .share-actions a {
+    flex: 1;
+    min-width: 130px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.83rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  #shareBluesky { background: linear-gradient(90deg, var(--accent2), #1fb894); color: #032019; border: none; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--ink); }
+  #replayBtn { display: block; width: 100%; }
+
+  footer { margin-top: 2.4rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="backlink"><a href="https://bisks.net">← atprotozoa</a></div>
+      <h1>🎯 spot on</h1>
+      <p class="tag">Four fast tests of your spatial eyeball. No countdown, no pressure — just find the middle, guess the count, and see how sharp your instincts really are.</p>
+    </header>
+
+    <section id="intro" class="panel">
+      <h2>the tasks</h2>
+      <ol class="tasklist">
+        <li><b>bisect the line</b> — click its exact center.</li>
+        <li><b>the middle dot</b> — click the dot dead in the center of the grid.</li>
+        <li><b>how many beans?</b> — guess the count in the jar.</li>
+        <li><b>drag the box</b> — select exactly the right number of beans.</li>
+      </ol>
+      <button id="startBtn" class="primary">start →</button>
+    </section>
+
+    <section id="game" class="panel" style="display:none;">
+      <div class="round-head">
+        <span id="roundLabel" class="round-label"></span>
+        <span id="roundScorePreview" class="round-score-preview"></span>
+      </div>
+      <p id="instructions" class="instructions"></p>
+      <div class="stage-wrap">
+        <canvas id="stage"></canvas>
+      </div>
+      <div id="jarInputRow" class="jar-input-row" style="display:none;">
+        <input id="jarGuess" type="number" inputmode="numeric" min="0" placeholder="how many beans?" />
+        <button id="jarSubmit" class="primary">guess</button>
+      </div>
+      <p id="feedback" class="feedback"></p>
+      <button id="nextBtn" class="primary" style="display:none;">next round →</button>
+    </section>
+
+    <section id="result" class="panel" style="display:none;">
+      <h2 id="resultTitle"></h2>
+      <p id="resultScore" class="result-score"></p>
+      <p id="resultTag" class="result-tag"></p>
+      <ul id="breakdown" class="breakdown"></ul>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" style="display:none;">📤 share card</button>
+          <a id="shareBluesky" target="_blank" rel="noopener">🦋 share score</a>
+          <button id="shareDownload">⬇ download card</button>
+        </div>
+      </div>
+      <button id="replayBtn" class="secondary">play again</button>
+    </section>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const SITE_URL = "https://bisks.net/games/spoton";
+  const BEAN_COLORS = [
+    { base: "#8a2332", hi: "#c14b5e" },
+    { base: "#caa268", hi: "#e7c98f" },
+    { base: "#3a3230", hi: "#5c5250" },
+    { base: "#e8ddc4", hi: "#fbf5e6" },
+    { base: "#6b3a20", hi: "#9c5c34" },
+  ];
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+  function choice(arr) { return arr[randInt(0, arr.length - 1)]; }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  const els = {
+    intro: document.getElementById("intro"),
+    game: document.getElementById("game"),
+    result: document.getElementById("result"),
+    startBtn: document.getElementById("startBtn"),
+    roundLabel: document.getElementById("roundLabel"),
+    roundScorePreview: document.getElementById("roundScorePreview"),
+    instructions: document.getElementById("instructions"),
+    stage: document.getElementById("stage"),
+    jarInputRow: document.getElementById("jarInputRow"),
+    jarGuess: document.getElementById("jarGuess"),
+    jarSubmit: document.getElementById("jarSubmit"),
+    feedback: document.getElementById("feedback"),
+    nextBtn: document.getElementById("nextBtn"),
+    resultTitle: document.getElementById("resultTitle"),
+    resultScore: document.getElementById("resultScore"),
+    resultTag: document.getElementById("resultTag"),
+    breakdown: document.getElementById("breakdown"),
+    shareCanvas: document.getElementById("shareCanvas"),
+    shareNative: document.getElementById("shareNative"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareDownload: document.getElementById("shareDownload"),
+    replayBtn: document.getElementById("replayBtn"),
+  };
+  const ctx = els.stage.getContext("2d");
+
+  const ROUND_DEFS = [
+    { type: "line", label: "round 1 — bisect the line", instructions: "Click exactly where you think the middle of the line is." },
+    { type: "grid", label: "round 2 — the middle dot", instructions: "Click the dot sitting dead center of the grid." },
+    { type: "jarcount", label: "round 3 — how many beans?", instructions: "Type your best guess for the number of beans in the jar." },
+    { type: "dragselect", label: "round 4 — drag the box", instructions: "" },
+  ];
+
+  let roundIndex = 0;
+  let scores = []; // { label, score, detail }
+  let roundState = null; // per-round data set up by setup*Round
+  let answered = false;
+
+  function setStageSize(w, h) {
+    els.stage.width = w;
+    els.stage.height = h;
+    els.stage.style.aspectRatio = w + " / " + h;
+  }
+
+  function getPos(evt) {
+    const rect = els.stage.getBoundingClientRect();
+    const sx = els.stage.width / rect.width;
+    const sy = els.stage.height / rect.height;
+    return { x: (evt.clientX - rect.left) * sx, y: (evt.clientY - rect.top) * sy };
+  }
+
+  // ---- round 1: bisect the line ----
+  function setupLineRound() {
+    setStageSize(600, 260);
+    const pad = 46;
+    let a, b;
+    let tries = 0;
+    do {
+      a = { x: rand(pad, 600 - pad), y: rand(pad, 260 - pad) };
+      b = { x: rand(pad, 600 - pad), y: rand(pad, 260 - pad) };
+      tries++;
+    } while (dist(a, b) < 220 && tries < 40);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    roundState = { a, b, mid, halfLen: dist(a, mid) };
+    drawLineRound(null);
+  }
+
+  function drawLineRound(clickPt) {
+    const { a, b, mid } = roundState;
+    ctx.clearRect(0, 0, els.stage.width, els.stage.height);
+    ctx.strokeStyle = "#43e5c5";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    // end caps
+    ctx.fillStyle = "#43e5c5";
+    [a, b].forEach((p) => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, 7); ctx.fill(); });
+
+    if (clickPt) {
+      ctx.strokeStyle = "#ff5a4e";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(clickPt.x - 9, clickPt.y);
+      ctx.lineTo(clickPt.x + 9, clickPt.y);
+      ctx.moveTo(clickPt.x, clickPt.y - 9);
+      ctx.lineTo(clickPt.x, clickPt.y + 9);
+      ctx.stroke();
+
+      ctx.fillStyle = "#eaf2ff";
+      ctx.beginPath();
+      ctx.arc(mid.x, mid.y, 4, 0, 7);
+      ctx.fill();
+    }
+  }
+
+  function closestOnSegment(p, a, b) {
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby;
+    const t = len2 > 0 ? clamp(((p.x - a.x) * abx + (p.y - a.y) * aby) / len2, 0, 1) : 0;
+    return { x: a.x + t * abx, y: a.y + t * aby };
+  }
+
+  function answerLineRound(evt) {
+    const click = getPos(evt);
+    const { a, b, mid, halfLen } = roundState;
+    const proj = closestOnSegment(click, a, b);
+    const err = dist(proj, mid);
+    const errFrac = halfLen > 0 ? err / halfLen : 0;
+    const score = Math.round(clamp(100 * (1 - errFrac * 1.15), 0, 100));
+    drawLineRound(click);
+    finishRound(score, Math.round(err) + "px off center");
+  }
+
+  // ---- round 2: middle dot ----
+  function setupGridRound() {
+    setStageSize(520, 400);
+    const rows = choice([3, 5, 7]);
+    const cols = choice([3, 5, 7]);
+    const pad = 60;
+    const cellW = cols > 1 ? (520 - 2 * pad) / (cols - 1) : 0;
+    const cellH = rows > 1 ? (400 - 2 * pad) / (rows - 1) : 0;
+    const dots = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        dots.push({
+          r, c,
+          x: pad + c * cellW + rand(-5, 5),
+          y: pad + r * cellH + rand(-5, 5),
+        });
+      }
+    }
+    roundState = { rows, cols, dots, centerR: (rows - 1) / 2, centerC: (cols - 1) / 2 };
+    drawGridRound(null);
+  }
+
+  function drawGridRound(picked) {
+    ctx.clearRect(0, 0, els.stage.width, els.stage.height);
+    roundState.dots.forEach((d) => {
+      ctx.fillStyle = picked === d ? "#ff5a4e" : "#43e5c5";
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, picked === d ? 8 : 6, 0, 7);
+      ctx.fill();
+    });
+  }
+
+  function answerGridRound(evt) {
+    const click = getPos(evt);
+    let nearest = roundState.dots[0];
+    let best = Infinity;
+    roundState.dots.forEach((d) => {
+      const dd = dist(click, d);
+      if (dd < best) { best = dd; nearest = d; }
+    });
+    const gridDist = Math.max(Math.abs(nearest.r - roundState.centerR), Math.abs(nearest.c - roundState.centerC));
+    const score = Math.round(clamp(100 - gridDist * 30, 0, 100));
+    drawGridRound(nearest);
+    const detail = gridDist === 0 ? "dead center" : gridDist + " dot" + (gridDist === 1 ? "" : "s") + " off";
+    finishRound(score, detail);
+  }
+
+  // ---- round 3: bean jar estimate ----
+  function jarPath(w, h) {
+    const neckW = w * 0.34, neckH = h * 0.14;
+    const bodyTop = h * 0.24, bodyBottom = h * 0.94;
+    const cx = w / 2;
+    const p = new Path2D();
+    p.moveTo(cx - neckW / 2, h * 0.04);
+    p.lineTo(cx + neckW / 2, h * 0.04);
+    p.lineTo(cx + neckW / 2, bodyTop - 6);
+    p.quadraticCurveTo(cx + w * 0.46, bodyTop + h * 0.06, cx + w * 0.46, h * 0.55);
+    p.quadraticCurveTo(cx + w * 0.46, bodyBottom - 10, cx + w * 0.2, bodyBottom);
+    p.lineTo(cx - w * 0.2, bodyBottom);
+    p.quadraticCurveTo(cx - w * 0.46, bodyBottom - 10, cx - w * 0.46, h * 0.55);
+    p.quadraticCurveTo(cx - w * 0.46, bodyTop + h * 0.06, cx - neckW / 2, bodyTop - 6);
+    p.closePath();
+    return { path: p, bodyTop, bodyBottom, cx, halfW: w * 0.42 };
+  }
+
+  function scatterInJar(n, w, h) {
+    const { bodyTop, bodyBottom, cx, halfW } = jarPath(w, h);
+    const pts = [];
+    let guard = 0;
+    while (pts.length < n && guard < n * 40) {
+      guard++;
+      const y = rand(bodyTop + 10, bodyBottom - 10);
+      const shrink = 1 - (y - bodyTop) / (bodyBottom - bodyTop) * 0.06;
+      const x = cx + rand(-1, 1) * halfW * 0.88 * shrink;
+      const r = rand(6, 8.5);
+      let ok = true;
+      for (const p2 of pts) {
+        if (dist({ x, y }, p2) < (r + p2.r) * 0.62) { ok = false; break; }
+      }
+      if (ok) pts.push({ x, y, r, rot: rand(0, 6.28), color: choice(BEAN_COLORS) });
+    }
+    return pts;
+  }
+
+  function drawBean(c, b) {
+    c.save();
+    c.translate(b.x, b.y);
+    c.rotate(b.rot);
+    c.beginPath();
+    c.ellipse(0, 0, b.r * 1.15, b.r * 0.78, 0, 0, 7);
+    c.fillStyle = b.color.base;
+    c.fill();
+    c.beginPath();
+    c.ellipse(-b.r * 0.3, -b.r * 0.25, b.r * 0.4, b.r * 0.24, 0, 0, 7);
+    c.fillStyle = b.color.hi;
+    c.fill();
+    c.restore();
+  }
+
+  function setupJarRound() {
+    setStageSize(360, 460);
+    const n = randInt(45, 150);
+    const beans = scatterInJar(n, 360, 460);
+    roundState = { n, beans };
+    drawJarRound();
+    els.jarInputRow.style.display = "flex";
+    els.jarGuess.value = "";
+    els.jarGuess.focus();
+  }
+
+  function drawJarRound() {
+    const w = els.stage.width, h = els.stage.height;
+    ctx.clearRect(0, 0, w, h);
+    const { path } = jarPath(w, h);
+    ctx.save();
+    ctx.clip(path);
+    ctx.fillStyle = "rgba(67,229,197,0.05)";
+    ctx.fillRect(0, 0, w, h);
+    roundState.beans.forEach((b) => drawBean(ctx, b));
+    ctx.restore();
+    ctx.strokeStyle = "#233047";
+    ctx.lineWidth = 3;
+    ctx.stroke(path);
+  }
+
+  function answerJarRound() {
+    const guess = parseInt(els.jarGuess.value, 10);
+    if (!Number.isFinite(guess) || guess < 0) { els.feedback.textContent = "type a number first."; return; }
+    const n = roundState.n;
+    const pctErr = Math.abs(guess - n) / n;
+    const score = Math.round(clamp(100 - pctErr * 140, 0, 100));
+    els.jarInputRow.style.display = "none";
+    finishRound(score, "guessed " + guess + ", actually " + n);
+  }
+
+  // ---- round 4: drag select ----
+  function setupDragRound() {
+    setStageSize(560, 340);
+    const m = randInt(70, 140);
+    const k = randInt(12, Math.min(45, m - 15));
+    const pad = 18;
+    const beans = [];
+    for (let i = 0; i < m; i++) {
+      beans.push({ x: rand(pad, 560 - pad), y: rand(pad, 340 - pad), r: rand(5, 7.5), rot: rand(0, 6.28), color: choice(BEAN_COLORS) });
+    }
+    roundState = { m, k, beans, dragging: false, start: null, cur: null };
+    els.instructions.textContent = "Drag a rectangle over exactly " + k + " beans.";
+    drawDragRound();
+  }
+
+  function currentSelectionRect() {
+    if (!roundState.start || !roundState.cur) return null;
+    const s = roundState.start, c = roundState.cur;
+    return { x0: Math.min(s.x, c.x), y0: Math.min(s.y, c.y), x1: Math.max(s.x, c.x), y1: Math.max(s.y, c.y) };
+  }
+
+  function countInRect(rect) {
+    if (!rect) return 0;
+    return roundState.beans.filter((b) => b.x >= rect.x0 && b.x <= rect.x1 && b.y >= rect.y0 && b.y <= rect.y1).length;
+  }
+
+  function drawDragRound() {
+    ctx.clearRect(0, 0, els.stage.width, els.stage.height);
+    const rect = currentSelectionRect();
+    roundState.beans.forEach((b) => {
+      const inside = rect && b.x >= rect.x0 && b.x <= rect.x1 && b.y >= rect.y0 && b.y <= rect.y1;
+      const saved = b.color;
+      if (inside) b.color = { base: "#ff5a4e", hi: "#ffb199" };
+      drawBean(ctx, b);
+      b.color = saved;
+    });
+    if (rect) {
+      ctx.strokeStyle = "#43e5c5";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0);
+      ctx.setLineDash([]);
+    }
+  }
+
+  function dragPointerDown(evt) {
+    if (answered) return;
+    roundState.dragging = true;
+    roundState.start = getPos(evt);
+    roundState.cur = roundState.start;
+    els.stage.setPointerCapture(evt.pointerId);
+  }
+  function dragPointerMove(evt) {
+    if (!roundState.dragging || answered) return;
+    roundState.cur = getPos(evt);
+    els.roundScorePreview.textContent = countInRect(currentSelectionRect()) + " selected";
+    drawDragRound();
+  }
+  function dragPointerUp() {
+    if (!roundState.dragging || answered) return;
+    roundState.dragging = false;
+    const rect = currentSelectionRect();
+    if (!rect || (rect.x1 - rect.x0 < 6 && rect.y1 - rect.y0 < 6)) return; // too small, ignore, let them retry
+    const count = countInRect(rect);
+    const k = roundState.k;
+    const score = Math.round(clamp(100 - Math.abs(count - k) * 7, 0, 100));
+    finishRound(score, "selected " + count + ", needed " + k);
+  }
+
+  // ---- round dispatch ----
+  function stageClickHandler(evt) {
+    if (answered) return;
+    const def = ROUND_DEFS[roundIndex];
+    if (def.type === "line") answerLineRound(evt);
+    else if (def.type === "grid") answerGridRound(evt);
+  }
+
+  function setupRound() {
+    answered = false;
+    roundState = null;
+    els.feedback.textContent = "";
+    els.feedback.className = "feedback";
+    els.nextBtn.style.display = "none";
+    els.jarInputRow.style.display = "none";
+    els.roundScorePreview.textContent = "";
+    const def = ROUND_DEFS[roundIndex];
+    els.roundLabel.textContent = def.label + " (" + (roundIndex + 1) + "/" + ROUND_DEFS.length + ")";
+    els.instructions.textContent = def.instructions;
+
+    if (def.type === "line") setupLineRound();
+    else if (def.type === "grid") setupGridRound();
+    else if (def.type === "jarcount") setupJarRound();
+    else if (def.type === "dragselect") setupDragRound();
+  }
+
+  function finishRound(score, detail) {
+    answered = true;
+    scores.push({ label: ROUND_DEFS[roundIndex].label, score, detail });
+    els.feedback.textContent = "score: " + score + "/100 — " + detail;
+    els.roundScorePreview.textContent = "";
+    els.nextBtn.textContent = roundIndex < ROUND_DEFS.length - 1 ? "next round →" : "see results →";
+    els.nextBtn.style.display = "block";
+  }
+
+  els.stage.addEventListener("click", stageClickHandler);
+  els.stage.addEventListener("pointerdown", (e) => {
+    if (ROUND_DEFS[roundIndex].type === "dragselect") dragPointerDown(e);
+  });
+  els.stage.addEventListener("pointermove", (e) => {
+    if (ROUND_DEFS[roundIndex].type === "dragselect") dragPointerMove(e);
+  });
+  els.stage.addEventListener("pointerup", (e) => {
+    if (ROUND_DEFS[roundIndex].type === "dragselect") dragPointerUp(e);
+  });
+
+  els.jarSubmit.addEventListener("click", answerJarRound);
+  els.jarGuess.addEventListener("keydown", (e) => { if (e.key === "Enter") answerJarRound(); });
+
+  els.nextBtn.addEventListener("click", () => {
+    roundIndex++;
+    if (roundIndex >= ROUND_DEFS.length) showResults();
+    else setupRound();
+  });
+
+  function titleFor(score) {
+    if (score >= 90) return ["Laser-Sighted", "Somewhere a rangefinder feels obsolete."];
+    if (score >= 75) return ["Sharp Eye", "Good instincts, the occasional drift."];
+    if (score >= 55) return ["Decent Guesser", "In the ballpark, mostly."];
+    if (score >= 35) return ["Eyeballing It", "Vibes-based measurement, technically legal."];
+    return ["Blind Faith", "Confidently, spectacularly off."];
+  }
+
+  let finalScore = 0, finalTitle = "", finalTag = "";
+
+  function showResults() {
+    els.game.style.display = "none";
+    els.result.style.display = "block";
+    finalScore = Math.round(scores.reduce((a, s) => a + s.score, 0) / scores.length);
+    const [title, tag] = titleFor(finalScore);
+    finalTitle = title; finalTag = tag;
+    els.resultTitle.textContent = "your eyeball: " + title;
+    els.resultScore.textContent = finalScore + "/100";
+    els.resultTag.textContent = tag;
+    els.breakdown.innerHTML = "";
+    scores.forEach((s) => {
+      const li = document.createElement("li");
+      li.innerHTML = "<b>" + s.label.replace(/^round \d+ — /, "") + "</b><span>" + s.detail + "</span><span class='pts'>" + s.score + "</span>";
+      els.breakdown.appendChild(li);
+    });
+    buildShareCard();
+    const shareText =
+      "spot on score: " + finalScore + "/100 — " + finalTitle + ". " +
+      scores.map((s) => s.label.replace(/^round \d+ — /, "") + ": " + s.score).join(", ") + ".\n\n" +
+      "try it → " + SITE_URL;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+  }
+
+  function buildShareCard() {
+    const c = els.shareCanvas;
+    const sc = c.getContext("2d");
+    const W = c.width, H = c.height;
+    sc.clearRect(0, 0, W, H);
+    sc.fillStyle = "#0a0e14";
+    sc.fillRect(0, 0, W, H);
+    const glow = sc.createRadialGradient(W * 0.2, -H * 0.1, 0, W * 0.2, -H * 0.1, W * 0.55);
+    glow.addColorStop(0, "#2a1210");
+    glow.addColorStop(1, "rgba(10,14,20,0)");
+    sc.fillStyle = glow;
+    sc.fillRect(0, 0, W, H);
+
+    const mono = "ui-monospace, monospace";
+    sc.textAlign = "left";
+    sc.fillStyle = "#ff5a4e";
+    sc.font = `800 54px ${mono}`;
+    sc.fillText("🎯 spot on", 60, 100);
+
+    sc.strokeStyle = "#233047";
+    sc.lineWidth = 1.5;
+    const cardX = 60, cardY = 150, cardW = W - 120, cardH = H - 210;
+    sc.fillStyle = "#141b28";
+    sc.beginPath();
+    sc.roundRect(cardX, cardY, cardW, cardH, 18);
+    sc.fill();
+    sc.stroke();
+
+    sc.textAlign = "center";
+    sc.fillStyle = "#43e5c5";
+    sc.font = `900 84px ${mono}`;
+    sc.fillText(finalScore + "/100", W / 2, cardY + 110);
+
+    sc.fillStyle = "#eaf2ff";
+    sc.font = `800 34px ${mono}`;
+    sc.fillText(finalTitle, W / 2, cardY + 160);
+
+    sc.fillStyle = "#7f93b3";
+    sc.font = `400 18px ${mono}`;
+    sc.fillText(finalTag, W / 2, cardY + 190);
+
+    const barY = cardY + 230, barGap = (cardW - 100) / scores.length;
+    scores.forEach((s, i) => {
+      const bx = cardX + 50 + i * barGap;
+      const bw = barGap - 26;
+      const bh = 90;
+      sc.strokeStyle = "#233047";
+      sc.lineWidth = 1;
+      sc.strokeRect(bx, barY, bw, bh);
+      const fillH = (s.score / 100) * bh;
+      sc.fillStyle = "#43e5c5";
+      sc.fillRect(bx, barY + bh - fillH, bw, fillH);
+      sc.fillStyle = "#eaf2ff";
+      sc.font = `700 16px ${mono}`;
+      sc.textAlign = "center";
+      sc.fillText(String(s.score), bx + bw / 2, barY + bh + 22);
+      sc.fillStyle = "#7f93b3";
+      sc.font = `400 12px ${mono}`;
+      const short = s.label.replace(/^round \d+ — /, "").split(" ")[0];
+      sc.fillText(short, bx + bw / 2, barY + bh + 40);
+    });
+
+    sc.textAlign = "left";
+    sc.fillStyle = "#43e5c5";
+    sc.font = `700 20px ${mono}`;
+    sc.fillText("bisks.net/games/spoton", 60, H - 40);
+  }
+
+  els.shareDownload.addEventListener("click", () => {
+    els.shareCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "spoton-" + finalScore + ".png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.addEventListener("click", () => {
+      els.shareCanvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "spoton-" + finalScore + ".png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: "spot on score: " + finalScore + "/100 — " + finalTitle + "\n\n" + SITE_URL, title: "spot on" });
+        } catch (_) { /* cancelled */ }
+      }, "image/png");
+    });
+  }
+
+  els.replayBtn.addEventListener("click", () => {
+    roundIndex = 0;
+    scores = [];
+    els.result.style.display = "none";
+    els.game.style.display = "block";
+    setupRound();
+  });
+
+  els.startBtn.addEventListener("click", () => {
+    els.intro.style.display = "none";
+    els.game.style.display = "block";
+    roundIndex = 0;
+    scores = [];
+    setupRound();
+  });
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
