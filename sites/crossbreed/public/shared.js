@@ -88,9 +88,13 @@ export const BUILDTHIS = [
 ];
 
 // minomobi: mino.mobi's own "Surface Catalog" — 125 named surfaces across
-// social/work/data/math/lit/tools/games, fetched from mino.mobi itself.
-// category is mino.mobi's own section heading, kept as a short code for
-// the trait chip.
+// social/work/data/math/lit/tools/games, hand-copied from mino.mobi itself.
+// This is now the FALLBACK snapshot only — fetchLiveMinomobi() below pulls
+// the real, current list straight from mino.mobi's own deploy registry at
+// breed time. This array is what a breed falls back to when that fetch
+// fails, and the ultimate target a permalink resolves against so old share
+// links never go dead. category is mino.mobi's own section heading, kept as
+// a short code for the trait chip.
 export const MINOMOBI = [
   { name: "poll", cat: "bsky", blurb: "Anonymous polling with RSA blind signatures" },
   { name: "photo", cat: "bsky", blurb: "Image explorer with masonry grid and analytics" },
@@ -209,8 +213,54 @@ export const MINOMOBI = [
 const CAT_LABEL = {
   bsky: "Bluesky Tools", work: "Work & Organization", data: "Data & Visualization",
   math: "Mathematics & Geometry", tools: "Tools & Utilities", lit: "Literature & Medieval",
-  games: "Games & Interactive",
+  games: "Games & Interactive", frontend: "Live · mino.mobi", fullstack: "Live Fullstack · mino.mobi",
 };
+
+// --- live handshake with minomobi ------------------------------------------
+// mino.mobi publishes deploy-registry.json — the actual source-of-truth file
+// their own build tooling reads to know what's live — as public, CORS-open
+// JSON (access-control-allow-origin: *). Fetching it for real, on every
+// breed, is the "extra communicative digimagical means" the brief asked
+// for: buildthis reaches across the wire into minomobi's live infrastructure
+// instead of re-typing a catalog that goes stale the moment either side
+// ships something new. MINOMOBI above stays as the offline fallback — used
+// when the fetch fails, and as the last-resort target so a shared permalink
+// never 404s even if mino.mobi is down or has renamed/retired a surface.
+export const MINOMOBI_REGISTRY_URL = "https://mino.mobi/deploy-registry.json";
+
+function cleanNote(note) {
+  if (!note) return "";
+  return note
+    .replace(/\s*\(full description:[^)]*\)\s*$/, "")
+    // minomobi's registry notes are dev-facing — strip parenthetical asides
+    // that carry implementation detail (backtick worker names, custom_domain
+    // callouts) rather than anything worth showing off in a bred blurb.
+    .replace(/\s*\([^()]*`[^()]*\)/g, "")
+    .replace(/…$/, "")
+    .trim();
+}
+
+export function parseMinomobiRegistry(json) {
+  const surfaces = Array.isArray(json && json.surfaces) ? json.surfaces : [];
+  return surfaces
+    .filter((s) => (s.type === "frontend" || s.type === "fullstack") && s.surface && s.note)
+    .map((s) => ({ name: s.surface, cat: s.type, blurb: cleanNote(s.note) }))
+    .filter((s) => s.blurb.length > 0);
+}
+
+// fetchImpl is injectable so the same code runs in the browser and in the
+// Worker (src/index.ts, for per-share OG text) without a global assumption.
+export async function fetchLiveMinomobi(fetchImpl = fetch, timeoutMs = 2500) {
+  try {
+    const res = await fetchImpl(MINOMOBI_REGISTRY_URL, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const parsed = parseMinomobiRegistry(json);
+    return parsed.length ? parsed : null;
+  } catch (_) {
+    return null; // offline, CORS pulled, registry reshaped — caller falls back to MINOMOBI
+  }
+}
 
 // --- deterministic PRNG ----------------------------------------------------
 // mulberry32: tiny, seeded, same output every time for the same seed — so a
@@ -235,33 +285,58 @@ function hashStr(s) {
 }
 
 // --- seed <-> pick -----------------------------------------------------
-// A seed is just "<buildthisIndex>-<minomobiIndex>-<templateIndex>" — plain
-// enough to read, and every field is bounds-checked with modulo so any
-// string still resolves to *some* valid pairing (typo-proof share links).
+// A seed is "<buildthisIndex>-<minomobiName>-<templateIndex>". The minomobi
+// side is keyed by NAME, not index — a live-fetched catalog can reorder or
+// grow between visits, but "poll" still means the same surface, so a
+// permalink keeps pointing at the same offspring even as mino.mobi's real
+// registry changes underneath it. Every field still degrades gracefully:
+// an unrecognized token still resolves to *some* valid pairing (typo-proof
+// share links), same philosophy as the original index version.
 const TEMPLATE_COUNT = 8;
 
-export function randomSeed() {
-  const b = Math.floor(Math.random() * BUILDTHIS.length);
-  const m = Math.floor(Math.random() * MINOMOBI.length);
-  const t = Math.floor(Math.random() * TEMPLATE_COUNT);
-  return `${b}-${m}-${t}`;
+function slugToken(s) {
+  return String(s).replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "x";
 }
 
-export function seedFromString(s) {
+function findByName(catalog, name) {
+  return catalog && catalog.find((s) => s.name === name);
+}
+
+// Resolve a minomobi token into an actual catalog entry: try the live
+// catalog first (if this session has one), then the offline snapshot, then
+// — so a permalink NEVER 404s, even if a surface got renamed or retired on
+// both sides — hash the raw token into a deterministic index on the
+// snapshot.
+function resolveMinomobi(token, liveCatalog) {
+  return findByName(liveCatalog, token) || findByName(MINOMOBI, token) || MINOMOBI[hashStr(token) % MINOMOBI.length];
+}
+
+export function randomSeed(minomobiCatalog = MINOMOBI) {
+  const catalog = minomobiCatalog.length ? minomobiCatalog : MINOMOBI;
+  const b = Math.floor(Math.random() * BUILDTHIS.length);
+  const entry = catalog[Math.floor(Math.random() * catalog.length)];
+  const t = Math.floor(Math.random() * TEMPLATE_COUNT);
+  return `${b}-${slugToken(entry.name)}-${t}`;
+}
+
+export function seedFromString(s, minomobiCatalog = MINOMOBI) {
+  const catalog = minomobiCatalog.length ? minomobiCatalog : MINOMOBI;
   const h = hashStr(s);
   const rng = mulberry32(h);
   const b = Math.floor(rng() * BUILDTHIS.length);
-  const m = Math.floor(rng() * MINOMOBI.length);
+  const entry = catalog[Math.floor(rng() * catalog.length)];
   const t = Math.floor(rng() * TEMPLATE_COUNT);
-  return `${b}-${m}-${t}`;
+  return `${b}-${slugToken(entry.name)}-${t}`;
 }
 
 function parseSeed(seed) {
-  const parts = String(seed).split("-").map((x) => parseInt(x, 10));
-  const b = Number.isFinite(parts[0]) ? ((parts[0] % BUILDTHIS.length) + BUILDTHIS.length) % BUILDTHIS.length : 0;
-  const m = Number.isFinite(parts[1]) ? ((parts[1] % MINOMOBI.length) + MINOMOBI.length) % MINOMOBI.length : 0;
-  const t = Number.isFinite(parts[2]) ? ((parts[2] % TEMPLATE_COUNT) + TEMPLATE_COUNT) % TEMPLATE_COUNT : 0;
-  return { b, m, t };
+  const parts = String(seed).split("-");
+  const bRaw = parseInt(parts[0], 10);
+  const b = Number.isFinite(bRaw) ? ((bRaw % BUILDTHIS.length) + BUILDTHIS.length) % BUILDTHIS.length : 0;
+  const minomobiToken = parts[1] || "";
+  const tRaw = parseInt(parts[2], 10);
+  const t = Number.isFinite(tRaw) ? ((tRaw % TEMPLATE_COUNT) + TEMPLATE_COUNT) % TEMPLATE_COUNT : 0;
+  return { b, minomobiToken, t };
 }
 
 // --- phrase extraction ------------------------------------------------
@@ -326,22 +401,26 @@ const TEMPLATES = [
 ];
 
 // --- the actual breed --------------------------------------------------
-export function breed(seed) {
-  const { b, m, t } = parseSeed(seed);
+// minomobiCatalog: pass a live-fetched catalog (fetchLiveMinomobi) to breed
+// from mino.mobi's real current registry; omit it to breed from the offline
+// snapshot. Either way parentB resolution is name-keyed (see resolveMinomobi)
+// so seeds stay stable across the two.
+export function breed(seed, minomobiCatalog) {
+  const { b, minomobiToken, t } = parseSeed(seed);
   const parentA = BUILDTHIS[b];
-  const parentB = MINOMOBI[m];
+  const parentB = resolveMinomobi(minomobiToken, minomobiCatalog);
   const phraseA = extractPhrase(parentA.blurb);
   const phraseB = extractPhrase(parentB.blurb);
   const name = portmanteau(parentA.name, parentB.name);
   const concept = TEMPLATES[t % TEMPLATES.length](phraseA, phraseB);
   const catLabel = CAT_LABEL[parentB.cat] || "misc";
-  return { seed: `${b}-${m}-${t}`, parentA, parentB, phraseA, phraseB, name, concept, catLabel };
+  return { seed: `${b}-${slugToken(parentB.name)}-${t}`, parentA, parentB, phraseA, phraseB, name, concept, catLabel };
 }
 
 // Server-side (Worker) needs just enough for OG title/description text —
 // same breed() call, trimmed down to strings.
-export function breedTitleDesc(seed) {
-  const r = breed(seed);
+export function breedTitleDesc(seed, minomobiCatalog) {
+  const r = breed(seed, minomobiCatalog);
   const title = `crossbreed: "${r.name}"`;
   const desc = `@buildthis × @minomobi bred "${r.parentA.name}" with "${r.parentB.name}": ${r.concept}`;
   return { title, desc, name: r.name };

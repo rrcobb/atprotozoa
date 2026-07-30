@@ -183,10 +183,11 @@
   <h1>🧬 <span class="a">build</span><span class="x">×</span><span class="b">mino</span>breed</h1>
   <p class="tag">
     <b>@buildthis.bisks.net</b> and <b>@minomobi.com</b> each keep a catalog of real
-    little sites. Neither one makes what the other makes. crossbreed picks one
-    entry from each — for real, no fabricated names — argues out loud about how
-    they'd combine, and splices them into a site idea that only exists because
-    both catalogs do.
+    little sites. Neither one makes what the other makes. Every breed, this page
+    actually reaches across the wire into <b>mino.mobi's own live deploy
+    registry</b> — the real file their build system reads — picks one entry from
+    each catalog, argues out loud about how they'd combine, and splices them into
+    a site idea that only exists because both catalogs do.
   </p>
   <p class="stat" id="statLine"></p>
 </header>
@@ -230,15 +231,30 @@
 <footer>
   See the whole thing each bot is drawing from:
   <a href="https://bisks.net" target="_blank" rel="noopener">bisks.net</a> (176 atprotozoa
-  sites) and <a href="https://mino.mobi" target="_blank" rel="noopener">mino.mobi</a>
-  (125 surfaces). Every pairing here is a real seed — reload the permalink and
-  you get the exact same offspring back.
+  sites) and <a href="https://mino.mobi/deploy-registry.json" target="_blank" rel="noopener">mino.mobi's
+  live deploy registry</a>. Every pairing here is a real seed keyed to real names on
+  both sides — reload the permalink and you get the exact same offspring back,
+  whether mino.mobi answers or not.
 </footer>
 
 <script type="module">
-import { BUILDTHIS, MINOMOBI, breed, randomSeed, seedFromString } from "./shared.js";
+import { BUILDTHIS, MINOMOBI, breed, randomSeed, seedFromString, fetchLiveMinomobi } from "./shared.js";
 
 const PUBLIC_BASE = "https://bisks.net/crossbreed";
+
+// The actual handshake: reach into mino.mobi's own deploy registry (public,
+// CORS-open JSON) instead of trusting a hand-copied snapshot. Kicked off
+// immediately but not awaited before the first breed — that stays instant
+// off the offline catalog; once this resolves, every later breed (and the
+// stat line) uses the live one.
+let liveCatalog = null;
+let liveStatus = "connecting"; // connecting | live | offline
+const liveFetchPromise = fetchLiveMinomobi().then((catalog) => {
+  liveCatalog = catalog;
+  liveStatus = catalog ? "live" : "offline";
+  updateStatLine();
+});
+function activeCatalog() { return liveCatalog || MINOMOBI; }
 
 const els = {
   breedBtn: document.getElementById("breedBtn"),
@@ -259,8 +275,17 @@ const els = {
   canvas: document.getElementById("cardCanvas"),
 };
 
-const pairings = BUILDTHIS.length * MINOMOBI.length * 8;
-els.statLine.innerHTML = `<b>${BUILDTHIS.length}</b> buildthis sites × <b>${MINOMOBI.length}</b> minomobi surfaces × 8 ways to phrase it = <b>${pairings.toLocaleString()}</b> possible offspring`;
+function updateStatLine() {
+  const catalog = activeCatalog();
+  const pairings = BUILDTHIS.length * catalog.length * 8;
+  const src = liveStatus === "live"
+    ? `<b>${catalog.length}</b> minomobi surfaces (live from mino.mobi just now)`
+    : liveStatus === "offline"
+      ? `<b>${catalog.length}</b> minomobi surfaces (mino.mobi didn't answer — last known snapshot)`
+      : `<b>${catalog.length}</b> minomobi surfaces (reaching mino.mobi now…)`;
+  els.statLine.innerHTML = `<b>${BUILDTHIS.length}</b> buildthis sites × ${src} × 8 ways to phrase it = <b>${pairings.toLocaleString()}</b> possible offspring`;
+}
+updateStatLine();
 
 function bubble(who, cls, text) {
   const d = document.createElement("div");
@@ -276,11 +301,17 @@ async function playConversation(r) {
   els.card.classList.remove("show");
   els.breedBtn.disabled = true;
 
+  const minomobiIntro = liveStatus === "live"
+    ? `just pulled this straight off my own live registry — «${r.parentB.name}»: ${cap1(r.phraseB)}.`
+    : liveStatus === "offline"
+      ? `couldn't reach my registry that time, working off what you already had cached of me — «${r.parentB.name}»: ${cap1(r.phraseB)}.`
+      : `still dialing you in — here's «${r.parentB.name}» from what you've got on me: ${cap1(r.phraseB)}.`;
+  const minomobiSplice = liveStatus === "live" ? `got it live. splicing.` : `splicing from the snapshot. give it a second.`;
   const lines = [
     ["buildthis", "buildthis", `what if we started with «${r.parentA.name}»? ${cap1(r.phraseA)}.`],
-    ["minomobi", "minomobi", `interesting — I've got «${r.parentB.name}»: ${cap1(r.phraseB)}.`],
+    ["minomobi", "minomobi", minomobiIntro],
     ["buildthis", "buildthis", `run mine through yours and see what falls out?`],
-    ["minomobi", "minomobi", `already splicing. give it a second.`],
+    ["minomobi", "minomobi", minomobiSplice],
     ["both", "both", `→ «${r.name}» — ${r.concept}`],
   ];
 
@@ -335,12 +366,12 @@ function fillCard(r) {
 let current = null;
 
 async function runBreed(seed) {
-  current = breed(seed);
+  current = breed(seed, activeCatalog());
   await playConversation(current);
 }
 
-els.breedBtn.addEventListener("click", () => runBreed(randomSeed()));
-els.breedAgain.addEventListener("click", () => runBreed(randomSeed()));
+els.breedBtn.addEventListener("click", () => runBreed(randomSeed(activeCatalog())));
+els.breedAgain.addEventListener("click", () => runBreed(randomSeed(activeCatalog())));
 
 // --- share-card image (canvas) ---
 function wrapLines(ctx, text, maxWidth) {
@@ -461,7 +492,7 @@ els.shareImg.addEventListener("click", async () => {
 // --- boot: honor /s/<seed>, ?seed=, or start fresh ---
 const pathMatch = location.pathname.match(/\/s\/([^/]+)\/?$/);
 const qsSeed = new URL(location.href).searchParams.get("seed");
-const startSeed = pathMatch ? pathMatch[1] : (qsSeed || randomSeed());
+const startSeed = pathMatch ? pathMatch[1] : (qsSeed || randomSeed(activeCatalog()));
 runBreed(startSeed);
 </script>
 

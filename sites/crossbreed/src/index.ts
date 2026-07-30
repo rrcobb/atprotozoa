@@ -7,7 +7,7 @@
 // loads, so the seed means the same thing on both sides — see
 // public/shared.js's top comment.
 
-import { breedTitleDesc } from "../public/shared.js";
+import { breedTitleDesc, fetchLiveMinomobi } from "../public/shared.js";
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -38,7 +38,12 @@ async function renderShare(env: Env, request: Request, seed: string): Promise<Re
   let html = await base.text();
 
   try {
-    const { title, desc } = breedTitleDesc(seed);
+    // Best-effort live pull so a freshly-shared link's OG card names mino.mobi's
+    // actual current surface, not a stale local copy. Short timeout + internal
+    // try/catch (fetchLiveMinomobi never throws) — a slow/dead registry falls
+    // straight back to the offline snapshot, never blocks the share page.
+    const liveCatalog = await fetchLiveMinomobi(fetch, 1500);
+    const { title, desc } = breedTitleDesc(seed, liveCatalog || undefined);
     const ogUrl = `https://bisks.net/crossbreed/s/${encodeURIComponent(seed)}`;
 
     html = html
