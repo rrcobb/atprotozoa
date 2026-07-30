@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SLOP WATER™ — shake the bottle, face the sludge</title>
+<meta name="description" content="Dunk the powder into the bottle of Icelandic-adjacent spring water and shake it for your life. A timing minigame that ends in a custom sludge flavor and a bottle wrapper design of your very own." />
+<meta property="og:title" content="SLOP WATER™ — shake the bottle, face the sludge" />
+<meta property="og:description" content="Dunk the powder. Shake for your life. Get a custom sludge flavor, a purity score, and a bottle wrapper worth reviewing." />
+<meta property="og:url" content="https://bisks.net/games/slopwater" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bisks.net/games/slopwater/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="SLOP WATER: a water bottle wrapper reading Icelandic-adjacent Spring Water, Now Fortified With Mystery Powder, next to a shake counter and a purity score." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="SLOP WATER™ — shake the bottle, face the sludge" />
+<meta name="twitter:description" content="Dunk the powder. Shake for your life. Get a custom sludge flavor, a purity score, and a bottle wrapper worth reviewing." />
+<meta name="twitter:image" content="https://bisks.net/games/slopwater/og.png" />
+<style>
+  :root {
+    --bg: #eef7fb;
+    --bg2: #dcf0f7;
+    --fg: #0e2a33;
+    --dim: #4f7480;
+    --accent: #1a8fb0;
+    --accent2: #4caf6f;
+    --card: #ffffff;
+    --border: #c3dee6;
+    --sludge: #6b5b2a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #cdeaf5 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #d7f2e2 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.3rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .tm { font-size: 0.9rem; vertical-align: super; color: var(--accent); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 1.75rem;
+    line-height: 1.55;
+  }
+  .tag b { color: var(--fg); }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 12px 40px -20px rgba(20, 60, 70, 0.35);
+  }
+  .panel + .panel { margin-top: 1.25rem; }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  canvas#bottle { display: block; touch-action: none; }
+
+  .startBtn, .shakeBtn, .again {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 0.85rem 1.4rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 1.05rem;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .shakeBtn { width: 100%; padding: 1.3rem; font-size: 1.3rem; touch-action: manipulation; }
+  .shakeBtn:active { transform: scale(0.97); }
+  .startBtn:disabled { opacity: 0.5; cursor: default; }
+
+  .barWrap {
+    width: 100%;
+    height: 10px;
+    border-radius: 6px;
+    background: var(--bg2);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); width: 100%; }
+
+  .stats {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 0.82rem;
+    color: var(--dim);
+  }
+  .stats b { color: var(--fg); }
+
+  .hint { color: var(--dim); font-size: 0.8rem; text-align: center; margin: 0; }
+
+  .result { display: none; }
+  .result.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .flavor {
+    text-align: center;
+    font-weight: 800;
+    font-size: 1.3rem;
+    margin: 0.9rem 0 0.15rem;
+    color: var(--sludge);
+  }
+  .verdict {
+    text-align: center;
+    font-size: 0.88rem;
+    color: var(--dim);
+    margin: 0 0 1rem;
+    line-height: 1.5;
+  }
+  .scorebox {
+    display: flex;
+    justify-content: center;
+    gap: 1.75rem;
+    margin-bottom: 1.1rem;
+  }
+  .scorebox div { text-align: center; }
+  .scorebox .num { font-size: 1.5rem; font-weight: 800; }
+  .scorebox .lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  .again { display: block; width: 100%; margin-top: 0.25rem; }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SLOP WATER<span class="tm">™</span></h1>
+    <p class="tag">
+      Dunk the powder into a bottle of imported, discerning, <b>Ph 8.4</b> spring water
+      and shake it up. Tastes and colors beyond your imagination — for those of all
+      ages to partake. Your mix, your flavor, your wrapper design.
+    </p>
+
+    <div class="panel">
+      <div class="stage">
+        <canvas id="bottle" width="260" height="360"></canvas>
+
+        <div id="preRound">
+          <button id="startBtn" class="startBtn" type="button">shake it up</button>
+        </div>
+
+        <div id="round" style="display:none; width:100%;">
+          <button id="shakeBtn" class="shakeBtn" type="button">SHAKE</button>
+          <p class="hint">tap/click as fast and evenly as you can — or mash spacebar</p>
+          <div class="barWrap" style="margin-top:0.9rem;"><div id="timeBar" class="bar"></div></div>
+          <div class="stats" style="margin-top:0.4rem;">
+            <span>shakes: <b id="shakeCount">0</b></span>
+            <span id="timeLeft">7.0s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="result" class="result panel">
+      <div class="flavor" id="flavorName">—</div>
+      <div class="verdict" id="verdictText">—</div>
+      <div class="scorebox">
+        <div><div class="num" id="purityNum">0</div><div class="lbl">purity</div></div>
+        <div><div class="num" id="shakeNum">0</div><div class="lbl">shakes</div></div>
+        <div><div class="num" id="rhythmNum">0%</div><div class="lbl">rhythm</div></div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 post your slop</a>
+        <button id="shareDownload" type="button">⬇ download wrapper</button>
+      </div>
+
+      <button id="again" class="again" type="button">shake a new bottle</button>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net/games">atprotozoa games</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ROUND_MS = 7000;
+  var TARGET_SHAKES = 42; // shakes for a "fully mixed" bottle inside the round
+
+  var ADJ = ["Glacial", "Prehistoric", "Discerning", "Zesty", "Freshly Thawed", "Ph 8.4",
+    "Purest-Tasting", "Bottled Under Duress", "Imported-Only", "Naturally Occurring",
+    "150th Wrapper", "Obscure Dutch", "Administratively Blocked", "Room Temperature"];
+  var NOUN = ["Slop", "Sludge", "Slurry", "Glacier Runoff", "Notebook Water", "Wrapper Juice",
+    "Powder Residue", "Icelandic Mud", "Plague Broth", "Spring Sediment", "Discerning Slop",
+    "Miami Water", "Huel-Adjacent Paste"];
+
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function verdictFor(p) {
+    if (p < 25) return ["BARELY MIXED", "Mostly wet notebook paper. Technically water. Technically."];
+    if (p < 50) return ["SERVICEABLE SLOP", "Drinkable, under duress, by someone who has made peace with things."];
+    if (p < 75) return ["DISCERNING-TIER SLUDGE", "Miami and LA can tell the difference. You can too, now."];
+    return ["BEYOND YOUR IMAGINATION", "Sludgy slop like you wouldn't believe, for those of all ages to partake."];
+  }
+
+  // ---- state ----
+  var els = {
+    bottle: document.getElementById("bottle"),
+    preRound: document.getElementById("preRound"),
+    startBtn: document.getElementById("startBtn"),
+    round: document.getElementById("round"),
+    shakeBtn: document.getElementById("shakeBtn"),
+    timeBar: document.getElementById("timeBar"),
+    shakeCount: document.getElementById("shakeCount"),
+    timeLeft: document.getElementById("timeLeft"),
+    result: document.getElementById("result"),
+    flavorName: document.getElementById("flavorName"),
+    verdictText: document.getElementById("verdictText"),
+    purityNum: document.getElementById("purityNum"),
+    shakeNum: document.getElementById("shakeNum"),
+    rhythmNum: document.getElementById("rhythmNum"),
+    shareCanvas: document.getElementById("shareCanvas"),
+    shareNative: document.getElementById("shareNative"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareDownload: document.getElementById("shareDownload"),
+    again: document.getElementById("again"),
+  };
+
+  var ctx = els.bottle.getContext("2d");
+  var W = els.bottle.width, H = els.bottle.height;
+
+  var active = false;
+  var startedAt = 0;
+  var timestamps = [];
+  var jiggle = 0, jiggleV = 0;
+  var particles = [];
+  var hueBase = 40 + Math.random() * 100; // 40-140: yellow/green/brown range
+  var rafId = null;
+  var lastShareText = "";
+
+  function mixT() {
+    // 0..1 progress toward "fully mixed" based on shake count so far
+    return Math.min(timestamps.length / TARGET_SHAKES, 1);
+  }
+
+  function liquidColor(t) {
+    // interpolate icy blue -> sludge hue as t goes 0..1
+    var h = 200 + (hueBase - 200) * t;
+    var sat = 55 + 25 * t;
+    var light = 88 - 55 * t;
+    return "hsl(" + h.toFixed(0) + ", " + sat.toFixed(0) + "%, " + light.toFixed(0) + "%)";
+  }
+
+  function drawBottle(t, live) {
+    ctx.clearRect(0, 0, W, H);
+
+    var ox = jiggle;
+    ctx.save();
+    ctx.translate(ox, 0);
+
+    // bottle silhouette
+    var bx = W / 2, neckW = 34, bodyW = 150, bodyTop = 96, bodyBot = H - 24, radius = 22;
+    ctx.beginPath();
+    ctx.moveTo(bx - neckW / 2, 18);
+    ctx.lineTo(bx - neckW / 2, 60);
+    ctx.quadraticCurveTo(bx - bodyW / 2, 66, bx - bodyW / 2, bodyTop);
+    ctx.lineTo(bx - bodyW / 2, bodyBot - radius);
+    ctx.quadraticCurveTo(bx - bodyW / 2, bodyBot, bx - bodyW / 2 + radius, bodyBot);
+    ctx.lineTo(bx + bodyW / 2 - radius, bodyBot);
+    ctx.quadraticCurveTo(bx + bodyW / 2, bodyBot, bx + bodyW / 2, bodyBot - radius);
+    ctx.lineTo(bx + bodyW / 2, bodyTop);
+    ctx.quadraticCurveTo(bx + bodyW / 2, 66, bx + neckW / 2, 60);
+    ctx.lineTo(bx + neckW / 2, 18);
+    ctx.closePath();
+
+    ctx.save();
+    ctx.clip();
+    // liquid fill, level rises slightly with t
+    var fillTop = bodyTop + 8 + (1 - Math.min(t + 0.15, 1)) * 30;
+    ctx.fillStyle = liquidColor(t);
+    ctx.fillRect(bx - bodyW, fillTop, bodyW * 2, H);
+    // foam line
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillRect(bx - bodyW, fillTop, bodyW * 2, 4);
+
+    // particles (bubbles)
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      ctx.globalAlpha = Math.max(p.life, 0);
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#0e2a33";
+    ctx.stroke();
+
+    // cap
+    ctx.fillStyle = "#1a8fb0";
+    ctx.fillRect(bx - neckW / 2 - 2, 6, neckW + 4, 16);
+    ctx.strokeRect(bx - neckW / 2 - 2, 6, neckW + 4, 16);
+
+    // label
+    var labelY = bodyTop + 30, labelH = 90;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillRect(bx - bodyW / 2 + 4, labelY, bodyW - 8, labelH);
+    ctx.strokeStyle = "#1a8fb0";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx - bodyW / 2 + 4, labelY, bodyW - 8, labelH);
+    ctx.fillStyle = "#0e2a33";
+    ctx.textAlign = "center";
+    ctx.font = "800 13px monospace";
+    ctx.fillText("SLOP WATER", bx, labelY + 24);
+    ctx.font = "700 8px monospace";
+    ctx.fillStyle = "#4f7480";
+    ctx.fillText("THE PUREST TASTING", bx, labelY + 40);
+    ctx.fillText("SLOP ON EARTH®", bx, labelY + 50);
+    ctx.fillStyle = "#4caf6f";
+    ctx.font = "700 8px monospace";
+    ctx.fillText(live ? (Math.round(t * 100) + "% MIXED") : "READY TO SHIP", bx, labelY + 72);
+
+    ctx.restore();
+  }
+
+  function tick() {
+    var now = performance.now();
+    // spring-ish decay for jiggle
+    jiggleV *= 0.82;
+    jiggle += jiggleV;
+    jiggle *= 0.86;
+
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.y -= p.vy;
+      p.x += p.vx;
+      p.life -= 0.02;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    drawBottle(mixT(), true);
+
+    if (active) {
+      var elapsed = now - startedAt;
+      var remain = Math.max(ROUND_MS - elapsed, 0);
+      els.timeBar.style.width = (100 * remain / ROUND_MS) + "%";
+      els.timeLeft.textContent = (remain / 1000).toFixed(1) + "s";
+      if (remain <= 0) {
+        endRound();
+        return;
+      }
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function doShake() {
+    if (!active) return;
+    var now = performance.now();
+    timestamps.push(now);
+    els.shakeCount.textContent = String(timestamps.length);
+    jiggleV += (Math.random() - 0.5) * 14;
+    for (var i = 0; i < 3; i++) {
+      particles.push({
+        x: W / 2 + (Math.random() - 0.5) * 100,
+        y: H - 40 - Math.random() * 60,
+        vy: 0.6 + Math.random() * 1.2,
+        vx: (Math.random() - 0.5) * 0.6,
+        r: 1.5 + Math.random() * 2.5,
+        life: 1,
+      });
+    }
+  }
+
+  function startRound() {
+    active = true;
+    timestamps = [];
+    hueBase = 40 + Math.random() * 100;
+    particles = [];
+    els.preRound.style.display = "none";
+    els.round.style.display = "block";
+    els.result.classList.remove("show");
+    els.shakeCount.textContent = "0";
+    startedAt = performance.now();
+    if (rafId) cancelAnimationFrame(rafId);
+    tick();
+  }
+
+  function endRound() {
+    active = false;
+    cancelAnimationFrame(rafId);
+    els.round.style.display = "none";
+    els.preRound.style.display = "block";
+    els.startBtn.textContent = "shake another bottle";
+
+    var n = timestamps.length;
+    var shakeScore = Math.min(n / TARGET_SHAKES, 1) * 60;
+
+    var consistency = 0;
+    if (n >= 3) {
+      var intervals = [];
+      for (var i = 1; i < n; i++) intervals.push(timestamps[i] - timestamps[i - 1]);
+      var mean = intervals.reduce(function (a, b) { return a + b; }, 0) / intervals.length;
+      var variance = intervals.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / intervals.length;
+      var stdev = Math.sqrt(variance);
+      consistency = mean > 0 ? Math.max(0, 1 - stdev / mean) : 0;
+    }
+    var rhythmScore = consistency * 40;
+
+    var purity = Math.round(Math.max(0, Math.min(100, shakeScore + rhythmScore)));
+    var rhythmPct = Math.round(consistency * 100);
+    var flavor = pick(ADJ) + " " + pick(NOUN);
+    var verdict = verdictFor(purity);
+
+    drawBottle(mixT(), false);
+
+    els.flavorName.textContent = flavor;
+    els.verdictText.innerHTML = "<b>" + verdict[0] + "</b> — " + verdict[1];
+    els.purityNum.textContent = String(purity);
+    els.shakeNum.textContent = String(n);
+    els.rhythmNum.textContent = rhythmPct + "%";
+
+    buildShareCard({ flavor: flavor, purity: purity, shakes: n, rhythm: rhythmPct, verdict: verdict[0], hueBase: hueBase });
+
+    var shareUrl = "https://bisks.net/games/slopwater";
+    lastShareText = "Shook up a bottle of " + flavor + " — " + purity + "% purity, " + n +
+      " shakes, verdict: " + verdict[0] + ". Tastes and colors beyond my imagination.\n\n" +
+      "shake your own → " + shareUrl;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+    els.result.classList.add("show");
+  }
+
+  function wrapCanvasText(c, text, x, y, maxWidth, lineHeight) {
+    var words = text.split(" ");
+    var line = "", cy = y;
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (line && c.measureText(test).width > maxWidth) {
+        c.fillText(line, x, cy);
+        line = words[i];
+        cy += lineHeight;
+      } else {
+        line = test;
+      }
+    }
+    if (line) c.fillText(line, x, cy);
+    return cy;
+  }
+
+  function buildShareCard(r) {
+    var c = els.shareCanvas.getContext("2d");
+    var W2 = els.shareCanvas.width, H2 = els.shareCanvas.height;
+    var mono = "ui-monospace, monospace";
+
+    c.clearRect(0, 0, W2, H2);
+    c.fillStyle = "#eef7fb";
+    c.fillRect(0, 0, W2, H2);
+    var glow = c.createRadialGradient(W2 * 0.85, H2 * 0.1, 0, W2 * 0.85, H2 * 0.1, W2 * 0.6);
+    glow.addColorStop(0, "#d7f2e2");
+    glow.addColorStop(1, "rgba(238,247,251,0)");
+    c.fillStyle = glow;
+    c.fillRect(0, 0, W2, H2);
+
+    c.textAlign = "left";
+    c.fillStyle = "#1a8fb0";
+    c.font = "800 56px " + mono;
+    c.fillText("SLOP WATER™", 60, 110);
+
+    c.fillStyle = "#4f7480";
+    c.font = "400 20px " + mono;
+    c.fillText("the purest tasting slop on earth®", 60, 148);
+
+    // bottle card on the right
+    var cardX = 780, cardY = 70, cardW = 360, cardH = 490;
+    c.fillStyle = "#ffffff";
+    c.strokeStyle = "#c3dee6";
+    c.lineWidth = 2;
+    c.beginPath();
+    c.roundRect(cardX, cardY, cardW, cardH, 18);
+    c.fill();
+    c.stroke();
+
+    var liquid = "hsl(" + r.hueBase.toFixed(0) + ", 75%, 34%)";
+    c.fillStyle = liquid;
+    c.beginPath();
+    c.roundRect(cardX + 24, cardY + 24, cardW - 48, 160, 12);
+    c.fill();
+
+    c.textAlign = "center";
+    c.fillStyle = "#fff";
+    c.font = "800 20px " + mono;
+    c.fillText(r.verdict, cardX + cardW / 2, cardY + 110);
+
+    c.fillStyle = "#0e2a33";
+    c.font = "800 24px " + mono;
+    wrapCanvasText(c, r.flavor, cardX + cardW / 2, cardY + 224, cardW - 60, 30);
+    c.textAlign = "center";
+
+    c.font = "400 15px " + mono;
+    c.fillStyle = "#4f7480";
+    c.fillText("your custom flavor", cardX + cardW / 2, cardY + 258);
+
+    var statY = cardY + 320;
+    var stats = [["purity", r.purity + "%"], ["shakes", String(r.shakes)], ["rhythm", r.rhythm + "%"]];
+    var colW = (cardW - 48) / 3;
+    for (var i = 0; i < stats.length; i++) {
+      var sx = cardX + 24 + colW * i + colW / 2;
+      c.font = "800 30px " + mono;
+      c.fillStyle = "#1a8fb0";
+      c.fillText(stats[i][1], sx, statY);
+      c.font = "700 12px " + mono;
+      c.fillStyle = "#4f7480";
+      c.fillText(stats[i][0], sx, statY + 22);
+    }
+
+    c.font = "400 13px " + mono;
+    c.fillStyle = "#4f7480";
+    wrapCanvasText(c, "now fortified with mystery powder, imported only for the discerning.", cardX + cardW / 2, cardY + cardH - 30, cardW - 56, 18);
+
+    c.textAlign = "left";
+    c.fillStyle = "#4f7480";
+    c.font = "400 19px " + mono;
+    wrapCanvasText(c, "Dunked the powder in. Shook for my life.", 60, 240, 660, 30);
+    wrapCanvasText(c, "Got a bottle worth reviewing.", 60, 278, 660, 30);
+
+    c.fillStyle = "#4caf6f";
+    c.font = "700 22px " + mono;
+    c.fillText("bisks.net/games/slopwater", 60, H2 - 50);
+  }
+
+  els.startBtn.addEventListener("click", startRound);
+  els.shakeBtn.addEventListener("touchstart", function (e) { e.preventDefault(); doShake(); }, { passive: false });
+  els.shakeBtn.addEventListener("mousedown", doShake);
+  window.addEventListener("keydown", function (e) {
+    if (e.code === "Space" && active) { e.preventDefault(); doShake(); }
+  });
+  els.again.addEventListener("click", function () {
+    els.result.classList.remove("show");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  els.shareDownload.addEventListener("click", function () {
+    els.shareCanvas.toBlob(function (blob) {
+      if (!blob) return;
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "slopwater-wrapper.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) {
+      return false;
+    }
+  }
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.addEventListener("click", function () {
+      els.shareCanvas.toBlob(async function (blob) {
+        if (!blob) return;
+        var file = new File([blob], "slopwater-wrapper.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: lastShareText, title: "SLOP WATER" });
+        } catch (e) {}
+      }, "image/png");
+    });
+  }
+
+  // idle preview frame before the first round
+  drawBottle(0, true);
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
