@@ -180,24 +180,12 @@
   .rate-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     margin-top: 16px;
     padding-top: 16px;
     border-top: 1px solid var(--border);
   }
-  .rate-row .rate-label { color: var(--dim); font-size: 0.85rem; }
-  .stars { display: inline-flex; gap: 2px; }
-  .stars button {
-    appearance: none;
-    background: none;
-    border: none;
-    padding: 2px;
-    cursor: pointer;
-    font-size: 1.25rem;
-    line-height: 1;
-    color: var(--border);
-  }
-  .stars button.filled { color: var(--mid); }
+  .rate-row .lib-note { color: var(--dim); font-size: 0.85rem; }
   .rate-clear { color: var(--dim); font-size: 0.78rem; text-decoration: underline; cursor: pointer; border: none; background: none; padding: 0; }
 
   .library {
@@ -225,8 +213,7 @@
   .lib-row .lib-rank { color: var(--dim); font-size: 0.78rem; width: 22px; flex: none; text-align: right; }
   .lib-row img { width: 56px; height: 26px; object-fit: cover; border-radius: 3px; background: #000; flex: none; }
   .lib-row .lib-name { flex: 1; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lib-row .lib-algo { color: var(--dim); font-size: 0.78rem; flex: none; }
-  .lib-row .lib-stars { flex: none; font-size: 0.85rem; letter-spacing: 1px; color: var(--mid); }
+  .lib-row .lib-score { flex: none; font-size: 0.9rem; font-weight: 700; }
   .lib-row .lib-remove {
     flex: none;
     background: none;
@@ -267,7 +254,7 @@
 
   <section class="library">
     <h3>your library</h3>
-    <p class="lib-sub">games you've rated, saved right in this browser — nothing leaves your device unless you export it.</p>
+    <p class="lib-sub">games you've saved, ranked automatically by how well they match their own tags — kept right in this browser, nothing leaves your device unless you export it.</p>
     <div class="lib-actions">
       <button class="btn" id="exportLib">export database</button>
       <button class="btn" id="importLibBtn">import database</button>
@@ -302,7 +289,7 @@
     clearLib: document.getElementById("clearLib"),
   };
 
-  // --- personal library: your own ratings, kept in localStorage only ----
+  // --- personal library: games saved and ranked by their own algo score, kept in localStorage only ----
   const DB_KEY = "steamtags:library:v1";
 
   function loadDb() {
@@ -316,14 +303,14 @@
   }
 
   function isValidEntry(e) {
-    return e && typeof e === "object" && typeof e.appid !== "undefined" && typeof e.rating === "number";
+    return e && typeof e === "object" && typeof e.appid !== "undefined" && typeof e.algoScore === "number";
   }
 
   function saveDb(list) {
     try {
       localStorage.setItem(DB_KEY, JSON.stringify(list));
     } catch (_) {
-      // storage full or unavailable — rating still worked in-memory this session
+      // storage full or unavailable — save still worked in-memory this session
     }
   }
 
@@ -359,11 +346,11 @@
 
   function renderLibrary() {
     const db = loadDb().slice().sort((a, b) => {
-      if (b.rating !== a.rating) return b.rating - a.rating;
-      return (b.ratedAt || 0) - (a.ratedAt || 0);
+      if (b.algoScore !== a.algoScore) return b.algoScore - a.algoScore;
+      return (b.savedAt || b.ratedAt || 0) - (a.savedAt || a.ratedAt || 0);
     });
     if (!db.length) {
-      els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — score a game, then rate it, and it lands here.</div>';
+      els.libraryList.innerHTML = '<div class="lib-empty">nothing saved yet — score a game, then save it, and it lands here ranked by match.</div>';
       return;
     }
     els.libraryList.innerHTML = `<div class="lib-list">${db
@@ -373,8 +360,7 @@
             <span class="lib-rank">#${i + 1}</span>
             ${e.headerImage ? `<img src="${escAttr(e.headerImage)}" alt="" loading="lazy" />` : ""}
             <span class="lib-name">${esc(e.name || "appid " + e.appid)}</span>
-            <span class="lib-algo">${typeof e.algoScore === "number" ? e.algoScore + "% match" : ""}</span>
-            <span class="lib-stars">${"★".repeat(e.rating)}${"☆".repeat(5 - e.rating)}</span>
+            <span class="lib-score" style="color:${scoreColor(e.algoScore)}">${e.algoScore}% match</span>
             <button class="lib-remove" data-remove="${escAttr(String(e.appid))}" title="remove">✕</button>
           </div>`
       )
@@ -594,11 +580,9 @@
             <button class="btn" id="downloadCard">download card</button>
           </div>
           <div class="rate-row">
-            <span class="rate-label">your score:</span>
-            <span class="stars" id="rateStars">${[1, 2, 3, 4, 5]
-              .map((n) => `<button type="button" data-rating="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`)
-              .join("")}</span>
-            <button class="rate-clear" id="rateClear" hidden>clear</button>
+            <button class="btn" id="saveToLib">+ save to your library</button>
+            <span class="lib-note" id="libNote" hidden>saved — ranked by its ${g.score}% match, no rating needed</span>
+            <button class="rate-clear" id="rateClear" hidden>remove</button>
           </div>
         </div>
       </div>
@@ -629,39 +613,36 @@
       els.q.focus();
     });
 
-    setupRating(g);
+    setupSave(g);
   }
 
-  function setupRating(g) {
-    const starWrap = document.getElementById("rateStars");
+  function setupSave(g) {
+    const saveBtn = document.getElementById("saveToLib");
     const clearBtn = document.getElementById("rateClear");
-    const stars = [...starWrap.querySelectorAll("button")];
-    const existing = loadDb().find((e) => String(e.appid) === String(g.appid));
+    const note = document.getElementById("libNote");
 
-    function paint(rating) {
-      stars.forEach((s) => s.classList.toggle("filled", Number(s.getAttribute("data-rating")) <= rating));
-      clearBtn.hidden = !rating;
+    function paint() {
+      const inLib = loadDb().some((e) => String(e.appid) === String(g.appid));
+      saveBtn.hidden = inLib;
+      note.hidden = !inLib;
+      clearBtn.hidden = !inLib;
     }
-    paint(existing ? existing.rating : 0);
+    paint();
 
-    stars.forEach((s) => {
-      s.addEventListener("click", () => {
-        const rating = Number(s.getAttribute("data-rating"));
-        upsertEntry({
-          appid: g.appid,
-          name: g.name,
-          headerImage: g.headerImage,
-          algoScore: g.score,
-          rating,
-          ratedAt: Date.now(),
-        });
-        paint(rating);
-        renderLibrary();
+    saveBtn.addEventListener("click", () => {
+      upsertEntry({
+        appid: g.appid,
+        name: g.name,
+        headerImage: g.headerImage,
+        algoScore: g.score,
+        savedAt: Date.now(),
       });
+      paint();
+      renderLibrary();
     });
     clearBtn.addEventListener("click", () => {
       removeEntry(g.appid);
-      paint(0);
+      paint();
       renderLibrary();
     });
   }
