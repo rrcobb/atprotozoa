@@ -560,6 +560,14 @@
         goToEntry(best);
       });
 
+      // /beesky/s/<handle> is the distinct per-hive share URL (src/index.ts
+      // renderShare) — every handle gets its own og:title/description, so a
+      // link unfurler can't collapse every share into one generic card the
+      // way it would for a bare ?h= query string. See notes/45-sharing-and-virality.md.
+      function shareUrlFor(handle) {
+        return `${location.origin}${MOUNT}/s/${encodeURIComponent(handle)}`;
+      }
+
       function buildShareText(handle, url) {
         const text = `🐝 flew through @${handle}'s beehive of mutuals on beesky — every moot gets a wax cell. `;
         return text + url;
@@ -571,7 +579,7 @@
         const file = new File([blob], `beesky-${currentHandle || "hive"}.png`, { type: "image/png" });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
-            await navigator.share({ files: [file], text: buildShareText(currentHandle, `${location.origin}${MOUNT}/?h=${encodeURIComponent(currentHandle)}`), title: "beesky" });
+            await navigator.share({ files: [file], text: buildShareText(currentHandle, shareUrlFor(currentHandle)), title: "beesky" });
             return;
           } catch {}
         }
@@ -583,8 +591,7 @@
       });
 
       function updateShareLink() {
-        const url = `${location.origin}${MOUNT}/?h=${encodeURIComponent(currentHandle)}`;
-        shareBskyBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(currentHandle, url));
+        shareBskyBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(currentHandle, shareUrlFor(currentHandle)));
       }
 
       async function buildHiveFor(handleRaw) {
@@ -640,7 +647,11 @@
         if (e.key === "Enter") { e.preventDefault(); loadBtn.click(); }
       });
 
-      const initial = new URLSearchParams(location.search).get("h") || "";
+      // a shared link is either the distinct /beesky/s/<handle> URL
+      // (src/index.ts renderShare) or the older ?h=<handle> query form —
+      // support both so links shared before this existed still work.
+      const pathHandle = (location.pathname.match(new RegExp("^" + MOUNT + "/s/([^/]+)/?$")) || [])[1];
+      const initial = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle)) || "";
       if (initial) {
         handleInput.value = initial;
       } else {
