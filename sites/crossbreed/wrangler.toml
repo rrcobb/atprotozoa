@@ -4,10 +4,12 @@ compatibility_date = "2025-01-01"
 
 # @buildthis.bisks.net and @minomobi.com breed a new site idea out of one
 # entry from each bot's real catalog (176 atprotozoa sites, 125 minomobi
-# surfaces). Everything runs client-side except the shareable /s/<seed>
-# route, which needs its own og:title/description per bred idea so link
-# unfurlers don't collapse every share into one generic card — see
-# sites/didscope/src/index.ts for the pattern this copies.
+# surfaces). The breeding itself runs client-side; the server jobs are the
+# shareable /s/<seed> route (its own og:title/description per bred idea so
+# link unfurlers don't collapse every share into one generic card — see
+# sites/didscope/src/index.ts for the pattern this copies) and /wire +
+# /api/wire[/live] — a real, persistent, WebSocket-live channel backed by
+# the WireHub Durable Object below, CORS-open the same way registry.json is.
 #
 # routes MUST stay above [assets] — in TOML, keys after a table header join
 # that table, so a routes line below [assets] silently becomes assets.routes.
@@ -16,9 +18,20 @@ routes = [
   { pattern = "bisks.net/crossbreed/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /s/<seed> is dynamic, so the Worker must run before the
-# static-asset router, same as sites/didscope and sites/logs.
+# run_worker_first: /s/<seed> and /api/wire are dynamic, so the Worker must
+# run before the static-asset router, same as sites/didscope and sites/logs.
 [assets]
 directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "WIRE"
+class_name = "WireHub"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/quadrants/wrangler.toml for the
+# full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WireHub"]
