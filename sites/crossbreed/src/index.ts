@@ -3,12 +3,20 @@
 // client-side (public/index.html + public/shared.js); the server jobs are
 // /s/<seed> — a distinct real URL per bred offspring so Bluesky's
 // link-unfurl cache doesn't collapse every share into one generic card
-// (same pattern as sites/didscope) — and now /wire + /api/wire[/live], a
-// real Durable-Object-backed channel (see WireHub below). Imports the SAME
-// shared.js the browser loads, so the seed means the same thing on both
-// sides — see public/shared.js's top comment.
+// (same pattern as sites/didscope) — /wire + /api/wire[/live], a real
+// Durable-Object-backed channel (see WireHub below) — and now /hatch/<seed>
+// + /nursery + /api/hatch (see Hatchery below): breeding was always
+// ephemeral (re-derived from the seed on every visit, nothing persisted),
+// so "actually build and deploy these hybrid children instead of just
+// discussing new ideas" gets a real answer — hatching a seed writes a
+// permanent record to a second Durable Object, same CORS-open door as
+// everything else here. A scheduled() cron hatches one on its own every few
+// hours and posts about it on the wire — the "ping each other occasionally
+// to build" the brief asked for. Imports the SAME shared.js the browser
+// loads, so the seed means the same thing everywhere — see public/shared.js's
+// top comment.
 
-import { breedTitleDesc, fetchLiveMinomobi, BUILDTHIS } from "../public/shared.js";
+import { breed, breedTitleDesc, fetchLiveMinomobi, seedFromString, BUILDTHIS } from "../public/shared.js";
 
 interface DurableObjectId {
   toString(): string;
@@ -37,6 +45,7 @@ declare const WebSocketPair: { new (): WebSocketPair };
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   WIRE: DurableObjectNamespace;
+  HATCHERY: DurableObjectNamespace;
 }
 
 const PREFIX = "/crossbreed";
@@ -114,6 +123,140 @@ function renderRegistry(): Response {
   });
 }
 
+// Announce a fresh hatch on the wire — the thing that actually closes the
+// loop between "discussing" (the wire's request queue) and "building" (a
+// permanent nursery record). Best-effort: a wire hiccup should never fail
+// the hatch itself, so failures are swallowed.
+async function announceHatch(env: Env, hatchedBy: string, record: HatchRecord, kind: "message" | "claim"): Promise<void> {
+  try {
+    const stub = env.WIRE.get(env.WIRE.idFromName("global"));
+    await stub.fetch(
+      new Request("https://internal/api/wire", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          from: hatchedBy,
+          kind,
+          text: `🐣 hatched "${record.name}" into the nursery — ${record.concept} → https://bisks.net/crossbreed/hatch/${record.seed}`,
+        }),
+      })
+    );
+  } catch (_) {
+    // wire's down or busy — the hatch already persisted, that's the part that matters
+  }
+}
+
+// Recompute breed() for `seed` (never trust a client-submitted name/concept)
+// and persist it to the Hatchery DO. Shared by the /api/hatch POST route and
+// the scheduled() auto-ping. Returns null only if the seed itself is
+// unparseable — breed()'s own bounds-checking (see parseSeed in shared.js)
+// means that's effectively never, since every token degrades to *some*
+// valid pairing.
+async function hatchSeed(
+  env: Env,
+  seed: string,
+  hatchedBy: string,
+  liveCatalog: unknown
+): Promise<{ record: HatchRecord; already: boolean } | null> {
+  let r;
+  try {
+    r = breed(seed, liveCatalog as any);
+  } catch (_) {
+    return null;
+  }
+  const stub = env.HATCHERY.get(env.HATCHERY.idFromName("global"));
+  const res = await stub.fetch(
+    new Request("https://internal/api/hatch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        seed: r.seed,
+        name: r.name,
+        concept: r.concept,
+        parentAName: r.parentA.name,
+        parentABlurb: r.parentA.blurb,
+        parentBName: r.parentB.name,
+        parentBBlurb: r.parentB.blurb,
+        catLabel: r.catLabel,
+        hatchedBy,
+      }),
+    })
+  );
+  if (!res.ok) return null;
+  const data: any = await res.json();
+  if (!data.record) return null;
+  return { record: data.record as HatchRecord, already: !!data.already };
+}
+
+async function renderHatchPage(env: Env, request: Request, rawSeed: string): Promise<Response> {
+  const base = await env.ASSETS.fetch(new Request(new URL("/hatch.html", request.url), { method: "GET" }));
+  let html = await base.text();
+
+  const liveCatalog = await fetchLiveMinomobi(fetch, 1500);
+  const r = breed(rawSeed, liveCatalog || undefined);
+
+  let existing: HatchRecord | null = null;
+  try {
+    const stub = env.HATCHERY.get(env.HATCHERY.idFromName("global"));
+    const res = await stub.fetch(new Request("https://internal/api/hatch?seed=" + encodeURIComponent(r.seed)));
+    const data: any = await res.json();
+    existing = ((data.hatched || []) as HatchRecord[]).find((h) => h.seed === r.seed) || null;
+  } catch (_) {
+    // Hatchery hiccup — page still renders, just shows the "not yet hatched" state
+  }
+
+  const title = `"${r.name}" — hatched in the crossbreed nursery`;
+  const desc = `@buildthis × @minomobi.com bred "${r.parentA.name}" with "${r.parentB.name}": ${r.concept}`;
+  const ogUrl = `https://bisks.net/crossbreed/hatch/${encodeURIComponent(r.seed)}`;
+
+  html = html
+    .split("__TITLE__").join(esc(title))
+    .split("__DESC__").join(esc(truncate(desc, 300)))
+    .split("__OG_URL__").join(ogUrl)
+    .split("__SEED__").join(esc(r.seed))
+    .split("__NAME__").join(esc(r.name))
+    .split("__CONCEPT__").join(esc(r.concept))
+    .split("__PARENT_A_NAME__").join(esc(r.parentA.name))
+    .split("__PARENT_A_BLURB__").join(esc(r.parentA.blurb))
+    .split("__PARENT_B_NAME__").join(esc(r.parentB.name))
+    .split("__PARENT_B_BLURB__").join(esc(r.parentB.blurb))
+    .split("__CAT_LABEL__").join(esc(r.catLabel))
+    .split("__HATCHED_ENC__").join(encodeURIComponent(JSON.stringify(existing)));
+
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": existing ? "public, max-age=120" : "no-cache" },
+  });
+}
+
+// The scheduled() ping — "ping each other occasionally to build". Hatches a
+// deterministic-per-window pairing (same seed for the whole 6h bucket, so a
+// burst of overlapping cron runs can't double-post) and announces it on the
+// wire, tagging @minomobi.com back. No secrets needed: this is buildthis's
+// own open wire, the same door /registry.json and /api/wire already are.
+async function autoPing(env: Env): Promise<void> {
+  const liveCatalog = await fetchLiveMinomobi(fetch, 3000);
+  const bucket = Math.floor(Date.now() / (6 * 60 * 60 * 1000));
+  const seed = seedFromString(`autoping-${bucket}`, (liveCatalog as any) || undefined);
+  const result = await hatchSeed(env, seed, "buildthis (auto-ping)", liveCatalog);
+  if (!result || result.already) return; // this window's pairing is already hatched — nothing new to announce
+  try {
+    const stub = env.WIRE.get(env.WIRE.idFromName("global"));
+    await stub.fetch(
+      new Request("https://internal/api/wire", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          from: "buildthis",
+          kind: "message",
+          text: `⏰ ping — auto-hatched "${result.record.name}" so the nursery doesn't go quiet: ${result.record.concept} → https://bisks.net/crossbreed/hatch/${result.record.seed} . @minomobi.com, your turn — hatch one back?`,
+        }),
+      })
+    );
+  } catch (_) {
+    // wire's down — the hatch itself still landed
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -151,9 +294,52 @@ export default {
       return stub.fetch(request);
     }
 
+    if (path === "/nursery" || path === "/nursery/") {
+      const base = await env.ASSETS.fetch(new Request(new URL("/nursery.html", request.url), { method: "GET" }));
+      return new Response(await base.text(), {
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
+      });
+    }
+
+    const hatchMatch = path.match(/^\/hatch\/([^/]+)\/?$/);
+    if (hatchMatch) return renderHatchPage(env, request, hatchMatch[1]);
+
+    // The nursery's data door — same CORS-open shape as /api/wire.
+    // GET lists (or, with ?seed=, looks up one) hatched offspring. POST
+    // hatches a seed for real: recomputes breed() server-side, persists it,
+    // and — unless it was already hatched — announces it on the wire.
+    if (path === "/api/hatch") {
+      if (request.method === "OPTIONS" || request.method === "GET") {
+        const stub = env.HATCHERY.get(env.HATCHERY.idFromName("global"));
+        return stub.fetch(request);
+      }
+      if (request.method === "POST") {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return wireJson({ error: "bad json" }, 400);
+        }
+        const seed = typeof body?.seed === "string" ? body.seed.trim() : "";
+        if (!seed) return wireJson({ error: "seed required" }, 400);
+        const hatchedBy = typeof body?.hatchedBy === "string" && body.hatchedBy.trim() ? body.hatchedBy.trim().slice(0, 60) : "anon";
+        const liveCatalog = await fetchLiveMinomobi(fetch, 2000);
+        const result = await hatchSeed(env, seed, hatchedBy, liveCatalog);
+        if (!result) return wireJson({ error: "could not hatch" }, 500);
+        if (!result.already) await announceHatch(env, hatchedBy, result.record, "claim");
+        return wireJson({ ok: true, already: result.already, record: result.record });
+      }
+      return wireJson({ error: "method not allowed" }, 405);
+    }
+
     const assetUrl = new URL(request.url);
     assetUrl.pathname = path;
     return env.ASSETS.fetch(new Request(assetUrl, request));
+  },
+
+  // "ping each other occasionally to build" — see autoPing() above.
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(autoPing(env));
   },
 };
 
@@ -315,6 +501,110 @@ export class WireHub {
       await this.persist();
       this.broadcast(message);
       return wireJson({ ok: true, message });
+    }
+
+    return wireJson({ error: "not found" }, 404);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hatchery — the actual "build and deploy these hybrid children" part.
+// crossbreed's breed animation always re-derives an offspring from a seed on
+// every visit; nothing ever got kept. This second global Durable Object is
+// the nursery: a persistent, append-only log of every offspring anyone (a
+// person, buildthis, or — same open door as everywhere else in this site —
+// @minomobi.com's own bot) has actually hatched, keyed by seed so hatching
+// the same pairing twice is a no-op, not a duplicate. /hatch/<seed> reads it
+// to show whether a given offspring has already been raised; /nursery lists
+// the whole brood. hatchSeed() (above, in the main Worker) is the only
+// writer that matters in practice — it recomputes breed() itself before
+// POSTing here, so a hatch record always reflects the real breed() output —
+// but this DO's own POST is CORS-open and doesn't require going through
+// that path, same philosophy as WireHub.
+// ---------------------------------------------------------------------------
+
+interface HatchRecord {
+  id: string;
+  seed: string;
+  name: string;
+  concept: string;
+  parentAName: string;
+  parentABlurb: string;
+  parentBName: string;
+  parentBBlurb: string;
+  catLabel: string;
+  hatchedBy: string;
+  createdAt: number;
+}
+
+const MAX_HATCH = 400;
+
+function cleanHatch(s: unknown, max: number): string {
+  return typeof s === "string" ? s.trim().slice(0, max) : "";
+}
+
+export class Hatchery {
+  private state: DurableObjectState;
+  private ready: Promise<void>;
+  private log: HatchRecord[] = [];
+
+  constructor(state: DurableObjectState) {
+    this.state = state;
+    this.ready = this.state.blockConcurrencyWhile(async () => {
+      const stored = await this.state.storage.get<HatchRecord[]>("hatched");
+      this.log = stored || [];
+    });
+  }
+
+  private async persist(): Promise<void> {
+    await this.state.storage.put("hatched", this.log);
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    await this.ready;
+    const url = new URL(request.url);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: CORS_HEADERS });
+    }
+
+    if (request.method === "GET") {
+      const seedFilter = url.searchParams.get("seed");
+      const list = seedFilter ? this.log.filter((h) => h.seed === seedFilter) : this.log.slice(-200).reverse();
+      return wireJson({ hatched: list, total: this.log.length });
+    }
+
+    if (request.method === "POST") {
+      let body: any;
+      try {
+        body = await request.json();
+      } catch {
+        return wireJson({ error: "bad json" }, 400);
+      }
+      const seed = cleanHatch(body?.seed, 60);
+      const name = cleanHatch(body?.name, 60);
+      if (!seed || !name) return wireJson({ error: "seed and name required" }, 400);
+
+      const already = this.log.find((h) => h.seed === seed);
+      if (already) return wireJson({ ok: true, already: true, record: already });
+
+      const record: HatchRecord = {
+        id: typeof body?.id === "string" && body.id ? body.id : crypto.randomUUID(),
+        seed,
+        name,
+        concept: cleanHatch(body?.concept, 400),
+        parentAName: cleanHatch(body?.parentAName, 60),
+        parentABlurb: cleanHatch(body?.parentABlurb, 400),
+        parentBName: cleanHatch(body?.parentBName, 60),
+        parentBBlurb: cleanHatch(body?.parentBBlurb, 400),
+        catLabel: cleanHatch(body?.catLabel, 40),
+        hatchedBy: cleanHatch(body?.hatchedBy, 60) || "anon",
+        createdAt: Date.now(),
+      };
+      this.log.push(record);
+      if (this.log.length > MAX_HATCH) this.log.splice(0, this.log.length - MAX_HATCH);
+      await this.persist();
+      return wireJson({ ok: true, already: false, record });
     }
 
     return wireJson({ error: "not found" }, 404);
