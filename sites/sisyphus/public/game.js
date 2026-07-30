@@ -806,12 +806,19 @@
   // (or spin a wheel/trackpad) to push the boulder. Reads any movement past
   // a small threshold as a push pulse, so both directions of a swipe count —
   // it's the motion of scrolling, not a direction, that represents effort.
+  // Duck and jump are ALSO read off the same drag, not separate buttons that
+  // would force you to lift the pushing finger — hold the drag low (past
+  // DUCK_PX below where the swipe started) to duck, flick it up past
+  // JUMP_PX to jump, and the horizontal push keeps registering the whole
+  // time so Sisyphus keeps walking the boulder up through either move.
+  const DUCK_PX = 28, JUMP_PX = 34;
   const stage = el('stage');
-  let swipeX = null, swipeY = null;
+  let swipeX = null, swipeY = null, swipeStartY = null, swipeJumped = false;
   stage.addEventListener('touchstart', (e) => {
     if (!state.running) { startGame(); }
     const t = e.touches[0];
-    swipeX = t.clientX; swipeY = t.clientY;
+    swipeX = t.clientX; swipeY = t.clientY; swipeStartY = t.clientY;
+    swipeJumped = false;
   }, { passive: true });
   stage.addEventListener('touchmove', (e) => {
     if (swipeX === null) return;
@@ -822,8 +829,17 @@
       registerSwipePush();
       swipeX = t.clientX; swipeY = t.clientY;
     }
+    const totalDy = t.clientY - swipeStartY;
+    keys.duck = totalDy > DUCK_PX;
+    if (!swipeJumped && totalDy < -JUMP_PX) {
+      swipeJumped = true;
+      jump();
+    }
   }, { passive: false });
-  stage.addEventListener('touchend', () => { swipeX = null; swipeY = null; });
+  stage.addEventListener('touchend', () => {
+    swipeX = null; swipeY = null; swipeStartY = null; swipeJumped = false;
+    keys.duck = false;
+  });
   stage.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (!state.running) startGame();
