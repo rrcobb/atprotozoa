@@ -177,6 +177,68 @@
   .again { text-align: center; margin-top: 22px; }
   .again a { color: var(--dim); font-size: 0.85rem; text-decoration: underline; cursor: pointer; }
 
+  .rate-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .rate-row .rate-label { color: var(--dim); font-size: 0.85rem; }
+  .stars { display: inline-flex; gap: 2px; }
+  .stars button {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+    color: var(--border);
+  }
+  .stars button.filled { color: var(--mid); }
+  .rate-clear { color: var(--dim); font-size: 0.78rem; text-decoration: underline; cursor: pointer; border: none; background: none; padding: 0; }
+
+  .library {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .library h3 { margin: 0 0 4px; font-size: 1.05rem; }
+  .library .lib-sub { color: var(--dim); font-size: 0.8rem; margin: 0 0 14px; }
+  .lib-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .lib-actions .btn { padding: 8px 12px; font-size: 0.8rem; }
+  .lib-empty { color: var(--dim); font-size: 0.85rem; padding: 10px 0; }
+  .lib-list { display: flex; flex-direction: column; gap: 8px; }
+  .lib-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .lib-row:hover { border-color: var(--accent2); }
+  .lib-row .lib-rank { color: var(--dim); font-size: 0.78rem; width: 22px; flex: none; text-align: right; }
+  .lib-row img { width: 56px; height: 26px; object-fit: cover; border-radius: 3px; background: #000; flex: none; }
+  .lib-row .lib-name { flex: 1; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lib-row .lib-algo { color: var(--dim); font-size: 0.78rem; flex: none; }
+  .lib-row .lib-stars { flex: none; font-size: 0.85rem; letter-spacing: 1px; color: var(--mid); }
+  .lib-row .lib-remove {
+    flex: none;
+    background: none;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 2px 6px;
+  }
+  .lib-row .lib-remove:hover { color: var(--bad); }
+  #importFile { display: none; }
+
   footer {
     text-align: center;
     color: var(--dim);
@@ -203,6 +265,18 @@
 
   <div id="state"></div>
 
+  <section class="library">
+    <h3>your library</h3>
+    <p class="lib-sub">games you've rated, saved right in this browser — nothing leaves your device unless you export it.</p>
+    <div class="lib-actions">
+      <button class="btn" id="exportLib">export database</button>
+      <button class="btn" id="importLibBtn">import database</button>
+      <input type="file" id="importFile" accept="application/json" />
+      <button class="btn" id="clearLib">clear all</button>
+    </div>
+    <div id="libraryList"></div>
+  </section>
+
   <footer>
     data from the Steam Store API and <a href="https://steamspy.com" target="_blank" rel="noopener">SteamSpy</a> ·
     tag matching is a dumb text heuristic, not a judgement of the game ·
@@ -221,7 +295,141 @@
     q: document.getElementById("q"),
     results: document.getElementById("results"),
     state: document.getElementById("state"),
+    libraryList: document.getElementById("libraryList"),
+    exportLib: document.getElementById("exportLib"),
+    importLibBtn: document.getElementById("importLibBtn"),
+    importFile: document.getElementById("importFile"),
+    clearLib: document.getElementById("clearLib"),
   };
+
+  // --- personal library: your own ratings, kept in localStorage only ----
+  const DB_KEY = "steamtags:library:v1";
+
+  function loadDb() {
+    try {
+      const raw = localStorage.getItem(DB_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter(isValidEntry) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function isValidEntry(e) {
+    return e && typeof e === "object" && typeof e.appid !== "undefined" && typeof e.rating === "number";
+  }
+
+  function saveDb(list) {
+    try {
+      localStorage.setItem(DB_KEY, JSON.stringify(list));
+    } catch (_) {
+      // storage full or unavailable — rating still worked in-memory this session
+    }
+  }
+
+  function upsertEntry(entry) {
+    const db = loadDb();
+    const appid = String(entry.appid);
+    const idx = db.findIndex((e) => String(e.appid) === appid);
+    const merged = Object.assign({}, idx >= 0 ? db[idx] : {}, entry, { appid: entry.appid });
+    if (idx >= 0) db[idx] = merged;
+    else db.push(merged);
+    saveDb(db);
+    return db;
+  }
+
+  function removeEntry(appid) {
+    const db = loadDb().filter((e) => String(e.appid) !== String(appid));
+    saveDb(db);
+    return db;
+  }
+
+  function mergeDb(incoming) {
+    if (!Array.isArray(incoming)) throw new Error("not a library file");
+    const db = loadDb();
+    incoming.filter(isValidEntry).forEach((entry) => {
+      const appid = String(entry.appid);
+      const idx = db.findIndex((e) => String(e.appid) === appid);
+      if (idx >= 0) db[idx] = Object.assign({}, db[idx], entry, { appid: entry.appid });
+      else db.push(entry);
+    });
+    saveDb(db);
+    return db;
+  }
+
+  function renderLibrary() {
+    const db = loadDb().slice().sort((a, b) => {
+      if (b.rating !== a.rating) return b.rating - a.rating;
+      return (b.ratedAt || 0) - (a.ratedAt || 0);
+    });
+    if (!db.length) {
+      els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — score a game, then rate it, and it lands here.</div>';
+      return;
+    }
+    els.libraryList.innerHTML = `<div class="lib-list">${db
+      .map(
+        (e, i) =>
+          `<div class="lib-row" data-appid="${escAttr(String(e.appid))}">
+            <span class="lib-rank">#${i + 1}</span>
+            ${e.headerImage ? `<img src="${escAttr(e.headerImage)}" alt="" loading="lazy" />` : ""}
+            <span class="lib-name">${esc(e.name || "appid " + e.appid)}</span>
+            <span class="lib-algo">${typeof e.algoScore === "number" ? e.algoScore + "% match" : ""}</span>
+            <span class="lib-stars">${"★".repeat(e.rating)}${"☆".repeat(5 - e.rating)}</span>
+            <button class="lib-remove" data-remove="${escAttr(String(e.appid))}" title="remove">✕</button>
+          </div>`
+      )
+      .join("")}</div>`;
+
+    [...els.libraryList.querySelectorAll(".lib-row")].forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".lib-remove")) return;
+        const appid = row.getAttribute("data-appid");
+        goToGame(appid, true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+    [...els.libraryList.querySelectorAll(".lib-remove")].forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeEntry(btn.getAttribute("data-remove"));
+        renderLibrary();
+      });
+    });
+  }
+
+  els.exportLib.addEventListener("click", () => {
+    const db = loadDb();
+    const blob = new Blob([JSON.stringify({ version: 1, exportedAt: Date.now(), games: db }, null, 2)], {
+      type: "application/json",
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "steamtags-library.json";
+    link.click();
+  });
+
+  els.importLibBtn.addEventListener("click", () => els.importFile.click());
+  els.importFile.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const games = Array.isArray(parsed) ? parsed : parsed.games;
+      mergeDb(games);
+      renderLibrary();
+    } catch (_) {
+      alert("couldn't read that file — expected a steamtags library export.");
+    }
+  });
+
+  els.clearLib.addEventListener("click", () => {
+    if (!loadDb().length) return;
+    if (!confirm("clear your whole local steamtags library? this can't be undone (export first if you want a backup).")) return;
+    saveDb([]);
+    renderLibrary();
+  });
 
   let searchAbort = null;
   let searchTimer = null;
@@ -385,6 +593,13 @@
             <button class="btn" id="copyLink">copy link</button>
             <button class="btn" id="downloadCard">download card</button>
           </div>
+          <div class="rate-row">
+            <span class="rate-label">your score:</span>
+            <span class="stars" id="rateStars">${[1, 2, 3, 4, 5]
+              .map((n) => `<button type="button" data-rating="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`)
+              .join("")}</span>
+            <button class="rate-clear" id="rateClear" hidden>clear</button>
+          </div>
         </div>
       </div>
       <div class="again"><a id="again">check another game</a></div>
@@ -412,6 +627,42 @@
       history.pushState({}, "", MOUNT + "/");
       renderIdle();
       els.q.focus();
+    });
+
+    setupRating(g);
+  }
+
+  function setupRating(g) {
+    const starWrap = document.getElementById("rateStars");
+    const clearBtn = document.getElementById("rateClear");
+    const stars = [...starWrap.querySelectorAll("button")];
+    const existing = loadDb().find((e) => String(e.appid) === String(g.appid));
+
+    function paint(rating) {
+      stars.forEach((s) => s.classList.toggle("filled", Number(s.getAttribute("data-rating")) <= rating));
+      clearBtn.hidden = !rating;
+    }
+    paint(existing ? existing.rating : 0);
+
+    stars.forEach((s) => {
+      s.addEventListener("click", () => {
+        const rating = Number(s.getAttribute("data-rating"));
+        upsertEntry({
+          appid: g.appid,
+          name: g.name,
+          headerImage: g.headerImage,
+          algoScore: g.score,
+          rating,
+          ratedAt: Date.now(),
+        });
+        paint(rating);
+        renderLibrary();
+      });
+    });
+    clearBtn.addEventListener("click", () => {
+      removeEntry(g.appid);
+      paint(0);
+      renderLibrary();
     });
   }
 
@@ -512,6 +763,7 @@
   // boot: if we're on a /g/<appid> page (server-rendered or client nav), load it
   const bootAppid = currentAppidFromPath();
   if (bootAppid) loadGame(bootAppid);
+  renderLibrary();
 })();
 </script>
 </body>
