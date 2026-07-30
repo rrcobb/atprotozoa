@@ -1,18 +1,24 @@
 // steamtags Worker — mounted at bisks.net/steamtags/ (see
 // notes/40-new-site-playbook.md).
 //
-// The idea: score how much a Steam game's community tags actually match
-// what the game's own store page says about itself. Steam's official
-// appdetails API doesn't expose user tags — those live on SteamSpy's public
-// mirror (steamspy.com/api.php), which scrapes them off the store page and
-// keeps vote counts per tag. Both APIs are public, no key, and — unlike
-// calling them straight from the browser — neither sends CORS headers, so
-// this Worker proxies/computes server-side and the client only ever talks
-// to its own /api/*.
+// The idea (v3): pick a Steam game, see its community tags — sized and
+// annotated by vote count, straight off SteamSpy — then rate for yourself
+// how much any given tag actually fits the game, 1-10. No auto-generated
+// "does it match the description" score; that's the whole point of this
+// revision, the fit judgement is the user's, not a text heuristic's. Ratings
+// live client-side only (localStorage), so the server's only job is to hand
+// back a game's name/art plus its tags + vote counts.
+//
+// Steam's official appdetails API doesn't expose user tags — those live on
+// SteamSpy's public mirror (steamspy.com/api.php), which scrapes them off
+// the store page and keeps vote counts per tag. Both APIs are public, no
+// key, and — unlike calling them straight from the browser — neither sends
+// CORS headers, so this Worker proxies server-side and the client only ever
+// talks to its own /api/*.
 //
 // Three server routes, all after the "/steamtags" mount prefix is stripped:
 //   /api/search?q=...   proxy Steam's store-search suggest endpoint
-//   /api/score/<appid>  fetch + score one game, return JSON
+//   /api/tags/<appid>   fetch one game's name/art + its tags & votes, JSON
 //   /g/<appid>          the shareable per-game page: same static shell,
 //                        server-stamped og:title/description/image/url so
 //                        every shared result gets its own unfurl card
@@ -26,24 +32,21 @@ export interface Env {
 
 const PREFIX = "/steamtags";
 
-// --- scoring -----------------------------------------------------------
+// --- tags ----------------------------------------------------------------
 
-const STOPWORDS = new Set([
-  "and", "or", "the", "a", "an", "of", "to", "in", "for", "with", "on",
-  "your", "you", "its", "it", "at", "as", "by", "is", "are", "this", "that",
-]);
-
-interface TagResult {
+interface TagInfo {
   name: string;
   votes: number;
   share: number;
-  state: "matched" | "partial" | "missing";
-  credit: number;
 }
 
-interface ScoreResult {
-  score: number;
-  tags: TagResult[];
+interface GameInfo {
+  appid: number;
+  name: string;
+  headerImage: string;
+  shortDescription: string;
+  isFree: boolean;
+  tags: TagInfo[];
   totalVotes: number;
 }
 
@@ -59,95 +62,13 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-function normalizeTag(tag: string): string {
-  return tag.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-}
-
-function scoreGame(corpus: string, rawTags: Record<string, number>): ScoreResult | null {
-  const entries = Object.entries(rawTags)
-    .filter(([, v]) => typeof v === "number")
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 12);
-  if (entries.length === 0) return null;
-
-  const totalVotes = entries.reduce((s, [, v]) => s + v, 0);
-  const useEvenWeight = totalVotes === 0;
-
-  let weightSum = 0;
-  let creditSum = 0;
-
-  const tags: TagResult[] = entries.map(([name, votes]) => {
-    const weight = useEvenWeight ? 1 : votes;
-    const norm = normalizeTag(name);
-    const words = norm.split(" ").filter((w) => w.length >= 3 && !STOPWORDS.has(w));
-    const sig = words.length ? words : norm ? [norm] : [];
-
-    let state: TagResult["state"];
-    let credit: number;
-    if (norm && corpus.includes(norm)) {
-      state = "matched";
-      credit = 1;
-    } else {
-      const matchedCount = sig.filter((w) => corpus.includes(w)).length;
-      const ratio = sig.length ? matchedCount / sig.length : 0;
-      if (sig.length > 0 && ratio >= 0.999) {
-        state = "matched";
-        credit = 1;
-      } else if (ratio > 0) {
-        state = "partial";
-        credit = 0.5;
-      } else {
-        state = "missing";
-        credit = 0;
-      }
-    }
-
-    weightSum += weight;
-    creditSum += weight * credit;
-
-    return {
-      name,
-      votes,
-      share: totalVotes ? votes / totalVotes : 1 / entries.length,
-      state,
-      credit,
-    };
-  });
-
-  const score = weightSum ? Math.round((100 * creditSum) / weightSum) : 0;
-  return { score, tags, totalVotes };
-}
-
-function verdictFor(score: number): { title: string; blurb: string } {
-  if (score >= 90) return { title: "Certified Accurate", blurb: "the tags aren't lying to you." };
-  if (score >= 75) return { title: "Mostly Honest", blurb: "a couple of vibes tags snuck in." };
-  if (score >= 55) return { title: "Some Assembly Required", blurb: "half truth, half community hopium." };
-  if (score >= 35) return { title: "Vibes-Based Tagging", blurb: "more mood board than description." };
-  if (score >= 15) return { title: "Community Fan Fiction", blurb: "the tags are writing a different game." };
-  return { title: "Tag Salad", blurb: "none of this is in the store page. iconic." };
-}
-
-interface GameScore {
-  appid: number;
-  name: string;
-  headerImage: string;
-  shortDescription: string;
-  isFree: boolean;
-  score: number;
-  verdict: { title: string; blurb: string };
-  tags: TagResult[];
-  totalVotes: number;
-  matchedCount: number;
-  tagCount: number;
-}
-
 async function fetchJson(url: string): Promise<any> {
   const res = await fetch(url, { cf: { cacheTtl: 300 } as unknown as Record<string, unknown> });
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);
   return res.json();
 }
 
-async function computeGameScore(appid: string): Promise<GameScore> {
+async function computeGameInfo(appid: string): Promise<GameInfo> {
   const id = String(parseInt(appid, 10));
   if (!id || id === "NaN") throw new Error("bad appid");
 
@@ -160,39 +81,30 @@ async function computeGameScore(appid: string): Promise<GameScore> {
   if (!entry || !entry.success || !entry.data) throw new Error("game not found");
   const data = entry.data;
 
-  const corpus = htmlToText(
-    [
-      data.name,
-      data.short_description,
-      data.about_the_game,
-      data.detailed_description,
-      (data.genres || []).map((g: any) => g.description).join(" "),
-      (data.categories || []).map((c: any) => c.description).join(" "),
-    ]
-      .filter(Boolean)
-      .join(" \n ")
-  ).toLowerCase();
-
   const rawTags: Record<string, number> =
     spy && spy.tags && !Array.isArray(spy.tags) ? spy.tags : {};
 
-  const scored = scoreGame(corpus, rawTags);
-  if (!scored) throw new Error("no community tags found for this game");
+  const entries = Object.entries(rawTags)
+    .filter(([, v]) => typeof v === "number")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 16);
+  if (entries.length === 0) throw new Error("no community tags found for this game");
 
-  const matchedCount = scored.tags.filter((t) => t.state === "matched").length;
+  const totalVotes = entries.reduce((s, [, v]) => s + v, 0);
+  const tags: TagInfo[] = entries.map(([name, votes]) => ({
+    name,
+    votes,
+    share: totalVotes ? votes / totalVotes : 1 / entries.length,
+  }));
 
   return {
     appid: parseInt(id, 10),
     name: data.name,
     headerImage: data.header_image || "",
-    shortDescription: data.short_description || "",
+    shortDescription: htmlToText(data.short_description || ""),
     isFree: !!data.is_free,
-    score: scored.score,
-    verdict: verdictFor(scored.score),
-    tags: scored.tags,
-    totalVotes: scored.totalVotes,
-    matchedCount,
-    tagCount: scored.tags.length,
+    tags,
+    totalVotes,
   };
 }
 
@@ -228,9 +140,9 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const GENERIC_TITLE = "steamtags — does the game live up to its own tags?";
+const GENERIC_TITLE = "steamtags — rate how well each tag actually fits";
 const GENERIC_DESC =
-  "Pick any Steam game and see how many of its top community tags actually show up in its own store description. Some games are exactly what it says on the tin. Most are not.";
+  "Pick any Steam game, see its community tags sized by vote count, and rate for yourself how much each one actually fits — 1 to 10, your call, not an algorithm's.";
 const GENERIC_OG_URL = "https://bisks.net/steamtags/";
 const GENERIC_OG_IMAGE = "https://bisks.net/steamtags/og.png";
 
@@ -239,9 +151,12 @@ async function renderShare(env: Env, request: Request, appid: string): Promise<R
   let html = await base.text();
 
   try {
-    const g = await computeGameScore(appid);
-    const title = `${g.name} scores ${g.score}% on steamtags`;
-    const desc = `${g.verdict.title} — ${g.matchedCount}/${g.tagCount} of its top Steam tags actually show up in ${g.name}'s own store description. ${g.verdict.blurb}`;
+    const g = await computeGameInfo(appid);
+    const topTags = g.tags.slice(0, 3).map((t) => t.name);
+    const title = `${g.name} on steamtags`;
+    const desc = topTags.length
+      ? `${g.name}'s top community tags: ${topTags.join(", ")}. Rate how well each one actually fits, 1-10.`
+      : `Rate how well ${g.name}'s community tags actually fit, 1-10.`;
     const ogUrl = `https://bisks.net/steamtags/g/${g.appid}`;
     const ogImage = g.headerImage || GENERIC_OG_IMAGE;
 
@@ -281,10 +196,10 @@ export default {
 
     if (path === "/api/search") return handleSearch(url);
 
-    const scoreMatch = path.match(/^\/api\/score\/(\d+)\/?$/);
-    if (scoreMatch) {
+    const tagsMatch = path.match(/^\/api\/tags\/(\d+)\/?$/);
+    if (tagsMatch) {
       try {
-        const g = await computeGameScore(scoreMatch[1]);
+        const g = await computeGameInfo(tagsMatch[1]);
         return jsonResponse(g);
       } catch (err: any) {
         return jsonResponse({ error: err?.message || "lookup failed" }, 404);

@@ -21,19 +21,18 @@ const BG = "#0f1720", BG2 = "#1c3550", FG = "#e9f1f7", DIM = "#8ba1b3";
 const ACCENT = "#66c0f4", GOOD = "#6fcf97", MID = "#f2c94c", BAD = "#eb5757", CARD = "#16212c", BORDER = "#2a3b4a";
 
 const chips = [
-  { label: "Atmospheric", state: GOOD },
-  { label: "Story Rich", state: GOOD },
-  { label: "Roguelike", state: MID },
-  { label: "Relaxing", state: BAD },
-  { label: "Multiplayer", state: BAD },
+  { label: "Atmospheric", score: "9/10", color: GOOD },
+  { label: "Story Rich", score: "8/10", color: GOOD },
+  { label: "Roguelike", score: "5/10", color: MID },
+  { label: "Relaxing", score: "2/10", color: BAD },
 ];
 
 const chipSvg = chips
   .map((c, i) => {
-    const y = 340 + i * 54;
+    const y = 330 + i * 58;
     return `
-    <circle cx="820" cy="${y - 7}" r="6" fill="${c.state}"/>
-    <text x="840" y="${y}" font-family="JetBrains Mono" font-size="24" fill="${FG}">${c.label}</text>`;
+    <text x="812" y="${y}" font-family="JetBrains Mono" font-size="24" fill="${FG}">${c.label}</text>
+    <text x="1132" y="${y}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${c.color}">${c.score}</text>`;
   })
   .join("");
 
@@ -53,20 +52,19 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
 
   <text x="64" y="150" font-family="JetBrains Mono" font-weight="800" font-size="72" fill="url(#title)">steamtags</text>
-  <text x="64" y="200" font-family="JetBrains Mono" font-size="26" fill="${DIM}">does the game live up to</text>
-  <text x="64" y="234" font-family="JetBrains Mono" font-size="26" fill="${DIM}">its own community tags?</text>
+  <text x="64" y="200" font-family="JetBrains Mono" font-size="26" fill="${DIM}">rate how well each tag</text>
+  <text x="64" y="234" font-family="JetBrains Mono" font-size="26" fill="${DIM}">actually fits</text>
 
-  <text x="64" y="330" font-family="JetBrains Mono" font-size="19" fill="${DIM}">Pick any Steam game. See how many of its top</text>
-  <text x="64" y="358" font-family="JetBrains Mono" font-size="19" fill="${DIM}">tags actually show up in its own store page —</text>
-  <text x="64" y="386" font-family="JetBrains Mono" font-size="19" fill="${DIM}">and how many are just vibes.</text>
+  <text x="64" y="330" font-family="JetBrains Mono" font-size="19" fill="${DIM}">Pick any Steam game. See its community tags,</text>
+  <text x="64" y="358" font-family="JetBrains Mono" font-size="19" fill="${DIM}">sized by vote count — then score how much each</text>
+  <text x="64" y="386" font-family="JetBrains Mono" font-size="19" fill="${DIM}">one fits, 1 to 10. Your call, not an algorithm's.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${GOOD}">bisks.net/steamtags</text>
 
   <!-- sample card -->
   <rect x="720" y="70" width="416" height="500" rx="16" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
-  <text x="760" y="150" font-family="JetBrains Mono" font-weight="800" font-size="64" fill="${MID}">64%</text>
-  <text x="760" y="185" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${MID}">Some Assembly Required</text>
-  <line x1="760" y1="220" x2="1096" y2="220" stroke="${BORDER}" stroke-width="1"/>
+  <text x="760" y="150" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="${ACCENT}">your tags</text>
+  <line x1="760" y1="185" x2="1096" y2="185" stroke="${BORDER}" stroke-width="1"/>
   ${chipSvg}
 </svg>`;
 
