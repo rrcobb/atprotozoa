@@ -1,8 +1,8 @@
 // Shared page chrome for every dynamically-rendered article. Kept as plain
 // string templates — no framework, this is one small Worker.
 
-export const MOUNT = "/wiki";
-export const SITE_URL = "https://bisks.net" + MOUNT;
+export const MOUNT = "";
+export const SITE_URL = "https://wiki.bisks.net" + MOUNT;
 
 export function esc(s: string): string {
   return String(s ?? "")
@@ -65,7 +65,7 @@ export function categoriesBar(cats: string[]): string {
 
 export function page(opts: {
   title: string;
-  namespace: string; // "Poster" | "Post"
+  namespace: string; // "Poster" | "Post" | "Feed"
   description: string;
   canonicalPath: string; // e.g. /poster/handle
   bodyHtml: string;

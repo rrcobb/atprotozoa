@@ -135,3 +135,39 @@ export async function getRecentPosts(did: string, limit = 6): Promise<PostView[]
     return [];
   }
 }
+
+export interface FeedGeneratorView {
+  uri: string;
+  cid: string;
+  did: string;
+  creator: Profile;
+  displayName: string;
+  description?: string;
+  avatar?: string;
+  likeCount?: number;
+}
+
+// A custom feed generator (app.bsky.feed.generator) — a different kind of
+// object in the lexicon from a poster or a single post: a named, curated
+// algorithm someone published, not a person or a skeet.
+export async function getFeedGenerator(did: string, rkey: string): Promise<FeedGeneratorView> {
+  const uri = `at://${did}/app.bsky.feed.generator/${rkey}`;
+  const data = await xrpc("app.bsky.feed.getFeedGenerator", { feed: uri });
+  const v = data.view;
+  if (!v) throw new Error("feed generator not found");
+  return {
+    uri: v.uri,
+    cid: v.cid,
+    did: v.did,
+    creator: {
+      did: v.creator?.did,
+      handle: v.creator?.handle,
+      displayName: v.creator?.displayName,
+      avatar: v.creator?.avatar,
+    },
+    displayName: v.displayName || rkey,
+    description: v.description,
+    avatar: v.avatar,
+    likeCount: v.likeCount || 0,
+  };
+}

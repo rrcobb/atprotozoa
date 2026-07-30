@@ -30,10 +30,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <line x1="${cardX + 90}" y1="360" x2="${W - cardX - 90}" y2="360" stroke="${BORDER}" stroke-width="1" stroke-dasharray="3,5"/>
 
-  <text x="${W / 2}" y="410" text-anchor="middle" font-family="JetBrains Mono" font-size="19" fill="${INK}">Poster: a Bluesky account, auto-rendered by handle or DID</text>
-  <text x="${W / 2}" y="448" text-anchor="middle" font-family="JetBrains Mono" font-size="19" fill="${INK}">Post: a single skeet, auto-rendered by author + rkey</text>
+  <text x="${W / 2}" y="400" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="${INK}">Poster: a Bluesky account, auto-rendered by handle or DID</text>
+  <text x="${W / 2}" y="432" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="${INK}">Post: a single skeet, auto-rendered by author + rkey</text>
+  <text x="${W / 2}" y="464" text-anchor="middle" font-family="JetBrains Mono" font-size="18" fill="${INK}">Feed: a custom feed generator, auto-rendered by publisher + rkey</text>
 
-  <text x="${W / 2}" y="530" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">bisks.net/wiki</text>
+  <text x="${W / 2}" y="530" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">wiki.bisks.net</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

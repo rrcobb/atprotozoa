@@ -87,7 +87,7 @@ export const POST_ENTRIES: Record<string, CustomEntry> = {
       material — for every poster and every post involved on a given
       website, each cross-linked to the poster's own profile.`,
       `It is the founding document of this wiki: everything on
-      <b>bisks.net/wiki</b>, including this sentence, exists because of this
+      <b>wiki.bisks.net</b>, including this sentence, exists because of this
       one post. See <a href="${p("norvid-studies.bsky.social")}">Poster:norvid-studies.bsky.social</a>
       and <a href="${p("bisks.net")}">Poster:bisks.net</a>, the mutual who
       turned the idea into a build request.`,
@@ -113,14 +113,14 @@ export const POST_ENTRIES: Record<string, CustomEntry> = {
   },
 };
 
-// small local helpers so the prose above can link without hardcoding /wiki/
-// everywhere — kept private to this file, not exported, since MOUNT itself
-// lives in render.ts.
+// small local helpers so the prose above can link without hardcoding the
+// mount path everywhere — kept private to this file, not exported, since
+// MOUNT itself lives in render.ts.
 function p(actor: string): string {
-  return `/wiki/poster/${encodeURIComponent(actor)}`;
+  return `/poster/${encodeURIComponent(actor)}`;
 }
 function po(actor: string, rkey: string): string {
-  return `/wiki/post/${encodeURIComponent(actor)}/${encodeURIComponent(rkey)}`;
+  return `/post/${encodeURIComponent(actor)}/${encodeURIComponent(rkey)}`;
 }
 
 export function lookupPoster(did: string): CustomEntry | undefined {
@@ -148,5 +148,17 @@ export const FEATURED_POSTS: Array<{ actor: string; rkey: string; label: string 
     actor: "bisks.net",
     rkey: "3mrurojwykk2f",
     label: `"take a crack under wiki.bisks.net" (the build request)`,
+  },
+];
+
+// Feed: is a different kind of lexicon object than Poster: or Post: — a
+// named, curated algorithm someone published (app.bsky.feed.generator),
+// not a person or a single skeet. bsky.app's own "Discover" feed is a
+// stable, always-live example to seed the namespace with.
+export const FEATURED_FEEDS: Array<{ actor: string; rkey: string; label: string }> = [
+  {
+    actor: "bsky.app",
+    rkey: "whats-hot",
+    label: `Discover (Bluesky's own trending feed)`,
   },
 ];

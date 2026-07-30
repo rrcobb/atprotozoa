@@ -1,19 +1,20 @@
-// wiki Worker — bisks.net/wiki, "bisksipedia".
+// wiki Worker — wiki.bisks.net, "bisksipedia".
 //
 // norvid_studies proposed (2026-07-30, #atproideasio) "Wikipedia" style
 // entries — explanations, backstory, sidebar material — for every poster and
 // every post on a site, cross-linked to the poster's own profile. bisks.net
 // (Rob) tagged @buildthis to take a first crack. This is that first crack:
-// two "namespaces" so far — Poster: and Post: — each auto-rendered from
-// Bluesky's public AppView by id (handle/DID for a poster, handle-or-did +
-// rkey for a post), with a handful of hand-written entrypoint articles (see
-// entries.ts) standing in for the auto-generated stub lead paragraph.
+// three "namespaces" so far — Poster:, Post:, and Feed: — each auto-rendered
+// from Bluesky's public AppView by id (handle/DID for a poster, handle-or-did
+// + rkey for a post or feed generator), with a handful of hand-written
+// entrypoint articles (see entries.ts) standing in for the auto-generated
+// stub lead paragraph.
 //
 // No secrets, no writes — every fetch is anonymous, unauthenticated AppView
 // reads (same as sites/didscope, sites/quotehof).
 
-import { resolveActor, getProfile, getPost, getRecentPosts, parseAtUri, type Profile, type PostView } from "./appview";
-import { lookupPoster, lookupPost, FEATURED_POSTERS, FEATURED_POSTS } from "./entries";
+import { resolveActor, getProfile, getPost, getRecentPosts, getFeedGenerator, parseAtUri, type Profile, type PostView } from "./appview";
+import { lookupPoster, lookupPost, FEATURED_POSTERS, FEATURED_POSTS, FEATURED_FEEDS } from "./entries";
 import { MOUNT, esc, fmtDate, fmtNum, infobox, categoriesBar, page, noArticlePage } from "./render";
 
 export interface Env {
@@ -25,6 +26,9 @@ function posterPath(actor: string): string {
 }
 function postPath(actor: string, rkey: string): string {
   return `${MOUNT}/post/${encodeURIComponent(actor)}/${encodeURIComponent(rkey)}`;
+}
+function feedPath(actor: string, rkey: string): string {
+  return `${MOUNT}/feed/${encodeURIComponent(actor)}/${encodeURIComponent(rkey)}`;
 }
 
 function autoPosterLead(profile: Profile): string {
@@ -194,6 +198,72 @@ async function renderPost(rawActor: string, rkey: string): Promise<Response> {
   );
 }
 
+function autoFeedLead(feed: Awaited<ReturnType<typeof getFeedGenerator>>): string {
+  const creatorLink = `<a href="${posterPath(feed.creator.handle || feed.creator.did)}">@${esc(feed.creator.handle)}</a>`;
+  const desc = feed.description?.trim()
+    ? `<blockquote>${esc(feed.description.trim())}</blockquote>`
+    : "";
+  return `
+    <p><b>${esc(feed.displayName)}</b> is a custom feed generator published by
+    ${creatorLink}, liked ${fmtNum(feed.likeCount)} times, as read from the
+    public AppView just now.</p>
+    ${desc}
+    <p class="dim">This is an automatically generated stub — nobody has
+    written a custom entry for this feed yet.</p>`;
+}
+
+async function renderFeed(rawActor: string, rkey: string): Promise<Response> {
+  let did: string, handle: string;
+  try {
+    ({ did, handle } = await resolveActor(rawActor));
+  } catch {
+    return noArticlePage("Feed", `${rawActor}/${rkey}`, `Couldn't resolve "${rawActor}" to a Bluesky account.`);
+  }
+
+  let feed;
+  try {
+    feed = await getFeedGenerator(did, rkey);
+  } catch {
+    return noArticlePage("Feed", `${handle}/${rkey}`, `No feed generator with that id was found (deleted, or never existed).`);
+  }
+
+  const uri = `at://${did}/app.bsky.feed.generator/${rkey}`;
+  const lead = autoFeedLead(feed);
+  const categories = ["Feeds", "Unwritten stubs"];
+
+  const rows = [
+    { label: "Published by", html: `<a href="${posterPath(feed.creator.handle || did)}">@${esc(feed.creator.handle)}</a>` },
+    { label: "Likes", html: fmtNum(feed.likeCount) },
+    { label: "URI", html: `<code class="did">${esc(uri)}</code>` },
+    { label: "View live", html: `<a href="https://bsky.app/profile/${esc(feed.creator.handle)}/feed/${esc(rkey)}" target="_blank" rel="noopener">bsky.app</a>` },
+  ];
+
+  const body = `
+    ${infobox({
+      title: feed.displayName,
+      image: feed.avatar,
+      imageAlt: feed.displayName,
+      rows,
+    })}
+    ${lead}
+    <div style="clear:both"></div>
+    ${categoriesBar(categories)}`;
+
+  const plainLead = (feed.description || "").replace(/<[^>]+>/g, "").slice(0, 260);
+
+  return new Response(
+    page({
+      title: `${handle}/${rkey}`,
+      namespace: "Feed",
+      description: plainLead || `A custom feed by @${feed.creator.handle}.`,
+      canonicalPath: `/feed/${encodeURIComponent(handle)}/${encodeURIComponent(rkey)}`,
+      bodyHtml: body,
+      ogImage: feed.avatar,
+    }),
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=120" } },
+  );
+}
+
 // Loose "go to whatever this is" resolver behind the home page's search box:
 // accepts a raw handle/DID, an at:// uri, or a pasted bsky.app URL, and
 // redirects to the matching article path. Never 400s — worst case it
@@ -202,6 +272,9 @@ function resolveGoTarget(raw: string): string {
   const q = raw.trim();
   const atUri = parseAtUri(q);
   if (atUri) return postPath(atUri.did, atUri.rkey);
+
+  const bskyFeed = q.match(/bsky\.app\/profile\/([^/\s?#]+)\/feed\/([^/\s?#]+)/i);
+  if (bskyFeed) return feedPath(bskyFeed[1], bskyFeed[2]);
 
   const bskyPost = q.match(/bsky\.app\/profile\/([^/\s?#]+)\/post\/([^/\s?#]+)/i);
   if (bskyPost) return postPath(bskyPost[1], bskyPost[2]);
@@ -215,22 +288,16 @@ function resolveGoTarget(raw: string): string {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const PREFIX = "/wiki";
-
-    if (url.pathname === PREFIX) {
-      url.pathname = PREFIX + "/";
-      return Response.redirect(url.toString(), 308);
-    }
-    if (!url.pathname.startsWith(PREFIX + "/")) {
-      return env.ASSETS.fetch(request);
-    }
-    const path = url.pathname.slice(PREFIX.length) || "/";
+    const path = url.pathname;
 
     const posterMatch = path.match(/^\/poster\/([^/]+)\/?$/);
     if (posterMatch) return renderPoster(posterMatch[1]);
 
     const postMatch = path.match(/^\/post\/([^/]+)\/([^/]+)\/?$/);
     if (postMatch) return renderPost(postMatch[1], postMatch[2]);
+
+    const feedMatch = path.match(/^\/feed\/([^/]+)\/([^/]+)\/?$/);
+    if (feedMatch) return renderFeed(feedMatch[1], feedMatch[2]);
 
     if (path === "/go") {
       const q = url.searchParams.get("q") || "";
@@ -242,12 +309,12 @@ export default {
       const pool = [
         ...FEATURED_POSTERS.map((a) => posterPath(a)),
         ...FEATURED_POSTS.map((p) => postPath(p.actor, p.rkey)),
+        ...FEATURED_FEEDS.map((f) => feedPath(f.actor, f.rkey)),
       ];
       const pick = pool[Math.floor(Math.random() * pool.length)];
       return Response.redirect(new URL(pick, url.origin).toString(), 302);
     }
 
-    url.pathname = path;
-    return env.ASSETS.fetch(new Request(url, request));
+    return env.ASSETS.fetch(request);
   },
 };
