@@ -284,7 +284,7 @@
     startBtn: el('startBtn'),
     theme: el('theme'), music: el('musicToggle'), sfx: el('sfxToggle'),
     share: el('shareBtn'),
-    tJump: el('tJump'), tPush: el('tPush'), tDuck: el('tDuck')
+    tJump: el('tJump'), tDuck: el('tDuck')
   };
 
   let theme = THEMES['marble-agora'];
@@ -321,6 +321,18 @@
 
   const keys = { push: false, jump: false, duck: false };
   const GRAV = 0.62, JUMP_V = -11.0, PUSH_MAX = 5.0;
+
+  // scroll/swipe push: dragging a finger (or wheel) back and forth over the
+  // stage counts as pushing, same as holding the push key/button. Each
+  // detected movement keeps the push "hot" for a short window so a steady
+  // back-and-forth swipe reads as continuous effort rather than a stutter.
+  let swipeHotUntil = 0;
+  function registerSwipePush() {
+    swipeHotUntil = performance.now() + 220;
+  }
+  function swiping() {
+    return performance.now() < swipeHotUntil;
+  }
 
   function loadBest() {
     try { state.best = parseInt(localStorage.getItem('sisyphus.best') || '0', 10) || 0; } catch (e) {}
@@ -463,10 +475,11 @@
       // push power ramps while held, decays fast when released
       const duckPenalty = h.ducking ? 0.4 : 1;
       const airPenalty = h.onGround ? 1 : 0.8;
-      if (keys.push) state.pushPower = Math.min(1, state.pushPower + 0.07);
+      const pushing = keys.push || swiping();
+      if (pushing) state.pushPower = Math.min(1, state.pushPower + 0.07);
       else state.pushPower = Math.max(0, state.pushPower - 0.14);
 
-      if (keys.push && h.onGround && state.t % 17 === 0) Audio.play('push');
+      if (pushing && h.onGround && state.t % 17 === 0) Audio.play('push');
 
       const speed = state.pushPower * PUSH_MAX * duckPenalty * airPenalty - state.drag;
       state.scrollX = Math.max(0, state.scrollX + speed);
@@ -785,10 +798,37 @@
     node.addEventListener('mouseup', (e) => { e.preventDefault(); onUp(); });
     node.addEventListener('mouseleave', () => onUp());
   }
-  bindHold(els.tPush, () => { keys.push = true; }, () => { keys.push = false; });
   bindHold(els.tDuck, () => { keys.duck = true; }, () => { keys.duck = false; });
   els.tJump.addEventListener('touchstart', (e) => { e.preventDefault(); if (!state.running) startGame(); else jump(); }, { passive: false });
   els.tJump.addEventListener('mousedown', (e) => { e.preventDefault(); if (!state.running) startGame(); else jump(); });
+
+  // swipe/scroll-to-push: drag a finger back and forth over the mountain
+  // (or spin a wheel/trackpad) to push the boulder. Reads any movement past
+  // a small threshold as a push pulse, so both directions of a swipe count —
+  // it's the motion of scrolling, not a direction, that represents effort.
+  const stage = el('stage');
+  let swipeX = null, swipeY = null;
+  stage.addEventListener('touchstart', (e) => {
+    if (!state.running) { startGame(); }
+    const t = e.touches[0];
+    swipeX = t.clientX; swipeY = t.clientY;
+  }, { passive: true });
+  stage.addEventListener('touchmove', (e) => {
+    if (swipeX === null) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const dx = t.clientX - swipeX, dy = t.clientY - swipeY;
+    if (Math.hypot(dx, dy) > 6) {
+      registerSwipePush();
+      swipeX = t.clientX; swipeY = t.clientY;
+    }
+  }, { passive: false });
+  stage.addEventListener('touchend', () => { swipeX = null; swipeY = null; });
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (!state.running) startGame();
+    registerSwipePush();
+  }, { passive: false });
 
   // toggles
   function setMusic(on) {
