@@ -21,6 +21,61 @@ const DESTINATIONS = [
 
 const GATE_LETTERS = "ABCDEFGHJK";
 
+// ── persistence: best scores, flight count, achievements ──────────────────
+const STORAGE_KEY = "cutitclose.v1";
+
+function loadStats() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (raw && typeof raw === "object") {
+      return {
+        plays: raw.plays | 0,
+        bestScore: raw.bestScore | 0,
+        hardBestScore: raw.hardBestScore | 0,
+        unlocked: raw.unlocked && typeof raw.unlocked === "object" ? raw.unlocked : {},
+      };
+    }
+  } catch (_) {}
+  return { plays: 0, bestScore: 0, hardBestScore: 0, unlocked: {} };
+}
+function saveStats(s) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+}
+let stats = loadStats();
+
+const ACHIEVEMENTS = [
+  { id: "first-flight", label: "First Flight", desc: "Complete a run",
+    check: (ctx) => ctx.stats.plays === 1 },
+  { id: "threaded-the-needle", label: "Threaded the Needle", desc: "Score a perfect 100",
+    check: (ctx) => !ctx.missed && ctx.score === 100 },
+  { id: "absolute-legend", label: "Absolute Legend", desc: "Land in the top tier without a perfect score",
+    check: (ctx) => !ctx.missed && ctx.score >= 92 && ctx.score < 100 },
+  { id: "so-close", label: "So Close", desc: "Miss the gate by 5 minutes or less",
+    check: (ctx) => ctx.missed && -ctx.margin <= 5 },
+  { id: "frequent-flyer", label: "Frequent Flyer", desc: "Play 10 runs",
+    check: (ctx) => ctx.stats.plays >= 10 },
+  { id: "nightmare-survivor", label: "Nightmare Survivor", desc: "Make your flight on Nightmare mode",
+    check: (ctx) => ctx.state.hard && !ctx.missed },
+  { id: "right-now", label: "No Dawdling", desc: "Leave immediately and still make the flight",
+    check: (ctx) => !ctx.missed && ctx.state.log[0] && ctx.state.log[0].label.startsWith("Grab your bag") },
+  { id: "one-more-episode", label: "One More Episode", desc: "Watch “one more episode” and still make it",
+    check: (ctx) => !ctx.missed && ctx.state.log[0] && ctx.state.log[0].label.startsWith("“One more episode”") },
+  { id: "sprinter", label: "Sprinter", desc: "Run for the gate and make the flight",
+    check: (ctx) => !ctx.missed && ctx.state.log.length && ctx.state.log[ctx.state.log.length - 1].label === "Run for it" },
+];
+
+function evaluateAchievements(ctx) {
+  const freshlyUnlocked = [];
+  for (const a of ACHIEVEMENTS) {
+    if (ctx.stats.unlocked[a.id]) continue;
+    if (a.check(ctx)) {
+      ctx.stats.unlocked[a.id] = true;
+      freshlyUnlocked.push(a);
+    }
+  }
+  return freshlyUnlocked;
+}
+
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -42,14 +97,14 @@ function fmtDur(min) {
   return h + "h" + (m ? " " + m + "m" : "");
 }
 
-function newScenario() {
+function newScenario(hard) {
   const dest = pick(DESTINATIONS);
   const gate = pick(GATE_LETTERS.split("")) + randInt(1, 42);
   const nowMin = randInt(6 * 60, 20 * 60);
-  const gapMin = randInt(105, 260);
-  const hasPrecheck = Math.random() < 0.5;
+  const gapMin = hard ? randInt(70, 150) : randInt(105, 260);
+  const hasPrecheck = Math.random() < (hard ? 0.3 : 0.5);
   return {
-    dest, gate, hasPrecheck,
+    dest, gate, hasPrecheck, hard: !!hard,
     nowMin, lastCallMin: nowMin + gapMin,
     clock: nowMin,
     mode: null,
@@ -181,7 +236,25 @@ const els = {
   shareDownload: document.getElementById("shareDownload"),
   actions: document.getElementById("actions"),
   again: document.getElementById("again"),
+  modeStandard: document.getElementById("modeStandard"),
+  modeHard: document.getElementById("modeHard"),
+  statsBar: document.getElementById("statsBar"),
+  achList: document.getElementById("achList"),
+  achSummary: document.getElementById("achSummary"),
 };
+
+function renderStatsBar() {
+  els.statsBar.innerHTML =
+    `<span>flights flown: <b>${stats.plays}</b></span>` +
+    `<span>best: <b>${stats.bestScore}</b>/100</span>` +
+    `<span>nightmare best: <b>${stats.hardBestScore}</b>/100</span>`;
+  const unlockedCount = ACHIEVEMENTS.filter((a) => stats.unlocked[a.id]).length;
+  els.achSummary.textContent = `🏅 achievements (${unlockedCount}/${ACHIEVEMENTS.length})`;
+  els.achList.innerHTML = ACHIEVEMENTS.map((a) => {
+    const got = !!stats.unlocked[a.id];
+    return `<li class="${got ? "got" : "locked"}"><span class="al">${got ? "🏅" : "🔒"} ${a.label}</span><span class="ad">${a.desc}</span></li>`;
+  }).join("");
+}
 
 let state;
 let lastShareText = "";
@@ -192,6 +265,7 @@ function renderBoard() {
     <div class="row"><span class="k">Gate</span><span class="v">${state.gate}</span></div>
     <div class="row"><span class="k">Last call</span><span class="v">${fmtClock(state.lastCallMin)}</span></div>
     <div class="row"><span class="k">TSA PreCheck</span><span class="v small">${state.hasPrecheck ? "yes" : "no"}</span></div>
+    ${state.hard ? '<div class="row"><span class="k">Mode</span><span class="v small" style="color:var(--red)">Nightmare</span></div>' : ""}
   `;
 }
 
@@ -231,7 +305,8 @@ function resolveChoice(sceneId, choice) {
   let delta = randInt(choice.min, choice.max);
   let risk = false;
   let text = pick(choice.outcomes);
-  if (choice.riskChance && Math.random() < choice.riskChance) {
+  const riskChance = choice.riskChance ? Math.min(0.9, choice.riskChance * (state.hard ? 1.35 : 1)) : 0;
+  if (riskChance && Math.random() < riskChance) {
     risk = true;
     delta += randInt(choice.riskMin, choice.riskMax);
     text = choice.riskText;
@@ -288,10 +363,19 @@ function finishGame() {
     els.result.classList.remove("missed");
   }
 
+  stats.plays += 1;
+  const bestKey = state.hard ? "hardBestScore" : "bestScore";
+  const isNewBest = score > stats[bestKey];
+  if (isNewBest) stats[bestKey] = score;
+  const unlocked = evaluateAchievements({ state, missed, margin, score, tier, stats });
+  saveStats(stats);
+  renderStatsBar();
+
   els.result.innerHTML = `
     <div class="tier">${tier}</div>
     <div class="margin">${marginText}</div>
-    <div class="score">Score: <b>${score}</b> / 100</div>
+    <div class="score">Score: <b>${score}</b> / 100${isNewBest ? ' <span class="newbest">— new best' + (state.hard ? " (Nightmare)" : "") + '!</span>' : ""}</div>
+    ${unlocked.length ? `<div class="unlocked">${unlocked.map((a) => `🏅 <b>${a.label}</b> — ${a.desc}`).join("<br>")}</div>` : ""}
   `;
 
   const shareText = buildShareText(state, missed, margin, tier, score);
@@ -303,10 +387,11 @@ function finishGame() {
 
 function buildShareText(state, missed, margin, tier, score) {
   const url = "bisks.net/games/cutitclose";
+  const modeTag = state.hard ? " [Nightmare mode]" : "";
   if (missed) {
-    return `I missed my flight to ${state.dest.to} by ${fmtDur(-margin)} in cutitclose — "${tier}". Score: 0. Can you land it closer? ${url}`;
+    return `I missed my flight to ${state.dest.to} by ${fmtDur(-margin)} in cutitclose${modeTag} — "${tier}". Score: 0. Can you land it closer? ${url}`;
   }
-  return `I made my flight to ${state.dest.to} with ${fmtDur(margin)} to spare in cutitclose — "${tier}" (${score}/100). Can you cut it closer? ${url}`;
+  return `I made my flight to ${state.dest.to} with ${fmtDur(margin)} to spare in cutitclose${modeTag} — "${tier}" (${score}/100). Can you cut it closer? ${url}`;
 }
 
 function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
@@ -430,8 +515,17 @@ if (canShareFiles()) {
   });
 }
 
+let hardMode = false;
+
+function setMode(hard) {
+  hardMode = hard;
+  els.modeStandard.classList.toggle("active", !hard);
+  els.modeHard.classList.toggle("active", hard);
+  startGame();
+}
+
 function startGame() {
-  state = newScenario();
+  state = newScenario(hardMode);
   els.result.hidden = true;
   els.result.classList.remove("missed");
   els.actions.hidden = true;
@@ -443,4 +537,7 @@ function startGame() {
 }
 
 els.again.addEventListener("click", startGame);
+els.modeStandard.addEventListener("click", () => setMode(false));
+els.modeHard.addEventListener("click", () => setMode(true));
+renderStatsBar();
 startGame();
