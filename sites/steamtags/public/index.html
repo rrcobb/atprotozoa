@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>steamtags — does the game live up to its own tags?</title>
+<meta name="description" content="Pick any Steam game and see how many of its top community tags actually show up in its own store description. Some games are exactly what it says on the tin. Most are not." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="steamtags — does the game live up to its own tags?" />
+<meta property="og:description" content="Pick any Steam game and see how many of its top community tags actually show up in its own store description. Some games are exactly what it says on the tin. Most are not." />
+<meta property="og:url" content="https://bisks.net/steamtags/" />
+<meta property="og:image" content="https://bisks.net/steamtags/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="steamtags — does the game live up to its own tags?" />
+<meta name="twitter:description" content="Pick any Steam game and see how many of its top community tags actually show up in its own store description. Some games are exactly what it says on the tin. Most are not." />
+<meta name="twitter:image" content="https://bisks.net/steamtags/og.png" />
+
+<style>
+  :root {
+    --bg: #0f1720;
+    --bg2: #1b2838;
+    --card: #16212c;
+    --border: #2a3b4a;
+    --fg: #e9f1f7;
+    --dim: #8ba1b3;
+    --accent: #66c0f4;
+    --accent2: #1a9fff;
+    --good: #6fcf97;
+    --mid: #f2c94c;
+    --bad: #eb5757;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(circle at 15% -10%, #1c3550 0%, var(--bg) 55%), var(--bg);
+    color: var(--fg);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  a { color: var(--accent); }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  header.top { text-align: center; margin-bottom: 28px; }
+  header.top h1 {
+    font-size: 2.1rem;
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+  }
+  header.top h1 .bang { color: var(--accent); }
+  header.top p {
+    color: var(--dim);
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  .search-box { position: relative; margin: 24px 0 8px; }
+  .search-box input {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    outline: none;
+  }
+  .search-box input:focus { border-color: var(--accent2); }
+  .results {
+    position: absolute;
+    left: 0; right: 0; top: calc(100% + 6px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    z-index: 5;
+    max-height: 340px;
+    overflow-y: auto;
+    display: none;
+  }
+  .results.show { display: block; }
+  .result-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+  }
+  .result-row:last-child { border-bottom: none; }
+  .result-row:hover { background: var(--bg2); }
+  .result-row img { width: 46px; height: 21px; object-fit: cover; border-radius: 3px; background: #000; }
+  .result-row span { font-size: 0.92rem; }
+
+  .hint { color: var(--dim); font-size: 0.82rem; margin: 4px 2px 0; }
+
+  #state { margin-top: 28px; }
+  .loading, .error {
+    text-align: center;
+    color: var(--dim);
+    padding: 40px 10px;
+  }
+  .error { color: var(--bad); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .card img.header {
+    width: 100%;
+    display: block;
+    aspect-ratio: 460 / 215;
+    object-fit: cover;
+    background: var(--bg2);
+  }
+  .card .body { padding: 20px; }
+  .card h2 { margin: 0 0 4px; font-size: 1.3rem; }
+  .card .short-desc { color: var(--dim); font-size: 0.88rem; margin: 0 0 18px; }
+
+  .score-row { display: flex; align-items: center; gap: 18px; margin-bottom: 6px; }
+  .score-num { font-size: 2.6rem; font-weight: 800; line-height: 1; }
+  .score-meta { flex: 1; }
+  .verdict-title { font-weight: 700; font-size: 1.05rem; }
+  .verdict-blurb { color: var(--dim); font-size: 0.85rem; }
+  .bar {
+    height: 10px;
+    border-radius: 6px;
+    background: var(--bg2);
+    overflow: hidden;
+    margin: 14px 0 20px;
+  }
+  .bar-fill { height: 100%; border-radius: 6px; transition: width 0.5s ease; }
+
+  .tag-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .tag-chip {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg2);
+  }
+  .tag-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .tag-chip.matched .dot { background: var(--good); }
+  .tag-chip.partial .dot { background: var(--mid); }
+  .tag-chip.missing .dot { background: var(--bad); }
+  .tag-chip .votes { color: var(--dim); font-size: 0.72rem; }
+  .legend { color: var(--dim); font-size: 0.78rem; margin: 4px 0 20px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .share-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--fg);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover { border-color: var(--accent2); }
+  .btn.primary { background: var(--accent2); border-color: var(--accent2); color: #041018; font-weight: 700; }
+
+  .again { text-align: center; margin-top: 22px; }
+  .again a { color: var(--dim); font-size: 0.85rem; text-decoration: underline; cursor: pointer; }
+
+  footer {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-top: 56px;
+  }
+  footer a { color: var(--dim); }
+
+  canvas#shareCanvas { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>steam<span class="bang">tags</span></h1>
+    <p>does the game live up to its own tags? pick one and find out.</p>
+  </header>
+
+  <div class="search-box">
+    <input id="q" type="text" placeholder="search a Steam game…" autocomplete="off" />
+    <div id="results" class="results"></div>
+  </div>
+  <p class="hint">or paste a Steam store URL / appid directly and hit enter</p>
+
+  <div id="state"></div>
+
+  <footer>
+    data from the Steam Store API and <a href="https://steamspy.com" target="_blank" rel="noopener">SteamSpy</a> ·
+    tag matching is a dumb text heuristic, not a judgement of the game ·
+    <a href="https://bisks.net">bisks.net</a>
+  </footer>
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script>
+(function () {
+  "use strict";
+  const MOUNT = location.pathname.startsWith("/steamtags") ? "/steamtags" : "";
+
+  const els = {
+    q: document.getElementById("q"),
+    results: document.getElementById("results"),
+    state: document.getElementById("state"),
+  };
+
+  let searchAbort = null;
+  let searchTimer = null;
+
+  function debounceSearch(term) {
+    clearTimeout(searchTimer);
+    if (!term.trim()) {
+      els.results.classList.remove("show");
+      els.results.innerHTML = "";
+      return;
+    }
+    searchTimer = setTimeout(() => runSearch(term.trim()), 220);
+  }
+
+  async function runSearch(term) {
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    try {
+      const res = await fetch(MOUNT + "/api/search?q=" + encodeURIComponent(term), { signal: searchAbort.signal });
+      const data = await res.json();
+      renderResults(data.results || []);
+    } catch (_) {
+      // aborted or network hiccup, ignore
+    }
+  }
+
+  function renderResults(list) {
+    if (!list.length) {
+      els.results.classList.remove("show");
+      els.results.innerHTML = "";
+      return;
+    }
+    els.results.innerHTML = list
+      .map(
+        (r) =>
+          `<div class="result-row" data-appid="${r.appid}"><img src="${escAttr(r.image || "")}" alt="" loading="lazy" /><span>${esc(r.name)}</span></div>`
+      )
+      .join("");
+    els.results.classList.add("show");
+    [...els.results.querySelectorAll(".result-row")].forEach((row) => {
+      row.addEventListener("click", () => {
+        const appid = row.getAttribute("data-appid");
+        els.results.classList.remove("show");
+        els.q.value = "";
+        goToGame(appid, true);
+      });
+    });
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function escAttr(s) { return esc(s); }
+
+  function extractAppid(raw) {
+    const s = raw.trim();
+    if (/^\d+$/.test(s)) return s;
+    const m = s.match(/store\.steampowered\.com\/app\/(\d+)/i);
+    if (m) return m[1];
+    return null;
+  }
+
+  els.q.addEventListener("input", (e) => debounceSearch(e.target.value));
+  els.q.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const direct = extractAppid(els.q.value);
+      if (direct) {
+        els.results.classList.remove("show");
+        goToGame(direct, true);
+      } else if (els.q.value.trim()) {
+        clearTimeout(searchTimer);
+        runSearch(els.q.value.trim());
+      }
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!els.results.contains(e.target) && e.target !== els.q) els.results.classList.remove("show");
+  });
+
+  function goToGame(appid, push) {
+    if (push) history.pushState({ appid }, "", MOUNT + "/g/" + appid);
+    loadGame(appid);
+  }
+
+  window.addEventListener("popstate", () => {
+    const appid = currentAppidFromPath();
+    if (appid) loadGame(appid);
+    else renderIdle();
+  });
+
+  function currentAppidFromPath() {
+    const path = location.pathname.slice(MOUNT.length);
+    const m = path.match(/^\/g\/(\d+)\/?$/);
+    return m ? m[1] : null;
+  }
+
+  function renderIdle() {
+    els.state.innerHTML = "";
+  }
+
+  async function loadGame(appid) {
+    els.state.innerHTML = '<div class="loading">checking the store page…</div>';
+    try {
+      const res = await fetch(MOUNT + "/api/score/" + appid);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "lookup failed");
+      renderGame(data);
+    } catch (err) {
+      els.state.innerHTML = `<div class="error">couldn't score that one — ${esc(err.message || "try a different game")}</div>`;
+    }
+  }
+
+  function scoreColor(score) {
+    if (score >= 75) return "var(--good)";
+    if (score >= 40) return "var(--mid)";
+    return "var(--bad)";
+  }
+
+  function buildShareText(g) {
+    const url = "https://bisks.net/steamtags/g/" + g.appid;
+    let text = `${g.name} scores ${g.score}% on steamtags — ${g.verdict.title.toLowerCase()}. ${g.matchedCount}/${g.tagCount} top tags actually show up in its own store description. ${url}`;
+    if (text.length > 300) {
+      text = `${g.name}: ${g.score}% (${g.verdict.title}) on steamtags. ${url}`;
+    }
+    return text;
+  }
+
+  function renderGame(g) {
+    const color = scoreColor(g.score);
+    const legend = `
+      <div class="legend">
+        <span><i class="dot" style="background:var(--good)"></i>in the description</span>
+        <span><i class="dot" style="background:var(--mid)"></i>partly there</span>
+        <span><i class="dot" style="background:var(--bad)"></i>not mentioned</span>
+      </div>`;
+    const tagChips = g.tags
+      .map(
+        (t) =>
+          `<span class="tag-chip ${t.state}"><i class="dot"></i>${esc(t.name)}<span class="votes">${formatVotes(t.votes)}</span></span>`
+      )
+      .join("");
+
+    els.state.innerHTML = `
+      <div class="card">
+        ${g.headerImage ? `<img class="header" src="${escAttr(g.headerImage)}" alt="${escAttr(g.name)}" />` : ""}
+        <div class="body">
+          <h2>${esc(g.name)}</h2>
+          ${g.shortDescription ? `<p class="short-desc">${esc(g.shortDescription)}</p>` : ""}
+          <div class="score-row">
+            <div class="score-num" style="color:${color}">${g.score}%</div>
+            <div class="score-meta">
+              <div class="verdict-title" style="color:${color}">${esc(g.verdict.title)}</div>
+              <div class="verdict-blurb">${esc(g.verdict.blurb)} · ${g.matchedCount}/${g.tagCount} tags checked out</div>
+            </div>
+          </div>
+          <div class="bar"><div class="bar-fill" style="width:${g.score}%;background:${color}"></div></div>
+          ${legend}
+          <div class="tag-list">${tagChips}</div>
+          <div class="share-row">
+            <a class="btn primary" id="shareBluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+            <button class="btn" id="copyLink">copy link</button>
+            <button class="btn" id="downloadCard">download card</button>
+          </div>
+        </div>
+      </div>
+      <div class="again"><a id="again">check another game</a></div>
+    `;
+
+    const shareUrl = "https://bisks.net/steamtags/g/" + g.appid;
+    const shareText = buildShareText(g);
+    document.getElementById("shareBluesky").href =
+      "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+    document.getElementById("copyLink").addEventListener("click", async (e) => {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        const btn = e.currentTarget;
+        const old = btn.textContent;
+        btn.textContent = "copied!";
+        setTimeout(() => (btn.textContent = old), 1400);
+      } catch (_) {
+        prompt("copy this link:", shareUrl);
+      }
+    });
+
+    document.getElementById("downloadCard").addEventListener("click", () => shareCard(g, shareText, shareUrl));
+    document.getElementById("again").addEventListener("click", () => {
+      history.pushState({}, "", MOUNT + "/");
+      renderIdle();
+      els.q.focus();
+    });
+  }
+
+  function formatVotes(v) {
+    if (!v) return "";
+    if (v >= 1000) return " · " + Math.round(v / 1000) + "k votes";
+    return " · " + v + " votes";
+  }
+
+  function wrapLines(ctx, text, maxWidth) {
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function shareCard(g, shareText, shareUrl) {
+    const canvas = document.getElementById("shareCanvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+
+    ctx.fillStyle = "#0f1720";
+    ctx.fillRect(0, 0, W, H);
+    const grad = ctx.createRadialGradient(180, -40, 40, 180, -40, 600);
+    grad.addColorStop(0, "#1c3550");
+    grad.addColorStop(1, "#0f1720");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = "#66c0f4";
+    ctx.font = "800 46px system-ui, sans-serif";
+    ctx.fillText("steamtags", 64, 96);
+
+    ctx.fillStyle = "#e9f1f7";
+    ctx.font = "700 40px system-ui, sans-serif";
+    const nameLines = wrapLines(ctx, g.name, W - 128);
+    let y = 170;
+    nameLines.slice(0, 2).forEach((l) => {
+      ctx.fillText(l, 64, y);
+      y += 48;
+    });
+
+    const color = g.score >= 75 ? "#6fcf97" : g.score >= 40 ? "#f2c94c" : "#eb5757";
+    ctx.fillStyle = color;
+    ctx.font = "800 140px system-ui, sans-serif";
+    ctx.fillText(g.score + "%", 64, y + 150);
+
+    ctx.fillStyle = color;
+    ctx.font = "700 30px system-ui, sans-serif";
+    ctx.fillText(g.verdict.title, 64, y + 195);
+
+    ctx.fillStyle = "#8ba1b3";
+    ctx.font = "20px system-ui, sans-serif";
+    ctx.fillText(`${g.matchedCount}/${g.tagCount} top tags actually show up in the store description`, 64, y + 235);
+
+    ctx.fillStyle = "#8ba1b3";
+    ctx.font = "700 22px system-ui, sans-serif";
+    ctx.fillText("bisks.net/steamtags", 64, H - 48);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      if (canShareFiles()) {
+        const file = new File([blob], `steamtags-${g.appid}.png`, { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText, title: "steamtags" });
+          return;
+        } catch (_) {
+          // fall through to download
+        }
+      }
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `steamtags-${g.appid}.png`;
+      link.click();
+    }, "image/png");
+  }
+
+  // boot: if we're on a /g/<appid> page (server-rendered or client nav), load it
+  const bootAppid = currentAppidFromPath();
+  if (bootAppid) loadGame(bootAppid);
+})();
+</script>
+</body>
+</html>
