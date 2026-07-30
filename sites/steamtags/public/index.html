@@ -97,6 +97,33 @@
 
   .hint { color: var(--dim); font-size: 0.82rem; margin: 4px 2px 0; }
 
+  .auth-bar {
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--dim);
+    margin: -8px 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .auth-bar b { color: var(--fg); }
+  .auth-bar a { cursor: pointer; text-decoration: underline; }
+  .auth-bar input {
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    outline: none;
+    width: 180px;
+  }
+  .auth-bar input:focus { border-color: var(--accent2); }
+  .auth-bar .btn { padding: 6px 10px; font-size: 0.8rem; }
+  .auth-bar .err { color: var(--bad); }
+
   #state { margin-top: 28px; }
   .loading, .error {
     text-align: center;
@@ -248,6 +275,23 @@
   .lib-row .lib-remove:hover { color: var(--bad); }
   #importFile { display: none; }
 
+  .tag-group + .tag-group { margin-top: 20px; }
+  .tag-group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .tag-group-rank { color: var(--dim); font-size: 0.76rem; width: 20px; flex: none; text-align: right; }
+  .tag-group-name { font-weight: 700; font-size: 0.98rem; }
+  .tag-group-avg { font-size: 0.8rem; font-weight: 700; }
+  .tag-group-count { color: var(--dim); font-size: 0.76rem; margin-left: auto; }
+  .tag-group-games { display: flex; flex-direction: column; gap: 6px; }
+  .tag-group-games .lib-row { padding: 8px 12px; }
+
+  .sync-msg { color: var(--dim); font-size: 0.78rem; margin: -4px 0 12px; min-height: 1.1em; }
+  .sync-msg.err { color: var(--bad); }
+
   footer {
     text-align: center;
     color: var(--dim);
@@ -266,6 +310,8 @@
     <p>pick a game, look at its tags, decide for yourself which ones actually fit.</p>
   </header>
 
+  <div class="auth-bar" id="authBar"></div>
+
   <div class="search-box">
     <input id="q" type="text" placeholder="search a Steam game…" autocomplete="off" />
     <div id="results" class="results"></div>
@@ -276,13 +322,14 @@
 
   <section class="library">
     <h3>your library</h3>
-    <p class="lib-sub">games you've rated at least one tag on, ranked by your average fit score — kept right in this browser, nothing leaves your device unless you export it.</p>
+    <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser.</p>
     <div class="lib-actions">
       <button class="btn" id="exportLib">export database</button>
       <button class="btn" id="importLibBtn">import database</button>
       <input type="file" id="importFile" accept="application/json" />
       <button class="btn" id="clearLib">clear all</button>
     </div>
+    <div id="syncMsg" class="sync-msg"></div>
     <div id="libraryList"></div>
   </section>
 
@@ -296,22 +343,40 @@
 <canvas id="shareCanvas" width="1200" height="630"></canvas>
 
 <script>
-(function () {
+(async function () {
   "use strict";
   const MOUNT = location.pathname.startsWith("/steamtags") ? "/steamtags" : "";
+  // Dynamic import (not a static "import" statement) so this can stay a
+  // plain classic script — matches the rest of the file, and dynamic
+  // import() works the same in classic and module scripts.
+  const { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } = await import(
+    MOUNT + "/lib/oauth.js"
+  );
+
+  // Ratings sync to this collection on the user's own PDS when signed in —
+  // rkey is the appid, so re-rating a game overwrites its one record rather
+  // than piling up duplicates. Anonymous users stay entirely in
+  // localStorage; nothing is sent anywhere until they sign in.
+  const COLLECTION = "net.bisks.steamtags.rating";
+  let session = null;
 
   const els = {
     q: document.getElementById("q"),
     results: document.getElementById("results"),
     state: document.getElementById("state"),
+    authBar: document.getElementById("authBar"),
     libraryList: document.getElementById("libraryList"),
+    syncMsg: document.getElementById("syncMsg"),
     exportLib: document.getElementById("exportLib"),
     importLibBtn: document.getElementById("importLibBtn"),
     importFile: document.getElementById("importFile"),
     clearLib: document.getElementById("clearLib"),
   };
 
-  // --- personal library: per-tag fit ratings (1-10), kept in localStorage only ----
+  // --- personal library: per-tag fit ratings (1-10) --------------------------
+  // Always mirrored to localStorage (so the page renders instantly and works
+  // offline/anonymous). Signed-in users additionally sync every write to
+  // COLLECTION on their own PDS — see syncOnLogin/afterMutate below.
   const DB_KEY = "steamtags:library:v2";
 
   function loadDb() {
@@ -377,20 +442,14 @@
     return db;
   }
 
-  function removeEntry(appid) {
-    const db = loadDb().filter((e) => String(e.appid) !== String(appid));
-    saveDb(db);
-    return db;
-  }
-
   function mergeDb(incoming) {
     if (!Array.isArray(incoming)) throw new Error("not a library file");
     const db = loadDb();
     incoming.filter(isValidEntry).forEach((entry) => {
       const appid = String(entry.appid);
       const idx = db.findIndex((e) => String(e.appid) === appid);
-      if (idx >= 0) db[idx] = Object.assign({}, db[idx], entry, { appid: entry.appid });
-      else db.push(entry);
+      if (idx >= 0) db[idx] = Object.assign({}, db[idx], entry, { appid: entry.appid, updatedAt: Date.now() });
+      else db.push(Object.assign({}, entry, { updatedAt: Date.now() }));
     });
     saveDb(db);
     return db;
@@ -400,37 +459,283 @@
     return Object.values(entry.tagScores).map((v) => v.score);
   }
 
-  function avgScore(entry) {
-    const vals = tagScoreValues(entry);
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  // --- PDS sync ----------------------------------------------------------
+  // A signed-in user's library lives as one net.bisks.steamtags.rating
+  // record per game (rkey = appid, so re-rating overwrites in place). Reads
+  // (listRecords) are public/unauthenticated; writes (put/deleteRecord) go
+  // through dpopFetch. localStorage stays the always-on cache/mirror so the
+  // page never has to block on a network round trip to render.
+
+  function recordFromEntry(entry) {
+    return {
+      $type: COLLECTION,
+      appid: Number(entry.appid),
+      name: entry.name || "",
+      headerImage: entry.headerImage || "",
+      tags: Object.entries(entry.tagScores).map(([tag, v]) => ({
+        tag,
+        score: v.score,
+        votes: v.votes || 0,
+      })),
+      updatedAt: new Date(entry.updatedAt || Date.now()).toISOString(),
+    };
+  }
+
+  function entryFromRecord(rec) {
+    const v = rec.value || {};
+    const tagScores = {};
+    (Array.isArray(v.tags) ? v.tags : []).forEach((t) => {
+      if (t && t.tag) tagScores[t.tag] = { score: t.score, votes: t.votes || 0 };
+    });
+    return {
+      appid: v.appid,
+      name: v.name || "",
+      headerImage: v.headerImage || "",
+      tagScores,
+      updatedAt: v.updatedAt ? Date.parse(v.updatedAt) || 0 : 0,
+    };
+  }
+
+  // Runs `fn` over `items` with at most `limit` in flight — a library-wide
+  // sync shouldn't fire dozens of PDS requests at once.
+  async function pMapLimit(items, limit, fn) {
+    let next = 0;
+    async function worker() {
+      while (next < items.length) {
+        const i = next++;
+        try {
+          await fn(items[i], i);
+        } catch (e) {
+          console.error("sync item failed", items[i], e);
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  }
+
+  async function pdsListRecords(sess) {
+    const base = sess.pdsUrl.replace(/\/$/, "");
+    const out = [];
+    let cursor;
+    for (let page = 0; page < 5; page++) {
+      const qs = new URLSearchParams({ repo: sess.did, collection: COLLECTION, limit: "100" });
+      if (cursor) qs.set("cursor", cursor);
+      let data;
+      try {
+        const res = await fetch(`${base}/xrpc/com.atproto.repo.listRecords?${qs}`);
+        if (!res.ok) break;
+        data = await res.json();
+      } catch (_) {
+        break;
+      }
+      const records = data.records || [];
+      records.forEach((r) => out.push(entryFromRecord(r)));
+      cursor = data.cursor;
+      if (!cursor || !records.length) break;
+    }
+    return out.filter(isValidEntry);
+  }
+
+  async function pdsPutRecord(sess, entry) {
+    const base = sess.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(sess, `${base}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: sess.did,
+        collection: COLLECTION,
+        rkey: String(entry.appid),
+        record: recordFromEntry(entry),
+      }),
+    });
+    if (!res.ok) throw new Error(`putRecord ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+
+  async function pdsDeleteRecord(sess, appid) {
+    const base = sess.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(sess, `${base}/xrpc/com.atproto.repo.deleteRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: sess.did, collection: COLLECTION, rkey: String(appid) }),
+    });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`deleteRecord ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+  }
+
+  // Combine a local and a remote copy of the same game: whichever side was
+  // touched more recently "wins" for tags they both rated, but a tag rated
+  // on only one side is always kept — a merge should never quietly drop a
+  // rating just because it happened on the other device.
+  function mergeEntries(local, remote) {
+    if (!local) return remote;
+    if (!remote) return local;
+    const remoteNewer = (remote.updatedAt || 0) > (local.updatedAt || 0);
+    const older = remoteNewer ? local : remote;
+    const newer = remoteNewer ? remote : local;
+    return {
+      appid: newer.appid,
+      name: newer.name || older.name,
+      headerImage: newer.headerImage || older.headerImage,
+      tagScores: Object.assign({}, older.tagScores, newer.tagScores),
+      updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
+    };
+  }
+
+  function setSyncMsg(text, isErr) {
+    if (!els.syncMsg) return;
+    els.syncMsg.textContent = text || "";
+    els.syncMsg.className = "sync-msg" + (isErr ? " err" : "");
+  }
+
+  // Runs once right after sign-in: reconciles this browser's local library
+  // with whatever's already on the PDS (e.g. rated on another device),
+  // saves the merged result locally, and pushes back anything that changed
+  // so both sides end up identical.
+  async function syncOnLogin(sess) {
+    setSyncMsg("syncing your library to your PDS…");
+    try {
+      const remoteEntries = await pdsListRecords(sess);
+      const localDb = loadDb();
+      const remoteMap = new Map(remoteEntries.map((e) => [String(e.appid), e]));
+      const localMap = new Map(localDb.map((e) => [String(e.appid), e]));
+      const allIds = new Set([...remoteMap.keys(), ...localMap.keys()]);
+      const merged = [];
+      const toPush = [];
+      allIds.forEach((id) => {
+        const l = localMap.get(id);
+        const r = remoteMap.get(id);
+        const m = mergeEntries(l, r);
+        merged.push(m);
+        const changed =
+          !r ||
+          JSON.stringify(r.tagScores) !== JSON.stringify(m.tagScores) ||
+          r.name !== m.name ||
+          r.headerImage !== m.headerImage;
+        if (changed) toPush.push(m);
+      });
+      saveDb(merged);
+      renderLibrary();
+      if (toPush.length) await pMapLimit(toPush, 4, (m) => pdsPutRecord(sess, m));
+      setSyncMsg(toPush.length ? `synced ${toPush.length} game${toPush.length === 1 ? "" : "s"} to your PDS.` : "library in sync with your PDS.");
+    } catch (e) {
+      setSyncMsg(`couldn't sync with your PDS: ${e.message}`, true);
+    }
+  }
+
+  // Called after any single-entry mutation (rate/clear a tag) while signed
+  // in — pushes just that game's record, put if it still has ratings,
+  // delete if the last one was just cleared.
+  async function afterMutate(appid) {
+    if (!session) return;
+    const entry = findEntry(loadDb(), appid);
+    try {
+      if (entry) await pdsPutRecord(session, entry);
+      else await pdsDeleteRecord(session, appid);
+      setSyncMsg("synced to your PDS.");
+    } catch (e) {
+      setSyncMsg(`couldn't sync to your PDS: ${e.message}`, true);
+    }
+  }
+
+  function renderAuthBar() {
+    if (session) {
+      els.authBar.innerHTML = `<span>synced as <b>@${esc(session.handle)}</b></span> · <a id="signout">sign out</a>`;
+      document.getElementById("signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        setSyncMsg("");
+        renderAuthBar();
+      });
+    } else {
+      els.authBar.innerHTML = `
+        <span>rating stays in this browser, or</span>
+        <input id="authHandle" type="text" placeholder="your bluesky handle" />
+        <button class="btn" id="authGo">sign in to sync</button>
+      `;
+      const handleInput = document.getElementById("authHandle");
+      const go = async () => {
+        const h = handleInput.value.trim();
+        if (!h) return;
+        try {
+          await login(h);
+        } catch (e) {
+          els.authBar.insertAdjacentHTML("beforeend", `<span class="err"> — ${esc(e.message)}</span>`);
+        }
+      };
+      document.getElementById("authGo").addEventListener("click", go);
+      handleInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") go();
+      });
+    }
+  }
+
+  // --- library rendering: grouped by tag, ranked by the user's own tag ranks --
+  // "Tag rank" = the average fit score the user has given that tag across
+  // every game they've rated it on. Groups (tags) are ordered by that
+  // average descending; within a group, games are ordered by their score
+  // for that specific tag.
+  function buildTagGroups(db) {
+    const tagMap = new Map();
+    db.forEach((entry) => {
+      Object.entries(entry.tagScores).forEach(([tagName, v]) => {
+        if (!tagMap.has(tagName)) tagMap.set(tagName, []);
+        tagMap.get(tagName).push({
+          appid: entry.appid,
+          name: entry.name,
+          headerImage: entry.headerImage,
+          score: v.score,
+          votes: v.votes || 0,
+        });
+      });
+    });
+    const groups = [...tagMap.entries()].map(([tag, games]) => {
+      games.sort((a, b) => b.score - a.score);
+      const avg = games.reduce((s, g) => s + g.score, 0) / games.length;
+      return { tag, games, avg };
+    });
+    groups.sort((a, b) => {
+      const diff = b.avg - a.avg;
+      if (Math.abs(diff) > 1e-9) return diff;
+      return b.games.length - a.games.length;
+    });
+    return groups;
   }
 
   function renderLibrary() {
-    const db = loadDb().slice().sort((a, b) => {
-      const diff = avgScore(b) - avgScore(a);
-      if (Math.abs(diff) > 1e-9) return diff;
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
+    const db = loadDb();
     if (!db.length) {
       els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — pick a game, click a tag, and score how well it fits.</div>';
       return;
     }
-    els.libraryList.innerHTML = `<div class="lib-list">${db
-      .map((e, i) => {
-        const avg = avgScore(e);
-        const n = tagScoreValues(e).length;
-        return `<div class="lib-row" data-appid="${escAttr(String(e.appid))}">
-            <span class="lib-rank">#${i + 1}</span>
-            ${e.headerImage ? `<img src="${escAttr(e.headerImage)}" alt="" loading="lazy" />` : ""}
-            <span class="lib-name">
-              <span class="n">${esc(e.name || "appid " + e.appid)}</span>
-              <span class="sub">${n} tag${n === 1 ? "" : "s"} rated</span>
-            </span>
-            <span class="lib-score" style="color:${scoreColor10(avg)}">${avg.toFixed(1)}/10</span>
-            <button class="lib-remove" data-remove="${escAttr(String(e.appid))}" title="remove">✕</button>
-          </div>`;
-      })
-      .join("")}</div>`;
+    const groups = buildTagGroups(db);
+    els.libraryList.innerHTML = groups
+      .map(
+        (g, gi) => `
+      <div class="tag-group">
+        <div class="tag-group-head">
+          <span class="tag-group-rank">#${gi + 1}</span>
+          <span class="tag-group-name">${esc(g.tag)}</span>
+          <span class="tag-group-avg" style="color:${scoreColor10(g.avg)}">${g.avg.toFixed(1)}/10 avg</span>
+          <span class="tag-group-count">${g.games.length} game${g.games.length === 1 ? "" : "s"}</span>
+        </div>
+        <div class="tag-group-games">
+          ${g.games
+            .map(
+              (game, i) => `
+            <div class="lib-row" data-appid="${escAttr(String(game.appid))}" data-tag="${escAttr(g.tag)}">
+              <span class="lib-rank">#${i + 1}</span>
+              ${game.headerImage ? `<img src="${escAttr(game.headerImage)}" alt="" loading="lazy" />` : ""}
+              <span class="lib-name"><span class="n">${esc(game.name || "appid " + game.appid)}</span></span>
+              <span class="lib-score" style="color:${scoreColor10(game.score)}">${game.score}/10</span>
+              <button class="lib-remove" data-remove-appid="${escAttr(String(game.appid))}" data-remove-tag="${escAttr(g.tag)}" title="remove this rating">✕</button>
+            </div>`
+            )
+            .join("")}
+        </div>
+      </div>`
+      )
+      .join("");
 
     [...els.libraryList.querySelectorAll(".lib-row")].forEach((row) => {
       row.addEventListener("click", (e) => {
@@ -441,10 +746,13 @@
       });
     });
     [...els.libraryList.querySelectorAll(".lib-remove")].forEach((btn) => {
-      btn.addEventListener("click", (e) => {
+      btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        removeEntry(btn.getAttribute("data-remove"));
+        const appid = btn.getAttribute("data-remove-appid");
+        const tag = btn.getAttribute("data-remove-tag");
+        clearTagRating(appid, tag);
         renderLibrary();
+        await afterMutate(appid);
       });
     });
   }
@@ -469,18 +777,32 @@
       const text = await file.text();
       const parsed = JSON.parse(text);
       const games = Array.isArray(parsed) ? parsed : parsed.games;
-      mergeDb(games);
+      const db = mergeDb(games);
       renderLibrary();
+      if (session) {
+        const imported = games.filter(isValidEntry).map((e) => findEntry(db, e.appid)).filter(Boolean);
+        setSyncMsg(`pushing ${imported.length} imported game${imported.length === 1 ? "" : "s"} to your PDS…`);
+        await pMapLimit(imported, 4, (m) => pdsPutRecord(session, m));
+        setSyncMsg("import synced to your PDS.");
+      }
     } catch (_) {
       alert("couldn't read that file — expected a steamtags library export.");
     }
   });
 
-  els.clearLib.addEventListener("click", () => {
-    if (!loadDb().length) return;
-    if (!confirm("clear your whole local steamtags library? this can't be undone (export first if you want a backup).")) return;
+  els.clearLib.addEventListener("click", async () => {
+    const db = loadDb();
+    if (!db.length) return;
+    const warnPds = session ? " this also deletes every rating record from your PDS." : "";
+    if (!confirm(`clear your whole steamtags library?${warnPds} this can't be undone (export first if you want a backup).`)) return;
+    const appids = db.map((e) => e.appid);
     saveDb([]);
     renderLibrary();
+    if (session) {
+      setSyncMsg("clearing your PDS library…");
+      await pMapLimit(appids, 4, (appid) => pdsDeleteRecord(session, appid));
+      setSyncMsg("cleared.");
+    }
   });
 
   let searchAbort = null;
@@ -742,7 +1064,7 @@
       });
     });
 
-    scale.addEventListener("click", (e) => {
+    scale.addEventListener("click", async (e) => {
       const btn = e.target.closest(".rate-btn");
       if (!btn || !activeTag) return;
       const score = Number(btn.getAttribute("data-score"));
@@ -752,14 +1074,16 @@
       openPanel(activeTag);
       renderLibrary();
       refreshShareLink(g);
+      await afterMutate(g.appid);
     });
 
-    clearOne.addEventListener("click", () => {
+    clearOne.addEventListener("click", async () => {
       if (!activeTag) return;
       clearTagRating(g.appid, activeTag);
       openPanel(activeTag);
       renderLibrary();
       refreshShareLink(g);
+      await afterMutate(g.appid);
     });
 
     paintAllChips();
@@ -883,10 +1207,22 @@
     }, "image/png");
   }
 
-  // boot: if we're on a /g/<appid> page (server-rendered or client nav), load it
+  // boot: resolve auth first — completeLoginIfCallback may rewrite the URL
+  // (back to wherever "sign in" was clicked from), so it has to run before
+  // reading the path for the /g/<appid> boot route below.
+  try {
+    const cbSession = await completeLoginIfCallback();
+    if (cbSession) session = cbSession;
+  } catch (e) {
+    console.error("oauth callback failed", e);
+  }
+  if (!session) session = await getSession();
+  renderAuthBar();
+
   const bootAppid = currentAppidFromPath();
   if (bootAppid) loadGame(bootAppid);
   renderLibrary();
+  if (session) syncOnLogin(session);
 })();
 </script>
 </body>
