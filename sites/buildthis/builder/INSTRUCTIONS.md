@@ -89,6 +89,18 @@ work went live:
   `trigrams.bisks.net`.
 - Built/changed nothing → don't create the file (reply sends the honest failure).
 
+**A new site that joins a cluster (`bisks.net/games/<name>`, etc.) is still just
+`<name>`** — never `games/<name>`. The site lives in `sites/<name>/` (not
+`sites/games/<name>/`); `games/` is a path segment its own `wrangler.toml` routes
+add, not a site of its own. `<name>/<path>` is reserved for a real sub-path *within*
+an existing site's own routing (see the bullet above) — writing `games/<name>` gets
+misread as "site `games`, path `/<name>`", which resolves to nothing and produces a
+dead `games.bisks.net/<name>` link. (Caught 2026-07-30: `spoton` shipped with
+exactly this mistake — the reply linked a dead subdomain instead of
+`bisks.net/games/spoton`.) The reply step reads each site's own `wrangler.toml` to
+find its real mount, so a bare `<name>` always resolves correctly regardless of
+whether it's flat or clustered.
+
 Don't `git commit` or `git push` — just leave your edits in the working tree. The
 harness commits and pushes them for you at the end (it holds the push credentials;
 you don't), and the deploy workflow ships whatever changed.

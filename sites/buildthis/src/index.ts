@@ -471,6 +471,7 @@ const SITE_HOST: Record<string, string> = {
   "solvers": "bisks.net/solvers",
   "sonnethype": "bisks.net/sonnethype",
   "spot-the-ai": "spot-the-ai.bisks.net",
+  "spoton": "bisks.net/games/spoton",
   "stanquiz": "bisks.net/games/stanquiz",
   "tabernacle": "bisks.net/tabernacle",
   "the-place": "bisks.net/the-place",
