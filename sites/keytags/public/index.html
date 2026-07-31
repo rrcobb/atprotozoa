@@ -101,6 +101,15 @@
       .entryrow.match { background: #f5f8ff; border-radius: 4px; padding-left: 0.5rem; padding-right: 0.5rem; }
 
       footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+
+      #nx {
+        color: var(--bg);
+        font-size: 0.7em;
+        padding: 0 0.2em;
+        user-select: text;
+        transition: color 0.15s ease;
+      }
+      #nx:hover { color: var(--faint); cursor: pointer; }
     </style>
   </head>
   <body>
@@ -169,7 +178,7 @@
       <footer>
         <a href="/">keytags</a> · part of <a href="https://bisks.net">bisks.net</a> ·
         tags are <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
-        records in your own repo — nothing lives on this server, including your secret.
+        records in your own repo — nothing lives on this server, including your secret.<span id="nx" aria-hidden="true">&pi;</span>
       </footer>
     </div>
 
@@ -434,7 +443,112 @@
 
       boot();
     </script>
-  
+
+    <script>
+      (function () {
+        var mark = document.getElementById("nx");
+        if (!mark) return;
+        var backdrop = null;
+
+        function esc(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+          });
+        }
+
+        function closeModal() {
+          if (backdrop) backdrop.remove();
+          backdrop = null;
+        }
+
+        function openModal(state) {
+          closeModal();
+          backdrop = document.createElement("div");
+          backdrop.style.cssText =
+            "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2147483600;" +
+            "display:flex;align-items:center;justify-content:center;padding:1rem;";
+          var box = document.createElement("div");
+          box.style.cssText =
+            "background:#fff;color:#111;max-width:340px;width:100%;padding:1.4rem;" +
+            "border-radius:8px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;" +
+            "font-size:0.88rem;line-height:1.55;box-shadow:0 12px 40px rgba(0,0,0,.35);";
+          backdrop.appendChild(box);
+          backdrop.addEventListener("click", function (e) {
+            if (e.target === backdrop) closeModal();
+          });
+          document.body.appendChild(backdrop);
+          render(box, state);
+        }
+
+        function render(box, state) {
+          if (state.claimed) {
+            box.innerHTML =
+              '<p style="margin:0 0 .6rem;font-weight:600;">π — The Net</p>' +
+              '<p style="margin:0 0 1rem;color:#6b6b6b;">Already claimed — ' +
+              '<b style="color:#111;">@' + esc(state.handle) + "</b>" +
+              (state.first === false ? " got there first." : " just did.") +
+              "</p>" +
+              '<button id="nx-close" style="width:100%;padding:.55rem;border:1px solid #111;' +
+              'background:#fff;border-radius:4px;cursor:pointer;font:inherit;">close</button>';
+            document.getElementById("nx-close").onclick = closeModal;
+            return;
+          }
+          box.innerHTML =
+            '<p style="margin:0 0 .6rem;font-weight:600;">π — you found it.</p>' +
+            '<p style="margin:0 0 1rem;color:#6b6b6b;">First click wins immortality as ' +
+            'the winner of &ldquo;The Net.&rdquo; Enter your atproto handle:</p>' +
+            '<input id="nx-h" placeholder="you.bsky.social" style="width:100%;padding:.5rem;' +
+            'border:1px solid #111;border-radius:4px;font:inherit;font-size:.88rem;' +
+            'margin-bottom:.5rem;box-sizing:border-box;" />' +
+            '<p id="nx-err" style="color:#c0392b;min-height:1.1em;margin:0 0 .5rem;font-size:.78rem;"></p>' +
+            '<button id="nx-go" style="width:100%;padding:.55rem;border:1px solid #111;' +
+            'background:#111;color:#fff;border-radius:4px;cursor:pointer;font:inherit;">claim it</button>';
+          var input = document.getElementById("nx-h");
+          var err = document.getElementById("nx-err");
+          var go = document.getElementById("nx-go");
+          input.focus();
+
+          function submit() {
+            var h = input.value.trim().replace(/^@/, "");
+            if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?$/.test(h)) {
+              err.textContent = "that doesn't look like a handle";
+              return;
+            }
+            go.disabled = true;
+            fetch("/api/net", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ handle: h }),
+            })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (d.error) {
+                  err.textContent = d.error;
+                  go.disabled = false;
+                  return;
+                }
+                render(box, d);
+              })
+              .catch(function () {
+                err.textContent = "something broke — try again";
+                go.disabled = false;
+              });
+          }
+          go.onclick = submit;
+          input.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") submit();
+          });
+        }
+
+        mark.addEventListener("click", function () {
+          fetch("/api/net")
+            .then(function (r) { return r.json(); })
+            .then(openModal)
+            .catch(function () { openModal({ claimed: false }); });
+        });
+      })();
+    </script>
+
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
     <style>
       #cm-toggle {

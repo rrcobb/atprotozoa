@@ -1,12 +1,11 @@
-// trigruessr Worker — trigruessr.bisks.net
+// keytags Worker — keytags.bisks.net
 //
-// The guessing game (see public/index.html) is still pure client-side: it
-// reads Bluesky's public AppView directly from the browser, no server
-// involved. The only thing this Worker adds is /api/net, backing a single
-// hidden, unpublicized "first click wins" claim somewhere on the page — a
-// Durable Object gives us the one thing localStorage can't: a single global
-// answer to "has anyone already claimed this," consistent no matter who asks
-// or from where.
+// The tag box (see public/index.html) is still pure client-side: everything a
+// user tags lives in their own PDS, nothing touches this server. The only
+// thing this Worker adds is /api/net, backing a single hidden, unpublicized
+// "first click wins" claim somewhere on the page — a Durable Object gives us
+// the one thing localStorage can't: a single global answer to "has anyone
+// already claimed this," consistent no matter who asks or from where.
 
 interface DurableObjectId {
   toString(): string;
