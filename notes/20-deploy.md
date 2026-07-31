@@ -323,6 +323,33 @@ every site migrated path→subdomain or subdomain→path over the past several
 days may still be occupying a zone custom-domain slot that the in-repo count
 no longer reflects. Only dashboard access can confirm the real count/cap.
 
+**Resolved (2026-07-31).** Confirmed via the API: the zone held **101** custom
+domains against Cloudflare's documented cap of **100 per zone**, so every new
+custom domain silently failed to provision. Of those 101, **64 were stale** —
+sites migrated subdomain → path whose hostname was never deprovisioned (moving
+`routes` off `custom_domain = true` does not release the slot). Pruned all 64
+with `audit/cf-custom-domains.mjs --prune --apply`, taking the zone to **37/100**,
+then redeployed `steamtags`, which provisioned immediately and now serves 200
+over TLS. The in-repo `grep` count was indeed undercounting, exactly as
+suspected above.
+
+Two things worth knowing for next time:
+
+- **Wildcard custom domains do not exist.** `custom_domain = true` requires an
+  exact hostname ("Custom Domains do not support wildcard DNS records").
+  Wildcards are only a *route* feature (`*.bisks.net/*`), and a wildcard route
+  needs a proxied wildcard DNS record **plus** Total TLS / Advanced Certificate
+  Manager for certs, because Universal SSL does not issue `*.bisks.net`. This
+  zone is on the **Free** plan, so the wildcard path is not currently available.
+- **Routes cap at 1,000/zone vs 100 for custom domains.** If more than ~100
+  sites ever need their own hostname, the way there is per-hostname *routes*
+  plus a proxied DNS record per site — which needs a token with DNS:Edit. The
+  1Password token (`Cloudflare` → `api token edit workers bisks.net`) is
+  Workers-scoped only and has **no DNS permission**; it can inventory and prune,
+  but cannot create DNS records.
+
+The stopgap below is now unnecessary but harmless.
+
 As a stopgap, added `workers_dev = true` to `sites/steamtags/wrangler.toml`
 (same idea as the padmoot/windmill stopgap further up, though those two were
 later migrated off custom domains entirely rather than kept on the
