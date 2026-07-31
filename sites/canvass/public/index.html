@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>canvass — rally real votes for a Simcluster nominee — bisks.net</title>
+    <meta
+      name="description"
+      content="Make a rally card for anyone on simcluster-guests.bisks.net's guest board, share it, and send real people to cast their own one vote. No bots — the board rate-limits those anyway."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://canvass.bisks.net/" />
+    <meta property="og:title" content="canvass — rally real votes for a Simcluster nominee" />
+    <meta
+      property="og:description"
+      content="A rally-card generator for simcluster-guests.bisks.net. Pick a nominee, get a shareable card and a one-tap Bluesky post, send real people to vote for real. No botting."
+    />
+    <meta property="og:image" content="https://canvass.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="canvass: a rally card reading VOTE FOR @croissanthology.com on Simcluster." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="canvass — rally real votes for a Simcluster nominee" />
+    <meta
+      name="twitter:description"
+      content="Pick a nominee on simcluster-guests.bisks.net, get a shareable rally card, send real people to vote for real. No botting."
+    />
+    <meta name="twitter:image" content="https://canvass.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as simcluster-guests / trigrams. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 62ch; margin: 0 0 1rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .note {
+        border: 1px solid var(--faint);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 0.9rem 1.1rem;
+        margin-bottom: 1.8rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.65;
+        background: var(--faintbg);
+      }
+      .note strong { color: var(--ink); }
+
+      form.rally {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1.1rem 1.15rem 1.25rem;
+        margin-bottom: 1.8rem;
+        background: var(--faintbg);
+      }
+      form.rally .row { margin-bottom: 0.75rem; }
+      form.rally label {
+        display: block; font-size: 0.76rem; color: var(--muted);
+        margin-bottom: 0.3rem; letter-spacing: 0.01em;
+      }
+      form.rally input {
+        width: 100%; font-family: inherit; font-size: 0.92rem;
+        padding: 0.55rem 0.65rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--bg); color: var(--ink);
+      }
+      form.rally input:focus { outline: none; border-color: var(--accent); }
+      button.primary {
+        font-family: inherit; font-size: 0.9rem; font-weight: 700;
+        padding: 0.6rem 1.1rem; border: 1px solid var(--accent); border-radius: 8px;
+        background: var(--accent); color: #fff; cursor: pointer;
+      }
+      button.primary:hover { opacity: 0.92; }
+
+      .card-wrap { margin-bottom: 1.4rem; }
+      canvas#rallyCanvas {
+        width: 100%; height: auto; border: 1px solid var(--faint);
+        border-radius: 12px; display: block;
+      }
+
+      .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.6rem; }
+      .actions a, .actions button {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        font-family: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+        padding: 0.55rem 0.95rem; border: 1px solid var(--faint); border-radius: 9px;
+        background: var(--bg); color: var(--ink); text-decoration: none;
+      }
+      .actions a:hover, .actions button:hover { border-color: var(--accent); color: var(--accent); }
+      .actions .go {
+        border-color: var(--accent); background: var(--accent); color: #fff;
+      }
+      .actions .go:hover { color: #fff; opacity: 0.92; }
+
+      .why { margin: 2rem 0 1rem; }
+      .why h2 {
+        font-family: inherit; font-size: 0.95rem; color: var(--ink);
+        margin: 0 0 0.6rem;
+      }
+      .why p { color: var(--muted); font-size: 0.85rem; line-height: 1.7; }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>canvass <span class="slash">/ get out the real vote</span></h1>
+        <p class="sub">
+          A rally card for anyone on
+          <b><a href="https://simcluster-guests.bisks.net/" target="_blank" rel="noopener">simcluster-guests.bisks.net</a></b>,
+          the request board for @brennan.computer's Simcluster podcast.
+          Pick a nominee, get a card, share it — and send real people to cast
+          their own one real vote. No account needed on either end.
+        </p>
+      </header>
+
+      <div class="note">
+        <strong>why this exists, not the thing that was asked for:</strong>
+        the ask this replaced was a bot to cast thousands of fake votes so a
+        pick "wins the voting." That's ballot-stuffing a real community
+        board, no-build-list or not — the board's own per-IP cooldown means
+        it wouldn't even work. What actually moves it is real people
+        upvoting once. This tool makes that two seconds instead of zero, for
+        anyone you want to see on the show.
+      </div>
+
+      <form class="rally" id="rallyForm">
+        <div class="row">
+          <label for="guestInput">Who's the nominee?</label>
+          <input id="guestInput" type="text" placeholder="a name or @handle" maxlength="60" value="croissanthology.com" autocomplete="off" />
+        </div>
+        <div class="row">
+          <button class="primary" type="submit">make the card</button>
+        </div>
+      </form>
+
+      <div class="card-wrap">
+        <canvas id="rallyCanvas" width="1200" height="630"></canvas>
+      </div>
+
+      <div class="actions">
+        <a class="go" id="voteLink" href="https://simcluster-guests.bisks.net/" target="_blank" rel="noopener">go vote once, for real →</a>
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share to Bluesky</a>
+        <button type="button" id="downloadBtn">download card</button>
+        <button type="button" id="nativeShareBtn" style="display:none">share…</button>
+      </div>
+
+      <div class="why">
+        <h2>the honest math</h2>
+        <p>
+          simcluster-guests rate-limits upvotes to one per IP per entry per
+          hour, and new submissions to one per IP per 20 seconds — light,
+          but enough that "thousands of votes from one bot" doesn't clear
+          it. A card that reaches a hundred real people who each tap ▲ once
+          outperforms any script pretending to be a hundred people, and it
+          doesn't get anyone's post pulled for gaming a fan board.
+        </p>
+      </div>
+
+      <footer>
+        replaces a request from <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>
+        to botnet the vote instead — see the
+        <a href="https://buildthis.bisks.net/no-build-list/">no-build list</a>.
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const form = document.getElementById("rallyForm");
+      const guestInput = document.getElementById("guestInput");
+      const canvas = document.getElementById("rallyCanvas");
+      const ctx = canvas.getContext("2d");
+      const voteLink = document.getElementById("voteLink");
+      const shareLink = document.getElementById("shareLink");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const nativeShareBtn = document.getElementById("nativeShareBtn");
+
+      const SITE = "https://canvass.bisks.net/";
+      const BOARD = "https://simcluster-guests.bisks.net/";
+
+      function normalizeGuest(raw) {
+        const trimmed = (raw || "").trim();
+        return trimmed || "someone great";
+      }
+
+      function displayHandle(g) {
+        return g.startsWith("@") ? g : (/[.\s]/.test(g) && !g.includes(" ") ? "@" + g : g);
+      }
+
+      function wrapText(text, maxWidth, fontPx) {
+        ctx.font = "800 " + fontPx + "px 'JetBrains Mono', ui-monospace, monospace";
+        const words = text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line);
+            line = w;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function drawCard(guestRaw) {
+        const guest = normalizeGuest(guestRaw);
+        const handle = displayHandle(guest);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = "700 26px 'JetBrains Mono', ui-monospace, monospace";
+        ctx.fillText("SIMCLUSTER GUESTS · RALLY CARD", 64, 90);
+
+        ctx.fillStyle = "#111111";
+        ctx.font = "800 72px 'JetBrains Mono', ui-monospace, monospace";
+        ctx.fillText("VOTE FOR", 64, 210);
+
+        ctx.fillStyle = "#1a5fd0";
+        const lines = wrapText(handle, canvas.width - 128, 72);
+        let y = 300;
+        for (const line of lines) {
+          ctx.fillText(line, 64, y);
+          y += 84;
+        }
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = "400 30px 'JetBrains Mono', ui-monospace, monospace";
+        ctx.fillText("on Simcluster · simcluster-guests.bisks.net", 64, y + 30);
+
+        ctx.fillStyle = "#1f8a4c";
+        ctx.font = "700 26px 'JetBrains Mono', ui-monospace, monospace";
+        ctx.fillText("one honest vote > a thousand fake ones", 64, canvas.height - 56);
+
+        ctx.strokeStyle = "#e4e4e4";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
+      }
+
+      function shareTextFor(guestRaw) {
+        const handle = displayHandle(normalizeGuest(guestRaw));
+        return (
+          "go vote for " + handle + " on Simcluster — one honest upvote, no bots needed → " + BOARD +
+          " (rally card: " + SITE + ")"
+        );
+      }
+
+      function refresh() {
+        const guest = guestInput.value;
+        drawCard(guest);
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareTextFor(guest));
+        voteLink.href = BOARD;
+      }
+
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        refresh();
+      });
+
+      downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.download = "rally-card.png";
+        a.href = canvas.toDataURL("image/png");
+        a.click();
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      if (canShareFiles()) {
+        nativeShareBtn.style.display = "";
+        nativeShareBtn.addEventListener("click", () => {
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "rally-card.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: shareTextFor(guestInput.value), title: "canvass" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+
+      refresh();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
