@@ -75,7 +75,12 @@ looks identical to a totally unrelated deploy failure. This bit `sites/ratioed`,
 The `state.storage.get/put` API is unchanged on SQLite-backed DOs, so no other
 code needs to change — just this one line.
 
-## The zone's custom-domain cap, and the path migration
+## The zone's custom-domain cap, and the path migration (HISTORY — resolved 2026-07-31)
+
+> Everything in this section describes the period when sites were mounted at
+> paths because the zone was at its custom-domain cap. That's over — see
+> "Resolved" below. Kept because the path routes still exist for old links, and
+> because the failure modes it documents recur.
 
 New `<name>.bisks.net` custom-domain deploys hit a Cloudflare per-zone
 custom-domain cap: `wrangler deploy` succeeds for the Worker but the DNS record
@@ -106,12 +111,16 @@ mount prefix before serving. Two gotchas beyond the plain prefix-strip:
 ## First-deploy checklist for a new site
 
 1. `wrangler.toml` has a unique `name` (`atprotozoa-<sitename>`).
-2. `routes` set to a path on the `bisks.net` zone (`bisks.net/<name>` +
-   `bisks.net/<name>/*`), with a `src/index.ts` that strips the mount prefix.
-   A dedicated `<name>.bisks.net` custom domain is the exception, not the
-   default — the zone is at its custom-domain cap (see above).
-3. `wrangler deploy` once locally to confirm it comes up.
-4. Commit → CI takes over from there.
+2. One route: `{ pattern = "<name>.bisks.net/*", zone_name = "bisks.net" }`.
+   Use `zone_name`, **not** `custom_domain = true` — the wildcard DNS record and
+   cert already cover the hostname, and a custom domain would burn one of the
+   100 capped slots for nothing. A new site is served at the root of its own
+   hostname, so `src/index.ts` needs no prefix-stripping.
+3. `sites/<name>/site.json` — the apex gallery is generated from these. Then
+   `node audit/build-gallery.mjs --apply`. Don't hand-edit the gallery; CI
+   fails the push if it disagrees with the manifests.
+4. `wrangler deploy` once locally to confirm it comes up.
+5. Commit → CI takes over from there.
 
 ## Chrome "deceptive site" / Safe Browsing warnings on a brand-new custom domain
 

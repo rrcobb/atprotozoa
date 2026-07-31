@@ -61,24 +61,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Every deployable unit: "apex", "watchtower", and each "sites/<name>"
-          # that has a wrangler.toml. One line per dir.
+          # Every deployable unit: any top-level dir with a wrangler.toml, plus
+          # each "sites/<name>" that has one. One line per dir.
           #
-          # watchtower is a top-level dir rather than a site because it must NOT
-          # be routed on the bisks.net zone — an on-zone Worker can't probe its
-          # own zone (see watchtower/wrangler.toml).
+          # Top-level Workers exist because not everything can be a site on the
+          # zone: "apex" IS bisks.net, "fallback" answers unclaimed *.bisks.net
+          # hostnames, and "watchtower" must stay OFF the zone entirely (an
+          # on-zone Worker can't probe its own zone — see
+          # watchtower/wrangler.toml). Globbing rather than listing them means a
+          # new one deploys without editing this file; fallback/ was added by
+          # hand and silently never deployed until this was generalised.
           all_dirs() {
-            { [ -d apex ] && echo apex || true; }
-            { [ -f watchtower/wrangler.toml ] && echo watchtower || true; }
+            for d in */; do
+              [ "$d" = "sites/" ] && continue
+              [ -f "${d}wrangler.toml" ] && echo "${d%/}"
+            done
             for d in sites/*/; do
               [ -f "${d}wrangler.toml" ] && echo "${d%/}"
             done
           }
 
           # Map a list of changed file paths (on stdin) to the deployable dirs
-          # they belong to, keeping only dirs that still have a wrangler.toml.
+          # they belong to, keeping only dirs that still have a wrangler.toml —
+          # which is also what filters out notes/, audit/ and the like, so this
+          # doesn't need to know their names.
           changed_dirs() {
-            sed -n -E 's#^(apex)/.*#\1#p; s#^(watchtower)/.*#\1#p; s#^(sites/[^/]+)/.*#\1#p' \
+            sed -n -E -e 's#^(sites/[^/]+)/.*#\1#p' -e t -e 's#^([^/]+)/.*#\1#p' \
               | sort -u \
               | while IFS= read -r d; do
                   [ -f "$d/wrangler.toml" ] && echo "$d"

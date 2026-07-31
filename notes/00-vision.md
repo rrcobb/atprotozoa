@@ -66,10 +66,15 @@ unserious.
 
 Everything lives under **bisks.net** (Cloudflare). The apex serves a landing page
 and the handle-verification endpoint so `bisks.net` can be used as a Bluesky
-handle. Individual experiments get a **path**, not a subdomain: `bisks.net/trigrams`,
-`bisks.net/<name>`. (Older sites still answer on their own `<name>.bisks.net`
-custom domain — that was the original default, but the zone ran into a
-Cloudflare custom-domain cap once there were 100+ of them, so path-mounting on
-the one already-provisioned `bisks.net` zone is the default going forward. See
-`notes/20-deploy.md` and `notes/40-new-site-playbook.md`.) See
-`notes/30-identity-and-did.md` for identity.
+handle. Individual experiments get their own **subdomain**: `trigrams.bisks.net`,
+`<name>.bisks.net`.
+
+(For a stretch they were mounted at paths instead — `bisks.net/<name>` — because
+the zone hit Cloudflare's 100-custom-domain cap. That constraint is gone: a
+wildcard `*.bisks.net` DNS record plus a wildcard cert mean a site claims a
+hostname with a plain route, and routes cap at 1000/zone. Sites migrated during
+that period keep their old path route alongside the subdomain so previously
+shared links still work. See `notes/20-deploy.md` and
+`notes/40-new-site-playbook.md`.)
+
+See `notes/30-identity-and-did.md` for identity.
