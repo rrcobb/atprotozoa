@@ -1,0 +1,28 @@
+name = "atprotozoa-watchtower"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# DELIBERATELY NO `routes`. This Worker must NOT be on the bisks.net zone.
+#
+# An on-zone Worker cannot probe its own zone: every subrequest to
+# <name>.bisks.net comes back 522 whether or not the site is up, which is
+# exactly why buildthis's dead-link check had to give up and report "unknown".
+# Reachable only at its workers.dev hostname, this Worker's subrequests leave
+# and re-enter through the edge like an outside visitor's.
+#
+# Verified 2026-07-31: an off-zone probe of canvass.bisks.net returns 200 while
+# the identical probe from buildthis returns 522. Adding a route here would
+# silently reintroduce the blind spot.
+workers_dev = true
+
+# Cron walks the site list a slice at a time — Workers Free caps subrequests at
+# 50 per invocation and each site costs up to 3 (root, root again for its HTML,
+# one asset), so ~190 sites can't be done in one tick. Every 5 minutes covers
+# the whole zoo in roughly an hour.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Holds the standing report plus the walk cursor.
+[[kv_namespaces]]
+binding = "RESULTS"
+id = "39d84e13322a41fe87d0a1c2fc57056f"

@@ -1608,7 +1608,7 @@ function renderHealthPage(s: HealthSnapshot): string {
     ${row("shipped", String(s.recent.successes))}
     ${row("failed", String(s.recent.failures))}
     ${row("pushed but not live", `${dot(s.deadLinks.length === 0)} ${s.deadLinks.length}${s.deadLinks.length ? " (" + s.deadLinks.join(", ") + ")" : ""}`)}
-    ${(s.unverifiable || []).length ? row("couldn't verify (same-zone probe)", `${(s.unverifiable || []).length} (${(s.unverifiable || []).join(", ")})`) : ""}
+    ${(s.unverifiable || []).length ? row("couldn't verify (same-zone probe)", `${(s.unverifiable || []).length} (${(s.unverifiable || []).join(", ")}) — watchtower checks these from off-zone`) : ""}
   </table>
   <footer>
     machine-readable at <a href="/health">/health</a> ·

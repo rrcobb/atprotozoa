@@ -61,10 +61,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Every deployable unit: "apex" and each "sites/<name>" that has a
-          # wrangler.toml. One line per dir.
+          # Every deployable unit: "apex", "watchtower", and each "sites/<name>"
+          # that has a wrangler.toml. One line per dir.
+          #
+          # watchtower is a top-level dir rather than a site because it must NOT
+          # be routed on the bisks.net zone — an on-zone Worker can't probe its
+          # own zone (see watchtower/wrangler.toml).
           all_dirs() {
             { [ -d apex ] && echo apex || true; }
+            { [ -f watchtower/wrangler.toml ] && echo watchtower || true; }
             for d in sites/*/; do
               [ -f "${d}wrangler.toml" ] && echo "${d%/}"
             done
@@ -73,7 +78,7 @@ jobs:
           # Map a list of changed file paths (on stdin) to the deployable dirs
           # they belong to, keeping only dirs that still have a wrangler.toml.
           changed_dirs() {
-            sed -n -E 's#^(apex)/.*#\1#p; s#^(sites/[^/]+)/.*#\1#p' \
+            sed -n -E 's#^(apex)/.*#\1#p; s#^(watchtower)/.*#\1#p; s#^(sites/[^/]+)/.*#\1#p' \
               | sort -u \
               | while IFS= read -r d; do
                   [ -f "$d/wrangler.toml" ] && echo "$d"
