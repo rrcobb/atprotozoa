@@ -82,29 +82,47 @@
         sinceLast: Math.round(sinceLast),
         medianGapDays: Math.round(medGap * 10) / 10,
         lastAt: last.t,
+        lastUrl: last.url || null,
       };
     }
     return { stopped: false, sinceLast: Math.round(sinceLast) };
+  }
+
+  // Latest event (reply or like) out of one side's interactions, carrying
+  // the post URL when it's a reply (likes don't point at the liker's own
+  // words, so there's nothing worth linking to for those).
+  function lastEventOf(replies, likes) {
+    const events = [
+      ...replies.map((r) => ({ t: r.createdAt, url: r.postUrl || null })),
+      ...likes.map((l) => ({ t: l.createdAt, url: null })),
+    ].filter((e) => e.t);
+    events.sort((x, y) => Date.parse(x.t) - Date.parse(y.t));
+    return events.length ? events[events.length - 1] : null;
   }
 
   // One side keeps showing up, the other stopped responding — a different
   // shape from a mutual sudden stop: the relationship didn't go quiet, it
   // went one-way.
   function detectAsymmetricSilence(input, now) {
-    const lastA = [...input.repliesAtoB, ...input.likesAtoB].map((e) => e.createdAt).filter(Boolean).sort().pop() || null;
-    const lastB = [...input.repliesBtoA, ...input.likesBtoA].map((e) => e.createdAt).filter(Boolean).sort().pop() || null;
+    const lastA = lastEventOf(input.repliesAtoB, input.likesAtoB);
+    const lastB = lastEventOf(input.repliesBtoA, input.likesBtoA);
     const countA = input.repliesAtoB.length + input.likesAtoB.length;
     const countB = input.repliesBtoA.length + input.likesBtoA.length;
 
     if (!lastA || !lastB) return { asymmetric: false };
     if (countA < 2 || countB < 2) return { asymmetric: false }; // too little data on one side to call it a pattern
 
-    const gapDays = daysBetween(lastA, lastB);
+    const gapDays = daysBetween(lastA.t, lastB.t);
     // one side's most recent contact trails the other's by more than a
     // month, on a pair that otherwise has real back-and-forth history
     if (gapDays > 30) {
-      const quietSide = Date.parse(lastA) < Date.parse(lastB) ? "a" : "b";
-      return { asymmetric: true, quietSide, gapDays: Math.round(gapDays) };
+      const quietIsA = Date.parse(lastA.t) < Date.parse(lastB.t);
+      return {
+        asymmetric: true,
+        quietSide: quietIsA ? "a" : "b",
+        gapDays: Math.round(gapDays),
+        lastUrl: quietIsA ? lastA.url : lastB.url,
+      };
     }
     return { asymmetric: false };
   }
@@ -196,6 +214,7 @@
         weight: 30,
         label: "engagement went quiet",
         detail: `they interacted roughly every ${suddenStop.medianGapDays} days, then nothing for ${suddenStop.sinceLast} days since ${new Date(suddenStop.lastAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}.`,
+        url: suddenStop.lastUrl || null,
       });
     }
 
@@ -208,6 +227,7 @@
         weight: 15,
         label: "one-sided silence",
         detail: `${fmtHandle(quietHandle)}'s side of the exchange stopped about ${asymmetric.gapDays} days before the other's did.`,
+        url: asymmetric.lastUrl || null,
       });
     }
 
@@ -244,5 +264,5 @@
     };
   }
 
-  global.BeefcheckAnalysis = { analyzePair, tallySentiment, buildTimeline };
+  global.BeefcheckAnalysis = { analyzePair, tallySentiment, buildTimeline, lastEventOf };
 })(window);

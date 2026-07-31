@@ -107,6 +107,8 @@
   .ev.hot { border-left-color: var(--bad); }
   .ev-head { font-weight: 700; }
   .ev-detail { color: var(--dim); }
+  .ev-link { display: inline-block; margin-top: 0.25rem; color: var(--accent); font-size: 0.78rem; text-decoration: none; }
+  .ev-link:hover { text-decoration: underline; }
 
   .totals { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1rem; }
   .stat { flex: 1; min-width: 100px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; text-align: center; }
@@ -114,12 +116,32 @@
   .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
 
   .mini-list { display: flex; flex-direction: column; gap: 0.7rem; }
-  .mini-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem 1rem; display: flex; align-items: center; gap: 0.8rem; }
+  .mini-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem 1rem; display: flex; align-items: center; gap: 0.8rem; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .mini-card:hover { border-color: var(--accent); }
+  .mini-card.active { border-color: var(--accent); background: #1d1512; }
   .mini-score { font-size: 1.4rem; font-weight: 800; color: var(--accent); width: 3rem; text-align: center; flex-shrink: 0; }
   .mini-score.good { color: var(--good); }
   .mini-body { flex: 1; min-width: 0; }
   .mini-title { font-weight: 700; font-size: 0.9rem; }
   .mini-blurb { color: var(--dim); font-size: 0.78rem; }
+
+  .timeline-wrap { margin: 0 0 1.2rem; }
+  .timeline-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin-bottom: 0.9rem; text-align: center; }
+  .timeline { position: relative; height: 2px; margin: 1.4rem 0.5rem 0.6rem; background: var(--border); }
+  .tl-dot { position: absolute; top: 0; width: 8px; height: 8px; margin-left: -4px; margin-top: -3px; border-radius: 50%; background: var(--dim); }
+  .tl-dot.tl-top { transform: translateY(-0.85rem); }
+  .tl-dot.tl-bottom { transform: translateY(0.85rem); }
+  .tl-dot.tl-reply.tl-pos { background: var(--good); }
+  .tl-dot.tl-reply.tl-neg { background: var(--bad); }
+  .tl-dot.tl-like { width: 5px; height: 5px; margin-left: -2.5px; margin-top: -1.5px; background: var(--accent2); opacity: 0.65; }
+  .tl-dot[data-url] { cursor: pointer; }
+  .tl-dot.tl-top[data-url]:hover { transform: translateY(-0.85rem) scale(1.7); z-index: 2; }
+  .tl-dot.tl-bottom[data-url]:hover { transform: translateY(0.85rem) scale(1.7); z-index: 2; }
+  .tl-now { position: absolute; top: -0.6rem; bottom: -0.6rem; right: 0; width: 1px; background: var(--accent); opacity: 0.55; }
+  .tl-gap { position: absolute; top: -0.6rem; bottom: -0.6rem; background: rgba(255, 92, 92, 0.08); border-left: 1px dashed var(--bad); }
+  .timeline-legend { display: flex; justify-content: center; gap: 1.2rem; font-size: 0.7rem; color: var(--dim); }
+  .timeline-legend span { position: relative; padding-left: 1.1em; }
+  .timeline-legend span::before { content: ""; position: absolute; left: 0; top: 50%; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transform: translateY(-50%); }
 
   .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
   #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
@@ -166,7 +188,7 @@
       </div>
       <button id="go" type="submit">check for beef</button>
     </form>
-    <p class="hint">works on mutuals, exes, whole friend groups. up to 4 handles at once — more than 2 checks every pair.</p>
+    <p class="hint">works on mutuals, exes, whole friend groups. up to 4 handles at once — more than 2 checks every pair, tap any pair for its full timeline.</p>
 
     <p id="status" class="status"></p>
 
@@ -430,7 +452,60 @@ function statBlock(n, label) {
 
 function renderEvidence(ev) {
   const cls = ev.weight >= 25 ? " hot" : "";
-  return `<div class="ev${cls}"><div class="ev-head">${ev.icon} ${esc(ev.label)}</div><div class="ev-detail">${esc(ev.detail)}</div></div>`;
+  const link = ev.url ? `<a class="ev-link" href="${esc(ev.url)}" target="_blank" rel="noopener">view post →</a>` : "";
+  return `<div class="ev${cls}"><div class="ev-head">${ev.icon} ${esc(ev.label)}</div><div class="ev-detail">${esc(ev.detail)}</div>${link}</div>`;
+}
+
+// A dot per reply/like between the two, oldest to newest, @a's above the
+// line and @b's below it — so a one-sided or suddenly-stopped exchange is
+// something you can see, not just read as a sentence of evidence text.
+function renderTimeline(pairResult) {
+  const { a, b, result } = pairResult;
+  const tl = result.timeline;
+  if (!tl || tl.length < 2) return "";
+
+  const firstT = Date.parse(tl[0].t);
+  const nowT = Date.now();
+  const span = Math.max(nowT - firstT, 1);
+  const pct = (t) => Math.min(100, Math.max(0, ((Date.parse(t) - firstT) / span) * 100));
+
+  const dots = tl
+    .map((e) => {
+      const side = e.from === "a" ? "tl-top" : "tl-bottom";
+      let kindCls = "tl-" + e.kind;
+      if (e.kind === "reply" && e.text) {
+        const s = window.BeefcheckAnalysis.tallySentiment(e.text);
+        if (s < 0) kindCls += " tl-neg";
+        else if (s > 0) kindCls += " tl-pos";
+      }
+      const when = new Date(e.t).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      const who = e.from === "a" ? a.handle : b.handle;
+      const what = e.kind === "like" ? "liked a post" : e.text ? `"${e.text.slice(0, 60)}${e.text.length > 60 ? "…" : ""}"` : "replied";
+      const title = `${when} · @${who} ${what}`;
+      const urlAttr = e.url ? ` data-url="${esc(e.url)}"` : "";
+      return `<div class="tl-dot ${side} ${kindCls}" style="left:${pct(e.t)}%" title="${esc(title)}"${urlAttr}></div>`;
+    })
+    .join("");
+
+  let gapHtml = "";
+  if (result.suddenStop && result.suddenStop.stopped) {
+    const gapStart = pct(result.suddenStop.lastAt);
+    gapHtml = `<div class="tl-gap" style="left:${gapStart}%;right:0;" title="quiet for ${result.suddenStop.sinceLast} days"></div>`;
+  }
+
+  return `
+    <div class="timeline-wrap">
+      <div class="timeline-label">interaction timeline</div>
+      <div class="timeline">
+        ${gapHtml}
+        ${dots}
+        <div class="tl-now" title="today"></div>
+      </div>
+      <div class="timeline-legend">
+        <span>@${esc(a.handle)}</span>
+        <span>@${esc(b.handle)}</span>
+      </div>
+    </div>`;
 }
 
 function renderPairCard(pairResult) {
@@ -450,6 +525,7 @@ function renderPairCard(pairResult) {
   const evidenceHtml = result.evidence.length
     ? `<div class="evidence">${result.evidence.map(renderEvidence).join("")}</div>`
     : "";
+  const timelineHtml = result.noContact ? "" : renderTimeline(pairResult);
 
   const div = document.createElement("div");
   div.className = "card";
@@ -466,6 +542,7 @@ function renderPairCard(pairResult) {
       <div class="verdict-blurb">${esc(result.verdict.blurb)}</div>
     </div>
     ${totalsHtml}
+    ${timelineHtml}
     ${evidenceHtml}
     <div class="share">
       <canvas class="shareCanvas" width="1200" height="630"></canvas>
@@ -476,6 +553,10 @@ function renderPairCard(pairResult) {
       </div>
     </div>
   `;
+
+  div.querySelectorAll(".tl-dot[data-url]").forEach((dot) => {
+    dot.addEventListener("click", () => window.open(dot.dataset.url, "_blank", "noopener"));
+  });
 
   const canvas = div.querySelector(".shareCanvas");
   const shareBluesky = div.querySelector(".shareBluesky");
@@ -619,14 +700,27 @@ async function run() {
       label.className = "score-label";
       label.style.textAlign = "center";
       label.style.marginBottom = "0.9rem";
-      label.textContent = `${people.length} handles checked · ${pairs.length} pairs · sorted by beef score`;
+      label.textContent = `${people.length} handles checked · ${pairs.length} pairs · sorted by beef score · tap a pair for the full read`;
       top.appendChild(label);
       const list = document.createElement("div");
       list.className = "mini-list";
-      pairResults.forEach((pr) => list.appendChild(renderMiniCard(pr)));
+      const detail = document.createElement("div");
+
+      function selectPair(idx) {
+        [...list.children].forEach((el, i) => el.classList.toggle("active", i === idx));
+        detail.innerHTML = "";
+        detail.appendChild(renderPairCard(pairResults[idx]));
+      }
+
+      pairResults.forEach((pr, i) => {
+        const mini = renderMiniCard(pr);
+        mini.addEventListener("click", () => selectPair(i));
+        list.appendChild(mini);
+      });
       top.appendChild(list);
       els.results.appendChild(top);
-      els.results.appendChild(renderPairCard(pairResults[0]));
+      els.results.appendChild(detail);
+      selectPair(0);
     }
 
     els.results.classList.add("show");
