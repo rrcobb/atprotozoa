@@ -6,16 +6,19 @@
     <title>mootree — a family tree of your bluesky moots — bisks.net</title>
     <meta
       name="description"
-      content="Sign in with Bluesky and grow a family tree out of the people you follow: generations from account age, birth order from the order you actually followed them in."
+      content="Grow a family tree out of anyone's Bluesky moots — no login needed to peek at one. Rows are generations, sorted by account age; within a row, birth order is the order they actually followed people in."
     />
 
-    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky.
+         src/index.ts personalizes these on /t/<handle> — the strings below
+         are the generic fallback for "/" and are also the literal search
+         targets that route does a string-replace on, so keep them in sync. -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://mootree.bisks.net/" />
     <meta property="og:title" content="mootree — a family tree of your bluesky moots" />
     <meta
       property="og:description"
-      content="Sign in with Bluesky and grow a family tree out of the people you follow. Rows are generations, sorted by account age relative to yours; within a row, birth order is the order you actually followed them in."
+      content="Grow a family tree out of anyone's Bluesky moots — no login needed to peek at one. Rows are generations, sorted by account age; within a row, birth order is the order they actually followed people in."
     />
     <meta property="og:image" content="https://mootree.bisks.net/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -25,7 +28,7 @@
     <meta name="twitter:title" content="mootree — a family tree of your bluesky moots" />
     <meta
       name="twitter:description"
-      content="Sign in with Bluesky and grow a family tree out of the people you follow — generations from account age, birth order from follow order."
+      content="Grow a family tree out of anyone's Bluesky moots — no login needed to peek at one. Rows are generations, sorted by account age; within a row, birth order is the order they actually followed people in."
     />
     <meta name="twitter:image" content="https://mootree.bisks.net/og.png" />
 
@@ -92,6 +95,28 @@
 
       .status { color: var(--muted); font-size: 0.85rem; margin: 0.6rem 0; }
       .status.err { color: #a02020; }
+
+      .peek {
+        display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;
+        margin: 0 0 1.6rem;
+      }
+      .peek .or { color: var(--muted); font-size: 0.8rem; }
+      .peek input {
+        flex: 1; min-width: 12rem; font-family: inherit; font-size: 0.92rem;
+        padding: 0.5rem 0.6rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--bg); color: var(--ink);
+      }
+      .peek input:focus { outline: none; border-color: var(--leaf); }
+      .peek button.ghost { border-color: var(--leaf); color: var(--leaf); }
+
+      .viewing {
+        display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: center;
+        justify-content: space-between;
+        border: 1px solid var(--faint); border-radius: 10px;
+        padding: 0.6rem 0.9rem; margin: 0 0 1rem; font-size: 0.85rem;
+        background: var(--faintbg);
+      }
+      .viewing b { color: var(--leaf); }
 
       .meta-row {
         display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;
@@ -172,15 +197,19 @@
         <h1><span class="glyph">🌳</span> mootree</h1>
       </header>
       <p class="sub">
-        Sign in with Bluesky and this grows a <b>family tree</b> out of the people you follow.
-        Each row is a <b>generation</b> — how long ago their account was created, relative to
-        yours. Within a row, left-to-right is <b>birth order</b> — the actual order you followed
-        them in, read straight off your repo, oldest follow first.
+        This grows a <b>family tree</b> out of the people someone follows. Each row is a
+        <b>generation</b> — how long ago that account was created, relative to the tree's
+        owner. Within a row, left-to-right is <b>birth order</b> — the actual order they
+        followed them in, read straight off their repo, oldest follow first. Every read here
+        is public atproto data, so you can <b>peek at anyone's tree with no sign-in at all</b> —
+        sign in only if you want a permanent link to grow your own.
       </p>
 
       <div class="who" id="who"></div>
       <div id="signin-box"></div>
+      <div id="peek-box"></div>
       <div id="status-box"></div>
+      <div id="viewing-box"></div>
       <div id="tree-box"></div>
 
       <footer>
@@ -195,7 +224,13 @@
     </div>
 
     <script type="module">
-      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import {
+        login,
+        completeLoginIfCallback,
+        getSession,
+        clearSession,
+        resolvePublicActor,
+      } from "./lib/oauth.js";
       import { buildLineage } from "./lib/genealogy.js";
 
       const $ = (s) => document.querySelector(s);
@@ -214,9 +249,19 @@
         const s = ["th", "st", "nd", "rd"], v = n % 100;
         return n + (s[(v - 20) % 10] || s[v] || s[0]);
       };
+      const cleanHandle = (raw) => {
+        let h = raw.trim().replace(/^@/, "");
+        const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+        return m ? m[1] : h;
+      };
 
-      let session = null;
+      let session = null; // signed-in viewer, if any — proves "this DID is you"
+      let currentSubjectDid = null; // whose tree is on screen right now
 
+      // Every read this page does (follow records, profiles) is public
+      // atproto data — no token required. Signing in only proves *which*
+      // DID is "you" so the peek box and share links can default to it;
+      // the tree for any handle builds the same way either way.
       async function init() {
         try {
           session = (await completeLoginIfCallback()) || (await getSession());
@@ -225,8 +270,26 @@
         }
         renderWho();
         renderSignInBox();
-        if (session) await runTree();
+        renderPeekBox();
+
+        const pathHandle = (location.pathname.match(/^\/t\/([^/]+)\/?$/) || [])[1];
+        if (pathHandle) {
+          await viewHandle(decodeURIComponent(pathHandle), { push: false });
+        } else if (session) {
+          await viewActor(session, { push: false });
+        }
       }
+
+      window.addEventListener("popstate", () => {
+        const pathHandle = (location.pathname.match(/^\/t\/([^/]+)\/?$/) || [])[1];
+        if (pathHandle) viewHandle(decodeURIComponent(pathHandle), { push: false });
+        else if (session) viewActor(session, { push: false });
+        else {
+          $("#tree-box").innerHTML = "";
+          $("#viewing-box").innerHTML = "";
+          setStatus("");
+        }
+      });
 
       function renderWho() {
         const who = $("#who");
@@ -235,9 +298,14 @@
           $("#signout").addEventListener("click", async () => {
             await clearSession();
             session = null;
+            currentSubjectDid = null;
             $("#tree-box").innerHTML = "";
+            $("#viewing-box").innerHTML = "";
+            setStatus("");
+            history.pushState(null, "", "/");
             renderWho();
             renderSignInBox();
+            renderPeekBox();
           });
         } else {
           who.textContent = "";
@@ -253,13 +321,29 @@
         box.innerHTML = `
           <div class="signin">
             <input id="signin-handle" type="text" placeholder="your bluesky handle" />
-            <button id="signin-go">grow my tree</button>
+            <button id="signin-go">sign in &amp; grow mine</button>
             <span class="status err" id="signin-err"></span>
           </div>
         `;
         $("#signin-go").addEventListener("click", doLogin);
         $("#signin-handle").addEventListener("keydown", (e) => {
           if (e.key === "Enter") doLogin();
+        });
+      }
+
+      function renderPeekBox() {
+        const box = $("#peek-box");
+        const lead = session ? "or peek at someone else's tree:" : "or, no sign-in needed:";
+        box.innerHTML = `
+          <div class="peek">
+            <span class="or">${lead}</span>
+            <input id="peek-handle" type="text" placeholder="anyone's bluesky handle" />
+            <button class="ghost" id="peek-go">peek at their tree</button>
+          </div>
+        `;
+        $("#peek-go").addEventListener("click", doPeek);
+        $("#peek-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") doPeek();
         });
       }
 
@@ -274,37 +358,49 @@
         }
       }
 
+      function doPeek() {
+        const h = $("#peek-handle").value.trim();
+        if (!h) return;
+        viewHandle(cleanHandle(h), { push: true });
+      }
+
       function setStatus(text, isErr) {
         $("#status-box").innerHTML = text
           ? `<p class="status${isErr ? " err" : ""}">${esc(text)}</p>`
           : "";
       }
 
-      function cardHtml(entry, isYou) {
+      function cardHtml(entry, isSubject, subjectIsSelf) {
         const initial = esc((entry.displayName || entry.handle || "?").trim()[0] || "?").toUpperCase();
         const img = entry.avatar
           ? `<img src="${esc(entry.avatar)}" alt="" loading="lazy" />`
           : `<div class="fallback">${initial}</div>`;
         const order = Number.isInteger(entry.followOrder) ? ordinal(entry.followOrder + 1) : null;
-        const title = isYou
-          ? `@${entry.handle} — that's you, joined ${dateFmt(entry.createdAt)}`
-          : `@${entry.handle}\njoined ${dateFmt(entry.createdAt)}${order ? `\nyou followed them ${order}` : ""}`;
+        const title = isSubject
+          ? `@${entry.handle}${subjectIsSelf ? " — that's you" : ""}, joined ${dateFmt(entry.createdAt)}`
+          : `@${entry.handle}\njoined ${dateFmt(entry.createdAt)}${order ? `\nfollowed ${order}` : ""}`;
+        const label = isSubject && subjectIsSelf ? "you" : "@" + esc(entry.handle);
         return `
-          <div class="card${isYou ? " you" : ""}" title="${esc(title)}">
+          <div class="card${isSubject ? " you" : ""}" title="${esc(title)}">
             ${img}
-            <div class="handle">${isYou ? "you" : "@" + esc(entry.handle)}</div>
+            <div class="handle">${label}</div>
           </div>
         `;
       }
 
-      function rowHtml(row, youEntry) {
-        const isYouRow = row.offset === 0;
-        const members = isYouRow ? [youEntry, ...row.members] : row.members;
-        const cards = members.map((m) => cardHtml(m, isYouRow && m === youEntry)).join("");
+      function rowHtml(row, subjectEntry, subjectIsSelf) {
+        const isSubjectRow = row.offset === 0;
+        const members = isSubjectRow ? [subjectEntry, ...row.members] : row.members;
+        const cards = members.map((m) => cardHtml(m, isSubjectRow && m === subjectEntry, subjectIsSelf)).join("");
+        const label = isSubjectRow
+          ? subjectIsSelf
+            ? "Your Generation"
+            : `@${subjectEntry.handle}'s Generation`
+          : row.label;
         return `
-          <div class="row${isYouRow ? " you-row" : ""}">
+          <div class="row${isSubjectRow ? " you-row" : ""}">
             <div class="row-label">
-              <span class="name">${esc(row.label)}</span>
+              <span class="name">${esc(label)}</span>
               <span class="count">${row.members.length} account${row.members.length === 1 ? "" : "s"}</span>
             </div>
             <div class="row-cards">${cards}</div>
@@ -314,7 +410,7 @@
 
       function unknownHtml(entries) {
         if (!entries.length) return "";
-        const cards = entries.map((m) => cardHtml(m, false)).join("");
+        const cards = entries.map((m) => cardHtml(m, false, false)).join("");
         return `
           <div class="row unknown">
             <div class="row-label">
@@ -326,43 +422,95 @@
         `;
       }
 
-      function summaryText(lineage) {
+      function shareUrlFor(handle) {
+        return "https://mootree.bisks.net/t/" + encodeURIComponent(handle);
+      }
+
+      function summaryText(lineage, subjectIsSelf) {
         const elders = lineage.rows.filter((r) => r.offset > 0).reduce((n, r) => n + r.members.length, 0);
         const peers = (lineage.rows.find((r) => r.offset === 0)?.members.length || 0) + 1;
         const younger = lineage.rows.filter((r) => r.offset < 0).reduce((n, r) => n + r.members.length, 0);
-        return `my bisks.net/mootree: ${elders} elders, ${peers} in my own generation, ${younger} younger than me 🌳`;
+        const url = shareUrlFor(lineage.you.handle);
+        return subjectIsSelf
+          ? `my bisks.net/mootree: ${elders} elders, ${peers} in my own generation, ${younger} younger than me 🌳\n\n${url}`
+          : `@${lineage.you.handle}'s bisks.net/mootree: ${elders} elders, ${peers} in their generation, ${younger} younger 🌳\n\n${url}`;
       }
 
-      async function runTree() {
-        $("#tree-box").innerHTML = "";
+      function renderViewingBanner(handle, subjectIsSelf) {
+        const box = $("#viewing-box");
+        if (subjectIsSelf) {
+          box.innerHTML = "";
+          return;
+        }
+        box.innerHTML = `
+          <div class="viewing">
+            <span>👀 viewing <b>@${esc(handle)}</b>'s tree</span>
+            <span>${session ? `<a id="viewMine">view your own tree</a>` : `<a href="/">grow your own tree</a>`}</span>
+          </div>
+        `;
+        if (session) {
+          $("#viewMine")?.addEventListener("click", () => viewActor(session, { push: true }));
+        }
+      }
+
+      // Resolve a bare handle/DID (public, no auth) and build its tree.
+      async function viewHandle(handleOrDid, { push }) {
+        setStatus(`resolving @${handleOrDid}…`, false);
         try {
-          const lineage = await buildLineage(session, (msg) => setStatus(msg, false));
+          const actor =
+            session && (handleOrDid === session.did || handleOrDid.toLowerCase() === session.handle?.toLowerCase())
+              ? session
+              : await resolvePublicActor(handleOrDid);
+          await viewActor(actor, { push });
+        } catch (e) {
+          setStatus(`couldn't resolve @${handleOrDid}: ${e.message}`, true);
+        }
+      }
+
+      // actor = { did, handle, pdsUrl, ... } — either the signed-in session
+      // or a plain public-resolved actor. Both work with buildLineage the
+      // same way since it never touches an access token.
+      async function viewActor(actor, { push }) {
+        currentSubjectDid = actor.did;
+        $("#tree-box").innerHTML = "";
+        const subjectIsSelf = !!session && actor.did === session.did;
+        try {
+          const lineage = await buildLineage(actor, (msg) => setStatus(msg, false));
+          if (currentSubjectDid !== actor.did) return; // superseded by a newer view
           setStatus("");
+          if (push) history.pushState(null, "", "/t/" + encodeURIComponent(lineage.you.handle));
+          renderViewingBanner(lineage.you.handle, subjectIsSelf);
           if (!lineage.followCount) {
-            setStatus("you don't follow anyone yet — nothing to grow a tree from.", false);
+            setStatus(
+              subjectIsSelf
+                ? "you don't follow anyone yet — nothing to grow a tree from."
+                : "they don't follow anyone yet — nothing to grow a tree from.",
+              false,
+            );
             return;
           }
-          const youEntry = { ...lineage.you, followOrder: null };
-          const rowsHtml = lineage.rows.map((r) => rowHtml(r, youEntry)).join("");
+          const subjectEntry = { ...lineage.you, followOrder: null };
+          const rowsHtml = lineage.rows.map((r) => rowHtml(r, subjectEntry, subjectIsSelf)).join("");
           const truncNote = lineage.truncated
-            ? `<p class="status">showing the first ${lineage.followCount} accounts you followed (oldest follow first) — you follow more than that.</p>`
+            ? `<p class="status">showing the first ${lineage.followCount} accounts followed (oldest follow first) — there are more than that.</p>`
             : "";
           $("#tree-box").innerHTML = `
             <div class="meta-row">
-              <span class="pill">you joined ${dateFmt(lineage.you.createdAt)}</span>
+              <span class="pill">${subjectIsSelf ? "you" : "@" + esc(lineage.you.handle)} joined ${dateFmt(lineage.you.createdAt)}</span>
               <span class="pill">${lineage.rows.length} generation${lineage.rows.length === 1 ? "" : "s"}</span>
               <span class="pill">${lineage.followCount} moots planted</span>
             </div>
             <div class="tree">${rowsHtml}${unknownHtml(lineage.unknownEra)}</div>
             ${truncNote}
             <div class="share">
-              <a id="shareLink" href="#" target="_blank" rel="noopener">🌿 share your tree on bluesky</a>
+              <a id="shareLink" href="#" target="_blank" rel="noopener">🌿 share ${subjectIsSelf ? "your" : "this"} tree on bluesky</a>
             </div>
           `;
           $("#shareLink").href =
-            "https://bsky.app/intent/compose?text=" + encodeURIComponent(summaryText(lineage));
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(summaryText(lineage, subjectIsSelf));
         } catch (e) {
-          setStatus(`couldn't grow your tree: ${e.message}`, true);
+          if (currentSubjectDid !== actor.did) return;
+          setStatus(`couldn't grow ${subjectIsSelf ? "your" : "their"} tree: ${e.message}`, true);
         }
       }
 

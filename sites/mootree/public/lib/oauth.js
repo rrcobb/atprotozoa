@@ -34,7 +34,7 @@ const PLC_DIR = "https://plc.directory";
 
 // --- identity resolution (handle -> DID -> PDS -> auth server) ---------------
 
-async function resolveHandle(handle) {
+export async function resolveHandle(handle) {
   const r = await fetch(
     `${BSKY_PUBLIC_API}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`,
   );
@@ -44,7 +44,7 @@ async function resolveHandle(handle) {
 
 // DID -> handle, via the DID doc's alsoKnownAs (`at://<handle>`). Reliable across
 // did:plc and did:web; falls back to the DID string if nothing's found.
-async function resolveHandleForDid(did) {
+export async function resolveHandleForDid(did) {
   try {
     let doc = null;
     if (did.startsWith("did:plc:")) {
@@ -61,7 +61,7 @@ async function resolveHandleForDid(did) {
   return did;
 }
 
-async function resolvePds(did) {
+export async function resolvePds(did) {
   try {
     if (did.startsWith("did:plc:")) {
       const r = await fetch(`${PLC_DIR}/${did}`);
@@ -103,6 +103,23 @@ async function discoverAuthServer(pdsUrl) {
     `${authServerUrl.replace(/\/$/, "")}/.well-known/oauth-authorization-server`,
   );
   return { authServerUrl, metadata };
+}
+
+// Resolve a handle or DID to { did, handle, pdsUrl } with no login at all —
+// every read mootree does (follow records, profiles) is a public atproto
+// endpoint, so viewing *anyone's* tree never needs an access token. Only
+// growing your *own* tree from the sign-in box needs the OAuth dance above
+// (to prove which DID is "you" without asking for a password).
+export async function resolvePublicActor(handleOrDid) {
+  const raw = handleOrDid.trim();
+  const did = raw.startsWith("did:") ? raw : await resolveHandle(raw);
+  if (!did) throw new Error(`could not resolve "${raw}"`);
+  const [handle, pdsUrl] = await Promise.all([
+    raw.startsWith("did:") ? resolveHandleForDid(did) : Promise.resolve(raw.replace(/^@/, "")),
+    resolvePds(did),
+  ]);
+  if (!pdsUrl) throw new Error(`could not find a PDS for ${did}`);
+  return { did, handle, pdsUrl };
 }
 
 // --- session storage (IndexedDB) ---------------------------------------------
