@@ -360,13 +360,17 @@ catch-all can only be live once every site holds a real hostname route. The
 apex is fine either way: `*.bisks.net` matches one level *below* the apex, so
 `bisks.net` never matches it.
 
-**A push of several commits only deploys the tip commit's dirs.** `deploy.yml`
-diffs `github.event.before` against `github.sha`, so pushing two commits
-together where the first touches sites and the second touches only notes means
-the *first* commit's sites never deploy — CI goes green having deployed
-nothing. Fourteen sites were silently left on old code this way. Either push
-site-touching commits one at a time, or redeploy the affected dirs by hand
-(`git show --stat <sha>` lists them).
+**A green run for the tip commit does not mean the whole push has deployed.**
+`deploy.yml` diffs `github.event.before` against `github.sha`, which correctly
+spans every commit in a push — that part works. What's easy to get wrong is
+reading the run list: `gh run list` shows the newest run by its *tip commit's*
+message, so a push whose last commit only touches `notes/` looks like a
+notes-only deploy even when the same run is deploying 14 sites underneath. Check
+the job list (`gh run view <id> --json jobs`) rather than the run title, and
+wait for `status=completed` before concluding a site is serving stale code.
+
+Three sites were briefly diagnosed as "never deployed" this way on 2026-07-31;
+they were mid-deploy in a run that then went green on its own.
 
 As a stopgap, added `workers_dev = true` to `sites/steamtags/wrangler.toml`
 (same idea as the padmoot/windmill stopgap further up, though those two were
