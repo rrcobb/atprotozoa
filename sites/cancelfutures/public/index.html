@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cancelfutures — a mock discourse prediction market — bisks.net</title>
+    <meta
+      name="description"
+      content="A fake betting market on which Bluesky discourse cycle happens next. Mad-libs archetypes and callout templates get odds; you bet play money; the market simulates itself. No real people, no real money."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cancelfutures.bisks.net/" />
+    <meta property="og:title" content="cancelfutures — a mock discourse prediction market" />
+    <meta
+      property="og:description"
+      content="Odds on which Bluesky discourse cycle happens next — generated archetypes, not real people. Bet play money, watch the odds move, no real money involved."
+    />
+    <meta property="og:image" content="https://cancelfutures.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="cancelfutures: a mock odds board for fictional Bluesky discourse cycles." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="cancelfutures — a mock discourse prediction market" />
+    <meta
+      name="twitter:description"
+      content="Odds on which fictional Bluesky discourse cycle happens next. Play money only."
+    />
+    <meta name="twitter:image" content="https://cancelfutures.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / guestbet / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --gold: #a6790f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 64ch; margin: 0 0 0.9rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+      .sub a { color: var(--accent); }
+
+      .disclaimer {
+        border: 1px dashed var(--faint);
+        border-radius: 10px;
+        padding: 0.7rem 0.9rem;
+        margin: 0 0 1.4rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .disclaimer b { color: var(--ink); }
+
+      .panel {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 1.4rem;
+        background: var(--faintbg);
+      }
+      .walletRow {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem 1.4rem;
+      }
+      .balance { font-size: 1.35rem; font-weight: 800; }
+      .balance .coin { color: var(--gold); }
+      .clock { font-size: 0.82rem; color: var(--muted); }
+      .clock b { color: var(--ink); }
+      .stipendBtn {
+        margin-left: auto;
+        font-family: inherit; font-size: 0.8rem; font-weight: 700;
+        padding: 0.4rem 0.7rem; border: 1px solid var(--good); border-radius: 7px;
+        background: var(--bg); color: var(--good); cursor: pointer;
+      }
+      .stipendBtn:hover { background: var(--good); color: #fff; }
+      .stipendBtn:disabled { opacity: 0.4; cursor: default; }
+
+      .statsRow {
+        display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 0.7rem;
+        padding-top: 0.7rem; border-top: 1px solid var(--faint);
+        font-size: 0.76rem; color: var(--muted);
+      }
+      .statsRow b { color: var(--ink); }
+      .statsRow .pos { color: var(--good); }
+      .statsRow .neg { color: var(--bad); }
+
+      ol.activity { list-style: none; margin: 0 0 1rem; padding: 0; font-size: 0.8rem; }
+      ol.activity li {
+        padding: 0.45rem 0; border-top: 1px solid var(--faint); color: var(--muted);
+      }
+      ol.activity li:first-of-type { border-top: none; }
+      ol.activity .who { color: var(--accent); font-weight: 700; }
+      ol.activity .who.you { color: var(--good); }
+      ol.activity .amt { color: var(--ink); font-weight: 700; }
+      ol.activity .ago { float: right; }
+
+      .payoutPreview {
+        font-size: 0.72rem; color: var(--muted); flex-basis: 100%;
+        margin-top: 0.15rem; min-height: 1em;
+      }
+      .payoutPreview b { color: var(--good); }
+
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+      .status.warn { color: var(--bad); }
+
+      h2 { font-size: 1rem; font-weight: 800; margin: 1.8rem 0 0.5rem; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.9rem; }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; flex-wrap: wrap; gap: 0.6rem 0.9rem; padding: 1rem 0;
+        border-top: 1px solid var(--faint); align-items: center;
+      }
+      .row:first-of-type { border-top: none; }
+      .body { flex: 1; min-width: 220px; }
+      .subject { font-size: 1rem; font-weight: 700; margin: 0 0 0.15rem; overflow-wrap: break-word; }
+      .offense { color: var(--ink); font-size: 0.88rem; margin: 0 0 0.2rem; }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.7rem; color: var(--muted);
+        font-size: 0.76rem; align-items: center;
+      }
+      .meta .yours { color: var(--accent); font-weight: 700; }
+      .odds {
+        min-width: 4.6rem; text-align: right; font-weight: 800; font-size: 1.05rem;
+      }
+      .odds small { display: block; font-weight: 400; color: var(--muted); font-size: 0.68rem; }
+      .betForm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+      .betForm input {
+        width: 4.6rem; font-family: inherit; font-size: 0.85rem;
+        padding: 0.4rem 0.5rem; border: 1px solid var(--faint); border-radius: 7px;
+        background: var(--bg); color: var(--ink);
+      }
+      .betForm input:focus { outline: none; border-color: var(--accent); }
+      .betForm button {
+        font-family: inherit; font-size: 0.8rem; font-weight: 700; padding: 0.42rem 0.7rem;
+        border: 1px solid var(--accent); background: var(--accent); color: #fff;
+        border-radius: 7px; cursor: pointer; white-space: nowrap;
+      }
+      .betForm button:hover { opacity: 0.92; }
+      .betForm button:disabled { opacity: 0.45; cursor: default; }
+
+      table.history { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      table.history th, table.history td {
+        text-align: left; padding: 0.5rem 0.5rem; border-top: 1px solid var(--faint);
+      }
+      table.history th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.history td.num { text-align: right; }
+      table.history td.winner { max-width: 30ch; overflow-wrap: break-word; }
+
+      .share { margin: 2rem 0 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>cancelfutures <span class="slash">/ odds on the next discourse cycle</span></h1>
+        <p class="sub">
+          A prediction market for a discourse cycle that hasn't happened yet — because
+          it's made up. Every round the board generates a handful of fictional
+          "someone is about to have a main-character moment" scenarios, prices
+          them with odds, and bets play money on which one "resolves" when the
+          clock hits zero. Odds move as the (simulated) crowd piles on.
+        </p>
+      </header>
+
+      <div class="disclaimer">
+        <b>this is fiction, twice over.</b> Every subject on the board is a
+        generic archetype (a tradwife influencer, a crypto bro, your mutual
+        who unfollows-and-refollows), not a real account — nobody real gets
+        "canceled" here. And the market itself is a solo simulation: the odds,
+        the crowd's bets in the activity feed below, all of it is generated
+        by your browser. You're the only real bettor. No real money, ever.
+      </div>
+
+      <div class="panel">
+        <div class="walletRow">
+          <div>
+            <div class="balance"><span class="coin">◆</span> <span id="balanceVal">—</span> coins</div>
+          </div>
+          <div class="clock">round #<span id="roundId">—</span> resolves in <b id="clockVal">—</b></div>
+          <button class="stipendBtn" id="stipendBtn" style="display:none">spot me 100</button>
+        </div>
+        <div class="statsRow" id="statsRow"></div>
+      </div>
+
+      <ol class="board" id="board"></ol>
+
+      <h2>live activity</h2>
+      <p class="hint" id="activityHint">no bets placed yet — be the first.</p>
+      <ol class="activity" id="activity"></ol>
+
+      <h2>past rounds</h2>
+      <p class="hint" id="historyHint">no rounds have resolved yet — check back after the first one closes.</p>
+      <table class="history" id="historyTable" style="display:none">
+        <thead>
+          <tr><th>round</th><th>what happened</th><th class="num">you wagered</th><th class="num">you won</th></tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=cancelfutures.bisks.net" target="_blank" rel="noopener">share this market</a>
+      </div>
+
+      <footer>
+        Play money only, starts from a fresh 1000 coins per browser — clearing
+        localStorage gets you a new bankroll. Odds blend a randomized seed
+        with simulated crowd activity and your own real bets, so they drift
+        even if you never touch the board. Each round's winner is drawn at
+        random, weighted by the final odds — same math a real pari-mutuel
+        pool would use, just with a made-up crowd. Nothing on this page
+        describes a real account or a real event.
+        asked for by <a href="https://bsky.app/profile/dollspace.gay">@dollspace.gay</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      // ---------- content: mad-libs discourse archetypes, no real people ----------
+      const SUBJECTS = [
+        "a tradwife influencer who just found bluesky",
+        "an AI-art account with 40k followers",
+        "your mutual who unfollows and refollows every few months",
+        "a verified news org's intern running the account",
+        "a crypto bro who “discovered” atproto",
+        "a substack guy cross-posting his newsletter",
+        "an alt account that's definitely not who you think",
+        "a parody account that stopped being funny",
+        "a tech founder doing a bluesky AMA",
+        "a poetry account that only posts at 3am",
+        "a k-pop stan account with a spreadsheet",
+        "a guy with a blue check he bought ironically",
+        "a mutual aid organizer burning out in real time",
+        "an account that only screenshots other apps",
+        "a self-appointed discourse historian",
+        "a cottagecore account with a suspicious sponsorship",
+        "a labor organizer who just discovered the block button",
+        "an account whose whole bio is emoji",
+        "a guy who says “as a longtime lurker” every post",
+        "a bot account nobody's sure is a bot",
+      ];
+
+      const OFFENSES = [
+        "gets ratio'd for a hot take about {topic}",
+        "starts a {n}-reply subtweet chain about {topic}",
+        "screenshots a DM without cropping the read receipt",
+        "quote-dunks their own alt by accident",
+        "gets deboosted by the algorithm and blames Jack",
+        "starts beef with a parody account and loses",
+        "goes feral over {topic} discourse",
+        "issues a 12-part apology thread that makes it worse",
+        "gets called out over {topic} by someone with a bigger ratio",
+        "leaks their own screenshot from the group chat",
+        "starts a poll about {topic} that backfires immediately",
+        "gets main-charactered over a joke that didn't land",
+        "clarifies a joke in the quotes and it still doesn't land",
+        "gets caught liking their own alt's slander",
+        "announces they're “taking a break from the app” and doesn't",
+        "starts trending for the wrong reason entirely",
+      ];
+
+      const TOPICS = [
+        "candy corn",
+        "wordle strategy",
+        "pineapple on pizza",
+        "the ideal font for a personal site",
+        "whether birds are real",
+        "the correct way to eat a bagel",
+        "which decade had the best sitcoms",
+        "oxford commas",
+        "the ethics of reply-guying",
+        "morning person vs night owl discourse",
+        "which Mario Kart character is best",
+        "the proper way to hold a fork",
+        "vertical vs horizontal scrolling feeds",
+        "whether cereal is soup",
+        "the right amount of ice in a drink",
+        "whether a hot dog is a sandwich",
+      ];
+
+      const WHY_REASONS = [
+        "because the internet has had a slow week",
+        "because it's a Tuesday",
+        "because nobody has logged off in nine days",
+        "because the discourse cycle abhors a vacuum",
+        "because someone quote-posted it out of context",
+        "because the replies were unhinged before noon",
+        "because this is what main-character energy costs",
+        "because the group chat leaked itself",
+        "because everyone needed something to do besides work",
+        "because the algorithm rewarded the wrong post",
+      ];
+
+      const ROUND_MS = 90_000;
+      const EVENTS_PER_ROUND = 7;
+      const STORAGE_KEY = "cancelfutures-state-v2";
+      const STIPEND_COOLDOWN_MS = 60_000;
+
+      function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+      function rint(min, max) { return Math.floor(min + Math.random() * (max - min + 1)); }
+
+      function genEvent(id) {
+        const subject = pick(SUBJECTS);
+        const offense = pick(OFFENSES)
+          .replace("{topic}", pick(TOPICS))
+          .replace("{n}", String(rint(6, 60)));
+        const why = pick(WHY_REASONS);
+        const weight = 1 + Math.random() * 9;
+        return { id, subject, offense, why, seedPool: Math.round(weight * 35), realPool: 0, npcPool: 0 };
+      }
+
+      function newRound(prevId) {
+        const events = [];
+        for (let i = 0; i < EVENTS_PER_ROUND; i++) events.push(genEvent("e" + i));
+        return {
+          id: (prevId || 0) + 1,
+          events,
+          bets: {},
+          activity: [],
+          resolvesAt: Date.now() + ROUND_MS,
+        };
+      }
+
+      function defaultState() {
+        return {
+          balance: 1000,
+          stats: { wagered: 0, won: 0, roundsPlayed: 0, roundsWon: 0 },
+          lastStipendAt: 0,
+          round: newRound(0),
+          history: [],
+        };
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return defaultState();
+          const s = JSON.parse(raw);
+          if (!s || !s.round || !Array.isArray(s.round.events)) return defaultState();
+          return s;
+        } catch {
+          return defaultState();
+        }
+      }
+
+      function saveState() {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+      }
+
+      let state = loadState();
+
+      function pool(e) { return e.seedPool + e.realPool + e.npcPool; }
+      function totalPool(round) { return round.events.reduce((s, e) => s + pool(e), 0); }
+      function oddsFor(e, round) {
+        const tp = totalPool(round);
+        return Math.max(1.05, tp / Math.max(1, pool(e)));
+      }
+      function impliedPct(e, round) {
+        const tp = totalPool(round);
+        return Math.round((pool(e) / Math.max(1, tp)) * 1000) / 10;
+      }
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function fmtClock(ms) {
+        if (ms <= 0) return "any moment…";
+        const s = Math.floor(ms / 1000);
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${m}m ${sec}s`;
+      }
+
+      function fmtAgo(ts) {
+        const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return "just now";
+        return `${Math.floor(s / 60)}m ago`;
+      }
+
+      const NPC_NAMES = [
+        "lurker7f2", "guest0x3a", "anon-99k", "moot-42q", "reply-gal",
+        "bskyfan21", "notabot7", "coinflip3", "wharfrat9", "bluetick0",
+      ];
+
+      // ---------- els ----------
+      const els = {
+        balanceVal: document.getElementById("balanceVal"),
+        roundId: document.getElementById("roundId"),
+        clockVal: document.getElementById("clockVal"),
+        stipendBtn: document.getElementById("stipendBtn"),
+        statsRow: document.getElementById("statsRow"),
+        board: document.getElementById("board"),
+        activityHint: document.getElementById("activityHint"),
+        activity: document.getElementById("activity"),
+        historyHint: document.getElementById("historyHint"),
+        historyTable: document.getElementById("historyTable"),
+        historyBody: document.getElementById("historyBody"),
+        shareLink: document.getElementById("shareLink"),
+      };
+
+      function rowHTML(e, round) {
+        const yours = round.bets[e.id] || 0;
+        const yourLine = yours ? `<span class="yours">you: ${yours} on this</span>` : "";
+        const odds = oddsFor(e, round).toFixed(2);
+        return `
+          <li class="row">
+            <div class="body">
+              <p class="subject">${esc(e.subject)}</p>
+              <p class="offense">${esc(e.offense)}</p>
+              <div class="meta">
+                <span>why: ${esc(e.why)}</span>
+                <span>implied ${impliedPct(e, round)}%</span>
+                ${yourLine}
+              </div>
+            </div>
+            <div class="odds">${odds}x<small>${impliedPct(e, round)}%</small></div>
+            <form class="betForm" data-id="${esc(e.id)}" data-odds="${odds}">
+              <input type="number" min="10" step="10" placeholder="amt" required />
+              <button type="submit">bet</button>
+              <span class="payoutPreview"></span>
+            </form>
+          </li>`;
+      }
+
+      function render() {
+        const round = state.round;
+        els.roundId.textContent = round.id;
+        els.balanceVal.textContent = state.balance;
+        tickClock();
+
+        const now = Date.now();
+        const canStipend = state.balance < 100 && now - state.lastStipendAt > STIPEND_COOLDOWN_MS;
+        els.stipendBtn.style.display = canStipend ? "" : "none";
+
+        const s = state.stats;
+        if (s.roundsPlayed > 0) {
+          const net = s.won - s.wagered;
+          const netClass = net > 0 ? "pos" : net < 0 ? "neg" : "";
+          const netStr = net > 0 ? `+${net}` : `${net}`;
+          els.statsRow.innerHTML = `
+            <span>wagered <b>${s.wagered}</b></span>
+            <span>won <b>${s.won}</b></span>
+            <span>net <b class="${netClass}">${netStr}</b></span>
+            <span>rounds <b>${s.roundsWon}/${s.roundsPlayed}</b> won</span>`;
+        } else {
+          els.statsRow.innerHTML = "";
+        }
+
+        if (round.activity.length) {
+          els.activityHint.style.display = "none";
+          els.activity.innerHTML = round.activity
+            .slice(-30)
+            .reverse()
+            .map((a) => {
+              const ev = round.events.find((e) => e.id === a.eventId);
+              const label = ev ? ev.subject : "the board";
+              const whoClass = a.you ? "who you" : "who";
+              const whoLabel = a.you ? "you" : a.who;
+              return `<li><span class="ago">${fmtAgo(a.ts)}</span><span class="${whoClass}">${esc(whoLabel)}</span> bet <span class="amt">${a.amount}</span> on ${esc(label)}</li>`;
+            })
+            .join("");
+        } else {
+          els.activityHint.style.display = "";
+          els.activity.innerHTML = "";
+        }
+
+        els.board.innerHTML = round.events.map((e) => rowHTML(e, round)).join("");
+        els.board.querySelectorAll(".betForm").forEach((form) => {
+          const input = form.querySelector("input");
+          const preview = form.querySelector(".payoutPreview");
+          const odds = parseFloat(form.dataset.odds) || 1;
+          input.addEventListener("input", () => {
+            const amount = parseInt(input.value, 10);
+            if (!amount || amount < 1) {
+              preview.innerHTML = "";
+              return;
+            }
+            preview.innerHTML = `→ <b>~${Math.round(amount * odds)}</b> coins if it happens, at today's odds`;
+          });
+          form.addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            const amount = parseInt(input.value, 10);
+            if (!amount || amount < 10 || amount > state.balance) return;
+            placeBet(form.dataset.id, amount);
+            input.value = "";
+          });
+        });
+
+        if (state.history.length) {
+          els.historyHint.style.display = "none";
+          els.historyTable.style.display = "";
+          els.historyBody.innerHTML = state.history
+            .slice()
+            .reverse()
+            .map(
+              (h) =>
+                `<tr><td>#${h.id}</td><td class="winner">${esc(h.winnerLabel)}</td><td class="num">${h.wagered}</td><td class="num">${h.paidOut}</td></tr>`
+            )
+            .join("");
+        } else {
+          els.historyHint.style.display = "";
+          els.historyTable.style.display = "none";
+        }
+
+        const top = round.events.reduce((a, b) => (oddsFor(a, round) < oddsFor(b, round) ? a : b));
+        const netBrag =
+          s.roundsPlayed > 0 && s.won - s.wagered >= 200
+            ? `I'm up ${s.won - s.wagered} play-money coins on cancelfutures. `
+            : "";
+        const shareText = `${netBrag}right now on cancelfutures, the favorite is "${top.subject} ${top.offense}" at ${oddsFor(top, round).toFixed(2)}x. bet play money on the next fake discourse cycle at cancelfutures.bisks.net`;
+        els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        saveState();
+      }
+
+      function tickClock() {
+        els.clockVal.textContent = fmtClock(state.round.resolvesAt - Date.now());
+      }
+
+      function placeBet(eventId, amount) {
+        const e = state.round.events.find((x) => x.id === eventId);
+        if (!e) return;
+        state.balance -= amount;
+        e.realPool += amount;
+        state.round.bets[eventId] = (state.round.bets[eventId] || 0) + amount;
+        state.round.activity.push({ ts: Date.now(), you: true, amount, eventId });
+        render();
+      }
+
+      function maybeNpcBet() {
+        const round = state.round;
+        // Favor the current favorite a bit, like a real crowd, but keep it noisy.
+        const weights = round.events.map((e) => impliedPct(e, round) + 5);
+        const total = weights.reduce((a, b) => a + b, 0);
+        let r = Math.random() * total;
+        let idx = 0;
+        for (; idx < weights.length; idx++) {
+          if (r < weights[idx]) break;
+          r -= weights[idx];
+        }
+        const e = round.events[idx] || round.events[0];
+        const amount = rint(1, 6) * 10;
+        e.npcPool += amount;
+        round.activity.push({ ts: Date.now(), you: false, who: pick(NPC_NAMES), amount, eventId: e.id });
+        if (round.activity.length > 60) round.activity = round.activity.slice(-60);
+      }
+
+      function resolveRound() {
+        const round = state.round;
+        const tp = totalPool(round);
+        let r = Math.random() * tp;
+        let winner = round.events[round.events.length - 1];
+        for (const e of round.events) {
+          const p = pool(e);
+          if (r < p) { winner = e; break; }
+          r -= p;
+        }
+        const winnerOdds = oddsFor(winner, round);
+        const wagered = Object.values(round.bets).reduce((a, b) => a + b, 0);
+        const yourStake = round.bets[winner.id] || 0;
+        const payout = Math.round(yourStake * winnerOdds);
+
+        state.balance += payout;
+        state.stats.wagered += wagered;
+        state.stats.won += payout;
+        if (wagered > 0) {
+          state.stats.roundsPlayed += 1;
+          if (payout > 0) state.stats.roundsWon += 1;
+        }
+        state.history.push({
+          id: round.id,
+          winnerLabel: `${winner.subject} ${winner.offense}`,
+          wagered,
+          paidOut: payout,
+        });
+        if (state.history.length > 20) state.history = state.history.slice(-20);
+
+        state.round = newRound(round.id);
+      }
+
+      function gameTick() {
+        const round = state.round;
+        if (Date.now() >= round.resolvesAt) {
+          resolveRound();
+          render();
+          return;
+        }
+        // Roughly one simulated bet every ~7s on average.
+        if (Math.random() < 1 / 7) {
+          maybeNpcBet();
+          saveState();
+        }
+        render();
+      }
+
+      els.stipendBtn.addEventListener("click", () => {
+        state.balance += 100;
+        state.lastStipendAt = Date.now();
+        render();
+      });
+
+      render();
+      setInterval(gameTick, 1000);
+    </script>
+  </body>
+</html>
