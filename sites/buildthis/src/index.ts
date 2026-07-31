@@ -1347,6 +1347,9 @@ interface HealthSnapshot {
   orphans: number; // claimed jobs stuck past ORPHAN_AGE_MS (died without reporting)
   recent: { window: number; successes: number; failures: number };
   deadLinks: string[]; // recent successes whose URL didn't serve after deploy
+  // Recent successes this Worker couldn't verify either way — a same-zone probe
+  // returns 522 regardless of whether the site is up. Reported, but not an issue.
+  unverifiable: string[];
   issues: string[]; // human-readable list of what's wrong (empty when ok)
 }
 
@@ -1418,18 +1421,33 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   }
 
   // Re-probe each candidate live: a site that serves NOW has recovered (new-domain
-  // provisioning lag), so it isn't a real dead link. Only URLs still not serving are
-  // flagged. Bounded work — the candidate set is tiny (recent unverified successes).
+  // provisioning lag), so it isn't a real dead link. Bounded work — the candidate
+  // set is tiny (recent unverified successes).
+  //
+  // A Worker cannot reliably probe its OWN zone. A subrequest from here to
+  // <name>.bisks.net gets routed internally and comes back 522 ("connection
+  // timed out") even while the site serves 200 to the outside world. Verified
+  // 2026-07-31: canvass, gridlock, mootree, simcluster-guests and aphoverb were
+  // all reported dead within an hour of shipping fine, and every probe returned
+  // exactly 522. cf.resolveOverride does not work around it.
+  //
+  // So 522 (and a network-level throw) means UNKNOWN, not dead. Reporting a
+  // healthy site as broken trains everyone to ignore this endpoint, which is
+  // worse than staying quiet — the point is to catch real "looks fine, isn't"
+  // failures, and a permanently-red check catches nothing.
   const deadLinks: string[] = [];
+  const unverifiable: string[] = [];
   for (const c of deadLinkCandidates) {
-    let live = false;
+    let status: number | null = null;
     try {
       const r = await fetch(c.url, { method: "GET", redirect: "manual" });
-      live = r.status >= 200 && r.status < 400;
+      status = r.status;
     } catch {
-      live = false; // couldn't reach it — treat as still down
+      status = null; // network-level failure
     }
-    if (!live) deadLinks.push(c.name);
+    if (status !== null && status >= 200 && status < 400) continue; // live
+    if (status === 522 || status === null) unverifiable.push(c.name);
+    else deadLinks.push(c.name);
   }
 
   // Roll up the issues. `ok` is false if any of these fire.
@@ -1459,6 +1477,7 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
     orphans,
     recent: { window: recentWindow.length, successes, failures },
     deadLinks,
+    unverifiable,
     issues,
   };
 }
@@ -1541,6 +1560,7 @@ function renderHealthPage(s: HealthSnapshot): string {
     ${row("shipped", String(s.recent.successes))}
     ${row("failed", String(s.recent.failures))}
     ${row("pushed but not live", `${dot(s.deadLinks.length === 0)} ${s.deadLinks.length}${s.deadLinks.length ? " (" + s.deadLinks.join(", ") + ")" : ""}`)}
+    ${(s.unverifiable || []).length ? row("couldn't verify (same-zone probe)", `${(s.unverifiable || []).length} (${(s.unverifiable || []).join(", ")})`) : ""}
   </table>
   <footer>
     machine-readable at <a href="/health">/health</a> ·
