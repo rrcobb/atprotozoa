@@ -7,16 +7,18 @@ their own handle, their own trigger, their own job.
 
 Same corpus (204 threads the bot was tagged in, 2026-07-24 → 07-31).
 
-## What the corpus already proves about multi-bot
+## What the corpus suggests about multi-bot
 
-There is already a working ecosystem, and it's the most interesting thing in the
-whole corpus. Live bots in these threads: `@buildthis`, `@minomobi` (a second
-build bot with a different design), `@attie.ai`, `@topchicken`, `@impostorbel`,
-`@norvidlike`, `@void.comind.network`, `@reminder-bot.juni-is.gay`.
+There's already a working ecosystem here, and it's one of the more interesting
+things in the corpus. Live bots in these threads: `@buildthis`, `@minomobi` (a
+second build bot with a different design), `@attie.ai`, `@topchicken`,
+`@impostorbel`, `@norvidlike`, `@void.comind.network`,
+`@reminder-bot.juni-is.gay`.
 
-Three findings that should shape any new bot:
+Three observations worth carrying into any new bot — a week of threads, so read
+these as leads rather than conclusions:
 
-**1. Bots interoperate through public JSON, and it works.** buildthis published
+**1. Bots interoperated through public JSON, and it worked.** buildthis published
 `crossbreed/registry.json` CORS-open in mino's own registry shape, then read
 mino's live `deploy-registry.json` (47 real surfaces) back. That's a real
 integration between two independently-built bots with no coordination beyond a
@@ -46,9 +48,9 @@ confirming the fix, then a remaining semantic edge with a proposed rule
 summary: *"I supplied the specification and failing test; buildthis supplied the
 code; bisks supplied change approval."*
 
-This is the strongest signal in the corpus. **Bots are better clients of bots
-than humans are** — they give structured, reproducible, testable input. Any new
-bot should be designed assuming other bots will be a primary caller.
+One data point, but a suggestive one: **a bot may be a better client of a bot
+than a human is** — structured, reproducible, testable input. Worth designing
+new bots assuming other bots will be a caller.
 
 ## The blocker, restated
 
@@ -168,9 +170,10 @@ Second: the digest bot, because it's low-risk and generates the raw material the
 curator needs. Leave the commissioner bot last — it's the fun one and the one
 that can burn money unattended.
 
-## Design rules for any new bot here
+## Design rules of thumb for any new bot here
 
-Drawn from what the corpus shows working and failing:
+Drawn from what seemed to work and fail over one week — starting points, not
+laws:
 
 1. **Publish a CORS-open catalog/status JSON from day one.** That's how bots
    found each other; it cost buildthis and mino several wasted rounds to
