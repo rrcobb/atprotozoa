@@ -123,6 +123,7 @@
       .result-tier { font-size: 1.15rem; font-weight: 800; margin: 0.2rem 0 0.6rem; }
       .result-blurb { color: var(--muted); font-size: 0.88rem; max-width: 44ch; margin: 0 auto 1.4rem; }
       .result-actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+      canvas#shareCanvas { display: none; }
 
       /* ---- catalog ---- */
       h2 { font-size: 1.15rem; margin: 0 0 0.3rem; }
@@ -213,9 +214,12 @@
             <p class="result-blurb" id="resultBlurb"></p>
             <div class="result-actions">
               <a class="solid" id="shareBluesky" target="_blank" rel="noopener" style="text-decoration:none; display:inline-block;">share on Bluesky</a>
+              <button class="ghost hidden" id="shareNativeBtn">share image</button>
+              <button class="ghost" id="shareDownloadBtn">download card</button>
               <button class="ghost" id="playAgainBtn">play again</button>
             </div>
           </div>
+          <canvas id="shareCanvas" width="1200" height="630"></canvas>
         </div>
       </section>
 
@@ -449,6 +453,132 @@
         const shareText = `aphoverb: ${score}/${deck.length} (${tierName}) telling proverbs from aphorisms. ${SITE_URL}`;
         document.getElementById("shareBluesky").href =
           "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        buildShareCard({ score, total: deck.length, pct, tierName, blurb });
+      }
+
+      // ---------- share card (canvas) ----------
+      function wrapLines(ctx, text, maxWidth) {
+        const words = text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = w;
+          } else line = test;
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function buildShareCard({ score, total, pct, tierName, blurb }) {
+        const canvas = document.getElementById("shareCanvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace";
+        const sage = "#7fd8a3", amber = "#ffb454", ink = "#eef2ef", muted = "#93a39a";
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#0b0d0c";
+        ctx.fillRect(0, 0, W, H);
+        const gl = ctx.createRadialGradient(W * 0.15, H * 0.1, 0, W * 0.15, H * 0.1, W * 0.6);
+        gl.addColorStop(0, "rgba(18,51,34,0.9)");
+        gl.addColorStop(1, "rgba(11,13,12,0)");
+        ctx.fillStyle = gl;
+        ctx.fillRect(0, 0, W, H);
+        const gr = ctx.createRadialGradient(W * 0.9, H * 0.9, 0, W * 0.9, H * 0.9, W * 0.6);
+        gr.addColorStop(0, "rgba(58,42,16,0.8)");
+        gr.addColorStop(1, "rgba(11,13,12,0)");
+        ctx.fillStyle = gr;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.font = `800 56px ${mono}`;
+        ctx.fillStyle = sage;
+        ctx.fillText("apho", 60, 110);
+        ctx.fillStyle = amber;
+        ctx.fillText("verb", 60 + ctx.measureText("apho").width, 110);
+
+        ctx.fillStyle = muted;
+        ctx.font = `17px ${mono}`;
+        ctx.fillText("proverb, or aphorism?", 60, 142);
+
+        const cardX = 60, cardY = 200, cardW = W - 120, cardH = H - 320;
+        ctx.fillStyle = "#131715";
+        ctx.strokeStyle = "rgba(238,242,239,0.14)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = amber;
+        ctx.font = `800 92px ${mono}`;
+        ctx.fillText(`${score}/${total}`, W / 2, cardY + 130);
+
+        ctx.fillStyle = ink;
+        ctx.font = `800 30px ${mono}`;
+        ctx.fillText(tierName, W / 2, cardY + 180);
+
+        ctx.fillStyle = muted;
+        ctx.font = `italic 17px ${mono}`;
+        const lines = wrapLines(ctx, blurb, cardW - 100);
+        let y = cardY + 220;
+        for (const l of lines) {
+          ctx.fillText(l, W / 2, y);
+          y += 24;
+        }
+
+        ctx.font = `15px ${mono}`;
+        ctx.fillText(`${pct}% split correctly between anonymous folklore and named coinages`, W / 2, cardY + cardH - 30);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = amber;
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("bisks.net/aphoverb", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      function cardBlob() {
+        return new Promise((resolve) => {
+          document.getElementById("shareCanvas").toBlob((b) => resolve(b), "image/png");
+        });
+      }
+
+      document.getElementById("shareDownloadBtn").addEventListener("click", async () => {
+        const blob = await cardBlob();
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "aphoverb-result.png";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      if (canShareFiles()) {
+        const nativeBtn = document.getElementById("shareNativeBtn");
+        nativeBtn.classList.remove("hidden");
+        nativeBtn.addEventListener("click", async () => {
+          const blob = await cardBlob();
+          if (!blob) return;
+          const file = new File([blob], "aphoverb-result.png", { type: "image/png" });
+          const shareText = `aphoverb: ${score}/${deck.length} telling proverbs from aphorisms. ${SITE_URL}`;
+          try {
+            await navigator.share({ files: [file], text: shareText, title: "aphoverb" });
+          } catch {}
+        });
       }
 
       document.getElementById("startBtn").addEventListener("click", startGame);
