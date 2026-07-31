@@ -33,10 +33,17 @@
 // across the network", so the DO keeps a live Jetstream subscription
 // filtered to just that collection and maintains a running
 // tag -> (game -> aggregate score) index, same shape as sites/quadrants'
-// QuadrantHub. Like that DO (and sites/ratioed, sites/quotehof), it only
-// tracks activity from whenever it started running — no historical
-// backfill — so the board fills in as people rate games (or re-sync an
-// existing library) going forward.
+// QuadrantHub. On top of that live stream, it also backfills history: the
+// relay's com.atproto.sync.listReposByCollection hands back every DID with
+// at least one record in the collection, and for each DID the DO resolves
+// its PDS and walks com.atproto.repo.listRecords to pull the actual
+// records. That combination (unlike sites/ratioed, sites/quotehof) means
+// the board isn't limited to activity since the DO started running — it
+// also picks up everyone who rated a game before the DO ever saw the
+// firehose event, or during any downtime in between. The walk is chunked
+// across alarm ticks/requests (see BACKFILL_* below) rather than done in
+// one shot, so a large collection can't blow a single invocation's
+// subrequest or CPU budget.
 
 export interface DurableObjectId {
   toString(): string;
@@ -271,6 +278,46 @@ const MAX_ENTRIES = 20000; // safety valve against a runaway/abusive writer
 const MAX_TAGS_SHOWN = 40;
 const MAX_GAMES_PER_TAG = 8;
 
+// --- backfill --------------------------------------------------------------
+// The relay that indexes com.atproto.sync.listReposByCollection. Same
+// resolve-DID-doc-to-find-PDS dance as sites/areyoumad.
+const RELAY_URL = "https://bsky.network";
+const PLC_DIRECTORY = "https://plc.directory";
+const BACKFILL_DIDS_PER_STEP = 15; // repos processed (each its own listRecords walk) per tick
+const BACKFILL_REPO_PAGES_PER_STEP = 2; // listReposByCollection pages fetched per tick
+const BACKFILL_RECORD_PAGES_PER_DID = 5; // cap on one repo's own listRecords pagination
+
+async function xrpcJson(url: string): Promise<any> {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  return res.json();
+}
+
+async function didDoc(did: string): Promise<any> {
+  if (did.startsWith("did:plc:")) {
+    const r = await fetch(`${PLC_DIRECTORY}/${did}`);
+    return r.ok ? r.json() : null;
+  }
+  if (did.startsWith("did:web:")) {
+    const domain = did.replace("did:web:", "").replace(/:/g, "/");
+    const r = await fetch(`https://${domain}/.well-known/did.json`);
+    return r.ok ? r.json() : null;
+  }
+  return null;
+}
+
+async function resolvePds(did: string): Promise<string | null> {
+  try {
+    const doc = await didDoc(did);
+    const svc = (doc?.service || []).find(
+      (s: any) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+    );
+    return svc?.serviceEndpoint || null;
+  } catch {
+    return null;
+  }
+}
+
 interface GlobalTagRating {
   tag: string;
   score: number;
@@ -317,17 +364,36 @@ export class GlobalTracker {
   private ws: any = null;
   private reconnectDelay = 1000;
 
+  // ---- backfill state --------------------------------------------------
+  private backfillDone = false;
+  private backfillReposExhausted = false;
+  private backfillCursor: string | undefined;
+  private backfillQueue: string[] = [];
+  private backfillQueued: Set<string> = new Set();
+  private backfillRunning = false;
+
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const [entries, lastUpdated] = await Promise.all([
-        this.state.storage.get<GlobalRatingEntry[]>("entries"),
-        this.state.storage.get<number>("lastUpdated"),
-      ]);
+      const [entries, lastUpdated, backfillDone, backfillReposExhausted, backfillCursor, backfillQueue] =
+        await Promise.all([
+          this.state.storage.get<GlobalRatingEntry[]>("entries"),
+          this.state.storage.get<number>("lastUpdated"),
+          this.state.storage.get<boolean>("backfillDone"),
+          this.state.storage.get<boolean>("backfillReposExhausted"),
+          this.state.storage.get<string>("backfillCursor"),
+          this.state.storage.get<string[]>("backfillQueue"),
+        ]);
       for (const e of entries ?? []) this.entries.set(`${e.did}::${e.appid}`, e);
       this.lastUpdated = lastUpdated ?? 0;
+      this.backfillDone = backfillDone ?? false;
+      this.backfillReposExhausted = backfillReposExhausted ?? false;
+      this.backfillCursor = backfillCursor;
+      this.backfillQueue = backfillQueue ?? [];
+      this.backfillQueued = new Set(this.backfillQueue);
     });
     this.connectSocket().catch(() => {});
+    this.runBackfillStep().catch(() => {});
     this.state.storage.setAlarm(Date.now() + RECONNECT_ALARM_MS).catch(() => {});
   }
 
@@ -399,18 +465,24 @@ export class GlobalTracker {
     if (typeof did !== "string") return;
     const rkey = commit.rkey;
     if (typeof rkey !== "string") return;
-    const key = `${did}::${rkey}`;
 
+    let changed = false;
     if (commit.operation === "delete") {
-      if (this.entries.delete(key)) await this.persist();
-      return;
+      changed = this.entries.delete(`${did}::${rkey}`);
+    } else if (commit.operation === "create" || commit.operation === "update") {
+      changed = this.applyRecord(did, rkey, commit.record);
     }
-    if (commit.operation !== "create" && commit.operation !== "update") return;
+    if (changed) await this.persist();
+  }
 
-    const rec = commit.record;
-    if (!rec || typeof rec !== "object") return;
+  // Shared by the live firehose handler above and the backfill walk below —
+  // both end up with the same (did, rkey, record value) shape, just from
+  // different sources (a Jetstream commit vs. a listRecords entry).
+  private applyRecord(did: string, rkey: string, rec: any): boolean {
+    const key = `${did}::${rkey}`;
+    if (!rec || typeof rec !== "object") return false;
     const appid = Number(rec.appid);
-    if (!Number.isFinite(appid)) return;
+    if (!Number.isFinite(appid)) return false;
 
     const rawTags: any[] = Array.isArray(rec.tags) ? rec.tags : [];
     const tags: GlobalTagRating[] = rawTags
@@ -422,12 +494,9 @@ export class GlobalTracker {
         votes: Number.isFinite(t.votes) ? Math.max(0, Math.round(t.votes)) : 0,
       }));
 
-    if (!tags.length) {
-      if (this.entries.delete(key)) await this.persist();
-      return;
-    }
+    if (!tags.length) return this.entries.delete(key);
 
-    if (!this.entries.has(key) && this.entries.size >= MAX_ENTRIES) return; // safety valve
+    if (!this.entries.has(key) && this.entries.size >= MAX_ENTRIES) return false; // safety valve
 
     this.entries.set(key, {
       did,
@@ -437,7 +506,107 @@ export class GlobalTracker {
       tags,
       updatedAt: Date.now(),
     });
-    await this.persist();
+    return true;
+  }
+
+  // ---- backfill ----------------------------------------------------------
+  // Two phases, both resumable across ticks via persisted state:
+  //  1. Walk com.atproto.sync.listReposByCollection on the relay to collect
+  //     every DID that has at least one record in our collection.
+  //  2. For each queued DID, resolve its PDS and walk its own
+  //     com.atproto.repo.listRecords for the collection, feeding every
+  //     record through the same applyRecord() the live stream uses.
+  // Bounded per call (BACKFILL_*_PER_STEP) so one invocation can't blow its
+  // subrequest/CPU budget on a large collection; runBackfillStep() gets
+  // called opportunistically (constructor, alarm, incoming requests) until
+  // both phases report done.
+  private async runBackfillStep(): Promise<void> {
+    await this.ready;
+    if (this.backfillDone || this.backfillRunning) return;
+    this.backfillRunning = true;
+    try {
+      let changed = false;
+
+      let processed = 0;
+      while (this.backfillQueue.length && processed < BACKFILL_DIDS_PER_STEP) {
+        const did = this.backfillQueue.shift()!;
+        processed++;
+        try {
+          if (await this.backfillDid(did)) changed = true;
+        } catch {
+          // one bad repo/PDS shouldn't stall the rest of the backfill
+        }
+      }
+
+      if (!this.backfillQueue.length && !this.backfillReposExhausted) {
+        for (let page = 0; page < BACKFILL_REPO_PAGES_PER_STEP; page++) {
+          const params = new URLSearchParams({ collection: GLOBAL_COLLECTION, limit: "100" });
+          if (this.backfillCursor) params.set("cursor", this.backfillCursor);
+          let data: any;
+          try {
+            data = await xrpcJson(`${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection?${params}`);
+          } catch {
+            break; // relay hiccup — try again next tick
+          }
+          const repos: any[] = Array.isArray(data.repos) ? data.repos : [];
+          for (const r of repos) {
+            const did = r?.did;
+            if (typeof did === "string" && !this.backfillQueued.has(did)) {
+              this.backfillQueued.add(did);
+              this.backfillQueue.push(did);
+            }
+          }
+          this.backfillCursor = typeof data.cursor === "string" ? data.cursor : undefined;
+          if (!this.backfillCursor || !repos.length) {
+            this.backfillReposExhausted = true;
+            break;
+          }
+        }
+      }
+
+      if (this.backfillReposExhausted && !this.backfillQueue.length) this.backfillDone = true;
+
+      if (changed) await this.persist();
+      await this.persistBackfillState();
+    } finally {
+      this.backfillRunning = false;
+    }
+  }
+
+  private async backfillDid(did: string): Promise<boolean> {
+    const pds = await resolvePds(did);
+    if (!pds) return false;
+    const base = pds.replace(/\/$/, "");
+
+    let changed = false;
+    let cursor: string | undefined;
+    for (let page = 0; page < BACKFILL_RECORD_PAGES_PER_DID; page++) {
+      const params = new URLSearchParams({ repo: did, collection: GLOBAL_COLLECTION, limit: "100" });
+      if (cursor) params.set("cursor", cursor);
+      let data: any;
+      try {
+        data = await xrpcJson(`${base}/xrpc/com.atproto.repo.listRecords?${params}`);
+      } catch {
+        break;
+      }
+      const records: any[] = Array.isArray(data.records) ? data.records : [];
+      for (const r of records) {
+        const rkey = typeof r?.uri === "string" ? r.uri.split("/").pop() : undefined;
+        if (rkey && this.applyRecord(did, rkey, r.value)) changed = true;
+      }
+      cursor = typeof data.cursor === "string" ? data.cursor : undefined;
+      if (!cursor || !records.length) break;
+    }
+    return changed;
+  }
+
+  private async persistBackfillState(): Promise<void> {
+    await this.state.storage.put({
+      backfillDone: this.backfillDone,
+      backfillReposExhausted: this.backfillReposExhausted,
+      backfillCursor: this.backfillCursor ?? null,
+      backfillQueue: this.backfillQueue,
+    });
   }
 
   // ---- aggregation -----------------------------------------------------------
@@ -499,10 +668,11 @@ export class GlobalTracker {
     return boards.slice(0, MAX_TAGS_SHOWN);
   }
 
-  // ---- alarm: reconnect heartbeat -------------------------------------------
+  // ---- alarm: reconnect heartbeat + backfill nudge --------------------------
   async alarm(): Promise<void> {
     await this.ready;
     if (!this.wsOpen()) this.connectSocket().catch(() => {});
+    if (!this.backfillDone) this.runBackfillStep().catch(() => {});
     await this.state.storage.setAlarm(Date.now() + RECONNECT_ALARM_MS);
   }
 
@@ -510,6 +680,7 @@ export class GlobalTracker {
   async fetch(request: Request): Promise<Response> {
     await this.ready;
     if (!this.wsOpen()) this.connectSocket().catch(() => {});
+    if (!this.backfillDone) this.runBackfillStep().catch(() => {});
 
     const url = new URL(request.url);
     if (url.pathname === "/api/global") {
@@ -518,6 +689,7 @@ export class GlobalTracker {
         updatedAt: this.lastUpdated || null,
         entryCount: this.entries.size,
         userCount,
+        backfillDone: this.backfillDone,
         tags: this.buildTagBoards(),
       });
     }
