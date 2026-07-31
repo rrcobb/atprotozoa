@@ -1,4 +1,4 @@
-// oauth.js — browser-side atproto OAuth (public client), for bisks.net/steamtags.
+// oauth.js — browser-side atproto OAuth (public client), for steamtags.bisks.net.
 //
 // Copied and trimmed from sites/docmoot/public/lib/oauth.js (same repo).
 // Public client:
@@ -24,11 +24,9 @@ import {
   jwtExp,
 } from "./oauth-jwt.js";
 
-const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
-// Mounted at bisks.net/steamtags — location.origin alone drops the path, so
-// the mount prefix has to be appended for any URL steamtags writes about
-// itself.
-export const MOUNT = "/steamtags";
+const ORIGIN = location.origin; // https://steamtags.bisks.net (or localhost in dev)
+// Root-mounted on its own custom domain — no mount prefix needed.
+export const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE = "atproto transition:generic";

@@ -1,5 +1,5 @@
-// steamtags Worker — mounted at bisks.net/steamtags/ (see
-// notes/40-new-site-playbook.md).
+// steamtags Worker — mounted at its own custom domain, steamtags.bisks.net
+// (moved off the bisks.net/steamtags path route 2026-07-31; see wrangler.toml).
 //
 // The idea (v3): pick a Steam game, see its community tags — sized and
 // annotated by vote count, straight off SteamSpy — then rate for yourself
@@ -16,7 +16,7 @@
 // CORS headers, so this Worker proxies server-side and the client only ever
 // talks to its own /api/*.
 //
-// Four server routes, all after the "/steamtags" mount prefix is stripped:
+// Four server routes, at the domain root:
 //   /api/search?q=...   proxy Steam's store-search suggest endpoint
 //   /api/tags/<appid>   fetch one game's name/art + its tags & votes, JSON
 //   /api/global         the network-wide tag leaderboard (see below), JSON
@@ -69,8 +69,6 @@ export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   GLOBAL: DurableObjectNamespace;
 }
-
-const PREFIX = "/steamtags";
 
 // --- tags ----------------------------------------------------------------
 
@@ -183,8 +181,8 @@ function esc(s: string): string {
 const GENERIC_TITLE = "steamtags — rate how well each tag actually fits";
 const GENERIC_DESC =
   "Pick any Steam game, see its community tags sized by vote count, and rate for yourself how much each one actually fits — 1 to 10, your call, not an algorithm's.";
-const GENERIC_OG_URL = "https://bisks.net/steamtags/";
-const GENERIC_OG_IMAGE = "https://bisks.net/steamtags/og.png";
+const GENERIC_OG_URL = "https://steamtags.bisks.net/";
+const GENERIC_OG_IMAGE = "https://steamtags.bisks.net/og.png";
 
 async function renderShare(env: Env, request: Request, appid: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -197,11 +195,11 @@ async function renderShare(env: Env, request: Request, appid: string): Promise<R
     const desc = topTags.length
       ? `${g.name}'s top community tags: ${topTags.join(", ")}. Rate how well each one actually fits, 1-10.`
       : `Rate how well ${g.name}'s community tags actually fit, 1-10.`;
-    const ogUrl = `https://bisks.net/steamtags/g/${g.appid}`;
+    const ogUrl = `https://steamtags.bisks.net/g/${g.appid}`;
     const ogImage = g.headerImage || GENERIC_OG_IMAGE;
 
     // GENERIC_OG_IMAGE must be replaced before GENERIC_OG_URL — the image
-    // string starts with the URL string ("https://bisks.net/steamtags/" is a
+    // string starts with the URL string ("https://steamtags.bisks.net/" is a
     // prefix of ".../og.png"), so replacing the shorter one first would eat
     // the front of the image string too and leave "og.png" dangling.
     html = html
@@ -226,21 +224,13 @@ async function renderShare(env: Env, request: Request, appid: string): Promise<R
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === PREFIX) {
-      url.pathname = PREFIX + "/";
-      return Response.redirect(url.toString(), 308);
-    }
-
-    const path = url.pathname.startsWith(PREFIX + "/") ? url.pathname.slice(PREFIX.length) : url.pathname;
+    const path = url.pathname;
 
     if (path === "/api/search") return handleSearch(url);
 
     if (path === "/api/global") {
-      const doUrl = new URL(request.url);
-      doUrl.pathname = path;
       const stub = env.GLOBAL.get(env.GLOBAL.idFromName("global"));
-      return stub.fetch(new Request(doUrl.toString(), request));
+      return stub.fetch(new Request(request.url, request));
     }
 
     const tagsMatch = path.match(/^\/api\/tags\/(\d+)\/?$/);
@@ -256,9 +246,7 @@ export default {
     const shareMatch = path.match(/^\/g\/(\d+)\/?$/);
     if (shareMatch) return renderShare(env, request, shareMatch[1]);
 
-    const assetUrl = new URL(request.url);
-    assetUrl.pathname = path;
-    return env.ASSETS.fetch(new Request(assetUrl, request));
+    return env.ASSETS.fetch(request);
   },
 };
 

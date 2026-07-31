@@ -59,7 +59,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="358" font-family="JetBrains Mono" font-size="19" fill="${DIM}">sized by vote count — then score how much each</text>
   <text x="64" y="386" font-family="JetBrains Mono" font-size="19" fill="${DIM}">one fits, 1 to 10. Your call, not an algorithm's.</text>
 
-  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${GOOD}">bisks.net/steamtags</text>
+  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${GOOD}">steamtags.bisks.net</text>
 
   <!-- sample card -->
   <rect x="720" y="70" width="416" height="500" rx="16" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
