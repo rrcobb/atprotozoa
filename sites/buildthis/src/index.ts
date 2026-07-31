@@ -399,7 +399,9 @@ async function handleLogsRead(env: Env, url: URL): Promise<Response> {
 // v4: every site moved back to its own subdomain (2026-07-31), so every cached
 // entry's url is the old path form. Bumped to recompute rather than serve a day
 // of stale-shaped links.
-const DIRECTORY_KEY = "directory-snapshot:v5";
+// v6: queue entries now store the extracted ask rather than the raw
+// wrapper-plus-thread text, so cached entries need recomputing.
+const DIRECTORY_KEY = "directory-snapshot:v6";
 const DIRECTORY_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 // Every site is served at `<name>.bisks.net` since the 2026-07-31 migration back
@@ -498,7 +500,8 @@ function computeDirectory(events: LogEvent[]): DirectorySnapshot {
       const prev = builtByName.get(entry.name);
       if (!prev || prev.at < entry.at) builtByName.set(entry.name, entry);
     } else if (e.mutual === true && !e.outcome) {
-      queue.push({ handle: e.authorHandle, text: e.text, at: e.firstSeen });
+      // Store the extracted ask, not the raw wrapper-plus-thread blob.
+      queue.push({ handle: e.authorHandle, text: askOf(e.text), at: e.firstSeen });
     }
   }
 
@@ -527,6 +530,33 @@ function entryDescription(e: LogEvent): string | undefined {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max).trimEnd()}…` : s;
+}
+
+// Pull the actual ask out of a mention's stored text.
+//
+// A reply-tag's text isn't the request — it's a wrapper the watcher builds:
+// "The person tagged the bot in a reply. The post they tagged it in says:\n
+// <the ask>\n\nThe thread it's replying to, oldest first: ...<entire thread>".
+// Rendering that verbatim made the queue unreadable: every pending entry was a
+// wall of someone else's conversation with the ask buried in the middle.
+//
+// Take the line after the "says:" marker when it's there, otherwise the raw
+// text, and always cut before the thread transcript.
+function askOf(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  let s = text.trim();
+
+  const says = s.indexOf("says:");
+  if (says !== -1) s = s.slice(says + "says:".length);
+
+  // Everything from the thread preamble on is context, not the request.
+  const ctx = s.search(/\n\s*The thread it's replying to/i);
+  if (ctx !== -1) s = s.slice(0, ctx);
+
+  // Drop the bot's own handle — every request starts with it, so it's noise.
+  s = s.replace(/@buildthis\.bisks\.net/gi, "").replace(/\s+/g, " ").trim();
+
+  return s || undefined;
 }
 
 // Cron-driven: recompute and cache the snapshot once the previous one is more
@@ -579,10 +609,10 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
   const queueRows = snap.queue.length
     ? snap.queue
         .map(
-          (q) => `<div class="card queued">
-          <h2>${q.handle ? `@${escHtml(q.handle)}` : "someone"}</h2>
-          <p>${q.text ? escHtml(q.text) : "(no text)"}</p>
-          <p class="when">received ${escHtml(fmtDay(q.at))}</p>
+          (q, i) => `<div class="card queued">
+          <h2><span class="pos">${i + 1}</span> ${q.handle ? `@${escHtml(q.handle)}` : "someone"}</h2>
+          <p>${q.text ? escHtml(truncate(q.text, 280)) : `<span class="bare">tagged with no request — the bot will work out what to do from the thread</span>`}</p>
+          <p class="when">waiting ${escHtml(waitedFor(q.at))} · since ${escHtml(fmtDay(q.at))}</p>
         </div>`,
         )
         .join("\n")
@@ -627,6 +657,11 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
       }
       .card:hover h2 { color: var(--link); }
       .card.queued { border-left-color: var(--muted); }
+      .card.queued .pos {
+        display: inline-block; min-width: 1.6em; margin-right: 0.35em;
+        color: var(--muted); font-variant-numeric: tabular-nums;
+      }
+      .card.queued .bare { color: var(--muted); font-style: italic; }
       .card h2 {
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         font-size: 1.05rem; margin: 0 0 0.3rem; font-weight: 700; color: #aeb4ba;
@@ -675,6 +710,19 @@ function fmtDay(iso: string): string {
   if (isNaN(d.getTime())) return iso;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+// How long a queued request has been waiting, in the coarsest useful unit. The
+// date alone doesn't convey much on a queue page — "waiting 3h" reads as a
+// backlog in a way "since 2026-07-31" doesn't.
+function waitedFor(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "a while";
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
 }
 
 function escHtml(s: string): string {
