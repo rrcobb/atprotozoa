@@ -39,12 +39,12 @@ const GENERIC_OG_DESC =
   "A gallery of Top Chicken winners' avatars, oil-painted and minted block by block onto the bawkchain. Sync your own node — it's just a page load.";
 const GENERIC_TWITTER_DESC =
   "A gallery of Top Chicken winners' avatars, oil-painted and minted block by block onto the bawkchain.";
-// Quote-delimited on purpose: the bare URL "https://bisks.net/bawkchain" is
+// Quote-delimited on purpose: the bare URL "https://bawkchain.bisks.net/" is
 // also a prefix of the og:image/twitter:image value
-// ("https://bisks.net/bawkchain/og.png"), so an unquoted split/join would
+// ("https://bawkchain.bisks.net/og.png"), so an unquoted split/join would
 // clobber the image URL too. Matching through the closing quote keeps it to
 // the og:url/canonical occurrence only.
-const GENERIC_OG_URL_ATTR = '"https://bisks.net/bawkchain"';
+const GENERIC_OG_URL_ATTR = '"https://bawkchain.bisks.net/"';
 
 function esc(s: string): string {
   return s
@@ -93,7 +93,7 @@ async function renderBlockShare(env: Env, request: Request, indexStr: string): P
     const desc = `${block.winner.displayName} was crowned Top Chicken and inducted into the bawkchain on ${fmtDate(
       block.announcedAt
     )} — hash ${block.hash.slice(0, 16)}…, prev ${block.index === 0 ? "genesis" : block.prevHash.slice(0, 16) + "…"}.`;
-    const ogUrl = `https://bisks.net/bawkchain/block/${block.index}`;
+    const ogUrl = `https://bawkchain.bisks.net/block/${block.index}`;
 
     const stamped = html
       .split(GENERIC_OG_DESC)

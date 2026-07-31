@@ -148,7 +148,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "Wu-Tang Clam — the unofficial, unaffiliated, extremely 1997 fan shack";
 const GENERIC_DESC =
   "You were probably looking for Wu-Tang CLAN. This is Wu-Tang CLAM. Nine chambers of shellfish-adjacent tribute, a Wu-Clam Name Generator that reads your atproto DID like a kung-fu scroll, a guestbook, and a hit counter climbing since 1997.";
-const GENERIC_OG_URL = "https://bisks.net/wutangclam/";
+const GENERIC_OG_URL = "https://wutangclam.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -182,7 +182,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const who = "@" + (profile.handle || handle);
     const title = `Wu-Tang Clam: ${who} is CHAMBER ${toRoman(chamber)} — ${name}`;
     const desc = `${prophecy} Chamber guardian: ${guardian}. Find your own Wu-Clam name at bisks.net/wutangclam.`;
-    const ogUrl = `https://bisks.net/wutangclam/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://wutangclam.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

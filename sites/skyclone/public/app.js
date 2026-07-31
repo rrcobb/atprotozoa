@@ -1,7 +1,7 @@
 "use strict";
 
 const MOUNT = ""; // canonical host is skyclone.bisks.net — see audit/migrate-oauth-hosts.mjs
-const SITE_URL = "https://bisks.net/skyclone";
+const SITE_URL = "https://skyclone.bisks.net/";
 const APPVIEW = "https://public.api.bsky.app";
 const DISCOVER_FEED = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot";
 const FALLBACK_AVATAR =

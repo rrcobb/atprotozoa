@@ -72,7 +72,7 @@ function truncate(s: string, max: number): string {
 const GENERIC_TITLE = "docmoot — write together, live, on atproto";
 const GENERIC_DESC =
   "A shared document anyone with the link can edit in real time, no walled garden required. Sign in to snapshot it straight into your own PDS.";
-const GENERIC_OG_URL = "https://bisks.net/docmoot/";
+const GENERIC_OG_URL = "https://docmoot.bisks.net/";
 
 // GET /d/<id> gets its own real URL (not a query string) so every shared doc
 // unfurls with its own title/description instead of Bluesky caching one
@@ -94,7 +94,7 @@ async function renderShare(env: Env, request: Request, id: string): Promise<Resp
       `A live shared document on docmoot — ${state.wordCount} word${state.wordCount === 1 ? "" : "s"} so far. Anyone with this link can jump in and write.`,
       300,
     );
-    const ogUrl = `https://bisks.net/docmoot/d/${encodeURIComponent(id)}`;
+    const ogUrl = `https://docmoot.bisks.net/d/${encodeURIComponent(id)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(`${title} — docmoot`))

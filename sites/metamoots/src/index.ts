@@ -51,10 +51,10 @@ const GENERIC_OG_TITLE = "metamoots — find your meta-mutuals";
 const GENERIC_DESC =
   "You don't follow them, they don't follow you, but you both interact all the time. metamoots finds those accounts for any Bluesky handle.";
 // Quoted so this only matches the og:url attribute's exact value, not the
-// og:image/twitter:image tags — both are "https://bisks.net/metamoots/og.png",
+// og:image/twitter:image tags — both are "https://metamoots.bisks.net/og.png",
 // which contains this string as a prefix and would otherwise get mangled by
 // a bare substring replace.
-const GENERIC_OG_URL_ATTR = '"https://bisks.net/metamoots"';
+const GENERIC_OG_URL_ATTR = '"https://metamoots.bisks.net/"';
 
 async function renderShare(env: Env, request: Request, rawHandle: string, url: URL): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -80,7 +80,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string, url: U
     `${n} meta-mutual${n === 1 ? "" : "s"} found for ${who} — don't follow each other, but engage all the time.${named}`,
     300,
   );
-  const ogUrl = `https://bisks.net/metamoots/s/${encodeURIComponent(handle)}?n=${n}&top=${encodeURIComponent(top.join(","))}`;
+  const ogUrl = `https://metamoots.bisks.net/s/${encodeURIComponent(handle)}?n=${n}&top=${encodeURIComponent(top.join(","))}`;
 
   html = html
     .split(GENERIC_PAGE_TITLE).join(esc(pageTitle))

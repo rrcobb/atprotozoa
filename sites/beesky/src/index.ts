@@ -93,7 +93,7 @@ const GENERIC_OG_DESC =
   "Type a Bluesky handle. Every moot (mutual) becomes a hexagonal wax cell in a honeycomb you fly through — WASD + drag to look, click a cell to see who's home.";
 const GENERIC_TWITTER_DESC =
   "Every moot becomes a hexagonal wax cell in a honeycomb you fly through. WASD + drag to look, click a cell to see who's home.";
-const GENERIC_OG_URL = "https://bisks.net/beesky";
+const GENERIC_OG_URL = "https://beesky.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -127,7 +127,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
       `${who}'s 3D honeycomb has ${countStr} moots so far — one hexagonal wax cell per mutual, their own cell glowing gold at the centre. Fly it with WASD, click a cell to see who's home.`,
       280,
     );
-    const ogUrl = `https://bisks.net/beesky/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://beesky.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

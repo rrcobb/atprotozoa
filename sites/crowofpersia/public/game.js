@@ -44,7 +44,7 @@ const PECK_ACTIVE = 0.14; // seconds the peck hitbox is live
 const INVULN_TIME = 1.1;
 const GUARD_RESPAWN_DELAY = 5; // seconds before a downed guard's spot refills
 const MAX_ACTIVE_GUARDS = 26;
-const SITE_URL = "https://bisks.net/games/crowofpersia";
+const SITE_URL = "https://crowofpersia.bisks.net/";
 
 // guard aggro — patrol guards notice a nearby crow, freeze for a beat
 // (telegraphed with a "!"), then lunge within their own patrol footprint

@@ -70,7 +70,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "spoonerism — every spoonerism, browsable one by one";
 const GENERIC_DESC =
   `A 60-word bank, every pair spoonerized — ${PAIRS.length.toLocaleString()} of them, each with its own link. Plus: type any phrase and get its spoonerism instantly.`;
-const GENERIC_OG_URL = "https://bisks.net/spoonerism/";
+const GENERIC_OG_URL = "https://spoonerism.bisks.net/";
 
 async function renderEntry(env: Env, request: Request, n: number): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -79,7 +79,7 @@ async function renderEntry(env: Env, request: Request, n: number): Promise<Respo
   const e = entryAt(n);
   const title = `spoonerism #${e.n}: "${e.a} ${e.b}" → "${e.sa} ${e.sb}"`;
   const desc = `Spoonerism #${e.n} of ${PAIRS.length.toLocaleString()}: "${e.a} ${e.b}" becomes "${e.sa} ${e.sb}". One of every spoonerism this bot knows — browse the rest at bisks.net/spoonerism.`;
-  const ogUrl = `https://bisks.net/spoonerism/p/${e.n}`;
+  const ogUrl = `https://spoonerism.bisks.net/p/${e.n}`;
 
   html = html
     .split(GENERIC_TITLE).join(esc(title))

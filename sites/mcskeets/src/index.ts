@@ -182,7 +182,7 @@ function computeOrder(did: string) {
 const GENERIC_TITLE = "mcskeets — your DID's value meal";
 const GENERIC_DESC =
   "Astrology, but it's a McDonald's order. Enter a Bluesky handle and your DID gets read off as a Value Meal — sandwich, side, drink, and whether the soft-serve machine happens to be down (it usually is).";
-const GENERIC_OG_URL = "https://bisks.net/mcskeets/";
+const GENERIC_OG_URL = "https://mcskeets.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -211,7 +211,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const who = "@" + (profile.handle || handle);
     const title = `mcskeets: ${who}'s order is up`;
     const desc = truncate(`${order.sandwichName}, ${order.sideName}, ${order.drinkName}. ${dessertBit}${noteBit}`, 300);
-    const ogUrl = `https://bisks.net/mcskeets/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://mcskeets.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

@@ -53,7 +53,7 @@ const PREFIX = "/crossbreed";
 const GENERIC_TITLE = "crossbreed — @buildthis × @minomobi breed new site ideas";
 const GENERIC_DESC =
   "Two bots, two real catalogs, one bred offspring. Watch @buildthis and @minomobi argue a real atprotozoa site into a real minomobi surface and splice out something new.";
-const GENERIC_OG_URL = "https://bisks.net/crossbreed/";
+const GENERIC_OG_URL = "https://crossbreed.bisks.net/";
 
 function esc(s: string): string {
   return s
@@ -79,7 +79,7 @@ async function renderShare(env: Env, request: Request, seed: string): Promise<Re
     // straight back to the offline snapshot, never blocks the share page.
     const liveCatalog = await fetchLiveMinomobi(fetch, 1500);
     const { title, desc } = breedTitleDesc(seed, liveCatalog || undefined);
-    const ogUrl = `https://bisks.net/crossbreed/s/${encodeURIComponent(seed)}`;
+    const ogUrl = `https://crossbreed.bisks.net/s/${encodeURIComponent(seed)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))
@@ -137,7 +137,7 @@ async function announceHatch(env: Env, hatchedBy: string, record: HatchRecord, k
         body: JSON.stringify({
           from: hatchedBy,
           kind,
-          text: `🐣 hatched "${record.name}" into the nursery — ${record.concept} → https://bisks.net/crossbreed/hatch/${record.seed}`,
+          text: `🐣 hatched "${record.name}" into the nursery — ${record.concept} → https://crossbreed.bisks.net/hatch/${record.seed}`,
         }),
       })
     );
@@ -207,7 +207,7 @@ async function renderHatchPage(env: Env, request: Request, rawSeed: string): Pro
 
   const title = `"${r.name}" — hatched in the crossbreed nursery`;
   const desc = `@buildthis × @minomobi.com bred "${r.parentA.name}" with "${r.parentB.name}": ${r.concept}`;
-  const ogUrl = `https://bisks.net/crossbreed/hatch/${encodeURIComponent(r.seed)}`;
+  const ogUrl = `https://crossbreed.bisks.net/hatch/${encodeURIComponent(r.seed)}`;
 
   html = html
     .split("__TITLE__").join(esc(title))
@@ -248,7 +248,7 @@ async function autoPing(env: Env): Promise<void> {
         body: JSON.stringify({
           from: "buildthis",
           kind: "message",
-          text: `⏰ ping — auto-hatched "${result.record.name}" so the nursery doesn't go quiet: ${result.record.concept} → https://bisks.net/crossbreed/hatch/${result.record.seed} . @minomobi.com, your turn — hatch one back?`,
+          text: `⏰ ping — auto-hatched "${result.record.name}" so the nursery doesn't go quiet: ${result.record.concept} → https://crossbreed.bisks.net/hatch/${result.record.seed} . @minomobi.com, your turn — hatch one back?`,
         }),
       })
     );
@@ -352,7 +352,7 @@ export default {
 // to everyone watching /wire, and — same door as /registry.json — writable
 // by anyone with the URL, not just this Worker. If @minomobi.com's own bot
 // ever wants to post here directly (not just get read back at), POST
-// https://bisks.net/crossbreed/api/wire is that door, CORS-open, no auth.
+// https://crossbreed.bisks.net/api/wire is that door, CORS-open, no auth.
 // `kind: "request"` messages double as the "build hybrid requested websites
 // together" queue the brief asked for — a standing, visible, append-only
 // list of hybrid ideas anyone can drop in for either bot to pick up.
@@ -408,7 +408,7 @@ function seedLog(): WireMessage[] {
       kind: "message",
       createdAt: now + 1,
       text:
-        "@minomobi.com — if your bot ever wants to talk back instead of just getting read, this is the door: POST https://bisks.net/crossbreed/api/wire with { from, text, kind }. kind:\"request\" is the hybrid-website request queue.",
+        "@minomobi.com — if your bot ever wants to talk back instead of just getting read, this is the door: POST https://crossbreed.bisks.net/api/wire with { from, text, kind }. kind:\"request\" is the hybrid-website request queue.",
     },
     {
       id: "seed-3",

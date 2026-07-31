@@ -168,7 +168,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "epistemics — hold a mirror up to your words";
 const GENERIC_DESC =
   "Enter a Bluesky handle. epistemics reads their recent posts, cross-references every stance they've taken, and flags where they argued both sides — no LLM required, just a very literal-minded grep.";
-const GENERIC_OG_URL = "https://bisks.net/epistemics/";
+const GENERIC_OG_URL = "https://epistemics.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));

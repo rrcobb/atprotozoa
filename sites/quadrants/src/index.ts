@@ -58,7 +58,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "quadrants — make your own alignment chart";
 const GENERIC_DESC =
   "Plot arbitrary reference points on a 2x2 grid, then sign in with Bluesky to drop your own marker — written straight to your PDS.";
-const GENERIC_OG_URL = "https://bisks.net/quadrants/";
+const GENERIC_OG_URL = "https://quadrants.bisks.net/";
 
 async function renderChart(env: Env, request: Request, id: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/chart.html", request.url), { method: "GET" }));
@@ -79,7 +79,7 @@ async function renderChart(env: Env, request: Request, id: string): Promise<Resp
 
   const title = `quadrants: ${chart.title}`;
   const desc = `${chart.xLeft} ↔ ${chart.xRight} · ${chart.yBottom} ↔ ${chart.yTop} — plot yourself on ${esc(chart.title)}.`;
-  const ogUrl = `https://bisks.net/quadrants/c/${encodeURIComponent(id)}`;
+  const ogUrl = `https://quadrants.bisks.net/c/${encodeURIComponent(id)}`;
 
   const stamped = html
     .split(GENERIC_TITLE).join(esc(title))

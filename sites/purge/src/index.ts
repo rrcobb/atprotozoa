@@ -51,10 +51,10 @@ const GENERIC_OG_TITLE = "purge — find your quiet mutuals";
 const GENERIC_DESC =
   "Mutuals who haven't liked or replied to a single one of your posts in months. purge finds them for any Bluesky handle, so you know who to consider unfollowing.";
 // Quoted so this only matches the og:url attribute's exact value, not the
-// og:image/twitter:image tags — both are "https://bisks.net/purge/og.png",
+// og:image/twitter:image tags — both are "https://purge.bisks.net/og.png",
 // which contains this string as a prefix and would otherwise get mangled by
 // a bare substring replace.
-const GENERIC_OG_URL_ATTR = '"https://bisks.net/purge"';
+const GENERIC_OG_URL_ATTR = '"https://purge.bisks.net/"';
 
 async function renderShare(env: Env, request: Request, rawHandle: string, url: URL): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -75,7 +75,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string, url: U
     `${n}${ofPart} haven't liked or replied to any of ${who}'s posts in the last ${months} month${months === 1 ? "" : "s"}.`,
     300,
   );
-  const ogUrl = `https://bisks.net/purge/s/${encodeURIComponent(handle)}?n=${n}&of=${Number.isFinite(of) ? of : ""}&months=${months}`;
+  const ogUrl = `https://purge.bisks.net/s/${encodeURIComponent(handle)}?n=${n}&of=${Number.isFinite(of) ? of : ""}&months=${months}`;
 
   html = html
     .split(GENERIC_PAGE_TITLE).join(esc(pageTitle))

@@ -610,7 +610,7 @@
 
   function buildShareText() {
     const info = window.__mootcycleShare || { dist: 0, best: 0 };
-    const url = "https://bisks.net/games/mootcycle/";
+    const url = "https://mootcycle.bisks.net/";
     let text = "rode " + info.dist + "m on mootcycle before eating dirt";
     if (info.best > info.dist) text = "rode " + info.dist + "m on mootcycle (best: " + info.best + "m)";
     text += " — " + url;

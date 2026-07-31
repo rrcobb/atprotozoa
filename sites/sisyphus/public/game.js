@@ -875,7 +875,7 @@
     const best = Math.max(state.best, dist);
     const loops = state.loops;
     const loopBit = loops > 0 ? ` (${loops} summit${loops === 1 ? '' : 's'} reached)` : '';
-    const text = `I pushed the boulder ${best}m up the mountain${loopBit} before the gods knocked it back down. Try the labor yourself: https://bisks.net/games/sisyphus`;
+    const text = `I pushed the boulder ${best}m up the mountain${loopBit} before the gods knocked it back down. Try the labor yourself: https://sisyphus.bisks.net/`;
     window.open('https://bsky.app/intent/compose?text=' + encodeURIComponent(text), '_blank', 'noopener');
   });
 

@@ -64,7 +64,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "Windmill — the Animal Farm economy game";
 const GENERIC_DESC =
   "Barter mode or Credit mode. Build the windmill, set the interest rate, and find out the hard way what leverage does to a farm.";
-const GENERIC_OG_URL = "https://bisks.net/windmill/";
+const GENERIC_OG_URL = "https://windmill.bisks.net/";
 
 const PREFIX = "/windmill";
 
@@ -82,7 +82,7 @@ async function renderResult(env: Env, request: Request, code: string): Promise<R
   if (result.m === "c") descBits.push(result.c > 0 ? `survived ${result.c} bank collapse(s)` : "the Bank held steady");
   else descBits.push("no debt, no bust");
   const desc = `${descBits.join(", ")}. Run Manor Farm's economy yourself and see what credit does to a market.`;
-  const ogUrl = `https://bisks.net/windmill/r/${encodeURIComponent(code)}`;
+  const ogUrl = `https://windmill.bisks.net/r/${encodeURIComponent(code)}`;
 
   const stamped = html
     .split(GENERIC_TITLE).join(esc(title))

@@ -1,5 +1,5 @@
-// verbs Worker — served at https://verbs.bisks.net/ and, for older shared
-// links, at https://bisks.net/verbs/ (see notes/20-deploy.md).
+// verbs Worker — served at verbs.bisks.net and, for older shared links, at
+// the bisks.net/verbs path route (see notes/20-deploy.md).
 //
 // The site's assets live at the root of ./public and have no idea which of
 // those two hostnames they're being served under, so the only server job is to

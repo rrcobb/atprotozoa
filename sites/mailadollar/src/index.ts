@@ -22,7 +22,7 @@ const API = "https://public.api.bsky.app/xrpc/";
 const GENERIC_TITLE = "mail-a-dollar — find the author, send the buck";
 const GENERIC_DESC =
   "libgen doesn't do this part. type an author's name: we check if they're on Bluesky, dig a tip link out of their bio, and if not, hand you a printable dollar IOU to mail instead.";
-const GENERIC_OG_URL = "https://bisks.net/mailadollar/";
+const GENERIC_OG_URL = "https://mailadollar.bisks.net/";
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -79,7 +79,7 @@ async function renderShare(env: Env, request: Request, rawName: string): Promise
       desc = `Not on Bluesky (or not findable) — here's a printable dollar IOU to mail them the old-fashioned way.`;
     }
     desc = truncate(desc, 300);
-    const ogUrl = `https://bisks.net/mailadollar/s/${encodeURIComponent(name)}`;
+    const ogUrl = `https://mailadollar.bisks.net/s/${encodeURIComponent(name)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

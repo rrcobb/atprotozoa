@@ -234,7 +234,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "copypastalibs — mad-libs from someone's own words";
 const GENERIC_DESC =
   "Enter a Bluesky handle. It reads their feed, learns the words they actually use, and stuffs them back into classic copypastas mad-libs style.";
-const GENERIC_OG_URL = "https://bisks.net/copypastalibs/";
+const GENERIC_OG_URL = "https://copypastalibs.bisks.net/";
 
 async function renderShare(env: Env, request: Request, handleRaw: string, indexRaw: string, seedRaw: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -274,7 +274,7 @@ async function renderShare(env: Env, request: Request, handleRaw: string, indexR
     const who = "@" + (profile.handle || handle);
     const title = `copypastalibs: ${who}'s "${pasta.title}"`;
     const desc = truncate(text, 300);
-    const ogUrl = `https://bisks.net/copypastalibs/p/${encodeURIComponent(handle)}/${index}/${seedRaw}`;
+    const ogUrl = `https://copypastalibs.bisks.net/p/${encodeURIComponent(handle)}/${index}/${seedRaw}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

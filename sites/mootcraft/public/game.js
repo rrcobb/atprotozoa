@@ -761,8 +761,8 @@ function endGame() {
     ? `best vein: @${bestFind.handle} — ❤ ${bestFind.likeCount} (${bestFind.tier})`
     : "";
   const shareText = bestFind
-    ? `just mined ${oreTotal} ore out of my moots' posts in mootcraft — best vein was @${bestFind.handle} at ${bestFind.likeCount} likes. https://bisks.net/games/mootcraft`
-    : `spent 75 seconds digging through my moots' posts in mootcraft and came up empty. https://bisks.net/games/mootcraft`;
+    ? `just mined ${oreTotal} ore out of my moots' posts in mootcraft — best vein was @${bestFind.handle} at ${bestFind.likeCount} likes. https://mootcraft.bisks.net/`
+    : `spent 75 seconds digging through my moots' posts in mootcraft and came up empty. https://mootcraft.bisks.net/`;
   shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
   overOverlay.classList.remove("hidden");
   lockHint.classList.remove("show");

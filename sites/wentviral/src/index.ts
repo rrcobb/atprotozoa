@@ -117,7 +117,7 @@ function truncate(s: string, n: number): string {
 const GENERIC_TITLE = "wentviral — write a post, watch it blow up";
 const GENERIC_DESC =
   "A fake Bluesky compose box. Write whatever you want, hit post, and watch a simulated pile-on of replies, likes, reposts, and quote posts grow over time. Nothing is really posted.";
-const GENERIC_OG_URL = "https://bisks.net/wentviral/";
+const GENERIC_OG_URL = "https://wentviral.bisks.net/";
 
 async function renderPost(env: Env, request: Request, code: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -146,7 +146,7 @@ async function renderPost(env: Env, request: Request, code: string): Promise<Res
   const handle = slugify(name) + FAKE_TLD;
   const title = `"${truncate(payload.t, 60)}" — @${handle} on wentviral`;
   const desc = `${fmt(likes)} likes, ${fmt(reposts)} reposts, ${fmt(quotes)} quotes, ${fmt(replies)} replies and climbing. It's fake — nobody posted this, watch it happen anyway.`;
-  const ogUrl = `https://bisks.net/wentviral/p/${encodeURIComponent(code)}`;
+  const ogUrl = `https://wentviral.bisks.net/p/${encodeURIComponent(code)}`;
 
   const stamped = html
     .split(GENERIC_TITLE).join(esc(title))

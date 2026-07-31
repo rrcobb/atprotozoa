@@ -300,7 +300,7 @@ recordBtn.addEventListener("click", async () => {
 // ---- share -----------------------------------------------------------
 
 function updateShare() {
-  const url = "https://bisks.net/code-for-airports/";
+  const url = "https://code-for-airports.bisks.net/";
   const text = `“${track.title}” — code for airports, a generative ambient piece in the vein of Eno's Music for Airports, built to never repeat the same way twice. ${url}`;
   shareIntent.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
 }

@@ -69,7 +69,7 @@ function normalizeUrl(uri) {
   }
 }
 
-const SITE_URL = "https://bisks.net/simcluster-atlas";
+const SITE_URL = "https://simcluster-atlas.bisks.net/";
 function composeUrl(text) {
   return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }

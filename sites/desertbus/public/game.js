@@ -307,7 +307,7 @@
     const shareText =
       `Drove ${distFt.toLocaleString()} ft before the tank hit empty ` +
       `and Grace sent ${state.warningsShown} fuel warning${state.warningsShown === 1 ? '' : 's'}. ` +
-      `Desert Bus, abridged: https://bisks.net/games/desertbus`;
+      `Desert Bus, abridged: https://desertbus.bisks.net/`;
     els.shareBtn.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText);
     els.over.classList.remove('hidden');
   }

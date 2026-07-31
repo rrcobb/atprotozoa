@@ -203,7 +203,7 @@ const OG_TWITTER_TITLE = "areyoumad — who ghosted your courtesy-like today";
 const OG_DESC =
   "Finds today's replies, checks who you replied to didn't like you back, and gives you a button to ask them if they're mad. Petty, automated, atproto-native.";
 const TWITTER_DESC = "Finds today's replies, checks who didn't like you back, gives you a button to ask if they're mad.";
-const OG_URL_ATTR = 'content="https://bisks.net/areyoumad"';
+const OG_URL_ATTR = 'content="https://areyoumad.bisks.net/"';
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -270,7 +270,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
       }
     }
 
-    const ogUrl = `https://bisks.net/areyoumad/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://areyoumad.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(PAGE_TITLE)

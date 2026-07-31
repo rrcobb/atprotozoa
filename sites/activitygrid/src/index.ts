@@ -112,7 +112,7 @@ function esc(s: string): string {
 const GENERIC_TITLE = "activitygrid — a GitHub-style contribution graph for Bluesky";
 const GENERIC_DESC =
   "Enter a Bluesky handle, get a year of posting activity as a green contribution heat map — just like GitHub, but for bisks.";
-const GENERIC_OG_URL = "https://bisks.net/activitygrid/";
+const GENERIC_OG_URL = "https://activitygrid.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   // ASSETS.fetch expects an un-prefixed path (the assets directory has no
@@ -141,7 +141,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     if (streak > 0) bits.push(`${streak}-day current streak`);
     if (busiest > 0) bits.push(`busiest day: ${busiest} bisks`);
     const desc = truncate(bits.join(" · ") + ". See the full grid.", 300);
-    const ogUrl = `https://bisks.net/activitygrid/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://activitygrid.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

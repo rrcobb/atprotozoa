@@ -41,7 +41,7 @@
   const hitcounterEl = el("hitcounter");
   const guestbookLink = el("guestbookLink");
 
-  const SITE_URL = "https://bisks.net/games/platoscave";
+  const SITE_URL = "https://platoscave.bisks.net/";
 
   // ---------- audio: everything synthesized, nothing shipped as a file ----------
   let actx = null;

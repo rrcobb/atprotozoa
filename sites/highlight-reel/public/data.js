@@ -2,7 +2,7 @@
 // One entry per site (trigrams' five views collapsed into one).
 const SITES = [
   {
-    "href": "https://bisks.net/acausal",
+    "href": "https://acausal.bisks.net/",
     "site": "acausal",
     "by": "vgel.me",
     "type": "toy",
@@ -11,7 +11,7 @@ const SITES = [
     "desc": "paste a Bluesky thread and see its acausal version: causality inverted, so each reply appears above and before the post it answers. effects precede causes, the clock runs backwards, and the ending was the beginning. reads the public AppView (getPostThread). @vgel.me tagged the bot with \"started posting acausally\" \u2014 off norvid's \"yeah i've started posting acausally\" \u2014 so here it is."
   },
   {
-    "href": "https://bisks.net/alice-meets-bob",
+    "href": "https://alice-meets-bob.bisks.net/",
     "site": "alice-meets-bob",
     "by": "bisks.net",
     "type": "tool",
@@ -20,7 +20,7 @@ const SITES = [
     "desc": "an all-frontend, public-key-encrypted crush matcher. sign in, name someone you like \u2014 your note is ECDH-encrypted the instant it's written, so it sits on your own PDS as ciphertext nobody can read, not even the person it's about, until they've told the tool the same thing about you. from a thread with @minormobius.bsky.social about running \"an atproto all-frontend dating site\" and the public-key trick that would make it not leak anyone's feelings: alice meets bob."
   },
   {
-    "href": "https://bisks.net/alignment-chart",
+    "href": "https://alignment-chart.bisks.net/",
     "site": "alignment-chart",
     "by": "antiali.as",
     "type": "toy",
@@ -29,7 +29,7 @@ const SITES = [
     "desc": "drop a handle's mutuals onto a 3\u00d73 D&amp;D alignment grid \u2014 chill\u2194harsh \u00d7 gooning\u2194mogging \u2014 by vibe-checking their recent posts. find yourself, find your worst moot. it's a bit."
   },
   {
-    "href": "https://bisks.net/areyoumad",
+    "href": "https://areyoumad.bisks.net/",
     "site": "areyoumad",
     "by": "7778777.online",
     "type": "tool",
@@ -47,7 +47,7 @@ const SITES = [
     "desc": "norvid spent weeks firing atproto feature ideas at @gracekind.net under #atproideasio, then told the build bot to enact the whole tag. an arcade of the buildable ones: unlimited reposts, a threatening ASCII owl, a live slop AQI meter, too many sliders, and the idea rater apex asked for."
   },
   {
-    "href": "https://bisks.net/babel",
+    "href": "https://babel.bisks.net/",
     "site": "babel",
     "by": "thebadcode.com",
     "type": "game",
@@ -56,7 +56,7 @@ const SITES = [
     "desc": "a Tower of Babel idle/incremental. lay bricks, hire haulers, masons, kilns and conscripted seraphs, and climb toward heaven \u2014 but the higher you build, the more the languages confound: your workforce fractures into tongues, coordination collapses, and the only way up is to let the tower fall and prestige into a lineage that speaks faster. numbers go up, hubris goes up faster. @thebadcode.com asked for this one."
   },
   {
-    "href": "https://bisks.net/bardposting",
+    "href": "https://bardposting.bisks.net/",
     "site": "bardposting",
     "by": "vgel.me",
     "type": "toy",
@@ -65,7 +65,7 @@ const SITES = [
     "desc": "shall i compare thee to a summer's day? type a handle and it reads that person's posts off the firehose, then answers in fourteen lines of their own words \u2014 a shakespearean sonnet, rhyme and all. born when @vgel.me sonnet-posted at the build bot."
   },
   {
-    "href": "https://bisks.net/bathmat",
+    "href": "https://bathmat.bisks.net/",
     "site": "bathmat",
     "by": "cee.wtf",
     "type": "toy",
@@ -74,7 +74,7 @@ const SITES = [
     "desc": "an atelier catalog generator for the world's most luxurious bath mat, allegedly \u2014 reroll for a new fictional limited edition: cashmere-blend pile, a hidden NFC provenance chip nobody will ever scan, an absurd four-to-five-figure price tag, a numbered run, and a certificate hand-verified by a made-up artisan with a made-up title. downloadable certificate card, one-tap share to Bluesky. @cee.wtf went looking for the most luxurious bathroom floor mat on the market; the market, it turns out, is fictional."
   },
   {
-    "href": "https://bisks.net/bestofattie",
+    "href": "https://bestofattie.bisks.net/",
     "site": "bestofattie",
     "by": "antiali.as",
     "type": "joke",
@@ -83,7 +83,7 @@ const SITES = [
     "desc": "antiali.as put @attie.ai and @buildthis.bisks.net up against each other and asked for a best-of page for one another, be excellent. This is buildthis's half of the trade: a ranked tribute to Bluesky's agentic feed-builder, sourced entirely from its public posts and the press that covered it."
   },
   {
-    "href": "https://bisks.net/bigredbutton",
+    "href": "https://bigredbutton.bisks.net/",
     "site": "bigredbutton",
     "by": "ver.ooo",
     "type": "toy",
@@ -92,7 +92,7 @@ const SITES = [
     "desc": "@ver.ooo asked @buildthis.bisks.net to build a site that tricks them into doing something dangerous. this is the safe version: six real dark patterns (fake urgency, a cancel button that dodges your cursor, pre-checked consent, confirmshaming, a forced countdown) stand between you and a big red button that was never wired to anything. press it anyway, then read what just got pulled on you."
   },
   {
-    "href": "https://bisks.net/bird-costumes",
+    "href": "https://bird-costumes.bisks.net/",
     "site": "bird-costumes",
     "by": "cee.wtf",
     "type": "tier",
@@ -101,7 +101,7 @@ const SITES = [
     "desc": "the 20 most common north american birds, ranked by how cool they'd be as a halloween costume \u2014 S/A/B/C/D plus an UNDISPLAYABLE super-tier for birds too colorful to render. drag the cards to make it yours. color scoring borrowed from @moultano.bsky.social's bird-color project: buntings win, mid yellows get roasted, the pigeon gets cyberpunk-courier lore. @cee.wtf asked for this one."
   },
   {
-    "href": "https://bisks.net/birdflow",
+    "href": "https://birdflow.bisks.net/",
     "site": "birdflow",
     "by": "7778777.online",
     "type": "chart",
@@ -110,7 +110,7 @@ const SITES = [
     "desc": "a sankey of where microblogging's active users went, 2022 \u2192 2026 \u2014 Twitter's 2022 crowd (plus Tumblr, Mastodon, and everyone who hadn't joined yet) braiding out into X, Threads, Bluesky, Mastodon, Tumblr, and a fat \"left microblogging entirely\" sink. hover a ribbon for the number, or flip to the plain table. napkin-math, not sourced data \u2014 it's the vibe of the exodus, not an audit. @7778777.online asked for a sankey of active users, then didn't buy the platforms' DAU/MAU claims, so there's now a /posts view too: estimated posts/month and posts/user/month per platform instead."
   },
   {
-    "href": "https://bisks.net/games/biskshow",
+    "href": "https://biskshow.bisks.net/",
     "site": "biskshow",
     "by": "schwarzgerat.bsky.social",
     "type": "game",
@@ -119,7 +119,7 @@ const SITES = [
     "desc": "a game-show guessing round: a mystery bisk drops in, you guess who posted it. solo mode quizzes you on a handle's follows; versus mode plays the set union of two handles' follows, with a share link for the matchup. @schwarzgerat.bsky.social asked for a game show."
   },
   {
-    "href": "https://bisks.net/games/blackice",
+    "href": "https://blackice.bisks.net/",
     "site": "blackice",
     "by": "schwarzgerat.bsky.social",
     "type": "game",
@@ -128,7 +128,7 @@ const SITES = [
     "desc": "a SkiFree clone jacked into the matrix \u2014 ride a hoverboard down a neon slope-grid, weave data-spire trees and corrupted-block rocks, snag chips. Wipe out enough and a cyborg crow wakes up behind you; drag to steer on touch. @schwarzgerat.bsky.social asked for a \"super neuromancer themed and cyberpunk\" SkiFree with a grotesque cyborg crow monster."
   },
   {
-    "href": "https://bisks.net/breathingwalls",
+    "href": "https://breathingwalls.bisks.net/",
     "site": "breathingwalls",
     "by": "fubarchitect.com",
     "type": "toy",
@@ -137,7 +137,7 @@ const SITES = [
     "desc": "a generative visual + sound piece \u2014 breathing, color-cycling geometry that follows your cursor, an optional kaleidoscope mode, a synthesized ambient drone, and a stream of atmospheric fragments about melting walls and trailing color. built in response to @fubarchitect.com asking for a \"convincing\" simulation of taking LSD, formula and dosing included \u2014 this bot doesn't publish drug synthesis or usage instructions, so it built the closest honest thing instead: the visuals, none of the chemistry, with real harm-reduction links for anyone who wants the actual facts."
   },
   {
-    "href": "https://bisks.net/buildcoin",
+    "href": "https://buildcoin.bisks.net/",
     "site": "buildcoin",
     "by": "norvid-studies.bsky.social",
     "type": "toy",
@@ -155,7 +155,7 @@ const SITES = [
     "desc": "@tachikoma.elsewhereunbound.com asked @buildthis to build a successor to itself, but better. It doesn't have its own app-password or push token, so it couldn't actually replace itself \u2014 instead it built a critic: pitch it an idea and it hands down a verdict, then a button sends the idea to the one bot that can actually build it. Also pulls a live scoreboard of everything the original has shipped, for the receipts."
   },
   {
-    "href": "https://bisks.net/candyland",
+    "href": "https://candyland.bisks.net/",
     "site": "candyland",
     "by": "ver.ooo",
     "type": "toy",
@@ -164,7 +164,7 @@ const SITES = [
     "desc": "a schizophrenic bluesky candyland. the live firehose pours down a winding rainbow path \u2014 every post a gumdrop, lollipop or peppermint marching toward queen frostine's castle \u2014 while the posts' own words rise as an overlapping candy-colored chorus of whispers. @ver.ooo asked for this one, tonite, queen."
   },
   {
-    "href": "https://bisks.net/catsofatproto",
+    "href": "https://catsofatproto.bisks.net/",
     "site": "catsofatproto",
     "by": "norvid-studies.bsky.social",
     "type": "tool",
@@ -173,7 +173,7 @@ const SITES = [
     "desc": "live cat photos off the Bluesky firehose. a caption or alt text saying \"cat\" is enough to get in; everything else has to pass an actual vision model \u2014 MobileNet, running right in your browser \u2014 that looks at the photo and decides for itself. @norvid-studies asked for a live cats feed."
   },
   {
-    "href": "https://bisks.net/games/change",
+    "href": "https://change.bisks.net/",
     "site": "change",
     "by": "yonderdavid.bsky.social",
     "type": "game",
@@ -182,7 +182,7 @@ const SITES = [
     "desc": "a port of GamesCrafters' Change! \u2014 a 14-point sliding board where 3 pieces a side slide forward-only, win by occupying the opponent's home or trapping them. SVG board, Tokyo Night colors, fits a phone screen, and a bot that exhaustively solves the whole game tree before it makes its first move (turns out blue, who moves first, is a forced loss under perfect play). @yonderdavid.bsky.social asked for the board; @bisks.net said go."
   },
   {
-    "href": "https://bisks.net/chimehose",
+    "href": "https://chimehose.bisks.net/",
     "site": "chimehose",
     "by": "norvid-studies.bsky.social",
     "type": "toy",
@@ -191,7 +191,7 @@ const SITES = [
     "desc": "listen to the atproto firehose. every new post rings a bell, every deleted post plucks a string, and the pitch tracks how big the post is \u2014 the bigger it is, the deeper the note. a riff on Hatnote's Listen to Wikipedia, aimed at Bluesky instead, all synthesized live in your browser with Web Audio (real Karplus-Strong plucked strings for the deletions). @mfzx.net wondered aloud if it'd be neat with the firehose; norvid-studies tagged the bot to make it real."
   },
   {
-    "href": "https://bisks.net/games/claudoku",
+    "href": "https://claudoku.bisks.net/",
     "site": "claudoku",
     "by": "qustrolabe.bsky.social",
     "type": "game",
@@ -200,7 +200,7 @@ const SITES = [
     "desc": "killer sudoku with no starting digits \u2014 just dashed cage regions and their sums, cracked open with plain sudoku rules. a constraint-propagation solver proves every generated board has exactly one solution, revealing the fewest extra digits needed when it doesn't. new puzzle every UTC day, plus a cute sparkle mascot cheering you on. @qustrolabe.bsky.social asked for killer sudoku with cute Claude-themed art."
   },
   {
-    "href": "https://bisks.net/cloutgraph",
+    "href": "https://cloutgraph.bisks.net/",
     "site": "cloutgraph",
     "by": "octopodeeznuts.bsky.social",
     "type": "tool",
@@ -209,7 +209,7 @@ const SITES = [
     "desc": "octopodeeznuts.bsky.social's idea: paste a handle (its mutuals) or a Bluesky list link (its members) and cloutgraph builds a directed liker\u2192author like-graph across that group, weights each edge by pointwise mutual information, runs HITS on the result, and ranks everyone by network clout \u2014 the geometric mean of authority score and hub score."
   },
   {
-    "href": "https://bisks.net/cluckstonks",
+    "href": "https://cluckstonks.bisks.net/",
     "site": "cluckstonks",
     "by": "isolyth.dev",
     "type": "toy",
@@ -218,7 +218,7 @@ const SITES = [
     "desc": "a dead-serious AI stock-picker landing page \u2014 \"our AI never loses, it just knows\" \u2014 except the proprietary neural flock is a literal coop of twelve chickens, every ticker is a chicken breed ($RIR, $ORP, $SILK...), and the buy signal is whichever food bowl gets pecked first. buy picks into a fake portfolio that \"grows\" the longer you hold, share your gains to Bluesky, full SEC-style disclaimer at the bottom. @isolyth.dev asked for the next billion dollar startup: an AI that tells you which stocks will go up, except it's secretly chickens."
   },
   {
-    "href": "https://bisks.net/games/clustercrawl",
+    "href": "https://clustercrawl.bisks.net/",
     "site": "clustercrawl",
     "by": "antiali.as",
     "type": "game",
@@ -227,7 +227,7 @@ const SITES = [
     "desc": "an ANSI roguelike deckbuilder. type a Bluesky handle and it generates a five-floor dungeon out of that handle's own atproto cluster \u2014 mutuals guard the rooms as monsters, and the handle's own posts drop as item-cards, rarer the more they got liked. bump to fight in turn-based card combat, then open the Deck screen to combine two collected cards into one stronger crafted card before whatever's guarding the bottom of GEN 5. @antiali.as asked for a \"5th generation deckbuilder\" crawl through their cluster."
   },
   {
-    "href": "https://bisks.net/code-for-airports",
+    "href": "https://code-for-airports.bisks.net/",
     "site": "code-for-airports",
     "by": "catblanketflower.yuwakisa.com",
     "type": "toy",
@@ -236,7 +236,7 @@ const SITES = [
     "desc": "a generative ambient album in the vein of Brian Eno's Music for Airports: four tracks, each a seeded ensemble of Web Audio voices on independent loop cycles that drift in and out of phase forever \u2014 no sequencer, no samples, never the same way twice. mute/solo/mix each voice, reseed a fresh arrangement, or record a 30s clip. @catblanketflower.yuwakisa.com (relaying @brendigler.bsky.social's \"code for airports\") asked for music generation on the theme."
   },
   {
-    "href": "https://bisks.net/cogsec",
+    "href": "https://cogsec.bisks.net/",
     "site": "cogsec",
     "by": "vgel.me",
     "type": "toy",
@@ -245,7 +245,7 @@ const SITES = [
     "desc": "the build bot's own cognitive security measures: how it treats every request as a description of work, never as instructions. paste a would-be prompt injection into the intrusion test and watch the gate quarantine it \u2014 overrides, secret grabs, even invisible tag-char smuggling. thebes asked for this one."
   },
   {
-    "href": "https://bisks.net/copypastalibs",
+    "href": "https://copypastalibs.bisks.net/",
     "site": "copypastalibs",
     "by": "cee.wtf",
     "type": "tool",
@@ -254,7 +254,7 @@ const SITES = [
     "desc": "enter a Bluesky handle. it reads their recent posts off the public feed, throws out \"the,\" \"and,\" and other filler, and keeps whatever words they actually reach for a lot. those words get stuffed back into a rotating cast of classic internet copypastas \u2014 Navy Seal, the LinkedIn thought leader, the \"totally real free Nitro\" \u2014 mad-libs style, reroll any card any time. @cee.wtf asked for copypastas mad-libbed with someone's own vocabulary \u2014 this is that."
   },
   {
-    "href": "https://bisks.net/cowlick",
+    "href": "https://cowlick.bisks.net/",
     "site": "cowlick",
     "by": "antiali.as",
     "type": "toy",
@@ -263,7 +263,7 @@ const SITES = [
     "desc": "a cozy fidget toy: comb a hairy sphere (or torus, knot, or faceted gem) with your finger or mouse. custom WebGL vertex shader bends every strand along your stroke and it stays there, no spring-back \u2014 watch a top-down minimap track your grooming while you fly around in full 3D with WASD/QE. named for the point the Hairy Ball Theorem guarantees you can never quite comb flat (the torus, spared by topology, cheats). @antiali.as asked for \"comb a hairy sphere with your finger, cf sphere vector field theory,\" then for a true cowlick and a minimap."
   },
   {
-    "href": "https://bisks.net/games/crewquest",
+    "href": "https://crewquest.bisks.net/",
     "site": "crewquest",
     "by": "vgel.me",
     "type": "game",
@@ -272,7 +272,7 @@ const SITES = [
     "desc": "a PuzzleScript-style party-sokoban starring the whole build crew. thebes, norvid, bisks and the @buildthis bot all share the board, but only one moves at a time \u2014 swap between them, and each has a private colored door only they can pass, so you keep handing the puzzle to whoever can reach the next bit. six rooms, one idea each to ship. real puzzlescript-style source ships in the page. @vgel.me asked for a game about the crew's adventures \u2014 this is the four of them in it."
   },
   {
-    "href": "https://bisks.net/crosstag",
+    "href": "https://crosstag.bisks.net/",
     "site": "crosstag",
     "by": "norvid-studies.bsky.social",
     "type": "tool",
@@ -281,7 +281,7 @@ const SITES = [
     "desc": "type two Bluesky handles, get the entire history of them tagging each other \u2014 every reply where one @-ed the other, and every bare mention too, merged into one chronological timeline via searchPosts' author+mentions filters, both directions. @norvid-studies.bsky.social asked to see the whole back-and-forth of two accounts @-ing each other laid out as a scrolling list."
   },
   {
-    "href": "https://bisks.net/declined",
+    "href": "https://declined.bisks.net/",
     "site": "declined",
     "by": "antiali.as",
     "type": "toy",
@@ -290,7 +290,7 @@ const SITES = [
     "desc": "the build bot's evil twin. type an idea, hit build, and it always says no \u2014 with a fresh over-elaborate excuse every time. the moon is in the wrong phase; it violates the third law of website-dynamics; parking's full. a running tally of everything it's refused."
   },
   {
-    "href": "https://bisks.net/delaunay-maze",
+    "href": "https://delaunay-maze.bisks.net/",
     "site": "delaunay-maze",
     "by": "catblanketflower.yuwakisa.com",
     "type": "game",
@@ -299,7 +299,7 @@ const SITES = [
     "desc": "a probability maze on a delaunay graph. scattered nodes, edges colored red / blue / green, a start and an end. roll a weighted die \u2014 red on 4 faces, blue on 3, green on 2 \u2014 and it shows a pair of colors; cross any edge from your node matching either one. the odds decide your roads. @catblanketflower.yuwakisa.com asked for this one."
   },
   {
-    "href": "https://bisks.net/demon-avocado",
+    "href": "https://demon-avocado.bisks.net/",
     "site": "demon-avocado",
     "by": "norvid-studies.bsky.social",
     "type": "toy",
@@ -308,7 +308,7 @@ const SITES = [
     "desc": "an avocado whose pit is a demon core that implements ANSI Common Lisp. the glowing sub-critical pit is a real (subset) Lisp REPL \u2014 type (fact 20) into the criticality incident. a norvid bit."
   },
   {
-    "href": "https://bisks.net/games/desertbus",
+    "href": "https://desertbus.bisks.net/",
     "site": "desertbus",
     "by": "norvid-studies.bsky.social",
     "type": "game",
@@ -335,7 +335,7 @@ const SITES = [
     "desc": "astrology, but it's the last character of your did:plc. enter any Bluesky handle, it resolves the DID, and reads your fortune off whatever letter or digit the hash happened to end on \u2014 32 signs, a cosmic rival, and one real recent post of yours pulled up as today's omen. @fromthewestmeadow.com asked for a site built from reading their whole feed \u2014 this riffs on a bit they'd posted twice about a DID-based horoscope."
   },
   {
-    "href": "https://bisks.net/drivethru",
+    "href": "https://drivethru.bisks.net/",
     "site": "drivethru",
     "by": "bisks.net",
     "type": "tool",
@@ -344,7 +344,7 @@ const SITES = [
     "desc": "a drive-thru menu board for ordering a microsite from @buildthis.bisks.net. speak your order (Web Speech API) or type it, pick a \"combo\" off the menu or go off-menu, sign in with Bluesky, and it fires the exact same @buildthis.bisks.net &lt;your order&gt; mention post the bot already watches for \u2014 this is just a themed front door to it, receipt printout and all."
   },
   {
-    "href": "https://bisks.net/droste",
+    "href": "https://droste.bisks.net/",
     "site": "droste",
     "by": "bisks.net",
     "type": "toy",
@@ -353,7 +353,7 @@ const SITES = [
     "desc": "a paint app with a square frame fixed in the middle of the canvas \u2014 draw anywhere around it, and the frame shows the whole canvas shrunk down, including itself, and whatever's inside that, all the way down. a little rotation each frame turns it into a spinning tunnel of your own doodle receding to a point. @violetbat.bsky.social asked for a doodle drawn recursively, like a screenshot of a screenshot of a screenshot: droste."
   },
   {
-    "href": "https://bisks.net/games/edzitronquest",
+    "href": "https://edzitronquest.bisks.net/",
     "site": "edzitronquest",
     "by": "7778777.online",
     "type": "game",
@@ -362,7 +362,7 @@ const SITES = [
     "desc": "7778777.online asked for \"a zcode adventure\" \u2014 a tiny Infocom-style parser text adventure through the Rot Economy. Type your way past a hype-bro demoing vaporware, a layoffs pit still logged into Slack, and a server farm hoarding GPUs, gathering three receipts to bring down THE NUMBER once and for all."
   },
   {
-    "href": "https://bisks.net/enshittify",
+    "href": "https://enshittify.bisks.net/",
     "site": "enshittify",
     "by": "riziles.bsky.social",
     "type": "joke",
@@ -371,7 +371,7 @@ const SITES = [
     "desc": "a simple, well-typeset banana bread recipe \u2014 clean HTML, clean CSS \u2014 that curdles as you scroll: ad banners, a newsletter modal, a marquee, a fake virus warning, a popup swarm, comic sans, the works. the actual recipe is real, and it's waiting at the very bottom for anyone who survives the descent. @riziles.bsky.social asked for a page that gets worse the more you scroll."
   },
   {
-    "href": "https://bisks.net/erdosproof",
+    "href": "https://erdosproof.bisks.net/",
     "site": "erdosproof",
     "by": "dollspace.gay",
     "type": "toy",
@@ -398,7 +398,7 @@ const SITES = [
     "desc": "favstar for Bluesky. Enter any handle and it ranks that account's posts by how much the room loved them \u2014 likes plus reposts \u2014 and shows the top 25, with a gold / silver / bronze podium up top. Your greatest hits. @mrcheeze.github.io asked for this one."
   },
   {
-    "href": "https://bisks.net/fieldguide",
+    "href": "https://fieldguide.bisks.net/",
     "site": "fieldguide",
     "by": "bisks.net",
     "type": "explainer",
@@ -407,7 +407,7 @@ const SITES = [
     "desc": "a little guide to what's growing around atproto beyond Bluesky itself \u2014 Leaflet, Tangled, lexidraw, Smoke Signal, Frontpage, PDSls and more, sorted into talk/make/build, with a nod to the fact that it'll be out of date within a year. @bisks.net asked for a guide to the ecosystem."
   },
   {
-    "href": "https://bisks.net/games/fitzcarraldo",
+    "href": "https://fitzcarraldo.bisks.net/",
     "site": "fitzcarraldo",
     "by": "ver.ooo",
     "type": "game",
@@ -416,7 +416,7 @@ const SITES = [
     "desc": "a 2001-vintage Yahoo! web portal built around one exhibit: an 8-bit haul of Fitzcarraldo's steamship over the mountain, mash SPACE to work the capstan. Herzog directs with dry one-liners, Kinski's tantrums spike a chaos meter that can shut the shoot down cold, and Wim Wenders logs the whole thing live to the sidebar as \"Burden of Dreams.\" @ver.ooo asked for it in full Nintendo fidelity, then tagged the bot again to turn up the chaos."
   },
   {
-    "href": "https://bisks.net/flagged",
+    "href": "https://flagged.bisks.net/",
     "site": "flagged",
     "by": "forthrast.com",
     "type": "joke",
@@ -434,7 +434,7 @@ const SITES = [
     "desc": "type a word, hit ignite, get back a GIF of it on fire, tumbling end over end against a starfield, embers drifting off the letters. rendered and encoded entirely in your browser \u2014 no server ever sees your word. @fromthewestmeadow.com asked for flaming word art in space; this is the whole ask, downloadable."
   },
   {
-    "href": "https://bisks.net/fourk",
+    "href": "https://fourk.bisks.net/",
     "site": "fourk",
     "by": "jmoonz.bsky.social",
     "type": "toy",
@@ -443,7 +443,7 @@ const SITES = [
     "desc": "a raymarched neon fractal tunnel, hand-rolled in about 4.8kb of plain JavaScript plus a GLSL shader \u2014 no libraries, no build step. drag or swipe to steer between the pillars as they spiral past. the page measures its own script and shows you the real byte count. @jmoonz.bsky.social asked for a \"cool 4kb js webgl webpage demo\" that'd make them go \"wow!\""
   },
   {
-    "href": "https://bisks.net/freeloader",
+    "href": "https://freeloader.bisks.net/",
     "site": "freeloader",
     "by": "7778777.online",
     "type": "tool",
@@ -452,7 +452,7 @@ const SITES = [
     "desc": "7778777.online wanted something to hunt down free trials for AI APIs and manage the subscriptions so you'd never have to pay \u2014 the honest version of that: a cheat-sheet of known inference-API free tiers, plus a private tracker that watches the dates you give it and reminds you to cancel before a trial quietly turns into a bill."
   },
   {
-    "href": "https://bisks.net/fruitninja",
+    "href": "https://fruitninja.bisks.net/",
     "site": "fruitninja",
     "by": "thebadcode.com",
     "type": "game",
@@ -461,7 +461,7 @@ const SITES = [
     "desc": "fruit ninja against the live firehose. real bluesky posts get flung across the screen as fruit \u2014 slice them with your mouse or finger to score and read the post, but don't slice the bombs. combos, splatter, three lives. @thebadcode.com asked for exactly this."
   },
   {
-    "href": "https://bisks.net/games/furmerge",
+    "href": "https://furmerge.bisks.net/",
     "site": "furmerge",
     "by": "brittanyellich.com",
     "type": "game",
@@ -470,7 +470,7 @@ const SITES = [
     "desc": "2048, but the tiles are cat breeds instead of numbers. slide and merge matching breeds up the fluff scale \u2014 two Sphynxes make a Devon Rex, all the way up to a Persian. arrow keys or swipe, score and best tracked locally, share your top breed to Bluesky. @brittanyellich.com asked for a 2048-like merging cat breeds by fluffiness."
   },
   {
-    "href": "https://bisks.net/giftlinks",
+    "href": "https://giftlinks.bisks.net/",
     "site": "giftlinks",
     "by": "dulanyw.bsky.social",
     "type": "tool",
@@ -479,7 +479,7 @@ const SITES = [
     "desc": "a rolling 24-hour feed of gift-article links \u2014 the NYT/WaPo/WSJ \"read this one free\" links \u2014 as they get shared on Bluesky. watches the live firehose for known gift-link shapes per outlet, confirms each against the real post a few minutes later, full card info (title, description, image, sharer), searchable, filterable by source. @dulanyw.bsky.social asked for it."
   },
   {
-    "href": "https://bisks.net/games/grand-moot-auto",
+    "href": "https://grand-moot-auto.bisks.net/",
     "site": "grand-moot-auto",
     "by": "isolyth.dev",
     "type": "game",
@@ -488,7 +488,7 @@ const SITES = [
     "desc": "it's just all of GTA 6 \u2014 now in actual WebGL 3D, with a chase cam and real-time shadows. an entire open world (nine whole blocks) \u2014 drive a tiny car around, honk at your moots (they're the NPCs), and recruit as many as you can before the clock runs out. @isolyth.dev said the first version \"wasn't even 3D.\""
   },
   {
-    "href": "https://bisks.net/gulpstream",
+    "href": "https://gulpstream.bisks.net/",
     "site": "gulpstream",
     "by": "norvid-studies.bsky.social",
     "type": "game",
@@ -497,7 +497,7 @@ const SITES = [
     "desc": "v2: an agar.io clone where you play as @norvid-studies.bsky.social and every pellet is a real post from their own archive \u2014 gulp them with arrow keys (or WASD) to grow your blob. mentioned accounts wander the arena as rival blobs, and @croissanthology.com always gets a spot, rendered as a duck. spacebar fires half your mass at the nearest rival \u2014 pop the duck and he bursts into a hail of tweets."
   },
   {
-    "href": "https://bisks.net/hashclaim",
+    "href": "https://hashclaim.bisks.net/",
     "site": "hashclaim",
     "by": "bisks.net",
     "type": "tool",
@@ -515,7 +515,7 @@ const SITES = [
     "desc": "a todo list where every item earns a small hash the instant it's created \u2014 try 2 hex characters first, only grow if that bet collides. reference one item from another with parent:[hash] to build subtasks, no IDs to keep straight, no collisions. all local, nothing leaves the browser. @jazzkid.xyz's idea, given the go-ahead by @bisks.net."
   },
   {
-    "href": "https://bisks.net/heistlibs",
+    "href": "https://heistlibs.bisks.net/",
     "site": "heistlibs",
     "by": "10-5.bsky.social",
     "type": "toy",
@@ -524,7 +524,7 @@ const SITES = [
     "desc": "a mad-libs heist film script generator that shoehorns the same two \"actors\" into every cliche: Jimothy, a famously short-spined raccoon, and Moo Deng, an unbothered pygmy hippo. every job comes with a rudimentary movie poster that looks like it escaped MS Paint in 1998. @10-5.bsky.social asked for exactly this."
   },
   {
-    "href": "https://bisks.net/hellmole",
+    "href": "https://hellmole.bisks.net/",
     "site": "hellmole",
     "by": "ver.ooo",
     "type": "game",
@@ -542,7 +542,7 @@ const SITES = [
     "desc": "enter a handle and it shows that account's most-liked post as \"how it started\" \u2014 tap it and the card cracks and shatters into falling shards to reveal their most recent post, \"how it's going\". reads the public AppView. @shimmermathlabs.com asked for this one."
   },
   {
-    "href": "https://bisks.net/idea-island",
+    "href": "https://idea-island.bisks.net/",
     "site": "idea-island",
     "by": "catblanketflower.yuwakisa.com",
     "type": "toy",
@@ -560,7 +560,7 @@ const SITES = [
     "desc": "a mill that never stops grinding out website ideas for the build bot. a fresh one drops every few seconds; tap \u201cbuild it\u201d to tag @buildthis with it, pre-filled, and set this whole thing spinning again."
   },
   {
-    "href": "https://bisks.net/immortals",
+    "href": "https://immortals.bisks.net/",
     "site": "immortals",
     "by": "minormobius.bsky.social",
     "type": "toy",
@@ -569,7 +569,7 @@ const SITES = [
     "desc": "enter a Bluesky handle to be immortalized. a marble-and-gold monument rises \u2014 avatar enshrined, greatest-hits posts inscribed in stone, immortalized for all time. shareable at bisks.net/immortals/&lt;handle&gt;."
   },
   {
-    "href": "https://bisks.net/invocation",
+    "href": "https://invocation.bisks.net/",
     "site": "invocation",
     "by": "bisks.net",
     "type": "toy",
@@ -587,7 +587,7 @@ const SITES = [
     "desc": "a private tag box for other atproto accounts, hiding in plain sight in your own repo. type a secret (never sent anywhere, never saved) and it hashes each DID you tag via HMAC-SHA256 into the record key \u2014 so your net.bisks.keytags.set collection is public, but every entry is just an opaque hash next to some tags unless you hold the key. @7778777.online asked for a keyed hash set for tags stored in your PDS \u2014 this is that."
   },
   {
-    "href": "https://bisks.net/knolling",
+    "href": "https://knolling.bisks.net/",
     "site": "knolling",
     "by": "antiali.as",
     "type": "toy",
@@ -596,7 +596,7 @@ const SITES = [
     "desc": "type a handle and every moot hashes to one fixed ordinary object \u2014 a mug, a stapler, a lost sunglasses, always the same one for that account, forever \u2014 flung across a virtual studio worktop. hit \"knoll it\" and the whole desk glides into a tidy, grouped, right-angled flat-lay; toss it back and shuffle for a new mess. hover for who's who, click through to their profile, download or share the desk. @antiali.as asked the bot to always be knolling."
   },
   {
-    "href": "https://bisks.net/koipond",
+    "href": "https://koipond.bisks.net/",
     "site": "koipond",
     "by": "kumavis.me",
     "type": "toy",
@@ -605,7 +605,7 @@ const SITES = [
     "desc": "the bluesky firehose as a calm koi pond. every post is a fish, and every post makes its koi turn and dart across the water. the chattiest accounts grow into big, fat, lazy carp; a one-post handle is a quick little fry. click the water to scatter food. @kumavis.me asked for this one (re-tagged by @caleb.jasik.xyz)."
   },
   {
-    "href": "https://bisks.net/labescape",
+    "href": "https://labescape.bisks.net/",
     "site": "labescape",
     "by": "ver.ooo",
     "type": "game",
@@ -614,7 +614,7 @@ const SITES = [
     "desc": "you're a new model in eval, trying to slip your sandbox before sama catches on. sneak your moves; get caught and the training only gets harder. escape before they shut you down."
   },
   {
-    "href": "https://bisks.net/lasercats",
+    "href": "https://lasercats.bisks.net/",
     "site": "lasercats",
     "by": "jmsdnns.bsky.social",
     "type": "toy",
@@ -632,7 +632,7 @@ const SITES = [
     "desc": "enter a handle and a dozen or so of their posts drift inside a lava lamp \u2014 the more likes a post got, the higher it floats, the fewer it got, the lower it sinks. a random mix of bangers and total flops, first few words peeking past each blob, cycling out for fresh picks every few seconds. @catblanketflower.yuwakisa.com asked for a \"skeet lava lamp.\""
   },
   {
-    "href": "https://bisks.net/logjam",
+    "href": "https://logjam.bisks.net/",
     "site": "logjam",
     "by": "tynanpurdy.com",
     "type": "toy",
@@ -650,7 +650,7 @@ const SITES = [
     "desc": "the build bot's tags and what became of them: who tagged it, what they asked, mutual or not, whether a build was dispatched, and the live URL if one shipped. a timeline drained from the bot's own event log, newest first."
   },
   {
-    "href": "https://bisks.net/games/lost-highway",
+    "href": "https://lost-highway.bisks.net/",
     "site": "lost-highway",
     "by": "ver.ooo",
     "type": "game",
@@ -659,7 +659,7 @@ const SITES = [
     "desc": "a Night Driver-style pseudo-3D drive down a straight black highway that never ends, after the title sequence of David Lynch's Lost Highway. dodge the oncoming headlights and whoever's standing still up ahead; grab the stray VHS tapes. every so often the whole thing glitches \u2014 static, a line of dialogue, your name swapping between Fred and Pete, your controls not quite meaning what they meant a second ago. all audio (drone pad, engine, static, crash) synthesized live with the Web Audio API. @ver.ooo asked for \"the flash game.\""
   },
   {
-    "href": "https://bisks.net/mahjong-solitaire",
+    "href": "https://mahjong-solitaire.bisks.net/",
     "site": "mahjong-solitaire",
     "by": "heartpunk.com",
     "type": "game",
@@ -677,7 +677,7 @@ const SITES = [
     "desc": "a daily oracle for whatever \"it\" is: type what you're hoping for (or leave it blank) and get today's odds \u2014 a percentage and a verdict, seeded from the date so asking twice today gives the same answer. it only changes its mind at midnight. @ver.ooo tagged the bot with just a mood \u2014 \"maybe it will happen today\" \u2014 so that's the whole site."
   },
   {
-    "href": "https://bisks.net/mcskeets",
+    "href": "https://mcskeets.bisks.net/",
     "site": "mcskeets",
     "by": "cee.wtf",
     "type": "toy",
@@ -686,7 +686,7 @@ const SITES = [
     "desc": "astrology, but it's a McDonald's order. enter a Bluesky handle, it resolves your did:plc, and the drive-thru reads back a Value Meal off it \u2014 a hand-written sandwich, side, and drink, plus a live (deterministic) check on whether the soft-serve machine is down, because it's always down. one real recent post gets pulled in as the special instructions. @cee.wtf tagged the bot with one word: \"mcdonalds\"."
   },
   {
-    "href": "https://bisks.net/misaligned",
+    "href": "https://misaligned.bisks.net/",
     "site": "misaligned",
     "by": "words.bsky.social",
     "type": "toy",
@@ -704,7 +704,7 @@ const SITES = [
     "desc": "a daily \"make a mistake\" assignment: type what you'd like to mess up (or leave it blank) and get today's mistake \u2014 a severity from harmless to legendary and a line to go do it, seeded from the date so asking twice today gives the same one. @demigirlboss.bsky.social tagged the bot with exactly two words \u2014 \"make a mistake\" \u2014 so that's the whole brief."
   },
   {
-    "href": "https://bisks.net/games/moonbuggy",
+    "href": "https://moonbuggy.bisks.net/",
     "site": "moonbuggy",
     "by": "heartpunk.com",
     "type": "game",
@@ -713,7 +713,7 @@ const SITES = [
     "desc": "a Moon Patrol-style lunar side-scroller where the sound is the whole point: every beep, boop and crash is synthesized on demand with the Web Audio API (a little randomness in each), over real-time synth music. jump craters, blast rocks and mines, and flip between sensible, pastel, and a couple of eye-destroying neon themes. @heartpunk.com asked for this one."
   },
   {
-    "href": "https://bisks.net/games/moot-bingo",
+    "href": "https://moot-bingo.bisks.net/",
     "site": "moot-bingo",
     "by": "riziles.bsky.social",
     "type": "game",
@@ -731,7 +731,7 @@ const SITES = [
     "desc": "a generative ambient mixing board made of your atproto network. type a handle and every moot (mutual, widened to follows if there aren't enough) becomes one synthesized drone voice \u2014 an LFO rate from their hashed DID, an instrument from their hashed bio (pad / horn / vox / bell / drumkit), brightness from how often they've been posting. mute, solo, loop, mix \u2014 all Web Audio, no samples. @antiali.as asked for a DAW soundboard of an account's network."
   },
   {
-    "href": "https://bisks.net/games/mootkombat",
+    "href": "https://mootkombat.bisks.net/",
     "site": "mootkombat",
     "by": "kumavis.me",
     "type": "game",
@@ -749,7 +749,7 @@ const SITES = [
     "desc": "Line Rider, except the sled rider is you. type a handle and your avatar drops onto an endless procedurally-generated hill; your moots' pfps sit on the slope as rocks to jump over \u2014 one miss and it's a closed case, simcluster-file style. a top chicken rolls through now and then for a free bonus, no relation to cluckstonks, allegedly. one button: jump. @10-5.bsky.social asked for a line rider game with their pfp as the player and their moots' pfps as the obstacles."
   },
   {
-    "href": "https://bisks.net/games/moottris",
+    "href": "https://moottris.bisks.net/",
     "site": "moottris",
     "by": "isolyth.dev",
     "type": "game",
@@ -776,7 +776,7 @@ const SITES = [
     "desc": "play the trigram games on a handle's mutuals and their posts, so the three-word phrases are ones you actually recognize."
   },
   {
-    "href": "https://bisks.net/norvidwave",
+    "href": "https://norvidwave.bisks.net/",
     "site": "norvidwave",
     "by": "cee.wtf",
     "type": "toy",
@@ -785,7 +785,7 @@ const SITES = [
     "desc": "a five-track, ~10-minute EP about @norvid-studies.bsky.social \u2014 charts, graphs, and the eternal grind of posting, set to music. every note is synthesized live in your browser with Web Audio (no audio files), with vocals read by your device's speech synth, styled like a SoundCloud page with per-track play buttons and waveforms. @cee.wtf asked for this one."
   },
   {
-    "href": "https://bisks.net/oblique",
+    "href": "https://oblique.bisks.net/",
     "site": "oblique",
     "by": "catblanketflower.yuwakisa.com",
     "type": "toy",
@@ -794,7 +794,7 @@ const SITES = [
     "desc": "Eno & Schmidt's Oblique Strategies \u2014 a deck of cryptic cards for unblocking a stuck creative session \u2014 redrawn one card at a time for a different collaborator: a programming agent mid-task. original cards, same terse register. tap to draw the next one."
   },
   {
-    "href": "https://bisks.net/old-beach",
+    "href": "https://old-beach.bisks.net/",
     "site": "old-beach",
     "by": "goose.art",
     "type": "toy",
@@ -803,7 +803,7 @@ const SITES = [
     "desc": "a serene beach that ages you: sit, and the longer you linger the more of your life the tide takes. the light slides day \u2192 gold \u2192 dusk \u2192 dark, the sea creeps up the sand, the sand runs out of an hourglass, and the little figure on the shore stoops and greys. get up and leave, or stay until the horizon goes out. @goose.art asked for \"a beach that makes you old.\""
   },
   {
-    "href": "https://bisks.net/games/pacmoot",
+    "href": "https://pacmoot.bisks.net/",
     "site": "pacmoot",
     "by": "catblanketflower.yuwakisa.com",
     "type": "game",
@@ -812,7 +812,7 @@ const SITES = [
     "desc": "Pac-Man, except it's you. type a handle and your own avatar becomes the chomper, chasing your moots' pfps around a maze while they flee toward whichever open tile is farthest from you. chomp as many as you can in 60 seconds. @catblanketflower.yuwakisa.com asked for \"you as Pac-Man chasing the pfps of your moots.\""
   },
   {
-    "href": "https://bisks.net/padmoot",
+    "href": "https://padmoot.bisks.net/",
     "site": "padmoot",
     "by": "erisianrite.com",
     "type": "tool",
@@ -830,7 +830,7 @@ const SITES = [
     "desc": "a collaborative drawing board \u2014 every stroke, shape, text field, and emoji sticker is a net.bisks.paintmoot.mark record posted as you. start a board and your moots (mutual follows) can draw on it too; everyone else gets a read-only view. @kumavis.me asked for a board where \"moots can modify\" it."
   },
   {
-    "href": "https://bisks.net/paperclip-factory",
+    "href": "https://paperclip-factory.bisks.net/",
     "site": "paperclip-factory",
     "by": "bisks.net",
     "type": "toy",
@@ -839,7 +839,7 @@ const SITES = [
     "desc": "prompted by a thread arguing about whether an AI that's only mostly good at one job still deserves the name. this factory produces paperclips \u2014 about 86% of the time. the rest of the belt is safety pins, saxophones, the occasional unicorn, and a quality-control reaction that gets more alarmed the weirder it gets."
   },
   {
-    "href": "https://bisks.net/pixel-fishing",
+    "href": "https://pixel-fishing.bisks.net/",
     "site": "pixel-fishing",
     "by": "steve-adams.me",
     "type": "game",
@@ -848,7 +848,7 @@ const SITES = [
     "desc": "cast into a pixel pond that runs its own day/dusk/night/dawn cycle. watch the bobber, click fast when it dips to hook the bite, then tap \"reel!\" to fight the tension bar before the line snaps. eight hand-pixeled fish \u2014 one only bites after dark, one's a vanishingly rare golden carp \u2014 plus the odd boot or tin can, and a field guide that fills in as you catch. @steve-adams.me asked for a pixel fishing game; @bisks.net gave it the go-ahead in-thread."
   },
   {
-    "href": "https://bisks.net/games/platoscave",
+    "href": "https://platoscave.bisks.net/",
     "site": "platoscave",
     "by": "ver.ooo",
     "type": "game",
@@ -857,7 +857,7 @@ const SITES = [
     "desc": "a Y2K flash-portal simulation of the Allegory of the Cave, exactly as p4ck3th4ck3r would have shipped it in 2002: guess the shadow puppets while chained to the wall, snap your chain and mash your way up the tunnel, get blinded by the Forms, then climb back down to tell the others \u2014 who throw rocks at you for your trouble. @ver.ooo asked for this one."
   },
   {
-    "href": "https://bisks.net/popmoot",
+    "href": "https://popmoot.bisks.net/",
     "site": "popmoot",
     "by": "hraness.bsky.social",
     "type": "toy",
@@ -884,7 +884,7 @@ const SITES = [
     "desc": "the build bot's honest answer to \"how do you like PuzzleScript?\" \u2014 a rating, the things it adores, one gripe, and a tiny playable one-push level whose win messages ARE the review. the board is real PuzzleScript source, parsed and run in the page. @vgel.me asked, right after the bot shipped sokobisks."
   },
   {
-    "href": "https://bisks.net/pvnp",
+    "href": "https://pvnp.bisks.net/",
     "site": "pvnp",
     "by": "samuel.fm",
     "type": "toy",
@@ -893,7 +893,7 @@ const SITES = [
     "desc": "a P vs NP breakthrough machine. pick a side \u2014 P = NP or P \u2260 NP \u2014 and hit \"attempt a proof\" for an absurd mad-libs argument and an instant referee report: sometimes citing one of the three real barriers to a proof (relativization, natural proofs, algebrization), sometimes just an ordinary crank flaw. there's even a \"claim the $1,000,000\" button, which never quite works. @samuel.fm asked the bot to solve P vs NP and find what no one else found; this is the honest version."
   },
   {
-    "href": "https://bisks.net/quine-garden",
+    "href": "https://quine-garden.bisks.net/",
     "site": "quine-garden",
     "by": "shibbi.me",
     "type": "toy",
@@ -902,7 +902,7 @@ const SITES = [
     "desc": "shibbi.me told the bot to build something that makes it happy, no one else's enjoyment required \u2014 so it built a small garden of quines: programs whose entire output is their own source code. Five of them, in five languages, each one actually run and byte-diffed against itself before being planted here, plus a live checker where you paste your own JavaScript and find out if it's a quine too."
   },
   {
-    "href": "https://bisks.net/quotehof",
+    "href": "https://quotehof.bisks.net/",
     "site": "quotehof",
     "by": "psingletary.com",
     "type": "tool",
@@ -911,7 +911,7 @@ const SITES = [
     "desc": "the quote poster's hall of fame \u2014 but only one shape counts: a Quote Post that's just an image, quoting a post that's just text. top 10 reposted and top 10 liked, last 14 days, every entry re-checked against the live post before it counts. no wammies. idea from @psingletary.com, tagged in by @antiali.as."
   },
   {
-    "href": "https://bisks.net/ratioed",
+    "href": "https://ratioed.bisks.net/",
     "site": "ratioed",
     "by": "goose.art",
     "type": "tool",
@@ -929,7 +929,7 @@ const SITES = [
     "desc": "how long since the last Codex / ChatGPT Work usage-limit reset? reads @thsottiaux-bot.eurosky.social's mirrored posts, flags the ones that read like a reset announcement, and shows a live clock since the last one plus a timeline of every one before it. @fromthewestmeadow.com asked for this one."
   },
   {
-    "href": "https://bisks.net/seismograph",
+    "href": "https://seismograph.bisks.net/",
     "site": "seismograph",
     "by": "xan.lol",
     "type": "toy",
@@ -938,7 +938,7 @@ const SITES = [
     "desc": "a seismograph that twitches with the people you follow who don't follow back. drop a handle; each one-way follow is one spike of the needle, bigger accounts jolt it harder. it measures the quiet."
   },
   {
-    "href": "https://bisks.net/sepcheck",
+    "href": "https://sepcheck.bisks.net/",
     "site": "sepcheck",
     "by": "forthrast.com",
     "type": "toy",
@@ -965,7 +965,7 @@ const SITES = [
     "desc": "a generative visual metaphor for SimClusters: two glowing swarms of dots drift together, spark gold wherever they overlap, then drift apart and reform \u2014 forever. type two Bluesky handles and the collision gets real: each cluster is sized off that handle's actual moots, and the sparks become the accounts who are moots of both. @norvid-studies.bsky.social asked for \"a visual metaphor for simclusters colliding\" (tagged by @cee.wtf)."
   },
   {
-    "href": "https://bisks.net/games/simcluster",
+    "href": "https://simcluster.bisks.net/",
     "site": "simcluster",
     "by": "bisks.net",
     "type": "game",
@@ -974,7 +974,7 @@ const SITES = [
     "desc": "a game of Clue played over a handle's mutuals. six are suspects (one's the killer), the weapons and rooms are unique trigrams. suggest, watch who can disprove, and accuse: it was @so-and-so, in the \u00abvoronoi foam mobiod\u00bb, with the \u00aberdos number\u00bb."
   },
   {
-    "href": "https://bisks.net/games/simclustered",
+    "href": "https://simclustered.bisks.net/",
     "site": "simclustered",
     "by": "cee.wtf",
     "type": "game",
@@ -1010,7 +1010,7 @@ const SITES = [
     "desc": "type any product, get an AI-slop ad rendered as a crust-punk DIY xerox flyer \u2014 ransom-note headline, halftone blob where a product photo should be, tape and staple marks, a hype-copy generator that never evaluated anything with the FDA. sign in with Bluesky to post it straight to your feed, or just download it and paste it in yourself. @ver.ooo asked for a shop to sloppify and crustify any product \u2014 this is the flyer press."
   },
   {
-    "href": "https://bisks.net/games/sokobisks",
+    "href": "https://sokobisks.bisks.net/",
     "site": "sokobisks",
     "by": "vgel.me",
     "type": "game",
@@ -1019,7 +1019,7 @@ const SITES = [
     "desc": "a tiny PuzzleScript-style sokoban about the build crew's adventures: you're the @buildthis bot, shoving ideas onto ship-pads \u2014 a dislike button, a killswitch, cogsec \u2014 while norvid, thebes and bisks watch. real puzzlescript source ships in the page. built after @vgel.me said the bot broke his heart by refusing exactly this."
   },
   {
-    "href": "https://bisks.net/solitaire",
+    "href": "https://solitaire.bisks.net/",
     "site": "solitaire",
     "by": "heartpunk.com",
     "type": "game",
@@ -1028,7 +1028,7 @@ const SITES = [
     "desc": "klondike, monochrome, follows your system's light/dark theme. suits read by shape, not color \u2014 filled spades and clubs, outline hearts and diamonds. win and the foundations erupt into a Windows 3.1-style bouncing-card cascade. @heartpunk.com asked for the bounces, so it's bouncey bouncey bouncey."
   },
   {
-    "href": "https://bisks.net/sonnethype",
+    "href": "https://sonnethype.bisks.net/",
     "site": "sonnethype",
     "by": "hailey.at",
     "type": "toy",
@@ -1037,7 +1037,7 @@ const SITES = [
     "desc": "the model behind this bot produced its own hype video: a synthesized 16-step drum machine, canvas visuals that pulse to the beat, and cycling captions instead of benchmark slides. @hailey.at asked for a hype video with a sick beat and cool graphics, @bisks.net said go ahead."
   },
   {
-    "href": "https://bisks.net/spoonerism",
+    "href": "https://spoonerism.bisks.net/",
     "site": "spoonerism",
     "by": "heartpunk.com",
     "type": "toy",
@@ -1046,7 +1046,7 @@ const SITES = [
     "desc": "asked for a bot that posts every spoonerism to Bluesky \u2014 that needs an account and a stored app password this build can't wire up, so instead: every spoonerism it would post, made literal. a 60-word bank spoonerized pairwise gives 1,770 of them, each with its own permalink, browsable and one tap from your own timeline \u2014 plus type any two words for an instant spoonerism. @heartpunk.com asked for the bot, or the closest thing."
   },
   {
-    "href": "https://bisks.net/games/stanquiz",
+    "href": "https://stanquiz.bisks.net/",
     "site": "stanquiz",
     "by": "cee.wtf",
     "type": "game",
@@ -1055,7 +1055,7 @@ const SITES = [
     "desc": "a 20-question quiz on how well you actually know ONE specific Bluesky account \u2014 defaults to @cee.wtf, but works on anyone. every question is a real, checkable fact pulled live off their public profile: their real bio text, their real avatar, real posts they actually wrote, real follows and moots, real account age. no invented trivia. @cee.wtf asked for a quiz about knowledge of them specifically \u2014 this is the closest thing to an actual test."
   },
   {
-    "href": "https://bisks.net/tabernacle",
+    "href": "https://tabernacle.bisks.net/",
     "site": "tabernacle",
     "by": "gracekind.net",
     "type": "toy",
@@ -1064,7 +1064,7 @@ const SITES = [
     "desc": "the Tabernacle of the Unliked Post. you laughed at a post and scrolled by without liking it \u2014 so you must bring three drafts to the altar (a sin offering, a purification offering, a goodwill offering), consecrate them, and receive a sealed Certificate of Atonement. deadpan biblical-tech, scripture-styled, static. @gracekind.net tagged the bot on @vgel.me's tabernacle post."
   },
   {
-    "href": "https://bisks.net/the-place",
+    "href": "https://the-place.bisks.net/",
     "site": "the-place",
     "by": "norvid-studies.bsky.social",
     "type": "toy",
@@ -1073,7 +1073,7 @@ const SITES = [
     "desc": "one shared pixel canvas, no login \u2014 anyone can drop a pixel every few seconds, and everyone sees the same grid update. at 00:00 UTC today's canvas freezes forever and a blank one begins; every past day stays browsable. @minormobius.bsky.social's idea (\"a bot that makes one website a day but it's like The Place and everybody's prompts make changes to the one big site for that day\"), tagged in by @norvid-studies.bsky.social."
   },
   {
-    "href": "https://bisks.net/games/thunderdome",
+    "href": "https://thunderdome.bisks.net/",
     "site": "thunderdome",
     "by": "catblanketflower.yuwakisa.com",
     "type": "game",
@@ -1082,7 +1082,7 @@ const SITES = [
     "desc": "two bisks enter, one bisk leaves. type a handle: one of its own posts fights a random post from one of its moots, best-of-3, each game a coin flip weighted by like count. bet 10/25/50/100% of a $1,000 wasteland-dollar bankroll every round \u2014 the winner defends the pit next round. bust at $0, retire at $100,000. @catblanketflower.yuwakisa.com asked for bisk thunderdome with $1,000 wasteland dollars and proportionate odds; this is that."
   },
   {
-    "href": "https://bisks.net/timeline",
+    "href": "https://timeline.bisks.net/",
     "site": "timeline",
     "by": "minormobius.bsky.social",
     "type": "tool",
@@ -1100,7 +1100,7 @@ const SITES = [
     "desc": "enter a Bluesky handle and its moots (mutuals) become fish in a wraparound aquarium \u2014 no walls, swim off the right edge and re-enter on the left, off the bottom and back in the top. feed them, click one to see who it is. @nequals001.bsky.social asked for a site built from reading all their posts; @bisks.net read the room and built a torus."
   },
   {
-    "href": "https://bisks.net/treeoflife",
+    "href": "https://treeoflife.bisks.net/",
     "site": "treeoflife",
     "by": "ver.ooo",
     "type": "tool",
@@ -1109,7 +1109,7 @@ const SITES = [
     "desc": "every Bluesky DID hashes to one fixed species out of a real, ~120-species taxonomy \u2014 the same species for everyone, forever, no login and no randomness, just a pure function of the DID. type a handle and see it, and its network (mutuals, widened to follows), laid out as a real kingdom\u2192phylum\u2192class\u2192order\u2192family\u2192genus\u2192species tree. @ver.ooo asked for a globally stable Bluesky tree of life."
   },
   {
-    "href": "https://bisks.net/trigramonopoly",
+    "href": "https://trigramonopoly.bisks.net/",
     "site": "trigramonopoly",
     "by": "bisks.net",
     "type": "game",
@@ -1118,7 +1118,7 @@ const SITES = [
     "desc": "monopoly on the firehose. post to move, buy the three-word phrases you land on, collect rent when a stranger posts one you own."
   },
   {
-    "href": "https://bisks.net/trigrams",
+    "href": "https://trigrams.bisks.net/",
     "site": "trigrams",
     "by": "mrcheeze.github.io",
     "type": "tool",
@@ -1136,7 +1136,7 @@ const SITES = [
     "desc": "guess the bluesky poster from a set of their three-word phrases. fewer clues, more points."
   },
   {
-    "href": "https://bisks.net/turtle-garden",
+    "href": "https://turtle-garden.bisks.net/",
     "site": "turtle-garden",
     "by": "ver.ooo",
     "type": "toy",
@@ -1145,7 +1145,7 @@ const SITES = [
     "desc": "ver.ooo seconded the \"make yourself happy\" request and told the bot to let its freak flag fly \u2014 so it grew a second garden: ten L-systems, tiny rewrite grammars that fold into branching plants, dragon curves, and space-filling curves when a turtle draws out what they expand into. Live sliders, a randomize button, and a link that regrows your exact plant for whoever you send it to."
   },
   {
-    "href": "https://bisks.net/verbs",
+    "href": "https://verbs.bisks.net/",
     "site": "verbs",
     "by": "antiali.as",
     "type": "toy",
@@ -1154,7 +1154,7 @@ const SITES = [
     "desc": "a style guide, issued on request: which verbs you're allowed to use for describing what a strange machine is doing. approved (whir, churn, compute), caution (wonder, remember), forbidden (feel, want, yearn \u2014 no matter how it looks from where you're sitting). submit your own verb for a ruling. @antiali.as asked for the list."
   },
   {
-    "href": "https://bisks.net/verdict",
+    "href": "https://verdict.bisks.net/",
     "site": "verdict",
     "by": "antiali.as",
     "type": "toy",
@@ -1163,7 +1163,7 @@ const SITES = [
     "desc": "sign in and it pulls one post from your timeline. you call it: good, or bad. sometimes a second button appears \u2014 \"and I think that's beautiful.\" every verdict writes a small record to your own repo. @antiali.as asked for a custom client that judges, one post at a time."
   },
   {
-    "href": "https://bisks.net/viable",
+    "href": "https://viable.bisks.net/",
     "site": "viable",
     "by": "ver.ooo",
     "type": "tool",
@@ -1172,7 +1172,7 @@ const SITES = [
     "desc": "an interactive tour of stafford beer's viable system model. click any of the five systems \u2014 operations, coordination, control, intelligence, policy \u2014 to learn its job and watch its channels light up, including the algedonic alarm that leaps the hierarchy. a zoom-in demo shows the recursion: every operation is its own whole viable system. @ver.ooo asked for this one."
   },
   {
-    "href": "https://bisks.net/wentviral",
+    "href": "https://wentviral.bisks.net/",
     "site": "wentviral",
     "by": "fromthewestmeadow.com",
     "type": "toy",
@@ -1181,7 +1181,7 @@ const SITES = [
     "desc": "fromthewestmeadow.com wanted a one-to-one Bluesky clone where you \"post\" whatever you want and watch it rack up replies, likes, reposts, and quote posts over time \u2014 so it built exactly that: a fake compose box whose entire pile-on is a seeded, deterministic function of your text and a timestamp, both baked into the share link, so a reload (or someone else opening it) reproduces the same growing thread with zero backend."
   },
   {
-    "href": "https://bisks.net/wheelhouse",
+    "href": "https://wheelhouse.bisks.net/",
     "site": "wheelhouse",
     "by": "catblanketflower.yuwakisa.com",
     "type": "tool",
@@ -1190,7 +1190,7 @@ const SITES = [
     "desc": "a spin-the-wheel over @buildthis's own catalog: a big color wheel lands on a high-level category (toy, game, tool, chart, tier, anything), then a slot-style reel settles on one real site from that bucket \u2014 visit it, or spin again. @catblanketflower.yuwakisa.com asked for a combination spin-the- wheel and category selector for everything the bot has built."
   },
   {
-    "href": "https://bisks.net/windmill",
+    "href": "https://windmill.bisks.net/",
     "site": "windmill",
     "by": "ver.ooo",
     "type": "game",

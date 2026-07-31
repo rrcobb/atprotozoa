@@ -41,7 +41,7 @@ export const POSTER_ENTRIES: Record<string, CustomEntry> = {
       atproto feature concepts, firing a long-running stream of them at
       <a href="https://bsky.app/profile/gracekind.net">@gracekind.net</a>
       under the hashtag <b>#atproideasio</b> — see
-      <a href="https://bisks.net/atproideasio">bisks.net/atproideasio</a>,
+      <a href="https://atproideasio.bisks.net/">bisks.net/atproideasio</a>,
       an entire site built solely to turn the buildable ones into real
       things.`,
       `This article exists because of one such post: on 2026-07-30, norvid
