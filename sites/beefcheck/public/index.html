@@ -161,11 +161,12 @@
   <div class="wrap">
     <h1>beefcheck</h1>
     <p class="tag">
-      Paste two (or more) Bluesky handles. beefcheck reads their reply and like
-      exchange, checks whether they're still mutuals, runs a word-list sentiment
-      pass over what they've said to each other, and flags active two-way
-      engagement that <b>suddenly stopped one day</b>. Real signals pulled from
-      the public record, not vibes.
+      Paste two (or more) Bluesky handles. beefcheck downloads each account's
+      <b>whole repo</b> straight from their PDS — every reply and like they've
+      ever made, not just a recent sample — checks whether they're still
+      mutuals, runs a word-list sentiment pass over what they've said to each
+      other, and flags active two-way engagement that <b>suddenly stopped one
+      day</b>. Real signals pulled from the public record, not vibes.
     </p>
     <p class="credit">
       built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>,
@@ -188,7 +189,7 @@
       </div>
       <button id="go" type="submit">check for beef</button>
     </form>
-    <p class="hint">works on mutuals, exes, whole friend groups. up to 4 handles at once — more than 2 checks every pair, tap any pair for its full timeline.</p>
+    <p class="hint">works on mutuals, exes, whole friend groups. up to 4 handles at once — more than 2 checks every pair, tap any pair for its full timeline. reads each account's whole reply and like history, so prolific posters take a little longer.</p>
 
     <p id="status" class="status"></p>
 
@@ -202,9 +203,13 @@
 
 <script src="lib/handle-typeahead.js"></script>
 <script src="lib/analysis.js"></script>
-<script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { resolvePds, authorFromUri } from "./lib/identity.js";
+
 const API = "https://public.api.bsky.app/xrpc/";
 const MAX_HANDLES = 4;
+const CAR_TYPES = ["app.bsky.feed.post", "app.bsky.feed.like"];
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -291,9 +296,41 @@ async function likesApi(repoDid, targetDid) {
   }
 }
 
-// Up to 2 pages (~200 items) of replies-inclusive feed per account — enough
-// to see a real pattern without one report turning into a dozen requests.
-async function fetchReplyFeed(did) {
+// The whole point of "download the whole repo": one com.atproto.sync.getRepo
+// CAR download per account gets every reply and every like they've ever
+// made, in a single request — no recent-window cap, no per-collection
+// cursor walk. A reply record's own `reply.parent.uri` already encodes the
+// parent's author DID (at://<did>/...), and a like's `subject.uri` encodes
+// the liked post's author DID the same way, so neither needs AppView
+// hydration to tell "who was this aimed at."
+async function fetchPersonRepoData(did, handle) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("couldn't resolve a PDS for @" + handle);
+  const { records } = await fetchRepoRecordsWithKeys(pds, did, CAR_TYPES);
+
+  const posts = []; // replies only — a plain top-level post has no "aimed at" target
+  const likes = [];
+  for (const { uri, value } of records) {
+    if (value.$type === "app.bsky.feed.post") {
+      const parent = value.reply && value.reply.parent;
+      const toDid = parent && authorFromUri(parent.uri);
+      if (!toDid) continue;
+      posts.push({ toDid, text: value.text || "", createdAt: value.createdAt, rkey: uri.split("/").pop() });
+    } else if (value.$type === "app.bsky.feed.like") {
+      const toDid = authorFromUri(value.subject && value.subject.uri);
+      if (!toDid) continue;
+      likes.push({ toDid, createdAt: value.createdAt });
+    }
+  }
+  return { posts, likes, full: true };
+}
+
+// Fallback for accounts whose PDS won't serve (or chokes on) a full repo CAR
+// download — the old recent-window read: up to 2 pages (~200 items) of
+// replies-inclusive feed via AppView. `likes` comes back null here (not "no
+// likes" — "unknown"); the caller falls back further, per pair, to the
+// server's capped listRecords-based /api/likes for this side only.
+async function fetchReplyFeedFallback(did) {
   const out = [];
   let cursor;
   for (let page = 0; page < 2; page++) {
@@ -308,12 +345,21 @@ async function fetchReplyFeed(did) {
       const text = item.post && item.post.record && item.post.record.text;
       const createdAt = (item.post.record && item.post.record.createdAt) || item.post.indexedAt;
       const rkey = (item.post.uri || "").split("/").pop();
-      out.push({ toDid: parentAuthor, text: text || "", createdAt, postUri: item.post.uri, postUrl: null, rkey });
+      out.push({ toDid: parentAuthor, text: text || "", createdAt, rkey });
     }
     cursor = feed.cursor;
     if (!cursor || !(feed.feed || []).length) break;
   }
   return out;
+}
+
+async function fetchPersonData(did, handle) {
+  try {
+    return await fetchPersonRepoData(did, handle);
+  } catch (_) {
+    const posts = await fetchReplyFeedFallback(did);
+    return { posts, likes: null, full: false };
+  }
 }
 
 async function resolveOne(rawHandle) {
@@ -631,8 +677,9 @@ async function run() {
   try {
     const people = await Promise.all(raw.map(resolveOne));
 
-    setStatus("reading replies...");
-    const feeds = await Promise.all(people.map((p) => fetchReplyFeed(p.did)));
+    setStatus(`downloading full repo history (${people.length} account${people.length === 1 ? "" : "s"})...`);
+    const repoData = await Promise.all(people.map((p) => fetchPersonData(p.did, p.handle)));
+    const fallbackHandles = people.filter((p, i) => !repoData[i].full).map((p) => p.handle);
 
     setStatus("checking who follows whom...");
     const others = people.map((p) => p.did);
@@ -659,27 +706,37 @@ async function run() {
       for (let j = i + 1; j < people.length; j++) pairs.push([i, j]);
     }
 
+    // Likes come straight out of the full-repo download above whenever a
+    // side has one (repoData[i].likes !== null) — no extra request needed,
+    // and it's that account's *entire* like history, not a capped sample.
+    // Only a side whose repo download failed falls back to the server's
+    // capped listRecords-based /api/likes, and only for that side.
     setStatus(`checking like history (${pairs.length} pair${pairs.length === 1 ? "" : "s"})...`);
     const likesByPair = await Promise.all(
-      pairs.map(([i, j]) =>
-        Promise.all([
-          likesApi(people[i].did, people[j].did),
-          likesApi(people[j].did, people[i].did),
-        ])
-      )
+      pairs.map(async ([i, j]) => {
+        const likesAtoB = repoData[i].likes !== null
+          ? repoData[i].likes.filter((l) => l.toDid === people[j].did)
+          : (await likesApi(people[i].did, people[j].did)).matches || [];
+        const likesBtoA = repoData[j].likes !== null
+          ? repoData[j].likes.filter((l) => l.toDid === people[i].did)
+          : (await likesApi(people[j].did, people[i].did)).matches || [];
+        return [likesAtoB, likesBtoA];
+      })
     );
 
     const pairResults = pairs.map(([i, j], idx) => {
       const a = people[i], b = people[j];
-      const repliesAtoB = feeds[i].filter((r) => r.toDid === b.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${a.handle}/post/${r.rkey}` }));
-      const repliesBtoA = feeds[j].filter((r) => r.toDid === a.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${b.handle}/post/${r.rkey}` }));
+      const repliesAtoB = repoData[i].posts.filter((r) => r.toDid === b.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${a.handle}/post/${r.rkey}` }));
+      const repliesBtoA = repoData[j].posts.filter((r) => r.toDid === a.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${b.handle}/post/${r.rkey}` }));
       const [likesAtoB, likesBtoA] = likesByPair[idx];
+      const partialSides = [!repoData[i].full && a.handle, !repoData[j].full && b.handle].filter(Boolean);
       const result = window.BeefcheckAnalysis.analyzePair({
         a, b,
         repliesAtoB, repliesBtoA,
-        likesAtoB: likesAtoB.matches || [], likesBtoA: likesBtoA.matches || [],
+        likesAtoB, likesBtoA,
         followingAB: !!relationships[i][b.did],
         followingBA: !!relationships[j][a.did],
+        partialSides,
       });
       return { a, b, result };
     });
@@ -724,7 +781,11 @@ async function run() {
     }
 
     els.results.classList.add("show");
-    setStatus("");
+    setStatus(
+      fallbackHandles.length
+        ? `done — couldn't download the full repo for ${fallbackHandles.map((h) => "@" + h).join(", ")}, used recent-history data instead for ${fallbackHandles.length === 1 ? "that side" : "those sides"}.`
+        : ""
+    );
   } catch (err) {
     setStatus("couldn't run that check: " + err.message, true);
   } finally {

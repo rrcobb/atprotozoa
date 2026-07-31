@@ -143,8 +143,11 @@
     //          repliesAtoB, repliesBtoA: [{createdAt, text, postUrl}],
     //          likesAtoB, likesBtoA: [{createdAt}],
     //          followingAB, followingBA: bool,
-    //          likesAvailable: bool (false if /api/likes came back empty/errored for both) }
+    //          partialSides: string[] (handles whose full repo download
+    //          failed, so this pair leans on a recent-history sample for
+    //          that side instead of their whole history) }
     const now = input.now || new Date().toISOString();
+    const partialSides = input.partialSides || [];
 
     const totals = {
       repliesAtoB: input.repliesAtoB.length,
@@ -155,6 +158,14 @@
     const totalInteractions = totals.repliesAtoB + totals.repliesBtoA + totals.likesAtoB + totals.likesBtoA;
 
     const evidence = [];
+    const partialNote = partialSides.length
+      ? [{
+          icon: "📡",
+          weight: 0,
+          label: "partial data for " + partialSides.map(fmtHandle).join(" & "),
+          detail: `couldn't download ${partialSides.length > 1 ? "their" : fmtHandle(partialSides[0]) + "'s"} full repo — using a recent-history sample for ${partialSides.length > 1 ? "those sides" : "that side"} instead of their whole history.`,
+        }]
+      : [];
 
     if (totalInteractions === 0) {
       return {
@@ -163,7 +174,7 @@
         verdict: { label: "no history found", blurb: "can't call it beef with zero contact — these two just don't seem to interact." },
         totals,
         mutuals: input.followingAB && input.followingBA,
-        evidence: [],
+        evidence: partialNote,
         timeline: [],
         suddenStop: { stopped: false },
         asymmetric: { asymmetric: false },
@@ -246,6 +257,7 @@
     if (!evidence.length) {
       evidence.push({ icon: "✅", weight: 0, label: "nothing flagged", detail: "reply tone is neutral-to-positive, engagement looks active or unremarkable, and they're still mutuals." });
     }
+    evidence.push(...partialNote);
 
     return {
       score,
