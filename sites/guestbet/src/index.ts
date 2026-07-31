@@ -118,6 +118,27 @@ interface HistoryEntry {
   refunded: boolean;
 }
 
+interface LifetimeStats {
+  wagered: number;
+  won: number;
+  roundsPlayed: number;
+  roundsWon: number;
+  lastRoundId: number;
+}
+
+interface ActivityEntry {
+  guest: string;
+  amount: number;
+  clientShort: string;
+  ts: number;
+}
+
+const ACTIVITY_MAX = 15;
+
+function freshStats(): LifetimeStats {
+  return { wagered: 0, won: 0, roundsPlayed: 0, roundsWon: 0, lastRoundId: 0 };
+}
+
 function freshRound(id: number, now: number): RoundState {
   return { id, startedAt: now, resolvesAt: now + ROUND_MS, pools: {}, names: {}, bets: {} };
 }
@@ -130,6 +151,8 @@ export class Market {
   private history: HistoryEntry[] = [];
   private lastStipend: Map<string, number> = new Map();
   private lastBetAt: Map<string, number> = new Map();
+  private lifetime: Map<string, LifetimeStats> = new Map();
+  private activity: ActivityEntry[] = [];
   private boardCache: { data: BoardEntry[]; fetchedAt: number; stale: boolean } = {
     data: [],
     fetchedAt: 0,
@@ -148,6 +171,10 @@ export class Market {
       if (history) this.history = history;
       const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
       if (lastStipend) this.lastStipend = new Map(lastStipend);
+      const lifetime = await this.state.storage.get<[string, LifetimeStats][]>("lifetime");
+      if (lifetime) this.lifetime = new Map(lifetime);
+      const activity = await this.state.storage.get<ActivityEntry[]>("activity");
+      if (activity) this.activity = activity;
       await this.state.storage.setAlarm(this.round.resolvesAt);
     });
   }
@@ -158,12 +185,19 @@ export class Market {
       round: this.round,
       history: this.history,
       lastStipend: Array.from(this.lastStipend.entries()),
+      lifetime: Array.from(this.lifetime.entries()),
+      activity: this.activity,
     });
   }
 
   private getBalance(clientId: string): number {
     if (!this.balances.has(clientId)) this.balances.set(clientId, START_BALANCE);
     return this.balances.get(clientId)!;
+  }
+
+  private getStats(clientId: string): LifetimeStats {
+    if (!this.lifetime.has(clientId)) this.lifetime.set(clientId, freshStats());
+    return this.lifetime.get(clientId)!;
   }
 
   private async fetchBoard(): Promise<{ data: BoardEntry[]; stale: boolean }> {
@@ -231,6 +265,9 @@ export class Market {
         this.balances.set(clientId, this.getBalance(clientId) + payout);
         paidOut += payout;
         winners++;
+        const stats = this.getStats(clientId);
+        stats.won += payout;
+        stats.roundsWon += 1;
       }
     }
 
@@ -304,6 +341,7 @@ export class Market {
     const balance = this.getBalance(clientId);
     const yourBets = this.round.bets[clientId] || {};
     const totalRealPool = Object.values(this.round.pools).reduce((a, b) => a + b, 0);
+    const stats = this.lifetime.get(clientId) || freshStats();
 
     return {
       round: {
@@ -316,7 +354,15 @@ export class Market {
       totalRealPool,
       balance,
       yourBets,
-      history: this.history.slice(0, 5),
+      yourStats: {
+        wagered: stats.wagered,
+        won: stats.won,
+        net: stats.won - stats.wagered,
+        roundsPlayed: stats.roundsPlayed,
+        roundsWon: stats.roundsWon,
+      },
+      activity: this.activity.slice(0, ACTIVITY_MAX),
+      history: this.history.slice(0, 10),
       boardStale: stale,
       boardCount: board.length,
       canClaimStipend:
@@ -376,12 +422,29 @@ export class Market {
       const balance = this.getBalance(clientId);
       if (amount > balance) return json({ error: "not enough coins" }, 400);
 
+      const betGuestName = onBoard?.guest || guestName || guestId;
+
       this.lastBetAt.set(clientId, Date.now());
       this.balances.set(clientId, balance - amount);
       this.round.pools[guestId] = (this.round.pools[guestId] || 0) + amount;
-      if (!this.round.names[guestId]) this.round.names[guestId] = onBoard?.guest || guestName || guestId;
+      if (!this.round.names[guestId]) this.round.names[guestId] = betGuestName;
       if (!this.round.bets[clientId]) this.round.bets[clientId] = {};
       this.round.bets[clientId][guestId] = (this.round.bets[clientId][guestId] || 0) + amount;
+
+      const stats = this.getStats(clientId);
+      stats.wagered += amount;
+      if (stats.lastRoundId !== this.round.id) {
+        stats.roundsPlayed += 1;
+        stats.lastRoundId = this.round.id;
+      }
+
+      this.activity.unshift({
+        guest: betGuestName,
+        amount,
+        clientShort: clientId.slice(0, 6),
+        ts: Date.now(),
+      });
+      if (this.activity.length > ACTIVITY_MAX) this.activity.length = ACTIVITY_MAX;
 
       await this.persist();
       return json(await this.marketView(clientId));
