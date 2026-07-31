@@ -70,17 +70,30 @@ export default {
   },
 };
 
-// Fetch the event log from the buildthis worker. Returns the events (newest
-// first, as the source orders them) or an error string — never throws.
-async function loadEvents(env: Env): Promise<{ events: LogEvent[]; error: string | null }> {
-  const source = env.LOGS_SOURCE || DEFAULT_SOURCE;
+// Fetch events from the buildthis worker. Returns them newest-first (the order
+// the source uses), plus the total the source holds — never throws.
+//
+// `query` narrows the request at the SOURCE rather than here: `limit` for the
+// timeline's screenful, `rkey` for a single tag permalink. Pulling the whole
+// log for either was what made this page slow — it's ~470 events / 434 KB, and
+// every permalink was downloading all of it to render one row.
+async function loadEvents(
+  env: Env,
+  query: { limit?: number; rkey?: string } = {},
+): Promise<{ events: LogEvent[]; total: number; error: string | null }> {
+  const source = new URL(env.LOGS_SOURCE || DEFAULT_SOURCE);
+  if (query.rkey) source.searchParams.set("rkey", query.rkey);
+  else if (query.limit) source.searchParams.set("limit", String(query.limit));
   try {
-    const res = await fetch(source, { cf: { cacheTtl: 10 } as never });
-    if (!res.ok) return { events: [], error: `log source returned ${res.status}` };
-    const j = (await res.json()) as { events?: LogEvent[] };
-    return { events: Array.isArray(j.events) ? j.events : [], error: null };
+    // 30s edge cache. The log only changes when the watcher or builder writes,
+    // so this is plenty fresh and it keeps repeat views off the origin.
+    const res = await fetch(source.toString(), { cf: { cacheTtl: 30 } as never });
+    if (!res.ok) return { events: [], total: 0, error: `log source returned ${res.status}` };
+    const j = (await res.json()) as { events?: LogEvent[]; total?: number };
+    const events = Array.isArray(j.events) ? j.events : [];
+    return { events, total: typeof j.total === "number" ? j.total : events.length, error: null };
   } catch (err) {
-    return { events: [], error: `couldn't reach the log source (${err})` };
+    return { events: [], total: 0, error: `couldn't reach the log source (${err})` };
   }
 }
 
@@ -91,18 +104,29 @@ function rkeyOf(uri: string): string | null {
   return m ? m[1] : null;
 }
 
+// How many rows the timeline renders. The full log is ~470 events and growing;
+// showing a screenful keeps the page fast, and every event is still reachable
+// at its own /tag/<rkey> permalink.
+const TIMELINE_LIMIT = 60;
+
 async function renderTimeline(env: Env): Promise<Response> {
-  const { events, error: fetchError } = await loadEvents(env);
+  const { events, total, error: fetchError } = await loadEvents(env, {
+    limit: TIMELINE_LIMIT,
+  });
 
   const rows = events.map(renderEvent).join("\n");
+  const more =
+    total > events.length
+      ? `<p class="empty">showing the ${events.length} most recent of ${total}.</p>`
+      : "";
   const body =
     fetchError !== null
       ? `<p class="empty">${esc(fetchError)}</p>`
       : events.length === 0
         ? `<p class="empty">no tags logged yet. tag <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> and it'll show up here.</p>`
-        : rows;
+        : rows + more;
 
-  return html(page(body, events.length));
+  return html(page(body, total));
 }
 
 // One timeline entry: who tagged, what they asked, the gate result, and the
@@ -170,7 +194,8 @@ function chip(label: string, kind: "ok" | "bad" | "muted"): string {
 // One tag, its own page: /tag/<rkey>. Realizes "every tag deserves a website" —
 // every request has a permanent URL here whether or not it ever became a site.
 async function renderTagPage(env: Env, rkey: string): Promise<Response> {
-  const { events, error } = await loadEvents(env);
+  // Ask the source for just this one event instead of the whole log.
+  const { events, error } = await loadEvents(env, { rkey });
   if (error !== null) {
     return html(pageShell("tag — bisks.net", "tag", "", `<p class="empty">${esc(error)}</p>`), 502);
   }

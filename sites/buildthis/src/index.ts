@@ -64,7 +64,7 @@ export default {
     // fetch it cross-origin. The KV binding stays on this one worker (house style:
     // one site = one worker); logs.bisks.net is a pure reader of this endpoint.
     if (url.pathname === "/logs.json") {
-      return handleLogsRead(env);
+      return handleLogsRead(env, url);
     }
 
     // Outcome sink for the builder (GitHub Action). The build's final step POSTs
@@ -301,29 +301,78 @@ async function recordEvent(
 // GET /logs.json — every event, newest first (by firstSeen). CORS-open so the
 // logs site can read it cross-origin. This is public data (the same tags and
 // replies are already on Bluesky), so no auth on the read.
-async function handleLogsRead(env: Env): Promise<Response> {
+// Query params:
+//   ?limit=N   how many events to return (default 60, max 500)
+//   ?rkey=<k>  return just the one event whose mention post has that record key
+//
+// Both exist so a reader doesn't have to pull the whole log to render a page.
+// The timeline shows a screenful and each /tag/<rkey> permalink needs exactly
+// one event; without these the reader downloaded all ~470 (434 KB) either way.
+async function handleLogsRead(env: Env, url: URL): Promise<Response> {
   const cors = {
     "access-control-allow-origin": "*",
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-cache",
   };
   try {
-    const events: LogEvent[] = [];
-    // The event set is small; a single list() page (1000 keys) covers it well
-    // past the 30-day TTL, so we don't paginate.
+    // A single list() page (1000 keys) still covers the event set well past the
+    // 30-day TTL, so we don't paginate.
     const list = await env.STATE.list({ prefix: EVENT_PREFIX });
-    for (const k of list.keys) {
-      const raw = await env.STATE.get(k.name);
-      if (raw) {
-        try {
-          events.push(JSON.parse(raw) as LogEvent);
-        } catch {
-          // Skip a corrupt record rather than failing the whole read.
-        }
+
+    // Single-event lookup for /tag/<rkey>. The KV key is `event:<mentionUri>`
+    // and the rkey is that uri's last segment, so this is a key filter — no
+    // need to read every record and search their contents.
+    const wantRkey = url.searchParams.get("rkey");
+    if (wantRkey) {
+      const hit = list.keys.find((k) => k.name.endsWith(`/${wantRkey}`));
+      if (!hit) {
+        return new Response(JSON.stringify({ events: [] }), {
+          headers: { ...cors, "cache-control": "public, max-age=30" },
+        });
+      }
+      const raw = await env.STATE.get(hit.name);
+      const one = raw ? [JSON.parse(raw) as LogEvent] : [];
+      return new Response(JSON.stringify({ events: one }), {
+        headers: { ...cors, "cache-control": "public, max-age=30" },
+      });
+    }
+
+    // Read the records CONCURRENTLY. This used to be a sequential await inside
+    // a for-loop — one KV round trip per event, in series. That was fine when
+    // there were a dozen events and quietly became a 30-second response at ~470
+    // (each get is tens of ms, and they added up), which made logs.bisks.net
+    // look hung since it blocks on this fetch to render. Promise.all turns the
+    // same reads into one wall-clock round trip.
+    const raws = await Promise.all(list.keys.map((k) => env.STATE.get(k.name)));
+
+    const events: LogEvent[] = [];
+    for (const raw of raws) {
+      if (!raw) continue;
+      try {
+        events.push(JSON.parse(raw) as LogEvent);
+      } catch {
+        // Skip a corrupt record rather than failing the whole read.
       }
     }
     events.sort((a, b) => (a.firstSeen < b.firstSeen ? 1 : -1)); // newest first
-    return new Response(JSON.stringify({ events }), { headers: cors });
+
+    // Trim to the requested window. The sort key lives inside each record and
+    // the KV key is the mention uri, so we can't slice before reading — but we
+    // can still keep the whole log off the wire, which is what made the reader
+    // slow. `total` lets a caller show "N of M" without asking for all of them.
+    const total = events.length;
+    const limitParam = Number(url.searchParams.get("limit"));
+    const limit = Number.isFinite(limitParam) && limitParam > 0
+      ? Math.min(limitParam, 500)
+      : 60;
+    const page = events.slice(0, limit);
+
+    // Let the edge hold this briefly. The log changes only when the watcher or
+    // builder writes an event, so a short TTL is plenty and it keeps a burst of
+    // readers (every /tag/<rkey> permalink hits this too) off KV entirely.
+    return new Response(JSON.stringify({ events: page, total }), {
+      headers: { ...cors, "cache-control": "public, max-age=30" },
+    });
   } catch (err) {
     console.error(`logs read failed: ${err}`);
     return new Response(JSON.stringify({ events: [], error: "read failed" }), {
