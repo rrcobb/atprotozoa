@@ -102,6 +102,15 @@ account. Suggested first label: `built-by-bot` (descriptive, hard to be
 harmfully wrong about) rather than semantic moderation. Do a feed first; a bad
 feed gets unsubscribed, a bad label lands on someone else's post.
 
+**15b. Build requests as records, not just posts.** (Rob, 2026-07-31)
+Today a build request is a Bluesky post and the decision history is a thread.
+If a request were also a `net.bisks.buildthis.request` record — with its outcome,
+what it changed, and who asked — then scoping and history come almost free:
+"what has this person asked for," "what changed the house style and who asked,"
+"which requests are still partial." Makes #16/#17 tractable rather than
+requiring a separate mechanism, and it's the atproto-native version of the
+scoping problem instead of a config file. Pairs with the lexicon work (1–3).
+
 **16. Per-person / per-project build memory.** (`notes/81`)
 Self-modification by tagging is already happening and is uncontrolled — one
 person's tag rewrote the house style (`notes/45`), the reply text, and repo-wide
@@ -117,6 +126,20 @@ answer for both. Suggested default: under bisks.net, requester recorded as
 commissioner.
 
 ---
+
+## C2. Things the bot can't currently do (see `notes/90`)
+
+**18. Let the bot see more than plain text.**
+`threadContext()` extracts `record.text` only — images, image alt text, quote
+posts, link cards, video, and the root post (when the tag is deep) are all
+dropped. Alt text and quote posts are the cheap high-value fixes; actual image
+input needs the blob passed to the model.
+
+**19. Do something about the ~20% partial rate.**
+73 "ran out of runway" vs 285 "built it" across the corpus. Partial work is
+already preserved correctly; the gap is that a human has to notice and re-tag —
+and "keep going" is one of the most common inputs in the whole dataset, which
+suggests the harness could close that loop itself.
 
 ## D. Considered and set aside
 

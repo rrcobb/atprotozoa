@@ -1,0 +1,120 @@
+# Two builder problems: thin input, and the runway wall
+
+Both raised by Rob 2026-07-31, both checked against the code and the tag corpus.
+Both are real. Neither needs new infrastructure.
+
+## Problem 1: the bot sees almost nothing
+
+`threadContext()` in `sites/buildthis/src/index.ts` walks up to 10 ancestors and
+extracts exactly one field:
+
+```ts
+const text = (node.post.record?.text ?? "").trim();
+if (text) chain.push(`@${handle}: ${text}`);
+```
+
+And the type it parses through is deliberately narrow:
+
+```ts
+interface ThreadNode {
+  post?: { author?: { handle?: string }; record?: { text?: string } };
+  parent?: ThreadNode;
+}
+```
+
+So everything except plain text is dropped on the floor:
+
+| dropped | why it matters |
+| --- | --- |
+| **images** (`embed.images`) | "build this ☝️" under a screenshot → the bot sees "build this ☝️" |
+| **image alt text** | free, already-textual description of the image, thrown away |
+| **quote posts** (`embed.record`) | the quoted post IS the referent, invisible |
+| **link cards** (`embed.external`) | title + description are text and would help |
+| **video** (`embed.video`) | including its alt text |
+| **the root post when the tag is deep** | only the `.parent` chain is walked |
+| **sibling replies** | `depth: 0`, so no replies are fetched — context in a branch is lost |
+| **facets** | mentioned handles resolve to nothing |
+
+The corpus has clear instances of this biting. dave.9000ish.uk's taxi thread
+worked only because the story was in *text*. The `norvidwave` and `spot-the-ai`
+asks reference images. `croissanthology`'s raven/slingshot game request was a
+reply the bot never saw properly. And several "build this ☝️" tags point at
+image posts.
+
+**Fixes, cheapest first:**
+
+1. **Alt text** — pure text, already in the record, zero cost. `embed.images[].alt`
+   and `embed.video.alt`. Should have been there from the start.
+2. **Quote posts** — `embed.record` / `embed.recordWithMedia`. The quoted post's
+   text and author are in the same `getPostThread` response already. Probably
+   the single highest-value fix, since a quote is usually *the* referent.
+3. **Link cards** — `embed.external.{uri,title,description}`. Free text.
+4. **Root post always** — if the tag is deep in a thread, include the root even
+   when the 10-ancestor walk doesn't reach it.
+5. **Actual images** — needs a vision-capable path: fetch the blob, pass it to
+   the model. The builder runs `claude -p` with Sonnet, which is vision-capable,
+   so this is a matter of getting bytes to it (a file path in the prompt), not a
+   model limitation. Bigger change than 1–4 but not exotic.
+
+Note `MAX_BRIEF_CHARS = "600"` caps the *tag* text but ancestors are included in
+full, so adding embed text won't hit that cap. Worth re-checking the total brief
+size after 1–4 though.
+
+## Problem 2: "ran out of runway" is ~20% of outcomes
+
+Counted across the 204-thread corpus (2026-07-24 → 07-31):
+
+| reply state | count |
+| --- | --- |
+| `built it 🎉` | 285 |
+| `ran out of runway` (partial) | **73** |
+| `couldn't build that one` | 26 |
+| `that one's a big one` | 3 |
+
+So roughly **one in five builds ends with "tag me again to keep building."** The
+handling is already good — `box-build.sh` preserves and pushes partial work, and
+the comments show that was hard-won (heartpunk's solitaire drag-drop was lost
+once by checking only for a dirty tree and missing local commits). The problem
+isn't data loss, it's that the user has to notice and re-tag.
+
+**What's known from the code:**
+
+- `BUILDER_MAX_TURNS` defaults to **60**, raised from 30 because "Sonnet takes
+  more, smaller steps."
+- A max-turns overrun is explicitly **deterministic** — "an identical rerun
+  overruns identically" — so it is never blindly retried.
+- Partial work is preserved and shipped; the reply invites a re-tag.
+
+**Things worth investigating (not yet done):**
+
+- **Is 60 still right?** It was tuned once. The corpus is a week of evidence; the
+  build logs on the box would show the actual turn distribution. If most
+  overruns land at 60 with real work in progress, raising it is the one-line fix.
+  If they're bimodal (fast successes vs. genuine runaways) that argues for
+  something smarter.
+- **Auto-continue instead of asking.** The overrun is deterministic given the
+  same brief — but *not* given a brief plus the work already on disk. A second
+  pass starting from the partial state is a different (easier) problem than the
+  original. The corpus shows humans doing exactly this by hand: "keep going",
+  "keep building!", "you can do it!" are among the most common inputs in the
+  whole dataset. That's a loop the harness could close itself, with a bounded
+  number of continuations.
+- **Do partials cluster by request type?** Impression from the corpus: games and
+  anything with "and also…" lists overrun most; single-page toys rarely do.
+  Worth actually measuring rather than eyeballing.
+- **Is the first pass structured well?** `BUILD_PROMPT.md` already says to get a
+  minimal-but-real version onto disk early, then enrich. Whether that's happening
+  is checkable in the logs.
+
+**The measurement to run first:** pull `BUILD_RC` / `MAX_TURNS_HIT` and turn
+counts out of the box's build logs, bucket by outcome and by request shape. That
+turns all of the above from speculation into a decision. The logs are on the
+Hetzner box; nothing here needs new instrumentation.
+
+## Why these two matter more than most of `notes/89`
+
+They're both **things the bot can't currently do** rather than new things to
+build, which is the filter Rob asked for. And both are ordinary changes to
+existing code — no new bot, no new account, no new infrastructure. The input
+fixes in particular (alt text, quotes, link cards) are small enough that the
+builder could plausibly make them itself if tagged.
