@@ -1,9 +1,9 @@
 // mootree Worker — mootree.bisks.net.
 //
 // The tree itself still builds entirely client-side (public/index.html +
-// public/lib/genealogy.js do the real work, and now work for *anyone's*
-// handle, not just a signed-in viewer's own — see public/lib/oauth.js's
-// resolvePublicActor). The one thing that needs a server: shared links.
+// public/lib/genealogy.js do the real work, for *anyone's* handle — see
+// public/lib/identity.js's resolvePublicActor). The one thing that needs a
+// server: shared links.
 //
 // A plain static site serves the same index.html — same og:title/
 // og:description/og:image — no matter whose handle is in the URL, so
@@ -16,8 +16,9 @@
 // og:title/og:description/og:url onto the same page shell before handing it
 // back — so every share gets its own cache entry and its own preview text.
 // The client script also recognizes /t/<handle> on load and renders that
-// person's actual tree, read-only, no sign-in required. Falls through to
-// ASSETS for everything else (/, /og.png, /lib/*, /client-metadata.json).
+// person's actual tree — there's no sign-in anywhere on this site, viewing
+// (anyone's, including your own) is always this same public read. Falls
+// through to ASSETS for everything else (/, /og.png, /lib/*).
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -111,7 +112,7 @@ function esc(s: string): string {
 // whole head — no HTML parser needed. Keep these in sync with index.html.
 const GENERIC_TITLE = "mootree — a family tree of your bluesky moots";
 const GENERIC_DESC =
-  "Grow a family tree out of anyone's Bluesky moots — no login needed to peek at one. Rows are generations, sorted by account age; within a row, birth order is the order they actually followed people in.";
+  "Grow a family tree out of anyone's Bluesky moots — just type a handle, nothing to sign in to. Rows are generations, sorted by account age; within a row, birth order is the order they actually followed people in.";
 // Anchored with the surrounding attribute quote + tag close so this can't
 // also match inside og:image/twitter:image ("https://mootree.bisks.net/og.png"
 // starts with the same prefix, and a bare split/join on the prefix alone

@@ -73,9 +73,9 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="228" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="${INK}">moo<tspan fill="${LEAF}">tree</tspan></text>
   <text x="64" y="266" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">a family tree of your bluesky moots</text>
 
-  <text x="64" y="336" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Sign in and it sorts everyone you follow into</text>
-  <text x="64" y="362" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">generations, by account age — and orders each</text>
-  <text x="64" y="388" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">row by the order you actually followed them in.</text>
+  <text x="64" y="336" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Type any handle and it sorts everyone they follow</text>
+  <text x="64" y="362" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">into generations, by account age — and orders each</text>
+  <text x="64" y="388" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">row by the order they actually followed them in.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${LEAF}">mootree.bisks.net</text>
 

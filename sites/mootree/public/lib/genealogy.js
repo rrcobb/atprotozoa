@@ -30,7 +30,7 @@
 // (see buildDescendants below) rather than just age-bucketing your own
 // follow list the way ancestor rows still do.
 
-import { resolvePds } from "./oauth.js";
+import { resolvePds } from "./identity.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 
@@ -69,7 +69,7 @@ function rkeyOf(uri) {
   return String(uri || "").split("/").pop() || "";
 }
 
-// All of the signed-in user's app.bsky.graph.follow records, oldest first.
+// All of a given DID's app.bsky.graph.follow records, oldest first.
 // Public read straight off their PDS — no DPoP/auth needed, listRecords is a
 // public endpoint. Returns [{ did, followedAt, order }], order = 0 for the
 // very first account they ever followed.
@@ -262,18 +262,18 @@ function labelFor(offset) {
 // Build the whole lineage: your own profile + generation-bucketed, follow-
 // ordered rows of everyone you follow. `onProgress(stage)` is optional, for
 // a status line while the two network passes run.
-export async function buildLineage(session, onProgress) {
-  onProgress?.("reading your follow records…");
-  const { follows, truncated } = await listFollowsInOrder(session.pdsUrl, session.did);
+export async function buildLineage(actor, onProgress) {
+  onProgress?.("reading follow records…");
+  const { follows, truncated } = await listFollowsInOrder(actor.pdsUrl, actor.did);
 
   onProgress?.(`looking up ${follows.length} account${follows.length === 1 ? "" : "s"}…`);
-  const allDids = [session.did, ...follows.map((f) => f.did)];
+  const allDids = [actor.did, ...follows.map((f) => f.did)];
   const profiles = await getProfiles(allDids);
 
-  const you = profiles.get(session.did) || {
-    did: session.did,
-    handle: session.handle,
-    displayName: session.handle,
+  const you = profiles.get(actor.did) || {
+    did: actor.did,
+    handle: actor.handle,
+    displayName: actor.handle,
   };
   const youCreatedMs = you.createdAt ? Date.parse(you.createdAt) : NaN;
 
