@@ -2,7 +2,7 @@ import { loadThread } from "./lib/thread.js";
 import { distill } from "./lib/distill.js";
 import { encodeCard } from "./lib/card.js";
 
-const MOUNT = "/thread-heirloom";
+const MOUNT = location.pathname.startsWith("/thread-heirloom") ? "/thread-heirloom" : "";
 
 const els = {
   form: document.getElementById("form"),

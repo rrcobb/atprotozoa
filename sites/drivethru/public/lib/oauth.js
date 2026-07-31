@@ -30,7 +30,7 @@ import {
 } from "./oauth-jwt.js";
 
 const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
-const MOUNT = location.pathname.startsWith("/drivethru") ? "/drivethru" : "";
+const MOUNT = ""; // canonical host is drivethru.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE = "atproto transition:generic";

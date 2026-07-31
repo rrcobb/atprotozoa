@@ -8,7 +8,7 @@
 // backend at all. See src/index.ts for the server-side twin of the curve
 // math (used only to stamp live-ish OG preview text).
 
-const MOUNT = "/wentviral";
+const MOUNT = location.pathname.startsWith("/wentviral") ? "/wentviral" : "";
 const FAKE_TLD = ".viral.fake";
 
 // ---------- tiny utils ----------

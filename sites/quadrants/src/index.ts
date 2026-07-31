@@ -98,7 +98,13 @@ export default {
       url.pathname = PREFIX + "/";
       return Response.redirect(url.toString(), 308);
     }
-    url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    // Only strip when the prefix is actually present — on the subdomain
+    // requests arrive without it, and an unconditional slice would chop
+    // the front off short paths ("/app.js" -> "") so every asset would
+    // silently serve index.html.
+    if (url.pathname.startsWith(PREFIX + "/")) {
+      url.pathname = url.pathname.slice(PREFIX.length) || "/";
+    }
     const stripped = new Request(url, request);
 
     const chartMatch = url.pathname.match(/^\/c\/([A-Za-z0-9_-]+)\/?$/);

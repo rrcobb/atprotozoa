@@ -23,9 +23,10 @@ import {
 } from "./oauth-jwt.js";
 
 const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
-// Mounted at bisks.net/vibe-store — location.origin alone drops the path, so
-// the mount prefix has to be appended for any URL vibe-store writes about itself.
-export const MOUNT = "/vibe-store";
+// Canonical host is vibe-store.bisks.net, so there is no mount prefix. The
+// site still answers at bisks.net/vibe-store, but OAuth only works on the
+// canonical host: client_id must equal the URL the metadata is served from.
+export const MOUNT = ""; // canonical host is vibe-store.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE = "atproto transition:generic";
