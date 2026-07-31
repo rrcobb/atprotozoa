@@ -21,8 +21,11 @@ const els = {
   shareBtn: document.getElementById("share-btn"),
   copyBtn: document.getElementById("copy-btn"),
   cars: document.getElementById("cars"),
+  road: document.getElementById("road"),
   honkBtn: document.getElementById("honk-btn"),
   honkTally: document.getElementById("honk-tally"),
+  mileage: document.getElementById("mileage"),
+  creepLine: document.getElementById("creep-line"),
   notesFeed: document.getElementById("notes-feed"),
   noteForm: document.getElementById("note-form"),
   noteInput: document.getElementById("note-input"),
@@ -40,12 +43,18 @@ const room = {
   spotted: {},
   clears: 0,
   honks: 0,
+  mileageFt: 0,
   presence: [],
   myId: null,
   mySeat: null,
   ws: null,
   seenNoteIds: new Set(),
 };
+
+function feetLabel(ft) {
+  if (ft < 5280) return `${ft} ft`;
+  return `${(ft / 5280).toFixed(2)} mi`;
+}
 
 function cleanHandle(raw) {
   return (raw || "")
@@ -131,6 +140,7 @@ async function startJam(handle) {
   room.spotted = snap.spotted || {};
   room.clears = snap.clears || 0;
   room.honks = snap.honks || 0;
+  room.mileageFt = snap.mileageFt || 0;
   room.presence = snap.presence || [];
 
   els.jamOwnerName.textContent = room.owner.displayName || room.owner.handle;
@@ -142,6 +152,8 @@ async function startJam(handle) {
   renderCars();
   renderBoard();
   renderHonkTally(snap.lastHonkBy);
+  renderMileage();
+  if (snap.lastCreepLine) setStatus(els.creepLine, snap.lastCreepLine);
   renderInitialNotes(snap.notes || []);
   connect(handle);
 }
@@ -236,6 +248,13 @@ function handleMessage(msg) {
     room.honks = msg.honks;
     renderHonkTally(msg.by);
     honkEffect(msg.seat);
+    return;
+  }
+  if (msg.t === "creep") {
+    room.mileageFt = msg.mileageFt;
+    renderMileage();
+    setStatus(els.creepLine, msg.line);
+    creepEffect(msg.surge);
     return;
   }
   if (msg.t === "spot") {
@@ -336,6 +355,19 @@ function renderHonkTally(lastBy) {
     return;
   }
   els.honkTally.textContent = `${room.honks} honk${room.honks === 1 ? "" : "s"} so far${lastBy ? ` — last from ${lastBy}` : ""}`;
+}
+
+function renderMileage() {
+  els.mileage.textContent = room.mileageFt
+    ? `crawled ${feetLabel(room.mileageFt)} together`
+    : "hasn't moved an inch yet";
+}
+
+function creepEffect(surge) {
+  if (!els.road) return;
+  els.road.classList.remove("creeping", "surging");
+  void els.road.offsetWidth;
+  els.road.classList.add(surge ? "surging" : "creeping");
 }
 
 let audioCtx = null;

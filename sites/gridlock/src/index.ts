@@ -10,6 +10,12 @@
 // "spot it" checklist. Same shape as sites/docmoot's Doc DO, stripped of the
 // operational-transform text-editing part since a jam doesn't need it.
 //
+// 2026-07-31 (@words.bsky.social, "keep sitting in traffic"): added a DO
+// alarm that fires every 40-75s while anyone's connected and creeps the
+// whole jam forward a few feet together (occasional bigger "surge" when a
+// light clears) — the room does something on its own now instead of sitting
+// dead still between honks and notes.
+//
 // Routes (mount is the whole subdomain, no prefix to strip):
 //   GET  /j/<handle>            -> personalized-OG unfurl shell, falls
 //                                   through to the same SPA index.html
@@ -33,6 +39,8 @@ interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
   put(entries: Record<string, unknown>): Promise<void>;
+  getAlarm(): Promise<number | null>;
+  setAlarm(time: number): Promise<void>;
 }
 interface DurableObjectState {
   storage: DurableObjectStorage;
@@ -78,13 +86,17 @@ async function renderShare(env: Env, request: Request, handle: string): Promise<
       exists: boolean;
       owner?: { displayName: string; handle: string };
       pool?: unknown[];
+      mileageFt?: number;
     };
     if (!state.exists || !state.owner) throw new Error("empty jam");
 
     const name = state.owner.displayName?.trim() || state.owner.handle;
     const poolSize = state.pool?.length ?? 0;
+    const mileage = state.mileageFt ?? 0;
     const title = `${name}'s jam — gridlock`;
-    const desc = `Stuck in traffic with ${name} and ${poolSize} moot${poolSize === 1 ? "" : "s"}. Hop in, honk the horn, pass a note on the CB.`;
+    const desc = mileage
+      ? `Stuck in traffic with ${name} and ${poolSize} moot${poolSize === 1 ? "" : "s"} — crawled ${feetLabel(mileage)} together so far. Hop in, honk the horn, pass a note on the CB.`
+      : `Stuck in traffic with ${name} and ${poolSize} moot${poolSize === 1 ? "" : "s"}. Hop in, honk the horn, pass a note on the CB.`;
     const ogUrl = `https://gridlock.bisks.net/j/${encodeURIComponent(handle)}`;
 
     html = html
@@ -187,6 +199,43 @@ const PRESENCE_COLORS = [
   "#ff7a3d", "#4dd6c0", "#f2c94c", "#bb86fc", "#6fcf97", "#56ccf2", "#eb5757", "#f2994a",
 ];
 
+// The jam creeps forward on its own, together — a Durable Object alarm fires
+// every CREEP_MIN..CREEP_MAX ms (while anyone's connected) and broadcasts a
+// small shared "everyone rolls forward a few feet" moment, so sitting still
+// doesn't mean nothing's happening. One in SURGE_ODDS creeps is a bigger
+// surge (a light finally clearing) with its own flavor line.
+const CREEP_MIN_MS = 40_000;
+const CREEP_MAX_MS = 75_000;
+const CREEP_MIN_FT = 3;
+const CREEP_MAX_FT = 14;
+const SURGE_MIN_FT = 40;
+const SURGE_MAX_FT = 90;
+const SURGE_ODDS = 5;
+
+const CREEP_LINES = [
+  "the line inches forward",
+  "everyone rolls up a few feet and stops again",
+  "brake lights blink off, then right back on",
+  "a gap opens up ahead — gone again in a second",
+  "the whole jam exhales and creeps forward",
+];
+
+const SURGE_LINES = [
+  "the light finally lets a few cars through",
+  "someone up front actually gets somewhere",
+  "the jam breaks loose for a second — real progress",
+  "a lane opens up and everyone surges forward",
+];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function feetLabel(ft: number): string {
+  if (ft < 5280) return `${ft} ft`;
+  return `${(ft / 5280).toFixed(2)} mi`;
+}
+
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -229,23 +278,30 @@ export class Jam {
   private lastHonkBy = "";
   private spotted: Record<number, { by: string; at: number }> = {};
   private clears = 0;
+  private mileageFt = 0;
+  private lastCreepAt = 0;
+  private lastCreepLine = "";
   private sessions = new Map<WebSocket, Session>();
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const [owner, pool, kind, createdAt, notes, honks, lastHonkBy, spotted, clears] = await Promise.all([
-        this.state.storage.get<Rider>("owner"),
-        this.state.storage.get<Rider[]>("pool"),
-        this.state.storage.get<string>("kind"),
-        this.state.storage.get<number>("createdAt"),
-        this.state.storage.get<Note[]>("notes"),
-        this.state.storage.get<number>("honks"),
-        this.state.storage.get<string>("lastHonkBy"),
-        this.state.storage.get<Record<number, { by: string; at: number }>>("spotted"),
-        this.state.storage.get<number>("clears"),
-      ]);
+      const [owner, pool, kind, createdAt, notes, honks, lastHonkBy, spotted, clears, mileageFt, lastCreepAt, lastCreepLine] =
+        await Promise.all([
+          this.state.storage.get<Rider>("owner"),
+          this.state.storage.get<Rider[]>("pool"),
+          this.state.storage.get<string>("kind"),
+          this.state.storage.get<number>("createdAt"),
+          this.state.storage.get<Note[]>("notes"),
+          this.state.storage.get<number>("honks"),
+          this.state.storage.get<string>("lastHonkBy"),
+          this.state.storage.get<Record<number, { by: string; at: number }>>("spotted"),
+          this.state.storage.get<number>("clears"),
+          this.state.storage.get<number>("mileageFt"),
+          this.state.storage.get<number>("lastCreepAt"),
+          this.state.storage.get<string>("lastCreepLine"),
+        ]);
       this.owner = owner ?? null;
       this.pool = pool ?? [];
       this.kind = kind ?? "";
@@ -255,6 +311,9 @@ export class Jam {
       this.lastHonkBy = lastHonkBy ?? "";
       this.spotted = spotted ?? {};
       this.clears = clears ?? 0;
+      this.mileageFt = mileageFt ?? 0;
+      this.lastCreepAt = lastCreepAt ?? 0;
+      this.lastCreepLine = lastCreepLine ?? "";
     });
   }
 
@@ -275,6 +334,9 @@ export class Jam {
       spotted: this.spotted,
       clears: this.clears,
       createdAt: this.createdAt,
+      mileageFt: this.mileageFt,
+      lastCreepAt: this.lastCreepAt,
+      lastCreepLine: this.lastCreepLine,
       presence: this.presenceList(),
     };
   }
@@ -346,10 +408,43 @@ export class Jam {
       const [client, server] = Object.values(pair);
       server.accept();
       this.handleSession(server);
+      await this.ensureCreepAlarm();
       return new Response(null, { status: 101, webSocket: client });
     }
 
     return json({ error: "not found" }, 404);
+  }
+
+  private async ensureCreepAlarm() {
+    const existing = await this.state.storage.getAlarm();
+    if (existing) return;
+    const delay = CREEP_MIN_MS + Math.random() * (CREEP_MAX_MS - CREEP_MIN_MS);
+    await this.state.storage.setAlarm(Date.now() + delay);
+  }
+
+  async alarm() {
+    await this.ready;
+    if (this.sessions.size === 0) return; // no one here — let it lapse, next connect re-arms it
+
+    const surge = Math.random() < 1 / SURGE_ODDS;
+    const gain = surge
+      ? SURGE_MIN_FT + Math.floor(Math.random() * (SURGE_MAX_FT - SURGE_MIN_FT))
+      : CREEP_MIN_FT + Math.floor(Math.random() * (CREEP_MAX_FT - CREEP_MIN_FT));
+    this.mileageFt += gain;
+    this.lastCreepAt = Date.now();
+    this.lastCreepLine = surge ? pick(SURGE_LINES) : pick(CREEP_LINES);
+    this.persist({ mileageFt: this.mileageFt, lastCreepAt: this.lastCreepAt, lastCreepLine: this.lastCreepLine });
+    this.broadcast({
+      t: "creep",
+      surge,
+      gainFt: gain,
+      mileageFt: this.mileageFt,
+      line: this.lastCreepLine,
+      at: this.lastCreepAt,
+    });
+
+    const delay = CREEP_MIN_MS + Math.random() * (CREEP_MAX_MS - CREEP_MIN_MS);
+    await this.state.storage.setAlarm(Date.now() + delay);
   }
 
   private broadcast(msg: unknown, exclude?: WebSocket) {
