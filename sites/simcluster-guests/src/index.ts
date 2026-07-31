@@ -67,6 +67,7 @@ const UPVOTE_COOLDOWN_MS = 60 * 60 * 1000; // per-IP-per-entry, same shape as si
 const GUEST_MAX = 100;
 const REASON_MAX = 400;
 const NAME_MAX = 60;
+const MAX_ALT_SPELLINGS = 6; // capped list of other spellings folded into an entry
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -85,12 +86,60 @@ function looksLikeSpam(text: string): boolean {
   return false;
 }
 
-function normalizeGuest(raw: string): string {
+// Aggressive fuzzy key: strips spacing/punctuation/diacritics entirely, so
+// "demi girlboss", "demi-girlboss" and "demigirlboss" collapse to the same
+// key up front. Real misspellings (a swapped or dropped letter) still slip
+// past this and need the edit-distance check below.
+function aggressiveNorm(raw: string): string {
   return raw
     .trim()
     .replace(/^@/, "")
     .toLowerCase()
-    .replace(/\s+/g, " ");
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+// Iterative Levenshtein — small inputs (name-length strings), no need for
+// anything fancier than the classic DP with a rolling row.
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+// How many edits we'll tolerate before two names count as "the same
+// candidate, spelled differently" — scales with length so short names still
+// require an exact (or punctuation-only) match, avoiding false merges like
+// "sam" vs "pam".
+function fuzzyThreshold(len: number): number {
+  if (len <= 4) return 0;
+  if (len <= 7) return 1;
+  if (len <= 12) return 2;
+  return 3;
+}
+
+function isFuzzyMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const shorter = Math.min(a.length, b.length);
+  const threshold = fuzzyThreshold(shorter);
+  if (threshold === 0) return false;
+  if (Math.abs(a.length - b.length) > threshold) return false;
+  return levenshtein(a, b) <= threshold;
 }
 
 function clean(raw: unknown, max: number): string {
@@ -101,7 +150,8 @@ function clean(raw: unknown, max: number): string {
 interface Entry {
   id: string;
   guest: string; // display form, as first submitted
-  guestNorm: string; // dedupe key
+  guestNorm: string; // fuzzy dedupe key (aggressiveNorm of guest)
+  altSpellings: string[]; // other spellings folded into this entry, capped
   notes: string[]; // distinct "why" reasons, newest first
   alsoSuggestedBy: string[]; // display handles/names of later submitters, capped
   submittedBy: string; // first submitter's handle/name, if given
@@ -125,12 +175,68 @@ export class GuestBoard {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
       const entries = await this.state.storage.get<Entry[]>("entries");
-      for (const e of entries ?? []) this.entries.set(e.id, e);
+      for (const e of entries ?? []) {
+        if (!e.altSpellings) e.altSpellings = [];
+        e.guestNorm = aggressiveNorm(e.guest);
+        this.entries.set(e.id, e);
+      }
+      // One-time (well, every-boot) self-heal: a name entered under a few
+      // slightly different spellings before this fuzzy check existed ends up
+      // as separate entries splitting the vote. Fold those back together now
+      // that we can recognize them as the same candidate.
+      if (this.mergeFuzzyDuplicates()) await this.persist();
     });
   }
 
   private async persist(): Promise<void> {
     await this.state.storage.put({ entries: Array.from(this.entries.values()) });
+  }
+
+  // Merges b's votes/notes/credit into whichever of (a, b) has more votes,
+  // keeping that one as the canonical entry and recording the other's
+  // spelling as an altSpelling so the merge stays visible on the board.
+  private mergeInto(a: Entry, b: Entry): void {
+    const [keep, drop] = a.upvotes >= b.upvotes ? [a, b] : [b, a];
+    keep.upvotes += drop.upvotes;
+    keep.createdAt = Math.min(keep.createdAt, drop.createdAt);
+    keep.lastActivity = Math.max(keep.lastActivity, drop.lastActivity);
+    for (const n of drop.notes) {
+      if (!keep.notes.includes(n)) keep.notes.unshift(n);
+    }
+    keep.notes = keep.notes.slice(0, MAX_NOTES);
+    const credits = [drop.submittedBy, ...drop.alsoSuggestedBy].filter(
+      (w) => w && w !== keep.submittedBy && !keep.alsoSuggestedBy.includes(w)
+    );
+    keep.alsoSuggestedBy = [...keep.alsoSuggestedBy, ...credits].slice(0, MAX_ALSO_SUGGESTED);
+    const alts = [drop.guest, ...drop.altSpellings].filter(
+      (s) => s !== keep.guest && !keep.altSpellings.includes(s)
+    );
+    keep.altSpellings = [...keep.altSpellings, ...alts].slice(0, MAX_ALT_SPELLINGS);
+    keep.guestNorm = aggressiveNorm(keep.guest);
+    this.entries.delete(drop.id);
+    this.entries.set(keep.id, keep);
+  }
+
+  // Repeatedly scans for the first fuzzy-matching pair and merges it, until
+  // no pair matches. O(n^2) per pass but the board caps at MAX_ENTRIES and
+  // this only runs on DO boot / after a merge, not per request.
+  private mergeFuzzyDuplicates(): boolean {
+    let mergedAny = false;
+    let mergedThisPass = true;
+    while (mergedThisPass) {
+      mergedThisPass = false;
+      const list = Array.from(this.entries.values());
+      for (let i = 0; i < list.length && !mergedThisPass; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          if (!isFuzzyMatch(list[i].guestNorm, list[j].guestNorm)) continue;
+          this.mergeInto(list[i], list[j]);
+          mergedThisPass = true;
+          mergedAny = true;
+          break;
+        }
+      }
+    }
+    return mergedAny;
   }
 
   private board() {
@@ -139,6 +245,7 @@ export class GuestBoard {
       .map((e) => ({
         id: e.id,
         guest: e.guest,
+        altSpellings: e.altSpellings,
         notes: e.notes,
         alsoSuggestedBy: e.alsoSuggestedBy,
         submittedBy: e.submittedBy,
@@ -180,14 +287,26 @@ export class GuestBoard {
       }
       this.recentSubmits.set(ip, Date.now());
 
-      const guestNorm = normalizeGuest(guestRaw);
+      const guestNorm = aggressiveNorm(guestRaw);
       const now = Date.now();
 
+      // Exact (punctuation/case/spacing-insensitive) match first...
       let existing: Entry | undefined;
       for (const e of this.entries.values()) {
         if (e.guestNorm === guestNorm) {
           existing = e;
           break;
+        }
+      }
+      // ...then fall back to a fuzzy match, so a typo'd or slightly
+      // differently spelled re-entry of an existing candidate still counts
+      // as a vote for them instead of splitting into a new row.
+      if (!existing) {
+        for (const e of this.entries.values()) {
+          if (isFuzzyMatch(e.guestNorm, guestNorm)) {
+            existing = e;
+            break;
+          }
         }
       }
 
@@ -201,6 +320,10 @@ export class GuestBoard {
         if (submittedBy && !existing.alsoSuggestedBy.includes(submittedBy) && submittedBy !== existing.submittedBy) {
           existing.alsoSuggestedBy.unshift(submittedBy);
           if (existing.alsoSuggestedBy.length > MAX_ALSO_SUGGESTED) existing.alsoSuggestedBy.length = MAX_ALSO_SUGGESTED;
+        }
+        if (guestRaw !== existing.guest && !existing.altSpellings.includes(guestRaw)) {
+          existing.altSpellings.unshift(guestRaw);
+          if (existing.altSpellings.length > MAX_ALT_SPELLINGS) existing.altSpellings.length = MAX_ALT_SPELLINGS;
         }
         await this.persist();
         return json({ ok: true, id: existing.id, merged: true, upvotes: existing.upvotes });
@@ -223,6 +346,7 @@ export class GuestBoard {
         id: crypto.randomUUID(),
         guest: guestRaw,
         guestNorm,
+        altSpellings: [],
         notes: reason ? [reason] : [],
         alsoSuggestedBy: [],
         submittedBy,
