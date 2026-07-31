@@ -16,18 +16,51 @@
 // CORS headers, so this Worker proxies server-side and the client only ever
 // talks to its own /api/*.
 //
-// Three server routes, all after the "/steamtags" mount prefix is stripped:
+// Four server routes, all after the "/steamtags" mount prefix is stripped:
 //   /api/search?q=...   proxy Steam's store-search suggest endpoint
 //   /api/tags/<appid>   fetch one game's name/art + its tags & votes, JSON
+//   /api/global         the network-wide tag leaderboard (see below), JSON
 //   /g/<appid>          the shareable per-game page: same static shell,
 //                        server-stamped og:title/description/image/url so
 //                        every shared result gets its own unfurl card
 //                        instead of Bluesky caching one generic card for
 //                        every appid (same fix as sites/didscope, sites/windmill).
 // Everything else falls through to ASSETS.
+//
+// /api/global is backed by a Durable Object (GlobalTracker, name "global").
+// Ratings are per-user PDS records (net.bisks.steamtags.rating) — there's no
+// AppView endpoint that hands back "every record of this custom collection
+// across the network", so the DO keeps a live Jetstream subscription
+// filtered to just that collection and maintains a running
+// tag -> (game -> aggregate score) index, same shape as sites/quadrants'
+// QuadrantHub. Like that DO (and sites/ratioed, sites/quotehof), it only
+// tracks activity from whenever it started running — no historical
+// backfill — so the board fills in as people rate games (or re-sync an
+// existing library) going forward.
+
+export interface DurableObjectId {
+  toString(): string;
+}
+export interface DurableObjectStub {
+  fetch(request: Request): Promise<Response>;
+}
+export interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+export interface DurableObjectStorage {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  put(entries: Record<string, unknown>): Promise<void>;
+  setAlarm(time: number | Date): Promise<void>;
+}
+export interface DurableObjectState {
+  storage: DurableObjectStorage;
+  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+}
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
+  GLOBAL: DurableObjectNamespace;
 }
 
 const PREFIX = "/steamtags";
@@ -196,6 +229,13 @@ export default {
 
     if (path === "/api/search") return handleSearch(url);
 
+    if (path === "/api/global") {
+      const doUrl = new URL(request.url);
+      doUrl.pathname = path;
+      const stub = env.GLOBAL.get(env.GLOBAL.idFromName("global"));
+      return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
     const tagsMatch = path.match(/^\/api\/tags\/(\d+)\/?$/);
     if (tagsMatch) {
       try {
@@ -214,3 +254,273 @@ export default {
     return env.ASSETS.fetch(new Request(assetUrl, request));
   },
 };
+
+// ---------------------------------------------------------------------------
+// GlobalTracker — one Durable Object (name "global") holding a live index of
+// every net.bisks.steamtags.rating record seen on the firehose, keyed by
+// did+appid so a re-rate/re-sync just replaces the prior entry. /api/global
+// aggregates that index into a tag -> game leaderboard on read.
+// ---------------------------------------------------------------------------
+
+const GLOBAL_COLLECTION = "net.bisks.steamtags.rating";
+const JETSTREAM_URL = `https://jetstream2.us-east.bsky.network/subscribe?wantedCollections=${GLOBAL_COLLECTION}`;
+const RECONNECT_ALARM_MS = 20 * 1000;
+const MAX_TAG_NAME = 60;
+const MAX_TAGS_PER_ENTRY = 32;
+const MAX_ENTRIES = 20000; // safety valve against a runaway/abusive writer
+const MAX_TAGS_SHOWN = 40;
+const MAX_GAMES_PER_TAG = 8;
+
+interface GlobalTagRating {
+  tag: string;
+  score: number;
+  votes: number;
+}
+
+interface GlobalRatingEntry {
+  did: string;
+  appid: number;
+  name: string;
+  headerImage: string;
+  tags: GlobalTagRating[];
+  updatedAt: number;
+}
+
+interface GlobalGameBoard {
+  appid: number;
+  name: string;
+  headerImage: string;
+  avgScore: number;
+  raterCount: number;
+}
+
+interface GlobalTagBoard {
+  tag: string;
+  avgScore: number;
+  ratingCount: number;
+  userCount: number;
+  games: GlobalGameBoard[];
+}
+
+function globalJson(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" },
+  });
+}
+
+export class GlobalTracker {
+  private state: DurableObjectState;
+  private ready: Promise<void>;
+  private entries: Map<string, GlobalRatingEntry> = new Map();
+  private lastUpdated = 0;
+  private ws: any = null;
+  private reconnectDelay = 1000;
+
+  constructor(state: DurableObjectState) {
+    this.state = state;
+    this.ready = this.state.blockConcurrencyWhile(async () => {
+      const [entries, lastUpdated] = await Promise.all([
+        this.state.storage.get<GlobalRatingEntry[]>("entries"),
+        this.state.storage.get<number>("lastUpdated"),
+      ]);
+      for (const e of entries ?? []) this.entries.set(`${e.did}::${e.appid}`, e);
+      this.lastUpdated = lastUpdated ?? 0;
+    });
+    this.connectSocket().catch(() => {});
+    this.state.storage.setAlarm(Date.now() + RECONNECT_ALARM_MS).catch(() => {});
+  }
+
+  // ---- firehose ------------------------------------------------------------
+  // Workers connect OUT to a WebSocket server via fetch() + an Upgrade header
+  // (the documented Cloudflare pattern), same shape as sites/quadrants and
+  // sites/quotehof.
+  private async connectSocket(): Promise<void> {
+    try {
+      const resp: any = await fetch(JETSTREAM_URL, { headers: { Upgrade: "websocket" } });
+      const ws = resp.webSocket;
+      if (!ws) throw new Error("jetstream didn't upgrade");
+      ws.accept();
+      this.ws = ws;
+      this.reconnectDelay = 1000;
+      ws.addEventListener("message", (ev: any) => {
+        this.handleMessage(String(ev.data)).catch(() => {
+          // one bad message shouldn't kill the stream
+        });
+      });
+      ws.addEventListener("close", () => {
+        if (this.ws === ws) this.ws = null;
+        this.scheduleReconnect();
+      });
+      ws.addEventListener("error", () => {
+        try {
+          ws.close();
+        } catch {
+          // already closing
+        }
+      });
+    } catch {
+      this.ws = null;
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    const delay = this.reconnectDelay;
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
+    setTimeout(() => {
+      this.connectSocket().catch(() => {});
+    }, delay);
+  }
+
+  private wsOpen(): boolean {
+    return !!this.ws && this.ws.readyState === 1; // WebSocket.OPEN
+  }
+
+  private async persist(): Promise<void> {
+    this.lastUpdated = Date.now();
+    await this.state.storage.put({
+      entries: Array.from(this.entries.values()),
+      lastUpdated: this.lastUpdated,
+    });
+  }
+
+  private async handleMessage(raw: string): Promise<void> {
+    let evt: any;
+    try {
+      evt = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (evt.kind !== "commit") return;
+    const commit = evt.commit;
+    if (!commit || commit.collection !== GLOBAL_COLLECTION) return;
+    const did = evt.did;
+    if (typeof did !== "string") return;
+    const rkey = commit.rkey;
+    if (typeof rkey !== "string") return;
+    const key = `${did}::${rkey}`;
+
+    if (commit.operation === "delete") {
+      if (this.entries.delete(key)) await this.persist();
+      return;
+    }
+    if (commit.operation !== "create" && commit.operation !== "update") return;
+
+    const rec = commit.record;
+    if (!rec || typeof rec !== "object") return;
+    const appid = Number(rec.appid);
+    if (!Number.isFinite(appid)) return;
+
+    const rawTags: any[] = Array.isArray(rec.tags) ? rec.tags : [];
+    const tags: GlobalTagRating[] = rawTags
+      .filter((t) => t && typeof t.tag === "string" && t.tag.trim() && Number.isFinite(t.score))
+      .slice(0, MAX_TAGS_PER_ENTRY)
+      .map((t) => ({
+        tag: t.tag.trim().slice(0, MAX_TAG_NAME),
+        score: Math.max(1, Math.min(10, Math.round(t.score))),
+        votes: Number.isFinite(t.votes) ? Math.max(0, Math.round(t.votes)) : 0,
+      }));
+
+    if (!tags.length) {
+      if (this.entries.delete(key)) await this.persist();
+      return;
+    }
+
+    if (!this.entries.has(key) && this.entries.size >= MAX_ENTRIES) return; // safety valve
+
+    this.entries.set(key, {
+      did,
+      appid,
+      name: typeof rec.name === "string" ? rec.name.slice(0, 200) : "",
+      headerImage: typeof rec.headerImage === "string" ? rec.headerImage.slice(0, 500) : "",
+      tags,
+      updatedAt: Date.now(),
+    });
+    await this.persist();
+  }
+
+  // ---- aggregation -----------------------------------------------------------
+  // Pools every tracked (user, game) rating into a tag -> game leaderboard,
+  // independent of any single game — this is deliberately NOT the same shape
+  // as the per-user library (which ranks one person's own tag averages); this
+  // is everyone's tag ratings, averaged per game and then per tag.
+  private buildTagBoards(): GlobalTagBoard[] {
+    const tagMap = new Map<
+      string,
+      { scores: number[]; users: Set<string>; games: Map<number, { name: string; headerImage: string; scores: number[]; users: Set<string> }> }
+    >();
+
+    for (const entry of this.entries.values()) {
+      for (const t of entry.tags) {
+        let bucket = tagMap.get(t.tag);
+        if (!bucket) {
+          bucket = { scores: [], users: new Set(), games: new Map() };
+          tagMap.set(t.tag, bucket);
+        }
+        bucket.scores.push(t.score);
+        bucket.users.add(entry.did);
+
+        let g = bucket.games.get(entry.appid);
+        if (!g) {
+          g = { name: entry.name, headerImage: entry.headerImage, scores: [], users: new Set() };
+          bucket.games.set(entry.appid, g);
+        }
+        g.scores.push(t.score);
+        g.users.add(entry.did);
+        if (entry.name) g.name = entry.name;
+        if (entry.headerImage) g.headerImage = entry.headerImage;
+      }
+    }
+
+    const avg = (nums: number[]) => nums.reduce((s, v) => s + v, 0) / nums.length;
+
+    const boards: GlobalTagBoard[] = Array.from(tagMap.entries()).map(([tag, bucket]) => {
+      const games: GlobalGameBoard[] = Array.from(bucket.games.entries())
+        .map(([appid, g]) => ({
+          appid,
+          name: g.name,
+          headerImage: g.headerImage,
+          avgScore: avg(g.scores),
+          raterCount: g.users.size,
+        }))
+        .sort((a, b) => b.avgScore - a.avgScore || b.raterCount - a.raterCount)
+        .slice(0, MAX_GAMES_PER_TAG);
+      return {
+        tag,
+        avgScore: avg(bucket.scores),
+        ratingCount: bucket.scores.length,
+        userCount: bucket.users.size,
+        games,
+      };
+    });
+
+    boards.sort((a, b) => b.avgScore - a.avgScore || b.ratingCount - a.ratingCount);
+    return boards.slice(0, MAX_TAGS_SHOWN);
+  }
+
+  // ---- alarm: reconnect heartbeat -------------------------------------------
+  async alarm(): Promise<void> {
+    await this.ready;
+    if (!this.wsOpen()) this.connectSocket().catch(() => {});
+    await this.state.storage.setAlarm(Date.now() + RECONNECT_ALARM_MS);
+  }
+
+  // ---- http -------------------------------------------------------------
+  async fetch(request: Request): Promise<Response> {
+    await this.ready;
+    if (!this.wsOpen()) this.connectSocket().catch(() => {});
+
+    const url = new URL(request.url);
+    if (url.pathname === "/api/global") {
+      const userCount = new Set(Array.from(this.entries.values()).map((e) => e.did)).size;
+      return globalJson({
+        updatedAt: this.lastUpdated || null,
+        entryCount: this.entries.size,
+        userCount,
+        tags: this.buildTagBoards(),
+      });
+    }
+    return globalJson({ error: "not found" }, 404);
+  }
+}

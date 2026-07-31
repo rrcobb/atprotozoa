@@ -288,9 +288,29 @@
   .tag-group-count { color: var(--dim); font-size: 0.76rem; margin-left: auto; }
   .tag-group-games { display: flex; flex-direction: column; gap: 6px; }
   .tag-group-games .lib-row { padding: 8px 12px; }
+  .lib-row .lib-raters { flex: none; color: var(--dim); font-size: 0.72rem; }
 
   .sync-msg { color: var(--dim); font-size: 0.78rem; margin: -4px 0 12px; min-height: 1.1em; }
   .sync-msg.err { color: var(--bad); }
+
+  .global {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .global h3 { margin: 0 0 4px; font-size: 1.05rem; }
+  .global .lib-sub { color: var(--dim); font-size: 0.8rem; margin: 0 0 14px; }
+  .global-head-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: -6px 0 14px;
+  }
+  .global-stats { color: var(--dim); font-size: 0.78rem; }
+  .global-refresh { color: var(--dim); font-size: 0.78rem; text-decoration: underline; cursor: pointer; border: none; background: none; padding: 0; }
+  .global-refresh:hover { color: var(--fg); }
 
   footer {
     text-align: center;
@@ -319,6 +339,16 @@
   <p class="hint">or paste a Steam store URL / appid directly and hit enter</p>
 
   <div id="state"></div>
+
+  <section class="global">
+    <div class="global-head-row">
+      <h3>global tag ranking</h3>
+      <button class="global-refresh" id="globalRefresh" type="button">↻ refresh</button>
+    </div>
+    <p class="lib-sub">pooled from everyone who's synced their ratings to their PDS — sorted by tag, not by the game you're currently looking at.</p>
+    <div id="globalStats" class="global-stats"></div>
+    <div id="globalList"></div>
+  </section>
 
   <section class="library">
     <h3>your library</h3>
@@ -367,6 +397,9 @@
     authBar: document.getElementById("authBar"),
     libraryList: document.getElementById("libraryList"),
     syncMsg: document.getElementById("syncMsg"),
+    globalList: document.getElementById("globalList"),
+    globalStats: document.getElementById("globalStats"),
+    globalRefresh: document.getElementById("globalRefresh"),
     exportLib: document.getElementById("exportLib"),
     importLibBtn: document.getElementById("importLibBtn"),
     importFile: document.getElementById("importFile"),
@@ -762,6 +795,83 @@
       });
     });
   }
+
+  // --- global ranking: pooled across everyone who's synced ratings to their
+  // PDS, via the network-wide index the Worker's GlobalTracker Durable
+  // Object builds off the live firehose. Grouped by tag like the personal
+  // library, but each game's score is the average across everyone who's
+  // rated that tag on it — not tied to whatever game is currently open.
+  function formatAgo(ts) {
+    if (!ts) return "";
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return "just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  }
+
+  async function loadGlobal() {
+    els.globalList.innerHTML = '<div class="lib-empty">loading the network-wide tag board…</div>';
+    els.globalStats.textContent = "";
+    try {
+      const res = await fetch(MOUNT + "/api/global");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "couldn't load the global board");
+      renderGlobal(data);
+    } catch (err) {
+      els.globalList.innerHTML = `<div class="lib-empty">couldn't load the global board — ${esc(err.message || "try again")}</div>`;
+    }
+  }
+
+  function renderGlobal(data) {
+    const tags = data.tags || [];
+    els.globalStats.textContent = tags.length
+      ? `${data.entryCount || 0} rated game${data.entryCount === 1 ? "" : "s"} from ${data.userCount || 0} ${data.userCount === 1 ? "person" : "people"} · updated ${formatAgo(data.updatedAt) || "just now"}`
+      : "";
+    if (!tags.length) {
+      els.globalList.innerHTML =
+        '<div class="lib-empty">nobody’s synced a rating to their PDS yet — sign in above and rate a tag to start the board.</div>';
+      return;
+    }
+    els.globalList.innerHTML = tags
+      .map(
+        (g, gi) => `
+      <div class="tag-group">
+        <div class="tag-group-head">
+          <span class="tag-group-rank">#${gi + 1}</span>
+          <span class="tag-group-name">${esc(g.tag)}</span>
+          <span class="tag-group-avg" style="color:${scoreColor10(g.avgScore)}">${g.avgScore.toFixed(1)}/10 avg</span>
+          <span class="tag-group-count">${g.ratingCount} rating${g.ratingCount === 1 ? "" : "s"} · ${g.userCount} ${g.userCount === 1 ? "person" : "people"}</span>
+        </div>
+        <div class="tag-group-games">
+          ${g.games
+            .map(
+              (game) => `
+            <div class="lib-row" data-appid="${escAttr(String(game.appid))}">
+              ${game.headerImage ? `<img src="${escAttr(game.headerImage)}" alt="" loading="lazy" />` : ""}
+              <span class="lib-name"><span class="n">${esc(game.name || "appid " + game.appid)}</span></span>
+              <span class="lib-raters">${game.raterCount} ${game.raterCount === 1 ? "rater" : "raters"}</span>
+              <span class="lib-score" style="color:${scoreColor10(game.avgScore)}">${game.avgScore.toFixed(1)}/10</span>
+            </div>`
+            )
+            .join("")}
+        </div>
+      </div>`
+      )
+      .join("");
+
+    [...els.globalList.querySelectorAll(".lib-row")].forEach((row) => {
+      row.addEventListener("click", () => {
+        const appid = row.getAttribute("data-appid");
+        goToGame(appid, true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+  }
+
+  els.globalRefresh.addEventListener("click", () => loadGlobal());
 
   els.exportLib.addEventListener("click", () => {
     const db = loadDb();
@@ -1228,6 +1338,7 @@
   const bootAppid = currentAppidFromPath();
   if (bootAppid) loadGame(bootAppid);
   renderLibrary();
+  loadGlobal();
   if (session) syncOnLogin(session);
 })();
 </script>
