@@ -6,7 +6,10 @@
 // a random SEP article per arbitrary word isn't really feasible client-side
 // (no API, no crawl), so this demo works from a prominent, fixed selection.
 
-const MOUNT = "/sepcheck";
+// The site is served both at sepcheck.bisks.net/ and, for older shared links,
+// at bisks.net/sepcheck/. Derive the mount from the actual URL rather than
+// hardcoding it, so share links point at whichever host the visitor is on.
+const MOUNT = location.pathname.startsWith("/sepcheck") ? "/sepcheck" : "";
 
 const WORDS = [
   {
