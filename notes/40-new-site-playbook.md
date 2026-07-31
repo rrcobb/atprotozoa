@@ -42,40 +42,68 @@ site." This note is the recipe an agent (or you) follows to spin one up.
 6. **Deploy.** `pnpm dlx wrangler deploy` once to confirm it comes up at
    `bisks.net/<newname>` (or push to `main` and let CI do it).
 
-## Why paths, not subdomains
+## Subdomains again (2026-07-31)
 
-The original convention was one dedicated `<name>.bisks.net` custom domain per
-site. That stopped being the default once the `bisks.net` zone hit a
-Cloudflare custom-domain cap somewhere around the 100-site mark — brand-new
-custom-domain routes silently failed to provision DNS while edits to
-already-provisioned sites kept deploying fine (see `notes/20-deploy.md`).
+Sites get their own `<name>.bisks.net` hostname. For a stretch they were
+mounted as paths instead, because the zone hit Cloudflare's 100-custom-domain
+cap; that constraint is gone and the paths are legacy.
 
-The fix: mount new sites as a **path** on the `bisks.net` zone instead of a
-new hostname. A plain Route (`{ pattern = "bisks.net/<name>/*", zone_name =
-"bisks.net" }`) doesn't provision a new custom domain/hostname/cert — it's
-just a URL-pattern rule on a zone that's already live — so it sidesteps the
-cap entirely. Cloudflare resolves the most specific matching route/custom
-domain for a request, so `bisks.net/<name>/*` takes precedence over the
-apex's `bisks.net` catch-all without anything needing to change on the apex
-Worker.
+What changed: the zone now has a wildcard `*.bisks.net` DNS record (proxied)
+and an ACM wildcard certificate covering `*.bisks.net` + `bisks.net`. Together
+those mean an arbitrary subdomain resolves and completes TLS without being
+registered in advance — so a site can claim a hostname with a plain **route**
+rather than a **Custom Domain**:
 
-The tradeoff: since the site's own Worker is now mounted under a path instead
-of owning a whole hostname, its `src/index.ts` has one new job — strip the
-`/<name>` prefix before forwarding to the `ASSETS` binding, since the assets
-directory itself has no idea it isn't living at the domain root. That's the
-one thing every new site's `src/index.ts` needs now, even a purely static one.
+```
+routes = [
+  { pattern = "<name>.bisks.net/*", zone_name = "bisks.net" },
+]
+```
+
+Routes cap at 1000/zone; Custom Domains cap at 100. That's the whole reason
+this works now. Don't use `custom_domain = true` for a new site — it consumes a
+capped slot for no benefit. The apex is the one exception: `*.bisks.net`
+matches one level below the apex, so `bisks.net` itself stays a Custom Domain.
+
+Existing sites keep their old `bisks.net/<name>` path routes alongside the new
+hostname so previously-shared links don't break. A new site doesn't need one.
+
+**If a site is mounted at a path as well, the prefix-strip in `src/index.ts`
+must be conditional:**
+
+```ts
+if (url.pathname.startsWith(PREFIX + "/")) {
+  url.pathname = url.pathname.slice(PREFIX.length) || "/";
+}
+```
+
+Stripping unconditionally is a real bug, and it is quiet. Reached on the
+subdomain the prefix isn't there, so the slice chops the front off short paths
+instead (`"/app.js".slice(6)` → `""` → falls back to `"/"`), and every asset
+request serves `index.html` with a 200. The page renders; nothing works.
+
+**OAuth sites need a single canonical host.** An atproto client is identified
+by its `client_id` URL, and the PDS fetches `client-metadata.json` from that
+URL and checks the contents agree — so the client cannot be dual-homed.
+Deriving the mount from `location` (right for plain assets) is wrong here: it
+would compute a `client_id` that disagrees with the served file. Pick the
+subdomain, set `MOUNT = ""`, and point `client_id` / `client_uri` /
+`redirect_uris` at `https://<name>.bisks.net`. The path route may still serve
+the site, but login only works on the canonical host.
 
 6. **Link it from the apex gallery** (`apex/public/`) so it shows up on the
    landing page. Add an entry; the gallery is intentionally just a list.
 
 ## Clusters: grouping related sites under a shared path segment
 
-Most sites mount flat at `bisks.net/<name>`. When a new site is clearly a
-member of an existing family — right now that's just games — mount it one
-level deeper instead: `bisks.net/games/<name>`, with routes
-`{ pattern = "bisks.net/games/<name>", zone_name = "bisks.net" }` +
-`.../games/<name>/*`, and `PREFIX = "/games/<name>"` in `src/index.ts`. Same
-template as the barebones site below, just a longer prefix. See
+Clusters were a path-era idea: sites in a family mounted one level deeper at
+`bisks.net/games/<name>` rather than flat. Now that every site has its own
+hostname, a new site doesn't need one — `<name>.bisks.net` is the address, and
+membership in a family is a matter for the gallery, not the URL.
+
+The existing games sites keep their `bisks.net/games/<name>` path routes for
+old links, so if you're touching one, note its `PREFIX` is `/games/<name>`
+rather than `/<name>`. See
 `notes/20-deploy.md` ("Clustering related sites under a shared path segment")
 for the games cluster's current membership and the two gotchas that came up
 migrating existing sites into it (client-side path routing that assumes it
