@@ -103,6 +103,17 @@ async function renderGallery() {
   }
 }
 
+// ── gallery nav: jump to newest (top) / first images (bottom) ──────────────
+function setupGalleryNav() {
+  const gallery = $("#gallery");
+  const toTop = () => gallery.scrollTo({ top: 0, behavior: "smooth" });
+  const toBottom = () => gallery.scrollTo({ top: gallery.scrollHeight, behavior: "smooth" });
+  $("#galleryToTop").addEventListener("click", toTop);
+  $("#galleryToTopBottom").addEventListener("click", toTop);
+  $("#galleryToBottom").addEventListener("click", toBottom);
+  $("#galleryToBottomTop").addEventListener("click", toBottom);
+}
+
 // ── share ─────────────────────────────────────────────────────────────────
 function setupShare() {
   const url = "https://meadowfolio.bisks.net/";
@@ -115,4 +126,5 @@ renderProfile();
 renderReleases();
 renderPicks();
 renderGallery();
+setupGalleryNav();
 setupShare();
