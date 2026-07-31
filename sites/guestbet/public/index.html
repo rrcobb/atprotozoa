@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>guestbet — bet on the simcluster guest vote — bisks.net</title>
+    <meta
+      name="description"
+      content="A live betting market on simcluster-guests.bisks.net's guest-request board for @brennan.computer's Simcluster podcast. Play-money odds move in real time as people bet; whoever's leading when the clock hits zero pays out. No login needed."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://guestbet.bisks.net/" />
+    <meta property="og:title" content="guestbet — a betting market for the Simcluster guest vote" />
+    <meta
+      property="og:description"
+      content="Real-time pari-mutuel odds on who's leading the simcluster-guests request board right now. Bet play money, watch the odds move, cash in when your guest is on top when the round clock hits zero."
+    />
+    <meta property="og:image" content="https://guestbet.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="guestbet: a live odds board for the Simcluster podcast guest vote." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="guestbet — a betting market for the Simcluster guest vote" />
+    <meta
+      name="twitter:description"
+      content="Real-time odds on who's leading the simcluster-guests request board. Bet play money, watch the odds move. No login needed."
+    />
+    <meta name="twitter:image" content="https://guestbet.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / simcluster-guests / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --gold: #a6790f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 64ch; margin: 0 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+      .sub a { color: var(--accent); }
+
+      .panel {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 1.4rem;
+        background: var(--faintbg);
+      }
+      .walletRow {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem 1.4rem;
+      }
+      .balance { font-size: 1.35rem; font-weight: 800; }
+      .balance .coin { color: var(--gold); }
+      .clock { font-size: 0.82rem; color: var(--muted); }
+      .clock b { color: var(--ink); }
+      .stipendBtn {
+        margin-left: auto;
+        font-family: inherit; font-size: 0.8rem; font-weight: 700;
+        padding: 0.4rem 0.7rem; border: 1px solid var(--good); border-radius: 7px;
+        background: var(--bg); color: var(--good); cursor: pointer;
+      }
+      .stipendBtn:hover { background: var(--good); color: #fff; }
+      .stipendBtn:disabled { opacity: 0.4; cursor: default; }
+
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+      .status.warn { color: var(--bad); }
+
+      h2 { font-size: 1rem; font-weight: 800; margin: 1.8rem 0 0.5rem; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.9rem; }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; flex-wrap: wrap; gap: 0.6rem 0.9rem; padding: 1rem 0;
+        border-top: 1px solid var(--faint); align-items: center;
+      }
+      .row:first-of-type { border-top: none; }
+      .body { flex: 1; min-width: 220px; }
+      .guest { font-size: 1rem; font-weight: 700; margin: 0 0 0.2rem; overflow-wrap: break-word; }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.7rem; color: var(--muted);
+        font-size: 0.76rem; align-items: center;
+      }
+      .meta .yours { color: var(--accent); font-weight: 700; }
+      .odds {
+        min-width: 4.6rem; text-align: right; font-weight: 800; font-size: 1.05rem;
+      }
+      .odds small { display: block; font-weight: 400; color: var(--muted); font-size: 0.68rem; }
+      .betForm { display: flex; align-items: center; gap: 0.4rem; }
+      .betForm input {
+        width: 4.6rem; font-family: inherit; font-size: 0.85rem;
+        padding: 0.4rem 0.5rem; border: 1px solid var(--faint); border-radius: 7px;
+        background: var(--bg); color: var(--ink);
+      }
+      .betForm input:focus { outline: none; border-color: var(--accent); }
+      .betForm button {
+        font-family: inherit; font-size: 0.8rem; font-weight: 700; padding: 0.42rem 0.7rem;
+        border: 1px solid var(--accent); background: var(--accent); color: #fff;
+        border-radius: 7px; cursor: pointer; white-space: nowrap;
+      }
+      .betForm button:hover { opacity: 0.92; }
+      .betForm button:disabled { opacity: 0.45; cursor: default; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+
+      table.history { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      table.history th, table.history td {
+        text-align: left; padding: 0.5rem 0.5rem; border-top: 1px solid var(--faint);
+      }
+      table.history th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.history td.num { text-align: right; }
+      .refunded { color: var(--muted); font-style: italic; }
+
+      .leaderboard { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+      .leaderboard li {
+        display: flex; justify-content: space-between; padding: 0.4rem 0;
+        border-top: 1px solid var(--faint);
+      }
+      .leaderboard li:first-of-type { border-top: none; }
+      .leaderboard .id { color: var(--muted); }
+      .leaderboard .bal { font-weight: 700; }
+
+      .share { margin: 2rem 0 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>guestbet <span class="slash">/ odds on the simcluster guest vote</span></h1>
+        <p class="sub">
+          A live betting market on
+          <b><a href="https://simcluster-guests.bisks.net" target="_blank" rel="noopener">simcluster-guests.bisks.net</a></b>'s
+          request board for <a href="https://bsky.app/profile/brennan.computer" target="_blank" rel="noopener">@brennan.computer</a>'s
+          Simcluster podcast. That board never formally closes, so this runs in
+          rounds: pick a guest, bet play money, and every few hours whoever has
+          the most upvotes when the clock hits zero cashes in — the pot splits
+          pari-mutuel among everyone who backed them. Odds move live as people
+          bet. No login, no real money, just bragging rights and a fake bank
+          account.
+        </p>
+      </header>
+
+      <div class="panel">
+        <div class="walletRow">
+          <div>
+            <div class="balance"><span class="coin">◆</span> <span id="balanceVal">—</span> coins</div>
+          </div>
+          <div class="clock">round #<span id="roundId">—</span> resolves in <b id="clockVal">—</b></div>
+          <button class="stipendBtn" id="stipendBtn" style="display:none">spot me 100</button>
+        </div>
+      </div>
+
+      <div class="status" id="statusText">loading the board…</div>
+
+      <div class="empty" id="empty" style="display:none">
+        Nobody's on the board yet — go suggest a guest at
+        <a href="https://simcluster-guests.bisks.net" target="_blank" rel="noopener">simcluster-guests.bisks.net</a>,
+        then come back and bet on them.
+      </div>
+
+      <ol class="board" id="board"></ol>
+
+      <h2>past rounds</h2>
+      <p class="hint" id="historyHint">no rounds have resolved yet — check back after the first one closes.</p>
+      <table class="history" id="historyTable" style="display:none">
+        <thead>
+          <tr><th>round</th><th>winner</th><th class="num">pool</th><th class="num">paid out</th></tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+
+      <h2>top bankrolls</h2>
+      <ol class="leaderboard" id="leaderboard"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=guestbet.bisks.net" target="_blank" rel="noopener">share this market</a>
+        <a href="https://simcluster-guests.bisks.net" target="_blank" rel="noopener">the guest board itself →</a>
+      </div>
+
+      <footer>
+        Play money only, starts from a fresh 1000 coins per browser —
+        clearing localStorage gets you a new bankroll, so treat the
+        leaderboard as fun, not proof. Odds blend real bets with a small
+        head-start proportional to each guest's live upvotes, so a brand
+        new round already looks sane before anyone's wagered a coin. Light
+        per-client rate limiting keeps betting from being spammed, nothing
+        fancier. Winner each round is whoever the live board shows in the
+        lead the instant the clock hits zero — not a claim about who
+        Brennan actually books.
+        asked for by <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const els = {
+        balanceVal: document.getElementById("balanceVal"),
+        roundId: document.getElementById("roundId"),
+        clockVal: document.getElementById("clockVal"),
+        stipendBtn: document.getElementById("stipendBtn"),
+        statusText: document.getElementById("statusText"),
+        empty: document.getElementById("empty"),
+        board: document.getElementById("board"),
+        historyHint: document.getElementById("historyHint"),
+        historyTable: document.getElementById("historyTable"),
+        historyBody: document.getElementById("historyBody"),
+        leaderboard: document.getElementById("leaderboard"),
+        shareLink: document.getElementById("shareLink"),
+      };
+
+      const CLIENT_KEY = "guestbet-client-id";
+      function clientId() {
+        try {
+          let id = localStorage.getItem(CLIENT_KEY);
+          if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(CLIENT_KEY, id);
+          }
+          return id;
+        } catch {
+          return "anon-" + Math.random().toString(36).slice(2);
+        }
+      }
+      const CID = clientId();
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function fmtClock(ms) {
+        if (ms <= 0) return "any moment…";
+        const s = Math.floor(ms / 1000);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        if (h > 0) return `${h}h ${m}m`;
+        const sec = s % 60;
+        return `${m}m ${sec}s`;
+      }
+
+      let resolvesAt = 0;
+      function tickClock() {
+        if (resolvesAt) els.clockVal.textContent = fmtClock(resolvesAt - Date.now());
+      }
+      setInterval(tickClock, 1000);
+
+      async function api(path, opts) {
+        const r = await fetch(path, {
+          ...opts,
+          headers: { "content-type": "application/json", "x-client-id": CID, ...(opts && opts.headers) },
+        });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error || "request failed");
+        return out;
+      }
+
+      function rowHTML(c) {
+        const yours = c.__yourStake || 0;
+        const yourLine = yours ? `<span class="yours">you: ${yours} on this</span>` : "";
+        return `
+          <li class="row">
+            <div class="body">
+              <p class="guest">${esc(c.guest)}</p>
+              <div class="meta">
+                <span>▲ ${c.upvotes} upvote${c.upvotes === 1 ? "" : "s"}</span>
+                <span>backed with ${c.realPool} coins</span>
+                ${yourLine}
+              </div>
+            </div>
+            <div class="odds">${c.odds}x<small>${c.impliedPct}%</small></div>
+            <form class="betForm" data-id="${esc(c.id)}" data-name="${esc(c.guest)}">
+              <input type="number" min="10" step="10" placeholder="amt" required />
+              <button type="submit">bet</button>
+            </form>
+          </li>`;
+      }
+
+      function render(data) {
+        resolvesAt = data.round.resolvesAt;
+        els.roundId.textContent = data.round.id;
+        els.balanceVal.textContent = data.balance;
+        tickClock();
+
+        els.stipendBtn.style.display = data.canClaimStipend ? "" : "none";
+
+        if (data.boardStale) {
+          els.statusText.textContent = "having trouble reaching the live board — showing the last known odds.";
+          els.statusText.classList.add("warn");
+        } else {
+          els.statusText.textContent = `tracking ${data.boardCount} guest${data.boardCount === 1 ? "" : "s"} on the live board · ${data.totalRealPool} coins wagered this round`;
+          els.statusText.classList.remove("warn");
+        }
+
+        if (!data.candidates.length) {
+          els.empty.style.display = "";
+          els.board.innerHTML = "";
+        } else {
+          els.empty.style.display = "none";
+          els.board.innerHTML = data.candidates
+            .map((c) => ({ ...c, __yourStake: data.yourBets[c.id] || 0 }))
+            .map(rowHTML)
+            .join("");
+          els.board.querySelectorAll(".betForm").forEach((form) => {
+            form.addEventListener("submit", async (ev) => {
+              ev.preventDefault();
+              const btn = form.querySelector("button");
+              const input = form.querySelector("input");
+              const amount = parseInt(input.value, 10);
+              if (!amount || amount < 10) return;
+              btn.disabled = true;
+              try {
+                const out = await api("/api/bet", {
+                  method: "POST",
+                  body: JSON.stringify({ guestId: form.dataset.id, guestName: form.dataset.name, amount }),
+                });
+                input.value = "";
+                render(out);
+              } catch (e) {
+                els.statusText.textContent = e.message;
+                els.statusText.classList.add("warn");
+              } finally {
+                btn.disabled = false;
+              }
+            });
+          });
+        }
+
+        if (data.history.length) {
+          els.historyHint.style.display = "none";
+          els.historyTable.style.display = "";
+          els.historyBody.innerHTML = data.history
+            .map((h) => {
+              if (h.refunded) {
+                return `<tr><td>#${h.id}</td><td class="refunded">no bets — refunded</td><td class="num">${h.totalRealPool}</td><td class="num">${h.paidOut}</td></tr>`;
+              }
+              return `<tr><td>#${h.id}</td><td>${esc(h.winnerName || "—")} (▲${h.winnerUpvotes ?? "?"})</td><td class="num">${h.totalRealPool}</td><td class="num">${h.paidOut}</td></tr>`;
+            })
+            .join("");
+        } else {
+          els.historyHint.style.display = "";
+          els.historyTable.style.display = "none";
+        }
+
+        els.leaderboard.innerHTML = data.leaderboard
+          .map((l) => `<li><span class="id">${esc(l.id)}…</span><span class="bal">◆ ${l.balance}</span></li>`)
+          .join("") || `<li><span class="id">nobody's placed a bet yet</span></li>`;
+
+        const top = data.candidates[0];
+        const shareText = top
+          ? `right now on guestbet, ${top.guest} is leading the Simcluster guest vote at ${top.odds}x odds. bet play money and watch it move at guestbet.bisks.net`
+          : "a live betting market for the Simcluster podcast guest vote — guestbet.bisks.net";
+        els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      els.stipendBtn.addEventListener("click", async () => {
+        els.stipendBtn.disabled = true;
+        try {
+          const out = await api("/api/stipend", { method: "POST" });
+          render(out);
+        } catch (e) {
+          els.statusText.textContent = e.message;
+          els.statusText.classList.add("warn");
+        } finally {
+          els.stipendBtn.disabled = false;
+        }
+      });
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const data = await api("/api/market");
+          failCount = 0;
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            els.statusText.textContent = "having trouble reaching the market…";
+            els.statusText.classList.add("warn");
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 12000);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>

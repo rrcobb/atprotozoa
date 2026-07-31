@@ -1,0 +1,44 @@
+name = "atprotozoa-guestbet"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @norvid-studies.bsky.social, replying to @wariziles's "everyone go vote
+# for @demigirlboss on simcluster-guests.bisks.net" post: "is there not a
+# betting market set up for this yet? create a site where users can bet on
+# the winner of this podcast vote and track the odds in real time. also
+# allow users to keep track of their money."
+#
+# "This podcast vote" = the live upvote board at simcluster-guests.bisks.net
+# (guest requests for @brennan.computer's Simcluster podcast). That board
+# never formally "closes" — Brennan just eventually books someone off it —
+# so there's no real event to settle a one-shot bet against. Instead this
+# runs as a repeating market: every ROUND_MS the Market DO fetches the live
+# board, pays out everyone holding the current leader, and opens a fresh
+# round. Odds are pari-mutuel (pool-for-guest / total-pool) seeded with a
+# small virtual stake proportional to live upvotes so a brand-new round
+# already reflects the real standings, then move for real as people bet.
+# One Durable Object ("global") holds it all — pools, bets, per-clientId
+# play-money balances, round history — same single-writer shape as
+# sites/simcluster-guests's GuestBoard DO this was copied from, plus a
+# storage alarm to resolve rounds. No login: clients carry an opaque id in
+# localStorage, sent as X-Client-Id, same anonymous-identity shape as the
+# "keep track of their money" ask needs and nothing heavier.
+routes = [
+  { pattern = "guestbet.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "MARKET"
+class_name = "Market"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml for the
+# full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Market"]
