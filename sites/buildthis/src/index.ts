@@ -394,164 +394,54 @@ async function handleLogsRead(env: Env, url: URL): Promise<Response> {
 // Versioned so a snapshot-shape change (e.g. adding a field like `description`)
 // can't get stuck behind the 24h refresh window serving stale-shaped entries —
 // bump the suffix and the next hit recomputes live instead of waiting a day.
-// v3: fixed the fallbackUrl() bug below (see SITE_HOST) — bumped so the fix is
-// visible immediately instead of waiting out the old snapshot's refresh window.
-const DIRECTORY_KEY = "directory-snapshot:v3";
+// v3: fixed a fallbackUrl() bug — bumped so the fix showed up immediately
+// instead of waiting out the old snapshot's refresh window.
+// v4: every site moved back to its own subdomain (2026-07-31), so every cached
+// entry's url is the old path form. Bumped to recompute rather than serve a day
+// of stale-shaped links.
+const DIRECTORY_KEY = "directory-snapshot:v5";
 const DIRECTORY_REFRESH_MS = 24 * 60 * 60 * 1000;
 
-// Snapshot of every site's actual mount, read from each sites/<name>/wrangler.toml
-// route pattern (plus apex/wrangler.toml) as of 2026-07-27. Most sites mount as a
-// path on the shared zone (`bisks.net/<name>`, some nested under `bisks.net/games/
-// <name>`); a shrinking set of pre-cap sites still own a real `<name>.bisks.net`
-// custom domain (see notes/40-new-site-playbook.md "Why paths, not subdomains").
-// Used ONLY as a fallback for events with no stored `outcome.url` — recent builds
-// always carry a correct url from reply.mjs's isPathMounted() check, computed at
-// build time from the real wrangler.toml. Older events (and any site migrated
-// between subdomain and path after it shipped, e.g. the 2026-07-26 cap-stuck
-// migration) predate that field or have a stale one, and previously fell back to
-// a blanket `<name>.bisks.net` guess — wrong for the vast majority, which are
-// actually path-mounted. This is a point-in-time snapshot, not live-read (the
-// Worker has no repo filesystem access at request time); a site mounted after
-// this was written falls through to fallbackUrl()'s path-mounted default, which
-// matches how virtually every new site is mounted now.
-const SITE_HOST: Record<string, string> = {
-  "acausal": "bisks.net/acausal",
-  "alice-meets-bob": "bisks.net/alice-meets-bob",
-  "alignment-chart": "bisks.net/alignment-chart",
-  "apex": "bisks.net",
-  "atproideasio": "atproideasio.bisks.net",
-  "babel": "bisks.net/babel",
-  "bardposting": "bisks.net/bardposting",
-  "bigredbutton": "bisks.net/bigredbutton",
-  "bird-costumes": "bisks.net/bird-costumes",
-  "birdflow": "bisks.net/birdflow",
-  "biskshow": "bisks.net/games/biskshow",
-  "blackice": "bisks.net/games/blackice",
-  "breathingwalls": "bisks.net/breathingwalls",
-  "buildcoin": "bisks.net/buildcoin",
-  "buildthis": "buildthis.bisks.net",
-  "buildthis2": "buildthis2.bisks.net",
-  "candyland": "bisks.net/candyland",
-  "catsofatproto": "bisks.net/catsofatproto",
-  "change": "bisks.net/games/change",
-  "chimehose": "bisks.net/chimehose",
-  "claudoku": "bisks.net/games/claudoku",
-  "cloutgraph": "bisks.net/cloutgraph",
-  "cluckstonks": "bisks.net/cluckstonks",
-  "clustercrawl": "bisks.net/games/clustercrawl",
-  "code-for-airports": "bisks.net/code-for-airports",
-  "cogsec": "bisks.net/cogsec",
-  "copypastalibs": "bisks.net/copypastalibs",
-  "cowlick": "bisks.net/cowlick",
-  "crewquest": "bisks.net/games/crewquest",
-  "crosstag": "bisks.net/crosstag",
-  "declined": "bisks.net/declined",
-  "delaunay-maze": "bisks.net/delaunay-maze",
-  "demon-avocado": "bisks.net/demon-avocado",
-  "dial-a-mutual": "dial-a-mutual.bisks.net",
-  "didscope": "didscope.bisks.net",
-  "drivethru": "bisks.net/drivethru",
-  "edzitronquest": "bisks.net/games/edzitronquest",
-  "enshittify": "bisks.net/enshittify",
-  "erdosproof": "bisks.net/erdosproof",
-  "erudifier": "erudifier.bisks.net",
-  "favstar": "favstar.bisks.net",
-  "fitzcarraldo": "bisks.net/games/fitzcarraldo",
-  "flagged": "bisks.net/flagged",
-  "flamewordart": "flamewordart.bisks.net",
-  "fourk": "bisks.net/fourk",
-  "fruitninja": "bisks.net/fruitninja",
-  "grand-moot-auto": "bisks.net/games/grand-moot-auto",
-  "gulpstream": "bisks.net/gulpstream",
-  "hashdo": "hashdo.bisks.net",
-  "heistlibs": "bisks.net/heistlibs",
-  "hellmole": "bisks.net/hellmole",
-  "howitstarted": "howitstarted.bisks.net",
-  "idea-island": "bisks.net/idea-island",
-  "idea-mill": "idea-mill.bisks.net",
-  "immortals": "bisks.net/immortals",
-  "invocation": "bisks.net/invocation",
-  "keytags": "keytags.bisks.net",
-  "knolling": "bisks.net/knolling",
-  "koipond": "bisks.net/koipond",
-  "labescape": "bisks.net/labescape",
-  "lasercats": "bisks.net/lasercats",
-  "lavalamp": "lavalamp.bisks.net",
-  "logs": "logs.bisks.net",
-  "lost-highway": "bisks.net/games/lost-highway",
-  "mahjong-solitaire": "bisks.net/mahjong-solitaire",
-  "maybetoday": "maybetoday.bisks.net",
-  "mcskeets": "bisks.net/mcskeets",
-  "mechpilot": "mechpilot.bisks.net",
-  "mistake": "mistake.bisks.net",
-  "moonbuggy": "bisks.net/games/moonbuggy",
-  "moot-bingo": "bisks.net/games/moot-bingo",
-  "mootdrone": "mootdrone.bisks.net",
-  "mootkombat": "bisks.net/games/mootkombat",
-  "mootrider": "mootrider.bisks.net",
-  "moottris": "bisks.net/games/moottris",
-  "natsmode": "natsmode.bisks.net",
-  "neighborhood": "neighborhood.bisks.net",
-  "norvidwave": "bisks.net/norvidwave",
-  "oblique": "bisks.net/oblique",
-  "old-beach": "bisks.net/old-beach",
-  "pacmoot": "bisks.net/games/pacmoot",
-  "padmoot": "bisks.net/padmoot",
-  "paintmoot": "paintmoot.bisks.net",
-  "pixel-fishing": "bisks.net/pixel-fishing",
-  "platoscave": "bisks.net/games/platoscave",
-  "popmoot": "bisks.net/popmoot",
-  "portfolio": "portfolio.bisks.net",
-  "puzzlelove": "puzzlelove.bisks.net",
-  "pvnp": "bisks.net/pvnp",
-  "ratioed": "bisks.net/ratioed",
-  "resetwatch": "resetwatch.bisks.net",
-  "seismograph": "bisks.net/seismograph",
-  "semanticmute": "bisks.net/semanticmute",
-  "short-circuit": "short-circuit.bisks.net",
-  "simclash": "simclash.bisks.net",
-  "simcluster": "bisks.net/games/simcluster",
-  "simclustered": "bisks.net/games/simclustered",
-  "skeetracker": "skeetracker.bisks.net",
-  "skyhell": "skyhell.bisks.net",
-  "slop-shop": "slop-shop.bisks.net",
-  "sokobisks": "bisks.net/games/sokobisks",
-  "solitaire": "bisks.net/solitaire",
-  "solvers": "bisks.net/solvers",
-  "sonnethype": "bisks.net/sonnethype",
-  "spot-the-ai": "spot-the-ai.bisks.net",
-  "spoton": "bisks.net/games/spoton",
-  "stanquiz": "bisks.net/games/stanquiz",
-  "tabernacle": "bisks.net/tabernacle",
-  "the-place": "bisks.net/the-place",
-  "thunderdome": "bisks.net/games/thunderdome",
-  "timeline": "bisks.net/timeline",
-  "toroidarium": "toroidarium.bisks.net",
-  "treeoflife": "bisks.net/treeoflife",
-  "trigramonopoly": "bisks.net/trigramonopoly",
-  "trigrams": "trigrams.bisks.net",
-  "trigruessr": "trigruessr.bisks.net",
-  "verbs": "bisks.net/verbs",
-  "verdict": "bisks.net/verdict",
-  "viable": "bisks.net/viable",
-  "war": "war.bisks.net",
-  "wheelhouse": "bisks.net/wheelhouse",
-  "windmill": "bisks.net/windmill",
-  "wutangclam": "bisks.net/wutangclam",
+// Every site is served at `<name>.bisks.net` since the 2026-07-31 migration back
+// to subdomains (a wildcard *.bisks.net DNS record + wildcard cert mean a plain
+// hostname route needs no custom-domain slot — see notes/20-deploy.md). That
+// replaced an 88-entry hardcoded snapshot of per-site mount paths, which had to
+// exist back when sites were scattered across `bisks.net/<name>` and
+// `bisks.net/games/<name>` and a handful of legacy subdomains. The rule is
+// uniform again, so a table is no longer needed.
+//
+// Two exceptions: the apex IS bisks.net itself, and `games` is a path-mounted
+// cluster index with no subdomain of its own.
+const PATH_MOUNTED: Record<string, string> = {
+  apex: "bisks.net",
+  games: "bisks.net/games",
 };
 
 // Resolve a `builtName` ("<site>" or "<site>/<path>") to its live URL when the
-// event has no stored `outcome.url`. Looks the site up in SITE_HOST; anything
-// missing (a site built after the snapshot above) defaults to the path-mounted
-// form, since that's the default every new site gets now (see
-// notes/40-new-site-playbook.md) — a bare `<name>.bisks.net` guess would be wrong
-// far more often than a path guess would be.
+// event has no stored `outcome.url`. Every site is at `<name>.bisks.net` now, so
+// this is a rule rather than a lookup — only the apex and the games index are
+// path-mounted. Old events whose stored url still points at a `bisks.net/<name>`
+// path keep working regardless: those path routes were deliberately kept alive
+// for previously-shared links.
 function fallbackUrl(builtName: string): string {
   const site = builtName.split("/")[0];
   const rest = builtName.slice(site.length); // "" or "/sub/path..."
-  const host = SITE_HOST[site];
-  if (host) return `https://${host}${rest}`;
-  return `https://bisks.net/${site}${rest}`;
+  const pathMount = PATH_MOUNTED[site];
+  if (pathMount) return `https://${pathMount}${rest}`;
+  return `https://${site}.bisks.net${rest}`;
+}
+
+// Events built before 2026-07-31 stored a `bisks.net/<name>` path url. Those
+// still resolve — the path routes were kept for previously-shared links — but
+// they advertise the pre-migration address, so normalise them to the site's own
+// subdomain on read rather than rewriting ~470 KV records.
+function canonicalUrl(builtName: string, stored?: string): string {
+  if (!stored) return fallbackUrl(builtName);
+  const m = stored.match(/^https:\/\/bisks\.net\/(?:games\/)?([a-z0-9-]+)(\/.*)?$/i);
+  if (!m) return stored; // already a subdomain, or something we don't recognise
+  const [, site, rest] = m;
+  if (PATH_MOUNTED[site]) return stored; // apex and the games index stay put
+  return `https://${site}.bisks.net${rest || "/"}`;
 }
 
 interface DirectoryEntry {
@@ -600,7 +490,7 @@ function computeDirectory(events: LogEvent[]): DirectorySnapshot {
     if (e.outcome?.status === "success" && e.outcome.builtName) {
       const entry: DirectoryEntry = {
         name: e.outcome.builtName,
-        url: e.outcome.url || fallbackUrl(e.outcome.builtName),
+        url: canonicalUrl(e.outcome.builtName, e.outcome.url),
         handle: e.authorHandle,
         at: e.outcome.at,
         description: entryDescription(e),
@@ -1521,7 +1411,7 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       if (e.outcome.liveVerified === false && e.outcome.builtName) {
         deadLinkCandidates.push({
           name: e.outcome.builtName,
-          url: e.outcome.url || fallbackUrl(e.outcome.builtName),
+          url: canonicalUrl(e.outcome.builtName, e.outcome.url),
         });
       }
     } else if (e.outcome?.status === "failure") failures++;

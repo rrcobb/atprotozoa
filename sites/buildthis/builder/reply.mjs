@@ -34,21 +34,28 @@ function reqEnv(name) {
   return v;
 }
 
-// The path `site` is mounted at on the shared bisks.net zone (the default
-// since the 2026-07-26 slash-path migration — see
-// notes/40-new-site-playbook.md), or null if it isn't path-mounted at all
-// (owns its own legacy `<site>.bisks.net` custom domain instead). Reads the
-// site's own wrangler.toml instead of assuming the flat `/<site>` shape, so
-// clustered mounts (`bisks.net/games/<site>`, see the "clustering related
-// sites" section of notes/20-deploy.md) resolve correctly too — a flat-only
-// check silently mis-linked every games/* site to a never-provisioned
-// subdomain (caught 2026-07-27 via a desertbus report: "the site doesn't
-// load", because the previous reply linked desertbus.bisks.net instead of
-// bisks.net/games/desertbus). Defaults to null (legacy subdomain) if the
-// toml can't be read, which matches every site built before the migration.
+// The path `site` is mounted at on the shared bisks.net zone, or null when the
+// site is served at its own `<site>.bisks.net` hostname — which is the default
+// again since the 2026-07-31 migration back to subdomains (see
+// notes/20-deploy.md). Reads the site's own wrangler.toml rather than assuming
+// a shape.
+//
+// Order matters here. Most sites carry BOTH a `<site>.bisks.net/*` hostname
+// route and a legacy `bisks.net/<site>` path route kept alive for previously
+// shared links. Checking the path first would make every reply link the old
+// URL, so the hostname route wins whenever it's present.
+//
+// (The path-first behaviour was itself a fix: a flat-only check once mis-linked
+// every clustered games/* site to a never-provisioned subdomain — caught
+// 2026-07-27 via a desertbus report. Both shapes are handled now.)
 function mountPath(site) {
   try {
     const toml = readFileSync(`sites/${site}/wrangler.toml`, "utf8");
+
+    // Own hostname? Then there's no mount path — it's served at the root.
+    const hostRoute = new RegExp(`pattern\\s*=\\s*"${site}\\.bisks\\.net`);
+    if (hostRoute.test(toml)) return null;
+
     const patterns = [...toml.matchAll(/pattern\s*=\s*"bisks\.net(\/[^"]+)"/g)].map((m) => m[1]);
     // Prefer the base route (no trailing "/*" wildcard) over the wildcard
     // sibling every mounted site's routes list also carries.

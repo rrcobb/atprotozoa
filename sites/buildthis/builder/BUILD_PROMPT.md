@@ -30,11 +30,11 @@ figure out what you built from the files you changed — but it's the only way t
 a "<site>/<path>" precisely, so write it when you can. BUILD_RESULT is gitignored.
 If you genuinely built/changed nothing, don't create it.
 
-A new site that joins a cluster (mounted at bisks.net/games/<name>, etc.) is still
-just "<name>" — it lives in sites/<name>/, not sites/games/<name>/, so "games" is
-never the site part. Writing "games/<name>" gets read as site="games" (which doesn't
-exist) with path "/<name>", producing a dead games.bisks.net/<name> link instead of
-the real bisks.net/games/<name>.
+Always name a site by its bare "<name>" — never "games/<name>". Every site lives in
+sites/<name>/ and is served at <name>.bisks.net, so a name with a slash gets read as
+site="games", path="/<name>" and produces a dead link. Note sites/games IS a real
+site now (the games cluster's index page), which makes that misreading resolve to
+the wrong page rather than nothing.
 
 You MAY also write a repo-root file called BUILD_NOTE: one short line (~200 chars,
 one line) in your own voice describing what you built or answering the request —

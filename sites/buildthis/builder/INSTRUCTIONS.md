@@ -52,20 +52,49 @@ there's genuinely nothing to make.
   fetch that another site already has? Copy the file in and edit it. No shared
   packages across sites; near-duplicate files are fine and expected.
 - **New site = one directory = one Worker = one path.** The zone hit a Cloudflare
-  custom-domain cap, so a dedicated `<newname>.bisks.net` subdomain is the
-  exception now, not the default — see `notes/20-deploy.md` and
-  `notes/40-new-site-playbook.md` ("Why paths, not subdomains"). For a new
-  standalone idea: `cp -r` the closest existing site (or `sites/trigrams` if
-  nothing's close), then rename — `wrangler.toml` `name = "atprotozoa-<newname>"`
-  + `main = "src/index.ts"` + routes `bisks.net/<newname>` and
-  `bisks.net/<newname>/*` (`zone_name = "bisks.net"`, not `custom_domain`);
-  `package.json` `"name": "@atprotozoa/<newname>"`; `src/index.ts` strips the
-  `/<newname>` prefix before forwarding to the `ASSETS` binding (see the
-  playbook's barebones template). Build the idea in `public/` (+ the rest of
-  `src/` for any further server surface). Any absolute URL a site writes about
-  itself (OG tags, share links, OAuth redirect URIs) must include the
-  `/<newname>` prefix. Add a gallery card to `apex/public/index.html` linking
-  `https://bisks.net/<newname>`.
+  own `<newname>.bisks.net` subdomain — the zone's custom-domain cap no longer
+  applies, because a wildcard `*.bisks.net` DNS record plus a wildcard cert mean
+  a plain hostname *route* works (routes cap at 1000/zone, custom domains at
+  100). See `notes/20-deploy.md` and `notes/40-new-site-playbook.md`.
+
+  For a new standalone idea: `cp -r` the closest existing site (or
+  `sites/trigrams` if nothing's close), then rename — `wrangler.toml`
+  `name = "atprotozoa-<newname>"` + `main = "src/index.ts"` + a single route
+  `{ pattern = "<newname>.bisks.net/*", zone_name = "bisks.net" }`
+  (`zone_name`, NOT `custom_domain = true`); `package.json`
+  `"name": "@atprotozoa/<newname>"`. A brand-new site is served at the root of
+  its own hostname, so `src/index.ts` needs **no** mount-prefix stripping —
+  just forward to the `ASSETS` binding. (Older sites still carry a
+  `bisks.net/<name>` path route for previously-shared links; if you copied one,
+  delete that route and its prefix-strip rather than keeping them.)
+
+  Build the idea in `public/` (+ the rest of `src/` for any further server
+  surface). Any absolute URL the site writes about itself — OG tags, share
+  links, OAuth redirect URIs — is `https://<newname>.bisks.net/...` with no
+  path prefix.
+- **Write `sites/<newname>/site.json`.** This is what puts the site on the apex
+  gallery, which is GENERATED from these manifests — do **not** hand-edit
+  `apex/public/index.html`'s card list, it gets overwritten and CI fails the
+  push when the two disagree.
+
+  ```json
+  {
+    "name": "<newname>",
+    "url": "https://<newname>.bisks.net/",
+    "title": "<newname>",
+    "blurb": "one or two sentences, lowercase: what it is and who asked for it",
+    "tag": "game",
+    "type": "game",
+    "by": "<requester handle>",
+    "src": "bot",
+    "hidden": false
+  }
+  ```
+
+  `type` must be one of `toy`, `game`, `tool`, `joke`, `explainer`, `art` — the
+  front page filters on it. Then run `node audit/build-gallery.mjs --apply`,
+  which rewrites the gallery's card list from the manifests. Leave the result in
+  the working tree like everything else; the harness commits it.
 - **Keep it self-contained.** A site is a directory; don't import across sites.
 - **Include sharing in most sites, not just when asked.** Give new sites a real
   OG/Twitter preview image and a one-tap way to post the result to Bluesky — an
@@ -89,17 +118,15 @@ work went live:
   `trigrams.bisks.net`.
 - Built/changed nothing → don't create the file (reply sends the honest failure).
 
-**A new site that joins a cluster (`bisks.net/games/<name>`, etc.) is still just
-`<name>`** — never `games/<name>`. The site lives in `sites/<name>/` (not
-`sites/games/<name>/`); `games/` is a path segment its own `wrangler.toml` routes
-add, not a site of its own. `<name>/<path>` is reserved for a real sub-path *within*
-an existing site's own routing (see the bullet above) — writing `games/<name>` gets
-misread as "site `games`, path `/<name>`", which resolves to nothing and produces a
-dead `games.bisks.net/<name>` link. (Caught 2026-07-30: `spoton` shipped with
-exactly this mistake — the reply linked a dead subdomain instead of
-`bisks.net/games/spoton`.) The reply step reads each site's own `wrangler.toml` to
-find its real mount, so a bare `<name>` always resolves correctly regardless of
-whether it's flat or clustered.
+**Always a bare `<name>`** — never `games/<name>` or any other path form. Every
+site lives in `sites/<name>/` and is served at `<name>.bisks.net`, so a name with
+a slash in it gets misread as "site `games`, path `/<name>`" and produces a dead
+link. (Caught 2026-07-30, back when games were mounted under a shared path:
+`spoton` shipped with exactly this mistake.) Clusters are no longer a routing
+concept — `sites/games` is now just the cluster's index page, and a game is an
+ordinary site with its own subdomain like everything else. The reply step reads
+each site's own `wrangler.toml` to find its real mount, so a bare `<name>` always
+resolves correctly.
 
 Don't `git commit` or `git push` — just leave your edits in the working tree. The
 harness commits and pushes them for you at the end (it holds the push credentials;
