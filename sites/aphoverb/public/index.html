@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>aphoverb — proverb or aphorism? — bisks.net</title>
+    <meta
+      name="description"
+      content="A mashup game built from Wikipedia's List of proverbial phrases: guess whether each line is anonymous folk wisdom or somebody's named coinage — then see the real overlaps and taxonomy discrepancies between proverbs and aphorisms."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="aphoverb — proverb or aphorism?" />
+    <meta
+      property="og:description"
+      content="Guess proverb vs. aphorism, then see where the two lists actually overlap — 'time is money' is Franklin, 'knowledge is power' is Bacon, and Wikipedia's own 'proverb' list has 25+ lines it quietly credits to a named author."
+    />
+    <meta property="og:url" content="https://bisks.net/aphoverb/" />
+    <meta property="og:image" content="https://bisks.net/aphoverb/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="aphoverb: proverb or aphorism? a mashup quiz card" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="aphoverb — proverb or aphorism?" />
+    <meta name="twitter:description" content="A quiz built from Wikipedia's proverb list — plus a catalog of the real overlaps and discrepancies between proverbs and aphorisms." />
+    <meta name="twitter:image" content="https://bisks.net/aphoverb/og.png" />
+
+    <style>
+      :root {
+        --bg0: #0b0d0c;
+        --panel-bg: #131715;
+        --panel-bg2: #171c19;
+        --ink: #eef2ef;
+        --muted: #93a39a;
+        --faint: rgba(238, 242, 239, 0.13);
+        --sage: #7fd8a3;
+        --sagebg: rgba(127, 216, 163, 0.12);
+        --amber: #ffb454;
+        --amberbg: rgba(255, 180, 84, 0.12);
+        --bad: #ff7a7a;
+        --badbg: rgba(255, 122, 122, 0.12);
+        --good: #7fd8a3;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg0);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 2.2rem 1.25rem 5rem; }
+
+      header { margin-bottom: 1.4rem; }
+      h1 { margin: 0 0 0.35rem; font-size: 1.9rem; font-weight: 800; letter-spacing: -0.01em; }
+      h1 .apho { color: var(--sage); }
+      h1 .verb { color: var(--amber); }
+      .tagline { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.1rem; max-width: 60ch; }
+      .tagline b { color: var(--ink); }
+
+      nav.tabs { display: flex; gap: 0.4rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
+      nav.tabs button {
+        font-family: inherit; font-size: 0.82rem; cursor: pointer; font-weight: 700;
+        border: 1px solid var(--faint); background: rgba(255,255,255,0.03); color: var(--muted);
+        border-radius: 999px; padding: 0.5rem 1rem;
+      }
+      nav.tabs button.active { background: rgba(255,255,255,0.08); color: var(--ink); border-color: rgba(255,255,255,0.25); }
+      nav.tabs button:hover { color: var(--ink); }
+
+      section.view { display: none; }
+      section.view.active { display: block; }
+
+      /* ---- play ---- */
+      .progress-row { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.1rem; font-size: 0.78rem; color: var(--muted); }
+      .progress-bar { flex: 1; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }
+      .progress-fill { height: 100%; background: linear-gradient(90deg, var(--sage), var(--amber)); transition: width 0.25s ease; }
+      .scorepill { font-weight: 700; color: var(--amber); white-space: nowrap; }
+
+      .qcard {
+        border: 1px solid var(--faint); border-radius: 14px; padding: 1.6rem 1.5rem;
+        background: var(--panel-bg); margin-bottom: 1.1rem; min-height: 6.5rem; display: flex; align-items: center;
+      }
+      .qtext { font-family: var(--serif); font-size: 1.3rem; line-height: 1.5; }
+      .qtext::before { content: "\201C"; color: var(--muted); }
+      .qtext::after { content: "\201D"; color: var(--muted); }
+
+      .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; margin-bottom: 1rem; }
+      .choices button {
+        font-family: inherit; font-weight: 800; font-size: 0.95rem; letter-spacing: 0.02em; text-transform: uppercase;
+        cursor: pointer; border-radius: 10px; padding: 0.9rem 0.6rem; border: 1px solid var(--faint);
+      }
+      .choices button.proverb { background: var(--sagebg); color: var(--sage); }
+      .choices button.aphorism { background: var(--amberbg); color: var(--amber); }
+      .choices button:hover:not(:disabled) { filter: brightness(1.2); }
+      .choices button:disabled { cursor: default; opacity: 0.55; }
+
+      .reveal { border: 1px solid var(--faint); border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1rem; background: var(--panel-bg2); }
+      .reveal.correct { border-color: rgba(127,216,163,0.4); }
+      .reveal.wrong { border-color: rgba(255,122,122,0.4); }
+      .reveal .verdict { font-weight: 800; margin-bottom: 0.35rem; }
+      .reveal.correct .verdict { color: var(--good); }
+      .reveal.wrong .verdict { color: var(--bad); }
+      .reveal .detail { color: var(--muted); font-size: 0.86rem; }
+      .reveal .detail b { color: var(--ink); }
+
+      button.next, button.solid {
+        font-family: inherit; font-size: 0.9rem; cursor: pointer; font-weight: 700;
+        border: 1px solid transparent; border-radius: 8px; padding: 0.65rem 1.2rem;
+        background: linear-gradient(180deg, #a4ecc4, #55b787); color: #052912;
+      }
+      button.next:hover, button.solid:hover { filter: brightness(1.06); }
+      button.ghost {
+        font-family: inherit; font-size: 0.85rem; cursor: pointer; font-weight: 700;
+        border: 1px solid var(--faint); background: transparent; color: var(--ink);
+        border-radius: 8px; padding: 0.6rem 1.1rem;
+      }
+
+      .result-card { text-align: center; border: 1px solid var(--faint); border-radius: 16px; padding: 2rem 1.5rem; background: var(--panel-bg); }
+      .result-score { font-size: 3.2rem; font-weight: 800; color: var(--amber); }
+      .result-tier { font-size: 1.15rem; font-weight: 800; margin: 0.2rem 0 0.6rem; }
+      .result-blurb { color: var(--muted); font-size: 0.88rem; max-width: 44ch; margin: 0 auto 1.4rem; }
+      .result-actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+
+      /* ---- catalog ---- */
+      h2 { font-size: 1.15rem; margin: 0 0 0.3rem; }
+      .section-note { color: var(--muted); font-size: 0.86rem; margin: 0 0 1.1rem; max-width: 62ch; }
+      .pair { border: 1px solid var(--faint); border-radius: 12px; padding: 0.95rem 1.1rem; margin-bottom: 0.7rem; background: var(--panel-bg); }
+      .pair .p1, .pair .p2 { font-family: var(--serif); font-size: 1rem; }
+      .pair .p1 { color: var(--sage); }
+      .pair .p2 { color: var(--amber); margin-top: 0.3rem; }
+      .pair .who { color: var(--muted); font-size: 0.8rem; margin-top: 0.45rem; }
+      .pair .who b { color: var(--ink); }
+      .arrow { color: var(--muted); font-size: 0.75rem; margin: 0.3rem 0; }
+
+      .disc-item { border: 1px solid var(--faint); border-radius: 12px; padding: 0.9rem 1.1rem; margin-bottom: 0.6rem; background: var(--panel-bg); }
+      .disc-item .txt { font-family: var(--serif); font-size: 1rem; }
+      .disc-item .who { color: var(--amber); font-size: 0.82rem; margin-top: 0.4rem; font-weight: 700; }
+      .disc-item .detail { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
+
+      /* ---- explainer ---- */
+      .explainer p { margin: 0 0 1rem; max-width: 64ch; }
+      blockquote {
+        font-family: var(--serif); font-style: italic; color: var(--ink); border-left: 3px solid var(--amber);
+        margin: 1.2rem 0; padding: 0.2rem 0 0.2rem 1rem; font-size: 1.02rem; line-height: 1.55;
+      }
+      blockquote cite { display: block; font-style: normal; font-family: var(--mono); color: var(--muted); font-size: 0.78rem; margin-top: 0.4rem; }
+      .defgrid { display: grid; grid-template-columns: 1fr; gap: 0.9rem; margin: 1.2rem 0; }
+      @media (min-width: 560px) { .defgrid { grid-template-columns: 1fr 1fr; } }
+      .defcard { border: 1px solid var(--faint); border-radius: 12px; padding: 1rem 1.1rem; background: var(--panel-bg); }
+      .defcard h3 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+      .defcard.proverb h3 { color: var(--sage); }
+      .defcard.aphorism h3 { color: var(--amber); }
+      .defcard p { margin: 0; font-size: 0.86rem; color: var(--muted); }
+
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.76rem; }
+      footer a { color: var(--muted); }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="apho">apho</span><span class="verb">verb</span></h1>
+        <p class="tagline">
+          A mashup built from Wikipedia's <b>List of proverbial phrases</b> — plus a
+          hand-assembled list of real, named <b>aphorisms</b>, since Wikipedia doesn't
+          actually have one. Guess which is which, then see where the two traditions
+          genuinely overlap and where the source list's own taxonomy gets fuzzy.
+        </p>
+      </header>
+
+      <nav class="tabs">
+        <button data-view="play" class="active">play</button>
+        <button data-view="catalog">overlap &amp; discrepancies</button>
+        <button data-view="explainer">proverb vs. aphorism</button>
+      </nav>
+
+      <section class="view active" id="view-play">
+        <div id="playIntro">
+          <p class="section-note">
+            12 rounds. Each line is either an anonymous proverbial phrase pulled
+            straight from Wikipedia, or a real aphorism with a named author.
+            Tap which you think it is.
+          </p>
+          <button class="solid" id="startBtn">start</button>
+        </div>
+
+        <div id="playGame" class="hidden">
+          <div class="progress-row">
+            <span id="roundLabel">round 1 / 12</span>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+            <span class="scorepill" id="scorePill">0 correct</span>
+          </div>
+          <div class="qcard"><div class="qtext" id="qtext">&nbsp;</div></div>
+          <div class="choices">
+            <button class="proverb" id="btnProverb">proverb</button>
+            <button class="aphorism" id="btnAphorism">aphorism</button>
+          </div>
+          <div class="reveal hidden" id="reveal">
+            <div class="verdict" id="verdict"></div>
+            <div class="detail" id="detail"></div>
+          </div>
+          <button class="next hidden" id="nextBtn">next →</button>
+        </div>
+
+        <div id="playResult" class="hidden">
+          <div class="result-card">
+            <div class="result-score" id="resultScore">0/12</div>
+            <div class="result-tier" id="resultTier"></div>
+            <p class="result-blurb" id="resultBlurb"></p>
+            <div class="result-actions">
+              <a class="solid" id="shareBluesky" target="_blank" rel="noopener" style="text-decoration:none; display:inline-block;">share on Bluesky</a>
+              <button class="ghost" id="playAgainBtn">play again</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-catalog">
+        <h2>where the lists overlap</h2>
+        <p class="section-note">
+          These lines sit on Wikipedia's proverb list with no author named — anonymous
+          folk wisdom, as far as that page is concerned. Each one is also a well-documented
+          aphorism with a specific author and a specific book. The proverb wore the
+          wording smooth; the paper trail never actually vanished.
+        </p>
+        <div id="overlapList"></div>
+
+        <h2 style="margin-top:2.2rem;">filed as folklore, signed by someone</h2>
+        <p class="section-note">
+          These are still on the same "proverbial phrases" list — but each entry
+          names its own author, right there in the text. If a proverb is supposed to be
+          the one without a byline, these are the discrepancies.
+        </p>
+        <div id="discList"></div>
+      </section>
+
+      <section class="view explainer" id="view-explainer">
+        <h2>proverb vs. aphorism</h2>
+        <div class="defgrid">
+          <div class="defcard proverb">
+            <h3>proverb</h3>
+            <p>Anonymous. Communal. Worn smooth by oral repetition until no one
+            remembers — or particularly cares — who said it first. Its authority
+            comes from being widely repeated, not from who coined it.</p>
+          </div>
+          <div class="defcard aphorism">
+            <h3>aphorism</h3>
+            <p>Authored. Literary. First appears in a specific written text by a
+            specific named person, and typically stays attributed even as it
+            circulates. Often built to need a second read — Hippocrates coined the
+            term for compressed medical maxims that require interpretation.</p>
+          </div>
+        </div>
+        <blockquote>
+          "A proverb is usually defined, an instructive sentence, or common and pithy
+          saying, in which more is generally designed than expressed, famous for its
+          peculiarity or elegance, and therefore adopted by the learned as well as the
+          vulgar, by which it is distinguished from counterfeits which want such
+          authority."
+          <cite>John Ray, A Compleat Collection of English Proverbs, 1768</cite>
+        </blockquote>
+        <div class="explainer">
+          <p>
+            The two categories describe different <i>relationships to authorship</i>,
+            not different kinds of wisdom. A line can start as one and end as the
+            other: Francis Bacon wrote a specific Latin sentence about knowledge and
+            power in 1597, and two hundred years of repetition sanded it down into
+            unsigned folklore. Wikipedia's own "proverbial phrases" list, sourced
+            straight off <a href="https://en.wikipedia.org/wiki/List_of_proverbial_phrases" target="_blank" rel="noopener">this page</a>,
+            is full of exactly that transition already in progress — some entries
+            fully worn smooth, some still carrying the author's name mid-sand.
+          </p>
+          <p>
+            There is, notably, no equivalent "List of aphorisms" on Wikipedia to build
+            the other half of this game from — checked directly, it doesn't exist.
+            That's not an accident of Wikipedia coverage so much as a structural fact
+            about the form: aphorisms belong to named authors and specific books, so
+            there's no single oral tradition to catalog the way there is for proverbs.
+            You'd have to assemble one from forty different collections. This game did.
+          </p>
+        </div>
+      </section>
+
+      <footer>
+        built from <a href="https://en.wikipedia.org/wiki/List_of_proverbial_phrases" target="_blank" rel="noopener">Wikipedia's List of proverbial phrases</a>
+        (public domain / CC BY-SA text) plus a hand-curated aphorism set ·
+        <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const MOUNT = location.pathname.startsWith("/aphoverb") ? "/aphoverb" : "";
+      const SITE_URL = "https://bisks.net/aphoverb/";
+      const ROUNDS = 12;
+
+      // ---------- tabs ----------
+      const tabs = document.querySelectorAll("nav.tabs button");
+      const views = { play: "view-play", catalog: "view-catalog", explainer: "view-explainer" };
+      tabs.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabs.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          Object.values(views).forEach((id) => document.getElementById(id).classList.remove("active"));
+          document.getElementById(views[btn.dataset.view]).classList.add("active");
+        });
+      });
+
+      // ---------- data ----------
+      let proverbsData, aphorismsData, overlapsData, discData;
+      async function loadData() {
+        const [p, a, o, d] = await Promise.all([
+          fetch(MOUNT + "/data/proverbs.json").then((r) => r.json()),
+          fetch(MOUNT + "/data/aphorisms.json").then((r) => r.json()),
+          fetch(MOUNT + "/data/overlaps.json").then((r) => r.json()),
+          fetch(MOUNT + "/data/discrepancies.json").then((r) => r.json()),
+        ]);
+        proverbsData = p;
+        aphorismsData = a;
+        overlapsData = o;
+        discData = d;
+      }
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function renderCatalog() {
+        const overlapEl = document.getElementById("overlapList");
+        overlapEl.innerHTML = overlapsData.pairs
+          .map(
+            (pair) => `
+          <div class="pair">
+            <div class="p1">${esc(pair.proverb)}</div>
+            <div class="arrow">↕ echoes ↕</div>
+            <div class="p2">${esc(pair.aphorism)}</div>
+            <div class="who"><b>${esc(pair.author)}</b>${pair.source ? " — " + esc(pair.source) : ""}</div>
+          </div>`
+          )
+          .join("");
+
+        const discEl = document.getElementById("discList");
+        discEl.innerHTML = discData.entries
+          .map(
+            (e) => `
+          <div class="disc-item">
+            <div class="txt">${esc(e.text)}</div>
+            <div class="who">${esc(e.author)}${e.year ? " · " + esc(e.year) : ""}</div>
+            ${e.detail ? `<div class="detail">${esc(e.detail)}</div>` : ""}
+          </div>`
+          )
+          .join("");
+      }
+
+      // ---------- quiz ----------
+      let round, score, deck, current, answered;
+
+      function shuffle(arr) {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
+
+      function buildDeck() {
+        const provPicks = shuffle(proverbsData.quizPool)
+          .slice(0, ROUNDS / 2)
+          .map((text) => ({ type: "proverb", text }));
+        const aphoPicks = shuffle(aphorismsData.entries)
+          .slice(0, ROUNDS / 2)
+          .map((e) => ({ type: "aphorism", text: e.text, author: e.author, source: e.source, note: e.note }));
+        return shuffle(provPicks.concat(aphoPicks));
+      }
+
+      function startGame() {
+        round = 0;
+        score = 0;
+        deck = buildDeck();
+        document.getElementById("playIntro").classList.add("hidden");
+        document.getElementById("playResult").classList.add("hidden");
+        document.getElementById("playGame").classList.remove("hidden");
+        nextRound();
+      }
+
+      function nextRound() {
+        if (round >= deck.length) return showResult();
+        current = deck[round];
+        answered = false;
+        round++;
+        document.getElementById("roundLabel").textContent = `round ${round} / ${deck.length}`;
+        document.getElementById("progressFill").style.width = `${((round - 1) / deck.length) * 100}%`;
+        document.getElementById("scorePill").textContent = `${score} correct`;
+        document.getElementById("qtext").textContent = current.text;
+        document.getElementById("reveal").classList.add("hidden");
+        document.getElementById("nextBtn").classList.add("hidden");
+        document.getElementById("btnProverb").disabled = false;
+        document.getElementById("btnAphorism").disabled = false;
+      }
+
+      function answer(guess) {
+        if (answered) return;
+        answered = true;
+        document.getElementById("btnProverb").disabled = true;
+        document.getElementById("btnAphorism").disabled = true;
+        const correct = guess === current.type;
+        if (correct) score++;
+
+        const reveal = document.getElementById("reveal");
+        reveal.classList.remove("hidden", "correct", "wrong");
+        reveal.classList.add(correct ? "correct" : "wrong");
+        document.getElementById("verdict").textContent = correct
+          ? "correct"
+          : `wrong — it's a ${current.type}`;
+
+        let detail;
+        if (current.type === "aphorism") {
+          detail = `<b>${esc(current.author)}</b>${current.source ? ", " + esc(current.source) : ""}.`;
+          if (current.note) detail += ` <i>(${esc(current.note)})</i>`;
+        } else {
+          detail = "Anonymous — no named author, per Wikipedia's List of proverbial phrases.";
+        }
+        document.getElementById("detail").innerHTML = detail;
+        document.getElementById("nextBtn").classList.remove("hidden");
+        document.getElementById("progressFill").style.width = `${(round / deck.length) * 100}%`;
+      }
+
+      function tier(pct) {
+        if (pct === 100) return ["border control", "Perfect split. You could file the next thousand entries yourself."];
+        if (pct >= 75) return ["philologist", "You're reading form, not just content — most of the tells landed."];
+        if (pct >= 50) return ["well-read guesser", "Better than chance, worse than a scholar. Respectable."];
+        if (pct >= 25) return ["vibes-based classifier", "You're pattern-matching on 'old-sounding,' and it's not enough."];
+        return ["human blender", "Statistically you'd have done better flipping a coin."];
+      }
+
+      function showResult() {
+        document.getElementById("playGame").classList.add("hidden");
+        document.getElementById("playResult").classList.remove("hidden");
+        const pct = Math.round((score / deck.length) * 100);
+        const [tierName, blurb] = tier(pct);
+        document.getElementById("resultScore").textContent = `${score}/${deck.length}`;
+        document.getElementById("resultTier").textContent = tierName;
+        document.getElementById("resultBlurb").textContent = blurb;
+
+        const shareText = `aphoverb: ${score}/${deck.length} (${tierName}) telling proverbs from aphorisms. ${SITE_URL}`;
+        document.getElementById("shareBluesky").href =
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      document.getElementById("startBtn").addEventListener("click", startGame);
+      document.getElementById("playAgainBtn").addEventListener("click", startGame);
+      document.getElementById("btnProverb").addEventListener("click", () => answer("proverb"));
+      document.getElementById("btnAphorism").addEventListener("click", () => answer("aphorism"));
+      document.getElementById("nextBtn").addEventListener("click", nextRound);
+
+      loadData()
+        .then(renderCatalog)
+        .catch((e) => {
+          document.getElementById("playIntro").innerHTML =
+            '<p class="section-note">Couldn\'t load the data files. Try reloading.</p>';
+          console.error(e);
+        });
+    </script>
+  </body>
+</html>
