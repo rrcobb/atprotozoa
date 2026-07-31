@@ -87,6 +87,7 @@ export async function authorPortfolio(did, handle, { onStep } = {}) {
       const rec = it.post && it.post.record;
       if (!rec || typeof rec.text !== "string" || !rec.text.trim()) continue;
       const tags = extractTags(rec);
+      const classified = classifyEmbed(it.post && it.post.embed);
       posts.push({
         text: rec.text,
         createdAt: rec.createdAt || (it.post && it.post.indexedAt) || "",
@@ -96,6 +97,9 @@ export async function authorPortfolio(did, handle, { onStep } = {}) {
         reposts: (it.post && it.post.repostCount) || 0,
         replies: (it.post && it.post.replyCount) || 0,
         tags,
+        kind: classified.kind,
+        media: classified.media || [],
+        link: classified.link || null,
       });
     }
     cursor = d.cursor;
@@ -104,6 +108,62 @@ export async function authorPortfolio(did, handle, { onStep } = {}) {
   // newest first overall
   posts.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   return posts;
+}
+
+// Classify a hydrated post embed (the feed "view", not the raw record — the
+// view resolves image/video blobs to fetchable URLs) into one of three
+// buckets: "media" (photos/video), "link" (an external card or a quote post,
+// which is structurally a link to another post), or "text" (goes through
+// topic clustering below). recordWithMedia unwraps to whichever of its two
+// halves actually has media; a quote with no media falls through to "text"
+// only if it isn't a viewRecord (e.g. blocked/deleted quoted post).
+export function classifyEmbed(embed) {
+  if (!embed) return { kind: "text" };
+  const t = embed.$type;
+  if (t === "app.bsky.embed.images#view") {
+    return {
+      kind: "media",
+      media: (embed.images || []).map((i) => ({ thumb: i.thumb, alt: i.alt || "" })),
+    };
+  }
+  if (t === "app.bsky.embed.video#view") {
+    return {
+      kind: "media",
+      media: [{ thumb: embed.thumbnail || "", alt: embed.alt || "", video: true }],
+    };
+  }
+  if (t === "app.bsky.embed.recordWithMedia#view") {
+    const inner = classifyEmbed(embed.media);
+    if (inner.kind === "media") return inner;
+    return classifyEmbed(
+      embed.record ? { $type: "app.bsky.embed.record#view", record: embed.record } : null,
+    );
+  }
+  if (t === "app.bsky.embed.external#view") {
+    const e = embed.external || {};
+    return {
+      kind: "link",
+      link: { uri: e.uri, title: e.title || e.uri, description: e.description || "", thumb: e.thumb || "" },
+    };
+  }
+  if (t === "app.bsky.embed.record#view") {
+    const r = embed.record;
+    if (r && r.$type === "app.bsky.embed.record#viewRecord") {
+      const author = r.author || {};
+      const val = r.value || {};
+      return {
+        kind: "link",
+        link: {
+          uri: `https://bsky.app/profile/${author.handle}/post/${String(r.uri || "").split("/").pop()}`,
+          title: `quoting @${author.handle || "?"}`,
+          description: typeof val.text === "string" ? val.text.slice(0, 160) : "",
+          thumb: author.avatar || "",
+        },
+      };
+    }
+    return { kind: "text" };
+  }
+  return { kind: "text" };
 }
 
 // Pull explicit hashtags: from facet features and from raw "#word" in text.

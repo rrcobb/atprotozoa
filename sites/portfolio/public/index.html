@@ -107,19 +107,70 @@
       .toc a:hover { color: var(--accent); text-decoration: none; border-color: var(--accent); }
       .toc a .n { color: var(--faint); }
 
-      /* ── topics + posts ──────────────────────────────────────────── */
-      .topic { margin: 2.25rem 0; }
-      .topic h2 {
+      /* ── boxes (media / links / topics) ──────────────────────────── */
+      .board {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.1rem; margin-bottom: 1.75rem;
+      }
+      .board.boards-top { margin-bottom: 2rem; }
+      .box {
+        border: 1px solid var(--faint); border-radius: 10px;
+        background: var(--paper); display: flex; flex-direction: column;
+        overflow: hidden; min-width: 0;
+      }
+      .box-head {
+        padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--faint); flex: none;
+      }
+      .box-head h2 {
         font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em;
-        color: var(--accent); font-weight: 600; margin: 0 0 0.15rem;
+        color: var(--accent); font-weight: 600; margin: 0;
         display: flex; align-items: baseline; gap: 0.5rem;
       }
-      .topic h2 .count { color: var(--muted); font-weight: 400; letter-spacing: 0; }
-      .topic .kindnote { color: var(--muted); font-size: 0.75rem; margin: 0 0 1rem; }
+      .box-head .count { color: var(--muted); font-weight: 400; letter-spacing: 0; }
+      .box-note { color: var(--muted); font-size: 0.72rem; margin: 0; padding: 0.4rem 0.9rem 0; }
+      .box-body {
+        overflow-y: auto; padding: 0.75rem 0.9rem; -webkit-overflow-scrolling: touch;
+      }
+      .box-media .box-body, .box-links .box-body { max-height: 440px; }
+      .topics-board .box-body { max-height: 340px; }
+
+      .media-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+        gap: 0.4rem;
+      }
+      .media-grid a.thumb {
+        position: relative; display: block; aspect-ratio: 1; border-radius: 6px;
+        overflow: hidden; background: var(--faint);
+      }
+      .media-grid a.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .media-grid a.thumb .play {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        font-size: 1.4rem; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+        background: rgba(0, 0, 0, 0.15);
+      }
+
+      .link-item {
+        display: flex; gap: 0.65rem; padding: 0.65rem 0; border-top: 1px solid var(--faint);
+      }
+      .link-item:first-child { border-top: none; padding-top: 0; }
+      .link-item img.thumb {
+        width: 56px; height: 56px; border-radius: 6px; object-fit: cover;
+        background: var(--faint); flex: none;
+      }
+      .link-item .lbody { min-width: 0; }
+      .link-item .ltitle { font-weight: 600; font-size: 0.92rem; }
+      .link-item .ltitle a { color: var(--ink); }
+      .link-item .ltitle a:hover { color: var(--accent); }
+      .link-item .ldesc {
+        color: var(--muted); font-size: 0.8rem; margin-top: 0.15rem;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      }
+      .link-item .lmeta { color: var(--muted); font-size: 0.72rem; margin-top: 0.25rem; }
 
       .post {
         padding: 0.9rem 0; border-top: 1px solid var(--faint);
       }
+      .post:first-child { border-top: none; padding-top: 0; }
       .post .text {
         font-family: var(--serif); font-size: 1.12rem; line-height: 1.5;
         white-space: pre-wrap; word-wrap: break-word;
@@ -150,7 +201,8 @@
         <h1><a href="./">portfolio</a></h1>
         <p class="lede">
           Enter a Bluesky handle. Get a searchable portfolio of that account's
-          posts, grouped by topic, newest first within each.
+          posts — media and links up top in their own scrolling boxes, everything
+          else split into scrolling topic boxes, newest first within each.
         </p>
         <form class="handle" id="form">
           <input
@@ -185,7 +237,18 @@
           />
           <nav class="toc" id="toc"></nav>
         </div>
-        <div id="topics"></div>
+        <p class="empty" id="nomatch" hidden>No posts match your search.</p>
+        <div class="board boards-top" id="boards-top">
+          <div class="box box-media" id="box-media" hidden>
+            <div class="box-head"><h2>media <span class="count" id="media-count"></span></h2></div>
+            <div class="box-body media-grid" id="media-body"></div>
+          </div>
+          <div class="box box-links" id="box-links" hidden>
+            <div class="box-head"><h2>links <span class="count" id="links-count"></span></h2></div>
+            <div class="box-body link-list" id="links-body"></div>
+          </div>
+        </div>
+        <div class="board topics-board" id="topics"></div>
       </section>
 
       <footer>
@@ -205,7 +268,6 @@
         getProfile,
         authorPortfolio,
         groupByTopic,
-        FEED_PAGES,
       } from "./lib/feed.js";
 
       const $ = (id) => document.getElementById(id);
@@ -272,13 +334,23 @@
         statusEl.classList.toggle("err", !!isErr);
       }
 
-      let ALL_POSTS = []; // flat list, for search
-      let GROUPS = []; // [{topic, kind, posts}]
+      let ALL_POSTS = []; // flat list, for search + stats
+      let MEDIA_POSTS = []; // posts with an image/video embed
+      let LINK_POSTS = []; // posts with an external card or quote embed
+      let GROUPS = []; // topic clusters of whatever's left: [{topic, kind, posts}]
       let PROFILE = null;
 
       function renderProfile() {
         const p = PROFILE;
         const link = `https://bsky.app/profile/${p.handle}`;
+        const bits = [
+          `${ALL_POSTS.length} posts shown${
+            p.postsCount ? ` of ${p.postsCount.toLocaleString()} total` : ""
+          }`,
+        ];
+        if (MEDIA_POSTS.length) bits.push(`${MEDIA_POSTS.length} media`);
+        if (LINK_POSTS.length) bits.push(`${LINK_POSTS.length} link${LINK_POSTS.length === 1 ? "" : "s"}`);
+        if (GROUPS.length) bits.push(`${GROUPS.length} topic${GROUPS.length === 1 ? "" : "s"}`);
         $("profile").innerHTML = `
           ${p.avatar ? `<img src="${esc(p.avatar)}" alt="" />` : `<img alt="" />`}
           <div class="who">
@@ -286,36 +358,99 @@
               p.displayName,
             )}</a></div>
             <div class="handle">@${esc(p.handle)}</div>
-            <div class="stats">${ALL_POSTS.length} posts shown${
-              p.postsCount ? ` of ${p.postsCount.toLocaleString()} total` : ""
-            } · ${GROUPS.length} topic${GROUPS.length === 1 ? "" : "s"}</div>
+            <div class="stats">${bits.join(" · ")}</div>
           </div>`;
       }
 
-      // Render topics, filtered by the search query. Rebuilds the TOC to match
-      // whatever survives the filter.
-      function renderTopics(q) {
-        q = (q || "").trim().toLowerCase();
-        const topicsEl = $("topics");
-        const tocEl = $("toc");
-        topicsEl.innerHTML = "";
-        tocEl.innerHTML = "";
+      // Media box: a scrollable grid of thumbnails. Filters by alt text (and
+      // post text) when searching; the box itself only hides when the account
+      // has no media at all, not when a search comes up empty.
+      function renderMedia(q) {
+        const box = $("box-media");
+        if (!MEDIA_POSTS.length) {
+          box.hidden = true;
+          return 0;
+        }
+        box.hidden = false;
+        const matches = q
+          ? MEDIA_POSTS.filter(
+              (p) =>
+                p.text.toLowerCase().includes(q) ||
+                (p.media || []).some((m) => (m.alt || "").toLowerCase().includes(q)),
+            )
+          : MEDIA_POSTS;
+        $("media-count").textContent = matches.length;
+        $("media-body").innerHTML = matches.length
+          ? matches
+              .map((p) => {
+                const m = (p.media && p.media[0]) || {};
+                return `<a class="thumb" href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(
+                  m.alt || "",
+                )}">
+                  ${m.thumb ? `<img src="${esc(m.thumb)}" alt="${esc(m.alt || "")}" loading="lazy" />` : ""}
+                  ${m.video ? `<span class="play">▶</span>` : ""}
+                </a>`;
+              })
+              .join("")
+          : `<p class="empty">no matches</p>`;
+        return matches.length;
+      }
 
-        let anyShown = 0;
+      // Links box: a scrollable list of link cards (external shares + quote
+      // posts, which structurally point at another URL).
+      function renderLinks(q) {
+        const box = $("box-links");
+        if (!LINK_POSTS.length) {
+          box.hidden = true;
+          return 0;
+        }
+        box.hidden = false;
+        const matches = q
+          ? LINK_POSTS.filter((p) => {
+              const l = p.link || {};
+              return (
+                p.text.toLowerCase().includes(q) ||
+                (l.title || "").toLowerCase().includes(q) ||
+                (l.description || "").toLowerCase().includes(q)
+              );
+            })
+          : LINK_POSTS;
+        $("links-count").textContent = matches.length;
+        $("links-body").innerHTML = matches.length
+          ? matches
+              .map((p) => {
+                const l = p.link || {};
+                return `<div class="link-item">
+                  ${l.thumb ? `<img class="thumb" src="${esc(l.thumb)}" alt="" loading="lazy" />` : ""}
+                  <div class="lbody">
+                    <div class="ltitle"><a href="${esc(l.uri || p.url)}" target="_blank" rel="noopener">${esc(
+                      l.title || l.uri || "link",
+                    )}</a></div>
+                    ${l.description ? `<div class="ldesc">${esc(l.description)}</div>` : ""}
+                    <div class="lmeta">${fmtDate(p.createdAt)} · <a href="${esc(
+                      p.url,
+                    )}" target="_blank" rel="noopener">view post ↗</a></div>
+                  </div>
+                </div>`;
+              })
+              .join("")
+          : `<p class="empty">no matches</p>`;
+        return matches.length;
+      }
+
+      // Topic boxes: everything that wasn't media or a link, clustered as
+      // before, now rendered as one scrollable box per topic. Returns the
+      // surviving boxes (for the TOC) keyed by id/name/kind/count.
+      function renderTopics(q) {
+        const topicsEl = $("topics");
+        topicsEl.innerHTML = "";
+        const boxes = [];
         for (const g of GROUPS) {
           const matches = q
             ? g.posts.filter((p) => p.text.toLowerCase().includes(q))
             : g.posts;
           if (!matches.length) continue;
-          anyShown += matches.length;
-
-          const id = slug(g.topic);
-          tocEl.insertAdjacentHTML(
-            "beforeend",
-            `<a href="#${id}">${g.kind === "hashtag" ? "#" : ""}${esc(
-              g.topic,
-            )} <span class="n">${matches.length}</span></a>`,
-          );
+          boxes.push({ id: slug(g.topic), name: g.topic, kind: g.kind, count: matches.length });
 
           const posts = matches
             .map((p) => {
@@ -339,19 +474,51 @@
               : "grouped by recurring keyword";
           topicsEl.insertAdjacentHTML(
             "beforeend",
-            `<section class="topic" id="${id}">
-              <h2>${g.kind === "hashtag" ? "#" : ""}${esc(
+            `<div class="box" id="${slug(g.topic)}">
+              <div class="box-head"><h2>${g.kind === "hashtag" ? "#" : ""}${esc(
                 g.topic,
-              )} <span class="count">${matches.length}</span></h2>
-              <p class="kindnote">${note}</p>
-              ${posts}
-            </section>`,
+              )} <span class="count">${matches.length}</span></h2></div>
+              <p class="box-note">${note}</p>
+              <div class="box-body">${posts}</div>
+            </div>`,
+          );
+        }
+        return boxes;
+      }
+
+      // Re-renders all three groups for the current search query and rebuilds
+      // the jump-to TOC to match whatever survives the filter.
+      function renderAll(q) {
+        q = (q || "").trim().toLowerCase();
+        const mediaCount = renderMedia(q);
+        const linksCount = renderLinks(q);
+        const topicBoxes = renderTopics(q);
+
+        const tocEl = $("toc");
+        tocEl.innerHTML = "";
+        if (mediaCount) {
+          tocEl.insertAdjacentHTML(
+            "beforeend",
+            `<a href="#box-media">media <span class="n">${mediaCount}</span></a>`,
+          );
+        }
+        if (linksCount) {
+          tocEl.insertAdjacentHTML(
+            "beforeend",
+            `<a href="#box-links">links <span class="n">${linksCount}</span></a>`,
+          );
+        }
+        for (const b of topicBoxes) {
+          tocEl.insertAdjacentHTML(
+            "beforeend",
+            `<a href="#${b.id}">${b.kind === "hashtag" ? "#" : ""}${esc(b.name)} <span class="n">${
+              b.count
+            }</span></a>`,
           );
         }
 
-        if (!anyShown) {
-          topicsEl.innerHTML = `<p class="empty">No posts match “${esc(q)}”.</p>`;
-        }
+        const total = mediaCount + linksCount + topicBoxes.reduce((n, b) => n + b.count, 0);
+        $("nomatch").hidden = !(q && total === 0);
       }
 
       async function build(actor) {
@@ -374,11 +541,13 @@
             return;
           }
           ALL_POSTS = posts;
-          GROUPS = groupByTopic(posts);
+          MEDIA_POSTS = posts.filter((p) => p.kind === "media");
+          LINK_POSTS = posts.filter((p) => p.kind === "link");
+          GROUPS = groupByTopic(posts.filter((p) => p.kind === "text"));
           statusEl.hidden = true;
           renderProfile();
           $("search").value = "";
-          renderTopics("");
+          renderAll("");
           resultEl.hidden = false;
           document.title = `${PROFILE.displayName} — portfolio`;
         } catch (e) {
@@ -408,7 +577,7 @@
       $("search").addEventListener("input", (e) => {
         clearTimeout(searchTimer);
         const q = e.target.value;
-        searchTimer = setTimeout(() => renderTopics(q), 120);
+        searchTimer = setTimeout(() => renderAll(q), 120);
       });
 
       $("examples").addEventListener("click", (e) => {
