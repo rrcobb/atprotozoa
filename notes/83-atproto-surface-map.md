@@ -81,10 +81,10 @@ everyone using `net.bisks.whatever`. Used 6 times here; underexploited.
 **Jetstream** — the same thing as JSON over a WebSocket, no CAR decoding.
 Touched: several sites read it live in the browser (trigrams/firehose,
 catsofatproto, koipond, chironhell, logjam, fruitninja).
-The gap named repeatedly: nothing *persists* what it sees. cloutgraph's author
-said the real version "would need to be hooked up to a jetstream for a while
-instead of crawling everyone's PDS each run." That's a cron/worker job, not a
-page.
+Nothing persists what it sees, and per `notes/88` that's the right call — the
+AppView is the database for network data. cloutgraph's author wanted a standing
+Jetstream index for his ranking; the cheaper answer is a bounded live query.
+Measured volume is in `notes/88` if the question comes up again.
 
 **PDS** — the host that stores a repo and serves its records.
 
@@ -149,6 +149,7 @@ Grouping the untouched surfaces by what kind of bot they'd make:
 - Use `listReposByCollection` to find everyone using a `net.bisks.*` lexicon —
   turns the sites' scattered records into a network.
 
-**The recurring structural gap:** no persistent index. Jetstream is read live and
-thrown away everywhere. That single missing piece is behind the dataset idea, the
-cloutgraph limitation, the "annual review" idea, and most per-load slowness.
+**On the "no persistent index" theme** that ran through an earlier draft of this
+note: dropped. See `notes/88` — network data gets re-derived from the AppView,
+not stored. What *should* grow is our own records (`net.bisks.*`), which is a
+much smaller and more distinctive dataset.

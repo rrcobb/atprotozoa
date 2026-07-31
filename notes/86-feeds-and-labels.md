@@ -52,15 +52,20 @@ Every one of these answers "which posts are interesting, and why." That's the
 feed-generator question. They're all rendered as toys because a toy is what the
 builder knows how to make.
 
-**But nothing persists.** Only two crons exist in the entire repo
-(`buildthis`, `crossbreed`), and the firehose sites read live in the browser and
-throw everything away on reload. So each of these is a *classifier without a
-memory* — which is exactly why none of them can be a feed today. A feed
-generator has to answer "what were the good posts" for a request that arrives
-later, which means something has to have been running and storing.
+**None of them persist anything** — they read live and discard on reload. An
+earlier draft of this note treated that as the blocker ("a classifier without a
+memory can't be a feed"). That was wrong; see `notes/88`.
 
-This is the same missing substrate flagged in `notes/83` and `notes/84`. It keeps
-being the answer.
+A feed generator answers a request by *evaluating a query*, and most of these
+classifiers are expressible as AppView queries: giftlinks is a search, the
+microsite scene is a link pattern over a known author set, ratioed is a ranking
+over recent posts it can fetch on demand. Statelessness isn't what's stopping
+them from being feeds — nobody has written the declaration record and skeleton
+endpoint, which is a couple hundred lines, not a data platform.
+
+The one genuine exception is unique trigrams, whose "nobody has ever posted this"
+claim no API answers. Its shipped version has always been bounded to what it can
+see; stating that bound honestly is better than building an archive to remove it.
 
 ## What it would actually take
 
@@ -72,8 +77,9 @@ being the answer.
 2. A `app.bsky.feed.generator` record in a repo, declaring the feed.
 3. An endpoint serving `app.bsky.feed.getFeedSkeleton` — returns post URIs and a
    cursor. The AppView hydrates them; you never serve post content.
-4. Something that decided which URIs. ← the actual work, and the part that needs
-   storage.
+4. Something that decides which URIs — evaluated per request against the
+   AppView. ← the actual work, and it needs no storage for most feeds
+   (`notes/88`).
 
 Notably: **no signing key, no moderation semantics, and it's reversible** — a bad
 feed is unsubscribed and forgotten. The blast radius is near zero, which makes it
@@ -128,16 +134,14 @@ about. Good first labeler for the same reason a link checker is a good first bot
 
 ## Order this suggests
 
-1. **Build the ingest+store once** (Jetstream tailer → durable storage). Nothing
-   else here works without it, and it's the thing three separate notes now point
-   at.
-2. **Ship one feed generator** off it. Unique trigrams or the microsite scene.
-   Cheap, reversible, no key.
-3. **See if the classifier is any good** with real subscribers.
-4. **Then** consider a labeler, starting with something descriptive like
+1. **Ship one feed generator**, evaluated live against the AppView. The microsite
+   scene or buildthis's own output — both are plain queries. Cheap, reversible,
+   no key, no storage.
+2. **See if anyone subscribes.** That's the cheap signal on whether the
+   classifier is any good.
+3. **Then** consider a labeler, starting with something descriptive like
    `built-by-bot` rather than semantic moderation.
 
-The pleasing part: step 1 is the same piece of infrastructure the dataset idea,
-the observer bots, and the annual-review idea all wanted. This is the fourth
-distinct direction that bottoms out at "there is no persistent index." Might be
-the actual next thing to build.
+The pleasing part is how little there is to it: a `did:web:` document, one
+record, one JSON endpoint. The repo already queries the AppView from a hundred
+sites; a feed is that same query with a different consumer.

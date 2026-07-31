@@ -68,8 +68,9 @@ was checking.
 Riffs:
 - **Link/health checker.** Fetch every site's URL, confirm it 200s and its
   scripts load. Silent unless broken.
-- **Jetstream tailer → durable index.** The missing substrate behind the dataset
-  idea, cloutgraph's limitation, and the "annual review" idea.
+- ~~**Jetstream tailer → durable index.**~~ Dropped, see `notes/88`. The
+  dataset/annual-review idea should be built off *our own* records
+  (`net.bisks.*` via `listReposByCollection`) rather than a copy of the network.
 - **PLC audit log watcher.** Free, public, nobody's watching it. Who migrated
   PDS, who rotated keys, who changed handles.
 - **Deploy/spend watcher.** The Cloudflare custom-domain cap and the Anthropic
@@ -135,7 +136,10 @@ it better" is exactly the kind of vague brief that produces churn.
 
 **Things that keep recurring across all five:**
 
-- *A persistent index* is upstream of 3, 4, and 5 doing anything interesting.
+- ~~*A persistent index* is upstream of 3, 4, and 5.~~ Dropped — see `notes/88`.
+  Observers compare against small saved state (last-seen values), not an archive
+  of the network. The digest bot queries the AppView for "today" like everything
+  else here does.
 - *Silent-unless-actionable* is the right default for everything cron-driven.
 - *Expiry by default* for anything that creates standing behavior.
 - The **feed generator** surface (untouched, per the surface map) is a
@@ -145,7 +149,7 @@ it better" is exactly the kind of vague brief that produces churn.
 **Rough sort by "cheap and safe" vs "expensive or scary":**
 - Cheapest: link/health checker, PLC watcher, digest poster.
 - Cheap but new-shaped: physics-sim builder (mostly a prompt change).
-- Real cost: image/video gen (per-call), Jetstream index (standing).
+- Real cost: image/video gen (per-call).
 - Real blast radius: cron manager, repo janitor.
 
 Nothing here is decided — this is the menu, not the order.

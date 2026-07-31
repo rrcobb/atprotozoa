@@ -60,22 +60,28 @@ shape. The sandbox rule isn't actually in the way for three of the four.
 ### 1. These things are alive
 
 A page is finished when it deploys. A feed generator has to keep answering
-`getFeedSkeleton` forever, and its answers are only good if a classifier has been
-*running and storing* the whole time.
+`getFeedSkeleton` forever — a request arrives at an arbitrary time and has to
+return post URIs.
 
-So this bot cannot emit-and-forget. Every feed it creates is a standing
-commitment. Which means:
+**But "alive" does not mean "storing."** See
+`notes/88-store-ours-rederive-theirs.md` for the governing principle: we store
+what's ours (build requests, sites, interactions) and re-derive network data on
+demand, caching where it helps. A feed generator is a *function*, evaluated per
+request against the AppView, not a view over a private archive.
 
-- It needs **something already running** to attach to — the persistent index that
-  `notes/83`, `84`, `85`, and `86` all independently arrived at. This is now the
-  fifth direction pointing at it. It's the actual prerequisite.
-- The right division of labor: **the bot writes the declaration and registers a
-  filter against a shared index; it does not stand up new infrastructure per
-  request.** One tailer, many feeds reading off it. That keeps each new feed
-  cheap (a row, a filter) rather than a new deployment.
-- Feeds need an **expiry / garbage collection** story. An unfollowed feed created
-  by a passing joke shouldn't run forever. Same "expiry by default" instinct as
-  the cron manager in `notes/84`.
+So the standing commitment is real but cheap: a Worker that answers a query. It
+costs nothing when nobody subscribes, which matters a lot when most feeds a
+tag-driven bot creates will be jokes nobody follows.
+
+- Most feeds are expressible as an AppView query (`searchPosts`, an author list,
+  a graph traversal). Those need no infrastructure beyond the skeleton endpoint.
+- A feed that *cannot* be expressed that way — one that depends on global history
+  the AppView doesn't index — is the exception, and needs a specific argument for
+  its own storage. It should not be the default assumption.
+- Feeds still need an **expiry / garbage collection** story, but for a different
+  reason than cost: stale declaration records and dead feeds cluttering the
+  ecosystem's directories. Same "expiry by default" instinct as the cron manager
+  in `notes/84`.
 
 ### 2. Who owns the thing
 
@@ -124,57 +130,62 @@ lands inside the Bluesky app rather than requiring a click out.
 
 ## Architecture sketch
 
-Not a design, just the shape implied by the above:
+Not a design, just the shape implied by the above. Note there is **no tailer and
+no index** — an earlier draft of this note had one at the center, which was
+wrong (see `notes/88`).
 
 ```
-Jetstream tailer (one, always on)
-        │  writes to
-        ▼
-  durable index  ──────────────┐
-        │                      │
-        │ filters registered   │ aggregate queries
-        ▼                      ▼
- getFeedSkeleton worker    dataset / digest / observer bots
-        │
-        │ declarations written by
-        ▼
-  the bot (harness holds creds, per reply.mjs pattern)
+  the bot  ──writes──▶  declaration records   (feed generator / lexicon / list)
+     │                  harness holds creds, per reply.mjs pattern
+     │
+     └──registers──▶  a feed definition  (query + ranking, stored as data)
+                             │
+                             ▼
+                   getFeedSkeleton worker
+                             │  evaluates on request
+                             ▼
+                      AppView queries  ──▶  post URIs  (+ short-lived cache)
+
+  our own records (build requests, sites, outcomes) live in our repo,
+  published as net.bisks.* — see notes/85, notes/88
 ```
 
-Everything except the tailer is cheap per-item. The tailer is the one standing
-cost, and it's shared by every direction in notes 83–86.
+The only persistent state is **feed definitions** (small: a query, a ranking, an
+owner) and **our own records**. Post data is re-derived per request.
 
 Open architectural questions worth chewing on before building:
 
-- **Storage shape.** D1 (SQL, queryable, good for "posts matching X since Y") vs
-  Durable Objects (already used in 15 sites) vs R2 for bulk. Feeds want cursor
-  pagination over time-ordered data, which points at SQL.
-- **Retention.** Full firehose is a lot; a filtered tail (only posts matching any
-  registered filter) is much cheaper and probably sufficient. But then a new feed
-  has no history on day one — acceptable? Probably yes.
-- **Filter expression.** A registered filter needs to be data, not code, or every
-  new feed is a deploy. Simple predicate language, or a small set of
-  parameterized filter types.
-- **Backfill.** Ties to retention — does a new feed start empty or reach back?
+- **Feed definition format.** Needs to be data, not code, or every new feed is a
+  deploy. Small predicate language, or a set of parameterized query types
+  (by-author-set, by-search-term, by-graph-hop).
+- **Caching.** A feed evaluated per request may be slow if it fans out to several
+  AppView calls. A short TTL cache (minutes) is almost certainly enough and is
+  very different from an archive.
+- **Ranking without history.** Chronological is free. "Best of today" needs
+  engagement numbers, which the AppView gives at fetch time — fine. Anything
+  needing *change over time* is the case that would justify storage; treat it as
+  the exception requiring its own argument.
+- **The unique-trigram case.** The one genuinely history-dependent idea. Its
+  honest version has always been bounded ("unique since page load"). Bounding it
+  explicitly — "unique among what I can see right now" — keeps it in the
+  re-derive model. Worth doing rather than building an archive for one feed.
 
 ## Where this leaves it
 
 Sensible order, given everything:
 
-1. **Jetstream tailer → durable index.** Fifth note in a row to land here. It's
-   the prerequisite for this bot *and* the dataset, digest, and observer ideas.
-   Build it once, deliberately.
-2. **One feed generator, hand-built**, off that index — probably unique trigrams.
-   Proves the whole path (did:web, declaration record, skeleton endpoint,
+1. **One feed generator, hand-built**, evaluated live against the AppView —
+   something expressible as a query (the microsite scene, or buildthis's own
+   output). Proves the whole path (did:web, declaration record, skeleton endpoint,
    subscribe link) before automating it.
-3. **Then the bot**, whose job is to do step 2 on request. Much easier to
+2. **Then the bot**, whose job is to do step 1 on request. Much easier to
    automate a path already walked once by hand.
-4. Lexicons in parallel — they need none of the above and there are ten sites
+3. Lexicons in parallel — they need none of the above and there are ten sites
    waiting (`notes/85`).
-5. Labeler last, gated on the key and on the classifier having proven itself as a
+4. Labeler last, gated on the key and on the classifier having proven itself as a
    feed.
 
-The reassuring thing: nothing here is exotic. It's a websocket reader, a
-database, a JSON endpoint, and some records — all things this repo already does
-in pieces. What's new is that the output keeps running, which is a discipline
-question more than a technical one.
+The reassuring thing: nothing here is exotic. It's a JSON endpoint, some records,
+and queries against an API the repo already calls from a hundred sites. What's
+new is that the output keeps *answering* — but it doesn't keep *accumulating*,
+which is the part that would have made it expensive.
