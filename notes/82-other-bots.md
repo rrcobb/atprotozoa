@@ -5,6 +5,11 @@ buildthis build." This one asks a different question: **what other taggable bots
 should exist alongside it?** Not features of buildthis — separate accounts with
 their own handle, their own trigger, their own job.
 
+> **Later reframing:** `notes/87-protocol-object-bot.md` argues several of these
+> are better understood as *outputs of one bot* that makes protocol objects
+> (feeds, labelers, lexicons, lists) than as separate bots. Read that one after
+> this; the "one bot per idea" framing below is the earlier, looser take.
+
 Same corpus (204 threads the bot was tagged in, 2026-07-24 → 07-31).
 
 ## What the corpus suggests about multi-bot
