@@ -91,8 +91,33 @@ subdomain, set `MOUNT = ""`, and point `client_id` / `client_uri` /
 `redirect_uris` at `https://<name>.bisks.net`. The path route may still serve
 the site, but login only works on the canonical host.
 
-6. **Link it from the apex gallery** (`apex/public/`) so it shows up on the
-   landing page. Add an entry; the gallery is intentionally just a list.
+6. **Write `sites/<name>/site.json`** — the site's canonical record. The apex
+   gallery is generated from these, so this is what puts it on the front page:
+
+   ```json
+   {
+     "name": "<name>",
+     "url": "https://<name>.bisks.net/",
+     "title": "<name>",
+     "blurb": "one or two sentences, lowercase, what it is and who asked",
+     "tag": "game",
+     "type": "game",
+     "by": "requester.handle",
+     "src": "bot",
+     "hidden": false
+   }
+   ```
+
+   `type` is the front page's filter vocabulary — `toy`, `game`, `tool`,
+   `joke`, `explainer`, `art`. Set `hidden: true` for infrastructure or a
+   retired site.
+
+   Then run `node audit/build-gallery.mjs --apply` to regenerate
+   `apex/public/index.html`. **Don't hand-edit the gallery's card list** — it
+   is overwritten from the manifests, and CI fails the push if the two
+   disagree. That check exists because a build once committed a gallery card
+   for a site it never created, and the dead link sat on the front page for
+   three days.
 
 ## Clusters: grouping related sites under a shared path segment
 

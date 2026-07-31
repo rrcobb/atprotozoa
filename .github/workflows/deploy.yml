@@ -20,6 +20,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Repo-wide checks that don't depend on which dirs changed. Deploys wait on
+  # this, so a broken asset path or a gallery that disagrees with the site
+  # manifests stops the push rather than shipping.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Local <script src>/<link href>/import paths that won't resolve once
+      # deployed. See notes/20-deploy.md.
+      - name: import paths
+        run: pnpm check:imports
+
+      # The gallery is generated from sites/*/site.json. This exits non-zero if
+      # apex/public/index.html has drifted from the manifests — which is how a
+      # card for a site that was never built used to reach production.
+      - name: gallery matches the site manifests
+        run: node audit/build-gallery.mjs
+
   # Work out which deployable dirs changed. Each is a top-level unit: "apex" or
   # "sites/<name>". Outputs a JSON array for the matrix.
   changes:
@@ -75,7 +100,7 @@ jobs:
           fi
 
   deploy:
-    needs: changes
+    needs: [check, changes]
     if: needs.changes.outputs.dirs != '[]'
     runs-on: ubuntu-latest
     strategy:
