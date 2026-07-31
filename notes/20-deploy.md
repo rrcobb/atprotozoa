@@ -350,6 +350,24 @@ Two things worth knowing for next time:
 
 The stopgap below is now unnecessary but harmless.
 
+### Two things that bit during the migration back to subdomains
+
+**A wildcard route shadows a Custom Domain.** Deploying `*.bisks.net/*` while
+sites were still on `custom_domain = true` took `steamtags.bisks.net` down
+(404) within seconds. Sites on an explicit `<name>.bisks.net/*` route were
+unaffected — a more specific route wins, but a Custom Domain does not. So the
+catch-all can only be live once every site holds a real hostname route. The
+apex is fine either way: `*.bisks.net` matches one level *below* the apex, so
+`bisks.net` never matches it.
+
+**A push of several commits only deploys the tip commit's dirs.** `deploy.yml`
+diffs `github.event.before` against `github.sha`, so pushing two commits
+together where the first touches sites and the second touches only notes means
+the *first* commit's sites never deploy — CI goes green having deployed
+nothing. Fourteen sites were silently left on old code this way. Either push
+site-touching commits one at a time, or redeploy the affected dirs by hand
+(`git show --stat <sha>` lists them).
+
 As a stopgap, added `workers_dev = true` to `sites/steamtags/wrangler.toml`
 (same idea as the padmoot/windmill stopgap further up, though those two were
 later migrated off custom domains entirely rather than kept on the
