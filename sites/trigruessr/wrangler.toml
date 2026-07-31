@@ -1,9 +1,23 @@
 name = "atprotozoa-trigruessr"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Pure static site — the whole game runs in the browser (it reads Bluesky's
-# public AppView + PDS anonymously, no auth, no server). index.html is at the
-# root, so there's no Worker fetch handler to redirect anything.
-assets = { directory = "./public" }
-
+# The guessing game itself is still pure static/client-side (see src's own
+# comment). The only server surface is a tiny Durable Object behind /api/net —
+# a single global "first come, first served" claim, unrelated to the game.
 routes = [{ pattern = "trigruessr.bisks.net/*", zone_name = "bisks.net" }]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "NET"
+class_name = "NetWinner"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NetWinner"]
