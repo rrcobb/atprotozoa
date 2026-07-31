@@ -39,15 +39,32 @@ const names = readdirSync(sitesDir)
   .filter((n) => existsSync(new URL(`./${n}/wrangler.toml`, sitesDir)))
   .sort();
 
+// Almost every site is at <name>.bisks.net, but not all — the games cluster
+// index is genuinely path-mounted at bisks.net/games/. Take the URL from the
+// site's own manifest when it has one rather than assuming the pattern.
+function baseUrl(name) {
+  const manifest = new URL(`./${name}/site.json`, sitesDir);
+  if (existsSync(manifest)) {
+    try {
+      const url = JSON.parse(readFileSync(manifest, "utf8")).url;
+      if (url) return url.replace(/\/$/, "");
+    } catch {
+      // fall through to the default below
+    }
+  }
+  return `https://${name}.bisks.net`;
+}
+
 const results = [];
 let cursor = 0;
 async function worker() {
   while (cursor < names.length) {
     const name = names[cursor++];
-    const root = await head(`https://${name}.bisks.net/`);
+    const base = baseUrl(name);
+    const root = await head(`${base}/`);
     const asset = firstAsset(name);
     let assetRes = null;
-    if (asset) assetRes = await head(`https://${name}.bisks.net/${asset}`);
+    if (asset) assetRes = await head(`${base}/${asset}`);
     results.push({ name, root, asset, assetRes });
   }
 }
