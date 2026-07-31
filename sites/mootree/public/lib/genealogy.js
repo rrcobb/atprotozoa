@@ -19,6 +19,18 @@
 //
 // Pattern (jget / paginate-with-cursor / batch-25) copied from
 // sites/stanquiz/public/lib/subject.js and sites/moottris/public/lib/cluster.js.
+//
+// Descendant rows (children, grandchildren, ...) are handled differently
+// from ancestor/peer rows: @ver.ooo's follow-up ask was that "your children's
+// children should have to follow you (and grandchildren have to follow your
+// children, etc)" — i.e. a younger account you follow only counts as your
+// "child" if they follow you back, and their own younger followees only
+// count as "grandchildren" if *they* follow the child back, and so on. That
+// requires actually walking the live follow graph generation by generation
+// (see buildDescendants below) rather than just age-bucketing your own
+// follow list the way ancestor rows still do.
+
+import { resolvePds } from "./oauth.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 
@@ -29,8 +41,19 @@ const PROFILE_CONCURRENCY = 6;
 // One generation = one year of account-creation gap. Bluesky's been around
 // a few years at this point, so a year-wide band gives a handful of rows
 // (parents/you/children) instead of one giant "everyone" bucket or hundreds
-// of one-account rows.
+// of one-account rows. Still used for ancestor/peer rows; descendant rows
+// use recursion depth instead (see buildDescendants).
 const GEN_MS = 365.25 * 24 * 60 * 60 * 1000;
+
+// Descendant-graph walk bounds. Each candidate costs a PDS lookup + a
+// listRecords call just to check "do they follow back", so this is capped
+// hard — a popular account's follow list could otherwise fan this out to
+// thousands of live requests.
+const DESCENT_MAX_DEPTH = 3; // children, grandchildren, great-grandchildren
+const DESCENT_BREADTH = 6; // candidates checked per node, earliest-followed first
+const DESCENT_BUDGET_START = 20; // total candidate checks across the whole walk
+const DESCENT_CONCURRENCY = 4;
+const DESCENT_PAGE_LIMIT = 100; // one page is enough to find "who they follow early on"
 
 async function jget(url) {
   const r = await fetch(url);
@@ -118,6 +141,111 @@ export async function getProfiles(dids) {
   return byDid;
 }
 
+// Single page of someone's follow records — no pagination, just enough to
+// find "who they followed early on" for a descendant candidate pool. Same
+// shape as listFollowsInOrder's `follows`, minus the truncated flag.
+async function listFollowsPage(pdsUrl, did, limit) {
+  const params = new URLSearchParams({
+    repo: did,
+    collection: "app.bsky.graph.follow",
+    limit: String(limit),
+  });
+  const d = await jget(
+    `${pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords?${params}`,
+  );
+  const records = d.records || [];
+  const out = [];
+  for (const rec of records) {
+    const subject = rec.value?.subject;
+    if (!subject) continue;
+    out.push({ did: subject, followedAt: rec.value?.createdAt || null, rkey: rkeyOf(rec.uri) });
+  }
+  out.sort((a, b) => (a.rkey < b.rkey ? -1 : a.rkey > b.rkey ? 1 : 0));
+  out.forEach((f, i) => (f.order = i));
+  return out;
+}
+
+async function mapWithConcurrency(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+// Walks the descendant graph: for each candidate (a younger account the
+// current node follows), verify they follow the node back before counting
+// them as a "child" — then recurse into *their* follows to look for
+// "grandchildren" the same way, one real edge at a time. Bounded by depth,
+// per-node breadth, and a shared fetch budget (see constants above).
+async function descendLevel(parent, candidates, depth, state) {
+  if (depth > DESCENT_MAX_DEPTH) return;
+  const pool = candidates.filter((c) => !state.visited.has(c.did)).slice(0, DESCENT_BREADTH);
+  if (!pool.length) return;
+
+  await mapWithConcurrency(pool, DESCENT_CONCURRENCY, async (c) => {
+    if (state.budget <= 0) {
+      state.exhausted = true;
+      return;
+    }
+    state.budget--;
+    state.visited.add(c.did);
+
+    let childPdsUrl, childFollows;
+    try {
+      childPdsUrl = await resolvePds(c.did);
+      if (!childPdsUrl) return;
+      childFollows = await listFollowsPage(childPdsUrl, c.did, DESCENT_PAGE_LIMIT);
+    } catch {
+      return; // unresolvable PDS/repo — can't verify, so they don't count
+    }
+
+    const followsBack = childFollows.some((f) => f.did === parent.did);
+    if (!followsBack) return; // the whole point of this pass: no back-follow, no lineage
+
+    state.out.push({
+      did: c.did,
+      handle: c.p.handle,
+      displayName: c.p.displayName || c.p.handle,
+      avatar: c.p.avatar || "",
+      createdAt: c.p.createdAt || null,
+      followOrder: c.followOrder,
+      followedAt: c.followedAt,
+      depth,
+    });
+
+    if (depth >= DESCENT_MAX_DEPTH || state.budget <= 0) return;
+
+    const nextDids = childFollows.map((f) => f.did).filter((d) => !state.visited.has(d));
+    if (!nextDids.length) return;
+    const nextProfiles = await getProfiles(nextDids);
+    const nextCandidates = [];
+    for (const f of childFollows) {
+      if (state.visited.has(f.did)) continue;
+      const p = nextProfiles.get(f.did);
+      if (!p) continue;
+      const createdMs = p.createdAt ? Date.parse(p.createdAt) : NaN;
+      if (!Number.isFinite(createdMs) || createdMs <= c.createdMs) continue; // must be younger still
+      nextCandidates.push({ did: f.did, followOrder: f.order, followedAt: f.followedAt, p, createdMs });
+    }
+    await descendLevel({ did: c.did, createdMs: c.createdMs }, nextCandidates, depth + 1, state);
+  });
+}
+
+// seedCandidates = the owner's own followees who are younger than the owner
+// (already profiled, no extra fetch needed for depth 1). Returns
+// { entries, exhausted } — entries carry `depth` (1 = child, 2 = grandchild, ...).
+async function buildDescendants(root, seedCandidates) {
+  const state = { budget: DESCENT_BUDGET_START, out: [], visited: new Set([root.did]), exhausted: false };
+  await descendLevel(root, seedCandidates, 1, state);
+  return { entries: state.out, exhausted: state.exhausted };
+}
+
 function labelFor(offset) {
   if (offset === 0) return "Your Generation";
   const abs = Math.abs(offset);
@@ -151,6 +279,9 @@ export async function buildLineage(session, onProgress) {
 
   const rowsByOffset = new Map();
   const unknownEra = [];
+  // Owner's own followees who are younger than the owner — the seed pool for
+  // the graph-verified descendant walk below, not bucketed on age alone.
+  const descentSeeds = [];
 
   for (const f of follows) {
     const p = profiles.get(f.did);
@@ -171,9 +302,33 @@ export async function buildLineage(session, onProgress) {
     }
     // Positive offset = created before you (older account -> ancestor row).
     const offset = Math.round((youCreatedMs - createdMs) / GEN_MS);
+    if (offset < 0) {
+      descentSeeds.push({ did: f.did, followOrder: f.order, followedAt: f.followedAt, p, createdMs });
+      continue;
+    }
     entry.genOffset = offset;
     if (!rowsByOffset.has(offset)) rowsByOffset.set(offset, []);
     rowsByOffset.get(offset).push(entry);
+  }
+
+  onProgress?.("checking who follows back for children/grandchildren…");
+  const { entries: descendants, exhausted: descentExhausted } = await buildDescendants(
+    { did: you.did, createdMs: youCreatedMs },
+    descentSeeds,
+  );
+  for (const d of descendants) {
+    const offset = -d.depth;
+    if (!rowsByOffset.has(offset)) rowsByOffset.set(offset, []);
+    rowsByOffset.get(offset).push({
+      did: d.did,
+      handle: d.handle,
+      displayName: d.displayName,
+      avatar: d.avatar,
+      createdAt: d.createdAt,
+      followOrder: d.followOrder,
+      followedAt: d.followedAt,
+      genOffset: offset,
+    });
   }
 
   for (const list of rowsByOffset.values()) list.sort((a, b) => a.followOrder - b.followOrder);
@@ -195,5 +350,6 @@ export async function buildLineage(session, onProgress) {
     unknownEra,
     followCount: follows.length,
     truncated,
+    descentExhausted,
   };
 }
