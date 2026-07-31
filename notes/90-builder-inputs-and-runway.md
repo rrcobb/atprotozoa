@@ -56,9 +56,36 @@ image posts.
    so this is a matter of getting bytes to it (a file path in the prompt), not a
    model limitation. Bigger change than 1–4 but not exotic.
 
-Note `MAX_BRIEF_CHARS = "600"` caps the *tag* text but ancestors are included in
-full, so adding embed text won't hit that cap. Worth re-checking the total brief
-size after 1–4 though.
+### The 600-char cap is indefensible
+
+`MAX_BRIEF_CHARS = "600"` applies to the tag text via a bare
+`tagText.trim().slice(0, max)` — a **silent mid-sentence truncation** of the
+actual instruction. Ancestors are included in full, so the cap only bites the one
+piece of text that matters most.
+
+The comment right above it argues against itself:
+
+> We include the ancestor posts IN FULL — a Bluesky post is ~300 chars, so ≤10 of
+> them is ~3000 chars (<1k tokens), trivial for the builder's context and not
+> worth truncating mid-idea. The tag post keeps a generous cap purely as a sanity
+> guard.
+
+If 3,000 chars of ancestors is "trivial," 600 chars on the instruction is not
+"generous" — it's an order of magnitude tighter than the thing it's justified
+against. And a Bluesky post maxes at 300 graphemes anyway, so **for a plain post
+the cap never fires at all**; it only fires on the long-form cases (a post from a
+PDS without the 300-grapheme client limit, or a DM/long record if that ever
+lands) — exactly the requests with the most detail to lose.
+
+The corpus has requests that read as near-600 already: antiali's `postwith`
+spec, kumavis's collaborative-drawing spec, `axeghostgame`'s multi-clause
+image-quiz brief. Losing the tail of one of those silently drops requirements
+the requester will then have to repeat.
+
+**Fix:** raise it to something that can't bite in practice (5–10k) or drop it
+and bound the *assembled* brief instead. If a guard is wanted, truncate at a
+sentence/word boundary and say so in the brief ("[truncated]") rather than
+cutting mid-word invisibly.
 
 ## Problem 2: "ran out of runway" is ~20% of outcomes
 
