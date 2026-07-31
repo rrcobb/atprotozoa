@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootree — a family tree of your bluesky moots — bisks.net</title>
+    <meta
+      name="description"
+      content="Sign in with Bluesky and grow a family tree out of the people you follow: generations from account age, birth order from the order you actually followed them in."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mootree.bisks.net/" />
+    <meta property="og:title" content="mootree — a family tree of your bluesky moots" />
+    <meta
+      property="og:description"
+      content="Sign in with Bluesky and grow a family tree out of the people you follow. Rows are generations, sorted by account age relative to yours; within a row, birth order is the order you actually followed them in."
+    />
+    <meta property="og:image" content="https://mootree.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="mootree: a family tree of avatars grouped into generation rows, branching from a trunk line." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mootree — a family tree of your bluesky moots" />
+    <meta
+      name="twitter:description"
+      content="Sign in with Bluesky and grow a family tree out of the people you follow — generations from account age, birth order from follow order."
+    />
+    <meta name="twitter:image" content="https://mootree.bisks.net/og.png" />
+
+    <!-- bisks.net house style (black on white, one readable mono, blue accent),
+         with an earthy trunk/branch green worked in for the tree metaphor. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --trunk: #8a6a4a;
+        --leaf: #2f7a4f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .glyph { color: var(--leaf); }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 64ch; margin: 0 0 1.6rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .who { font-size: 0.82rem; color: var(--muted); }
+      .who a { margin-left: 0.4rem; }
+
+      .signin {
+        display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;
+        border: 1px solid var(--faint); border-radius: 12px;
+        padding: 1rem 1.1rem; background: var(--faintbg); margin: 1rem 0 1.6rem;
+      }
+      .signin input {
+        flex: 1; min-width: 12rem; font-family: inherit; font-size: 0.92rem;
+        padding: 0.55rem 0.65rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--bg); color: var(--ink);
+      }
+      .signin input:focus { outline: none; border-color: var(--accent); }
+      button {
+        font-family: inherit; font-size: 0.85rem; font-weight: 700;
+        padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer;
+        border: 1px solid var(--ink); background: var(--ink); color: #fff;
+      }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--faint); }
+      button.ghost:hover { border-color: var(--ink); }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      .status { color: var(--muted); font-size: 0.85rem; margin: 0.6rem 0; }
+      .status.err { color: #a02020; }
+
+      .meta-row {
+        display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;
+        font-size: 0.8rem; color: var(--muted); margin: 0 0 1.6rem;
+      }
+      .meta-row .pill {
+        border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.2rem 0.7rem;
+      }
+
+      /* --- the tree itself: a vertical trunk with generation rows branching off --- */
+      .tree { position: relative; padding-left: 2.1rem; margin-top: 1.2rem; }
+      .tree::before {
+        content: ""; position: absolute; left: 1rem; top: 0.3rem; bottom: 0.3rem;
+        width: 3px; background: linear-gradient(var(--trunk), var(--trunk));
+        border-radius: 2px;
+      }
+      .row { position: relative; margin-bottom: 1.9rem; }
+      .row::before {
+        content: ""; position: absolute; left: -1.1rem; top: 1rem;
+        width: 1rem; height: 3px; background: var(--trunk);
+      }
+      .row.you-row::before { background: var(--leaf); height: 4px; top: 0.95rem; }
+      .row-label {
+        display: flex; align-items: baseline; gap: 0.5rem; margin: 0 0 0.5rem;
+      }
+      .row-label .name { font-weight: 800; font-size: 0.95rem; }
+      .row-label .count { color: var(--muted); font-size: 0.78rem; }
+      .row.you-row .row-label .name { color: var(--leaf); }
+
+      .row-cards {
+        display: flex; gap: 0.65rem; overflow-x: auto; padding: 0.3rem 0.2rem 0.7rem;
+        scrollbar-width: thin;
+      }
+      .card {
+        flex: 0 0 auto; width: 84px; text-align: center; font-size: 0.7rem;
+        color: var(--muted); cursor: default;
+      }
+      .card img, .card .fallback {
+        width: 54px; height: 54px; border-radius: 50%;
+        border: 2px solid var(--faint); background: var(--faintbg);
+        display: block; margin: 0 auto 0.35rem; object-fit: cover;
+      }
+      .card .fallback {
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; color: var(--muted); font-size: 1.1rem;
+      }
+      .card .handle {
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        color: var(--ink); font-weight: 600;
+      }
+      .card.you img, .card.you .fallback { border-color: var(--leaf); border-width: 3px; }
+      .card.you .handle { color: var(--leaf); }
+
+      .unknown {
+        border-top: 1px dashed var(--faint); padding-top: 1rem; margin-top: 0.6rem;
+      }
+      .unknown .row-label .name { color: var(--muted); }
+
+      .share {
+        margin-top: 2.2rem; display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: center;
+      }
+
+      footer { margin-top: 3rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--muted); }
+      footer a:hover { color: var(--ink); }
+
+      @media (max-width: 480px) {
+        .card { width: 68px; }
+        .card img, .card .fallback { width: 44px; height: 44px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net/">← bisks.net</a>
+      <header>
+        <h1><span class="glyph">🌳</span> mootree</h1>
+      </header>
+      <p class="sub">
+        Sign in with Bluesky and this grows a <b>family tree</b> out of the people you follow.
+        Each row is a <b>generation</b> — how long ago their account was created, relative to
+        yours. Within a row, left-to-right is <b>birth order</b> — the actual order you followed
+        them in, read straight off your repo, oldest follow first.
+      </p>
+
+      <div class="who" id="who"></div>
+      <div id="signin-box"></div>
+      <div id="status-box"></div>
+      <div id="tree-box"></div>
+
+      <footer>
+        source reads are all public atproto: your own <code>app.bsky.graph.follow</code>
+        records (for follow order) and <code>app.bsky.actor.getProfiles</code>
+        (for account-creation date). nothing is written anywhere, nothing is stored
+        server-side — the tree is rebuilt in your browser every time you load this page.
+        <br />
+        built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bsky.app/profile/ver.ooo" target="_blank" rel="noopener">@ver.ooo</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { buildLineage } from "./lib/genealogy.js";
+
+      const $ = (s) => document.querySelector(s);
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      const dateFmt = (iso) => {
+        if (!iso) return "an unknown date";
+        try {
+          return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+        } catch {
+          return "an unknown date";
+        }
+      };
+      const ordinal = (n) => {
+        const s = ["th", "st", "nd", "rd"], v = n % 100;
+        return n + (s[(v - 20) % 10] || s[v] || s[0]);
+      };
+
+      let session = null;
+
+      async function init() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          setStatus(e.message, true);
+        }
+        renderWho();
+        renderSignInBox();
+        if (session) await runTree();
+      }
+
+      function renderWho() {
+        const who = $("#who");
+        if (session) {
+          who.innerHTML = `signed in as @${esc(session.handle)} <a id="signout">sign out</a>`;
+          $("#signout").addEventListener("click", async () => {
+            await clearSession();
+            session = null;
+            $("#tree-box").innerHTML = "";
+            renderWho();
+            renderSignInBox();
+          });
+        } else {
+          who.textContent = "";
+        }
+      }
+
+      function renderSignInBox() {
+        const box = $("#signin-box");
+        if (session) {
+          box.innerHTML = "";
+          return;
+        }
+        box.innerHTML = `
+          <div class="signin">
+            <input id="signin-handle" type="text" placeholder="your bluesky handle" />
+            <button id="signin-go">grow my tree</button>
+            <span class="status err" id="signin-err"></span>
+          </div>
+        `;
+        $("#signin-go").addEventListener("click", doLogin);
+        $("#signin-handle").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") doLogin();
+        });
+      }
+
+      async function doLogin() {
+        const h = $("#signin-handle").value.trim();
+        if (!h) return;
+        $("#signin-err").textContent = "";
+        try {
+          await login(h);
+        } catch (e) {
+          $("#signin-err").textContent = e.message;
+        }
+      }
+
+      function setStatus(text, isErr) {
+        $("#status-box").innerHTML = text
+          ? `<p class="status${isErr ? " err" : ""}">${esc(text)}</p>`
+          : "";
+      }
+
+      function cardHtml(entry, isYou) {
+        const initial = esc((entry.displayName || entry.handle || "?").trim()[0] || "?").toUpperCase();
+        const img = entry.avatar
+          ? `<img src="${esc(entry.avatar)}" alt="" loading="lazy" />`
+          : `<div class="fallback">${initial}</div>`;
+        const order = Number.isInteger(entry.followOrder) ? ordinal(entry.followOrder + 1) : null;
+        const title = isYou
+          ? `@${entry.handle} — that's you, joined ${dateFmt(entry.createdAt)}`
+          : `@${entry.handle}\njoined ${dateFmt(entry.createdAt)}${order ? `\nyou followed them ${order}` : ""}`;
+        return `
+          <div class="card${isYou ? " you" : ""}" title="${esc(title)}">
+            ${img}
+            <div class="handle">${isYou ? "you" : "@" + esc(entry.handle)}</div>
+          </div>
+        `;
+      }
+
+      function rowHtml(row, youEntry) {
+        const isYouRow = row.offset === 0;
+        const members = isYouRow ? [youEntry, ...row.members] : row.members;
+        const cards = members.map((m) => cardHtml(m, isYouRow && m === youEntry)).join("");
+        return `
+          <div class="row${isYouRow ? " you-row" : ""}">
+            <div class="row-label">
+              <span class="name">${esc(row.label)}</span>
+              <span class="count">${row.members.length} account${row.members.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="row-cards">${cards}</div>
+          </div>
+        `;
+      }
+
+      function unknownHtml(entries) {
+        if (!entries.length) return "";
+        const cards = entries.map((m) => cardHtml(m, false)).join("");
+        return `
+          <div class="row unknown">
+            <div class="row-label">
+              <span class="name">Unknown Era</span>
+              <span class="count">${entries.length} account${entries.length === 1 ? "" : "s"} with no public join date</span>
+            </div>
+            <div class="row-cards">${cards}</div>
+          </div>
+        `;
+      }
+
+      function summaryText(lineage) {
+        const elders = lineage.rows.filter((r) => r.offset > 0).reduce((n, r) => n + r.members.length, 0);
+        const peers = (lineage.rows.find((r) => r.offset === 0)?.members.length || 0) + 1;
+        const younger = lineage.rows.filter((r) => r.offset < 0).reduce((n, r) => n + r.members.length, 0);
+        return `my bisks.net/mootree: ${elders} elders, ${peers} in my own generation, ${younger} younger than me 🌳`;
+      }
+
+      async function runTree() {
+        $("#tree-box").innerHTML = "";
+        try {
+          const lineage = await buildLineage(session, (msg) => setStatus(msg, false));
+          setStatus("");
+          if (!lineage.followCount) {
+            setStatus("you don't follow anyone yet — nothing to grow a tree from.", false);
+            return;
+          }
+          const youEntry = { ...lineage.you, followOrder: null };
+          const rowsHtml = lineage.rows.map((r) => rowHtml(r, youEntry)).join("");
+          const truncNote = lineage.truncated
+            ? `<p class="status">showing the first ${lineage.followCount} accounts you followed (oldest follow first) — you follow more than that.</p>`
+            : "";
+          $("#tree-box").innerHTML = `
+            <div class="meta-row">
+              <span class="pill">you joined ${dateFmt(lineage.you.createdAt)}</span>
+              <span class="pill">${lineage.rows.length} generation${lineage.rows.length === 1 ? "" : "s"}</span>
+              <span class="pill">${lineage.followCount} moots planted</span>
+            </div>
+            <div class="tree">${rowsHtml}${unknownHtml(lineage.unknownEra)}</div>
+            ${truncNote}
+            <div class="share">
+              <a id="shareLink" href="#" target="_blank" rel="noopener">🌿 share your tree on bluesky</a>
+            </div>
+          `;
+          $("#shareLink").href =
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(summaryText(lineage));
+        } catch (e) {
+          setStatus(`couldn't grow your tree: ${e.message}`, true);
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>
