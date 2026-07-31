@@ -51,20 +51,51 @@ function migrateToml(name, toml) {
   return toml.replace(routes, (m) => m + `  ${hostPattern},\n`);
 }
 
+const GUARD_NOTE = (i) =>
+  `${i}// Only strip when the prefix is actually present — on the subdomain` +
+  `${i}// requests arrive without it, and an unconditional slice would chop` +
+  `${i}// the front off short paths ("/app.js" -> "") so every asset would` +
+  `${i}// silently serve index.html.`;
+
 function migrateWorker(src) {
   // Already guarded?
   if (/startsWith\(\s*PREFIX/.test(src)) return null;
-  const slice = /(\n\s*)url\.pathname = url\.pathname\.slice\(PREFIX\.length\) \|\| "\/";/;
-  if (!slice.test(src)) return undefined; // unrecognised shape -> skip
-  return src.replace(slice, (_m, indent) =>
-    `${indent}// Only strip when the prefix is actually present — on the subdomain` +
-    `${indent}// requests arrive without it, and an unconditional slice would chop` +
-    `${indent}// the front off short paths ("/app.js" -> "") so every asset would` +
-    `${indent}// silently serve index.html.` +
-    `${indent}if (url.pathname.startsWith(PREFIX + "/")) {` +
-    `${indent}  url.pathname = url.pathname.slice(PREFIX.length) || "/";` +
-    `${indent}}`,
-  );
+
+  // Shape A: assigns straight back to url.pathname.
+  const assign = /(\n\s*)url\.pathname = url\.pathname\.slice\(PREFIX\.length\) \|\| "\/";/;
+  if (assign.test(src)) {
+    return src.replace(assign, (_m, i) =>
+      GUARD_NOTE(i) +
+      `${i}if (url.pathname.startsWith(PREFIX + "/")) {` +
+      `${i}  url.pathname = url.pathname.slice(PREFIX.length) || "/";` +
+      `${i}}`,
+    );
+  }
+
+  // Shape B: binds the stripped path to a local (`const path = ...`), which is
+  // then used to build the asset URL. Same bug, different expression.
+  const bind = /(\n\s*)(const|let|var) (\w+) = url\.pathname\.slice\(PREFIX\.length\) \|\| "\/";/;
+  if (bind.test(src)) {
+    return src.replace(bind, (_m, i, kw, name) =>
+      GUARD_NOTE(i) +
+      `${i}${kw} ${name} = url.pathname.startsWith(PREFIX + "/")` +
+      `${i}  ? url.pathname.slice(PREFIX.length) || "/"` +
+      `${i}  : url.pathname;`,
+    );
+  }
+
+  // Shape C: reassigns an existing local (`path = path.slice(...)`).
+  const reassign = /(\n\s*)(\w+) = \2\.slice\(PREFIX\.length\) \|\| "\/";/;
+  if (reassign.test(src)) {
+    return src.replace(reassign, (_m, i, name) =>
+      GUARD_NOTE(i) +
+      `${i}if (${name}.startsWith(PREFIX + "/")) {` +
+      `${i}  ${name} = ${name}.slice(PREFIX.length) || "/";` +
+      `${i}}`,
+    );
+  }
+
+  return undefined; // unrecognised shape -> skip
 }
 
 function migrateMount(txt, name) {

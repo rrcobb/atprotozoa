@@ -2,7 +2,12 @@
 // least to most fluffy. Merging two Sphynxes gets you a Devon Rex; merge
 // your way up to a Persian to win. Pure vanilla JS, no build step.
 
-const MOUNT = "/games/furmerge";
+// Served at furmerge.bisks.net/ and, for older links, bisks.net/games/furmerge/.
+// Derived rather than hardcoded so the share URL and the canvas watermark point
+// at whichever host the player is actually on.
+const MOUNT = location.pathname.startsWith("/games/furmerge")
+  ? "/games/furmerge"
+  : "";
 const SIZE = 4;
 
 // Least -> most fluffy. index 0 = value 2, index 10 = value 2048 (win tile).

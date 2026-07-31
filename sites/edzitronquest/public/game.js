@@ -1,8 +1,13 @@
 // ED Z*TRON QUEST — a tiny Infocom/zcode-style parser adventure.
 // One file: room data + parser + renderer. No build step, no framework.
 
-const MOUNT = "/games/edzitronquest";
-const SITE_URL = "https://bisks.net" + MOUNT;
+// Served at edzitronquest.bisks.net/ and, for older links, at
+// bisks.net/games/edzitronquest/. Derive both from the current location so the
+// share text links back to whichever host the player is actually on.
+const MOUNT = location.pathname.startsWith("/games/edzitronquest")
+  ? "/games/edzitronquest"
+  : "";
+const SITE_URL = location.origin + MOUNT;
 
 const state = {
   room: "studio",

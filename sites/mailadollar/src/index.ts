@@ -104,7 +104,13 @@ export default {
       url.pathname = PREFIX + "/";
       return Response.redirect(url.toString(), 308);
     }
-    path = path.slice(PREFIX.length) || "/";
+    // Only strip when the prefix is actually present — on the subdomain
+    // requests arrive without it, and an unconditional slice would chop
+    // the front off short paths ("/app.js" -> "") so every asset would
+    // silently serve index.html.
+    if (path.startsWith(PREFIX + "/")) {
+      path = path.slice(PREFIX.length) || "/";
+    }
 
     const m = path.match(/^\/s\/([^/]+)\/?$/);
     if (m) return renderShare(env, request, m[1]);

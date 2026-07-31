@@ -18,7 +18,13 @@ export default {
       url.pathname = PREFIX + "/";
       return Response.redirect(url.toString(), 308);
     }
-    const path = url.pathname.slice(PREFIX.length) || "/";
+    // Only strip when the prefix is actually present — on the subdomain
+    // requests arrive without it, and an unconditional slice would chop
+    // the front off short paths ("/app.js" -> "") so every asset would
+    // silently serve index.html.
+    const path = url.pathname.startsWith(PREFIX + "/")
+      ? url.pathname.slice(PREFIX.length) || "/"
+      : url.pathname;
     const assetUrl = new URL(request.url);
     assetUrl.pathname = path;
     return env.ASSETS.fetch(new Request(assetUrl, request));
