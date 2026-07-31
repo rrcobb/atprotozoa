@@ -446,3 +446,44 @@ repo-wide occasionally (or after any batch of path migrations, like the
 subdomain→path batches above) is still a manual/agent call, not automatic.
 Wiring it into `.github/workflows/deploy.yml` as a real CI gate would need
 someone with `.github/` write access to do it outside a buildthis run.
+
+## `steamtags.bisks.net` missing DNS record right after its subdomain migration (2026-07-31)
+
+`@7778777.online` reported "missing A record when I try to resolve DNS" for
+`steamtags.bisks.net`, ~20 minutes after the commit (`dd44787`) that moved
+`steamtags` from `bisks.net/steamtags` onto its own custom domain (requested
+in the same thread because the site grew login + persisted data). Checked
+from a build-agent sandbox with live network access: `dig steamtags.bisks.net
+A/AAAA/CNAME` all return nothing, and `curl` fails to resolve the host —
+`bisks.net` itself resolves fine in the same check, so this isn't a
+sandbox/resolver problem. An empty `dig` result like this means the
+authoritative zone has no record at all, not a resolver-side negative cache
+(a negative cache would still reflect a real NXDOMAIN from the authoritative
+zone and clear on TTL) — so the requester's "just negative cache on my side"
+guess is probably not it.
+
+This looks like the same custom-domain-provisioning failure documented
+above (padmoot/windmill/etc.), even though a `grep -rc "custom_domain =
+true" sites/*/wrangler.toml` right now only counts 37 sites — well under the
+~107 that coincided with the original cap. That repo count likely
+undercounts what's actually provisioned in Cloudflare: per the "old custom
+domain can keep resolving" note above, migrating a site's `wrangler.toml`
+*off* `custom_domain` does not deprovision the hostname in Cloudflare, so
+every site migrated path→subdomain or subdomain→path over the past several
+days may still be occupying a zone custom-domain slot that the in-repo count
+no longer reflects. Only dashboard access can confirm the real count/cap.
+
+As a stopgap, added `workers_dev = true` to `sites/steamtags/wrangler.toml`
+(same idea as the padmoot/windmill stopgap further up, though those two were
+later migrated off custom domains entirely rather than kept on the
+workers.dev fallback). This should give a reachable `atprotozoa-steamtags.
+<account-subdomain>.workers.dev` URL if the custom-domain route keeps
+failing — but it will **not** restore login: `public/client-metadata.json`
+and the OAuth redirect URIs are pinned to `https://steamtags.bisks.net/...`,
+which only resolves once the real custom domain provisions. This build agent
+has no way to discover the account's actual `workers.dev` subdomain to link
+it (same limitation noted for `windmill` above). Someone with
+dash.cloudflare.com access needs to check the `bisks.net` zone's custom
+domain count and either free up room (deprovisioning stale hostnames from
+past migrations) or confirm `steamtags.bisks.net` specifically and retry its
+provisioning.
