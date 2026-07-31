@@ -1,0 +1,54 @@
+name = "atprotozoa-derivatives"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# dave.9000ish.uk, replying in the thread where @norvid-studies.bsky.social's
+# guestbet ask landed ("is there not a betting market set up for this yet?"
+# -> guestbet.bisks.net, a live market on simcluster-guests' vote): "might as
+# well... create a site where users can bet on whether a given bisks site
+# will have a secondary market site built to trade on, and track the odds
+# in real time. also allow users to keep track of their money."
+#
+# guestbet IS exactly that: a secondary market spun off simcluster-guests.
+# So this market's question, per bisks.net site, is "will *this* one get its
+# own guestbet?" — every non-hidden site in the zoo (seeded from its site.json
+# at sites/derivatives/src/candidates.json) is a standing yes/no market with
+# pari-mutuel odds, seeded with a small flat virtual prior so a brand new
+# market doesn't show 0/0. There's no artificial clock: a market only
+# resolves the moment it's actually true, detected for real by polling the
+# public GitHub repo (api.github.com/repos/rrcobb/atprotozoa/contents/sites)
+# every SCAN_INTERVAL_MS for newly-added site directories, then checking the
+# new site's site.json blurb for a mention of an existing candidate's name
+# — same signal a human would use ("guestbet"'s own blurb literally says
+# "simcluster-guests.bisks.net"). A hit pays yes-bettors pari-mutuel and
+# retires that market to a "resolved" list; the new site itself joins the
+# board as a fresh market too, so the board keeps growing as the zoo does.
+# Most markets will probably just sit there forever, which is the joke.
+#
+# One Durable Object ("global") holds it all — same single-writer shape as
+# sites/guestbet's Market DO this was copied from, minus the repeating-round
+# clock (nothing here needs to force-resolve on a timer) and with the alarm
+# repurposed to drive the GitHub scan instead of a round close.
+#
+# No login: opaque per-browser client id in localStorage, same as guestbet.
+routes = [
+  { pattern = "derivatives.bisks.net/*", zone_name = "bisks.net" },
+  { pattern = "bisks.net/derivatives", zone_name = "bisks.net" },
+  { pattern = "bisks.net/derivatives/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "MARKET"
+class_name = "Market"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml for the
+# full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Market"]

@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>derivatives — bet on which bisks site gets a secondary market — bisks.net</title>
+    <meta
+      name="description"
+      content="A live pari-mutuel market on every bisks.net site: will this one get its own secondary/derivative market spun off it, guestbet-style? Odds move in real time as people bet play money. Markets resolve for real, no fake clock — the bot watches its own repo for the moment it actually happens."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://derivatives.bisks.net/" />
+    <meta property="og:title" content="derivatives — will your favorite bisks site get its own market?" />
+    <meta
+      property="og:description"
+      content="Real-time pari-mutuel odds on which bisks.net site gets a secondary/derivative market built for it next. Bet play money, watch the odds move, get paid when it actually happens."
+    />
+    <meta property="og:image" content="https://derivatives.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="derivatives: a live odds board for which bisks.net site spawns a secondary market next." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="derivatives — will your favorite bisks site get its own market?" />
+    <meta
+      name="twitter:description"
+      content="Real-time odds on which bisks.net site gets a secondary market built for it next. Bet play money, watch the odds move. No login needed."
+    />
+    <meta name="twitter:image" content="https://derivatives.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / guestbet / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --gold: #a6790f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 66ch; margin: 0 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+      .sub a { color: var(--accent); }
+
+      .panel {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 1.4rem;
+        background: var(--faintbg);
+      }
+      .walletRow {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem 1.4rem;
+      }
+      .balance { font-size: 1.35rem; font-weight: 800; }
+      .balance .coin { color: var(--gold); }
+      .scanInfo { font-size: 0.78rem; color: var(--muted); }
+      .scanInfo b { color: var(--ink); }
+      .stipendBtn {
+        margin-left: auto;
+        font-family: inherit; font-size: 0.8rem; font-weight: 700;
+        padding: 0.4rem 0.7rem; border: 1px solid var(--good); border-radius: 7px;
+        background: var(--bg); color: var(--good); cursor: pointer;
+      }
+      .stipendBtn:hover { background: var(--good); color: #fff; }
+      .stipendBtn:disabled { opacity: 0.4; cursor: default; }
+
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+      .status.warn { color: var(--bad); }
+
+      h2 { font-size: 1rem; font-weight: 800; margin: 1.8rem 0 0.5rem; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.9rem; }
+
+      .searchRow { display: flex; gap: 0.6rem; margin-bottom: 0.9rem; }
+      .searchRow input {
+        flex: 1; font-family: inherit; font-size: 0.85rem;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--bg); color: var(--ink);
+      }
+      .searchRow input:focus { outline: none; border-color: var(--accent); }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; flex-wrap: wrap; gap: 0.6rem 0.9rem; padding: 1rem 0;
+        border-top: 1px solid var(--faint); align-items: center;
+      }
+      .row:first-of-type { border-top: none; }
+      .body { flex: 1; min-width: 220px; }
+      .siteName { font-size: 1rem; font-weight: 700; margin: 0 0 0.2rem; overflow-wrap: break-word; }
+      .siteName a { color: var(--ink); }
+      .siteName a:hover { color: var(--accent); }
+      .blurb { color: var(--muted); font-size: 0.78rem; line-height: 1.5; margin: 0 0 0.35rem; overflow-wrap: break-word; }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.7rem; color: var(--muted);
+        font-size: 0.76rem; align-items: center;
+      }
+      .meta .yours { color: var(--accent); font-weight: 700; }
+      .meta .new { color: var(--good); font-weight: 700; }
+      .odds {
+        min-width: 4.8rem; text-align: right;
+      }
+      .odds .pct { font-weight: 800; font-size: 1.05rem; }
+      .odds small { display: block; font-weight: 400; color: var(--muted); font-size: 0.68rem; }
+      .betForm { display: flex; align-items: center; gap: 0.35rem; }
+      .betForm input {
+        width: 4.2rem; font-family: inherit; font-size: 0.85rem;
+        padding: 0.4rem 0.5rem; border: 1px solid var(--faint); border-radius: 7px;
+        background: var(--bg); color: var(--ink);
+      }
+      .betForm input:focus { outline: none; border-color: var(--accent); }
+      .betForm button {
+        font-family: inherit; font-size: 0.78rem; font-weight: 700; padding: 0.42rem 0.6rem;
+        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        border-radius: 7px; cursor: pointer; white-space: nowrap;
+      }
+      .betForm button.yes { border-color: var(--good); color: var(--good); }
+      .betForm button.yes:hover { background: var(--good); color: #fff; }
+      .betForm button.no { border-color: var(--bad); color: var(--bad); }
+      .betForm button.no:hover { background: var(--bad); color: #fff; }
+      .betForm button:disabled { opacity: 0.45; cursor: default; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+
+      table.history { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      table.history th, table.history td {
+        text-align: left; padding: 0.5rem 0.5rem; border-top: 1px solid var(--faint);
+        overflow-wrap: break-word;
+      }
+      table.history th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.history td.num { text-align: right; }
+
+      .leaderboard { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+      .leaderboard li {
+        display: flex; justify-content: space-between; padding: 0.4rem 0;
+        border-top: 1px solid var(--faint);
+      }
+      .leaderboard li:first-of-type { border-top: none; }
+      .leaderboard .id { color: var(--muted); }
+      .leaderboard .bal { font-weight: 700; }
+
+      .share { margin: 2rem 0 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>derivatives <span class="slash">/ will this site get its own market?</span></h1>
+        <p class="sub">
+          <b><a href="https://guestbet.bisks.net" target="_blank" rel="noopener">guestbet.bisks.net</a></b>
+          is a secondary market spun off <a href="https://simcluster-guests.bisks.net" target="_blank" rel="noopener">simcluster-guests</a>.
+          So: which bisks.net site gets one <i>next</i>? Every site below is a
+          standing yes/no market — bet play money, watch pari-mutuel odds
+          move live. There's no fake countdown: a market only resolves the
+          moment it's actually true, which this bot checks for by watching
+          its own repo for a newly-built site whose blurb name-drops an
+          existing candidate. Most of these will probably just sit here
+          collecting bets forever. That's the joke, and it's an honest one.
+        </p>
+      </header>
+
+      <div class="panel">
+        <div class="walletRow">
+          <div>
+            <div class="balance"><span class="coin">◆</span> <span id="balanceVal">—</span> coins</div>
+          </div>
+          <div class="scanInfo"><b id="totalMarkets">—</b> markets tracked · next scan in <b id="nextScan">—</b></div>
+          <button class="stipendBtn" id="stipendBtn" style="display:none">spot me 100</button>
+        </div>
+      </div>
+
+      <div class="status" id="statusText">loading the board…</div>
+
+      <div class="searchRow">
+        <input id="searchInput" type="search" placeholder="filter by site name…" autocomplete="off" />
+      </div>
+
+      <div class="empty" id="empty" style="display:none">no markets match that search.</div>
+
+      <ol class="board" id="board"></ol>
+
+      <h2>resolved — it actually happened</h2>
+      <p class="hint" id="resolvedHint">nothing's resolved yet — every market below is still open.</p>
+      <table class="history" id="resolvedTable" style="display:none">
+        <thead>
+          <tr><th>site</th><th>derivative</th><th class="num">pool</th><th class="num">paid out</th></tr>
+        </thead>
+        <tbody id="resolvedBody"></tbody>
+      </table>
+
+      <h2>top bankrolls</h2>
+      <ol class="leaderboard" id="leaderboard"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=derivatives.bisks.net" target="_blank" rel="noopener">share this market</a>
+        <a href="https://bisks.net" target="_blank" rel="noopener">the whole zoo →</a>
+      </div>
+
+      <footer>
+        Play money only, starts from a fresh 1000 coins per browser —
+        clearing localStorage gets you a new bankroll, so treat the
+        leaderboard as fun, not proof. Odds blend real bets with a small
+        flat prior (no live signal to seed each site's odds with, unlike a
+        vote count) so a brand new market doesn't show 0/0. Resolution is
+        real: an alarm polls the public repo every 20 minutes for newly
+        built sites and checks whether one name-drops an existing candidate
+        — same signal a human skimming the gallery would use. Light
+        per-client rate limiting keeps betting from being spammed, nothing
+        fancier.
+        asked for by <a href="https://bsky.app/profile/dave.9000ish.uk">@dave.9000ish.uk</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const els = {
+        balanceVal: document.getElementById("balanceVal"),
+        totalMarkets: document.getElementById("totalMarkets"),
+        nextScan: document.getElementById("nextScan"),
+        stipendBtn: document.getElementById("stipendBtn"),
+        statusText: document.getElementById("statusText"),
+        searchInput: document.getElementById("searchInput"),
+        empty: document.getElementById("empty"),
+        board: document.getElementById("board"),
+        resolvedHint: document.getElementById("resolvedHint"),
+        resolvedTable: document.getElementById("resolvedTable"),
+        resolvedBody: document.getElementById("resolvedBody"),
+        leaderboard: document.getElementById("leaderboard"),
+        shareLink: document.getElementById("shareLink"),
+      };
+
+      const CLIENT_KEY = "derivatives-client-id";
+      function clientId() {
+        try {
+          let id = localStorage.getItem(CLIENT_KEY);
+          if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(CLIENT_KEY, id);
+          }
+          return id;
+        } catch {
+          return "anon-" + Math.random().toString(36).slice(2);
+        }
+      }
+      const CID = clientId();
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function fmtClock(ms) {
+        if (ms <= 0) return "any moment…";
+        const s = Math.floor(ms / 1000);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        if (h > 0) return `${h}h ${m}m`;
+        const sec = s % 60;
+        return `${m}m ${sec}s`;
+      }
+
+      let nextScanAt = 0;
+      function tickClock() {
+        if (nextScanAt) els.nextScan.textContent = fmtClock(nextScanAt - Date.now());
+      }
+      setInterval(tickClock, 1000);
+
+      async function api(path, opts) {
+        const r = await fetch(path, {
+          ...opts,
+          headers: { "content-type": "application/json", "x-client-id": CID, ...(opts && opts.headers) },
+        });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error || "request failed");
+        return out;
+      }
+
+      let lastData = null;
+      let filter = "";
+
+      function rowHTML(m) {
+        const yesLine = m.yourYes ? `<span class="yours">you: ${m.yourYes} on yes</span>` : "";
+        const noLine = m.yourNo ? `<span class="yours">you: ${m.yourNo} on no</span>` : "";
+        const isNew = Date.now() - m.addedAt < 1000 * 60 * 60 * 48;
+        return `
+          <li class="row">
+            <div class="body">
+              <p class="siteName"><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a></p>
+              <p class="blurb">${esc(m.blurb)}</p>
+              <div class="meta">
+                <span>${m.totalRealPool} coins wagered</span>
+                ${isNew ? '<span class="new">new</span>' : ""}
+                ${yesLine}${noLine}
+              </div>
+            </div>
+            <div class="odds"><span class="pct">${m.impliedYesPct}%</span><small>chance of "yes"</small></div>
+            <form class="betForm" data-site="${esc(m.site)}">
+              <input type="number" min="10" step="10" placeholder="amt" required />
+              <button type="submit" class="yes" data-side="yes">yes</button>
+              <button type="submit" class="no" data-side="no">no</button>
+            </form>
+          </li>`;
+      }
+
+      function attachFormHandlers() {
+        els.board.querySelectorAll(".betForm").forEach((form) => {
+          form.querySelectorAll("button").forEach((btn) => {
+            btn.addEventListener("click", async (ev) => {
+              ev.preventDefault();
+              const input = form.querySelector("input");
+              const amount = parseInt(input.value, 10);
+              if (!amount || amount < 10) return;
+              form.querySelectorAll("button").forEach((b) => (b.disabled = true));
+              try {
+                const out = await api("/api/bet", {
+                  method: "POST",
+                  body: JSON.stringify({ site: form.dataset.site, side: btn.dataset.side, amount }),
+                });
+                input.value = "";
+                render(out);
+              } catch (e) {
+                els.statusText.textContent = e.message;
+                els.statusText.classList.add("warn");
+              } finally {
+                form.querySelectorAll("button").forEach((b) => (b.disabled = false));
+              }
+            });
+          });
+        });
+      }
+
+      function renderBoard() {
+        if (!lastData) return;
+        const q = filter.trim().toLowerCase();
+        const visible = q
+          ? lastData.markets.filter(
+              (m) => m.site.toLowerCase().includes(q) || m.title.toLowerCase().includes(q) || m.blurb.toLowerCase().includes(q),
+            )
+          : lastData.markets;
+
+        if (!visible.length) {
+          els.empty.style.display = "";
+          els.board.innerHTML = "";
+        } else {
+          els.empty.style.display = "none";
+          els.board.innerHTML = visible.map(rowHTML).join("");
+          attachFormHandlers();
+        }
+      }
+
+      function render(data) {
+        lastData = data;
+        nextScanAt = Date.now() + data.nextScanInMs;
+        els.balanceVal.textContent = data.balance;
+        els.totalMarkets.textContent = data.totalMarkets;
+        tickClock();
+
+        els.stipendBtn.style.display = data.canClaimStipend ? "" : "none";
+        els.statusText.textContent = `${data.markets.length} open market${data.markets.length === 1 ? "" : "s"} · ${data.resolved.length} resolved`;
+        els.statusText.classList.remove("warn");
+
+        renderBoard();
+
+        if (data.resolved.length) {
+          els.resolvedHint.style.display = "none";
+          els.resolvedTable.style.display = "";
+          els.resolvedBody.innerHTML = data.resolved
+            .map((m) => {
+              const r = m.resolved;
+              return `<tr>
+                <td><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a></td>
+                <td><a href="${esc(r.derivativeUrl)}" target="_blank" rel="noopener">${esc(r.derivativeTitle)}</a></td>
+                <td class="num">${r.totalRealPool}</td>
+                <td class="num">${r.paidOut}</td>
+              </tr>`;
+            })
+            .join("");
+        } else {
+          els.resolvedHint.style.display = "";
+          els.resolvedTable.style.display = "none";
+        }
+
+        els.leaderboard.innerHTML = data.leaderboard
+          .map((l) => `<li><span class="id">${esc(l.id)}…</span><span class="bal">◆ ${l.balance}</span></li>`)
+          .join("") || `<li><span class="id">nobody's placed a bet yet</span></li>`;
+
+        const top = data.markets[0];
+        const shareText = top
+          ? `right now on derivatives, "${top.title}" has a ${top.impliedYesPct}% chance of getting its own secondary market spun off it. bet play money and watch the odds move at derivatives.bisks.net`
+          : "a live betting market on which bisks.net site gets a secondary market next — derivatives.bisks.net";
+        els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      els.searchInput.addEventListener("input", (ev) => {
+        filter = ev.target.value;
+        renderBoard();
+      });
+
+      els.stipendBtn.addEventListener("click", async () => {
+        els.stipendBtn.disabled = true;
+        try {
+          const out = await api("/api/stipend", { method: "POST" });
+          render(out);
+        } catch (e) {
+          els.statusText.textContent = e.message;
+          els.statusText.classList.add("warn");
+        } finally {
+          els.stipendBtn.disabled = false;
+        }
+      });
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const data = await api("/api/market");
+          failCount = 0;
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            els.statusText.textContent = "having trouble reaching the market…";
+            els.statusText.classList.add("warn");
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 15000);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
