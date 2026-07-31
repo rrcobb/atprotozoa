@@ -74,10 +74,10 @@ jobs:
           all_dirs() {
             for d in */; do
               [ "$d" = "sites/" ] && continue
-              [ -f "${d}wrangler.toml" ] && echo "${d%/}"
+              if [ -f "${d}wrangler.toml" ]; then echo "${d%/}"; fi
             done
             for d in sites/*/; do
-              [ -f "${d}wrangler.toml" ] && echo "${d%/}"
+              if [ -f "${d}wrangler.toml" ]; then echo "${d%/}"; fi
             done
           }
 
@@ -89,7 +89,10 @@ jobs:
             sed -n -E -e 's#^(sites/[^/]+)/.*#\1#p' -e t -e 's#^([^/]+)/.*#\1#p' \
               | sort -u \
               | while IFS= read -r d; do
-                  [ -f "$d/wrangler.toml" ] && echo "$d"
+                  # `&& echo` alone makes the loop's exit status that of the
+                  # LAST test, so a push touching only notes/ or .github/ exits
+                  # non-zero under `set -e` and fails the job. Always end true.
+                  if [ -f "$d/wrangler.toml" ]; then echo "$d"; fi
                 done
           }
 
