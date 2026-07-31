@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>beefcheck — are they beefing?</title>
+<meta name="description" content="Enter two Bluesky handles. beefcheck reads their reply and like exchange, mutual-follow status, and reply tone, and flags engagement that was steady and then suddenly stopped." />
+<meta property="og:title" content="beefcheck — are they beefing?" />
+<meta property="og:description" content="Enter two Bluesky handles. beefcheck reads their reply and like exchange, mutual-follow status, and reply tone, and flags engagement that was steady and then suddenly stopped." />
+<meta property="og:url" content="https://beefcheck.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://beefcheck.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="beefcheck: a scoreboard card reading 'beef score' with two avatars and a verdict." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="beefcheck — are they beefing?" />
+<meta name="twitter:description" content="Enter two Bluesky handles. beefcheck reads their reply and like exchange, mutual-follow status, and reply tone, and flags engagement that was steady and then suddenly stopped." />
+<meta name="twitter:image" content="https://beefcheck.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0908;
+    --bg2: #171110;
+    --fg: #f5efe9;
+    --dim: #a5938a;
+    --accent: #ff6b3d;
+    --accent2: #ffb84c;
+    --good: #6ee7a8;
+    --bad: #ff5c5c;
+    --card: #17110f;
+    --border: #2c2019;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a1608 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a0f0f 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .handles { display: flex; flex-direction: column; gap: 0.5rem; }
+  .handle-row { display: flex; gap: 0.5rem; align-items: center; }
+  .handle-row input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  .handle-row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .handle-row .vs { color: var(--dim); font-size: 0.78rem; width: 1.4rem; text-align: center; flex-shrink: 0; }
+  .handle-row .rm {
+    flex-shrink: 0; background: transparent; border: 1px solid var(--border); color: var(--dim);
+    border-radius: 8px; width: 2.2rem; height: 2.2rem; font: inherit; cursor: pointer;
+  }
+  .handle-row .rm:hover { border-color: var(--bad); color: var(--bad); }
+  .row-actions { display: flex; gap: 0.5rem; align-items: center; margin: 0.15rem 0 0.4rem; }
+  #addHandle {
+    background: transparent; border: 1px dashed var(--border); color: var(--dim); border-radius: 8px;
+    padding: 0.5rem 0.8rem; font: inherit; font-size: 0.8rem; cursor: pointer;
+  }
+  #addHandle:hover { border-color: var(--accent); color: var(--accent); }
+  button[type="submit"] {
+    background: linear-gradient(90deg, var(--accent), var(--bad));
+    color: #1a0a04; border: none; border-radius: 8px; padding: 0.8rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer;
+  }
+  button[type="submit"]:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  #results { display: none; flex-direction: column; gap: 1.4rem; }
+  #results.show { display: flex; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .pair-who { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-bottom: 1.2rem; }
+  .pair-who .p { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; width: 6.5rem; }
+  .pair-who img { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .pair-who .handle { font-size: 0.78rem; font-weight: 700; word-break: break-word; }
+  .pair-who .handle a { color: var(--fg); text-decoration: none; }
+  .pair-who .vs-mark { color: var(--accent); font-size: 1.1rem; font-weight: 800; }
+
+  .verdict-box { text-align: center; border: 1px dashed var(--border); border-radius: 12px; padding: 1.1rem 1rem; margin-bottom: 1.4rem; }
+  .score-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 0.3rem; }
+  .score { font-size: 2.6rem; font-weight: 800; color: var(--accent); line-height: 1; }
+  .score.good { color: var(--good); }
+  .verdict-text { margin-top: 0.6rem; font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .verdict-blurb { color: var(--dim); font-size: 0.85rem; font-style: italic; margin-top: 0.3rem; }
+
+  .evidence { display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1rem; }
+  .ev { border-left: 3px solid var(--border); padding-left: 0.85rem; font-size: 0.87rem; line-height: 1.5; }
+  .ev.hot { border-left-color: var(--bad); }
+  .ev-head { font-weight: 700; }
+  .ev-detail { color: var(--dim); }
+
+  .totals { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1rem; }
+  .stat { flex: 1; min-width: 100px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; text-align: center; }
+  .stat .n { font-size: 1.15rem; font-weight: 800; color: var(--accent2); }
+  .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .mini-list { display: flex; flex-direction: column; gap: 0.7rem; }
+  .mini-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem 1rem; display: flex; align-items: center; gap: 0.8rem; }
+  .mini-score { font-size: 1.4rem; font-weight: 800; color: var(--accent); width: 3rem; text-align: center; flex-shrink: 0; }
+  .mini-score.good { color: var(--good); }
+  .mini-body { flex: 1; min-width: 0; }
+  .mini-title { font-weight: 700; font-size: 0.9rem; }
+  .mini-blurb { color: var(--dim); font-size: 0.78rem; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--bad)); color: #1a0a04; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--bad); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>beefcheck</h1>
+    <p class="tag">
+      Paste two (or more) Bluesky handles. beefcheck reads their reply and like
+      exchange, checks whether they're still mutuals, runs a word-list sentiment
+      pass over what they've said to each other, and flags active two-way
+      engagement that <b>suddenly stopped one day</b>. Real signals pulled from
+      the public record, not vibes.
+    </p>
+    <p class="credit">
+      built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>,
+      who asked for actual heuristics — sentiment, reply/like counts, engagement
+      that suddenly ends. <em>no LLM behind this, just public replies, likes, and follow status.</em>
+    </p>
+
+    <form id="f">
+      <div class="handles" id="handles">
+        <div class="handle-row">
+          <input type="text" class="h-input" placeholder="e.g. alice.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        </div>
+        <div class="handle-row">
+          <input type="text" class="h-input" placeholder="e.g. bob.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button type="button" class="rm" title="remove" style="visibility:hidden;">✕</button>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button type="button" id="addHandle">+ add another handle</button>
+      </div>
+      <button id="go" type="submit">check for beef</button>
+    </form>
+    <p class="hint">works on mutuals, exes, whole friend groups. up to 4 handles at once — more than 2 checks every pair.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="results"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/analysis.js"></script>
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_HANDLES = 4;
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  handles: document.getElementById("handles"),
+  addHandle: document.getElementById("addHandle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+};
+
+function attachRow(row) {
+  const input = row.querySelector(".h-input");
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
+  const rm = row.querySelector(".rm");
+  if (rm) rm.addEventListener("click", () => { row.remove(); refreshRemoveButtons(); });
+}
+
+function refreshRemoveButtons() {
+  const rows = [...els.handles.querySelectorAll(".handle-row")];
+  rows.forEach((row, i) => {
+    const rm = row.querySelector(".rm");
+    if (rm) rm.style.visibility = rows.length > 2 ? "visible" : "hidden";
+  });
+  els.addHandle.style.display = rows.length >= MAX_HANDLES ? "none" : "";
+}
+
+[...els.handles.querySelectorAll(".handle-row")].forEach(attachRow);
+refreshRemoveButtons();
+
+els.addHandle.addEventListener("click", () => {
+  const rows = els.handles.querySelectorAll(".handle-row");
+  if (rows.length >= MAX_HANDLES) return;
+  const row = document.createElement("div");
+  row.className = "handle-row";
+  row.innerHTML = `<input type="text" class="h-input" placeholder="another handle..." autocomplete="off" autocapitalize="off" spellcheck="false" /><button type="button" class="rm" title="remove">✕</button>`;
+  els.handles.appendChild(row);
+  attachRow(row);
+  refreshRemoveButtons();
+});
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  // URLSearchParams(obj) comma-joins array values into one param, but XRPC
+  // wants an array param repeated (?others=a&others=b) — getRelationships
+  // rejects the comma-joined form outright once there's more than one
+  // "other", so array values need their own key per element.
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) {
+    if (Array.isArray(v)) v.forEach((item) => usp.append(k, item));
+    else usp.append(k, v);
+  }
+  const qs = usp.toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function likesApi(repoDid, targetDid) {
+  try {
+    const res = await fetch(`/api/likes?repo=${encodeURIComponent(repoDid)}&target=${encodeURIComponent(targetDid)}`);
+    if (!res.ok) return { matches: [], scanned: 0 };
+    return res.json();
+  } catch (_) {
+    return { matches: [], scanned: 0 };
+  }
+}
+
+// Up to 2 pages (~200 items) of replies-inclusive feed per account — enough
+// to see a real pattern without one report turning into a dozen requests.
+async function fetchReplyFeed(did) {
+  const out = [];
+  let cursor;
+  for (let page = 0; page < 2; page++) {
+    const params = { actor: did, limit: "100", filter: "posts_with_replies" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    for (const item of feed.feed || []) {
+      if (item.reason) continue; // skip reposts
+      const parent = item.reply && item.reply.parent;
+      const parentAuthor = parent && parent.author && parent.author.did;
+      if (!parentAuthor) continue; // not a reply, or parent unhydrated (deleted/blocked)
+      const text = item.post && item.post.record && item.post.record.text;
+      const createdAt = (item.post.record && item.post.record.createdAt) || item.post.indexedAt;
+      const rkey = (item.post.uri || "").split("/").pop();
+      out.push({ toDid: parentAuthor, text: text || "", createdAt, postUri: item.post.uri, postUrl: null, rkey });
+    }
+    cursor = feed.cursor;
+    if (!cursor || !(feed.feed || []).length) break;
+  }
+  return out;
+}
+
+async function resolveOne(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) throw new Error("empty handle");
+  const did = handle.startsWith("did:") ? handle : (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+  return { did, handle: profile.handle || handle, displayName: profile.displayName || "", avatar: profile.avatar || "" };
+}
+
+function shareUrlFor(a, b) {
+  return "https://beefcheck.bisks.net/s/" + encodeURIComponent(a) + "+" + encodeURIComponent(b);
+}
+
+function buildShareText(pairResult) {
+  const { a, b } = pairResult;
+  const url = shareUrlFor(a.handle, b.handle);
+  const headline = pairResult.result.noContact
+    ? `checked @${a.handle} & @${b.handle}: no interaction history found at all.`
+    : `checked @${a.handle} & @${b.handle}: beef score ${pairResult.result.score}/100 — ${pairResult.result.verdict.label}.`;
+  let text = `${headline}\n\n${url}`;
+  if (text.length > 300) text = `${headline}\n${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines) { ctx.fillText("…", x, cy); return cy; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(canvas, pairResult) {
+  const { a, b, result } = pairResult;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const [avA, avB] = await Promise.all([loadImg(a.avatar), loadImg(b.avatar)]);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0c0908";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#3a1608");
+  glow.addColorStop(1, "rgba(12,9,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff6b3d";
+  ctx.font = `800 44px ${mono}`;
+  ctx.fillText("beefcheck", 56, 84);
+
+  const drawAvatar = (img, cx, cy, r) => {
+    if (!img) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+  };
+  drawAvatar(avA, 230, 150, 46);
+  drawAvatar(avB, W - 230, 150, 46);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#f5efe9";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("@" + a.handle, 230, 224);
+  ctx.fillText("@" + b.handle, W - 230, 224);
+  ctx.fillStyle = "#a5938a";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText("vs", W / 2, 158);
+
+  ctx.strokeStyle = "#2c2019";
+  ctx.lineWidth = 1.5;
+  const cardX = 56, cardY = 260, cardW = W - 112, cardH = H - 320;
+  ctx.fillStyle = "#17110f";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#a5938a";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("BEEF SCORE", W / 2, cardY + 46);
+
+  ctx.fillStyle = result.noContact ? "#a5938a" : result.score >= 41 ? "#ff5c5c" : result.score >= 16 ? "#ffb84c" : "#6ee7a8";
+  ctx.font = `800 92px ${mono}`;
+  ctx.fillText(result.noContact ? "—" : String(result.score), W / 2, cardY + 148);
+
+  ctx.fillStyle = "#ff6b3d";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText((result.verdict.label || "").toUpperCase(), W / 2, cardY + 186);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f5efe9";
+  ctx.font = `italic 19px ${mono}`;
+  wrapCanvasText(ctx, result.verdict.blurb, cardX + 48, cardY + 224, cardW - 96, 26, 2);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff5c5c";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("beefcheck.bisks.net", 56, H - 40);
+}
+
+function statBlock(n, label) {
+  return `<div class="stat"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+}
+
+function renderEvidence(ev) {
+  const cls = ev.weight >= 25 ? " hot" : "";
+  return `<div class="ev${cls}"><div class="ev-head">${ev.icon} ${esc(ev.label)}</div><div class="ev-detail">${esc(ev.detail)}</div></div>`;
+}
+
+function renderPairCard(pairResult) {
+  const { a, b, result } = pairResult;
+  const scoreClass = !result.noContact && result.score <= 15 ? " good" : "";
+  const avatarA = a.avatar ? `<img src="${a.avatar}" alt="" />` : `<img src="" alt="" style="visibility:hidden;" />`;
+  const avatarB = b.avatar ? `<img src="${b.avatar}" alt="" />` : `<img src="" alt="" style="visibility:hidden;" />`;
+
+  const totalsHtml = result.noContact
+    ? ""
+    : `<div class="totals">
+        ${statBlock(result.totals.repliesAtoB + result.totals.repliesBtoA, "replies exchanged")}
+        ${statBlock(result.totals.likesAtoB + result.totals.likesBtoA, "likes exchanged")}
+        ${statBlock(result.mutuals ? "yes" : "no", "still mutuals")}
+      </div>`;
+
+  const evidenceHtml = result.evidence.length
+    ? `<div class="evidence">${result.evidence.map(renderEvidence).join("")}</div>`
+    : "";
+
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `
+    <div class="pair-who">
+      <div class="p">${avatarA}<div class="handle"><a href="https://bsky.app/profile/${a.handle}" target="_blank" rel="noopener">@${esc(a.handle)}</a></div></div>
+      <div class="vs-mark">VS</div>
+      <div class="p">${avatarB}<div class="handle"><a href="https://bsky.app/profile/${b.handle}" target="_blank" rel="noopener">@${esc(b.handle)}</a></div></div>
+    </div>
+    <div class="verdict-box">
+      <div class="score-label">beef score</div>
+      <div class="score${scoreClass}">${result.noContact ? "—" : result.score}</div>
+      <div class="verdict-text">${esc((result.verdict.label || "").toUpperCase())}</div>
+      <div class="verdict-blurb">${esc(result.verdict.blurb)}</div>
+    </div>
+    ${totalsHtml}
+    ${evidenceHtml}
+    <div class="share">
+      <canvas class="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button class="shareNative" type="button" style="display:none;border:none;">📤 share card</button>
+        <a class="shareBluesky" target="_blank" rel="noopener">🦋 share the score</a>
+        <button class="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+  `;
+
+  const canvas = div.querySelector(".shareCanvas");
+  const shareBluesky = div.querySelector(".shareBluesky");
+  const shareDownload = div.querySelector(".shareDownload");
+  const shareNative = div.querySelector(".shareNative");
+  const shareText = buildShareText(pairResult);
+  shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(canvas, pairResult);
+
+  shareDownload.addEventListener("click", () => {
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a2 = document.createElement("a");
+      a2.href = URL.createObjectURL(blob);
+      a2.download = `beefcheck-${a.handle}-${b.handle}.png`.replace(/[^a-z0-9.-]/gi, "_");
+      a2.click();
+      URL.revokeObjectURL(a2.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    shareNative.style.display = "";
+    shareNative.addEventListener("click", () => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "beefcheck.png", { type: "image/png" });
+        try { await navigator.share({ files: [file], text: shareText, title: "beefcheck" }); } catch (_) {}
+      }, "image/png");
+    });
+  }
+
+  return div;
+}
+
+function renderMiniCard(pairResult) {
+  const { a, b, result } = pairResult;
+  const scoreClass = !result.noContact && result.score <= 15 ? " good" : "";
+  const div = document.createElement("div");
+  div.className = "mini-card";
+  div.innerHTML = `
+    <div class="mini-score${scoreClass}">${result.noContact ? "—" : result.score}</div>
+    <div class="mini-body">
+      <div class="mini-title">@${esc(a.handle)} vs @${esc(b.handle)} — ${esc(result.verdict.label)}</div>
+      <div class="mini-blurb">${esc(result.verdict.blurb)}</div>
+    </div>
+  `;
+  return div;
+}
+
+async function run() {
+  const rawInputs = [...els.handles.querySelectorAll(".h-input")].map((i) => i.value);
+  const raw = rawInputs.filter((h) => cleanHandle(h));
+  if (raw.length < 2) { setStatus("enter at least two handles.", true); return; }
+  if (new Set(raw.map((h) => cleanHandle(h).toLowerCase())).size < raw.length) {
+    setStatus("those handles look like duplicates.", true);
+    return;
+  }
+
+  els.go.disabled = true;
+  els.results.classList.remove("show");
+  els.results.innerHTML = "";
+  setStatus("resolving handles...");
+
+  try {
+    const people = await Promise.all(raw.map(resolveOne));
+
+    setStatus("reading replies...");
+    const feeds = await Promise.all(people.map((p) => fetchReplyFeed(p.did)));
+
+    setStatus("checking who follows whom...");
+    const others = people.map((p) => p.did);
+    const relationships = await Promise.all(
+      people.map((p, i) => {
+        const rest = others.filter((d) => d !== p.did);
+        if (!rest.length) return Promise.resolve({});
+        return xrpc("app.bsky.graph.getRelationships", { actor: p.did, others: rest })
+          .then((r) => {
+            const map = {};
+            for (const rel of r.relationships || []) {
+              if (rel.did) map[rel.did] = !!rel.following;
+            }
+            return map;
+          })
+          .catch(() => ({}));
+      })
+    );
+
+    // Build every unordered pair up front so likes lookups (the slow part —
+    // each is a PDS round trip) all fire in parallel instead of serially.
+    const pairs = [];
+    for (let i = 0; i < people.length; i++) {
+      for (let j = i + 1; j < people.length; j++) pairs.push([i, j]);
+    }
+
+    setStatus(`checking like history (${pairs.length} pair${pairs.length === 1 ? "" : "s"})...`);
+    const likesByPair = await Promise.all(
+      pairs.map(([i, j]) =>
+        Promise.all([
+          likesApi(people[i].did, people[j].did),
+          likesApi(people[j].did, people[i].did),
+        ])
+      )
+    );
+
+    const pairResults = pairs.map(([i, j], idx) => {
+      const a = people[i], b = people[j];
+      const repliesAtoB = feeds[i].filter((r) => r.toDid === b.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${a.handle}/post/${r.rkey}` }));
+      const repliesBtoA = feeds[j].filter((r) => r.toDid === a.did).map((r) => ({ createdAt: r.createdAt, text: r.text, postUrl: `https://bsky.app/profile/${b.handle}/post/${r.rkey}` }));
+      const [likesAtoB, likesBtoA] = likesByPair[idx];
+      const result = window.BeefcheckAnalysis.analyzePair({
+        a, b,
+        repliesAtoB, repliesBtoA,
+        likesAtoB: likesAtoB.matches || [], likesBtoA: likesBtoA.matches || [],
+        followingAB: !!relationships[i][b.did],
+        followingBA: !!relationships[j][a.did],
+      });
+      return { a, b, result };
+    });
+
+    pairResults.sort((x, y) => {
+      const sx = x.result.noContact ? -1 : x.result.score;
+      const sy = y.result.noContact ? -1 : y.result.score;
+      return sy - sx;
+    });
+
+    els.results.innerHTML = "";
+    if (pairResults.length === 1) {
+      els.results.appendChild(renderPairCard(pairResults[0]));
+    } else {
+      const top = document.createElement("div");
+      top.className = "card";
+      const label = document.createElement("div");
+      label.className = "score-label";
+      label.style.textAlign = "center";
+      label.style.marginBottom = "0.9rem";
+      label.textContent = `${people.length} handles checked · ${pairs.length} pairs · sorted by beef score`;
+      top.appendChild(label);
+      const list = document.createElement("div");
+      list.className = "mini-list";
+      pairResults.forEach((pr) => list.appendChild(renderMiniCard(pr)));
+      top.appendChild(list);
+      els.results.appendChild(top);
+      els.results.appendChild(renderPairCard(pairResults[0]));
+    }
+
+    els.results.classList.add("show");
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't run that check: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run();
+});
+
+// /s/<a>+<b> (share links) or ?a=<handle>&b=<handle> both auto-run on load.
+const pathMatch = location.pathname.match(/\/s\/([^/+]+)\+([^/]+)\/?$/);
+const qs = new URLSearchParams(location.search);
+const sharedA = (pathMatch && decodeURIComponent(pathMatch[1])) || qs.get("a");
+const sharedB = (pathMatch && decodeURIComponent(pathMatch[2])) || qs.get("b");
+if (sharedA && sharedB) {
+  const inputs = els.handles.querySelectorAll(".h-input");
+  inputs[0].value = sharedA;
+  inputs[1].value = sharedB;
+  run();
+}
+</script>
+
+<!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+<style>
+  #cm-toggle {
+    position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+    background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+  #cm-coop { position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden; pointer-events: none; z-index: 2147483000; display: none; }
+  #cm-coop.on { display: block; }
+  .cm-chicken { position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1); animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+  @keyframes cm-strut {
+    0% { transform: translateX(-3rem) scaleX(-1); }
+    48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+    50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+    98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+    100% { transform: translateX(-3rem) scaleX(-1); }
+  }
+</style>
+<button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+<div id="cm-coop"></div>
+<script>
+  (function () {
+    var coop = document.getElementById("cm-coop");
+    var toggle = document.getElementById("cm-toggle");
+    if (!coop || !toggle) return;
+    var KEY = "chicken-mode";
+    var spawner = null;
+    function spawn() {
+      var c = document.createElement("div");
+      c.className = "cm-chicken";
+      c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+      var duration = 14 + Math.random() * 10;
+      c.style.animationDuration = duration + "s";
+      c.style.animationDelay = -Math.random() * duration + "s";
+      c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+      coop.appendChild(c);
+    }
+    function start() {
+      if (spawner) return;
+      coop.innerHTML = "";
+      for (var i = 0; i < 5; i++) spawn();
+      spawner = setInterval(function () {
+        if (coop.children.length < 8) spawn();
+      }, 4000);
+    }
+    function stop() {
+      if (spawner) clearInterval(spawner);
+      spawner = null;
+      coop.innerHTML = "";
+    }
+    function setMode(on) {
+      coop.classList.toggle("on", on);
+      toggle.classList.toggle("on", on);
+      if (on) start(); else stop();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+    toggle.addEventListener("click", function () {
+      setMode(!coop.classList.contains("on"));
+    });
+    var startedOn = false;
+    try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    if (startedOn) setMode(true);
+  })();
+</script>
+<!-- /chicken mode -->
+</body>
+</html>

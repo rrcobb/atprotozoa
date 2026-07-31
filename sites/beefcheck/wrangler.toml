@@ -1,0 +1,29 @@
+name = "atprotozoa-beefcheck"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @cee.wtf asked for a "are these two accounts beefing" checker: sentiment,
+# reply/like counts, engagement that goes quiet all of a sudden. The read
+# itself runs client-side (public/lib/analysis.js) against the public AppView,
+# EXCEPT two things that need a server:
+#
+#   /api/likes  — "did A like B's posts" isn't a queryable AppView endpoint
+#   (getLikes goes post -> likers, not actor -> liked-authors), so this hits
+#   the like-er's own PDS via com.atproto.repo.listRecords on the
+#   app.bsky.feed.like collection, server-side, to dodge per-PDS CORS
+#   inconsistency and keep the DID-doc resolution off the client's back.
+#
+#   /s/<a>+<b> — a personalized OG share URL per handle pair, same shape as
+#   sites/didscope's and sites/epistemics's /s/<handle>: string-replace the
+#   generic title/description/url in the static shell before serving.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "beefcheck.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: both /api/likes and /s/<a>+<b> are dynamic, so the Worker
+# must run before the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
