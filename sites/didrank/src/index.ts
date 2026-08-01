@@ -76,8 +76,8 @@ const ALARM_MS = 20 * 1000; // heartbeat / reconnect / bucket-close cadence
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_RETENTION = 25 * 60; // minutes of "m:" buckets to keep (25h)
-const TOP_PER_MINUTE = 250;
-const TOP_PER_DAY = 150;
+const TOP_PER_MINUTE = 500; // bumped from 250 so a 1000-row leaderboard has enough depth to merge from
+const TOP_PER_DAY = 300; // bumped from 150, same reason, for the day-bucket-backed long windows
 const PROFILE_TTL_MS = 60 * 60 * 1000;
 const MAX_ALARM_CATCHUP = 3000; // guard against a runaway loop after a long cold start
 
@@ -300,26 +300,32 @@ export class DidTracker {
       const cached = this.profileCache.get(d);
       return !cached || now - cached.fetchedAt > PROFILE_TTL_MS;
     });
-    for (let i = 0; i < need.length; i += 25) {
-      const batch = need.slice(i, i + 25);
-      const target = new URL("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles");
-      for (const d of batch) target.searchParams.append("actors", d);
-      try {
-        const res = await fetch(target);
-        if (!res.ok) continue;
-        const j = (await res.json()) as { profiles?: any[] };
-        for (const p of j.profiles || []) {
-          this.profileCache.set(p.did, {
-            handle: p.handle,
-            displayName: p.displayName,
-            avatar: p.avatar,
-            fetchedAt: now,
-          });
+    const batches: string[][] = [];
+    for (let i = 0; i < need.length; i += 25) batches.push(need.slice(i, i + 25));
+    // Fire batches concurrently — at up to 1000 requested rows that's ~40
+    // batches, and doing them one-at-a-time would make a big-limit request
+    // take many seconds instead of one round trip's worth of latency.
+    await Promise.all(
+      batches.map(async (batch) => {
+        const target = new URL("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles");
+        for (const d of batch) target.searchParams.append("actors", d);
+        try {
+          const res = await fetch(target);
+          if (!res.ok) return;
+          const j = (await res.json()) as { profiles?: any[] };
+          for (const p of j.profiles || []) {
+            this.profileCache.set(p.did, {
+              handle: p.handle,
+              displayName: p.displayName,
+              avatar: p.avatar,
+              fetchedAt: now,
+            });
+          }
+        } catch {
+          // profile lookup is best-effort — a missing entry just shows the raw DID
         }
-      } catch {
-        // profile lookup is best-effort — a missing entry just shows the raw DID
-      }
-    }
+      })
+    );
     return this.profileCache;
   }
 
@@ -399,7 +405,10 @@ export class DidTracker {
       if (!(windowKey in WINDOWS)) {
         return json({ error: "unknown window", windows: Object.keys(WINDOWS) }, 400);
       }
-      const limit = Math.max(1, Math.min(50, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+      const limit = Math.max(
+        1,
+        Math.min(1000, parseInt(url.searchParams.get("limit") || "25", 10) || 25)
+      );
 
       const now = Date.now();
       const { counts, windowMs } = await this.topForWindow(windowKey, limit);

@@ -102,6 +102,33 @@
         letter-spacing: 0.08em;
         margin: 0 0 6px;
       }
+      .countrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .countrow .label {
+        font-size: 11px;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0;
+      }
+      .countrow select {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .countrow select:hover,
+      .countrow select:focus {
+        border-color: var(--accent);
+      }
       .tabs {
         display: flex;
         flex-wrap: wrap;
@@ -303,6 +330,11 @@
         <div class="tabs" id="longTabs"></div>
       </div>
 
+      <div class="countrow">
+        <p class="label">show</p>
+        <select id="countSelect"></select>
+      </div>
+
       <div class="banner" id="banner"></div>
 
       <div class="board" id="board">
@@ -338,14 +370,31 @@
         { key: "all", label: "all time", ms: Infinity, group: "long" },
       ];
 
+      const COUNTS = [25, 100, 250, 500, 1000];
+
       const $ = (id) => document.getElementById(id);
       const shortTabs = $("shortTabs");
       const longTabs = $("longTabs");
+      const countSelect = $("countSelect");
       const board = $("board");
       const banner = $("banner");
 
       let activeWindow = localStorage.getItem("didrank:window") || "1h";
       if (!WINDOWS.some((w) => w.key === activeWindow)) activeWindow = "1h";
+
+      let activeCount = parseInt(localStorage.getItem("didrank:count"), 10) || 25;
+      if (!COUNTS.includes(activeCount)) activeCount = 25;
+
+      function renderCountSelect() {
+        countSelect.innerHTML = COUNTS.map(
+          (n) => `<option value="${n}"${n === activeCount ? " selected" : ""}>top ${n}</option>`
+        ).join("");
+      }
+      countSelect.addEventListener("change", () => {
+        activeCount = parseInt(countSelect.value, 10) || 25;
+        localStorage.setItem("didrank:count", String(activeCount));
+        load();
+      });
 
       function renderTabs() {
         for (const [group, el] of [["short", shortTabs], ["long", longTabs]]) {
@@ -415,7 +464,9 @@
       async function load() {
         const w = WINDOWS.find((w) => w.key === activeWindow);
         try {
-          const res = await fetch(`/api/top?window=${encodeURIComponent(activeWindow)}&limit=25`);
+          const res = await fetch(
+            `/api/top?window=${encodeURIComponent(activeWindow)}&limit=${activeCount}`
+          );
           const data = await res.json();
           lastTop = data;
           renderBanner(data, w);
@@ -466,6 +517,11 @@
             </div>`;
           })
           .join("");
+        if (data.entries.length < activeCount) {
+          board.innerHTML += `<div class="empty">only ${data.entries.length.toLocaleString()} distinct poster${
+            data.entries.length === 1 ? "" : "s"
+          } counted in this window so far — that's every one there is.</div>`;
+        }
       }
 
       function updateShare() {
@@ -481,6 +537,7 @@
       }
 
       renderTabs();
+      renderCountSelect();
       loadMeta();
       load().then(updateShare);
       setInterval(loadMeta, 20000);
