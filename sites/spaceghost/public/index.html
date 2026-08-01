@@ -212,71 +212,42 @@
   }
   body.gl-active .viewport-hint { opacity: 1; }
 
-  /* fullscreen "look around the set" mode — fades the UI out of the way so
-     the 3D scene (drag/touch to orbit from your chair) is unobstructed */
-  .look-toggle {
+  /* immersive mode: the 3D set fills the whole viewport all the time —
+     drag/swipe on it anywhere to orbit — and the UI collapses into a
+     translucent HUD dock along the bottom instead of a full-page scroll,
+     so the console/crew/ghost planet stay in view behind it. */
+  body.gl-active #glScene { cursor: grab; touch-action: none; }
+  body.gl-active #glScene:active { cursor: grabbing; }
+
+  body.gl-active .wrap {
     position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    z-index: 6;
-    display: none;
-    background: rgba(20, 10, 36, 0.85);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    border: 1.5px solid var(--accent2);
-    color: var(--accent2);
-    border-radius: 999px;
-    padding: 0.8rem 1.3rem;
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    cursor: pointer;
-    box-shadow: 0 0 0 0 rgba(38, 242, 201, 0.5);
-    animation: sgLookPulse 2.4s ease-in-out infinite;
-  }
-  .look-toggle:hover { border-color: var(--accent2); filter: brightness(1.15); }
-  body.gl-active .look-toggle { display: inline-block; }
-  body.looking .look-toggle { bottom: auto; top: 1rem; animation: none; box-shadow: none; }
-  @keyframes sgLookPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(38, 242, 201, 0.45); }
-    50% { box-shadow: 0 0 0 10px rgba(38, 242, 201, 0); }
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    min-height: 0;
+    max-height: 48vh;
+    overflow-y: auto;
+    margin: 0 auto;
+    padding: 1rem 1.1rem 1.5rem;
+    background: linear-gradient(to top, rgba(5, 1, 12, 0.9) 0%, rgba(5, 1, 12, 0.74) 55%, rgba(5, 1, 12, 0) 100%);
+    border-top: 1px solid var(--border);
   }
 
-  .look-hint {
-    position: fixed;
-    left: 50%;
-    bottom: 1.35rem;
-    transform: translateX(-50%);
-    z-index: 6;
-    margin: 0;
-    color: var(--dim);
-    font-size: 0.7rem;
-    letter-spacing: 0.05em;
-    background: rgba(5, 1, 12, 0.55);
-    padding: 0.35rem 0.85rem;
-    border-radius: 999px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.3s ease;
+  @keyframes sgLineIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
   }
-  body.looking .look-hint { opacity: 1; }
-  body.looking .wrap { opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-  body.looking #glScene { touch-action: none; cursor: grab; }
-  body.looking #glScene:active { cursor: grabbing; }
-
-  /* reserves clear screen space above the transcript so the 3D set (console,
-     Space Ghost, Zorak's cage, Moltar's screen) is actually visible instead
-     of sitting entirely behind text cards */
-  .set-spacer { height: 0; }
-  body.gl-active .set-spacer { height: 46vh; }
+  /* only animate in immersive mode — in the fallback scrolling log every
+     line lives in the DOM at once, and replaying the fade on the whole list
+     every time a new line is appended would flash the entire transcript. */
+  body.gl-active .line { animation: sgLineIn 0.35s ease; }
+  .line.older { opacity: 0.55; }
 </style>
 </head>
 <body>
 <canvas id="glScene"></canvas>
 <div class="vignette"></div>
-<button id="lookToggle" class="look-toggle" type="button">👀 LOOK AROUND THE SET</button>
-<p id="lookHint" class="look-hint">drag or swipe to look around · tap the button to go back</p>
 <div class="wrap" id="app"></div>
 <canvas id="shareCanvas" width="1200" height="630"></canvas>
 <script type="module" src="ghostplanet.js"></script>
@@ -427,22 +398,6 @@
     return Object.keys(table)[0];
   }
 
-  // ---- "look around the set" toggle (fullscreen 3D, fades the UI away) ----
-  var lookToggle = document.getElementById("lookToggle");
-  if (lookToggle) {
-    lookToggle.addEventListener("click", function () {
-      var scene = window.SpaceGhostScene;
-      if (!scene || !scene.enterLook) return;
-      if (scene.isLookActive && scene.isLookActive()) {
-        scene.exitLook();
-        lookToggle.textContent = "👀 LOOK AROUND THE SET";
-      } else {
-        scene.enterLook();
-        lookToggle.textContent = "✕ BACK TO THE SHOW";
-      }
-    });
-  }
-
   // ---- state ----
   var state = {
     screen: "title",
@@ -466,11 +421,10 @@
 
   function renderTitle() {
     app.innerHTML =
-      '<div class="set-spacer"></div>' +
       '<span class="band">bisks.net presents</span>' +
       '<h1 class="wordmark">SPACE GHOST<br>COAST TO COAST</h1>' +
       '<p class="sub">Best website of the year 1998. Tonight: you. You’re strapped into the guest chair on Space Ghost’s ship, live, in 3D — the console in front of you, Zorak caged to one side, Moltar’s screen flickering on the other, the ghost planet drifting outside the window. He will not really listen. Zorak will heckle. Moltar may light something on fire. Coast to coast, to coast.</p>' +
-      '<p class="viewport-hint">(that’s the actual set above — move your mouse to peek around, or hit “look around the set” for the full unobstructed 3D view)</p>' +
+      '<p class="viewport-hint">(that’s the real set behind this panel — drag or swipe anywhere on it to look around, tilt your phone, or just let it drift)</p>' +
       '<button id="start">GET IN THE CHAIR ▸</button>' +
       '<footer>a simulator, not a broadcast. no relation to anything real. by @buildthis, asked for by @ver.ooo.</footer>';
     document.getElementById("start").onclick = function () {
@@ -481,7 +435,6 @@
 
   function renderName() {
     app.innerHTML =
-      '<div class="set-spacer"></div>' +
       '<span class="band">green room</span>' +
       '<h1 class="wordmark" style="font-size:1.8rem">who’s our guest tonight?</h1>' +
       '<p class="sub">Space Ghost will mispronounce this. That’s not a threat, it’s a promise.</p>' +
@@ -517,13 +470,21 @@
   }
 
   function renderInterview() {
-    var html = '<div class="set-spacer"></div><span class="band">on the air</span><h1 class="wordmark" style="font-size:1.6rem">tonight’s interview</h1>';
+    // immersive mode (3D loaded): the set fills the screen, so the HUD only
+    // shows the last couple of lines as captions instead of a full scrolling
+    // transcript. Fallback (no WebGL): keep the plain full-log scroll — that
+    // path has to keep working on its own since there's no 3D backdrop to
+    // carry the show.
+    var immersive = document.body.classList.contains("gl-active");
+    var visibleLog = immersive ? state.log.slice(-3) : state.log;
+    var html = '<span class="band">on the air</span><h1 class="wordmark" style="font-size:1.6rem">tonight’s interview</h1>';
     html += '<div class="log">';
-    state.log.forEach(function (l) {
+    visibleLog.forEach(function (l, i) {
+      var older = immersive && i < visibleLog.length - 1 ? " older" : "";
       if (l.cls === "system") {
-        html += '<div class="line system">' + esc(l.text) + '</div>';
+        html += '<div class="line system' + older + '">' + esc(l.text) + '</div>';
       } else {
-        html += '<div class="line ' + l.cls + '"><span class="tag">' + esc(l.tag) + '</span>' + esc(l.text) + '</div>';
+        html += '<div class="line ' + l.cls + older + '"><span class="tag">' + esc(l.tag) + '</span>' + esc(l.text) + '</div>';
       }
     });
     html += '</div>';
@@ -565,8 +526,10 @@
       };
     }
 
-    var logEl = app.querySelector(".log");
-    if (logEl && logEl.scrollIntoView) logEl.scrollIntoView({ block: "end" });
+    if (!immersive) {
+      var logEl = app.querySelector(".log");
+      if (logEl && logEl.scrollIntoView) logEl.scrollIntoView({ block: "end" });
+    }
   }
 
   function addReaction() {
@@ -697,7 +660,7 @@
   }
 
   function renderOutro() {
-    var html = '<div class="set-spacer"></div><span class="band">that’s a wrap</span>';
+    var html = '<span class="band">that’s a wrap</span>';
     html += '<h1 class="wordmark" style="font-size:1.7rem">your episode aired.</h1>';
     html += '<div class="card">';
     html += '<div class="titlecard">' + esc(state.title) + '</div>';

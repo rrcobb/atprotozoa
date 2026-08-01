@@ -53,6 +53,7 @@
   THREE.ColorManagement.enabled = false;
 
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var drift = 0;
 
   var renderer;
   try {
@@ -434,64 +435,64 @@
     addPulseTarget("brak", body, 0xff7fd8, 0xffffff);
   })();
 
-  // ---- cockpit-window parallax: mouse / touch / gyro nudges the camera ----
+  // ---- cockpit camera: always-on immersive orbit ----
+  // `orient` is the camera's current yaw/pitch offset. Two things drive it,
+  // never both at once: idle ambient parallax (mouse position / device tilt
+  // gently pulls `orient` toward a target) and an active drag (pointer sets
+  // `orient` directly). `target` is kept in sync with `orient` while
+  // dragging so releasing the drag never snaps back toward wherever the
+  // mouse happens to be resting.
+  var orient = { x: 0, y: 0 };
   var target = { x: 0, y: 0 };
-  var current = { x: 0, y: 0 };
   var baseTiltX = -0.16;
-
-  // ---- "look around the set" mode: drag/touch to freely orbit from your chair ----
-  var look = { active: false, dragging: false, yaw: 0, pitch: 0, lastX: 0, lastY: 0 };
-  var baseFov = camera.fov, lookFov = 78;
+  var dragging = false, lastX = 0, lastY = 0;
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+  function applyCameraOrient(sway) {
+    camera.rotation.y = -orient.x + (sway ? Math.sin(drift * 0.05) * 0.015 : 0);
+    camera.rotation.x = baseTiltX - orient.y;
+  }
+
   canvas.addEventListener("pointerdown", function (e) {
-    if (!look.active) return;
-    look.dragging = true;
-    look.lastX = e.clientX;
-    look.lastY = e.clientY;
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
   });
   canvas.addEventListener("pointermove", function (e) {
-    if (!look.active || !look.dragging) return;
-    var dx = e.clientX - look.lastX;
-    var dy = e.clientY - look.lastY;
-    look.lastX = e.clientX;
-    look.lastY = e.clientY;
-    look.yaw -= dx * 0.0045;
-    look.pitch = clamp(look.pitch + dy * 0.0045, -0.85, 0.85);
+    if (!dragging) return;
+    var dx = e.clientX - lastX;
+    var dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    orient.x -= dx * 0.0045;
+    orient.y = clamp(orient.y + dy * 0.0045, -0.85, 0.85);
+    target.x = orient.x;
+    target.y = orient.y;
+    // reduced-motion users get no rAF loop below, so a drag needs its own
+    // render call or the camera would visibly freeze mid-orbit.
+    if (reduceMotion) {
+      applyCameraOrient(false);
+      renderer.render(scene, camera);
+    }
   });
-  function endLookDrag() { look.dragging = false; }
-  canvas.addEventListener("pointerup", endLookDrag);
-  canvas.addEventListener("pointercancel", endLookDrag);
-  canvas.addEventListener("pointerleave", endLookDrag);
+  function endDrag() { dragging = false; }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+  canvas.addEventListener("pointerleave", endDrag);
 
   window.SpaceGhostScene = {
     speak: function (cls) {
       var ch = characters[cls];
       if (ch) ch.pulse = 1;
-    },
-    enterLook: function () {
-      look.yaw = current.x;
-      look.pitch = current.y;
-      look.active = true;
-      document.body.classList.add("looking");
-      camera.fov = lookFov;
-      camera.updateProjectionMatrix();
-    },
-    exitLook: function () {
-      look.active = false;
-      look.dragging = false;
-      document.body.classList.remove("looking");
-      camera.fov = baseFov;
-      camera.updateProjectionMatrix();
-    },
-    isLookActive: function () { return look.active; }
+    }
   };
 
   function onPointer(nx, ny) {
-    target.x = nx * 0.3;
-    target.y = ny * 0.18;
+    if (dragging) return;
+    target.x = clamp(nx * 0.3, -0.85, 0.85);
+    target.y = clamp(ny * 0.18, -0.85, 0.85);
   }
   window.addEventListener("mousemove", function (e) {
     var nx = (e.clientX / window.innerWidth) * 2 - 1;
@@ -523,33 +524,7 @@
 
   document.body.classList.add("gl-active");
 
-  // ---- guaranteed first look: auto-preview "look around the set" briefly
-  // on load so everyone actually SEES the 3D scene at least once, instead of
-  // it living behind a small corner button nobody notices ----
-  (function autoPreviewLook() {
-    var toggleBtn = document.getElementById("lookToggle");
-    var userTouchedIt = false;
-    if (toggleBtn) {
-      toggleBtn.addEventListener("click", function () { userTouchedIt = true; }, { once: true });
-    }
-    function setToggleText(active) {
-      if (toggleBtn) toggleBtn.textContent = active ? "✕ BACK TO THE SHOW" : "👀 LOOK AROUND THE SET";
-    }
-    if (reduceMotion) return;
-    setTimeout(function () {
-      if (userTouchedIt || look.active) return;
-      window.SpaceGhostScene.enterLook();
-      setToggleText(true);
-      setTimeout(function () {
-        if (userTouchedIt) return;
-        window.SpaceGhostScene.exitLook();
-        setToggleText(false);
-      }, 2600);
-    }, 1000);
-  })();
-
   var clock = new THREE.Clock();
-  var drift = 0;
   var moltarRepaintAcc = 0;
 
   function frame() {
@@ -590,16 +565,12 @@
       paintMoltarScreen(0.2 + moltarPulse);
     }
 
-    if (look.active) {
-      camera.rotation.y = -look.yaw;
-      camera.rotation.x = baseTiltX - look.pitch;
-    } else {
-      current.x += (target.x - current.x) * 0.04;
-      current.y += (target.y - current.y) * 0.04;
-      camera.rotation.y = -current.x;
-      camera.rotation.x = baseTiltX - current.y;
-      camera.rotation.y += Math.sin(drift * 0.05) * 0.015;
-    }
+    // during a drag, target === orient (kept in sync by the pointermove
+    // handler above), so this lerp is a no-op and the drag's direct
+    // rotation stands; while idle it eases orient toward the ambient target.
+    orient.x += (target.x - orient.x) * 0.04;
+    orient.y += (target.y - orient.y) * 0.04;
+    applyCameraOrient(true);
 
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
