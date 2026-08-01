@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>steamstats — pull any Steam account's stats</title>
+<meta name="description" content="Paste a Steam vanity name, SteamID64, or profile URL. No API key, no login — level, bans, member-since age, recent games, badges." />
+<meta property="og:title" content="steamstats — pull any Steam account's stats" />
+<meta property="og:description" content="Paste a Steam vanity name, SteamID64, or profile URL. No API key, no login — level, bans, member-since age, recent games, badges." />
+<meta property="og:url" content="https://steamstats.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://steamstats.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="steamstats: a stat card showing a Steam profile's level, ban flags, member-since age, and recent games." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="steamstats — pull any Steam account's stats" />
+<meta name="twitter:description" content="Paste a Steam vanity name, SteamID64, or profile URL. No API key, no login — level, bans, member-since age, recent games, badges." />
+<meta name="twitter:image" content="https://steamstats.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0e1621;
+    --bg2: #1b2838;
+    --fg: #e9f2fb;
+    --dim: #7f9cb8;
+    --accent: #66c0f4;
+    --accent2: #a4d007;
+    --bad: #ff6b6b;
+    --card: #16202d;
+    --border: #2a3f5a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #16324a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #223a1a 0%, transparent 45%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.85rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #3f8fc7);
+    color: #051119;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .examples { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: -1.4rem 0 2rem; }
+  .examples button {
+    background: var(--card);
+    color: var(--dim);
+    border: 1px solid var(--border);
+    font-weight: 500;
+    font-size: 0.76rem;
+    padding: 0.35rem 0.6rem;
+  }
+  .examples button:hover { color: var(--fg); border-color: var(--accent); }
+
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -24px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1.4rem; }
+  .who img { width: 64px; height: 64px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); }
+  .who .name { font-weight: 700; font-size: 1.15rem; }
+  .who .name a { color: inherit; text-decoration: none; }
+  .who .name a:hover { text-decoration: underline; }
+  .who .sub { color: var(--dim); font-size: 0.8rem; margin-top: 0.15rem; }
+  .who .badges { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem; }
+  .pill {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--dim);
+  }
+  .pill.online { color: var(--accent2); border-color: var(--accent2); }
+  .pill.level { color: var(--accent); border-color: var(--accent); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin: 1.4rem 0;
+  }
+  .stat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+  }
+  .stat .n { font-size: 1.25rem; font-weight: 700; color: var(--accent2); }
+  .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.15rem; }
+
+  .xpbar { height: 6px; background: var(--bg2); border-radius: 999px; overflow: hidden; margin: 0.3rem 0 1.4rem; border: 1px solid var(--border); }
+  .xpbar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .xpnote { color: var(--dim); font-size: 0.75rem; margin: -1.1rem 0 1.4rem; }
+
+  .section-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin: 1.4rem 0 0.6rem; }
+  .games { display: flex; flex-direction: column; gap: 0.4rem; }
+  .game { display: flex; align-items: center; gap: 0.6rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.7rem; }
+  .game img { width: 32px; height: 32px; border-radius: 4px; flex: none; background: var(--border); }
+  .game .gn { flex: 1; min-width: 0; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .game .gh { color: var(--dim); font-size: 0.75rem; flex: none; text-align: right; }
+
+  .bio { color: var(--dim); font-size: 0.85rem; line-height: 1.5; margin-top: 1rem; white-space: pre-wrap; }
+  .private-note { color: var(--dim); font-size: 0.82rem; margin-top: 1rem; font-style: italic; }
+
+  .share-row { display: flex; gap: 0.6rem; margin-top: 1.6rem; flex-wrap: wrap; }
+  .share-row a, .share-row button {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--bg2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.55rem 0.85rem; font: inherit; font-size: 0.82rem;
+    text-decoration: none; cursor: pointer;
+  }
+  .share-row a:hover, .share-row button:hover { border-color: var(--accent); }
+
+  footer { color: var(--dim); font-size: 0.75rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+
+  canvas#cardCanvas { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>steamstats</h1>
+  <p class="tag">Paste a Steam vanity name, SteamID64, or profile URL. Server fetches Steam's own public profile pages — no API key, no login — and hands back level, bans, member-since age, recent games, and badge count.</p>
+
+  <form id="f" autocomplete="off">
+    <input id="q" type="text" placeholder="e.g. gaben, or steamcommunity.com/id/gaben" />
+    <button id="go" type="submit">pull stats</button>
+  </form>
+  <div class="examples">
+    <button type="button" data-ex="gaben">gaben</button>
+    <button type="button" data-ex="76561197960287930">76561197960287930</button>
+  </div>
+  <p class="hint">Works on any profile that isn't set fully private. Some fields (level, recent games) need the account to have those visible too.</p>
+  <div id="status" class="status"></div>
+
+  <div id="card" class="card"></div>
+
+  <footer>
+    <p>reads <code>steamcommunity.com/&lt;id|profiles&gt;/&lt;x&gt;/?xml=1</code> + the public badges page, server-side, for @thegodfungi.bsky.social. no Steam Web API key involved. built by <a href="https://bisks.net" target="_blank" rel="noopener">buildthis</a>.</p>
+  </footer>
+</div>
+
+<canvas id="cardCanvas" width="1200" height="630"></canvas>
+
+<script>
+(function () {
+  var els = {
+    f: document.getElementById("f"),
+    q: document.getElementById("q"),
+    go: document.getElementById("go"),
+    status: document.getElementById("status"),
+    card: document.getElementById("card"),
+  };
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function fmtHours(h) {
+    if (h == null) return null;
+    if (h < 1) return Math.round(h * 60) + "m";
+    return (Math.round(h * 10) / 10).toLocaleString() + "h";
+  }
+
+  function onlineLabel(state, msg) {
+    if (msg) return msg;
+    if (!state) return null;
+    return state.replace(/^\w/, function (c) { return c.toUpperCase(); });
+  }
+
+  function render(stats, rawInput) {
+    if (!stats.ok) {
+      els.status.textContent = stats.error || "couldn't pull that profile.";
+      els.status.className = "status err";
+      els.card.className = "card";
+      els.card.innerHTML = "";
+      return;
+    }
+
+    els.status.textContent = "";
+    els.status.className = "status";
+
+    var pills = [];
+    var online = onlineLabel(stats.onlineState, stats.stateMessage);
+    if (online) pills.push('<span class="pill' + (stats.onlineState === "online" || stats.onlineState === "in-game" ? " online" : "") + '">' + esc(online) + "</span>");
+    if (stats.level != null) pills.push('<span class="pill level">level ' + stats.level + "</span>");
+    if (stats.vacBanned) pills.push('<span class="pill bad">VAC banned</span>');
+    if (stats.tradeBanned) pills.push('<span class="pill bad">trade banned</span>');
+    if (stats.limitedAccount) pills.push('<span class="pill">limited account</span>');
+    if (stats.privacyState && stats.privacyState !== "public") pills.push('<span class="pill">' + esc(stats.privacyState) + "</span>");
+
+    var grid = [];
+    if (stats.memberSince) {
+      var years = stats.memberSinceDays != null ? Math.floor(stats.memberSinceDays / 365) : null;
+      grid.push({ n: years != null ? years + "y" : stats.memberSince, l: "on Steam since " + stats.memberSince });
+    }
+    if (stats.xp != null) grid.push({ n: stats.xp.toLocaleString(), l: "XP" });
+    if (stats.badgeCount != null) grid.push({ n: stats.badgeCount + (stats.badgeCount >= 48 ? "+" : ""), l: "badges (pg 1)" });
+    if (stats.hoursPlayed2Wk != null && stats.hoursPlayed2Wk > 0) grid.push({ n: fmtHours(stats.hoursPlayed2Wk), l: "played, last 2wk" });
+    if (stats.recentGames.length) grid.push({ n: stats.recentGames.length, l: "recent games shown" });
+
+    var xpBar = "";
+    if (stats.xp != null && stats.xpToNextText) {
+      var m = stats.xpToNextText.match(/([\d,]+)\s*XP/);
+      var need = m ? parseFloat(m[1].replace(/,/g, "")) : null;
+      var pct = need ? Math.max(4, Math.min(100, 100 - (need / (need + (stats.xp % 1000 || 1000))) * 100)) : null;
+      xpBar =
+        '<div class="xpbar"><div style="width:' + (pct || 50) + '%"></div></div>' +
+        '<div class="xpnote">' + esc(stats.xpToNextText) + "</div>";
+    }
+
+    var gamesHtml = "";
+    if (stats.recentGames.length) {
+      gamesHtml =
+        '<div class="section-title">recent / most-played</div><div class="games">' +
+        stats.recentGames
+          .slice(0, 8)
+          .map(function (g) {
+            var hrs = fmtHours(g.hoursOnRecord);
+            var recent = fmtHours(g.hoursPlayed2Wk);
+            return (
+              '<div class="game">' +
+              (g.icon ? '<img src="' + esc(g.icon) + '" alt="" loading="lazy" />' : '<div style="width:32px;height:32px;border-radius:4px;background:var(--border)"></div>') +
+              '<div class="gn">' + esc(g.name) + "</div>" +
+              '<div class="gh">' + (hrs ? hrs + " total" : "") + (recent ? " · " + recent + " recent" : "") + "</div>" +
+              "</div>"
+            );
+          })
+          .join("") +
+        "</div>";
+    }
+
+    var bioHtml = "";
+    var bits = [stats.realName, stats.location].filter(Boolean).join(" · ");
+    if (bits) bioHtml += '<div class="bio"><strong style="color:var(--fg)">' + esc(bits) + "</strong></div>";
+    if (stats.summary) bioHtml += '<div class="bio">' + esc(stats.summary) + "</div>";
+    if (stats.primaryGroup) {
+      bioHtml +=
+        '<div class="bio">primary group: ' +
+        (stats.primaryGroup.url ? '<a href="' + esc(stats.primaryGroup.url) + '" target="_blank" rel="noopener" style="color:var(--accent)">' + esc(stats.primaryGroup.name) + "</a>" : esc(stats.primaryGroup.name)) +
+        "</div>";
+    }
+
+    var privateNote = "";
+    if (stats.privacyState && stats.privacyState !== "public") {
+      privateNote = '<div class="private-note">This profile is ' + esc(stats.privacyState) + " — some fields (bio, groups, recent games) may be hidden.</div>";
+    }
+
+    var shareUrl = "https://steamstats.bisks.net/s/" + encodeURIComponent(rawInput);
+    var shareBits = [];
+    if (stats.level != null) shareBits.push("level " + stats.level);
+    if (stats.memberSinceDays != null) shareBits.push(Math.floor(stats.memberSinceDays / 365) + "y on Steam");
+    if (stats.recentGames.length) shareBits.push("playing " + stats.recentGames[0].name);
+    var shareText = "steamstats: " + stats.personaName + " — " + (shareBits.join(", ") || "statted out") + ". " + shareUrl;
+
+    els.card.innerHTML =
+      '<div class="who">' +
+      (stats.avatar ? '<img src="' + esc(stats.avatar) + '" alt="" />' : "") +
+      '<div><div class="name"><a href="' + esc(stats.profileUrl) + '" target="_blank" rel="noopener">' + esc(stats.personaName || "unknown") + "</a></div>" +
+      '<div class="sub">' + esc(stats.steamId64 || "") + '</div>' +
+      '<div class="badges">' + pills.join("") + "</div></div></div>" +
+      (grid.length
+        ? '<div class="grid">' + grid.map(function (g) { return '<div class="stat"><div class="n">' + esc(g.n) + '</div><div class="l">' + esc(g.l) + "</div></div>"; }).join("") + "</div>"
+        : "") +
+      xpBar +
+      bioHtml +
+      privateNote +
+      gamesHtml +
+      '<div class="share-row">' +
+      '<a href="https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText) + '" target="_blank" rel="noopener">share to Bluesky</a>' +
+      '<a href="' + esc(shareUrl) + '" target="_blank" rel="noopener">permalink</a>' +
+      '<button type="button" id="cardBtn">download stat card</button>' +
+      "</div>";
+
+    els.card.className = "card show";
+
+    var cardBtn = document.getElementById("cardBtn");
+    if (cardBtn) cardBtn.addEventListener("click", function () { buildShareCard(stats, shareUrl); });
+  }
+
+  async function pull(raw) {
+    var input = raw.trim();
+    if (!input) return;
+    els.go.disabled = true;
+    els.status.textContent = "pulling " + input + "…";
+    els.status.className = "status";
+    els.card.className = "card";
+    try {
+      var res = await fetch("/api/stats/" + encodeURIComponent(input));
+      var stats = await res.json();
+      render(stats, input);
+      var url = new URL(location.href);
+      url.searchParams.set("u", input);
+      history.replaceState(null, "", url);
+    } catch (e) {
+      els.status.textContent = "network error — try again.";
+      els.status.className = "status err";
+    } finally {
+      els.go.disabled = false;
+    }
+  }
+
+  els.f.addEventListener("submit", function (e) {
+    e.preventDefault();
+    pull(els.q.value);
+  });
+  document.querySelectorAll(".examples button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      els.q.value = b.getAttribute("data-ex");
+      pull(els.q.value);
+    });
+  });
+
+  var initial = new URL(location.href).searchParams.get("u");
+  if (initial) {
+    els.q.value = initial;
+    pull(initial);
+  }
+
+  // --- share card (canvas) ------------------------------------------------
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function loadImg(src) {
+    return new Promise(function (resolve) {
+      if (!src) return resolve(null);
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { resolve(null); };
+      img.src = src;
+    });
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  async function buildShareCard(stats, shareUrl) {
+    var canvas = document.getElementById("cardCanvas");
+    var ctx = canvas.getContext("2d");
+    var W = 1200, H = 630;
+
+    var g1 = ctx.createRadialGradient(180, -40, 0, 180, -40, 700);
+    g1.addColorStop(0, "#16324a");
+    g1.addColorStop(1, "#0e1621");
+    ctx.fillStyle = g1;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = "#66c0f4";
+    ctx.font = "800 56px 'JetBrains Mono', monospace";
+    ctx.fillText("steamstats", 64, 100);
+
+    ctx.fillStyle = "#7f9cb8";
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    ctx.fillText("steamstats.bisks.net", 64, 136);
+
+    var avatar = await loadImg(stats.avatar);
+    var cardX = 64, cardY = 190, cardW = 1072, cardH = 380;
+    ctx.strokeStyle = "#2a3f5a";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "#16202d";
+    roundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    var ax = cardX + 48, ay = cardY + 48, asz = 108;
+    if (avatar) {
+      ctx.save();
+      roundRect(ctx, ax, ay, asz, asz, 12);
+      ctx.clip();
+      ctx.drawImage(avatar, ax, ay, asz, asz);
+      ctx.restore();
+    }
+
+    ctx.fillStyle = "#e9f2fb";
+    ctx.font = "700 40px 'JetBrains Mono', monospace";
+    ctx.fillText(stats.personaName || "unknown", ax + asz + 32, ay + 44);
+
+    var subBits = [];
+    if (stats.level != null) subBits.push("level " + stats.level);
+    if (stats.memberSinceDays != null) subBits.push(Math.floor(stats.memberSinceDays / 365) + "y on Steam");
+    if (stats.vacBanned) subBits.push("VAC banned");
+    ctx.fillStyle = "#a4d007";
+    ctx.font = "600 24px 'JetBrains Mono', monospace";
+    ctx.fillText(subBits.join("   ·   "), ax + asz + 32, ay + 82);
+
+    var gy = ay + asz + 56;
+    ctx.fillStyle = "#7f9cb8";
+    ctx.font = "700 15px 'JetBrains Mono', monospace";
+    ctx.fillText("RECENT / MOST-PLAYED", cardX + 48, gy);
+    gy += 34;
+
+    var games = (stats.recentGames || []).slice(0, 4);
+    for (var i = 0; i < games.length; i++) {
+      var g = games[i];
+      ctx.fillStyle = "#e9f2fb";
+      ctx.font = "22px 'JetBrains Mono', monospace";
+      var name = g.name.length > 42 ? g.name.slice(0, 41) + "…" : g.name;
+      ctx.fillText(name, cardX + 48, gy);
+      var hrs = g.hoursOnRecord != null ? (Math.round(g.hoursOnRecord * 10) / 10) + "h" : "";
+      ctx.fillStyle = "#7f9cb8";
+      ctx.textAlign = "right";
+      ctx.fillText(hrs, cardX + cardW - 48, gy);
+      ctx.textAlign = "left";
+      gy += 34;
+    }
+    if (!games.length) {
+      ctx.fillStyle = "#7f9cb8";
+      ctx.font = "italic 20px 'JetBrains Mono', monospace";
+      ctx.fillText("no recent playtime visible on this profile", cardX + 48, gy);
+    }
+
+    canvas.toBlob(async function (blob) {
+      if (!blob) return;
+      var file = new File([blob], "steamstats.png", { type: "image/png" });
+      if (canShareFiles()) {
+        try {
+          await navigator.share({ files: [file], text: "steamstats: " + (stats.personaName || "") + " " + shareUrl, title: "steamstats" });
+          return;
+        } catch (e) {
+          /* fall through to download */
+        }
+      }
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "steamstats-" + (stats.personaName || "profile").replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }, "image/png");
+  }
+})();
+</script>
+</body>
+</html>
