@@ -714,8 +714,10 @@ function renderDirectoryPage(snap: DirectorySnapshot): string {
 }
 
 // GET /live — every site currently built, recomputed straight from the event
-// log on every request. No caching (that's what /directory is for), no queue
-// section, just the list. See computeDirectory for how "built" is derived.
+// log on every request. Kept deliberately bare: a plain list, nothing else —
+// the request was "just a simple website that is the list", and a first pass
+// with card styling, per-entry descriptions and attribution turned out to be
+// more than that, so this renders just names linking out.
 async function handleLiveSitesPage(env: Env): Promise<Response> {
   let built: DirectoryEntry[];
   try {
@@ -731,82 +733,32 @@ async function handleLiveSitesPage(env: Env): Promise<Response> {
 
 function renderLiveSitesPage(built: DirectoryEntry[]): string {
   const rows = built.length
-    ? built
-        .map(
-          (b) => `<a class="card" href="${escHtml(b.url)}">
-          <h2>${escHtml(b.name)}</h2>
-          ${b.description ? `<p class="desc">${escHtml(b.description)}</p>` : ""}
-          <p>${b.handle ? `asked for by @${escHtml(b.handle)} · ` : ""}${escHtml(fmtDay(b.at))}</p>
-        </a>`,
-        )
-        .join("\n")
-    : `<p class="empty">nothing shipped yet — tag <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> with an idea.</p>`;
+    ? `<ul>\n${built.map((b) => `  <li><a href="${escHtml(b.url)}">${escHtml(b.name)}</a></li>`).join("\n")}\n</ul>`
+    : `<p>nothing shipped yet.</p>`;
 
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>live — every site buildthis has built — buildthis.bisks.net</title>
-    <meta name="description" content="Every site the build bot has shipped, recomputed fresh on every page load." />
+    <title>every site buildthis has built</title>
+    <meta name="description" content="A plain list of every site the build bot has shipped, recomputed fresh on every page load." />
     <style>
-      :root {
-        --bg: #0d0a06; --card: #17130c; --ink: #e8dcc8; --muted: #9c8f78;
-        --accent: #c8922e; --link: #e0b23c;
-      }
-      * { box-sizing: border-box; }
       body {
-        margin: 0;
-        background: radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
-        background-color: var(--bg); color: var(--ink);
+        margin: 0; background: #0d0a06; color: #e8dcc8;
         font-family: Georgia, "Times New Roman", serif; line-height: 1.6;
-        -webkit-font-smoothing: antialiased;
       }
-      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
-      header h1 {
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        font-size: 1.7rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; color: #e6e8ea;
-      }
-      header p { color: var(--muted); margin: 0 0 2rem; font-style: italic; }
-      header p .live-dot {
-        display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.4em;
-        border-radius: 50%; background: #7ec97e; box-shadow: 0 0 6px #7ec97e;
-      }
-      .card {
-        display: block; background: var(--card); border: 1px solid #1f2226;
-        border-left: 4px solid var(--accent); border-radius: 10px;
-        padding: 0.9rem 1.1rem; margin-bottom: 0.7rem; color: inherit;
-        text-decoration: none; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-      }
-      .card:hover h2 { color: var(--link); }
-      .card h2 {
-        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        font-size: 1.05rem; margin: 0 0 0.3rem; font-weight: 700; color: #aeb4ba;
-      }
-      .card p { margin: 0 0 0.3rem; color: var(--muted); font-size: 0.9rem; }
-      .card p:last-child { margin-bottom: 0; }
-      .card .desc { color: var(--ink); }
-      .empty { color: var(--muted); font-style: italic; }
-      footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
-      footer a { color: var(--link); }
-      a { color: var(--link); }
+      .wrap { max-width: 560px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      h1 { font-size: 1.4rem; margin: 0 0 1.5rem; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li { margin: 0 0 0.5rem; }
+      a { color: #e0b23c; }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>
-        <h1>everything, live</h1>
-        <p><span class="live-dot"></span>recomputed fresh every time you load this page — ${built.length} site${built.length === 1 ? "" : "s"} shipped so far</p>
-      </header>
-      <main>
-        ${rows}
-      </main>
-      <footer>
-        no cache, no snapshot — this reads the event log straight off KV on
-        every hit · a slower-but-cheaper daily snapshot (with the pending
-        queue too) is at <a href="/directory">/directory</a> ·
-        <a href="/">buildthis</a> · <a href="/working/">what's building right now</a>
-      </footer>
+      <h1>every site I've built (${built.length})</h1>
+      ${rows}
     </div>
   </body>
 </html>`;
