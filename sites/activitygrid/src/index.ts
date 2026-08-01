@@ -165,6 +165,21 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // This site was called "skeetgrid" until 2026-07-29 (renamed in 416c00a).
+    // Links to the old name were shared before the rename, and until now they
+    // kept resolving — to the ORPHANED pre-rename Worker, which still held
+    // bisks.net/skeetgrid routes and served three-day-old frozen code that no
+    // fix since has reached. Claim the old paths and forward them here, keeping
+    // any sub-path so a shared /skeetgrid/s/<handle> still lands on that
+    // person's grid.
+    const LEGACY = "/skeetgrid";
+    if (url.pathname === LEGACY || url.pathname.startsWith(LEGACY + "/")) {
+      const rest = url.pathname.slice(LEGACY.length);
+      url.hostname = "activitygrid.bisks.net";
+      url.pathname = rest || "/";
+      return Response.redirect(url.toString(), 301);
+    }
+
     if (url.pathname === PREFIX) {
       url.pathname = PREFIX + "/";
       return Response.redirect(url.toString(), 308);

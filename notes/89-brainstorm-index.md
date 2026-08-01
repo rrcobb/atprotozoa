@@ -127,7 +127,7 @@ commissioner.
 
 ---
 
-## C2. Things the bot can't currently do (see `notes/90`)
+## C2. Things the bot can't currently do (see `notes/91`)
 
 **18. Let the bot see more than plain text.**
 `threadContext()` extracts `record.text` only — images, image alt text, quote
@@ -135,7 +135,12 @@ posts, link cards, video, and the root post (when the tag is deep) are all
 dropped. Alt text and quote posts are the cheap high-value fixes; actual image
 input needs the blob passed to the model.
 
-**19. Do something about the ~20% partial rate.**
+**19. Raise or drop `MAX_BRIEF_CHARS`.**
+`slice(0, 600)` silently truncates the *instruction* mid-sentence while ancestors
+go in full. Never fires for a normal 300-grapheme post; only bites the long-form
+requests with the most detail to lose.
+
+**20. Do something about the ~20% partial rate.**
 73 "ran out of runway" vs 285 "built it" across the corpus. Partial work is
 already preserved correctly; the gap is that a human has to notice and re-tag —
 and "keep going" is one of the most common inputs in the whole dataset, which
@@ -154,6 +159,33 @@ hold a worse copy of what's already served. No idea currently on the table needs
 it, including unique trigrams (already solved by scan-then-verify).
 
 ---
+
+## The four threads
+
+Everything above collapses into four groups, by what kind of work it is:
+
+**Thread 1 — builder input fixes** (#18, #19; `notes/91`)
+Things the bot structurally can't see. The 600-char cap, alt text, quote posts,
+link cards, then real images. Small, ordinary changes to existing code that fix
+active harm on every build. Highest value per unit effort, and the builder could
+plausibly do most of it if tagged.
+
+**Thread 2 — the partial rate** (#20; `notes/91`)
+~1 in 5 builds ends "tag me again." Preservation already works; the gap is the
+manual re-tag. Measure turn distribution from the box logs before touching
+`BUILDER_MAX_TURNS`.
+
+**Thread 3 — lexicons + atproto-native requests** (#1–3, #15b)
+Write and publish the ten missing schemas, then `listReposByCollection` for
+aggregate views, then build requests as records — which makes the scoping and
+history questions (#16, #17) answerable by query instead of by config. The most
+atproto-native direction, and largely doable by an atproto-pilled builder.
+
+**Thread 4 — new bots** (#5–14; `notes/82`, `notes/84`, `notes/87`)
+The genuinely new capability: a bot that makes protocol objects rather than
+pages, plus the verifier / gen / sim / janitor / cron ideas. Wants the ownership
+question (#17) settled first, since a created feed is externally visible in a way
+a page isn't.
 
 ## If picking one thing
 
