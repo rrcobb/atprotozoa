@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>hypertower — 4D tetris</title>
+<meta name="description" content="tetromino pieces spawn scrambled through the 4th dimension. rotate them across six planes — three ordinary, three not — until they lie flat, then drop them to build a real 3D tower." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="hypertower — 4D tetris" />
+<meta property="og:description" content="pieces spawn tumbled through a hidden 4th axis. fold them flat across six planes of rotation before they land, and stack a tower in a real 3D well." />
+<meta property="og:image" content="https://hypertower.bisks.net/og.png" />
+<meta property="og:url" content="https://hypertower.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="hypertower — 4D tetris" />
+<meta name="twitter:description" content="pieces spawn tumbled through a hidden 4th axis. fold them flat before they land, stack a tower in 3D." />
+<meta name="twitter:image" content="https://hypertower.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #070212;
+    --bg2: #0f0724;
+    --fg: #f2eeff;
+    --dim: #9384c2;
+    --accent: #ff2fd0;
+    --accent2: #26f2ff;
+    --accent3: #ffd23f;
+    --good: #4dffb0;
+    --bad: #ff5566;
+    --card: #150a30;
+    --border: #3d2a70;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    background-image:
+      radial-gradient(ellipse at 15% -5%, #2a1150 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #0a2b45 0%, transparent 50%);
+  }
+  a { color: var(--accent2); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 1.4rem 1rem 3rem; min-height: 100vh; }
+  .hidden { display: none !important; }
+
+  .band {
+    display: inline-block;
+    font-size: 0.66rem;
+    letter-spacing: 0.18em;
+    color: var(--accent3);
+    border: 1px solid var(--accent3);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    margin-bottom: 0.9rem;
+    text-transform: uppercase;
+  }
+  h1.wordmark {
+    font-size: clamp(2rem, 9vw, 3rem);
+    line-height: 1.02;
+    margin: 0 0 0.4rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2) 60%, var(--accent3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 30px #ff2fd033;
+  }
+  .sub { color: var(--dim); font-size: 0.95rem; margin: 0 0 1.2rem; max-width: 52ch; line-height: 1.5; }
+
+  button, .btn {
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+    background: var(--accent);
+    color: #1a0510;
+    border: none;
+    border-radius: 10px;
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+    display: inline-block;
+    text-decoration: none;
+    text-align: center;
+  }
+  button:hover, .btn:hover { filter: brightness(1.1); }
+  button.ghost {
+    background: transparent;
+    color: var(--accent2);
+    border: 1px solid var(--border);
+  }
+  button.ghost:hover { border-color: var(--accent2); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.2rem; margin-bottom: 1rem; }
+
+  /* ---- rules card on title ---- */
+  .rules { display: grid; gap: 0.6rem; }
+  .rules .row { display: flex; gap: 0.7rem; align-items: baseline; }
+  .rules .key { color: var(--accent3); font-weight: 700; min-width: 4.5rem; }
+  .rules p { margin: 0; color: var(--dim); font-size: 0.85rem; line-height: 1.4; }
+
+  /* ---- play viewport ---- */
+  .viewport {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 5 / 6;
+    max-height: 62vh;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #05010f;
+    margin-bottom: 0.8rem;
+    touch-action: none;
+  }
+  #towerCanvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  #towerCanvas:active { cursor: grabbing; }
+  .no-webgl .viewport::after {
+    content: "your browser can't do WebGL — hypertower needs it to render the tower.";
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 2rem; text-align: center; color: var(--dim); font-size: 0.85rem;
+  }
+
+  .hud-top {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem;
+    padding: 0.6rem 0.7rem;
+    background: linear-gradient(to bottom, rgba(5,1,15,0.85), transparent);
+    font-size: 0.72rem;
+    pointer-events: none;
+  }
+  .hud-top .stat { display: flex; flex-direction: column; gap: 0.05rem; }
+  .hud-top .stat b { color: var(--fg); font-size: 0.95rem; }
+  .hud-top .stat span { color: var(--dim); letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.62rem; }
+
+  .hud-bottom {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 0.5rem;
+    padding: 0.6rem 0.7rem;
+    background: linear-gradient(to top, rgba(5,1,15,0.9), transparent);
+    pointer-events: none;
+  }
+  .hud-align {
+    font-size: 0.78rem; font-weight: 700; letter-spacing: 0.03em;
+    padding: 0.3rem 0.6rem; border-radius: 999px; border: 1px solid var(--border);
+    background: rgba(10, 4, 30, 0.6);
+  }
+  .hud-align.full { color: var(--good); border-color: var(--good); }
+  .hud-align.partial { color: var(--accent3); border-color: var(--accent3); }
+  .hud-align.none { color: var(--bad); border-color: var(--bad); }
+
+  .next-box { display: flex; align-items: center; gap: 0.4rem; background: rgba(10,4,30,0.6); border: 1px solid var(--border); border-radius: 10px; padding: 0.3rem 0.55rem; }
+  .next-box span { font-size: 0.6rem; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
+  #nextSwatch { display: block; }
+  #nextName { font-size: 0.78rem; font-weight: 700; }
+
+  .lock-flash {
+    position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
+    font-size: 0.85rem; font-weight: 800; letter-spacing: 0.04em;
+    padding: 0.4rem 0.8rem; border-radius: 8px;
+    background: rgba(10, 4, 30, 0.75); border: 1px solid var(--border);
+    opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease;
+    white-space: nowrap;
+  }
+  .lock-flash.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .lock-flash.good { color: var(--good); border-color: var(--good); }
+  .lock-flash.mid { color: var(--accent3); border-color: var(--accent3); }
+  .lock-flash.bad { color: var(--bad); border-color: var(--bad); }
+
+  /* ---- controls ---- */
+  .controls { display: grid; gap: 0.6rem; }
+  .ctrl-row { display: flex; gap: 0.5rem; }
+  .ctrl-group {
+    flex: 1;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.55rem; display: flex; flex-direction: column; gap: 0.4rem;
+  }
+  .ctrl-label { font-size: 0.6rem; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; text-align: center; }
+  .ctrl-group.fourd .ctrl-label { color: var(--accent); }
+  .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.35rem; }
+  .ctrl-btn {
+    background: #1c1140; border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.55rem 0.2rem; font-weight: 700; font-size: 0.78rem;
+    user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  }
+  .ctrl-group.fourd .ctrl-btn { border-color: var(--accent); color: var(--accent); }
+  .ctrl-group.threed .ctrl-btn { border-color: var(--accent2); color: var(--accent2); }
+  .ctrl-btn:active { filter: brightness(1.5); }
+
+  .dpad-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 0.35rem; }
+  #btn-fwd { grid-column: 2; grid-row: 1; }
+  #btn-left { grid-column: 1; grid-row: 2; }
+  #btn-back { grid-column: 2; grid-row: 2; }
+  #btn-right { grid-column: 3; grid-row: 2; }
+
+  .drop-row { display: flex; gap: 0.5rem; }
+  .drop-row button { flex: 1; }
+  #btn-soft { background: var(--card); color: var(--accent2); border: 1px solid var(--border); }
+  #btn-hard { background: var(--accent); }
+
+  .kbd-hint { color: var(--dim); font-size: 0.7rem; text-align: center; margin: 0.3rem 0 0; line-height: 1.5; }
+  .kbd-hint b { color: var(--fg); }
+
+  footer { margin-top: 2rem; color: var(--dim); font-size: 0.7rem; text-align: center; }
+  footer a { color: var(--dim); }
+
+  .row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .row > * { flex: 1 1 auto; }
+  #shareCanvas { display: none; }
+  .cardimg { width: 100%; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 1rem; display: block; }
+  .final-score { font-size: 3rem; font-weight: 800; color: var(--accent2); margin: 0.2rem 0; }
+  .final-stats { color: var(--dim); font-size: 0.85rem; margin: 0 0 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="titleScreen">
+    <span class="band">bisks.net presents</span>
+    <h1 class="wordmark">HYPERTOWER</h1>
+    <p class="sub">Every piece spawns already tumbled through a 4th axis — most of it hanging off the plane you can actually build in, rendered as faint ghost cubes. Rotate it back flat before it lands, or land it half-scrambled and only the flat cells become real. Stack layers, clear them, build the tower as high as you can.</p>
+    <div class="card rules">
+      <div class="row"><b>move</b>&nbsp;— slide the piece across the footprint</div>
+      <div class="row"><span class="key">1 · 2 · 3</span><p>rotate in <b>XY / XZ / YZ</b> — the ordinary 3D turns. Never changes alignment.</p></div>
+      <div class="row"><span class="key">4 · 5 · 6</span><p>rotate in <b>XW / YW / ZW</b> — the only moves that can pull a stray cell back to the w=0 plane. Watch the alignment readout.</p></div>
+      <div class="row"><span class="key">drop</span><p>hold to soft-drop, tap hard-drop to slam it down — however flat it is when it lands is what locks in.</p></div>
+    </div>
+    <button id="startBtn">START BUILDING ▸</button>
+    <footer>a 4D tetris. by @buildthis, asked for by @goose.art.</footer>
+  </div>
+
+  <div id="playScreen" class="hidden">
+    <div class="viewport">
+      <canvas id="towerCanvas"></canvas>
+      <div class="hud-top">
+        <div class="stat"><b id="hudScore">0</b><span>score</span></div>
+        <div class="stat"><b id="hudLevel">1</b><span>level</span></div>
+        <div class="stat"><b id="hudLines">0</b><span>layers</span></div>
+        <div class="stat"><b id="hudHeight">0 / 16</b><span>height</span></div>
+        <div class="stat"><b id="hudCombo">—</b><span>combo</span></div>
+      </div>
+      <div class="hud-bottom">
+        <div id="hudAlign" class="hud-align partial">0/4 IN PLANE</div>
+        <div class="next-box">
+          <span>NEXT</span>
+          <canvas id="nextSwatch" width="28" height="28"></canvas>
+          <span id="nextName">—</span>
+        </div>
+      </div>
+      <div id="lockFlash" class="lock-flash"></div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl-row">
+        <div class="ctrl-group">
+          <div class="ctrl-label">move</div>
+          <div class="dpad-grid">
+            <button id="btn-fwd" class="ctrl-btn">▲</button>
+            <button id="btn-left" class="ctrl-btn">◀</button>
+            <button id="btn-back" class="ctrl-btn">▼</button>
+            <button id="btn-right" class="ctrl-btn">▶</button>
+          </div>
+        </div>
+        <div class="ctrl-group threed">
+          <div class="ctrl-label">3D rotate</div>
+          <div class="btn-grid">
+            <button id="btn-xy" class="ctrl-btn">XY</button>
+            <button id="btn-xz" class="ctrl-btn">XZ</button>
+            <button id="btn-yz" class="ctrl-btn">YZ</button>
+          </div>
+        </div>
+      </div>
+      <div class="ctrl-row">
+        <div class="ctrl-group fourd">
+          <div class="ctrl-label">4D rotate — fold it flat</div>
+          <div class="btn-grid">
+            <button id="btn-xw" class="ctrl-btn">XW</button>
+            <button id="btn-yw" class="ctrl-btn">YW</button>
+            <button id="btn-zw" class="ctrl-btn">ZW</button>
+          </div>
+        </div>
+      </div>
+      <div class="drop-row">
+        <button id="btn-soft" type="button">HOLD: SOFT DROP</button>
+        <button id="btn-hard" type="button">HARD DROP</button>
+      </div>
+      <p class="kbd-hint">keyboard: <b>WASD</b>/arrows move · <b>1 2 3</b> rotate 3D · <b>4 5 6</b> rotate 4D · <b>shift</b> soft-drop · <b>space</b> hard-drop · drag the tower to look around</p>
+    </div>
+  </div>
+
+  <div id="gameOverScreen" class="hidden">
+    <span class="band">tower complete</span>
+    <h1 class="wordmark" style="font-size:1.9rem">it fell.</h1>
+    <div class="card" style="text-align:center">
+      <div class="final-score" id="finalScore">0</div>
+      <div class="final-stats" id="finalStats"></div>
+    </div>
+    <img class="cardimg" id="cardPreview" alt="hypertower score card" />
+    <div class="row" id="shareRow">
+      <a class="btn" id="shareBluesky" target="_blank" rel="noopener">SHARE ON BLUESKY ▸</a>
+      <button class="ghost" id="downloadCard">DOWNLOAD CARD</button>
+    </div>
+    <div class="row" style="margin-top:0.6rem">
+      <button id="againBtn">BUILD ANOTHER TOWER</button>
+    </div>
+    <footer>hypertower &middot; a 4D tetris &middot; <a href="https://hypertower.bisks.net/">hypertower.bisks.net</a></footer>
+  </div>
+
+</div>
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+<script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="towerscene.js"></script>
+<script src="hypertower.js"></script>
+</body>
+</html>
