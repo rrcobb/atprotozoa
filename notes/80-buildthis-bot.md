@@ -40,10 +40,15 @@ The same Worker runs on a cron trigger (every minute or two). Each tick:
 4. Build the brief. The tagging post's text is the instruction. **If the tag was a
    reply** (someone wrote "@buildthis build this ☝️" under another post),
    `getPostThread` walks the ancestor chain and prepends those posts as context, so
-   "this" resolves to what it points at. The only bound is **10 ancestors** — each
-   is included in full (a Bluesky post is ~300 chars, so 10 is ~3k chars / <1k
-   tokens, not worth truncating). The tagging post keeps a 600-char sanity cap.
-   Thread fetch is best-effort; on failure the build proceeds on the tag alone.
+   "this" resolves to what it points at. The bound is **10 ancestors** — each
+   included in full (a Bluesky post is ~300 chars, so 10 is ~3k chars / <1k
+   tokens, not worth truncating) — plus the thread root when it sits above that
+   window. A post is rendered as its text plus a bracketed line per embed: quoted
+   post, link card, and image/video alt text. Any images in the thread are passed
+   to the builder as files it can open (`MAX_BRIEF_IMAGES`, default 4, downloaded
+   on the box). `MAX_BRIEF_CHARS` caps the *assembled* brief at 20k and cuts on a
+   word boundary with a visible marker. Thread fetch and image downloads are both
+   best-effort; on failure the build proceeds on what it has. See `notes/91`.
 5. **Like the tagging post** as a "working on it" acknowledgement, so the requester
    can see the bot picked up the tag while the build runs in the background. Guarded
    by a per-post `liked:` KV marker so a dispatch retry can't stack duplicate likes.

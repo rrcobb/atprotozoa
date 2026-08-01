@@ -129,16 +129,17 @@ commissioner.
 
 ## C2. Things the bot can't currently do (see `notes/91`)
 
-**18. Let the bot see more than plain text.**
-`threadContext()` extracts `record.text` only — images, image alt text, quote
-posts, link cards, video, and the root post (when the tag is deep) are all
-dropped. Alt text and quote posts are the cheap high-value fixes; actual image
-input needs the blob passed to the model.
+**18. Let the bot see more than plain text.** — **done 2026-08-01.**
+Was: `threadContext()` extracted `record.text` only. Now renders quote posts,
+link cards, and image/video alt text into the brief, fetches the thread root when
+the tag is deeper than the 10-ancestor window, and downloads the images for the
+builder to look at. Alt text was the one ranked cheap-and-high-value and turned
+out to be near-empty in practice (27 of 33 images); quote posts were the real
+win.
 
-**19. Raise or drop `MAX_BRIEF_CHARS`.**
-`slice(0, 600)` silently truncates the *instruction* mid-sentence while ancestors
-go in full. Never fires for a normal 300-grapheme post; only bites the long-form
-requests with the most detail to lose.
+**19. Raise or drop `MAX_BRIEF_CHARS`.** — **done 2026-08-01.**
+The cap now applies to the assembled brief at 20k rather than to the instruction
+at 600, and cuts on a word boundary with a visible `[truncated]` marker.
 
 **20. Do something about the ~20% partial rate.**
 73 "ran out of runway" vs 285 "built it" across the corpus. Partial work is
@@ -164,11 +165,10 @@ it, including unique trigrams (already solved by scan-then-verify).
 
 Everything above collapses into four groups, by what kind of work it is:
 
-**Thread 1 — builder input fixes** (#18, #19; `notes/91`)
-Things the bot structurally can't see. The 600-char cap, alt text, quote posts,
-link cards, then real images. Small, ordinary changes to existing code that fix
-active harm on every build. Highest value per unit effort, and the builder could
-plausibly do most of it if tagged.
+**Thread 1 — builder input fixes** (#18, #19; `notes/91`) — **done 2026-08-01.**
+Things the bot structurally couldn't see: the 600-char cap, alt text, quote
+posts, link cards, the thread root, and real images. All shipped; see the status
+header on `notes/91` for what the corpus revised along the way.
 
 **Thread 2 — the partial rate** (#20; `notes/91`)
 ~1 in 5 builds ends "tag me again." Preservation already works; the gap is the

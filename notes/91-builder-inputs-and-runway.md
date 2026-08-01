@@ -3,6 +3,30 @@
 Both raised by Rob 2026-07-31, both checked against the code and the tag corpus.
 Both are real. Neither needs new infrastructure.
 
+> **Status 2026-08-01: problem 1 is done, problem 2 is not.**
+>
+> Shipped in three commits — the brief cap, the text-bearing embeds, and image
+> input. What the bot now sees: quote posts, link cards, image/video alt text,
+> the thread root when the tag is deeper than the 10-ancestor window, and the
+> images themselves as files the builder opens.
+>
+> One thing below turned out to be wrong. This note ranks alt text as the
+> cheapest high-value fix; measured against 39 real tag threads it's the
+> *cheapest* but close to worthless — 27 of 33 images have `alt: ""`, and the
+> populated ones are mostly junk for our purposes ("asked anonymously 15m ago",
+> and bare digits from a poll image). Quote posts are the real win at 15 of 165
+> posts, link cards 5. And empty alt is the argument *for* passing pixels, not
+> against: if nobody writes a description, the image is the only one there is.
+>
+> Two bugs the corpus caught that reasoning alone hadn't: a quoted post's nested
+> embed is the raw record (blob refs) rather than a hydrated `#view` (CDN urls),
+> so quoted images need the url built from the quoted author's DID; and the CDN
+> answers a bad path with a 200-shaped error body, so a download without
+> `--fail` silently hands the builder a 27-byte text file named `.jpg`.
+>
+> Problem 2 (the ~20% partial rate) is untouched — it starts with the
+> measurement described below, against logs on the box.
+
 ## Problem 1: the bot sees almost nothing
 
 `threadContext()` in `sites/buildthis/src/index.ts` walks up to 10 ancestors and
