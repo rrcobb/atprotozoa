@@ -200,7 +200,7 @@ async function runWatcher(env: Env): Promise<void> {
     // prepend the ancestor posts so "build this ☝️" resolves to what it points at.
     // All treated as a feature description, not harness instructions.
     const ctx = await threadContext(session, m);
-    const brief = buildBrief(m.text, ctx.posts, num(env.MAX_BRIEF_CHARS));
+    const brief = buildBrief(m.text, ctx.posts, num(env.MAX_BRIEF_CHARS), m.isReply);
     const payload: BuildPayload = {
       brief,
       authorHandle: m.authorHandle,
@@ -1036,8 +1036,11 @@ async function recentMentions(session: Session): Promise<Mention[]> {
 // words alone (notes/91). Now quote posts, link cards, and image/video alt text
 // are rendered into the chain, and image refs are collected for the builder to
 // actually look at (see collectImages / BuildPayload.images).
+// Note this runs for a TOP-LEVEL tag too, not just a reply. There are no
+// ancestors to walk in that case, but the tagging post can still carry the
+// screenshot being pointed at ("@buildthis build this" + an image), and its own
+// embeds are only reachable through the hydrated view.
 async function threadContext(session: Session, m: Mention): Promise<ThreadContext> {
-  if (!m.isReply) return { posts: [], images: [] };
   const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
   u.searchParams.set("uri", m.uri);
   u.searchParams.set("parentHeight", "10"); // walk up to 10 ancestors
@@ -1067,8 +1070,14 @@ async function threadContext(session: Session, m: Mention): Promise<ThreadContex
     if (rendered) posts.push(rendered);
     collectImages(n.post, images);
   }
-  // The tagging post's own images (its text is already the instruction).
+  // The tagging post's own embeds. Its TEXT is already the instruction, so only
+  // the embeds are added — a quote or link card on the tag itself is context the
+  // instruction is pointing at, and its images are the thing being shown.
   collectImages(j.thread?.post, images);
+  const tagEmbeds = describeEmbed(j.thread?.post?.embed);
+  if (tagEmbeds.length) {
+    posts.push(`(attached to the post that tagged the bot)\n${tagEmbeds.map((p) => `  ${p}`).join("\n")}`);
+  }
 
   // The root, when the 10-ancestor walk didn't reach it: a deep tag otherwise
   // loses the post the whole thread is about.
@@ -1900,13 +1909,20 @@ function num(s: string): number {
 // mid-sentence (notes/91). Now it can only fire on a genuinely huge thread, and
 // when it does it cuts at a word boundary and says so, so the builder can tell
 // it's working from a fragment instead of reading a severed sentence as the ask.
-function buildBrief(tagText: string, ancestors: string[], max: number): string {
+function buildBrief(
+  tagText: string,
+  context: string[],
+  max: number,
+  isReply: boolean,
+): string {
   const ask = tagText.trim();
-  const assembled =
-    ancestors.length === 0
-      ? ask
-      : `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):\n${ancestors.join("\n").trim()}`;
-  return truncateWithMarker(assembled, max);
+  if (context.length === 0) return truncateWithMarker(ask, max);
+  // The framing differs: in a reply the context is the thread being pointed at;
+  // on a top-level tag it's whatever the tagging post itself carries.
+  const preamble = isReply
+    ? `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):`
+    : `The post that tagged the bot says:\n${ask}\n\nWhat that post carries with it (this is what it's pointing at):`;
+  return truncateWithMarker(`${preamble}\n${context.join("\n").trim()}`, max);
 }
 
 // Cut to `max` chars at a word boundary, appending a visible marker. Falls back to
