@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>commonplace — a tumblr-esque standard.site editor</title>
+<meta name="description" content="Write a quick post, pick which of your publications it goes to, publish straight to your own PDS as a site.standard.document record. No account but your own." />
+
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#c15b3f" />
+<link rel="icon" href="/icons/icon-192.png" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="commonplace — a tumblr-esque standard.site editor" />
+<meta property="og:description" content="Write a quick post, pick which of your publications it goes to, publish straight to your own PDS as a site.standard.document record." />
+<meta property="og:image" content="https://commonplace.bisks.net/og.png" />
+<meta property="og:url" content="https://commonplace.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<style>
+  :root {
+    --paper: #f6f1e6;
+    --paper-dim: #ece3d2;
+    --ink: #2b2420;
+    --ink-dim: #6b5e50;
+    --rust: #c15b3f;
+    --rust-dark: #9a4530;
+    --card: #fffaf0;
+    --border: #ddccae;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding-bottom: 4rem;
+  }
+  a { color: var(--rust-dark); }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 1.1rem; }
+
+  header.topbar {
+    border-bottom: 1px solid var(--border);
+    background: var(--paper-dim);
+  }
+  header.topbar .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-top: 0.9rem;
+    padding-bottom: 0.9rem;
+  }
+  .wordmark {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 1.5rem;
+    letter-spacing: 0.01em;
+  }
+  .wordmark small {
+    display: block;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 400;
+    color: var(--ink-dim);
+    letter-spacing: 0.02em;
+  }
+  .authbox { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+  .authbox .handle { font-family: var(--mono); font-size: 0.85rem; }
+
+  main { padding-top: 1.5rem; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem;
+    margin-bottom: 1.1rem;
+    box-shadow: 0 2px 0 rgba(43, 36, 32, 0.03);
+  }
+
+  h1.hero { font-family: var(--serif); font-size: 1.7rem; margin: 0 0 0.5rem; }
+  p.lede { color: var(--ink-dim); margin: 0 0 1rem; }
+  .spec-note {
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+    background: var(--paper-dim);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 0.8rem;
+    margin-top: 0.9rem;
+  }
+  .spec-note code { font-family: var(--mono); }
+
+  label { display: block; font-size: 0.82rem; color: var(--ink-dim); margin-bottom: 0.3rem; }
+  input[type="text"], input[type="url"], textarea {
+    width: 100%;
+    font-family: inherit;
+    font-size: 1rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #fff;
+    color: var(--ink);
+  }
+  input[type="text"]:focus, input[type="url"]:focus, textarea:focus {
+    outline: 2px solid var(--rust);
+    outline-offset: 1px;
+  }
+  .field { margin-bottom: 0.9rem; }
+
+  #title-input { font-family: var(--serif); font-size: 1.2rem; }
+  #body-input { min-height: 9rem; resize: vertical; font-size: 1.05rem; }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    padding: 0.55rem 1rem;
+    font-size: 0.92rem;
+  }
+  button.primary {
+    background: var(--rust);
+    color: #fff9f0;
+    border-color: var(--rust-dark);
+    font-weight: 600;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--ink);
+  }
+  button.tiny { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+
+  .row { display: flex; gap: 0.5rem; align-items: center; }
+  .row.wrap-items { flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+
+  .publist { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+  .pubitem {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #fff;
+  }
+  .pubitem input[type="checkbox"] { margin-top: 0.25rem; }
+  .pubitem .pname { font-weight: 600; }
+  .pubitem .purl { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-dim); word-break: break-all; }
+  .empty-note { color: var(--ink-dim); font-size: 0.88rem; font-style: italic; }
+
+  .newpub {
+    margin-top: 0.5rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed var(--border);
+  }
+  .newpub[hidden] { display: none; }
+
+  .tags-preview { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.4rem; }
+  .tag-chip {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    background: var(--paper-dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    color: var(--ink-dim);
+  }
+
+  .cover-preview {
+    max-width: 100%;
+    max-height: 12rem;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    margin-top: 0.5rem;
+    display: block;
+  }
+  #cover-file { display: none; }
+
+  .status-line { font-size: 0.85rem; margin-top: 0.6rem; min-height: 1.2em; }
+  .status-line.error { color: var(--rust-dark); }
+  .status-line.ok { color: #3d6b3d; }
+
+  .resultcard {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    margin-top: 0.5rem;
+    background: #fff;
+  }
+  .resultcard .pname { font-weight: 600; font-size: 0.92rem; }
+  .resultcard .links { margin-top: 0.35rem; display: flex; gap: 0.8rem; font-size: 0.85rem; flex-wrap: wrap; }
+
+  .doclist { display: flex; flex-direction: column; gap: 0.5rem; }
+  .docrow {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #fff;
+    font-size: 0.9rem;
+  }
+  .docrow .dtitle { font-family: var(--serif); }
+  .docrow .ddate { color: var(--ink-dim); font-size: 0.78rem; white-space: nowrap; }
+
+  footer.foot {
+    text-align: center;
+    color: var(--ink-dim);
+    font-size: 0.78rem;
+    margin-top: 2rem;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="wordmark">commonplace<small>a tumblr-esque standard.site editor</small></div>
+    <div class="authbox" id="authbox">
+      <!-- filled by script -->
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="intro" class="card">
+    <h1 class="hero">quick posts, straight to your PDS.</h1>
+    <p class="lede">
+      commonplace is a small tumblr-esque composer for
+      <a href="https://standard.site/" target="_blank" rel="noopener">standard.site</a> —
+      the shared publishing lexicons that Leaflet, pckt.blog and Offprint all speak.
+      Write something, pick which of your publications it belongs to, and it's
+      written as a <code>site.standard.document</code> record on your own repo.
+      No new account — just sign in with your existing atproto handle.
+    </p>
+    <div class="row" style="margin-top:0.9rem;">
+      <input type="text" id="signin-handle-intro" placeholder="yourhandle.bsky.social" style="flex:1;" />
+      <button class="primary" id="signin-btn-intro">sign in</button>
+    </div>
+    <div class="status-line" id="signin-status-intro"></div>
+  </section>
+
+  <section id="app" hidden>
+
+    <div class="card" id="pubs-card">
+      <div class="row spread">
+        <label style="margin:0;">post to</label>
+        <button class="ghost tiny" id="toggle-newpub">+ new publication</button>
+      </div>
+      <div class="publist" id="publist"></div>
+
+      <div class="newpub" id="newpub" hidden>
+        <div class="field">
+          <label for="newpub-name">publication name</label>
+          <input type="text" id="newpub-name" placeholder="e.g. Field Notes" />
+        </div>
+        <div class="field">
+          <label for="newpub-url">publication url</label>
+          <input type="url" id="newpub-url" placeholder="https://commonplace.bisks.net/pub/yourhandle" />
+        </div>
+        <div class="row">
+          <button class="primary tiny" id="create-pub-btn">create</button>
+          <button class="ghost tiny" id="cancel-newpub-btn">cancel</button>
+        </div>
+        <div class="status-line" id="newpub-status"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <label for="title-input">title <span style="font-weight:400;">(optional — we'll generate one if you leave it blank)</span></label>
+        <input type="text" id="title-input" placeholder="untitled" maxlength="500" />
+      </div>
+      <div class="field">
+        <label for="body-input">what's on your mind</label>
+        <textarea id="body-input" placeholder="write something worth keeping…"></textarea>
+      </div>
+      <div class="field">
+        <label for="tags-input">tags <span style="font-weight:400;">(comma-separated, no # needed)</span></label>
+        <input type="text" id="tags-input" placeholder="notes, today, half-formed thoughts" />
+        <div class="tags-preview" id="tags-preview"></div>
+      </div>
+      <div class="field">
+        <button type="button" class="ghost tiny" id="cover-btn">+ add a cover image</button>
+        <input type="file" id="cover-file" accept="image/*" />
+        <img id="cover-preview" class="cover-preview" hidden />
+        <div>
+          <button type="button" class="ghost tiny" id="cover-remove" hidden style="margin-top:0.4rem;">remove image</button>
+        </div>
+      </div>
+
+      <div class="row spread">
+        <span></span>
+        <button class="primary" id="publish-btn">publish</button>
+      </div>
+      <div class="status-line" id="publish-status"></div>
+
+      <div class="spec-note">
+        titles default to <code>sha256(did + unix-millis)</code> at publish time, per the
+        <code>site.standard.document</code> spec requiring a title. picking one or more
+        publications above creates one document record per publication, all sharing
+        this text.
+      </div>
+    </div>
+
+    <div class="card" id="results-card" hidden>
+      <label style="margin-bottom:0.5rem;">just published</label>
+      <div id="results-list"></div>
+    </div>
+
+    <div class="card" id="recent-card" hidden>
+      <label style="margin-bottom:0.5rem;">your recent posts</label>
+      <div class="doclist" id="recent-list"></div>
+    </div>
+
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span id="footer-note">a bisks.net experiment · writes to your own PDS, nothing else</span>
+  </div>
+</footer>
+
+<script type="module">
+import {
+  login,
+  completeLoginIfCallback,
+  getSession,
+  clearSession,
+  dpopFetch,
+} from "./lib/oauth.js";
+import { listRecords } from "./lib/atproto.js";
+import { uploadImage } from "./lib/blob.js";
+
+const $ = (sel) => document.querySelector(sel);
+
+const PUB_COLLECTION = "site.standard.publication";
+const DOC_COLLECTION = "site.standard.document";
+
+let session = null;
+let publications = []; // [{ uri, rkey, value }]
+let selectedUris = new Set();
+let coverFile = null;
+
+// --- small utils -------------------------------------------------------
+
+function esc(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function setStatus(el, msg, kind) {
+  el.textContent = msg || "";
+  el.className = "status-line" + (kind ? ` ${kind}` : "");
+}
+
+async function sha256Hex(input) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function slugify(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function parseTags(raw) {
+  return (raw || "")
+    .split(",")
+    .map((t) => t.trim().replace(/^#/, ""))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function excerpt(text, max = 140) {
+  const flat = String(text || "").replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, max - 1).trimEnd() + "…";
+}
+
+// --- auth UI -------------------------------------------------------------
+
+function renderAuthbox() {
+  const box = $("#authbox");
+  if (session) {
+    box.innerHTML = `
+      <span class="handle">@${esc(session.handle)}</span>
+      <button class="ghost tiny" id="signout-btn">sign out</button>
+    `;
+    $("#signout-btn").addEventListener("click", async () => {
+      await clearSession();
+      session = null;
+      location.reload();
+    });
+  } else {
+    box.innerHTML = "";
+  }
+}
+
+async function doSignIn(handleInputEl, statusEl) {
+  const handle = handleInputEl.value.trim().replace(/^@/, "");
+  if (!handle) return;
+  setStatus(statusEl, "redirecting to your PDS…");
+  try {
+    await login(handle);
+  } catch (e) {
+    setStatus(statusEl, `couldn't sign in: ${e.message}`, "error");
+  }
+}
+
+$("#signin-btn-intro").addEventListener("click", () =>
+  doSignIn($("#signin-handle-intro"), $("#signin-status-intro")),
+);
+$("#signin-handle-intro").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#signin-btn-intro").click();
+});
+
+// --- publications ----------------------------------------------------------
+
+function renderPublist() {
+  const el = $("#publist");
+  if (!publications.length) {
+    el.innerHTML = `<p class="empty-note">no publications yet — create one below to get started.</p>`;
+    return;
+  }
+  el.innerHTML = publications
+    .map((p) => {
+      const checked = selectedUris.has(p.uri) ? "checked" : "";
+      return `
+      <label class="pubitem">
+        <input type="checkbox" data-uri="${esc(p.uri)}" ${checked} />
+        <span>
+          <span class="pname">${esc(p.value.name || "(untitled publication)")}</span><br/>
+          <span class="purl">${esc(p.value.url || "")}</span>
+        </span>
+      </label>`;
+    })
+    .join("");
+  el.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedUris.add(cb.dataset.uri);
+      else selectedUris.delete(cb.dataset.uri);
+    });
+  });
+}
+
+async function loadPublications() {
+  const records = await listRecords(session.pdsUrl, session.did, PUB_COLLECTION);
+  publications = records.map((r) => ({
+    uri: r.uri,
+    rkey: r.uri.split("/").pop(),
+    value: r.value,
+  }));
+  selectedUris = new Set(publications.map((p) => p.uri)); // default: post to all of them
+  renderPublist();
+}
+
+$("#toggle-newpub").addEventListener("click", () => {
+  const box = $("#newpub");
+  box.hidden = !box.hidden;
+  if (!box.hidden && !$("#newpub-url").value) {
+    $("#newpub-url").value = `https://commonplace.bisks.net/pub/${session.handle}`;
+  }
+});
+$("#cancel-newpub-btn").addEventListener("click", () => {
+  $("#newpub").hidden = true;
+});
+
+$("#create-pub-btn").addEventListener("click", async () => {
+  const name = $("#newpub-name").value.trim();
+  const url = $("#newpub-url").value.trim();
+  const statusEl = $("#newpub-status");
+  if (!name || !url) {
+    setStatus(statusEl, "name and url are both required.", "error");
+    return;
+  }
+  setStatus(statusEl, "creating…");
+  try {
+    const record = { $type: PUB_COLLECTION, url, name };
+    const base = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: PUB_COLLECTION, record }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const j = await res.json();
+    publications.push({ uri: j.uri, rkey: j.uri.split("/").pop(), value: record });
+    selectedUris.add(j.uri);
+    renderPublist();
+    $("#newpub-name").value = "";
+    $("#newpub-url").value = "";
+    $("#newpub").hidden = true;
+    setStatus(statusEl, "");
+  } catch (e) {
+    setStatus(statusEl, `couldn't create that: ${e.message}`, "error");
+  }
+});
+
+// --- tags + cover image ----------------------------------------------------
+
+$("#tags-input").addEventListener("input", () => {
+  const tags = parseTags($("#tags-input").value);
+  $("#tags-preview").innerHTML = tags
+    .map((t) => `<span class="tag-chip">${esc(t)}</span>`)
+    .join("");
+});
+
+$("#cover-btn").addEventListener("click", () => $("#cover-file").click());
+$("#cover-file").addEventListener("change", () => {
+  const file = $("#cover-file").files[0];
+  if (!file) return;
+  coverFile = file;
+  const url = URL.createObjectURL(file);
+  const img = $("#cover-preview");
+  img.src = url;
+  img.hidden = false;
+  $("#cover-remove").hidden = false;
+});
+$("#cover-remove").addEventListener("click", () => {
+  coverFile = null;
+  $("#cover-file").value = "";
+  $("#cover-preview").hidden = true;
+  $("#cover-remove").hidden = true;
+});
+
+// --- publish ----------------------------------------------------------------
+
+$("#publish-btn").addEventListener("click", publish);
+
+async function publish() {
+  const statusEl = $("#publish-status");
+  const body = $("#body-input").value.trim();
+  if (!body) {
+    setStatus(statusEl, "write something first.", "error");
+    return;
+  }
+  if (!selectedUris.size) {
+    setStatus(statusEl, "pick at least one publication to post to.", "error");
+    return;
+  }
+
+  const btn = $("#publish-btn");
+  btn.disabled = true;
+  setStatus(statusEl, "publishing…");
+
+  try {
+    const millis = Date.now();
+    const rawTitle = $("#title-input").value.trim();
+    const title = rawTitle || (await sha256Hex(`${session.did}:${millis}`));
+    const path = "/" + (slugify(rawTitle) || (await sha256Hex(`${session.did}:${millis}`)).slice(0, 16));
+    const publishedAt = new Date(millis).toISOString();
+    const tags = parseTags($("#tags-input").value);
+    const description = excerpt(body);
+
+    let coverImage = null;
+    if (coverFile) {
+      setStatus(statusEl, "uploading cover image…");
+      const bytes = new Uint8Array(await coverFile.arrayBuffer());
+      coverImage = await uploadImage(session, bytes, coverFile.type || "image/jpeg");
+    }
+
+    const targets = publications.filter((p) => selectedUris.has(p.uri));
+    const created = [];
+    const base = session.pdsUrl.replace(/\/$/, "");
+
+    for (const pub of targets) {
+      setStatus(statusEl, `publishing to "${pub.value.name}"…`);
+      const record = {
+        $type: DOC_COLLECTION,
+        site: pub.uri,
+        title,
+        path,
+        description,
+        publishedAt,
+        textContent: body,
+      };
+      if (tags.length) record.tags = tags;
+      if (coverImage) record.coverImage = coverImage;
+
+      const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: session.did, collection: DOC_COLLECTION, record }),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const j = await res.json();
+      created.push({ pub, rkey: j.uri.split("/").pop(), uri: j.uri, title, path });
+    }
+
+    renderResults(created);
+    setStatus(statusEl, `published to ${created.length} publication${created.length === 1 ? "" : "s"}.`, "ok");
+
+    $("#title-input").value = "";
+    $("#body-input").value = "";
+    $("#tags-input").value = "";
+    $("#tags-preview").innerHTML = "";
+    coverFile = null;
+    $("#cover-file").value = "";
+    $("#cover-preview").hidden = true;
+    $("#cover-remove").hidden = true;
+
+    loadRecentDocs();
+  } catch (e) {
+    setStatus(statusEl, `publish failed: ${e.message}`, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResults(created) {
+  const card = $("#results-card");
+  const list = $("#results-list");
+  card.hidden = false;
+  list.innerHTML = created
+    .map(({ pub, rkey, title }) => {
+      const readUrl = `https://commonplace.bisks.net/read/${encodeURIComponent(session.did)}/${encodeURIComponent(rkey)}`;
+      const shareText = `${title} — ${readUrl}`;
+      const shareUrl = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}`;
+      return `
+      <div class="resultcard">
+        <div class="pname">${esc(pub.value.name || "(untitled publication)")}</div>
+        <div class="links">
+          <a href="${esc(readUrl)}" target="_blank" rel="noopener">view</a>
+          <a href="${esc(shareUrl)}" target="_blank" rel="noopener">share to bluesky</a>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+// --- recent posts ------------------------------------------------------------
+
+async function loadRecentDocs() {
+  try {
+    const records = await listRecords(session.pdsUrl, session.did, DOC_COLLECTION, 2);
+    if (!records.length) return;
+    const recent = records
+      .slice()
+      .sort((a, b) => new Date(b.value.publishedAt || 0) - new Date(a.value.publishedAt || 0))
+      .slice(0, 12);
+    $("#recent-card").hidden = false;
+    $("#recent-list").innerHTML = recent
+      .map((r) => {
+        const rkey = r.uri.split("/").pop();
+        const readUrl = `/read/${encodeURIComponent(session.did)}/${encodeURIComponent(rkey)}`;
+        const date = r.value.publishedAt ? new Date(r.value.publishedAt).toLocaleDateString() : "";
+        return `
+        <a class="docrow" href="${esc(readUrl)}">
+          <span class="dtitle">${esc(r.value.title || "untitled")}</span>
+          <span class="ddate">${esc(date)}</span>
+        </a>`;
+      })
+      .join("");
+  } catch {
+    // not fatal — the composer still works without the recent-posts list
+  }
+}
+
+// --- boot --------------------------------------------------------------------
+
+async function boot() {
+  try {
+    const fromCallback = await completeLoginIfCallback();
+    session = fromCallback || (await getSession());
+  } catch (e) {
+    session = await getSession();
+    console.warn("oauth callback error:", e.message);
+  }
+
+  renderAuthbox();
+
+  if (session) {
+    $("#intro").hidden = true;
+    $("#app").hidden = false;
+    try {
+      await loadPublications();
+      await loadRecentDocs();
+    } catch (e) {
+      setStatus($("#publish-status"), `couldn't load your publications: ${e.message}`, "error");
+    }
+  } else {
+    $("#intro").hidden = false;
+    $("#app").hidden = true;
+  }
+}
+
+boot();
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
+
+</body>
+</html>
