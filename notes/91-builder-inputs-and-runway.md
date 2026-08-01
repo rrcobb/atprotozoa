@@ -32,6 +32,13 @@ Both are real. Neither needs new infrastructure.
 > `depth: 0` keeps the response small, and a branch's replies are usually noise
 > rather than the referent.
 >
+> **One deploy step is manual.** `box-build.sh` re-syncs the checkout at the top
+> of every build, so its half of this ships by itself. `box-poll.sh` does not —
+> it's the long-running systemd unit, and it's where `BRIEF_IMAGES` is read off
+> the job. Images don't reach a build until the box runs
+> `sudo systemctl restart buildthis-poll`. Everything else (the cap, quotes,
+> link cards, alt text, the root) is worker-side and live on deploy.
+>
 > Problem 2 (the ~20% partial rate) is untouched — it starts with the
 > measurement described below, against logs on the box.
 
