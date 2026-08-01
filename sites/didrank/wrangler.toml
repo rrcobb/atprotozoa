@@ -1,0 +1,34 @@
+name = "atprotozoa-didrank"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @fromthewestmeadow.com asked for a live leaderboard of the most-frequently-
+# seen Bluesky DIDs, broken out by rolling window (1m, 5m, 1h, 12h, 24h, 7d,
+# 30d, 182d, 365d, all-time). One Durable Object watches Jetstream for
+# app.bsky.feed.post creates, closes out per-minute buckets (kept 25h) and
+# per-day rollups (kept forever, small — capped top-N per bucket) — same
+# "one DO holds the rolling state off the firehose" shape as sites/mootstream's
+# ActivityTracker (this site's lineage) and sites/ratioed's RatioTracker before
+# that. Long windows are computed live from the stored day buckets, so weekly/
+# monthly/etc. genuinely fill in as real time passes rather than being faked.
+#
+# Brand-new site — served at the root of its own hostname, no bisks.net/<name>
+# path route and no prefix-stripping needed. See notes/40-new-site-playbook.md.
+routes = [
+  { pattern = "didrank.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "TRACKER"
+class_name = "DidTracker"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers Paid;
+# this account is on Free. See sites/the-place/wrangler.toml for the story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DidTracker"]

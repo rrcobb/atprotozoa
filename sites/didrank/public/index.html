@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>didrank — the most-seen Bluesky DIDs, live</title>
+    <meta
+      name="description"
+      content="A live leaderboard of the Bluesky accounts posting most often, over rolling windows from the last minute out to all-time. Watches the Jetstream firehose directly — no canned data."
+    />
+    <meta property="og:title" content="didrank — the most-seen Bluesky DIDs, live" />
+    <meta
+      property="og:description"
+      content="Which DIDs post the most, right now? Live leaderboard over 1m/5m/1h/12h/24h/7d/30d/182d/365d/all-time, straight off the Jetstream firehose."
+    />
+    <meta property="og:image" content="https://didrank.bisks.net/og.png" />
+    <meta property="og:url" content="https://didrank.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08090c;
+        --panel: #101319;
+        --panel-2: #151a22;
+        --border: rgba(140, 170, 220, 0.14);
+        --fg: #eef2f7;
+        --dim: #8892a0;
+        --accent: #6fe3c4;
+        --accent-2: #ff9d6f;
+        --warn: #ffcf6f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+      }
+      body {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: var(--fg);
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 16px 64px;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      header h1 {
+        font-size: 28px;
+        margin: 0 0 6px;
+        letter-spacing: -0.02em;
+      }
+      header h1 span {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      header p {
+        margin: 0 0 18px;
+        color: var(--dim);
+        font-size: 14px;
+        line-height: 1.5;
+        max-width: 60ch;
+      }
+      .metastrip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 18px;
+        font-size: 12px;
+        color: var(--dim);
+        margin-bottom: 20px;
+      }
+      .metastrip b {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #555;
+        margin-right: 5px;
+      }
+      .dot.live {
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      .tabgroup {
+        margin-bottom: 8px;
+      }
+      .tabgroup .label {
+        font-size: 11px;
+        color: var(--dim);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0 0 6px;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 16px;
+      }
+      .tab {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--dim);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .tab:hover {
+        color: var(--fg);
+      }
+      .tab.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #06110d;
+        font-weight: 700;
+      }
+
+      .banner {
+        display: none;
+        background: rgba(255, 207, 111, 0.08);
+        border: 1px solid rgba(255, 207, 111, 0.35);
+        color: var(--warn);
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 12px 14px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+      }
+      .banner.show {
+        display: block;
+      }
+      .banner b {
+        color: #ffe3a8;
+      }
+
+      .board {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+      }
+      .row:last-child {
+        border-bottom: none;
+      }
+      .row .bar {
+        position: absolute;
+        inset: 0;
+        right: auto;
+        background: linear-gradient(90deg, rgba(111, 227, 196, 0.12), rgba(111, 227, 196, 0));
+        z-index: 0;
+      }
+      .row > * {
+        position: relative;
+        z-index: 1;
+      }
+      .rank {
+        width: 26px;
+        flex: none;
+        text-align: right;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      .rank.top1 {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--panel-2);
+        flex: none;
+        object-fit: cover;
+        border: 1px solid var(--border);
+      }
+      .who {
+        flex: 1;
+        min-width: 0;
+      }
+      .who .name {
+        font-size: 14px;
+        color: var(--fg);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+      }
+      .who .name:hover {
+        color: var(--accent);
+      }
+      .who .did {
+        font-size: 11px;
+        color: var(--dim);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+        max-width: 100%;
+      }
+      .who .did:hover {
+        color: var(--accent-2);
+        text-decoration: underline;
+      }
+      .count {
+        flex: none;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--accent);
+        text-align: right;
+        min-width: 3.5em;
+      }
+      .count small {
+        display: block;
+        font-weight: 400;
+        color: var(--dim);
+        font-size: 10px;
+      }
+
+      .empty {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--dim);
+        font-size: 13px;
+      }
+
+      footer {
+        margin-top: 22px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        text-decoration: none;
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 10px;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      footer .about {
+        color: var(--dim);
+        font-size: 12px;
+        margin: 12px 0 0;
+        line-height: 1.6;
+      }
+      footer .about a {
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1><span>did</span>rank</h1>
+        <p>
+          The Bluesky accounts posting most often, ranked live off the Jetstream firehose —
+          ranked by <code>app.bsky.feed.post</code> creates, not likes or reposts. Pick a window.
+        </p>
+        <div class="metastrip">
+          <span><span class="dot" id="liveDot"></span><b id="connState">connecting…</b></span>
+          <span>tracking since <b id="trackingSince">—</b></span>
+          <span><b id="totalSeen">—</b> posts counted</span>
+        </div>
+      </header>
+
+      <div class="tabgroup">
+        <p class="label">short windows</p>
+        <div class="tabs" id="shortTabs"></div>
+        <p class="label">long windows</p>
+        <div class="tabs" id="longTabs"></div>
+      </div>
+
+      <div class="banner" id="banner"></div>
+
+      <div class="board" id="board">
+        <div class="empty">loading…</div>
+      </div>
+
+      <footer>
+        <a class="btn" id="shareBtn" target="_blank" rel="noopener">share this leaderboard →</a>
+        <a class="btn" href="https://bsky.app" target="_blank" rel="noopener">open Bluesky</a>
+        <p class="about">
+          built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+          for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>
+          — one Durable Object watching Jetstream, no historical import: everything you see was counted after
+          this page's tracker first came online. Longer windows fill in honestly as real time passes.
+        </p>
+      </footer>
+    </main>
+
+    <script>
+      // Client keeps its own copy of the window list/labels — same "copy, don't
+      // abstract, even within a site" pattern as sibling sites (e.g. mootstream's
+      // REGIONS). Keep in sync with WINDOWS in src/index.ts by hand.
+      const WINDOWS = [
+        { key: "1m", label: "1m", ms: 60 * 1000, group: "short" },
+        { key: "5m", label: "5m", ms: 5 * 60 * 1000, group: "short" },
+        { key: "1h", label: "1h", ms: 60 * 60 * 1000, group: "short" },
+        { key: "12h", label: "12h", ms: 12 * 60 * 60 * 1000, group: "short" },
+        { key: "24h", label: "24h", ms: 24 * 60 * 60 * 1000, group: "short" },
+        { key: "7d", label: "weekly", ms: 7 * 86400000, group: "long" },
+        { key: "30d", label: "monthly", ms: 30 * 86400000, group: "long" },
+        { key: "182d", label: "6 months", ms: 182 * 86400000, group: "long" },
+        { key: "365d", label: "yearly", ms: 365 * 86400000, group: "long" },
+        { key: "all", label: "all time", ms: Infinity, group: "long" },
+      ];
+
+      const $ = (id) => document.getElementById(id);
+      const shortTabs = $("shortTabs");
+      const longTabs = $("longTabs");
+      const board = $("board");
+      const banner = $("banner");
+
+      let activeWindow = localStorage.getItem("didrank:window") || "1h";
+      if (!WINDOWS.some((w) => w.key === activeWindow)) activeWindow = "1h";
+
+      function renderTabs() {
+        for (const [group, el] of [["short", shortTabs], ["long", longTabs]]) {
+          el.innerHTML = "";
+          for (const w of WINDOWS.filter((w) => w.group === group)) {
+            const b = document.createElement("button");
+            b.className = "tab" + (w.key === activeWindow ? " active" : "");
+            b.textContent = w.label;
+            b.addEventListener("click", () => {
+              activeWindow = w.key;
+              localStorage.setItem("didrank:window", activeWindow);
+              renderTabs();
+              load();
+            });
+            el.appendChild(b);
+          }
+        }
+      }
+
+      function fmtDuration(ms) {
+        if (!isFinite(ms)) return "forever";
+        const s = ms / 1000;
+        if (s < 3600) return Math.round(s / 60) + "m";
+        if (s < 86400) return Math.round(s / 3600) + "h";
+        return Math.round(s / 86400) + "d";
+      }
+
+      function fmtDate(ts) {
+        if (!ts) return "—";
+        const d = new Date(ts);
+        return d.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c]));
+      }
+
+      let meta = null;
+      let lastTop = null;
+
+      async function loadMeta() {
+        try {
+          const res = await fetch("/api/meta");
+          meta = await res.json();
+          $("connState").textContent = meta.connected ? "live" : "reconnecting…";
+          $("liveDot").classList.toggle("live", !!meta.connected);
+          $("trackingSince").textContent = fmtDate(meta.trackingStartedAt);
+          $("totalSeen").textContent = meta.totalSeen.toLocaleString();
+        } catch {
+          $("connState").textContent = "offline";
+          $("liveDot").classList.remove("live");
+        }
+      }
+
+      async function load() {
+        const w = WINDOWS.find((w) => w.key === activeWindow);
+        try {
+          const res = await fetch(`/api/top?window=${encodeURIComponent(activeWindow)}&limit=25`);
+          const data = await res.json();
+          lastTop = data;
+          renderBanner(data, w);
+          renderBoard(data);
+        } catch {
+          board.innerHTML = '<div class="empty">couldn\'t load the leaderboard — retrying…</div>';
+        }
+      }
+
+      function renderBanner(data, w) {
+        if (data.fullyCovered) {
+          banner.classList.remove("show");
+          return;
+        }
+        const collectedFor = fmtDuration(data.coverageMs);
+        const needed = fmtDuration(data.windowMs);
+        banner.innerHTML =
+          `<b>still filling in.</b> didrank started tracking on ${fmtDate(data.trackingStartedAt)} — ` +
+          `that's ${collectedFor} of history so far, short of the full ${needed} this window covers. ` +
+          `The ranking below is real, just over a partial window; it'll cover the full ${w.label} span once enough time has passed.`;
+        banner.classList.add("show");
+      }
+
+      function renderBoard(data) {
+        if (!data.entries || !data.entries.length) {
+          board.innerHTML = '<div class="empty">no posts counted in this window yet — check back shortly.</div>';
+          return;
+        }
+        const max = data.entries[0].count || 1;
+        board.innerHTML = data.entries
+          .map((e, i) => {
+            const rank = i + 1;
+            const name = e.displayName || e.handle || e.did;
+            const profileUrl = `https://bsky.app/profile/${encodeURIComponent(e.did)}`;
+            const pct = Math.max(4, Math.round((e.count / max) * 100));
+            const avatar = e.avatar
+              ? `<img class="avatar" src="${escapeHtml(e.avatar)}" alt="" loading="lazy" />`
+              : `<span class="avatar"></span>`;
+            return `<div class="row">
+              <div class="bar" style="width:${pct}%"></div>
+              <span class="rank${rank === 1 ? " top1" : ""}">${rank}</span>
+              ${avatar}
+              <span class="who">
+                <a class="name" href="${profileUrl}" target="_blank" rel="noopener">${escapeHtml(name)}</a>
+                <a class="did" href="${profileUrl}" target="_blank" rel="noopener">${escapeHtml(e.did)}</a>
+              </span>
+              <span class="count">${e.count.toLocaleString()}<small>posts</small></span>
+            </div>`;
+          })
+          .join("");
+      }
+
+      function updateShare() {
+        const w = WINDOWS.find((w) => w.key === activeWindow);
+        let text = `most-posting Bluesky accounts right now (${w.label}), live on didrank`;
+        if (lastTop && lastTop.entries && lastTop.entries.length) {
+          const top = lastTop.entries[0];
+          const who = top.handle ? "@" + top.handle : top.did;
+          text = `${who} is posting the most on Bluesky right now (${w.label} window) — ${top.count} posts. live leaderboard:`;
+        }
+        text += " https://didrank.bisks.net/";
+        $("shareBtn").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      renderTabs();
+      loadMeta();
+      load().then(updateShare);
+      setInterval(loadMeta, 20000);
+      setInterval(() => load().then(updateShare), 20000);
+    </script>
+  </body>
+</html>
