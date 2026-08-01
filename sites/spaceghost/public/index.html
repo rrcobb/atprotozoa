@@ -204,6 +204,53 @@
   }
   body.gl-active .viewport-hint { opacity: 1; }
 
+  /* fullscreen "look around the set" mode — fades the UI out of the way so
+     the 3D scene (drag/touch to orbit from your chair) is unobstructed */
+  .look-toggle {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 6;
+    display: none;
+    background: rgba(20, 10, 36, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    border-radius: 999px;
+    padding: 0.6rem 1rem;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+  }
+  .look-toggle:hover { border-color: var(--accent2); }
+  body.gl-active .look-toggle { display: inline-block; }
+  body.looking .look-toggle { bottom: auto; top: 1rem; }
+
+  .look-hint {
+    position: fixed;
+    left: 50%;
+    bottom: 1.35rem;
+    transform: translateX(-50%);
+    z-index: 6;
+    margin: 0;
+    color: var(--dim);
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    background: rgba(5, 1, 12, 0.55);
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  body.looking .look-hint { opacity: 1; }
+  body.looking .wrap { opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+  body.looking #glScene { touch-action: none; cursor: grab; }
+  body.looking #glScene:active { cursor: grabbing; }
+
   /* reserves clear screen space above the transcript so the 3D set (console,
      Space Ghost, Zorak's cage, Moltar's screen) is actually visible instead
      of sitting entirely behind text cards */
@@ -214,6 +261,8 @@
 <body>
 <canvas id="glScene"></canvas>
 <div class="vignette"></div>
+<button id="lookToggle" class="look-toggle" type="button">👀 LOOK AROUND THE SET</button>
+<p id="lookHint" class="look-hint">drag or swipe to look around · tap the button to go back</p>
 <div class="wrap" id="app"></div>
 <canvas id="shareCanvas" width="1200" height="630"></canvas>
 <script type="importmap">
@@ -367,6 +416,22 @@
     return Object.keys(table)[0];
   }
 
+  // ---- "look around the set" toggle (fullscreen 3D, fades the UI away) ----
+  var lookToggle = document.getElementById("lookToggle");
+  if (lookToggle) {
+    lookToggle.addEventListener("click", function () {
+      var scene = window.SpaceGhostScene;
+      if (!scene || !scene.enterLook) return;
+      if (scene.isLookActive && scene.isLookActive()) {
+        scene.exitLook();
+        lookToggle.textContent = "👀 LOOK AROUND THE SET";
+      } else {
+        scene.enterLook();
+        lookToggle.textContent = "✕ BACK TO THE SHOW";
+      }
+    });
+  }
+
   // ---- state ----
   var state = {
     screen: "title",
@@ -394,7 +459,7 @@
       '<span class="band">bisks.net presents</span>' +
       '<h1 class="wordmark">SPACE GHOST<br>COAST TO COAST</h1>' +
       '<p class="sub">Best website of the year 1998. Tonight: you. You’re strapped into the guest chair on Space Ghost’s ship, live, in 3D — the console in front of you, Zorak caged to one side, Moltar’s screen flickering on the other, the ghost planet drifting outside the window. He will not really listen. Zorak will heckle. Moltar may light something on fire. Coast to coast, to coast.</p>' +
-      '<p class="viewport-hint">(that’s the actual set above — move your mouse, or tilt your phone, to look around)</p>' +
+      '<p class="viewport-hint">(that’s the actual set above — move your mouse to peek around, or hit “look around the set” for the full unobstructed 3D view)</p>' +
       '<button id="start">GET IN THE CHAIR ▸</button>' +
       '<footer>a simulator, not a broadcast. no relation to anything real. by @buildthis, asked for by @ver.ooo.</footer>';
     document.getElementById("start").onclick = function () {

@@ -415,17 +415,60 @@ import * as THREE from "three";
     addPulseTarget("brak", body, 0xff7fd8, 0xffffff);
   })();
 
-  window.SpaceGhostScene = {
-    speak: function (cls) {
-      var ch = characters[cls];
-      if (ch) ch.pulse = 1;
-    }
-  };
-
   // ---- cockpit-window parallax: mouse / touch / gyro nudges the camera ----
   var target = { x: 0, y: 0 };
   var current = { x: 0, y: 0 };
   var baseTiltX = -0.05;
+
+  // ---- "look around the set" mode: drag/touch to freely orbit from your chair ----
+  var look = { active: false, dragging: false, yaw: 0, pitch: 0, lastX: 0, lastY: 0 };
+  var baseFov = camera.fov, lookFov = 78;
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  canvas.addEventListener("pointerdown", function (e) {
+    if (!look.active) return;
+    look.dragging = true;
+    look.lastX = e.clientX;
+    look.lastY = e.clientY;
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!look.active || !look.dragging) return;
+    var dx = e.clientX - look.lastX;
+    var dy = e.clientY - look.lastY;
+    look.lastX = e.clientX;
+    look.lastY = e.clientY;
+    look.yaw -= dx * 0.0045;
+    look.pitch = clamp(look.pitch + dy * 0.0045, -0.85, 0.85);
+  });
+  function endLookDrag() { look.dragging = false; }
+  canvas.addEventListener("pointerup", endLookDrag);
+  canvas.addEventListener("pointercancel", endLookDrag);
+  canvas.addEventListener("pointerleave", endLookDrag);
+
+  window.SpaceGhostScene = {
+    speak: function (cls) {
+      var ch = characters[cls];
+      if (ch) ch.pulse = 1;
+    },
+    enterLook: function () {
+      look.yaw = current.x;
+      look.pitch = current.y;
+      look.active = true;
+      document.body.classList.add("looking");
+      camera.fov = lookFov;
+      camera.updateProjectionMatrix();
+    },
+    exitLook: function () {
+      look.active = false;
+      look.dragging = false;
+      document.body.classList.remove("looking");
+      camera.fov = baseFov;
+      camera.updateProjectionMatrix();
+    },
+    isLookActive: function () { return look.active; }
+  };
 
   function onPointer(nx, ny) {
     target.x = nx * 0.3;
@@ -503,11 +546,16 @@ import * as THREE from "three";
       paintMoltarScreen(0.2 + moltarPulse);
     }
 
-    current.x += (target.x - current.x) * 0.04;
-    current.y += (target.y - current.y) * 0.04;
-    camera.rotation.y = -current.x;
-    camera.rotation.x = baseTiltX - current.y;
-    camera.rotation.y += Math.sin(drift * 0.05) * 0.015;
+    if (look.active) {
+      camera.rotation.y = -look.yaw;
+      camera.rotation.x = baseTiltX - look.pitch;
+    } else {
+      current.x += (target.x - current.x) * 0.04;
+      current.y += (target.y - current.y) * 0.04;
+      camera.rotation.y = -current.x;
+      camera.rotation.x = baseTiltX - current.y;
+      camera.rotation.y += Math.sin(drift * 0.05) * 0.015;
+    }
 
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
