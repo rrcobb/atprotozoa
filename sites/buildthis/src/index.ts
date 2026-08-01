@@ -198,8 +198,8 @@ async function runWatcher(env: Env): Promise<void> {
     // ceiling). The brief is the tagging post's text; if the tag was a reply, we
     // prepend the ancestor posts so "build this ☝️" resolves to what it points at.
     // All treated as a feature description, not harness instructions.
-    const ancestors = await threadContext(session, m);
-    const brief = buildBrief(m.text, ancestors, num(env.MAX_BRIEF_CHARS));
+    const ctx = await threadContext(session, m);
+    const brief = buildBrief(m.text, ctx.posts, num(env.MAX_BRIEF_CHARS));
     const payload: BuildPayload = {
       brief,
       authorHandle: m.authorHandle,
@@ -1025,11 +1025,17 @@ async function recentMentions(session: Session): Promise<Mention[]> {
 }
 
 // When the mention is a reply, walk the thread's ancestor chain (root -> ... ->
-// the post being replied to) and return their text, oldest first, so the build
+// the post being replied to) and render each post, oldest first, so the build
 // brief can include what "this" / "☝️" points at. Best-effort: on any failure we
-// return [] and the build just proceeds on the mention text alone.
-async function threadContext(session: Session, m: Mention): Promise<string[]> {
-  if (!m.isReply) return [];
+// return an empty result and the build proceeds on the mention text alone.
+//
+// A post is more than its text. We used to read record.text and drop everything
+// else, so "build this ☝️" under a screenshot reached the builder as the four
+// words alone (notes/91). Now quote posts, link cards, and image/video alt text
+// are rendered into the chain, and image refs are collected for the builder to
+// actually look at (see collectImages / BuildPayload.images).
+async function threadContext(session: Session, m: Mention): Promise<ThreadContext> {
+  if (!m.isReply) return { posts: [], images: [] };
   const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
   u.searchParams.set("uri", m.uri);
   u.searchParams.set("parentHeight", "10"); // walk up to 10 ancestors
@@ -1037,27 +1043,215 @@ async function threadContext(session: Session, m: Mention): Promise<string[]> {
   const res = await fetch(u.toString(), {
     headers: { authorization: `Bearer ${session.accessJwt}` },
   });
-  if (!res.ok) return [];
+  if (!res.ok) return { posts: [], images: [] };
   const j = (await res.json()) as { thread?: ThreadNode };
 
-  // Collect ancestors newest->oldest by following .parent, then reverse.
-  const chain: string[] = [];
+  // Collect ancestors newest->oldest by following .parent, then reverse. The
+  // tagging post itself is j.thread — its own embeds matter too (someone can tag
+  // the bot on a post that carries the screenshot), so it's rendered separately
+  // by the caller but its images are collected here.
+  const nodes: ThreadNode[] = [];
   let node = j.thread?.parent;
   while (node?.post) {
-    const handle = node.post.author?.handle ?? "someone";
-    const text = (node.post.record?.text ?? "").trim();
-    if (text) chain.push(`@${handle}: ${text}`);
+    nodes.push(node);
     node = node.parent;
   }
-  return chain.reverse();
+  nodes.reverse();
+
+  const posts: string[] = [];
+  const images: ImageRef[] = [];
+  for (const n of nodes) {
+    const rendered = renderPost(n.post);
+    if (rendered) posts.push(rendered);
+    collectImages(n.post, images);
+  }
+  // The tagging post's own images (its text is already the instruction).
+  collectImages(j.thread?.post, images);
+
+  // The root, when the 10-ancestor walk didn't reach it: a deep tag otherwise
+  // loses the post the whole thread is about.
+  const rootUri = m.rootUri;
+  const haveRoot = nodes.some((n) => n.post?.uri === rootUri) || j.thread?.post?.uri === rootUri;
+  if (!haveRoot && rootUri) {
+    const root = await fetchRootPost(session, rootUri);
+    if (root) {
+      const rendered = renderPost(root);
+      if (rendered) posts.unshift(`${rendered}\n(the thread's root post)`);
+      collectImages(root, images);
+    }
+  }
+
+  return { posts, images: dedupeImages(images) };
+}
+
+// Fetch a single post by uri, for the root when it's above the ancestor window.
+// Best-effort, like everything else here: null on any failure.
+async function fetchRootPost(session: Session, uri: string): Promise<ThreadPost | undefined> {
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPosts`);
+    u.searchParams.set("uris", uri);
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${session.accessJwt}` },
+    });
+    if (!res.ok) return undefined;
+    const j = (await res.json()) as { posts?: ThreadPost[] };
+    return j.posts?.[0];
+  } catch {
+    return undefined;
+  }
+}
+
+// Render one post as "@handle: text" plus a bracketed line per embed. The
+// bracketed form keeps the person's own words distinguishable from things we
+// derived about their post.
+function renderPost(post: ThreadPost | undefined): string {
+  if (!post) return "";
+  const handle = post.author?.handle ?? "someone";
+  const text = (post.record?.text ?? "").trim();
+  const parts = describeEmbed(post.embed);
+  if (!text && parts.length === 0) return "";
+  const head = `@${handle}: ${text}`.trimEnd();
+  return parts.length ? `${head}\n${parts.map((p) => `  ${p}`).join("\n")}` : head;
+}
+
+// Describe a hydrated (#view) embed as bracketed lines. Handles the four shapes
+// that actually show up in the bot's threads: images, external link cards, quote
+// posts, and recordWithMedia (a quote that also carries media).
+function describeEmbed(embed: EmbedView | undefined, depth = 0): string[] {
+  if (!embed || depth > 1) return [];
+  const t = embed.$type ?? "";
+  const out: string[] = [];
+
+  if (t.startsWith("app.bsky.embed.images")) {
+    for (const img of embed.images ?? []) {
+      const alt = (img.alt ?? "").trim();
+      out.push(alt ? `[image, alt text: ${alt}]` : `[image, no alt text]`);
+    }
+  } else if (t.startsWith("app.bsky.embed.video")) {
+    const alt = (embed.alt ?? "").trim();
+    out.push(alt ? `[video, alt text: ${alt}]` : `[video, no alt text]`);
+  } else if (t.startsWith("app.bsky.embed.external")) {
+    const e = embed.external;
+    if (e?.uri) {
+      const bits = [e.title, e.description].map((s) => (s ?? "").trim()).filter(Boolean);
+      out.push(`[link: ${e.uri}${bits.length ? ` — ${bits.join(" — ")}` : ""}]`);
+    }
+  } else if (t.startsWith("app.bsky.embed.record")) {
+    // recordWithMedia carries both a quoted record and its own media.
+    const rec = embed.record?.record ?? embed.record;
+    const quoted = describeQuoted(rec, depth);
+    if (quoted) out.push(quoted);
+    out.push(...describeEmbed(embed.media, depth + 1));
+  }
+  return out;
+}
+
+// A quoted post is usually the actual referent of "build this", so it's rendered
+// with its author and text rather than just noted as present. Its own embeds come
+// through as the raw record (not a #view), so images there are described from the
+// record shape.
+function describeQuoted(rec: QuotedRecord | undefined, depth: number): string {
+  if (!rec) return "";
+  const handle = rec.author?.handle ?? "someone";
+  const text = (rec.value?.text ?? "").trim();
+  if (!text && !rec.value?.embed) return "";
+  const inner: string[] = [];
+  const re = rec.value?.embed;
+  if (re?.$type?.startsWith("app.bsky.embed.images")) {
+    for (const img of re.images ?? []) {
+      const alt = (img.alt ?? "").trim();
+      inner.push(alt ? `image, alt text: ${alt}` : "image, no alt text");
+    }
+  } else if (re?.$type?.startsWith("app.bsky.embed.external") && re.external?.uri) {
+    inner.push(`link: ${re.external.uri}`);
+  }
+  const suffix = inner.length && depth === 0 ? ` (${inner.join("; ")})` : "";
+  return `[quoting @${handle}: ${text}${suffix}]`;
+}
+
+interface ThreadContext {
+  posts: string[];
+  images: ImageRef[];
+}
+
+// A fullsize CDN url plus whatever alt text the poster wrote. The url is what the
+// box downloads; the alt is carried so a failed download still leaves a
+// description in the log.
+interface ImageRef {
+  url: string;
+  alt: string;
+}
+
+// Pull fullsize image urls out of a hydrated post, into `into`. Only the #view
+// shapes carry CDN urls; a quoted post's raw record has blob refs instead, and
+// resolving those to urls needs the author DID — done here since the viewRecord
+// carries it.
+function collectImages(post: ThreadPost | undefined, into: ImageRef[]): void {
+  const embed = post?.embed;
+  if (!embed) return;
+  const t = embed.$type ?? "";
+  if (t.startsWith("app.bsky.embed.images")) {
+    for (const img of embed.images ?? []) {
+      if (img.fullsize) into.push({ url: img.fullsize, alt: (img.alt ?? "").trim() });
+    }
+  } else if (t.startsWith("app.bsky.embed.recordWithMedia")) {
+    const media = embed.media;
+    if (media?.$type?.startsWith("app.bsky.embed.images")) {
+      for (const img of media.images ?? []) {
+        if (img.fullsize) into.push({ url: img.fullsize, alt: (img.alt ?? "").trim() });
+      }
+    }
+  }
+  // A quoted post's images: blob refs + the quoted author's DID -> a CDN url.
+  const rec = embed.record?.record ?? embed.record;
+  const did = rec?.author?.did;
+  const re = rec?.value?.embed;
+  if (did && re?.$type?.startsWith("app.bsky.embed.images")) {
+    for (const img of re.images ?? []) {
+      const link = img.image?.ref?.$link;
+      if (link) {
+        into.push({
+          url: `https://cdn.bsky.app/img/feed_fullsize/plain/${did}/${link}@jpeg`,
+          alt: (img.alt ?? "").trim(),
+        });
+      }
+    }
+  }
+}
+
+function dedupeImages(images: ImageRef[]): ImageRef[] {
+  const seen = new Set<string>();
+  return images.filter((i) => (seen.has(i.url) ? false : (seen.add(i.url), true)));
 }
 
 interface ThreadNode {
-  post?: {
-    author?: { handle?: string };
-    record?: { text?: string };
-  };
+  post?: ThreadPost;
   parent?: ThreadNode;
+}
+
+interface ThreadPost {
+  uri?: string;
+  author?: { handle?: string; did?: string };
+  record?: { text?: string };
+  embed?: EmbedView;
+}
+
+// Loose shape covering the hydrated embed views and the raw record embeds nested
+// inside a quote. Deliberately permissive: every field is optional and every
+// branch is guarded, so an unexpected shape degrades to "no description" rather
+// than throwing and costing the whole thread context.
+interface EmbedView {
+  $type?: string;
+  images?: Array<{ alt?: string; fullsize?: string; image?: { ref?: { $link?: string } } }>;
+  alt?: string;
+  external?: { uri?: string; title?: string; description?: string };
+  record?: QuotedRecord & { record?: QuotedRecord };
+  media?: EmbedView;
+}
+
+interface QuotedRecord {
+  author?: { handle?: string; did?: string };
+  value?: { text?: string; embed?: EmbedView };
 }
 
 interface RawNotif {
