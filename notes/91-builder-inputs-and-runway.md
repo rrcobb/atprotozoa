@@ -18,11 +18,19 @@ Both are real. Neither needs new infrastructure.
 > posts, link cards 5. And empty alt is the argument *for* passing pixels, not
 > against: if nobody writes a description, the image is the only one there is.
 >
-> Two bugs the corpus caught that reasoning alone hadn't: a quoted post's nested
-> embed is the raw record (blob refs) rather than a hydrated `#view` (CDN urls),
-> so quoted images need the url built from the quoted author's DID; and the CDN
-> answers a bad path with a 200-shaped error body, so a download without
-> `--fail` silently hands the builder a 27-byte text file named `.jpg`.
+> Three bugs that testing caught and reasoning alone hadn't: a quoted post's
+> nested embed is the raw record (blob refs) rather than a hydrated `#view` (CDN
+> urls), so quoted images need the url built from the quoted author's DID; the
+> CDN answers a bad path with a 200-shaped error body, so a download without
+> `--fail` silently hands the builder a 27-byte text file named `.jpg`; and
+> `threadContext()` returned early unless the mention was a reply, which was
+> harmless when it only walked ancestors but silently skipped embeds on a
+> top-level tag — someone posting a screenshot *with* "@buildthis build this"
+> rather than under it. It now runs for every mention.
+>
+> The table below lists "sibling replies" as dropped. Still dropped, deliberately:
+> `depth: 0` keeps the response small, and a branch's replies are usually noise
+> rather than the referent.
 >
 > Problem 2 (the ~20% partial rate) is untouched — it starts with the
 > measurement described below, against logs on the box.
