@@ -88,7 +88,11 @@
   button:disabled { opacity: 0.5; cursor: default; }
   button:not(.primary):hover { border-color: var(--rot2); color: var(--rot2); }
 
-  .arrow { text-align: center; color: var(--dim); font-size: 1.3rem; margin: 1.4rem 0; opacity: 0.7; }
+  .arrow { text-align: center; color: var(--dim); font-size: 1.3rem; margin: 1.4rem 0 0.5rem; opacity: 0.7; }
+
+  .score { display: none; text-align: center; font-size: 0.85rem; color: var(--rot2); margin: 0 0 1.3rem; letter-spacing: 0.01em; }
+  .score.show { display: block; }
+  .score b { color: var(--fg); }
 
   #thread { display: none; flex-direction: column; gap: 0; }
   #thread.show { display: flex; }
@@ -151,6 +155,7 @@
   </div>
 
   <div class="arrow" id="arrow" style="display:none;">↓ ~40 minutes later ↓</div>
+  <div class="score" id="score"></div>
 
   <div id="thread"></div>
 
@@ -276,7 +281,12 @@ function splitClauses(input) {
 
 function degradeClause(raw) {
   let t = raw.trim();
-  for (const [re, rep] of APOSTROPHE_DROPS) t = t.replace(re, rep);
+  const stats = { typos: 0, fillers: 0, apostrophes: 0 };
+  for (const [re, rep] of APOSTROPHE_DROPS) {
+    const m = t.match(re);
+    if (m) stats.apostrophes += m.length;
+    t = t.replace(re, rep);
+  }
   t = t.replace(/[.;:!]+/g, "");
   t = t.replace(/,\s*/g, " ");
   t = t.replace(/\s+/g, " ").trim();
@@ -292,20 +302,55 @@ function degradeClause(raw) {
     .split(" ")
     .map((w) => {
       const bare = w.toLowerCase().replace(/[^a-z']/g, "");
-      if (TYPOS[bare] && Math.random() < 0.55) return TYPOS[bare];
+      if (TYPOS[bare] && Math.random() < 0.55) {
+        stats.typos++;
+        return TYPOS[bare];
+      }
       return w;
     })
     .join(" ");
-  if (Math.random() < 0.35) t = pick(FILLERS) + t;
-  return t.trim();
+  if (Math.random() < 0.35) {
+    stats.fillers++;
+    t = pick(FILLERS) + t;
+  }
+  return { text: t.trim(), stats };
+}
+
+// ---- rot scoring ------------------------------------------------------
+// The dead giveaway of shitty prompting isn't any one typo, it's that the
+// spec never lands in a single post plus every degradation stacked on top.
+// Score rewards both: more posts, more scope creep, more typos/fillers/
+// dropped apostrophes, and a confused closer that never resolves it.
+function scoreRot(posts, specClauseCount) {
+  let raw = posts.length * 8;
+  if (specClauseCount > 1) raw += (specClauseCount - 1) * 5;
+  for (const p of posts) {
+    if (p.creep) raw += p.bad ? 20 : 15;
+    if (p.stats) {
+      raw += p.stats.typos * 6;
+      raw += p.stats.fillers * 4;
+      raw += p.stats.apostrophes * 2;
+    }
+  }
+  return Math.max(4, Math.min(100, Math.round(raw)));
+}
+
+function rotTier(score) {
+  if (score < 30) return "barely rotted";
+  if (score < 50) return "moderately rotted";
+  if (score < 70) return "solidly rotted";
+  if (score < 88) return "severely rotted";
+  return "terminal rot";
 }
 
 function rotPrompt(input) {
   const clauses = splitClauses(input).slice(0, 6);
-  const posts = [{ lead: null, text: degradeClause(clauses[0]), creep: false }];
+  const first = degradeClause(clauses[0]);
+  const posts = [{ lead: null, text: first.text, creep: false, stats: first.stats }];
 
   for (let i = 1; i < clauses.length; i++) {
-    posts.push({ lead: pick(LEAD_INS), text: degradeClause(clauses[i]), creep: false });
+    const d = degradeClause(clauses[i]);
+    posts.push({ lead: pick(LEAD_INS), text: d.text, creep: false, stats: d.stats });
   }
 
   const creepCount = 1 + Math.floor(Math.random() * 2);
@@ -317,7 +362,8 @@ function rotPrompt(input) {
   if (Math.random() < 0.4) {
     posts.push({ lead: null, text: pick(CONFUSED_CLOSERS), creep: true, bad: true });
   }
-  return { posts };
+  const score = scoreRot(posts, clauses.length);
+  return { posts, score };
 }
 
 // ---- rendering ------------------------------------------------------------
@@ -328,6 +374,7 @@ const els = {
   againBtn: document.getElementById("againBtn"),
   exampleBtn: document.getElementById("exampleBtn"),
   arrow: document.getElementById("arrow"),
+  score: document.getElementById("score"),
   thread: document.getElementById("thread"),
   share: document.getElementById("share"),
   shareCanvas: document.getElementById("shareCanvas"),
@@ -345,6 +392,7 @@ const EXAMPLES = [
 ];
 
 let currentPosts = [];
+let currentScore = 0;
 
 function escHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -352,17 +400,31 @@ function escHtml(s) {
 
 function initialFor(i) { return String(i + 1); }
 
+function decayNote(p) {
+  const bits = [];
+  if (p.stats) {
+    if (p.stats.typos) bits.push(p.stats.typos + (p.stats.typos === 1 ? " typo" : " typos"));
+    if (p.stats.apostrophes) bits.push("dropped " + (p.stats.apostrophes === 1 ? "an apostrophe" : p.stats.apostrophes + " apostrophes"));
+    if (p.stats.fillers) bits.push("filler added");
+  }
+  if (p.creep) bits.push(p.bad ? "derailed" : "scope creep");
+  return bits.join(" · ");
+}
+
 function renderThread(posts) {
   els.thread.innerHTML = posts
     .map((p, i) => {
       const cls = "post" + (p.creep ? " creep" : "") + (p.bad ? " bad" : "");
       const leadHtml = p.lead ? `<span class="lead">${escHtml(p.lead)}</span> ` : "";
       const minutesAgo = i === 0 ? "just now" : (i * (7 + Math.floor(Math.random() * 30))) + "m later";
+      const note = decayNote(p);
+      const rotscoreHtml = note ? `<div class="rotscore">▸ ${escHtml(note)}</div>` : "";
       return `<div class="${cls}">
         <div class="avatar">${initialFor(i)}</div>
         <div class="body">
           <div class="meta"><b>@buildthis.bisks.net</b> · ${escHtml(minutesAgo)}</div>
           <div class="text">${leadHtml}${escHtml(p.text)}</div>
+          ${rotscoreHtml}
         </div>
       </div>`;
     })
@@ -371,12 +433,17 @@ function renderThread(posts) {
   els.arrow.style.display = posts.length > 1 ? "block" : "none";
 }
 
+function renderScore(score) {
+  els.score.innerHTML = `🦠 rot score: <b>${score}/100</b> — ${escHtml(rotTier(score))}`;
+  els.score.classList.add("show");
+}
+
 function threadText(posts) {
   return posts.map((p) => (p.lead ? p.lead + " " : "") + p.text).join("\n");
 }
 
-function buildShareText(posts) {
-  const prefix = "promptrot did this to my prompt:\n\n";
+function buildShareText(posts, score) {
+  const prefix = `promptrot rated my prompt ${score}/100 (${rotTier(score)}):\n\n`;
   const suffix = "\n\n" + SITE_URL;
   const budget = 300 - prefix.length - suffix.length - 1;
   let body = threadText(posts);
@@ -406,7 +473,7 @@ function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
   return lines.length;
 }
 
-function buildShareCard(posts) {
+function buildShareCard(posts, score) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -428,6 +495,15 @@ function buildShareCard(posts) {
   g.addColorStop(1, "#8fbf3f");
   ctx.fillStyle = g;
   ctx.fillText("promptrot", 56, 96);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#c9a53b";
+  ctx.font = `700 32px ${mono}`;
+  ctx.fillText(`${score}/100`, W - 56, 82);
+  ctx.fillStyle = "#9aa38a";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText(rotTier(score), W - 56, 106);
+  ctx.textAlign = "left";
 
   ctx.fillStyle = "#9aa38a";
   ctx.font = `400 18px ${mono}`;
@@ -471,15 +547,17 @@ function doRot() {
     els.input.focus();
     return;
   }
-  const { posts } = rotPrompt(raw);
+  const { posts, score } = rotPrompt(raw);
   currentPosts = posts;
+  currentScore = score;
   renderThread(posts);
+  renderScore(score);
   els.againBtn.style.display = "";
   els.share.classList.add("show");
 
-  const shareText = buildShareText(posts);
+  const shareText = buildShareText(posts, score);
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
-  buildShareCard(posts);
+  buildShareCard(posts, score);
   window.__lastShareText = shareText;
 }
 
