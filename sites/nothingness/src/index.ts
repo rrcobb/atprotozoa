@@ -2,16 +2,19 @@
 //
 // @fromthewestmeadow.com asked for a site that "really demonstrates the
 // concept of nothingness." The homepage is a void: near-blank, low-contrast,
-// nothing to click for the first several seconds. The one real feature is a
-// "Generate Nothing" button wired to an actual Durable Object — a genuinely
-// shared, globally-consistent counter, which is the whole joke: real
-// distributed infrastructure, built and maintained, in service of counting
-// how many times humanity has produced nothing.
+// nothing to click for the first several seconds. Witnessing it takes real,
+// active attention — click the nothing at least once every five seconds or
+// the streak lapses — and that streak length is the whole game, backed by an
+// actual Durable Object.
 //
-// A leaderboard for "most nothing" sits on top of that same counter: sign in
-// with Bluesky (public-client atproto OAuth, browser-side — see
-// public/lib/oauth.js) and your clicks attribute to your DID instead of
-// vanishing into the anonymous total. Requested by @fromthewestmeadow.com.
+// A leaderboard for "longest witnessed" sits on top of that same object:
+// sign in with Bluesky (public-client atproto OAuth, browser-side — see
+// public/lib/oauth.js) and your best streak attributes to your DID instead
+// of staying local. Originally had a "generate nothing" click counter too,
+// but @fromthewestmeadow.com asked for the leaderboard to track witness time
+// instead and for the button to go — so the whole site is now just the
+// witnessing mechanic, for real distributed infrastructure in service of
+// absolutely nothing.
 //
 // Brand-new site, served at the root of its own hostname — no mount-prefix
 // stripping needed. See notes/40-new-site-playbook.md.
@@ -43,7 +46,7 @@ interface DurableObjectState {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/api/nothing" || url.pathname === "/api/leaderboard") {
+    if (url.pathname === "/api/witness" || url.pathname === "/api/leaderboard") {
       const id = env.VOID.idFromName("global");
       const stub = env.VOID.get(id);
       return stub.fetch(request);
@@ -51,8 +54,6 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 function json(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -62,17 +63,17 @@ function json(data: unknown): Response {
 
 interface UserRecord {
   handle: string;
-  count: number;
+  best: number;
 }
 
 const LEADERBOARD_SIZE = 50;
+const MAX_SECONDS = 60 * 60 * 24; // a day of uninterrupted witnessing is generous enough
 
-// Holds the global total + today's count (keyed by epoch day, so "today"
-// resets itself with no alarm or cron — the next request after midnight just
-// starts a fresh key), plus one UserRecord per signed-in DID that's ever
-// clicked, under a "user:<did>" key. The leaderboard is that user set,
-// sorted by count on read — nobody's expecting sub-millisecond reads out of
-// a site whose entire purpose is counting nothing.
+// Holds the global session/second tallies, plus one UserRecord per
+// signed-in DID that's ever finished a witness streak, under a
+// "user:<did>" key. The leaderboard is that user set, sorted by best streak
+// on read — nobody's expecting sub-millisecond reads out of a site whose
+// entire purpose is timing how long someone stared at nothing.
 export class Void {
   private state: DurableObjectState;
 
@@ -82,57 +83,57 @@ export class Void {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const day = Math.floor(Date.now() / DAY_MS);
-    const dayKey = `day:${day}`;
 
     if (url.pathname === "/api/leaderboard") {
-      const [total, users] = await Promise.all([
-        this.state.storage.get<number>("total"),
+      const [sessions, totalSeconds, users] = await Promise.all([
+        this.state.storage.get<number>("sessions"),
+        this.state.storage.get<number>("totalSeconds"),
         this.state.storage.list<UserRecord>({ prefix: "user:" }),
       ]);
       const leaders = [...users.entries()]
-        .map(([key, rec]) => ({ did: key.slice("user:".length), handle: rec.handle, count: rec.count }))
-        .sort((a, b) => b.count - a.count)
+        .map(([key, rec]) => ({ did: key.slice("user:".length), handle: rec.handle, best: rec.best }))
+        .sort((a, b) => b.best - a.best)
         .slice(0, LEADERBOARD_SIZE);
-      return json({ total: total ?? 0, leaders });
+      return json({ sessions: sessions ?? 0, totalSeconds: totalSeconds ?? 0, leaders });
     }
 
-    if (request.method === "POST") {
+    if (url.pathname === "/api/witness" && request.method === "POST") {
       let did: string | null = null;
       let handle = "";
+      let seconds = 0;
       try {
-        const body = (await request.json()) as { did?: string; handle?: string };
+        const body = (await request.json()) as { did?: string; handle?: string; seconds?: number };
         if (typeof body?.did === "string" && body.did.startsWith("did:")) {
           did = body.did;
           handle = typeof body.handle === "string" && body.handle ? body.handle : body.did;
         }
+        if (typeof body?.seconds === "number" && Number.isFinite(body.seconds) && body.seconds > 0) {
+          seconds = Math.min(Math.floor(body.seconds), MAX_SECONDS);
+        }
       } catch {
-        // no/invalid body — anonymous click, still counts toward the global total.
+        // no/invalid body — nothing to record.
       }
 
-      const userKey = did ? `user:${did}` : null;
-      const [total, todayCount, existingUser] = await Promise.all([
-        this.state.storage.get<number>("total"),
-        this.state.storage.get<number>(dayKey),
-        userKey ? this.state.storage.get<UserRecord>(userKey) : Promise.resolve(undefined),
+      if (!did || seconds <= 0) return json({ error: "nothing to witness" });
+
+      const userKey = `user:${did}`;
+      const [sessions, totalSeconds, existingUser] = await Promise.all([
+        this.state.storage.get<number>("sessions"),
+        this.state.storage.get<number>("totalSeconds"),
+        this.state.storage.get<UserRecord>(userKey),
       ]);
-      const nextTotal = (total ?? 0) + 1;
-      const nextToday = (todayCount ?? 0) + 1;
-      const puts: Record<string, unknown> = { total: nextTotal, [dayKey]: nextToday };
+      const nextSessions = (sessions ?? 0) + 1;
+      const nextTotalSeconds = (totalSeconds ?? 0) + seconds;
+      const personalBest = Math.max(existingUser?.best ?? 0, seconds);
 
-      let personalTotal: number | undefined;
-      if (userKey) {
-        personalTotal = (existingUser?.count ?? 0) + 1;
-        puts[userKey] = { handle, count: personalTotal } satisfies UserRecord;
-      }
-      await this.state.storage.put(puts);
-      return json({ total: nextTotal, today: nextToday, personalTotal });
+      await this.state.storage.put({
+        sessions: nextSessions,
+        totalSeconds: nextTotalSeconds,
+        [userKey]: { handle, best: personalBest } satisfies UserRecord,
+      });
+      return json({ personalBest, sessions: nextSessions, totalSeconds: nextTotalSeconds });
     }
 
-    const [total, todayCount] = await Promise.all([
-      this.state.storage.get<number>("total"),
-      this.state.storage.get<number>(dayKey),
-    ]);
-    return json({ total: total ?? 0, today: todayCount ?? 0 });
+    return json({ error: "not found" });
   }
 }
