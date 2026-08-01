@@ -54,6 +54,9 @@
     animation: blink 1.1s steps(1) infinite;
   }
   @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  .cursor.clickable { cursor: pointer; animation: none; opacity: 1; }
+  .cursor.clickable:hover { color: rgba(255,255,255,0.9); }
+  .cursor.urgent { color: rgba(255,140,140,0.9); animation: blink 0.4s steps(1) infinite; }
 
   .thesis {
     font-size: 0.95rem;
@@ -67,10 +70,12 @@
     font-size: 0.72rem;
     color: rgba(255,255,255,0);
     letter-spacing: 0.03em;
+    line-height: 1.7;
     transition: color 3s ease;
-    min-height: 1em;
+    min-height: 2.4em;
   }
   .witness.revealed { color: rgba(255,255,255,0.28); }
+  .witness .n { color: rgba(255,255,255,0.65); }
 
   .action {
     margin-top: 1.4rem;
@@ -161,8 +166,10 @@
   <footer>
     the void is a Durable Object. every click is a real write, replicated and
     durable, that accomplishes precisely nothing — which is the point.
-    śūnyatā, the vacuum state, the number zero: absence has always needed
-    real infrastructure to be taken seriously. <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
+    witnessing lapses if you look away for five seconds, because it turns
+    out even nothing demands your attention. śūnyatā, the vacuum state, the
+    number zero: absence has always needed real infrastructure — and real
+    effort — to be taken seriously. <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
   </footer>
 
 <script>
@@ -175,17 +182,78 @@
   var personal = document.getElementById('personal');
   var shareLink = document.getElementById('shareLink');
 
-  var start = Date.now();
+  var cursor = document.querySelector('.cursor');
+
   setTimeout(function () { thesis.classList.add('revealed'); }, 300);
-  setTimeout(function () { witness.classList.add('revealed'); }, 2600);
+  setTimeout(function () {
+    witness.classList.add('revealed');
+    cursor.classList.add('clickable');
+  }, 2600);
   setTimeout(function () { action.classList.add('revealed'); }, 6200);
 
-  function tick() {
-    var secs = Math.floor((Date.now() - start) / 1000);
-    witness.textContent = 'you have witnessed nothing for ' + secs + 's';
+  // witnessing nothing takes real, active attention now: click the cursor
+  // (the nothing itself) at least once every WITNESS_WINDOW_MS or the streak
+  // lapses and resets to zero. requested by @fromthewestmeadow.com after the
+  // original build let you witness nothing passively, which apparently
+  // wasn't demanding enough.
+  var WITNESS_WINDOW_MS = 5000;
+  var BEST_KEY = 'nothingness.longestWitness';
+  var streakStart = null;
+  var lastWitnessClick = null;
+  var lapsedSecs = null;
+
+  function getBest() {
+    var v = parseInt(localStorage.getItem(BEST_KEY) || '0', 10);
+    return isNaN(v) ? 0 : v;
   }
-  tick();
-  setInterval(tick, 1000);
+  function setBest(v) {
+    if (v > getBest()) localStorage.setItem(BEST_KEY, String(v));
+  }
+
+  function renderWitness() {
+    if (streakStart !== null) {
+      var secs = Math.floor((Date.now() - streakStart) / 1000);
+      var remainMs = WITNESS_WINDOW_MS - (Date.now() - lastWitnessClick);
+      var remainS = Math.max(0, Math.ceil(remainMs / 1000));
+      witness.innerHTML = 'you have witnessed nothing for <span class="n">' + secs + 's</span>' +
+        '<br>click again within ' + remainS + 's to keep witnessing';
+      cursor.classList.toggle('urgent', remainMs < 2000);
+      return;
+    }
+    if (lapsedSecs !== null) {
+      witness.innerHTML = 'you looked away. the nothing noticed.' +
+        '<br>you witnessed it for ' + lapsedSecs + 's — click to try again';
+      cursor.classList.remove('urgent');
+      return;
+    }
+    var best = getBest();
+    witness.innerHTML = 'click the nothing above to begin witnessing it' +
+      (best > 0 ? '<br>your longest witness so far: <span class="n">' + best + 's</span>' : '');
+    cursor.classList.remove('urgent');
+  }
+
+  function witnessTick() {
+    if (streakStart !== null && Date.now() - lastWitnessClick > WITNESS_WINDOW_MS) {
+      var finalSecs = Math.floor((Date.now() - streakStart) / 1000);
+      setBest(finalSecs);
+      lapsedSecs = finalSecs;
+      streakStart = null;
+      lastWitnessClick = null;
+    }
+    renderWitness();
+  }
+
+  cursor.addEventListener('click', function () {
+    if (streakStart === null) {
+      streakStart = Date.now();
+      lapsedSecs = null;
+    }
+    lastWitnessClick = Date.now();
+    renderWitness();
+  });
+
+  renderWitness();
+  setInterval(witnessTick, 250);
 
   var PERSONAL_KEY = 'nothingness.personal';
   function getPersonal() {
