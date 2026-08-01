@@ -16,7 +16,7 @@
 // CORS headers, so this Worker proxies server-side and the client only ever
 // talks to its own /api/*.
 //
-// Four server routes, at the domain root:
+// Server routes, at the domain root:
 //   /api/search?q=...   proxy Steam's store-search suggest endpoint
 //   /api/tags/<appid>   fetch one game's name/art + its tags & votes, JSON
 //   /api/global         the network-wide tag leaderboard (see below), JSON
@@ -25,7 +25,29 @@
 //                        every shared result gets its own unfurl card
 //                        instead of Bluesky caching one generic card for
 //                        every appid (same fix as sites/didscope, sites/windmill).
+//   /api/steam/login    redirect into Steam's OpenID 2.0 sign-in
+//   /api/steam/callback verify the OpenID response, resolve a persona
+//                        name/avatar, bounce back to wherever "connect
+//                        Steam" was clicked from (see the "Steam login"
+//                        block below)
 // Everything else falls through to ASSETS.
+//
+// Steam login (added 2026-08-01, requested by @7778777.online: "steam login
+// and Integration"). This is identity-only — Steam's OpenID 2.0 endpoint
+// (steamcommunity.com/openid) hands back a verified SteamID64 with no API
+// key needed, so it's a clean fit for a bot build. Pulling someone's actual
+// *owned-games list* is a different story: the only Valve endpoint for that
+// (IPlayerService/GetOwnedGames) requires a private Web API key tied to a
+// Steam account, and the old key-free fallback (the community profile's
+// ?xml=1 games feed) now hard-redirects anonymous requests to a login wall
+// (confirmed by hand from a build-agent sandbox with live network access —
+// every profile tried, public or not, 302s to /login/). No key is available
+// here and one can't be provisioned from a build run, so "browse your full
+// Steam library" isn't buildable right now. What *is* buildable without a
+// key: verifying a real Steam identity (this block), and making the library
+// this site already has — the games you've rated — searchable by name, tag,
+// or id, which is what "games in your library searchable by..." becomes
+// client-side in public/index.html's #libSearch.
 //
 // /api/global is backed by a Durable Object (GlobalTracker, name "global").
 // Ratings are per-user PDS records (net.bisks.steamtags.rating) — there's no
@@ -170,6 +192,116 @@ async function handleSearch(url: URL): Promise<Response> {
   }
 }
 
+// --- Steam login (OpenID 2.0, no API key) --------------------------------
+
+const STEAM_OPENID_ENDPOINT = "https://steamcommunity.com/openid/login";
+
+// Only ever a same-origin relative path ("/g/440", not "//evil.example" or
+// an absolute URL) — this rides through Steam's redirect untouched and
+// comes straight back in the callback query string, so it must be safe to
+// hand to Response.redirect() with nothing else validating it downstream.
+function safeReturnPath(raw: string | null): string {
+  if (!raw) return "";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "";
+  return raw.slice(0, 200);
+}
+
+function handleSteamLogin(request: Request): Response {
+  const url = new URL(request.url);
+  const origin = url.origin;
+  const returnTo = safeReturnPath(url.searchParams.get("returnTo"));
+
+  const callback = new URL(`${origin}/api/steam/callback`);
+  if (returnTo) callback.searchParams.set("returnTo", returnTo);
+
+  const params = new URLSearchParams({
+    "openid.ns": "http://specs.openid.net/auth/2.0",
+    "openid.mode": "checkid_setup",
+    "openid.return_to": callback.toString(),
+    "openid.realm": `${origin}/`,
+    "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
+    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
+  });
+  return Response.redirect(`${STEAM_OPENID_ENDPOINT}?${params}`, 302);
+}
+
+// Steam echoes back whatever return_to URL we gave it, including our own
+// ?returnTo=<path> — so the game page a user was on survives the round
+// trip to Steam and back instead of always dumping them on "/".
+function steamRedirectBack(origin: string, path: string, extra: Record<string, string>): Response {
+  const qp = new URLSearchParams(extra);
+  const sep = path.includes("?") ? "&" : "?";
+  return Response.redirect(`${origin}${path}${sep}${qp}`, 302);
+}
+
+async function handleSteamCallback(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const origin = url.origin;
+  const params = url.searchParams;
+  const returnPath = safeReturnPath(params.get("returnTo")) || "/";
+
+  if (params.get("openid.mode") !== "id_res") {
+    return steamRedirectBack(origin, returnPath, { steamError: "steam sign-in was cancelled" });
+  }
+
+  const claimedId = params.get("openid.claimed_id") || "";
+  const idMatch = claimedId.match(/^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/);
+  if (!idMatch) {
+    return steamRedirectBack(origin, returnPath, { steamError: "steam didn't return a valid identity" });
+  }
+  const steamid = idMatch[1];
+
+  // Re-post every openid.* param back to Steam verbatim, mode swapped to
+  // check_authentication, so Steam confirms the signature is really theirs
+  // rather than us trusting whatever query string showed up.
+  const verifyParams = new URLSearchParams();
+  for (const [k, v] of params) verifyParams.set(k, v);
+  verifyParams.set("openid.mode", "check_authentication");
+
+  try {
+    const verifyRes = await fetch(STEAM_OPENID_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: verifyParams.toString(),
+    });
+    const verifyText = await verifyRes.text();
+    if (!/is_valid\s*:\s*true/.test(verifyText)) {
+      return steamRedirectBack(origin, returnPath, { steamError: "steam couldn't verify that sign-in" });
+    }
+  } catch {
+    return steamRedirectBack(origin, returnPath, { steamError: "steam verification request failed" });
+  }
+
+  // Best-effort persona name/avatar off the public profile page (plain
+  // HTML, no login wall — unlike the ?xml=1 feed). Failing this shouldn't
+  // block login; the steamid alone is a valid verified identity.
+  let name = "";
+  let avatar = "";
+  try {
+    const profRes = await fetch(`https://steamcommunity.com/profiles/${steamid}/`, {
+      headers: { "user-agent": "Mozilla/5.0 (compatible; steamtagsbot/1.0; +https://steamtags.bisks.net/)" },
+    });
+    const html = await profRes.text();
+    const nameMatch = html.match(/"personaname":"((?:[^"\\]|\\.)*)"/);
+    if (nameMatch) {
+      try {
+        name = JSON.parse(`"${nameMatch[1]}"`);
+      } catch {
+        // malformed escape sequence — skip the name, keep the steamid
+      }
+    }
+    const avatarMatch = html.match(/<meta property="og:image" content="([^"]+)"/);
+    if (avatarMatch) avatar = avatarMatch[1];
+  } catch {
+    // profile fetch is a nice-to-have, not required for a valid login
+  }
+
+  const extra: Record<string, string> = { steamid };
+  if (name) extra.steamname = name;
+  if (avatar) extra.steamavatar = avatar;
+  return steamRedirectBack(origin, returnPath, extra);
+}
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -227,6 +359,9 @@ export default {
     const path = url.pathname;
 
     if (path === "/api/search") return handleSearch(url);
+
+    if (path === "/api/steam/login") return handleSteamLogin(request);
+    if (path === "/api/steam/callback") return handleSteamCallback(request);
 
     if (path === "/api/global") {
       const stub = env.GLOBAL.get(env.GLOBAL.idFromName("global"));

@@ -124,6 +124,34 @@
   .auth-bar .btn { padding: 6px 10px; font-size: 0.8rem; }
   .auth-bar .err { color: var(--bad); }
 
+  .steam-bar {
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin: 0 0 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .steam-bar b { color: var(--fg); }
+  .steam-bar a { cursor: pointer; text-decoration: underline; }
+  .steam-avatar { width: 20px; height: 20px; border-radius: 4px; vertical-align: middle; }
+
+  .lib-search { margin: 0 0 14px; }
+  .lib-search input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.88rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    outline: none;
+  }
+  .lib-search input:focus { border-color: var(--accent2); }
+
   #state { margin-top: 28px; }
   .loading, .error {
     text-align: center;
@@ -331,6 +359,7 @@
   </header>
 
   <div class="auth-bar" id="authBar"></div>
+  <div class="steam-bar" id="steamBar"></div>
 
   <div class="search-box">
     <input id="q" type="text" placeholder="search a Steam game…" autocomplete="off" />
@@ -353,6 +382,7 @@
   <section class="library">
     <h3>your library</h3>
     <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser. schema: <a href="/lexicons/net.bisks.steamtags.rating.json">lexicon</a>.</p>
+    <div class="lib-search"><input id="libSearch" type="text" placeholder="filter your library by name, tag, or appid…" autocomplete="off" /></div>
     <div class="lib-actions">
       <button class="btn" id="exportLib">export database</button>
       <button class="btn" id="importLibBtn">import database</button>
@@ -398,6 +428,8 @@
     results: document.getElementById("results"),
     state: document.getElementById("state"),
     authBar: document.getElementById("authBar"),
+    steamBar: document.getElementById("steamBar"),
+    libSearch: document.getElementById("libSearch"),
     libraryList: document.getElementById("libraryList"),
     syncMsg: document.getElementById("syncMsg"),
     globalList: document.getElementById("globalList"),
@@ -712,6 +744,81 @@
     }
   }
 
+  // --- Steam login (identity only) ----------------------------------------
+  // Steam's OpenID 2.0 endpoint verifies a real SteamID64 with no API key —
+  // the Worker's /api/steam/login + /api/steam/callback handle the redirect
+  // dance server-side (see src/index.ts for why this stops at identity and
+  // doesn't pull an owned-games list: that needs a private Valve key this
+  // build doesn't have). This is purely a "yes, that's really them" badge;
+  // it isn't wired into ratings or the library at all.
+  const STEAM_KEY = "steamtags:steam:v1";
+
+  function loadSteamInfo() {
+    try {
+      const raw = localStorage.getItem(STEAM_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.steamid ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Picks up the steamid/steamname/steamavatar (or steamError) query params
+  // the callback redirect leaves on "/", stashes them in localStorage, and
+  // strips them from the URL so a page refresh/share link doesn't replay them.
+  function consumeSteamRedirect() {
+    const params = new URLSearchParams(location.search);
+    const steamid = params.get("steamid");
+    const steamError = params.get("steamError");
+    if (!steamid && !steamError) return null;
+
+    let result = null;
+    if (steamid) {
+      const info = {
+        steamid,
+        name: params.get("steamname") || "",
+        avatar: params.get("steamavatar") || "",
+      };
+      try {
+        localStorage.setItem(STEAM_KEY, JSON.stringify(info));
+      } catch (_) {
+        // storage full/unavailable — login still "worked" for this page view
+      }
+      result = { info };
+    } else {
+      result = { error: steamError };
+    }
+
+    const clean = new URL(location.href);
+    clean.search = "";
+    history.replaceState(null, "", clean.pathname + clean.hash);
+    return result;
+  }
+
+  function renderSteamBar(errorText) {
+    const info = loadSteamInfo();
+    if (info) {
+      els.steamBar.innerHTML = `
+        ${info.avatar ? `<img class="steam-avatar" src="${escAttr(info.avatar)}" alt="" />` : ""}
+        <span>steam-verified as <b>${esc(info.name || info.steamid)}</b></span> · <a id="steamDisconnect">disconnect</a>
+      `;
+      document.getElementById("steamDisconnect").addEventListener("click", () => {
+        try {
+          localStorage.removeItem(STEAM_KEY);
+        } catch (_) {
+          // nothing to clean up if storage never worked
+        }
+        renderSteamBar();
+      });
+    } else {
+      const returnTo = encodeURIComponent(location.pathname);
+      els.steamBar.innerHTML = `
+        <span>${errorText ? esc(errorText) + " — " : ""}optionally verify it's really you on Steam:</span>
+        <a id="steamConnect" href="${MOUNT}/api/steam/login?returnTo=${returnTo}" title="verifies your SteamID only — pulling your full owned-games list needs a private Valve API key this build doesn't have, so your library search below still runs off what you've rated here.">connect Steam</a>
+      `;
+    }
+  }
+
   // --- library rendering: grouped by tag, ranked by the user's own tag ranks --
   // "Tag rank" = the average fit score the user has given that tag across
   // every game they've rated it on. Groups (tags) are ordered by that
@@ -744,13 +851,34 @@
     return groups;
   }
 
+  let libraryQuery = "";
+
+  // A game matches if the query hits its name, its appid, or the tag group
+  // it's sitting in — so typing a tag name surfaces every game rated under
+  // it, not just games whose title happens to contain the text.
+  function matchesLibraryQuery(tag, game, needle) {
+    if (!needle) return true;
+    return (
+      tag.toLowerCase().includes(needle) ||
+      (game.name || "").toLowerCase().includes(needle) ||
+      String(game.appid).includes(needle)
+    );
+  }
+
   function renderLibrary() {
     const db = loadDb();
     if (!db.length) {
       els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — pick a game, click a tag, and score how well it fits.</div>';
       return;
     }
-    const groups = buildTagGroups(db);
+    const needle = libraryQuery.trim().toLowerCase();
+    const groups = buildTagGroups(db)
+      .map((g) => ({ ...g, games: g.games.filter((game) => matchesLibraryQuery(g.tag, game, needle)) }))
+      .filter((g) => g.games.length);
+    if (needle && !groups.length) {
+      els.libraryList.innerHTML = `<div class="lib-empty">nothing in your library matches "${esc(libraryQuery.trim())}".</div>`;
+      return;
+    }
     els.libraryList.innerHTML = groups
       .map(
         (g, gi) => `
@@ -875,6 +1003,11 @@
   }
 
   els.globalRefresh.addEventListener("click", () => loadGlobal());
+
+  els.libSearch.addEventListener("input", (e) => {
+    libraryQuery = e.target.value;
+    renderLibrary();
+  });
 
   els.exportLib.addEventListener("click", () => {
     const db = loadDb();
@@ -1337,6 +1470,9 @@
   }
   if (!session) session = await getSession();
   renderAuthBar();
+
+  const steamRedirect = consumeSteamRedirect();
+  renderSteamBar(steamRedirect && steamRedirect.error);
 
   const bootAppid = currentAppidFromPath();
   if (bootAppid) loadGame(bootAppid);
