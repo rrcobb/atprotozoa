@@ -22,8 +22,10 @@ BUILDER_USER="${BUILDER_USER:-builder}"
 
 echo "=== apt deps ==="
 sudo apt-get update -y
-# jq: the poll loop parses job JSON with it. curl/git/ca-certificates: the rest.
-sudo apt-get install -y git curl ca-certificates jq
+# jq: the poll loop parses job JSON with it. file: the build sniffs downloaded
+# thread images by mime type (usually already present, named so it stays true).
+# curl/git/ca-certificates: the rest.
+sudo apt-get install -y git curl ca-certificates jq file
 
 echo "=== node ${NODE_MAJOR} (nodesource) ==="
 if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt "$NODE_MAJOR" ]; then

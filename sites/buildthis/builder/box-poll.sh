@@ -50,6 +50,7 @@ while true; do
   # jq's // 1 defaults them to attempt 1.
   BRIEF="$(printf '%s' "$BODY" | jq -r .brief)" \
   AUTHOR="$(printf '%s' "$BODY" | jq -r .authorHandle)" \
+  BRIEF_IMAGES="$(printf '%s' "$BODY" | jq -c '.images // []')" \
   MENTION_URI="$MENTION_URI" \
   ATTEMPT="$(printf '%s' "$BODY" | jq -r '.attempts // 1')" \
   REPLY_ROOT_URI="$(printf '%s' "$BODY" | jq -r .replyRootUri)" \

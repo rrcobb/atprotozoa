@@ -18,6 +18,7 @@ interface Env {
   GITHUB_REPO: string;
 
   MAX_BRIEF_CHARS: string;
+  MAX_BRIEF_IMAGES: string;
 
   // secrets
   BOT_APP_PASSWORD: string;
@@ -203,6 +204,7 @@ async function runWatcher(env: Env): Promise<void> {
     const payload: BuildPayload = {
       brief,
       authorHandle: m.authorHandle,
+      images: ctx.images.slice(0, num(env.MAX_BRIEF_IMAGES) || 4),
       // The mention uri keys the event record; the builder echoes it back on the
       // outcome POST so the build result lands on the SAME record.
       mentionUri: m.uri,
@@ -1373,6 +1375,10 @@ function mentionFacets(text: string, mentions: Record<string, string>): unknown[
 interface BuildPayload {
   brief: string;
   authorHandle: string;
+  // Fullsize CDN urls for images in the tag's thread, oldest post first, capped by
+  // MAX_BRIEF_IMAGES. The box downloads these and passes the file paths to the
+  // builder, which is vision-capable. Absent/empty on a text-only thread.
+  images?: ImageRef[];
   mentionUri: string;
   replyRootUri: string;
   replyRootCid: string;
