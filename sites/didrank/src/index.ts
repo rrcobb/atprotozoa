@@ -95,6 +95,18 @@ export const WINDOWS: Record<string, number> = {
 };
 const SHORT_WINDOWS = new Set(["1m", "5m", "1h", "12h", "24h"]);
 
+// Calendar-date views, requested on the same thread as the original windows:
+// "who posted the most on New Year's Eve / Valentine's Day / Christmas Day"
+// specifically — not just any 24h window, the actual date. Backed by the
+// same "d:" day buckets the long rolling windows use, just filtered down to
+// the buckets whose UTC calendar date matches, summed across however many
+// years of that date have been tracked so far (could be zero).
+export const HOLIDAYS: Record<string, { month: number; day: number; label: string }> = {
+  "new-years-eve": { month: 12, day: 31, label: "New Year's Eve" },
+  "valentines-day": { month: 2, day: 14, label: "Valentine's Day" },
+  christmas: { month: 12, day: 25, label: "Christmas Day" },
+};
+
 function pad(n: number, width: number): string {
   return String(n).padStart(width, "0");
 }
@@ -383,6 +395,59 @@ export class DidTracker {
     return { counts: merged, windowMs };
   }
 
+  // ---- holiday queries -------------------------------------------------------
+  // Sums every stored "d:" bucket whose UTC calendar date matches month/day,
+  // across however many years have passed since tracking started. If today
+  // IS the holiday, swap that day's (capped) stored snapshot for the live,
+  // uncapped in-memory accumulator — same trick topForWindow uses for "all".
+  private async topForHoliday(
+    month: number,
+    day: number
+  ): Promise<{ counts: Map<string, number>; yearsCovered: number[]; isToday: boolean }> {
+    const now = Date.now();
+    const nowD = new Date(now);
+    const isToday = nowD.getUTCMonth() + 1 === month && nowD.getUTCDate() === day;
+
+    const buckets = await this.state.storage.list<{ c: Record<string, number> }>({
+      prefix: "d:",
+      limit: 5000,
+    });
+    if (isToday) buckets.delete(dayKey(this.currentDay));
+
+    const merged = new Map<string, number>();
+    const yearsCovered = new Set<number>();
+    for (const [key, bucket] of buckets) {
+      const epochDay = parseInt(key.slice(2), 10);
+      const d = new Date(epochDay * DAY_MS);
+      if (d.getUTCMonth() + 1 !== month || d.getUTCDate() !== day) continue;
+      yearsCovered.add(d.getUTCFullYear());
+      for (const [did, count] of Object.entries(bucket.c)) {
+        merged.set(did, (merged.get(did) || 0) + count);
+      }
+    }
+    if (isToday) {
+      yearsCovered.add(nowD.getUTCFullYear());
+      for (const [did, count] of this.dailyAccum) {
+        merged.set(did, (merged.get(did) || 0) + count);
+      }
+    }
+
+    return { counts: merged, yearsCovered: Array.from(yearsCovered).sort((a, b) => a - b), isToday };
+  }
+
+  // Next UTC occurrence of month/day at-or-after `now` (today counts as "next"
+  // even though its clock time has already passed midnight — the client only
+  // uses this when `!isToday`, so the "in the past" case never surfaces it).
+  private nextHolidayOccurrence(month: number, day: number, now: number): { atMs: number; daysUntil: number } {
+    let year = new Date(now).getUTCFullYear();
+    let atMs = Date.UTC(year, month - 1, day);
+    if (atMs < now) {
+      year += 1;
+      atMs = Date.UTC(year, month - 1, day);
+    }
+    return { atMs, daysUntil: Math.ceil((atMs - now) / DAY_MS) };
+  }
+
   // ---- http ---------------------------------------------------------------
   async fetch(request: Request): Promise<Response> {
     await this.ready;
@@ -425,6 +490,46 @@ export class DidTracker {
         trackingStartedAt: this.trackingStartedAt,
         fullyCovered,
         coverageMs,
+        generatedAt: now,
+        totalCandidates: counts.size,
+        entries: top.map(([did, count]) => {
+          const p = profiles.get(did);
+          return {
+            did,
+            count,
+            handle: p?.handle || null,
+            displayName: p?.displayName || null,
+            avatar: p?.avatar || null,
+          };
+        }),
+      });
+    }
+
+    if (url.pathname === "/api/holiday") {
+      const which = url.searchParams.get("which") || "";
+      const h = HOLIDAYS[which];
+      if (!h) {
+        return json({ error: "unknown holiday", holidays: Object.keys(HOLIDAYS) }, 400);
+      }
+      const limit = Math.max(
+        1,
+        Math.min(1000, parseInt(url.searchParams.get("limit") || "25", 10) || 25)
+      );
+
+      const now = Date.now();
+      const { counts, yearsCovered, isToday } = await this.topForHoliday(h.month, h.day);
+      const top = topEntries(counts, limit);
+      const profiles = await this.resolveProfiles(top.map(([did]) => did));
+      const { atMs, daysUntil } = this.nextHolidayOccurrence(h.month, h.day, now);
+
+      return json({
+        which,
+        label: h.label,
+        trackingStartedAt: this.trackingStartedAt,
+        isToday,
+        yearsCovered,
+        nextOccurrenceAt: isToday ? null : atMs,
+        daysUntil: isToday ? 0 : daysUntil,
         generatedAt: now,
         totalCandidates: counts.size,
         entries: top.map(([did, count]) => {

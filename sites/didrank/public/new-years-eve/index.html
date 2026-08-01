@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>didrank — New Year's Eve leaderboard</title>
+    <meta
+      name="description"
+      content="Who posts the most on New Year's Eve? A didrank special view, summed across every Dec 31 tracked so far."
+    />
+    <meta property="og:title" content="didrank — New Year's Eve leaderboard" />
+    <meta
+      property="og:description"
+      content="Which Bluesky DIDs post the most on New Year's Eve, live off the Jetstream firehose."
+    />
+    <meta property="og:image" content="https://didrank.bisks.net/og.png" />
+    <meta property="og:url" content="https://didrank.bisks.net/new-years-eve" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08090c;
+        --panel: #101319;
+        --panel-2: #151a22;
+        --border: rgba(140, 170, 220, 0.14);
+        --fg: #eef2f7;
+        --dim: #8892a0;
+        --accent: #7fb3ff;
+        --accent-2: #ffe36f;
+        --warn: #ffcf6f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+      }
+      body {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        color: var(--fg);
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 16px 64px;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      .crumbs {
+        font-size: 12px;
+        color: var(--dim);
+        margin: 0 0 14px;
+      }
+      .crumbs a {
+        color: var(--dim);
+      }
+      .crumbs a:hover {
+        color: var(--accent);
+      }
+      header h1 {
+        font-size: 26px;
+        margin: 0 0 6px;
+        letter-spacing: -0.02em;
+      }
+      header h1 span {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      header p {
+        margin: 0 0 18px;
+        color: var(--dim);
+        font-size: 14px;
+        line-height: 1.5;
+        max-width: 60ch;
+      }
+
+      .holidaynav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 20px;
+      }
+      .holidaynav a {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--dim);
+        text-decoration: none;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 999px;
+      }
+      .holidaynav a.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #05070a;
+        font-weight: 700;
+      }
+      .holidaynav a:hover:not(.active) {
+        color: var(--fg);
+      }
+
+      .countdown {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 28px 20px;
+        text-align: center;
+        margin-bottom: 18px;
+      }
+      .countdown .big {
+        font-size: 42px;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+      }
+      .countdown .sub {
+        color: var(--dim);
+        font-size: 13px;
+        margin-top: 6px;
+      }
+
+      .banner {
+        display: none;
+        background: rgba(255, 207, 111, 0.08);
+        border: 1px solid rgba(255, 207, 111, 0.35);
+        color: var(--warn);
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 12px 14px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+      }
+      .banner.show {
+        display: block;
+      }
+      .banner b {
+        color: #ffe3a8;
+      }
+
+      .livepill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--accent);
+        margin-bottom: 14px;
+      }
+      .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      .board {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+      }
+      .row:last-child {
+        border-bottom: none;
+      }
+      .row .bar {
+        position: absolute;
+        inset: 0;
+        right: auto;
+        background: linear-gradient(90deg, rgba(127, 179, 255, 0.14), rgba(127, 179, 255, 0));
+        z-index: 0;
+      }
+      .row > * {
+        position: relative;
+        z-index: 1;
+      }
+      .rank {
+        width: 26px;
+        flex: none;
+        text-align: right;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      .rank.top1 {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--panel-2);
+        flex: none;
+        object-fit: cover;
+        border: 1px solid var(--border);
+      }
+      .who {
+        flex: 1;
+        min-width: 0;
+      }
+      .who .name {
+        font-size: 14px;
+        color: var(--fg);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+      }
+      .who .name:hover {
+        color: var(--accent);
+      }
+      .who .did {
+        font-size: 11px;
+        color: var(--dim);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+        max-width: 100%;
+      }
+      .who .did:hover {
+        color: var(--accent-2);
+        text-decoration: underline;
+      }
+      .count {
+        flex: none;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--accent);
+        text-align: right;
+        min-width: 3.5em;
+      }
+      .count small {
+        display: block;
+        font-weight: 400;
+        color: var(--dim);
+        font-size: 10px;
+      }
+      .empty {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--dim);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      footer {
+        margin-top: 22px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        text-decoration: none;
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 10px;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      footer .about {
+        color: var(--dim);
+        font-size: 12px;
+        margin: 12px 0 0;
+        line-height: 1.6;
+      }
+      footer .about a {
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="crumbs"><a href="/">← didrank</a></p>
+      <header>
+        <h1>🎆 <span>New Year's Eve</span> leaderboard</h1>
+        <p>
+          Who posts the most on Dec 31, specifically — not just any rolling 24h window, the actual
+          calendar date. Summed across every New Year's Eve didrank has been running to catch.
+        </p>
+      </header>
+
+      <nav class="holidaynav">
+        <a href="/new-years-eve" class="active">🎆 New Year's Eve</a>
+        <a href="/valentines-day">💘 Valentine's Day</a>
+        <a href="/christmas">🎄 Christmas Day</a>
+      </nav>
+
+      <div id="countdownWrap"></div>
+      <div class="banner" id="banner"></div>
+
+      <div id="liveWrap" style="display: none">
+        <p class="livepill"><span class="dot"></span>it's New Year's Eve — tracking live</p>
+      </div>
+
+      <div class="board" id="board">
+        <div class="empty">loading…</div>
+      </div>
+
+      <footer>
+        <a class="btn" id="shareBtn" target="_blank" rel="noopener">share this leaderboard →</a>
+        <a class="btn" href="/">all windows on didrank</a>
+        <p class="about">
+          part of <a href="/">didrank</a>, built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+          for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>
+          — no historical import, so this only counts New Year's Eves since didrank's tracker came online.
+        </p>
+      </footer>
+    </main>
+
+    <script>
+      const WHICH = "new-years-eve";
+      const LABEL = "New Year's Eve";
+      const $ = (id) => document.getElementById(id);
+      const board = $("board");
+      const banner = $("banner");
+      const countdownWrap = $("countdownWrap");
+      const liveWrap = $("liveWrap");
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[c]));
+      }
+
+      function fmtDate(ts) {
+        if (!ts) return "—";
+        return new Date(ts).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      }
+
+      let lastData = null;
+
+      function renderCountdown(data) {
+        if (data.isToday) {
+          countdownWrap.innerHTML = "";
+          liveWrap.style.display = "";
+          return;
+        }
+        liveWrap.style.display = "none";
+        countdownWrap.innerHTML = `
+          <div class="countdown">
+            <div class="big">${data.daysUntil.toLocaleString()} day${data.daysUntil === 1 ? "" : "s"}</div>
+            <div class="sub">until ${LABEL}, ${fmtDate(data.nextOccurrenceAt)}</div>
+          </div>`;
+      }
+
+      function renderBanner(data) {
+        if (data.yearsCovered.length) {
+          banner.classList.remove("show");
+          return;
+        }
+        banner.innerHTML =
+          `<b>not tracked yet.</b> didrank started tracking on ${fmtDate(data.trackingStartedAt)}, which hasn't ` +
+          `reached a ${LABEL} yet. The board below will fill in the first time this date rolls around — check back then.`;
+        banner.classList.add("show");
+      }
+
+      function renderBoard(data) {
+        if (!data.entries || !data.entries.length) {
+          board.innerHTML = data.yearsCovered.length
+            ? '<div class="empty">no posts counted for this date yet.</div>'
+            : `<div class="empty">nothing here yet — didrank hasn't seen a ${LABEL} pass by since it started tracking.</div>`;
+          return;
+        }
+        const max = data.entries[0].count || 1;
+        board.innerHTML = data.entries
+          .map((e, i) => {
+            const rank = i + 1;
+            const name = e.displayName || e.handle || e.did;
+            const profileUrl = `https://bsky.app/profile/${encodeURIComponent(e.handle || e.did)}`;
+            const pct = Math.max(4, Math.round((e.count / max) * 100));
+            const avatar = e.avatar
+              ? `<img class="avatar" src="${escapeHtml(e.avatar)}" alt="" loading="lazy" />`
+              : `<span class="avatar"></span>`;
+            return `<div class="row">
+              <div class="bar" style="width:${pct}%"></div>
+              <span class="rank${rank === 1 ? " top1" : ""}">${rank}</span>
+              ${avatar}
+              <span class="who">
+                <a class="name" href="${profileUrl}" target="_blank" rel="noopener">${escapeHtml(name)}</a>
+                <a class="did" href="${profileUrl}" target="_blank" rel="noopener">${escapeHtml(e.did)}</a>
+              </span>
+              <span class="count">${e.count.toLocaleString()}<small>posts</small></span>
+            </div>`;
+          })
+          .join("");
+      }
+
+      function updateShare(data) {
+        let text = `who posts the most on ${LABEL}? live on didrank`;
+        if (data && data.entries && data.entries.length) {
+          const top = data.entries[0];
+          const who = top.handle ? "@" + top.handle : top.did;
+          text = `${who} posted the most on ${LABEL} — ${top.count} posts. tracked live on didrank:`;
+        }
+        text += " https://didrank.bisks.net" + location.pathname;
+        $("shareBtn").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      async function load() {
+        try {
+          const res = await fetch(`/api/holiday?which=${WHICH}&limit=25`);
+          const data = await res.json();
+          lastData = data;
+          renderCountdown(data);
+          renderBanner(data);
+          renderBoard(data);
+          updateShare(data);
+        } catch {
+          board.innerHTML = '<div class="empty">couldn\'t load the leaderboard — retrying…</div>';
+        }
+      }
+
+      load();
+      setInterval(load, 30000);
+    </script>
+  </body>
+</html>
