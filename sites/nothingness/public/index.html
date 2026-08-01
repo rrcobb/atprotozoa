@@ -75,7 +75,15 @@
     min-height: 2.4em;
   }
   .witness.revealed { color: rgba(255,255,255,0.28); }
-  .witness .n { color: rgba(255,255,255,0.65); }
+  .witness .n {
+    display: inline-block;
+    color: rgba(255,255,255,0.65);
+    animation: fadeInNum 0.6s ease;
+  }
+  @keyframes fadeInNum {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
   .action {
     margin-top: 1.4rem;
@@ -343,20 +351,35 @@ import { login, completeLoginIfCallback, getSession, clearSession } from './lib/
     }).join('');
   }
   async function loadLeaderboard() {
-    lbList.innerHTML = '<li class="empty">tallying nothing…</li>';
+    if (!lbLoaded) lbList.innerHTML = '<li class="empty">tallying nothing…</li>';
     try {
       var r = await fetch('/api/leaderboard');
       var data = await r.json();
       renderLeaderboard(data.leaders || []);
       lbLoaded = true;
     } catch (e) {
-      lbList.innerHTML = '<li class="empty">the leaderboard is, at the moment, also nothing.</li>';
+      if (!lbLoaded) lbList.innerHTML = '<li class="empty">the leaderboard is, at the moment, also nothing.</li>';
     }
+  }
+  // leaderboard is live: while the panel is open, poll it once a second so
+  // standings move in front of you instead of freezing at whenever you opened it.
+  var lbPollInterval = null;
+  function startLbPolling() {
+    if (lbPollInterval) return;
+    lbPollInterval = setInterval(loadLeaderboard, 1000);
+  }
+  function stopLbPolling() {
+    if (lbPollInterval) { clearInterval(lbPollInterval); lbPollInterval = null; }
   }
   lbToggle.addEventListener('click', function () {
     var open = leaderboard.classList.toggle('open');
     lbToggle.textContent = open ? 'hide leaderboard' : 'leaderboard of nothing';
-    if (open && !lbLoaded) loadLeaderboard();
+    if (open) {
+      if (!lbLoaded) loadLeaderboard();
+      startLbPolling();
+    } else {
+      stopLbPolling();
+    }
   });
 
   setTimeout(function () { thesis.classList.add('revealed'); }, 300);
@@ -391,26 +414,37 @@ import { login, completeLoginIfCallback, getSession, clearSession } from './lib/
     if (v > getBest()) localStorage.setItem(BEST_KEY, String(v));
   }
 
+  // rebuilding witness.innerHTML retriggers the .n span's fadeInNum CSS
+  // animation (fresh DOM node = animation plays from the top). witnessTick
+  // runs every 250ms for accurate lapse timing, but we only want the "Xs"
+  // counter to visibly fade in once a second, when the displayed number
+  // actually changes — so skip the rebuild when nothing shown has moved.
+  var lastWitnessSig = null;
   function renderWitness() {
+    var sig, html;
     if (streakStart !== null) {
       var secs = Math.floor((Date.now() - streakStart) / 1000);
       var remainMs = WITNESS_WINDOW_MS - (Date.now() - lastWitnessClick);
       var remainS = Math.max(0, Math.ceil(remainMs / 1000));
-      witness.innerHTML = 'you have witnessed nothing for <span class="n">' + secs + 's</span>' +
+      sig = 'active:' + secs + ':' + remainS;
+      html = 'you have witnessed nothing for <span class="n">' + secs + 's</span>' +
         '<br>click again within ' + remainS + 's to keep witnessing';
       cursor.classList.toggle('urgent', remainMs < 2000);
-      return;
-    }
-    if (lapsedSecs !== null) {
-      witness.innerHTML = 'you looked away. the nothing noticed.' +
+    } else if (lapsedSecs !== null) {
+      sig = 'lapsed:' + lapsedSecs;
+      html = 'you looked away. the nothing noticed.' +
         '<br>you witnessed it for ' + lapsedSecs + 's — click to try again';
       cursor.classList.remove('urgent');
-      return;
+    } else {
+      var best = serverPersonalBest !== null ? serverPersonalBest : getBest();
+      sig = 'idle:' + best;
+      html = 'click the nothing above to begin witnessing it' +
+        (best > 0 ? '<br>your longest witness so far: <span class="n">' + best + 's</span>' : '');
+      cursor.classList.remove('urgent');
     }
-    var best = serverPersonalBest !== null ? serverPersonalBest : getBest();
-    witness.innerHTML = 'click the nothing above to begin witnessing it' +
-      (best > 0 ? '<br>your longest witness so far: <span class="n">' + best + 's</span>' : '');
-    cursor.classList.remove('urgent');
+    if (sig === lastWitnessSig) return;
+    lastWitnessSig = sig;
+    witness.innerHTML = html;
   }
 
   function buildShareText(seconds) {
