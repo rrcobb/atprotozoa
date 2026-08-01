@@ -11,10 +11,15 @@
 //
 // index.html calls window.SpaceGhostScene.speak(cls) every time a new
 // transcript line lands, so the matching character on set lights up.
+//
+// three.js is loaded with a plain dynamic import() of a full URL (tried
+// against a couple of CDNs) instead of a bare "three" specifier resolved via
+// an <script type="importmap">. Import maps only landed in Safari 16.4
+// (March 2023) — on anything older, a bare-specifier import throws and kills
+// the whole module before it ever runs. Dynamic import of a full URL has no
+// such requirement, so this works on much older browsers too.
 
-import * as THREE from "three";
-
-(function () {
+(async function () {
   "use strict";
 
   var canvas = document.getElementById("glScene");
@@ -29,6 +34,20 @@ import * as THREE from "three";
   } catch (e) {
     return;
   }
+
+  var THREE_CDNS = [
+    "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "https://esm.sh/three@0.160.0"
+  ];
+  var THREE = null;
+  for (var ci = 0; ci < THREE_CDNS.length; ci++) {
+    try {
+      var mod = await import(/* webpackIgnore: true */ THREE_CDNS[ci]);
+      if (mod && mod.Scene) { THREE = mod; break; }
+    } catch (e) { /* try the next CDN */ }
+  }
+  if (!THREE) return;
 
   // keep our literal hex colors rendering as written, not sRGB-remapped
   THREE.ColorManagement.enabled = false;
@@ -418,7 +437,7 @@ import * as THREE from "three";
   // ---- cockpit-window parallax: mouse / touch / gyro nudges the camera ----
   var target = { x: 0, y: 0 };
   var current = { x: 0, y: 0 };
-  var baseTiltX = -0.05;
+  var baseTiltX = -0.16;
 
   // ---- "look around the set" mode: drag/touch to freely orbit from your chair ----
   var look = { active: false, dragging: false, yaw: 0, pitch: 0, lastX: 0, lastY: 0 };
@@ -503,6 +522,31 @@ import * as THREE from "three";
   resize();
 
   document.body.classList.add("gl-active");
+
+  // ---- guaranteed first look: auto-preview "look around the set" briefly
+  // on load so everyone actually SEES the 3D scene at least once, instead of
+  // it living behind a small corner button nobody notices ----
+  (function autoPreviewLook() {
+    var toggleBtn = document.getElementById("lookToggle");
+    var userTouchedIt = false;
+    if (toggleBtn) {
+      toggleBtn.addEventListener("click", function () { userTouchedIt = true; }, { once: true });
+    }
+    function setToggleText(active) {
+      if (toggleBtn) toggleBtn.textContent = active ? "✕ BACK TO THE SHOW" : "👀 LOOK AROUND THE SET";
+    }
+    if (reduceMotion) return;
+    setTimeout(function () {
+      if (userTouchedIt || look.active) return;
+      window.SpaceGhostScene.enterLook();
+      setToggleText(true);
+      setTimeout(function () {
+        if (userTouchedIt) return;
+        window.SpaceGhostScene.exitLook();
+        setToggleText(false);
+      }, 2600);
+    }, 1000);
+  })();
 
   var clock = new THREE.Clock();
   var drift = 0;
