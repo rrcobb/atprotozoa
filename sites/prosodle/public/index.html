@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>prosodle — roll MINECRAFT, score the vibes</title>
+    <meta
+      name="description"
+      content="A wordle-like: roll the 9 letters of MINECRAFT into a new arrangement, three tries a day, scored on cadence, mouthfeel, and punch. Same puzzle for everyone, every day."
+    />
+    <meta property="og:title" content="prosodle — roll MINECRAFT, score the vibes" />
+    <meta property="og:description" content="Three rolls a day. Shuffle the letters of MINECRAFT, get scored on cadence/mouthfeel/punch, share your grade." />
+    <meta property="og:image" content="https://prosodle.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A row of nine letter tiles spelling a shuffled arrangement of MINECRAFT, next to a prosody score card." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://prosodle.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="prosodle — roll MINECRAFT, score the vibes" />
+    <meta name="twitter:description" content="Three rolls a day. Shuffle the letters of MINECRAFT, get scored on cadence/mouthfeel/punch, share your grade." />
+    <meta name="twitter:image" content="https://prosodle.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0d120c;
+        --panel: #161f14;
+        --panel2: #1d2a19;
+        --faint: #33452c;
+        --ink: #eef3e6;
+        --muted: #9db08f;
+        --accent: #8bc34a;
+        --accent-ink: #12200a;
+        --accent2: #e0c341;
+        --bad: #d95d5d;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(1100px 640px at 50% -10%, #1c2a16, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2rem 1.05rem 4.5rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      h1 { font-size: 1.9rem; font-weight: 900; letter-spacing: -0.02em; margin: 0.4rem 0 0.25rem; text-align: center; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0 auto 1.4rem; max-width: 46ch; text-align: center; }
+      .meta-row { display: flex; justify-content: center; gap: 1.1rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 1.4rem; flex-wrap: wrap; }
+      .meta-row b { color: var(--accent2); }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 14px;
+        padding: 1.1rem 1.1rem;
+        margin-bottom: 1rem;
+      }
+
+      .tiles { display: flex; justify-content: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.3rem 0 1rem; }
+      .tile {
+        width: 2.5rem; height: 2.9rem;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 9px;
+        font-family: var(--mono); font-weight: 800; font-size: 1.35rem;
+        transition: transform 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+      }
+      .tile.vowel { color: var(--accent2); border-color: #6b632a; }
+      .tile.settling { animation: pop 0.22s ease; }
+      @keyframes pop { 0% { transform: scale(0.7) rotate(-6deg); } 60% { transform: scale(1.08) rotate(3deg); } 100% { transform: scale(1) rotate(0); } }
+
+      .dots { display: flex; justify-content: center; gap: 0.4rem; margin-bottom: 0.9rem; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+      .dot.used { background: var(--accent); }
+      .dot.current { background: var(--accent2); box-shadow: 0 0 0 3px rgba(224,195,65,0.2); }
+
+      .btnrow { display: flex; gap: 0.55rem; flex-wrap: wrap; justify-content: center; }
+      button.act {
+        font: inherit; font-weight: 800; font-size: 0.88rem; cursor: pointer;
+        padding: 0.65rem 1.05rem; border: 0; border-radius: 11px;
+        background: var(--accent); color: var(--accent-ink);
+        box-shadow: 0 3px 0 #5c8a26;
+        transition: transform 0.06s ease;
+      }
+      button.act:active { transform: translateY(2px); box-shadow: 0 1px 0 #5c8a26; }
+      button.act:disabled { opacity: 0.4; cursor: default; box-shadow: none; transform: none; }
+      button.ghost {
+        font: inherit; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+        padding: 0.62rem 1rem; border: 1px solid var(--faint); border-radius: 11px;
+        background: transparent; color: var(--ink);
+      }
+      button.ghost:hover { border-color: var(--accent); }
+      button.ghost:disabled { opacity: 0.35; cursor: default; }
+
+      .score-head { display: flex; align-items: baseline; justify-content: center; gap: 0.6rem; margin: 0.2rem 0 0.8rem; }
+      .score-num { font-family: var(--mono); font-size: 2.4rem; font-weight: 900; }
+      .grade-badge {
+        font-family: var(--mono); font-weight: 900; font-size: 1.2rem;
+        padding: 0.15rem 0.55rem; border-radius: 8px; background: var(--panel2); border: 1px solid var(--faint);
+      }
+      .flavor { text-align: center; font-style: italic; color: var(--ink); margin-bottom: 1rem; min-height: 1.4rem; }
+
+      .bar-row { margin-bottom: 0.6rem; }
+      .bar-label { display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--muted); margin-bottom: 0.25rem; }
+      .bar-track { height: 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--faint); overflow: hidden; }
+      .bar-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #4a6b1e, var(--accent)); transition: width 0.5s ease; }
+
+      .egg {
+        margin: 0.9rem 0; padding: 0.7rem 0.85rem; border-radius: 10px;
+        background: rgba(224,195,65,0.1); border: 1px dashed var(--accent2);
+        font-size: 0.85rem; text-align: center;
+      }
+
+      .grid-line { text-align: center; font-size: 1.3rem; letter-spacing: 0.3rem; margin: 0.5rem 0 0.9rem; }
+
+      .share-row { display: flex; gap: 0.55rem; flex-wrap: wrap; justify-content: center; margin-top: 0.4rem; }
+      canvas#card { display: none; }
+
+      h2.section { font-size: 1rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 2.2rem 0 0.6rem; text-align: center; }
+      details.how { font-size: 0.85rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--accent); font-weight: 700; margin-bottom: 0.4rem; }
+      details.how ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+      details.how li { margin-bottom: 0.3rem; }
+
+      .practice-result { text-align: center; margin-top: 0.7rem; }
+      .footer-note { text-align: center; font-size: 0.75rem; color: var(--muted); margin-top: 2.2rem; }
+      .footer-note a { color: var(--muted); text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>prosodle</h1>
+      <p class="sub">roll the 9 letters of <b>MINECRAFT</b>. three tries a day, same puzzle for everyone. scored on cadence, mouthfeel, and punch — how it actually feels to say out loud.</p>
+      <div class="meta-row">
+        <span>today: <b id="dateLabel">—</b></span>
+        <span>streak: <b id="streakLabel">0</b></span>
+      </div>
+
+      <div class="panel" id="dailyPanel">
+        <div class="tiles" id="tiles"></div>
+        <div class="dots" id="dots"></div>
+
+        <div id="idleState">
+          <div class="btnrow">
+            <button class="act" id="rollBtn">roll</button>
+          </div>
+        </div>
+
+        <div id="resultState" style="display:none">
+          <div class="score-head">
+            <span class="score-num" id="scoreNum">0</span>
+            <span class="grade-badge" id="gradeBadge">—</span>
+          </div>
+          <p class="flavor" id="flavorText"></p>
+
+          <div class="bar-row">
+            <div class="bar-label"><span>cadence</span><span id="cadenceNum">0</span></div>
+            <div class="bar-track"><div class="bar-fill" id="cadenceBar"></div></div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label"><span>mouthfeel</span><span id="mouthfeelNum">0</span></div>
+            <div class="bar-track"><div class="bar-fill" id="mouthfeelBar"></div></div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label"><span>punch</span><span id="punchNum">0</span></div>
+            <div class="bar-track"><div class="bar-fill" id="punchBar"></div></div>
+          </div>
+
+          <div id="eggBox"></div>
+
+          <div class="btnrow" style="margin-top:0.9rem">
+            <button class="act" id="keepBtn">keep this one</button>
+            <button class="ghost" id="rerollBtn">roll again</button>
+          </div>
+        </div>
+
+        <div id="finalState" style="display:none">
+          <div class="score-head">
+            <span class="score-num" id="finalScoreNum">0</span>
+            <span class="grade-badge" id="finalGradeBadge">—</span>
+          </div>
+          <p class="flavor" id="finalFlavorText"></p>
+          <div class="grid-line" id="gridLine"></div>
+          <p style="text-align:center; color: var(--muted); font-size:0.82rem;" id="finalSub"></p>
+          <div id="finalEggBox"></div>
+          <div class="share-row">
+            <button class="act" id="shareBsky">share on bluesky</button>
+            <button class="ghost" id="shareCardBtn">share/save card</button>
+          </div>
+          <p style="text-align:center; color: var(--muted); font-size:0.78rem; margin-top:0.8rem;">come back tomorrow for a new roll.</p>
+        </div>
+      </div>
+
+      <details class="how">
+        <summary>how scoring works</summary>
+        <ul>
+          <li><b>cadence</b> — how evenly the vowels (I, E, A) are spaced through the consonants. bunched-up consonants tank it.</li>
+          <li><b>mouthfeel</b> — how natural each adjacent letter pair is to say, judged by consonant/vowel class (nasal, plosive, fricative, liquid).</li>
+          <li><b>punch</b> — how hard-hitting the consonants are, weighted toward the opening letter.</li>
+        </ul>
+        <p>three rolls a day, same seed for everyone. keep any roll you like, or if you burn all three without keeping one, your best-scoring roll is used automatically.</p>
+      </details>
+
+      <h2 class="section">practice</h2>
+      <div class="panel">
+        <p class="sub" style="margin-bottom:0.8rem">unlimited rerolls, doesn't touch today's score. just for the vibes.</p>
+        <div class="tiles" id="pTiles"></div>
+        <div class="btnrow"><button class="act" id="pRollBtn">roll</button></div>
+        <div class="practice-result" id="pResult"></div>
+      </div>
+
+      <p class="footer-note">
+        every arrangement of MINECRAFT's 9 letters, scored by a heuristic, not a dictionary. built by
+        <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        after @shibbi.me and @aiun.bsky.social kept trading anagrams in a reply thread.
+      </p>
+    </div>
+
+    <canvas id="card" width="1200" height="630"></canvas>
+
+    <script>
+      const WORD = "MINECRAFT".split("");
+      const VOWELS = new Set(["I", "E", "A"]);
+      const CLASS = { M: "N", N: "N", C: "P", T: "P", F: "F", R: "L", I: "V", E: "V", A: "V" };
+      const HARDNESS = { T: 1.0, C: 0.9, R: 0.7, F: 0.4, N: 0.3, M: 0.3 };
+
+      // Raw combined score (cadence*0.35 + mouthfeel*0.4 + punch*0.25) only
+      // ever lands in a narrow band for these specific 9 letters — brute
+      // forced over all 9! = 362,880 permutations of MINECRAFT offline to
+      // find the true min/max, so the 0-100 display score (and S/F grades)
+      // actually use the full range instead of clustering in the middle.
+      const RAW_MIN = 35.4;
+      const RAW_MAX = 83.3;
+
+      const PAIR_SCORE = {
+        VV: 0.55,
+        VN: 0.85, NV: 0.85,
+        VP: 0.85, PV: 0.85,
+        VF: 0.8, FV: 0.8,
+        VL: 0.85, LV: 0.85,
+        NP: 0.75, PN: 0.55,
+        NF: 0.4, FN: 0.45,
+        NL: 0.4, LN: 0.6,
+        PF: 0.5, FP: 0.75,
+        PL: 0.85, LP: 0.8,
+        FL: 0.85, LF: 0.4,
+        NN: 0.25, PP: 0.55,
+      };
+
+      const FLAVOR = {
+        S: ["a certified banger.", "this belongs on a plaque.", "poets are taking notes.", "read that out loud twice, i dare you."],
+        A: ["genuinely pleasant to say.", "smooth. respectable. a solid roll.", "flows nicer than the actual word.", "would survive being said in public."],
+        B: ["fine. inoffensive. a shrug of a word.", "not a banger, not a crime.", "middling, but you'd nod along.", "perfectly forgettable."],
+        C: ["a little clunky coming out.", "your tongue trips once, recovers.", "workable, barely.", "sounds like a typo with confidence."],
+        D: ["rough going. bring water.", "this fought you on the way out.", "closer to a cough than a word.", "your mouth filed a complaint."],
+        F: ["linguistic crime scene.", "unspeakable, and we mean that literally.", "the letters are just standing there.", "call a linguist. call anyone."],
+      };
+
+      const GRADE_EMOJI = { S: "🟪", A: "🟩", B: "🟨", C: "🟧", D: "🟥", F: "⬛" };
+
+      // callbacks to the thread that started this: shibbi.me and aiun.bsky.social
+      // trading anagrams of MINECRAFT before tagging @buildthis about it.
+      const KNOWN = {
+        MINECRAFT: { who: null, note: "you rolled the actual word. very funny." },
+        CRINEMAFT: { who: "shibbi.me" },
+        CRIMENAFT: { who: "aiun.bsky.social" },
+        TIMEFNARC: { who: "shibbi.me" },
+        MINCEFART: { who: "aiun.bsky.social" },
+        MANTREFIC: { who: "shibbi.me" },
+      };
+
+      function classOf(l) { return CLASS[l]; }
+      function pairScore(a, b) { return PAIR_SCORE[classOf(a) + classOf(b)] ?? 0.5; }
+
+      function hashStr(s) {
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return h >>> 0;
+      }
+      function mulberry32(seed) {
+        return function () {
+          seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+          let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      function shuffleForSeed(seedStr) {
+        const rng = mulberry32(hashStr(seedStr));
+        const arr = WORD.slice();
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(rng() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      }
+      function shuffleRandom() {
+        const arr = WORD.slice();
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        return arr;
+      }
+
+      function cadenceScore(letters) {
+        const positions = [];
+        letters.forEach((l, i) => { if (VOWELS.has(l)) positions.push(i); });
+        const gaps = [];
+        let prev = -1;
+        for (const p of positions) { gaps.push(p - prev - 1); prev = p; }
+        gaps.push(letters.length - 1 - prev);
+        const ideal = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+        const variance = gaps.reduce((s, g) => s + (g - ideal) ** 2, 0) / gaps.length;
+        const maxVariance = 6.75;
+        return Math.max(0, Math.min(100, Math.round(100 - (variance / maxVariance) * 100)));
+      }
+      function mouthfeelScore(letters) {
+        let total = 0;
+        for (let i = 0; i < letters.length - 1; i++) total += pairScore(letters[i], letters[i + 1]);
+        return Math.round((total / (letters.length - 1)) * 100);
+      }
+      function punchScore(letters) {
+        // Only consonants carry "punch" — averaging vowels in would just
+        // dilute it toward zero regardless of how hard the consonants hit.
+        let total = 0, weight = 0;
+        letters.forEach((l, i) => {
+          if (VOWELS.has(l)) return;
+          const w = i === 0 ? 2.0 : 1;
+          total += HARDNESS[l] * w;
+          weight += w;
+        });
+        return Math.round((total / weight) * 100);
+      }
+      function gradeFor(score) {
+        if (score >= 90) return "S";
+        if (score >= 78) return "A";
+        if (score >= 63) return "B";
+        if (score >= 48) return "C";
+        if (score >= 33) return "D";
+        return "F";
+      }
+      function scoreArrangement(letters) {
+        const cadence = cadenceScore(letters);
+        const mouthfeel = mouthfeelScore(letters);
+        const punch = punchScore(letters);
+        const raw = cadence * 0.35 + mouthfeel * 0.4 + punch * 0.25;
+        const overall = Math.max(0, Math.min(100, Math.round(((raw - RAW_MIN) / (RAW_MAX - RAW_MIN)) * 100)));
+        const grade = gradeFor(overall);
+        const pool = FLAVOR[grade];
+        const flavor = pool[hashStr(letters.join("")) % pool.length];
+        const known = KNOWN[letters.join("")];
+        return { letters, cadence, mouthfeel, punch, overall, grade, flavor, known };
+      }
+
+      function todayUTC() { return new Date().toISOString().slice(0, 10); }
+      function yesterdayUTC(dateStr) {
+        const d = new Date(dateStr + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
+      }
+      function rollForToday(date, rollIndex) { return shuffleForSeed(`prosodle:${date}:${rollIndex}`); }
+
+      // ---- tile rendering ----
+      function renderTiles(container, letters, animate) {
+        container.innerHTML = "";
+        letters.forEach((l) => {
+          const el = document.createElement("div");
+          el.className = "tile" + (VOWELS.has(l) ? " vowel" : "") + (animate ? " settling" : "");
+          el.textContent = l;
+          container.appendChild(el);
+        });
+      }
+
+      function animateRoll(container, finalLetters, onDone) {
+        let frames = 8;
+        const iv = setInterval(() => {
+          frames--;
+          if (frames <= 0) {
+            clearInterval(iv);
+            renderTiles(container, finalLetters, true);
+            onDone && onDone();
+          } else {
+            renderTiles(container, shuffleRandom(), false);
+          }
+        }, 55);
+      }
+
+      // ---- daily state ----
+      const DATE = todayUTC();
+      document.getElementById("dateLabel").textContent = DATE;
+
+      const STORE_KEY = `prosodle:${DATE}`;
+      const STREAK_KEY = "prosodle:streak";
+
+      function loadDay() {
+        try { return JSON.parse(localStorage.getItem(STORE_KEY)) || { rolls: [], finalIndex: null }; }
+        catch { return { rolls: [], finalIndex: null }; }
+      }
+      function saveDay(state) { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+      function bumpStreak() {
+        let s;
+        try { s = JSON.parse(localStorage.getItem(STREAK_KEY)) || { lastDate: null, count: 0 }; }
+        catch { s = { lastDate: null, count: 0 }; }
+        if (s.lastDate === DATE) return s.count;
+        if (s.lastDate === yesterdayUTC(DATE)) s.count += 1;
+        else s.count = 1;
+        s.lastDate = DATE;
+        localStorage.setItem(STREAK_KEY, JSON.stringify(s));
+        return s.count;
+      }
+      function readStreak() {
+        try { return (JSON.parse(localStorage.getItem(STREAK_KEY)) || { count: 0 }).count; }
+        catch { return 0; }
+      }
+
+      let day = loadDay();
+      document.getElementById("streakLabel").textContent = readStreak();
+
+      const tilesEl = document.getElementById("tiles");
+      const dotsEl = document.getElementById("dots");
+      const idleState = document.getElementById("idleState");
+      const resultState = document.getElementById("resultState");
+      const finalState = document.getElementById("finalState");
+      const rollBtn = document.getElementById("rollBtn");
+      const keepBtn = document.getElementById("keepBtn");
+      const rerollBtn = document.getElementById("rerollBtn");
+
+      function renderDots(usedCount, currentIndex) {
+        dotsEl.innerHTML = "";
+        for (let i = 0; i < 3; i++) {
+          const d = document.createElement("div");
+          d.className = "dot" + (i < usedCount ? " used" : "") + (i === currentIndex ? " current" : "");
+          dotsEl.appendChild(d);
+        }
+      }
+
+      function eggMarkup(known) {
+        if (!known) return "";
+        const text = known.note || `already claimed — @${known.who} said this one first.`;
+        return `<div class="egg">🎯 ${text}</div>`;
+      }
+
+      function showResult(result, rollIndex) {
+        renderDots(rollIndex, rollIndex - 1);
+        idleState.style.display = "none";
+        finalState.style.display = "none";
+        resultState.style.display = "block";
+        document.getElementById("scoreNum").textContent = result.overall;
+        document.getElementById("gradeBadge").textContent = result.grade;
+        document.getElementById("flavorText").textContent = result.flavor;
+        document.getElementById("cadenceNum").textContent = result.cadence;
+        document.getElementById("mouthfeelNum").textContent = result.mouthfeel;
+        document.getElementById("punchNum").textContent = result.punch;
+        requestAnimationFrame(() => {
+          document.getElementById("cadenceBar").style.width = result.cadence + "%";
+          document.getElementById("mouthfeelBar").style.width = result.mouthfeel + "%";
+          document.getElementById("punchBar").style.width = result.punch + "%";
+        });
+        document.getElementById("eggBox").innerHTML = eggMarkup(result.known);
+        rerollBtn.disabled = rollIndex >= 3;
+        rerollBtn.textContent = rollIndex >= 3 ? "no rolls left" : "roll again";
+      }
+
+      function gridLineFor(rolls, finalIdx) {
+        return rolls.map((r, i) => {
+          const sq = GRADE_EMOJI[r.grade];
+          return i === finalIdx ? `[${sq}]` : sq;
+        }).join(" ");
+      }
+
+      function shareText(finalRoll, rollNumber, rolls, finalIdx) {
+        const grid = gridLineFor(rolls, finalIdx);
+        return `prosodle ${DATE} — roll ${rollNumber}/3: ${finalRoll.letters.join("")} scored ${finalRoll.overall} (${finalRoll.grade})\n${grid}\ncadence ${finalRoll.cadence} · mouthfeel ${finalRoll.mouthfeel} · punch ${finalRoll.punch}\nhttps://prosodle.bisks.net/`;
+      }
+
+      function showFinal(state) {
+        resultState.style.display = "none";
+        idleState.style.display = "none";
+        finalState.style.display = "block";
+        const finalIdx = state.finalIndex;
+        const finalRoll = state.rolls[finalIdx];
+        renderTiles(tilesEl, finalRoll.letters, false);
+        renderDots(state.rolls.length, -1);
+        document.getElementById("finalScoreNum").textContent = finalRoll.overall;
+        document.getElementById("finalGradeBadge").textContent = finalRoll.grade;
+        document.getElementById("finalFlavorText").textContent = finalRoll.flavor;
+        document.getElementById("gridLine").textContent = gridLineFor(state.rolls, finalIdx);
+        document.getElementById("finalSub").textContent = `kept roll ${finalIdx + 1} of ${state.rolls.length}`;
+        document.getElementById("finalEggBox").innerHTML = eggMarkup(finalRoll.known);
+
+        const text = shareText(finalRoll, finalIdx + 1, state.rolls, finalIdx);
+        document.getElementById("shareBsky").onclick = () => {
+          window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+        };
+        document.getElementById("shareCardBtn").onclick = () => shareCard(finalRoll, finalIdx + 1, text);
+      }
+
+      function finalizeDay() {
+        if (day.finalIndex === null) {
+          let best = 0;
+          day.rolls.forEach((r, i) => { if (r.overall > day.rolls[best].overall) best = i; });
+          day.finalIndex = best;
+          saveDay(day);
+        }
+        showFinal(day);
+      }
+
+      function doRoll() {
+        const rollIndex = day.rolls.length + 1;
+        if (rollIndex > 3) return;
+        rollBtn.disabled = true;
+        idleState.style.display = "none";
+        resultState.style.display = "none";
+        finalState.style.display = "none";
+        const letters = rollForToday(DATE, rollIndex);
+        animateRoll(tilesEl, letters, () => {
+          const result = scoreArrangement(letters);
+          day.rolls.push(result);
+          saveDay(day);
+          if (day.rolls.length === 1) document.getElementById("streakLabel").textContent = bumpStreak();
+          showResult(result, rollIndex);
+          rollBtn.disabled = false;
+        });
+      }
+
+      rollBtn.addEventListener("click", doRoll);
+      rerollBtn.addEventListener("click", () => {
+        if (day.rolls.length >= 3) { finalizeDay(); return; }
+        doRoll();
+      });
+      keepBtn.addEventListener("click", () => {
+        day.finalIndex = day.rolls.length - 1;
+        saveDay(day);
+        showFinal(day);
+      });
+
+      // resume state on load
+      if (day.finalIndex !== null) {
+        showFinal(day);
+      } else if (day.rolls.length >= 3) {
+        finalizeDay();
+      } else if (day.rolls.length > 0) {
+        renderTiles(tilesEl, day.rolls[day.rolls.length - 1].letters, false);
+        showResult(day.rolls[day.rolls.length - 1], day.rolls.length);
+      } else {
+        renderTiles(tilesEl, WORD, false);
+        renderDots(0, -1);
+      }
+
+      // ---- practice mode ----
+      const pTiles = document.getElementById("pTiles");
+      const pResult = document.getElementById("pResult");
+      renderTiles(pTiles, WORD, false);
+      document.getElementById("pRollBtn").addEventListener("click", () => {
+        const letters = shuffleRandom();
+        animateRoll(pTiles, letters, () => {
+          const r = scoreArrangement(letters);
+          pResult.innerHTML = `<div class="score-head"><span class="score-num">${r.overall}</span><span class="grade-badge">${r.grade}</span></div><p class="flavor">${r.flavor}</p>${eggMarkup(r.known)}`;
+        });
+      });
+
+      // ---- share card ----
+      function shareCard(result, rollNumber, text) {
+        const canvas = document.getElementById("card");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const grad = ctx.createRadialGradient(W / 2, -80, 100, W / 2, H / 2, 900);
+        grad.addColorStop(0, "#1c2a16");
+        grad.addColorStop(1, "#0d120c");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#9db08f";
+        ctx.font = "700 26px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("PROSODLE — " + DATE, W / 2, 90);
+
+        const letters = result.letters;
+        const tileW = 92, gap = 14;
+        const totalW = letters.length * tileW + (letters.length - 1) * gap;
+        let x = (W - totalW) / 2;
+        const y = 150;
+        letters.forEach((l) => {
+          ctx.fillStyle = "#1d2a19";
+          ctx.strokeStyle = VOWELS.has(l) ? "#e0c341" : "#33452c";
+          ctx.lineWidth = 3;
+          roundRect(ctx, x, y, tileW, tileW, 14);
+          ctx.fill(); ctx.stroke();
+          ctx.fillStyle = VOWELS.has(l) ? "#e0c341" : "#eef3e6";
+          ctx.font = "800 48px ui-monospace, 'JetBrains Mono', monospace";
+          ctx.fillText(l, x + tileW / 2, y + tileW / 2 + 17);
+          x += tileW + gap;
+        });
+
+        ctx.fillStyle = "#eef3e6";
+        ctx.font = "900 96px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillText(String(result.overall), W / 2 - 60, 380);
+        ctx.font = "900 46px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillStyle = "#8bc34a";
+        ctx.fillText(result.grade, W / 2 + 90, 380);
+
+        ctx.font = "italic 26px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillStyle = "#eef3e6";
+        ctx.fillText(result.flavor, W / 2, 440);
+
+        ctx.font = "600 22px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillStyle = "#9db08f";
+        ctx.fillText(`cadence ${result.cadence} · mouthfeel ${result.mouthfeel} · punch ${result.punch}  ·  roll ${rollNumber}/3`, W / 2, 500);
+
+        ctx.font = "700 24px ui-monospace, 'JetBrains Mono', monospace";
+        ctx.fillStyle = "#8bc34a";
+        ctx.fillText("prosodle.bisks.net", W / 2, 580);
+
+        canvas.toBlob(async (blob) => {
+          const file = new File([blob], "prosodle.png", { type: "image/png" });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try {
+              await navigator.share({ files: [file], text, title: "prosodle" });
+              return;
+            } catch { /* fall through to download */ }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = "prosodle.png";
+          document.body.appendChild(a); a.click(); a.remove();
+          URL.revokeObjectURL(url);
+        }, "image/png");
+      }
+
+      function roundRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+    </script>
+  </body>
+</html>
