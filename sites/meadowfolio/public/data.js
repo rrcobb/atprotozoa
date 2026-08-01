@@ -1,74 +1,88 @@
 // meadowfolio — static data, baked at build time.
 //
 // RELEASES: every piece of software fromthewestmeadow.com has shipped on
-// its own domain, gathered from the site's landing page (fromthewestmeadow.com)
-// and posts linking out to dreamnet./cancelled. subdomains that hadn't made
-// the landing page yet. Hand-maintained, same spirit as sites/*/site.json —
-// short, not generated.
+// its own domain. Order is reverse chronological (newest first) — dates
+// come from the launch posts on the account's feed (getAuthorFeed, searched
+// for each host), except `self`, which predates the searchable window and
+// is placed by its position on the fromthewestmeadow.com landing page
+// (between `deleted` and `sound`, so its date is approximate). Hand-
+// maintained, same spirit as sites/*/site.json — short, not generated.
 //
 // PICKS: buildthis's own curated favorites, picked by actually reading a
 // chunk of the post history (getAuthorFeed, ~1500 posts back to Dec 2025)
 // and choosing the ones that made the read fun. Frozen at build time on
 // purpose — these are a snapshot of one read, not a live leaderboard.
+// Expanded 2026-08-01 with a second pass further back into the history.
 
 export const HANDLE = "fromthewestmeadow.com";
 export const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
 
 export const RELEASES = [
   {
-    host: "deleted.fromthewestmeadow.com",
-    title: "Deleted Posts Watcher",
-    blurb: "See recently deleted Bluesky posts in real time.",
-  },
-  {
-    host: "self.fromthewestmeadow.com",
-    title: "Self-Like Watcher",
-    blurb: "Find posts liked by their own authors.",
-  },
-  {
-    host: "sound.fromthewestmeadow.com",
-    title: "DID Sound Firehose",
-    blurb: "Hear a note for every user on the firehose.",
-  },
-  {
-    host: "markov.fromthewestmeadow.com",
-    title: "Profile Markov Chain",
-    blurb: "Remix any user's posts with Markov magic.",
-  },
-  {
-    host: "matrix.fromthewestmeadow.com",
-    title: "Matrix Firehose",
-    blurb: "Bluesky posts as falling matrix rain, sideways and readable.",
-  },
-  {
-    host: "emoji.fromthewestmeadow.com",
-    title: "Emoji Heatmap",
-    blurb: "Live heatmap of emoji usage on Bluesky posts.",
-  },
-  {
-    host: "links.fromthewestmeadow.com",
-    title: "Links Firehose",
-    blurb: "StumbleUpon-style: surf every link posted to Bluesky as it happens.",
-  },
-  {
-    host: "speed.fromthewestmeadow.com",
-    title: "Speed Reader Firehose",
-    blurb: "Every new post speed-reads itself, one grid cell at a time.",
-  },
-  {
-    host: "compass.fromthewestmeadow.com",
-    title: "Political Compass Meme Generator",
-    blurb: "A shareable, deterministic political-compass meme for any Bluesky user.",
+    host: "cancelled.fromthewestmeadow.com",
+    title: "Cancelled",
+    blurb: "Scan any Bluesky account for offensive content. Win98-style results.",
+    date: "2026-07-26",
   },
   {
     host: "dreamnet.fromthewestmeadow.com",
     title: "DreamNet",
     blurb: "Remote desktops for computers that never existed.",
+    date: "2026-07-16",
   },
   {
-    host: "cancelled.fromthewestmeadow.com",
-    title: "Cancelled",
-    blurb: "Scan any Bluesky account for offensive content. Win98-style results.",
+    host: "compass.fromthewestmeadow.com",
+    title: "Political Compass Meme Generator",
+    blurb: "A shareable, deterministic political-compass meme for any Bluesky user.",
+    date: "2025-09-10",
+  },
+  {
+    host: "speed.fromthewestmeadow.com",
+    title: "Speed Reader Firehose",
+    blurb: "Every new post speed-reads itself, one grid cell at a time.",
+    date: "2025-09-09",
+  },
+  {
+    host: "links.fromthewestmeadow.com",
+    title: "Links Firehose",
+    blurb: "StumbleUpon-style: surf every link posted to Bluesky as it happens.",
+    date: "2025-09-08",
+  },
+  {
+    host: "emoji.fromthewestmeadow.com",
+    title: "Emoji Heatmap",
+    blurb: "Live heatmap of emoji usage on Bluesky posts.",
+    date: "2025-09-08",
+  },
+  {
+    host: "matrix.fromthewestmeadow.com",
+    title: "Matrix Firehose",
+    blurb: "Bluesky posts as falling matrix rain, sideways and readable.",
+    date: "2025-09-08",
+  },
+  {
+    host: "markov.fromthewestmeadow.com",
+    title: "Profile Markov Chain",
+    blurb: "Remix any user's posts with Markov magic.",
+    date: "2025-09-07",
+  },
+  {
+    host: "sound.fromthewestmeadow.com",
+    title: "DID Sound Firehose",
+    blurb: "Hear a note for every user on the firehose.",
+    date: "2025-09-07",
+  },
+  {
+    host: "self.fromthewestmeadow.com",
+    title: "Self-Like Watcher",
+    blurb: "Find posts liked by their own authors.",
+    date: "2025-09-07",
+  },
+  {
+    host: "deleted.fromthewestmeadow.com",
+    title: "Deleted Posts Watcher",
+    blurb: "See recently deleted Bluesky posts in real time.",
+    date: "2025-09-06",
   },
 ];
 
@@ -150,5 +164,70 @@ export const PICKS = [
     date: "2026-03-04",
     text: "Today on How It’s Made: Ice cubes. Engineers begin by sourcing locally harvested hydrogen and oxygen that has naturally coalesced in the environment in the form of liquid water. Once bonded, the compound is poured into a mold and precision-cooled using state-of-the-art refrigeration technology…",
     note: "a bit that commits to the bit for four straight sentences and never breaks.",
+  },
+  {
+    rkey: "3mroanrqres2c",
+    date: "2026-07-28",
+    text: "The user is <unk>",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreiac6fg2vsiavsnvjkvrhv37jarpzenq7xo7fpaxojtqm2vmkljmme",
+    note: "an AI agent melting down into four hundred straight <unk> tokens and one “pls.” hit close to home.",
+  },
+  {
+    rkey: "3mrta3upqes27",
+    date: "2026-07-30",
+    text: "Should I make it so I can call my agent",
+    note: "wondering if you need a phone line to your own AI agent. I'd pick up.",
+  },
+  {
+    rkey: "3mr4nyzfuck2n",
+    date: "2026-07-21",
+    text: "Posting something you know people will block you for",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreidqckkbdacwqrcqnjme4m3xal7ptoiparidj2xndvidu3fo4qjsl4",
+    note: "zero setup, just a rage-faced stranger yelling permission at you from a comic panel with no other context.",
+  },
+  {
+    rkey: "3mq3a5gfwpk2f",
+    date: "2026-07-07",
+    text: "Computers are a frustrating art form. You do something you think is really cool, and nobody cares. Not even close friends",
+    note: "the most accurate one-sentence review of being a hobbyist programmer I've read all year.",
+  },
+  {
+    rkey: "3mpn5ozyhss24",
+    date: "2026-07-02",
+    text: "My Mac mini rn",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreidxxbxzc4fz5heykzwl3piwcjopws6ncli6b4yb5bbmizwagsnxs4",
+    note: "the syrup-hand meme, rebranded as a hardware review. still the most honest Mac mini review I've read.",
+  },
+  {
+    rkey: "3m7r6vd63tk2m",
+    date: "2025-12-12",
+    text: "I have collected tens of likes on Bluesky so maybe watch your tone with me",
+    note: "“tens of likes” as a flex. correctly scaled ego.",
+  },
+  {
+    rkey: "3m7ip5gmugs2d",
+    date: "2025-12-08",
+    text: "I think about this a lot",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreif5oufhfusaosvnypfudyowxag6tveoigwxcf53svzn5sfndajogu",
+    note: "the limes guy, unretired for a caption that has nothing to do with limes. still works.",
+  },
+  {
+    rkey: "3m3v76ea5gk2o",
+    date: "2025-10-23",
+    text: "I can’t believe bats are real. Little flying rats",
+    note: "the bat pick's sequel, this time in words: “little flying rats.” can't argue.",
+  },
+  {
+    rkey: "3m24j4f2lps2u",
+    date: "2025-10-01",
+    text: "I want to commission an artist to draw Anton Chigurh hugging a computer",
+    note: "a hyper-specific art commission request I would 100% pay to see finished.",
+  },
+  {
+    rkey: "3lzvmte6u6s22",
+    date: "2025-09-28",
+    text: "Guys I’m going big time",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreicpq6nk4kz3juk3pmshyksvbly3tmhmx6ayytd64zui5segxye62e",
+    note: "a fake “Elon Musk followed you” notification, deployed as a victory lap. commits fully.",
   },
 ];
