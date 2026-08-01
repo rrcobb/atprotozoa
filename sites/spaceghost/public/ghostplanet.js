@@ -12,12 +12,16 @@
 // index.html calls window.SpaceGhostScene.speak(cls) every time a new
 // transcript line lands, so the matching character on set lights up.
 //
-// three.js is loaded with a plain dynamic import() of a full URL (tried
-// against a couple of CDNs) instead of a bare "three" specifier resolved via
-// an <script type="importmap">. Import maps only landed in Safari 16.4
-// (March 2023) — on anything older, a bare-specifier import throws and kills
-// the whole module before it ever runs. Dynamic import of a full URL has no
-// such requirement, so this works on much older browsers too.
+// three.js is vendored locally at ./vendor/three.module.js instead of
+// fetched from a CDN at runtime. Every earlier "still not working" report on
+// this site turned out to be a real bug (an import-map gap, an inverted
+// z-index) that got fixed and the report came back anyway, on both Safari
+// and Chrome — which pointed at the one thing none of those fixes touched:
+// a runtime fetch of unpkg/jsdelivr/esm.sh, any of which a content blocker,
+// DNS filter, or restrictive network can silently drop with no error the
+// probe below can see. Loading three.js same-origin removes that whole
+// failure class. A relative-URL import needs no import map either, so this
+// works back to Safari 10.1 without the old multi-CDN retry dance.
 
 (async function () {
   "use strict";
@@ -35,18 +39,11 @@
     return;
   }
 
-  var THREE_CDNS = [
-    "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "https://esm.sh/three@0.160.0"
-  ];
   var THREE = null;
-  for (var ci = 0; ci < THREE_CDNS.length; ci++) {
-    try {
-      var mod = await import(/* webpackIgnore: true */ THREE_CDNS[ci]);
-      if (mod && mod.Scene) { THREE = mod; break; }
-    } catch (e) { /* try the next CDN */ }
-  }
+  try {
+    var mod = await import("./vendor/three.module.js");
+    if (mod && mod.Scene) THREE = mod;
+  } catch (e) { /* three.js failed to load or eval — fall back to CSS starfield */ }
   if (!THREE) return;
 
   // keep our literal hex colors rendering as written, not sRGB-remapped
