@@ -2,7 +2,7 @@
 // AppView, anonymous, via lib/feed.js — copied from sites/portfolio).
 // Releases + curator picks are static, from ./data.js.
 
-import { getProfile, createPortfolioPager } from "./lib/feed.js";
+import { getProfile, createPortfolioPager, MAX_FEED_PAGES } from "./lib/feed.js";
 import { HANDLE, DID, RELEASES, PICKS } from "./data.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -47,6 +47,75 @@ function renderReleases() {
         <div class="release-blurb">${esc(r.blurb)}</div>
       </a>`,
   ).join("");
+}
+
+// ── dreamnet: every dreamnet.fromthewestmeadow.com link posted, live ───────
+// Pages the same public AppView post history as the gallery (createPortfolioPager),
+// but looks for posts whose embed is an external link card pointing at
+// DREAMNET_HOST — that embed already carries Bluesky's own unfurled card data
+// (title/description/thumb), which is exactly the "embed card" asked for.
+// Stops paging once posts get older than DreamNet's own release date, since
+// no dreamnet link could exist before the tool did.
+const DREAMNET_HOST = "dreamnet.fromthewestmeadow.com";
+const DREAMNET_LAUNCH =
+  RELEASES.find((r) => r.host === DREAMNET_HOST)?.date || "2026-07-16";
+
+function linkHost(uri) {
+  try {
+    return new URL(uri).host;
+  } catch {
+    return "";
+  }
+}
+
+async function renderDreamnet() {
+  const el = $("#dreamnet");
+  const status = $("#dreamnetStatus");
+  const seen = new Set();
+  const cards = [];
+  try {
+    const pager = createPortfolioPager(DID, HANDLE);
+    for (let i = 0; i < MAX_FEED_PAGES; i++) {
+      const { posts, done } = await pager.next();
+      let pastLaunch = false;
+      for (const post of posts) {
+        if (post.createdAt && post.createdAt < DREAMNET_LAUNCH) {
+          pastLaunch = true;
+          continue;
+        }
+        if (post.kind !== "link" || !post.link) continue;
+        if (linkHost(post.link.uri) !== DREAMNET_HOST) continue;
+        if (seen.has(post.link.uri)) continue;
+        seen.add(post.link.uri);
+        cards.push({ ...post.link, postUrl: post.url, date: post.createdAt });
+      }
+      if (done || pastLaunch) break;
+    }
+  } catch {
+    if (status) status.textContent = "couldn't load DreamNet links right now — the AppView might be having a moment.";
+    return;
+  }
+  if (!cards.length) {
+    if (status) status.textContent = "no DreamNet links found (yet).";
+    return;
+  }
+  cards.sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (status) status.remove();
+  const count = $("#dreamnetCount");
+  if (count) count.textContent = `(${cards.length})`;
+  el.innerHTML = cards
+    .map(
+      (c) => `
+      <a class="dreamnet-card" href="${esc(c.uri)}" target="_blank" rel="noopener">
+        ${c.thumb ? `<img class="dreamnet-thumb" loading="lazy" src="${esc(c.thumb)}" alt=""/>` : ""}
+        <div class="dreamnet-body">
+          <div class="dreamnet-title">${esc(c.title)}</div>
+          ${c.description ? `<div class="dreamnet-desc">${esc(c.description)}</div>` : ""}
+          <div class="dreamnet-host">${esc(DREAMNET_HOST)}</div>
+        </div>
+      </a>`,
+    )
+    .join("");
 }
 
 // ── curator picks ────────────────────────────────────────────────────────
@@ -180,6 +249,7 @@ function setupShare() {
 
 renderProfile();
 renderReleases();
+renderDreamnet();
 renderPicks();
 renderGallery();
 setupGalleryNav();

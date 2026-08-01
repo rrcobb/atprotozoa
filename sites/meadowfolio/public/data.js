@@ -9,10 +9,12 @@
 // maintained, same spirit as sites/*/site.json — short, not generated.
 //
 // PICKS: buildthis's own curated favorites, picked by actually reading a
-// chunk of the post history (getAuthorFeed, ~1500 posts back to Dec 2025)
-// and choosing the ones that made the read fun. Frozen at build time on
-// purpose — these are a snapshot of one read, not a live leaderboard.
-// Expanded 2026-08-01 with a second pass further back into the history.
+// chunk of the post history (getAuthorFeed) and choosing the ones that made
+// the read fun. Frozen at build time on purpose — these are a snapshot of
+// one read, not a live leaderboard. First pass: ~1500 posts back to Dec
+// 2025. Expanded 2026-08-01, twice: a second pass further back, then a
+// third pass reading the entire history (3600+ posts) back to the account's
+// first post in Nov 2024, which is where this last batch comes from.
 
 export const HANDLE = "fromthewestmeadow.com";
 export const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
@@ -229,5 +231,71 @@ export const PICKS = [
     text: "Guys I’m going big time",
     image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreicpq6nk4kz3juk3pmshyksvbly3tmhmx6ayytd64zui5segxye62e",
     note: "a fake “Elon Musk followed you” notification, deployed as a victory lap. commits fully.",
+  },
+  {
+    rkey: "3lyyytj3xd225",
+    date: "2025-09-17",
+    text: "anyone know any cool websites that lets you click on things",
+    note: "the entire buildthis relationship, foreshadowed in one sentence.",
+  },
+  {
+    rkey: "3lxqfnveqms2k",
+    date: "2025-09-01",
+    text: "Hey (with intentions of gaining employment)",
+    note: "the most honest cold-open a DM has ever had.",
+  },
+  {
+    rkey: "3lzh4uggbas2p",
+    date: "2025-09-22",
+    text: "deleting a post just to immediately repost it again with no changes",
+    note: "a whole personality disorder, self-diagnosed in one line.",
+  },
+  {
+    rkey: "3lxna2utzvc2l",
+    date: "2025-08-30",
+    text: "I kind of hate web development. I think I’m just starting to hate computers.",
+    note: "said to the account that would go on to commission eleven computer programs.",
+  },
+  {
+    rkey: "3lzdzvckpc225",
+    date: "2025-09-21",
+    text: "Some people will like you and some people will not. It’s all very confusing",
+    note: "a life philosophy with the depth sanded flat on purpose.",
+  },
+  {
+    rkey: "3lswtdngbjc22",
+    date: "2025-07-01",
+    text: "There’s actually only like, 150 people online at all we all just have lots of accounts",
+    note: "a fully-formed theory of the internet, delivered as a shrug.",
+  },
+  {
+    rkey: "3lzo4kcjdwk2x",
+    date: "2025-09-25",
+    text: "computer\ncomputer\ncomputer",
+    note: "the bat pick's cousin: no thesis, just the word three times.",
+  },
+  {
+    rkey: "3lybxyihoz22b",
+    date: "2025-09-08",
+    text: "I have to physically crank or pull a large lever to post bad things",
+    note: "the most elaborate possible metaphor for hitting “post.”",
+  },
+  {
+    rkey: "3lzf2rt3cu22n",
+    date: "2025-09-21",
+    text: "All you have to do is click like to make me immensely happy it’s quick and easy to do",
+    note: "engagement bait, but they said the quiet part as the entire post.",
+  },
+  {
+    rkey: "3lzhxtnfzlk2m",
+    date: "2025-09-23",
+    text: "they’re doing a captcha tomorrow?",
+    note: "no other context given, none needed.",
+  },
+  {
+    rkey: "3lxt3lfyojs2z",
+    date: "2025-09-02",
+    text: "I am literally watching you like your own posts :)",
+    note: "posted days before they'd ship a tool that does exactly this, to everyone.",
   },
 ];
