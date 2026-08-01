@@ -1689,14 +1689,37 @@ function num(s: string): number {
 
 // Assemble the build brief from the tagging post plus any ancestor posts (when
 // the tag was a reply). The tagging post is the instruction ("build this"); the
-// ancestors are the context it points at. We include the ancestor posts IN FULL —
-// a Bluesky post is ~300 chars, so ≤10 of them is ~3000 chars (<1k tokens),
-// trivial for the builder's context and not worth truncating mid-idea. The only
-// bound on thread context is the 10-ancestor limit in threadContext(). The tag
-// post keeps a generous cap purely as a sanity guard.
+// ancestors are the context it points at. Both go in IN FULL — a Bluesky post is
+// ~300 chars, so the whole assembly is normally a few thousand chars (~1k tokens),
+// trivial for the builder's context and not worth truncating mid-idea. Bounds on
+// size are the 10-ancestor limit in threadContext() and the cap below.
+//
+// The cap applies to the ASSEMBLED brief, not the instruction. It used to cut the
+// instruction at 600 chars while letting ancestors through whole, so the only text
+// it ever damaged was the one that mattered most, and it did it invisibly
+// mid-sentence (notes/91). Now it can only fire on a genuinely huge thread, and
+// when it does it cuts at a word boundary and says so, so the builder can tell
+// it's working from a fragment instead of reading a severed sentence as the ask.
 function buildBrief(tagText: string, ancestors: string[], max: number): string {
-  const ask = tagText.trim().slice(0, max);
-  if (ancestors.length === 0) return ask;
-  const ctx = ancestors.join("\n").trim();
-  return `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):\n${ctx}`;
+  const ask = tagText.trim();
+  const assembled =
+    ancestors.length === 0
+      ? ask
+      : `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):\n${ancestors.join("\n").trim()}`;
+  return truncateWithMarker(assembled, max);
+}
+
+// Cut to `max` chars at a word boundary, appending a visible marker. Falls back to
+// a hard slice when there's no whitespace to break on (one enormous token). A
+// non-positive max means "no cap" — a misconfigured var shouldn't silently blank
+// out every brief.
+const TRUNCATION_MARKER = "\n\n[…truncated: the request was longer than the builder accepts]";
+function truncateWithMarker(s: string, max: number): string {
+  if (max <= 0 || s.length <= max) return s;
+  const room = Math.max(0, max - TRUNCATION_MARKER.length);
+  const cut = s.slice(0, room);
+  const lastSpace = cut.lastIndexOf(" ");
+  // Only honour the word boundary if it isn't throwing away most of the text.
+  const body = lastSpace > room * 0.8 ? cut.slice(0, lastSpace) : cut;
+  return body.trimEnd() + TRUNCATION_MARKER;
 }
