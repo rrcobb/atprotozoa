@@ -124,7 +124,14 @@
     color: rgba(255,255,255,0.28);
   }
 
-  .share {
+  .links {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .share, .lbToggle {
     display: none;
     font-size: 0.7rem;
     text-decoration: none;
@@ -132,10 +139,81 @@
     border: 1px solid rgba(255,255,255,0.15);
     border-radius: 3px;
     padding: 0.45rem 1rem;
+    cursor: pointer;
     transition: border-color 0.3s ease, color 0.3s ease;
   }
-  .share.revealed { display: inline-block; }
-  .share:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+  .share.revealed, .lbToggle.revealed { display: inline-block; }
+  .share:hover, .lbToggle:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+
+  .identity {
+    display: none;
+    font-size: 0.68rem;
+    color: rgba(255,255,255,0.35);
+    text-align: center;
+    gap: 0.5rem;
+    flex-direction: column;
+    align-items: center;
+  }
+  .identity.revealed { display: flex; }
+  .identity a { color: rgba(255,255,255,0.55); cursor: pointer; }
+  .identity a:hover { color: #fff; }
+  .idBar { display: flex; gap: 0.4rem; }
+  .idBar input {
+    font-family: inherit;
+    font-size: 0.72rem;
+    background: transparent;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 3px;
+    padding: 0.4rem 0.6rem;
+    width: 12rem;
+  }
+  .idBar input::placeholder { color: rgba(255,255,255,0.25); }
+  .idBar button {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.8rem;
+  }
+  .idErr { color: rgba(255,140,140,0.85); }
+
+  .leaderboard {
+    display: none;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.5);
+    text-align: left;
+    max-width: 22rem;
+    width: 100%;
+  }
+  .leaderboard.open { display: block; }
+  .leaderboard .lbTitle {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.3);
+    margin-bottom: 0.6rem;
+    text-align: center;
+  }
+  .leaderboard ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: lb;
+  }
+  .leaderboard li {
+    counter-increment: lb;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .leaderboard li::before {
+    content: counter(lb) ".";
+    color: rgba(255,255,255,0.25);
+  }
+  .leaderboard li.me { color: #fff; }
+  .leaderboard .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .leaderboard .n { color: rgba(255,255,255,0.75); margin-left: auto; }
+  .leaderboard .empty { text-align: center; padding: 0.6rem 0; }
 
   footer {
     font-size: 0.62rem;
@@ -159,7 +237,23 @@
       <button id="genBtn">generate nothing</button>
       <div class="result" id="result"></div>
       <div class="personal" id="personal"></div>
-      <a class="share" id="shareLink" target="_blank" rel="noopener">share your nothing</a>
+
+      <div class="identity" id="identity">
+        <div id="idText">sign in with bluesky to put your nothing on the leaderboard</div>
+        <div class="idBar" id="idBar">
+          <input id="handleInput" type="text" placeholder="your bluesky handle" />
+          <button id="signInBtn" class="tiny">sign in</button>
+        </div>
+      </div>
+
+      <div class="links" id="links">
+        <a class="share" id="shareLink" target="_blank" rel="noopener">share your nothing</a>
+        <a class="lbToggle" id="lbToggle">leaderboard of nothing</a>
+      </div>
+      <div class="leaderboard" id="leaderboard">
+        <div class="lbTitle">most nothing, by whoever signed in for it</div>
+        <ol id="lbList"></ol>
+      </div>
     </div>
   </div>
 
@@ -172,8 +266,10 @@
     effort — to be taken seriously. <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
   </footer>
 
-<script>
-(function () {
+<script type="module">
+import { login, completeLoginIfCallback, getSession, clearSession } from './lib/oauth.js';
+
+(async function () {
   var thesis = document.getElementById('thesis');
   var witness = document.getElementById('witness');
   var action = document.getElementById('action');
@@ -181,15 +277,107 @@
   var result = document.getElementById('result');
   var personal = document.getElementById('personal');
   var shareLink = document.getElementById('shareLink');
+  var lbToggle = document.getElementById('lbToggle');
+  var leaderboard = document.getElementById('leaderboard');
+  var lbList = document.getElementById('lbList');
+  var identity = document.getElementById('identity');
+  var idText = document.getElementById('idText');
+  var idBar = document.getElementById('idBar');
+  var handleInput = document.getElementById('handleInput');
+  var signInBtn = document.getElementById('signInBtn');
 
   var cursor = document.querySelector('.cursor');
+
+  // ---- identity: sign in with bluesky, just to attribute leaderboard clicks.
+  // nothingness never writes to your PDS — it only needs your DID, so the
+  // OAuth scope is the bare "atproto" (see lib/oauth.js).
+  var session = null;
+  try {
+    session = (await completeLoginIfCallback()) || (await getSession());
+  } catch (e) {
+    idText.textContent = e.message;
+  }
+
+  function renderIdentity() {
+    if (session) {
+      idBar.style.display = 'none';
+      idText.innerHTML = 'signed in as <b>@' + esc(session.handle) + '</b> — your clicks count on the leaderboard now. <a id="signOut">sign out</a>';
+      var out = document.getElementById('signOut');
+      if (out) out.addEventListener('click', async function () {
+        await clearSession();
+        session = null;
+        renderIdentity();
+      });
+    } else {
+      idBar.style.display = 'flex';
+      idText.textContent = 'sign in with bluesky to put your nothing on the leaderboard';
+    }
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  renderIdentity();
+
+  signInBtn.addEventListener('click', async function () {
+    var h = handleInput.value.trim();
+    if (!h) return;
+    signInBtn.disabled = true;
+    signInBtn.textContent = 'redirecting…';
+    try {
+      await login(h); // redirects away; this tab reloads at the auth server
+    } catch (e) {
+      signInBtn.disabled = false;
+      signInBtn.textContent = 'sign in';
+      idText.innerHTML = '<span class="idErr">' + esc(e.message) + '</span>';
+    }
+  });
+  handleInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') signInBtn.click();
+  });
+
+  // ---- leaderboard: fetched lazily on first open, then cached for the tab.
+  var lbLoaded = false;
+  function renderLeaderboard(leaders) {
+    if (!leaders.length) {
+      lbList.innerHTML = '<li class="empty">nobody has signed in to generate nothing yet.</li>';
+      return;
+    }
+    lbList.innerHTML = leaders.map(function (row) {
+      var mine = session && row.did === session.did;
+      return '<li' + (mine ? ' class="me"' : '') + '>' +
+        '<span class="h">@' + esc(row.handle) + '</span>' +
+        '<span class="n">' + row.count + '</span></li>';
+    }).join('');
+  }
+  async function loadLeaderboard() {
+    lbList.innerHTML = '<li class="empty">tallying nothing…</li>';
+    try {
+      var r = await fetch('/api/leaderboard');
+      var data = await r.json();
+      renderLeaderboard(data.leaders || []);
+      lbLoaded = true;
+    } catch (e) {
+      lbList.innerHTML = '<li class="empty">the leaderboard is, at the moment, also nothing.</li>';
+    }
+  }
+  lbToggle.addEventListener('click', function () {
+    var open = leaderboard.classList.toggle('open');
+    lbToggle.textContent = open ? 'hide leaderboard' : 'leaderboard of nothing';
+    if (open && !lbLoaded) loadLeaderboard();
+  });
 
   setTimeout(function () { thesis.classList.add('revealed'); }, 300);
   setTimeout(function () {
     witness.classList.add('revealed');
     cursor.classList.add('clickable');
   }, 2600);
-  setTimeout(function () { action.classList.add('revealed'); }, 6200);
+  setTimeout(function () {
+    action.classList.add('revealed');
+    identity.classList.add('revealed');
+    lbToggle.classList.add('revealed');
+  }, 6200);
 
   // witnessing nothing takes real, active attention now: click the cursor
   // (the nothing itself) at least once every WITNESS_WINDOW_MS or the streak
@@ -260,7 +448,13 @@
     var v = parseInt(localStorage.getItem(PERSONAL_KEY) || '0', 10);
     return isNaN(v) ? 0 : v;
   }
+  var serverPersonalTotal = null; // authoritative once signed in and a click round-trips
   function renderPersonal() {
+    if (session && serverPersonalTotal !== null) {
+      personal.textContent = "@" + session.handle + " has generated " + serverPersonalTotal +
+        (serverPersonalTotal === 1 ? ' nothing' : ' nothings') + ' on the leaderboard';
+      return;
+    }
     var n = getPersonal();
     personal.textContent = n > 0
       ? "you've personally generated " + n + (n === 1 ? ' nothing' : ' nothings')
@@ -282,7 +476,11 @@
     var deliberatelySlow = new Promise(function (resolve) {
       setTimeout(resolve, 850 + Math.random() * 600);
     });
-    var req = fetch('/api/nothing', { method: 'POST' })
+    var req = fetch('/api/nothing', {
+      method: 'POST',
+      headers: session ? { 'content-type': 'application/json' } : undefined,
+      body: session ? JSON.stringify({ did: session.did, handle: session.handle }) : undefined,
+    })
       .then(function (r) { return r.json(); })
       .catch(function () { return null; });
 
@@ -296,16 +494,25 @@
         return;
       }
 
-      var nextPersonal = getPersonal() + 1;
-      localStorage.setItem(PERSONAL_KEY, String(nextPersonal));
+      if (typeof data.personalTotal === 'number') {
+        serverPersonalTotal = data.personalTotal;
+      } else {
+        var nextPersonal = getPersonal() + 1;
+        localStorage.setItem(PERSONAL_KEY, String(nextPersonal));
+      }
       renderPersonal();
 
       result.innerHTML = 'nothing generated. you are nothing <span class="n">#' +
-        data.today + '</span> today, <span class="n">#' + data.total + '</span> of all time.';
+        data.today + '</span> today, <span class="n">#' + data.total + '</span> of all time.' +
+        (typeof data.personalTotal === 'number'
+          ? ' leaderboard total: <span class="n">#' + data.personalTotal + '</span>.'
+          : '');
 
       shareLink.href = 'https://bsky.app/intent/compose?text=' +
         encodeURIComponent(buildShareText(data.today, data.total));
       shareLink.classList.add('revealed');
+
+      if (leaderboard.classList.contains('open')) loadLeaderboard();
     });
   });
 })();
