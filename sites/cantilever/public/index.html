@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cantilever — the centuries toll by</title>
+    <meta name="description" content="A generative art piece: a stone tower cantilevers itself one slab further every century, growing moss and cracks as it ages, an old bell tolling on every tick. Watch, or wake the bell and listen." />
+    <meta property="og:title" content="cantilever" />
+    <meta property="og:description" content="The centuries toll by in grim absolution. A generative tower, cantilevered and dripping with the moss of ages — one slab per century, forever." />
+    <meta property="og:image" content="https://cantilever.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A dark, mossy stone tower of cantilevered slabs overhanging a central spine, fog at its base, over the words 'cantilever — the centuries toll by'." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://cantilever.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="cantilever" />
+    <meta name="twitter:description" content="A stone tower that cantilevers one slab further every century, mossing and cracking as it goes. An old bell tolls on every tick." />
+    <meta name="twitter:image" content="https://cantilever.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #06070a;
+        --panel: rgba(10, 13, 12, 0.68);
+        --faint: rgba(232, 236, 231, 0.12);
+        --ink: #e8ece7;
+        --muted: #93a08f;
+        --stone: #9a9c93;
+        --moss: #3c5c40;
+        --moss-bright: #86b978;
+        --verdigris: #6fae95;
+        --gold: #c9a869;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow-x: hidden; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--sans);
+        -webkit-font-smoothing: antialiased; min-height: 100vh;
+      }
+      a { color: var(--verdigris); }
+      canvas#tower { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; touch-action: none; cursor: pointer; }
+
+      .wrap { position: relative; z-index: 1; max-width: 660px; margin: 0 auto; padding: 1.6rem 1.05rem 4rem; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { text-decoration: underline; }
+
+      .hero { margin: 3rem 0 1.2rem; padding: 1.1rem 1.2rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 16px; backdrop-filter: blur(6px); }
+      h1 { font-size: 1.9rem; font-weight: 900; letter-spacing: -0.02em; margin: 0 0 0.4rem;
+        background: linear-gradient(100deg, var(--moss-bright), var(--verdigris));
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0; max-width: 56ch; line-height: 1.55; font-style: italic; }
+
+      .counters { display: flex; flex-wrap: wrap; gap: 0.6rem 1.6rem; margin: 1.2rem 0;
+        padding: 0.9rem 1.1rem; background: var(--panel); border: 1px solid var(--faint);
+        border-radius: 14px; backdrop-filter: blur(6px); }
+      .ctr { display: flex; flex-direction: column; gap: 0.15rem; }
+      .ctr .n { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; color: var(--gold);
+        font-variant-numeric: tabular-nums; }
+      .ctr .l { font-size: 0.7rem; color: var(--muted); letter-spacing: 0.03em; text-transform: uppercase; }
+
+      .controls { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center;
+        margin: 0 0 1.2rem; }
+      button.toggle { font-family: var(--mono); font-size: 0.8rem; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.55rem 0.9rem; cursor: pointer; }
+      button.toggle[aria-pressed="true"] { background: linear-gradient(100deg, var(--moss-bright), var(--verdigris));
+        color: #071008; border-color: transparent; font-weight: 700; }
+      button.toggle:hover { border-color: var(--verdigris); }
+      .hint { font-size: 0.72rem; color: var(--muted); }
+
+      .fragment { min-height: 3.6rem; margin: 0.3rem 0 1.4rem; padding: 0.9rem 1.1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 14px;
+        backdrop-filter: blur(6px); font-style: italic; color: var(--ink); font-size: 0.96rem;
+        line-height: 1.6; opacity: 0; transition: opacity 1.1s ease; }
+      .fragment.show { opacity: 1; }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
+      .share a, .share button { font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none; }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--verdigris); }
+
+      .note { margin: 0 0 1.6rem; padding: 0.75rem 0.9rem; border-radius: 10px;
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem; line-height: 1.6; }
+      .note b { color: var(--ink); }
+
+      .credit { margin-top: 1.3rem; color: var(--muted); font-size: 0.76rem; }
+
+      @media (prefers-reduced-motion: reduce) {
+        canvas#tower { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="tower" aria-hidden="true"></canvas>
+
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+
+      <div class="hero">
+        <h1>cantilever</h1>
+        <p class="sub">
+          “the centuries toll by in grim absolution, cantilevered and
+          dripping with the moss of ages.” a tower that builds itself, one
+          overhanging slab per century, forever — mossing over, cracking,
+          sinking into the fog below while the bell tolls each passing.
+        </p>
+      </div>
+
+      <div class="counters">
+        <div class="ctr"><span class="n" id="centuryNow">0</span><span class="l">centuries, this vigil</span></div>
+        <div class="ctr"><span class="n" id="centuryTotal">0</span><span class="l">centuries witnessed, ever</span></div>
+      </div>
+
+      <div class="controls">
+        <button class="toggle" id="wakeBtn" aria-pressed="false" type="button">🔔 wake the bell</button>
+        <span class="hint">or tap the tower to ring it yourself</span>
+      </div>
+
+      <div class="fragment" id="fragment"><span id="fragText"></span></div>
+
+      <div class="share">
+        <a id="shareIntent" target="_blank" rel="noopener">🦋 share this</a>
+        <button id="saveCard">🖼️ save card</button>
+        <button id="copyLink">🔗 copy link</button>
+      </div>
+
+      <div class="note">
+        <b>What's happening:</b> a plain &lt;canvas&gt; redrawing a
+        procedurally generated stone tower, every ~4 seconds a new slab
+        cantilevers out and a bell (real synthesized partials, no samples)
+        tolls once. Leave the tab open and it keeps building without you —
+        the "lifetime" counter above is saved in this browser and only grows.
+      </div>
+
+      <p class="credit">a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> piece, asked for by <a href="https://bsky.app/profile/bisks.net">@bisks.net</a> · <a href="https://bisks.net">bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      // ── canvas + camera ──────────────────────────────────────────────
+      const canvas = document.getElementById("tower");
+      const ctx = canvas.getContext("2d");
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+      let scale = 1.4;
+
+      const SLAB_H = 22;
+      const SLAB_GAP = 4;
+      const SPINE_W = 30;
+      const VIEW_CAP_SLABS = 32;
+      const VIEW_CAP = SLAB_H * VIEW_CAP_SLABS;
+      const MOSS_MATURE = 15;
+      const TICK_MS = 4200;
+
+      function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+      function resize() {
+        W = window.innerWidth; H = window.innerHeight;
+        canvas.width = W * DPR; canvas.height = H * DPR;
+        canvas.style.width = W + "px"; canvas.style.height = H + "px";
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        scale = clamp((H * 0.7) / VIEW_CAP, 0.9, 3.4);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      // ── the tower ────────────────────────────────────────────────────
+      let slabs = [];
+      let century = 0;
+      let cameraOffset = 0;
+      let flashAt = -Infinity;
+      let echoFlashAt = -Infinity;
+
+      const TOTAL_KEY = "cantilever-total-centuries";
+      function readTotal() {
+        try { return parseInt(localStorage.getItem(TOTAL_KEY), 10) || 0; } catch (e) { return 0; }
+      }
+      function bumpTotal() {
+        const n = readTotal() + 1;
+        try { localStorage.setItem(TOTAL_KEY, String(n)); } catch (e) {}
+        return n;
+      }
+
+      const centuryNowEl = document.getElementById("centuryNow");
+      const centuryTotalEl = document.getElementById("centuryTotal");
+      centuryTotalEl.textContent = readTotal().toLocaleString();
+
+      function addSlab() {
+        century++;
+        const idx = slabs.length;
+        const rollSide = Math.random();
+        const side = rollSide < 0.09 ? 0 : (Math.random() < 0.5 ? 1 : -1);
+        const taper = Math.max(0.32, 1 - idx * 0.0035);
+        const reach = (44 + Math.random() * 72) * taper;
+        const thick = SLAB_H - SLAB_GAP;
+        slabs.push({
+          y: idx * SLAB_H,
+          side, reach, thick,
+          born: century,
+          seed: Math.floor(Math.random() * 10000),
+          crackSeed: Math.random(),
+          crackSeed2: Math.random(),
+        });
+        flashAt = performance.now();
+        playToll();
+        centuryNowEl.textContent = century.toLocaleString();
+        centuryTotalEl.textContent = bumpTotal().toLocaleString();
+      }
+      let tickTimer = setInterval(addSlab, TICK_MS);
+      document.addEventListener("visibilitychange", () => {
+        // keep tolling in the background tab too — it's meant to run unattended
+      });
+
+      function lerp(a, b, t) { return a + (b - a) * t; }
+      function lerpColor(c1, c2, t) {
+        return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
+      }
+      const STONE = [130, 132, 124];
+      const STONE_DARK = [70, 72, 68];
+      const MOSS = [46, 74, 48];
+      const MOSS_BRIGHT = [96, 140, 84];
+
+      // deterministic pseudo-random per seed, for stable drip/crack shapes
+      function seeded(seed) {
+        let s = seed % 2147483647;
+        if (s <= 0) s += 2147483646;
+        return () => (s = (s * 16807) % 2147483647) / 2147483647;
+      }
+
+      function drawSlab(slab, t) {
+        const screenY = baseScreenY - (slab.y - cameraOffset) * scale;
+        if (screenY < -100 || screenY > H + 160) return screenY;
+        const mossLevel = clamp((century - slab.born) / MOSS_MATURE, 0, 1);
+        const halfT = (slab.thick / 2) * scale;
+        const rnd = seeded(slab.seed);
+        const spineHalf = (SPINE_W / 2) * scale;
+
+        function drawArm(sign, reachPx) {
+          const x0 = SPX + sign * spineHalf;
+          const x1 = SPX + sign * (spineHalf + reachPx);
+          const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+          const grad = ctx.createLinearGradient(0, screenY - halfT, 0, screenY + halfT);
+          const top = lerpColor(STONE, MOSS_BRIGHT, mossLevel * 0.9);
+          const bot = lerpColor(STONE_DARK, MOSS, mossLevel);
+          grad.addColorStop(0, `rgb(${top[0]|0},${top[1]|0},${top[2]|0})`);
+          grad.addColorStop(1, `rgb(${bot[0]|0},${bot[1]|0},${bot[2]|0})`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(xa, screenY - halfT, xb - xa, halfT * 2);
+
+          // mossy cap along the top edge
+          if (mossLevel > 0.08) {
+            const capH = Math.min(halfT * 1.3, 3 + mossLevel * 9);
+            const capGrad = ctx.createLinearGradient(0, screenY - halfT, 0, screenY - halfT + capH);
+            capGrad.addColorStop(0, `rgba(${MOSS_BRIGHT[0]},${MOSS_BRIGHT[1]},${MOSS_BRIGHT[2]},${0.7 * mossLevel})`);
+            capGrad.addColorStop(1, `rgba(${MOSS_BRIGHT[0]},${MOSS_BRIGHT[1]},${MOSS_BRIGHT[2]},0)`);
+            ctx.fillStyle = capGrad;
+            ctx.fillRect(xa, screenY - halfT, xb - xa, capH);
+          }
+
+          // cracks once well aged
+          if (mossLevel > 0.5) {
+            const crackAlpha = (mossLevel - 0.5) * 1.6;
+            ctx.strokeStyle = `rgba(8,10,8,${clamp(crackAlpha, 0, 0.6)})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            const steps = 4;
+            let cx = lerp(xa, xb, 0.15 + slab.crackSeed * 0.5);
+            let cy = screenY - halfT;
+            ctx.moveTo(cx, cy);
+            for (let i = 0; i < steps; i++) {
+              cx += (rnd() - 0.5) * (xb - xa) * 0.35;
+              cy += (halfT * 2) / steps;
+              ctx.lineTo(clamp(cx, xa, xb), cy);
+            }
+            ctx.stroke();
+          }
+
+          // drips off the underside
+          if (mossLevel > 0.22) {
+            const dripCount = 1 + (slab.seed % 3);
+            for (let i = 0; i < dripCount; i++) {
+              const dx = lerp(xa, xb, (i + 0.5) / dripCount + (rnd() - 0.5) * 0.15);
+              const len = ((mossLevel - 0.22) / 0.78) * (30 + (slab.seed % 40));
+              const sway = Math.sin(t * 0.0005 + slab.seed + i) * (2 + mossLevel * 3);
+              const dripGrad = ctx.createLinearGradient(dx, screenY + halfT, dx, screenY + halfT + len);
+              dripGrad.addColorStop(0, `rgba(${MOSS_BRIGHT[0]},${MOSS_BRIGHT[1]},${MOSS_BRIGHT[2]},${0.55 * mossLevel})`);
+              dripGrad.addColorStop(1, `rgba(${MOSS[0]},${MOSS[1]},${MOSS[2]},0)`);
+              ctx.strokeStyle = dripGrad;
+              ctx.lineWidth = 1.1;
+              ctx.beginPath();
+              ctx.moveTo(dx, screenY + halfT);
+              ctx.quadraticCurveTo(dx + sway, screenY + halfT + len * 0.6, dx + sway * 1.4, screenY + halfT + len);
+              ctx.stroke();
+            }
+          }
+        }
+
+        if (slab.side === 0) {
+          drawArm(1, slab.reach * scale * 0.72);
+          drawArm(-1, slab.reach * scale * 0.72);
+        } else {
+          drawArm(slab.side, slab.reach * scale);
+        }
+        return screenY;
+      }
+
+      let SPX = 0, baseScreenY = 0;
+      const dust = Array.from({ length: 34 }, () => ({
+        x: Math.random(), y: Math.random(), r: 0.5 + Math.random() * 1.4,
+        vy: 0.008 + Math.random() * 0.02, phase: Math.random() * Math.PI * 2,
+      }));
+
+      function render(t) {
+        SPX = W / 2;
+        baseScreenY = H - 46;
+
+        const topWorldY = slabs.length ? slabs[slabs.length - 1].y : 0;
+        const targetOffset = Math.max(0, topWorldY - VIEW_CAP);
+        cameraOffset += (targetOffset - cameraOffset) * 0.025;
+
+        const mossIntensity = clamp(century / (MOSS_MATURE * 2.4), 0, 1);
+
+        // sky, deepening with age
+        const skyTop0 = [26, 30, 36], skyTop1 = [8, 9, 12];
+        const skyBot0 = [12, 14, 15], skyBot1 = [5, 6, 7];
+        const top = lerpColor(skyTop0, skyTop1, mossIntensity);
+        const bot = lerpColor(skyBot0, skyBot1, mossIntensity);
+        const sky = ctx.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, `rgb(${top[0]|0},${top[1]|0},${top[2]|0})`);
+        sky.addColorStop(1, `rgb(${bot[0]|0},${bot[1]|0},${bot[2]|0})`);
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, W, H);
+
+        // dust motes drifting up out of the fog
+        for (const d of dust) {
+          d.y -= d.vy * (reducedMotion ? 0.3 : 1) * 0.01;
+          if (d.y < -0.05) { d.y = 1.05; d.x = Math.random(); }
+          const alpha = 0.12 + 0.08 * Math.sin(t * 0.0006 + d.phase);
+          ctx.beginPath();
+          ctx.arc(d.x * W, d.y * H, d.r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(210,220,205,${clamp(alpha, 0, 0.25)})`;
+          ctx.fill();
+        }
+
+        // spine
+        const topScreenY = baseScreenY - (topWorldY - cameraOffset) * scale - 8;
+        const spineGrad = ctx.createLinearGradient(0, topScreenY, 0, H);
+        const spineTop = lerpColor(STONE, MOSS_BRIGHT, mossIntensity * 0.5);
+        const spineBot = lerpColor(STONE_DARK, MOSS, mossIntensity);
+        spineGrad.addColorStop(0, `rgb(${spineTop[0]|0},${spineTop[1]|0},${spineTop[2]|0})`);
+        spineGrad.addColorStop(1, `rgb(${spineBot[0]|0},${spineBot[1]|0},${spineBot[2]|0})`);
+        ctx.fillStyle = spineGrad;
+        ctx.fillRect(SPX - (SPINE_W / 2) * scale, topScreenY, SPINE_W * scale, H - topScreenY);
+
+        // long spine drip streaks, more of them as the vigil deepens
+        const streaks = 1 + Math.floor(mossIntensity * 6);
+        for (let i = 0; i < streaks; i++) {
+          const rnd = seeded(i * 977 + 13);
+          const dx = SPX + (rnd() - 0.5) * SPINE_W * scale * 0.7;
+          const sway = Math.sin(t * 0.0004 + i * 2.1) * 4;
+          const grad = ctx.createLinearGradient(0, topScreenY, 0, H);
+          grad.addColorStop(0, `rgba(${MOSS_BRIGHT[0]},${MOSS_BRIGHT[1]},${MOSS_BRIGHT[2]},0)`);
+          grad.addColorStop(0.6, `rgba(${MOSS_BRIGHT[0]},${MOSS_BRIGHT[1]},${MOSS_BRIGHT[2]},${0.3 * mossIntensity})`);
+          grad.addColorStop(1, `rgba(${MOSS[0]},${MOSS[1]},${MOSS[2]},0)`);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(dx, topScreenY);
+          ctx.quadraticCurveTo(dx + sway, (topScreenY + H) / 2, dx + sway * 1.6, H);
+          ctx.stroke();
+        }
+
+        // slabs, oldest (lowest) drawn first so newer ones read on top near the spine
+        for (let i = slabs.length - 1; i >= 0; i--) {
+          const screenY = drawSlab(slabs[i], t);
+          if (screenY !== undefined && screenY > H + 200 && i < slabs.length - VIEW_CAP_SLABS - 4) {
+            slabs.splice(0, i + 1); // prune everything at/below this ancient, offscreen point
+            break;
+          }
+        }
+
+        // toll flash
+        const sinceFlash = t - flashAt;
+        if (sinceFlash >= 0 && sinceFlash < 700) {
+          const a = (1 - sinceFlash / 700) * 0.16;
+          ctx.fillStyle = `rgba(${GOLD[0]},${GOLD[1]},${GOLD[2]},${a})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+        const sinceEcho = t - echoFlashAt;
+        if (sinceEcho >= 0 && sinceEcho < 500) {
+          const a = (1 - sinceEcho / 500) * 0.5;
+          const r = 40 + sinceEcho * 0.6;
+          const grad = ctx.createRadialGradient(echoX, echoY, 0, echoX, echoY, r);
+          grad.addColorStop(0, `rgba(111,174,149,${a})`);
+          grad.addColorStop(1, `rgba(111,174,149,0)`);
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(echoX, echoY, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // fog, grounding the base and hiding the scroll-off
+        const fogH = 150;
+        const fog = ctx.createLinearGradient(0, H - fogH, 0, H);
+        fog.addColorStop(0, `rgba(${bot[0]|0},${bot[1]|0},${bot[2]|0},0)`);
+        fog.addColorStop(1, `rgba(${bot[0]|0},${bot[1]|0},${bot[2]|0},1)`);
+        ctx.fillStyle = fog;
+        ctx.fillRect(0, H - fogH, W, fogH);
+
+        requestAnimationFrame(render);
+      }
+      const GOLD = [201, 168, 105];
+      requestAnimationFrame(render);
+
+      // ── audio: a synthesized bell (inharmonic partials, no samples) ───
+      let audioCtx = null, masterOut = null, bellDry = null, reverb = null, droneBus = null, droneNodes = null;
+      let audioOn = false, muted = false;
+
+      function makeReverb(c) {
+        const input = c.createGain();
+        const output = c.createGain();
+        output.gain.value = 0.4;
+        [0.29, 0.37, 0.53].forEach((dt) => {
+          const d = c.createDelay(2); d.delayTime.value = dt;
+          const fb = c.createGain(); fb.gain.value = 0.32;
+          const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1600;
+          input.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d); lp.connect(output);
+        });
+        return { input, output };
+      }
+
+      function initAudio() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        masterOut = audioCtx.createGain(); masterOut.gain.value = 1;
+        masterOut.connect(audioCtx.destination);
+        bellDry = audioCtx.createGain(); bellDry.gain.value = 0.55; bellDry.connect(masterOut);
+        reverb = makeReverb(audioCtx); reverb.output.connect(masterOut);
+        droneBus = audioCtx.createGain(); droneBus.gain.value = 0; droneBus.connect(masterOut);
+        startDrone();
+      }
+
+      function ringBell(strength) {
+        if (!audioCtx) return;
+        const t0 = audioCtx.currentTime;
+        const fundamental = 92 + (Math.random() * 8 - 4);
+        const partials = [1, 1.5, 2, 2.4, 3, 3.9, 5.4];
+        const decays =    [4.4, 3.6, 2.8, 2.1, 1.6, 1.1, 0.75];
+        const gains =     [0.5, 0.32, 0.28, 0.2, 0.15, 0.09, 0.05];
+        partials.forEach((mult, i) => {
+          const o = audioCtx.createOscillator();
+          o.type = "sine";
+          o.frequency.value = fundamental * mult;
+          const g = audioCtx.createGain();
+          g.gain.setValueAtTime(0, t0);
+          g.gain.linearRampToValueAtTime(gains[i] * strength, t0 + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + decays[i]);
+          o.connect(g); g.connect(bellDry); g.connect(reverb.input);
+          o.start(t0); o.stop(t0 + decays[i] + 0.1);
+        });
+      }
+      function playToll() { ringBell(1); }
+
+      function startDrone() {
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = "lowpass"; filter.frequency.value = 500;
+        filter.connect(droneBus);
+        const freqs = [55, 82.5, 110.5];
+        const oscs = freqs.map((f, i) => {
+          const o = audioCtx.createOscillator();
+          o.type = i === 1 ? "triangle" : "sine";
+          o.frequency.value = f;
+          const g = audioCtx.createGain(); g.gain.value = 0.5 / freqs.length;
+          o.connect(g); g.connect(filter); o.start();
+          return o;
+        });
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.value = 0.035;
+        const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 180;
+        lfo.connect(lfoGain); lfoGain.connect(filter.frequency); lfo.start();
+        droneBus.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 2.2);
+        droneNodes = { oscs, lfo, filter };
+      }
+
+      const wakeBtn = document.getElementById("wakeBtn");
+      async function ensureAudio() {
+        if (!audioCtx) {
+          initAudio();
+          audioOn = true;
+          wakeBtn.setAttribute("aria-pressed", "true");
+          wakeBtn.textContent = "🔔 tolling";
+        }
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+      }
+      wakeBtn.addEventListener("click", async () => {
+        if (!audioOn) { await ensureAudio(); return; }
+        muted = !muted;
+        masterOut.gain.linearRampToValueAtTime(muted ? 0 : 1, audioCtx.currentTime + 0.4);
+        wakeBtn.textContent = muted ? "🔕 silence" : "🔔 tolling";
+        wakeBtn.setAttribute("aria-pressed", muted ? "false" : "true");
+      });
+
+      let echoX = 0, echoY = 0;
+      canvas.addEventListener("pointerdown", async (e) => {
+        await ensureAudio();
+        if (muted) return;
+        echoX = e.clientX; echoY = e.clientY;
+        echoFlashAt = performance.now();
+        ringBell(0.4 + Math.random() * 0.15);
+      });
+
+      // ── atmospheric fragments ────────────────────────────────────────
+      const FRAGMENTS = [
+        "Another slab settles onto the last. The mortar was mixed before anyone alive remembers who mixed it.",
+        "Moss doesn't climb the tower. It was always the tower's, and the stone is only borrowing space from it.",
+        "Somewhere below the fog line, the oldest floor has already forgotten it was ever new.",
+        "The bell doesn't ring for anyone. It rings because a century is over, and that's reason enough.",
+        "Absolution, if it's coming, is taking the scenic route — one dripping, cantilevered century at a time.",
+        "Nobody built this to be looked at. It just kept overhanging further than it had any right to.",
+        "The drips don't fall so much as they arrive, eventually, at the ground, the way centuries do.",
+        "Grim isn't a mood here. It's a structural material, load-bearing since before the moss.",
+        "Every crack is a century that decided to leave a mark instead of just passing through.",
+        "The tower keeps its own time. Yours is welcome to visit, but it isn't in charge here.",
+      ];
+      const fragText = document.getElementById("fragText");
+      const fragEl = document.getElementById("fragment");
+      let fragIdx = -1;
+      function nextFragment() {
+        let i = fragIdx;
+        while (i === fragIdx) i = Math.floor(Math.random() * FRAGMENTS.length);
+        fragIdx = i;
+        fragEl.classList.remove("show");
+        setTimeout(() => {
+          fragText.textContent = "“" + FRAGMENTS[fragIdx] + "”";
+          fragEl.classList.add("show");
+        }, 350);
+      }
+      nextFragment();
+      setInterval(nextFragment, 8000);
+
+      // ── share ────────────────────────────────────────────────────────
+      const SITE_URL = "https://cantilever.bisks.net/";
+      function buildShareText() {
+        return `cantilever has tolled ${century.toLocaleString()} centur${century === 1 ? "y" : "ies"} this vigil — cantilevered stone, dripping with the moss of ages. ${SITE_URL}`;
+      }
+      const shareIntentEl = document.getElementById("shareIntent");
+      function refreshShareIntent() {
+        shareIntentEl.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(buildShareText())}`;
+      }
+      refreshShareIntent();
+      setInterval(refreshShareIntent, 4000);
+
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(SITE_URL);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch { return false; }
+      }
+
+      document.getElementById("saveCard").addEventListener("click", async (e) => {
+        const btn = e.target;
+        const original = btn.textContent;
+        btn.textContent = "rendering…";
+        const cw = 1200, chh = 630;
+        const off = document.createElement("canvas");
+        off.width = cw; off.height = chh;
+        const octx = off.getContext("2d");
+        octx.fillStyle = "#06070a";
+        octx.fillRect(0, 0, cw, chh);
+        // crop the live tower canvas, centered, covering the card
+        const srcAspect = W / H, dstAspect = cw / chh;
+        let sw = W, sh = H, sx = 0, sy = 0;
+        if (srcAspect > dstAspect) { sw = H * dstAspect; sx = (W - sw) / 2; }
+        else { sh = W / dstAspect; sy = (H - sh) / 2; }
+        octx.drawImage(canvas, sx * DPR, sy * DPR, sw * DPR, sh * DPR, 0, 0, cw, chh);
+        const panelGrad = octx.createLinearGradient(0, chh - 220, 0, chh);
+        panelGrad.addColorStop(0, "rgba(6,7,10,0)");
+        panelGrad.addColorStop(1, "rgba(6,7,10,0.92)");
+        octx.fillStyle = panelGrad;
+        octx.fillRect(0, chh - 220, cw, 220);
+        octx.fillStyle = "#e8ece7";
+        octx.font = "800 56px ui-sans-serif, system-ui, sans-serif";
+        octx.fillText("cantilever", 48, chh - 130);
+        octx.fillStyle = "#c9a869";
+        octx.font = "700 30px ui-monospace, monospace";
+        octx.fillText(`${century.toLocaleString()} centuries tolled this vigil`, 48, chh - 82);
+        octx.fillStyle = "#93a08f";
+        octx.font = "22px ui-monospace, monospace";
+        octx.fillText(SITE_URL, 48, chh - 40);
+
+        off.toBlob(async (blob) => {
+          if (!blob) { btn.textContent = original; return; }
+          if (canShareFiles()) {
+            try {
+              const file = new File([blob], "cantilever.png", { type: "image/png" });
+              await navigator.share({ files: [file], text: buildShareText(), title: "cantilever" });
+              btn.textContent = original;
+              return;
+            } catch {}
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = `cantilever-${century}-centuries.png`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          btn.textContent = "✓ saved!";
+          setTimeout(() => { btn.textContent = original; }, 1800);
+        }, "image/png");
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
