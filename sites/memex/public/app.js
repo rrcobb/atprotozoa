@@ -25,6 +25,12 @@ const els = {
   addBtn: document.getElementById("addBtn"),
   atomicList: document.getElementById("atomicList"),
   atomicStats: document.getElementById("atomicStats"),
+  deckShuffleBtn: document.getElementById("deckShuffleBtn"),
+  deckSortSelect: document.getElementById("deckSortSelect"),
+  deckCounter: document.getElementById("deckCounter"),
+  deckCardWrap: document.getElementById("deckCardWrap"),
+  deckPrevBtn: document.getElementById("deckPrevBtn"),
+  deckNextBtn: document.getElementById("deckNextBtn"),
 };
 
 // --- local phrasebook: always mirrored to localStorage --------------------
@@ -170,6 +176,7 @@ async function syncOnLogin(sess) {
     setAuthMsg("couldn't sync your phrasebook: " + (e.message || e), true);
   }
   renderLibrary();
+  rebuildDeck();
 }
 
 // --- mutations (shared by canon "keep" buttons and the add-your-own form) --
@@ -191,6 +198,7 @@ async function addPhrase(text, note, source) {
   saveLib(lib);
   renderLibrary();
   renderCanon();
+  rebuildDeck();
 }
 
 async function removePhrase(text) {
@@ -208,6 +216,7 @@ async function removePhrase(text) {
   saveLib(lib.filter((e) => e !== entry));
   renderLibrary();
   renderCanon();
+  rebuildDeck();
 }
 
 // --- clipboard / share helpers ---------------------------------------------
@@ -424,6 +433,143 @@ function renderLibrary() {
   }
 }
 
+// --- the deck: canon + your phrasebook as one browsable, shuffleable stack --
+// One card at a time instead of a scroll of cards — "sort or shuffle" per
+// @antiali.as. Canon phrases and kept library phrases are merged into one
+// list (deduped by normalized text, since keeping a canon phrase adds a
+// library record with the same wording); "most quoted" ordering reuses the
+// adoption counts already fetched for "what's atomic" below.
+
+let deckItems = [];
+let deckOrder = [];
+let deckMode = "canon";
+let deckIndex = 0;
+let atomicCounts = new Map(); // normText(text) -> adopterCount, filled once /api/atomic loads
+
+function buildDeckItems() {
+  const items = CANON.map((p) => ({
+    key: "c:" + p.id,
+    id: p.id,
+    text: p.text,
+    note: p.note,
+    source: p.source,
+    addedBy: p.addedBy || "",
+    isCanon: true,
+    createdAt: 0,
+  }));
+  for (const entry of loadLib()) {
+    if (findByText(items, entry.text)) continue; // already represented by its canon card
+    items.push({
+      key: "l:" + normText(entry.text),
+      id: null,
+      text: entry.text,
+      note: entry.note,
+      source: entry.source,
+      addedBy: "",
+      isCanon: false,
+      createdAt: entry.createdAt || 0,
+    });
+  }
+  return items;
+}
+
+function shuffledIndices(n) {
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function sortOrderFor(mode) {
+  const idx = deckItems.map((_, i) => i);
+  if (mode === "shuffle") return shuffledIndices(deckItems.length);
+  if (mode === "az") {
+    return idx.sort((a, b) => deckItems[a].text.toLowerCase().localeCompare(deckItems[b].text.toLowerCase()));
+  }
+  if (mode === "popular") {
+    return idx.sort((a, b) => {
+      const ca = atomicCounts.get(normText(deckItems[a].text)) || 0;
+      const cb = atomicCounts.get(normText(deckItems[b].text)) || 0;
+      return cb - ca;
+    });
+  }
+  // canon order: canon cards in their original order, then kept phrases newest-first
+  const canonIdx = idx.filter((i) => deckItems[i].isCanon);
+  const libIdx = idx
+    .filter((i) => !deckItems[i].isCanon)
+    .sort((a, b) => (deckItems[b].createdAt || 0) - (deckItems[a].createdAt || 0));
+  return canonIdx.concat(libIdx);
+}
+
+// Deliberate re-sort or shuffle: jump to the top of the new order.
+function applyDeckSort(mode) {
+  deckMode = mode;
+  deckOrder = sortOrderFor(mode);
+  deckIndex = 0;
+  renderDeck();
+}
+
+// Background sync (a phrase was kept/removed, or the leaderboard just
+// loaded): rebuild the deck but try to keep showing the same card.
+function rebuildDeck() {
+  const keepKey = deckOrder.length ? deckItems[deckOrder[deckIndex]].key : null;
+  deckItems = buildDeckItems();
+  deckOrder = sortOrderFor(deckMode);
+  const found = keepKey ? deckOrder.findIndex((i) => deckItems[i].key === keepKey) : -1;
+  deckIndex = found >= 0 ? found : 0;
+  renderDeck();
+}
+
+function deckStep(delta) {
+  if (!deckOrder.length) return;
+  deckIndex = (deckIndex + delta + deckOrder.length) % deckOrder.length;
+  renderDeck();
+}
+
+function renderDeck() {
+  const total = deckOrder.length;
+  els.deckCounter.textContent = total ? `${deckIndex + 1} / ${total}` : "";
+  els.deckCardWrap.innerHTML = "";
+  if (!total) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "nothing in the deck yet.";
+    els.deckCardWrap.appendChild(empty);
+    return;
+  }
+
+  const item = deckItems[deckOrder[deckIndex]];
+  const kept = item.isCanon ? !!findByText(loadLib(), item.text) : true;
+
+  const card = document.createElement("div");
+  card.className = "card deck-card";
+
+  const badge = document.createElement("div");
+  badge.className = "deck-badge";
+  badge.textContent = item.isCanon ? "canon" : "your phrasebook";
+  card.appendChild(badge);
+
+  const textEl = document.createElement("div");
+  textEl.className = "phrase-text";
+  textEl.textContent = item.text;
+  card.appendChild(textEl);
+
+  if (item.note || item.source) {
+    const note = document.createElement("div");
+    note.className = "phrase-note";
+    let noteHtml = item.note ? esc(item.note) : "";
+    if (item.addedBy) noteHtml += ` — added by <span class="phrase-added-by">@${esc(item.addedBy)}</span>`;
+    if (item.source) noteHtml += (noteHtml ? " · " : "") + `<a href="${esc(item.source)}" target="_blank" rel="noopener">source</a>`;
+    note.innerHTML = noteHtml;
+    card.appendChild(note);
+  }
+
+  card.appendChild(phraseActions(item.text, item.id, kept));
+  els.deckCardWrap.appendChild(card);
+}
+
 // --- "what's atomic" global leaderboard --------------------------------------
 
 function formatAgo(ts) {
@@ -450,6 +596,8 @@ async function loadAtomic() {
 
 function renderAtomic(data) {
   const phrases = data.phrases || [];
+  atomicCounts = new Map(phrases.map((p) => [normText(p.text), p.adopterCount || 0]));
+  if (deckMode === "popular") rebuildDeck();
   const refresh = document.createElement("a");
   refresh.textContent = "refresh";
   refresh.onclick = loadAtomic;
@@ -508,7 +656,33 @@ function renderAtomic(data) {
 async function boot() {
   renderCanon();
   renderLibrary();
+  rebuildDeck();
   loadAtomic();
+
+  els.deckShuffleBtn.onclick = () => {
+    els.deckSortSelect.value = "shuffle";
+    applyDeckSort("shuffle");
+  };
+  els.deckSortSelect.onchange = () => applyDeckSort(els.deckSortSelect.value);
+  els.deckPrevBtn.onclick = () => deckStep(-1);
+  els.deckNextBtn.onclick = () => deckStep(1);
+
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (e.key === "ArrowLeft") deckStep(-1);
+    if (e.key === "ArrowRight") deckStep(1);
+  });
+
+  let touchStartX = null;
+  els.deckCardWrap.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+  els.deckCardWrap.addEventListener("touchend", (e) => {
+    if (touchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    touchStartX = null;
+    if (Math.abs(dx) < 40) return;
+    deckStep(dx < 0 ? 1 : -1);
+  });
 
   els.addBtn.onclick = async () => {
     const text = els.addText.value;
