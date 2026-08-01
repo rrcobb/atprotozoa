@@ -9,10 +9,12 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-// How many pages of history to page through. 100 posts/page; 12 pages ≈ up to
-// ~1200 posts of top-level history, which is a satisfying "portfolio" without
-// hammering the API for mega-accounts.
-export const FEED_PAGES = 12;
+// Posts per page from getAuthorFeed.
+const FEED_PAGE_LIMIT = 100;
+// Hard cap on how many pages a resumable pager (see createPortfolioPager)
+// will ever fetch, so scroll-triggered loading can't hammer the AppView
+// forever on a mega-account. 40 pages * 100 posts ≈ 4000 posts of history.
+export const MAX_FEED_PAGES = 40;
 
 async function jget(url) {
   const r = await fetch(url);
@@ -63,51 +65,59 @@ function permalink(handle, uri) {
   return `https://bsky.app/profile/${handle}/post/${rkey}`;
 }
 
-// Page through getAuthorFeed (anonymous), collecting the account's own
-// top-level posts (skip reposts + replies). Returns lightweight post objects.
-// `onStep` reports progress; each page can hold up to 100 posts.
-export async function authorPortfolio(did, handle, { onStep } = {}) {
-  const posts = [];
+function toPost(it, handle) {
+  if (it.reason) return null; // skip reposts
+  const rec = it.post && it.post.record;
+  if (!rec || typeof rec.text !== "string" || !rec.text.trim()) return null;
+  const tags = extractTags(rec);
+  const classified = classifyEmbed(it.post && it.post.embed);
+  return {
+    text: rec.text,
+    createdAt: rec.createdAt || (it.post && it.post.indexedAt) || "",
+    uri: it.post.uri,
+    url: permalink(handle, it.post.uri),
+    likes: (it.post && it.post.likeCount) || 0,
+    reposts: (it.post && it.post.repostCount) || 0,
+    replies: (it.post && it.post.replyCount) || 0,
+    tags,
+    kind: classified.kind,
+    media: classified.media || [],
+    link: classified.link || null,
+  };
+}
+
+// A resumable pager over an account's top-level post history (getAuthorFeed,
+// anonymous — skips reposts + replies, newest page first). Each call to
+// next() fetches one page (up to 100 posts) and returns { posts, done }.
+// Lets a caller render a fast first batch, then keep paging on demand — e.g.
+// as a gallery is scrolled toward its older end — instead of blocking on the
+// whole history up front.
+export function createPortfolioPager(did, handle) {
   let cursor = "";
-  for (let p = 0; p < FEED_PAGES; p++) {
-    if (onStep) onStep(`fetching posts… (${posts.length} so far)`);
-    const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
-    u.searchParams.set("actor", did);
-    u.searchParams.set("limit", "100");
-    u.searchParams.set("filter", "posts_no_replies");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    let d;
-    try {
-      d = await jget(u.toString());
-    } catch {
-      break;
-    }
-    for (const it of d.feed || []) {
-      if (it.reason) continue; // skip reposts
-      const rec = it.post && it.post.record;
-      if (!rec || typeof rec.text !== "string" || !rec.text.trim()) continue;
-      const tags = extractTags(rec);
-      const classified = classifyEmbed(it.post && it.post.embed);
-      posts.push({
-        text: rec.text,
-        createdAt: rec.createdAt || (it.post && it.post.indexedAt) || "",
-        uri: it.post.uri,
-        url: permalink(handle, it.post.uri),
-        likes: (it.post && it.post.likeCount) || 0,
-        reposts: (it.post && it.post.repostCount) || 0,
-        replies: (it.post && it.post.replyCount) || 0,
-        tags,
-        kind: classified.kind,
-        media: classified.media || [],
-        link: classified.link || null,
-      });
-    }
-    cursor = d.cursor;
-    if (!cursor) break;
-  }
-  // newest first overall
-  posts.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  return posts;
+  let page = 0;
+  let done = false;
+  return {
+    async next() {
+      if (done || page >= MAX_FEED_PAGES) return { posts: [], done: true };
+      page++;
+      const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
+      u.searchParams.set("actor", did);
+      u.searchParams.set("limit", String(FEED_PAGE_LIMIT));
+      u.searchParams.set("filter", "posts_no_replies");
+      if (cursor) u.searchParams.set("cursor", cursor);
+      let d;
+      try {
+        d = await jget(u.toString());
+      } catch {
+        done = true;
+        return { posts: [], done: true };
+      }
+      const posts = (d.feed || []).map((it) => toPost(it, handle)).filter(Boolean);
+      cursor = d.cursor;
+      if (!cursor) done = true;
+      return { posts, done };
+    },
+  };
 }
 
 // Classify a hydrated post embed (the feed "view", not the raw record — the

@@ -2,7 +2,7 @@
 // AppView, anonymous, via lib/feed.js — copied from sites/portfolio).
 // Releases + curator picks are static, from ./data.js.
 
-import { getProfile, authorPortfolio } from "./lib/feed.js";
+import { getProfile, createPortfolioPager } from "./lib/feed.js";
 import { HANDLE, DID, RELEASES, PICKS } from "./data.js";
 
 const $ = (sel) => document.querySelector(sel);
@@ -68,50 +68,106 @@ function renderPicks() {
   }).join("");
 }
 
-// ── gallery: live image sweep of the post history ──────────────────────
-async function renderGallery() {
-  const status = $("#galleryStatus");
+// ── gallery: live image sweep of the post history, paged in horizontally ───
+// (newest on the left) and loaded further as you scroll toward the right —
+// only the first few pages load up front, the rest streams in on demand.
+const GALLERY_INITIAL_PAGES = 3;
+let galleryPager = null;
+let galleryLoading = false;
+let galleryDone = false;
+let galleryPostCount = 0;
+let galleryImageCount = 0;
+
+function appendImages(posts) {
   const grid = $("#gallery");
-  try {
-    const posts = await authorPortfolio(DID, HANDLE, {
-      onStep: (msg) => (status.textContent = msg),
-    });
-    const images = [];
-    for (const post of posts) {
-      if (post.kind !== "media") continue;
-      for (const m of post.media) {
-        if (m.video) continue; // gallery is stills; video posts stay out
-        images.push({ thumb: m.thumb, alt: m.alt, url: post.url, createdAt: post.createdAt });
-      }
+  const html = [];
+  for (const post of posts) {
+    if (post.kind !== "media") continue;
+    for (const m of post.media) {
+      if (m.video) continue; // gallery is stills; video posts stay out
+      galleryImageCount++;
+      html.push(`
+        <a class="shot" href="${esc(post.url)}" target="_blank" rel="noopener" title="${esc(m.alt || "")}">
+          <img loading="lazy" src="${esc(m.thumb)}" alt="${esc(m.alt || "")}"/>
+        </a>`);
     }
-    if (!images.length) {
-      status.textContent = "no images found in the recent post history.";
-      return;
-    }
+  }
+  if (html.length) grid.insertAdjacentHTML("beforeend", html.join(""));
+  galleryPostCount += posts.length;
+}
+
+function updateGalleryStatus() {
+  const status = $("#galleryStatus");
+  const count = $("#galleryCount");
+  count.textContent = galleryImageCount
+    ? `${galleryImageCount} images, from ${galleryPostCount} posts read`
+    : "";
+  if (!status) return;
+  if (galleryDone && galleryImageCount) {
     status.remove();
-    grid.innerHTML = images
-      .map(
-        (im) => `
-        <a class="shot" href="${esc(im.url)}" target="_blank" rel="noopener" title="${esc(im.alt || "")}">
-          <img loading="lazy" src="${esc(im.thumb)}" alt="${esc(im.alt || "")}"/>
-        </a>`,
-      )
-      .join("");
-    $("#galleryCount").textContent = `${images.length} images, from ${posts.length} posts read`;
-  } catch {
-    status.textContent = "couldn't load the gallery right now — the AppView might be having a moment.";
+  } else if (galleryDone) {
+    status.textContent = "no images found in the post history.";
+  } else {
+    status.textContent = galleryImageCount
+      ? `${galleryImageCount} images so far — scroll right for more`
+      : `fetching posts… (${galleryPostCount} so far)`;
   }
 }
 
-// ── gallery nav: jump to newest (top) / first images (bottom) ──────────────
+// Fetch one more page and fold it in. Returns true once the account's full
+// history has been read (no more pages left).
+async function loadMoreGallery() {
+  if (galleryDone || galleryLoading || !galleryPager) return galleryDone;
+  galleryLoading = true;
+  const { posts, done } = await galleryPager.next();
+  appendImages(posts);
+  galleryDone = done;
+  updateGalleryStatus();
+  galleryLoading = false;
+  return galleryDone;
+}
+
+async function renderGallery() {
+  const status = $("#galleryStatus");
+  try {
+    galleryPager = createPortfolioPager(DID, HANDLE);
+    for (let i = 0; i < GALLERY_INITIAL_PAGES && !galleryDone; i++) {
+      await loadMoreGallery();
+    }
+    setupGalleryAutoLoad();
+  } catch {
+    if (status) status.textContent = "couldn't load the gallery right now — the AppView might be having a moment.";
+  }
+}
+
+// Keep loading further pages while the gallery is scrolled near its right
+// (older) edge, so the strip effectively grows as you get to the end of it.
+function setupGalleryAutoLoad() {
+  const gallery = $("#gallery");
+  gallery.addEventListener("scroll", () => {
+    if (galleryDone || galleryLoading) return;
+    const remaining = gallery.scrollWidth - (gallery.scrollLeft + gallery.clientWidth);
+    if (remaining < gallery.clientWidth) loadMoreGallery();
+  });
+}
+
+// ── gallery nav: snap left to newest / snap right to first (oldest) images ─
 function setupGalleryNav() {
   const gallery = $("#gallery");
-  const toTop = () => gallery.scrollTo({ top: 0, behavior: "smooth" });
-  const toBottom = () => gallery.scrollTo({ top: gallery.scrollHeight, behavior: "smooth" });
-  $("#galleryToTop").addEventListener("click", toTop);
-  $("#galleryToTopBottom").addEventListener("click", toTop);
-  $("#galleryToBottom").addEventListener("click", toBottom);
-  $("#galleryToBottomTop").addEventListener("click", toBottom);
+  const toLeft = () => gallery.scrollTo({ left: 0, behavior: "smooth" });
+  // Jumping to the oldest images means reading the rest of the history
+  // first (it may not all be loaded yet), then snapping to the true end.
+  const toRight = async () => {
+    while (!galleryDone) {
+      gallery.scrollTo({ left: gallery.scrollWidth, behavior: "auto" });
+      await loadMoreGallery();
+    }
+    gallery.scrollTo({ left: gallery.scrollWidth, behavior: "smooth" });
+  };
+  $("#galleryToTop").addEventListener("click", toLeft);
+  $("#galleryToTopBottom").addEventListener("click", toLeft);
+  $("#galleryToBottom").addEventListener("click", toRight);
+  $("#galleryToBottomTop").addEventListener("click", toRight);
 }
 
 // ── share ─────────────────────────────────────────────────────────────────
