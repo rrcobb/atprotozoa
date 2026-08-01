@@ -121,64 +121,101 @@ function fillTemplate(html: string, tokens: Record<string, string>): string {
 
 const DEFAULT_OG = "https://commonplace.bisks.net/og.png";
 
-async function renderRead(env: Env, request: Request, rawDid: string, rkey: string): Promise<Response> {
+async function renderDocPage(
+  env: Env,
+  request: Request,
+  did: string,
+  pdsUrl: string,
+  doc: any,
+  canonicalUrl: string,
+): Promise<Response> {
   const shellRes = await env.ASSETS.fetch(new Request(new URL("/read.html", request.url), { method: "GET" }));
   const shell = await shellRes.text();
 
+  const handle = await resolveHandleForDid(did);
+
+  const title = doc.title || "untitled";
+  const description = truncate(doc.description || doc.textContent || "", 300);
+  const date = doc.publishedAt ? new Date(doc.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "";
+
+  const coverSrc = doc.coverImage ? blobUrl(pdsUrl, did, doc.coverImage) : null;
+  const coverHtml = coverSrc ? `<img class="cover" src="${esc(coverSrc)}" alt="" />` : "";
+  const ogImage = coverSrc || DEFAULT_OG;
+
+  const tagsHtml = (doc.tags || [])
+    .map((t: string) => `<span class="tag-chip">${esc(t)}</span>`)
+    .join("");
+
+  let pubNoteHtml = "";
+  if (typeof doc.site === "string" && doc.site.startsWith("at://")) {
+    try {
+      const m = doc.site.match(/^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/);
+      if (m) {
+        const [, pubRepo, pubCollection, pubRkey] = m;
+        const { value: pub } = await getRecord(pdsUrl, pubRepo, pubCollection, pubRkey);
+        pubNoteHtml = `part of <strong>${esc(pub.name || "a publication")}</strong>${pub.url ? ` — <a href="${esc(pub.url)}" target="_blank" rel="noopener">${esc(pub.url)}</a>` : ""}`;
+      }
+    } catch {}
+  } else if (typeof doc.site === "string") {
+    pubNoteHtml = `part of <a href="${esc(doc.site)}" target="_blank" rel="noopener">${esc(doc.site)}</a>`;
+  }
+
+  const html = fillTemplate(shell, {
+    TITLE: esc(title),
+    DESCRIPTION: esc(description),
+    URL: canonicalUrl,
+    OG_IMAGE: esc(ogImage),
+    HANDLE: esc(handle),
+    DATE: esc(date),
+    BODY_HTML: esc(doc.textContent || ""),
+    TAGS_HTML: tagsHtml,
+    COVER_HTML: coverHtml,
+    PUB_NOTE_HTML: pubNoteHtml,
+  });
+
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
+  });
+}
+
+async function notFoundDocPage(env: Env, request: Request): Promise<Response> {
+  const shellRes = await env.ASSETS.fetch(new Request(new URL("/read.html", request.url), { method: "GET" }));
+  const shell = await shellRes.text();
+  return new Response(shell, {
+    status: 404,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+  });
+}
+
+async function renderRead(env: Env, request: Request, rawDid: string, rkey: string): Promise<Response> {
   try {
     const did = decodeURIComponent(rawDid);
     const pdsUrl = await resolvePds(did);
     const { value: doc } = await getRecord(pdsUrl, did, DOC_COLLECTION, rkey);
-    const handle = await resolveHandleForDid(did);
-
-    const title = doc.title || "untitled";
-    const description = truncate(doc.description || doc.textContent || "", 300);
-    const date = doc.publishedAt ? new Date(doc.publishedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : "";
     const url = `https://commonplace.bisks.net/read/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}`;
-
-    const coverSrc = doc.coverImage ? blobUrl(pdsUrl, did, doc.coverImage) : null;
-    const coverHtml = coverSrc ? `<img class="cover" src="${esc(coverSrc)}" alt="" />` : "";
-    const ogImage = coverSrc || DEFAULT_OG;
-
-    const tagsHtml = (doc.tags || [])
-      .map((t: string) => `<span class="tag-chip">${esc(t)}</span>`)
-      .join("");
-
-    let pubNoteHtml = "";
-    if (typeof doc.site === "string" && doc.site.startsWith("at://")) {
-      try {
-        const m = doc.site.match(/^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/);
-        if (m) {
-          const [, pubRepo, pubCollection, pubRkey] = m;
-          const { value: pub } = await getRecord(pdsUrl, pubRepo, pubCollection, pubRkey);
-          pubNoteHtml = `part of <strong>${esc(pub.name || "a publication")}</strong>${pub.url ? ` — <a href="${esc(pub.url)}" target="_blank" rel="noopener">${esc(pub.url)}</a>` : ""}`;
-        }
-      } catch {}
-    } else if (typeof doc.site === "string") {
-      pubNoteHtml = `part of <a href="${esc(doc.site)}" target="_blank" rel="noopener">${esc(doc.site)}</a>`;
-    }
-
-    const html = fillTemplate(shell, {
-      TITLE: esc(title),
-      DESCRIPTION: esc(description),
-      URL: url,
-      OG_IMAGE: esc(ogImage),
-      HANDLE: esc(handle),
-      DATE: esc(date),
-      BODY_HTML: esc(doc.textContent || ""),
-      TAGS_HTML: tagsHtml,
-      COVER_HTML: coverHtml,
-      PUB_NOTE_HTML: pubNoteHtml,
-    });
-
-    return new Response(html, {
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
-    });
+    return await renderDocPage(env, request, did, pdsUrl, doc, url);
   } catch (_) {
-    return new Response(shell, {
-      status: 404,
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
-    });
+    return notFoundDocPage(env, request);
+  }
+}
+
+// site.standard.document's `path` field is spec'd to combine with the
+// publication's `url` into the document's canonical URL (see
+// standard.site's document lexicon docs) — readers resolve/verify a post
+// by fetching that combined URL, so it has to be a real route, not just
+// the bare /pub/<handle> listing page.
+async function renderPubDoc(env: Env, request: Request, rawHandle: string, docPath: string): Promise<Response> {
+  try {
+    const handle = decodeURIComponent(rawHandle).replace(/^@/, "");
+    const did = await resolveHandleToDid(handle);
+    const pdsUrl = await resolvePds(did);
+    const records = await listRecords(pdsUrl, did, DOC_COLLECTION);
+    const match = records.find((r: any) => r.value?.path === docPath);
+    if (!match) return notFoundDocPage(env, request);
+    const url = `https://commonplace.bisks.net/pub/${encodeURIComponent(handle)}${docPath}`;
+    return await renderDocPage(env, request, did, pdsUrl, match.value, url);
+  } catch (_) {
+    return notFoundDocPage(env, request);
   }
 }
 
@@ -240,6 +277,12 @@ export default {
 
     const readMatch = url.pathname.match(/^\/read\/([^/]+)\/([^/]+)\/?$/);
     if (readMatch) return renderRead(env, request, readMatch[1], readMatch[2]);
+
+    const pubDocMatch = url.pathname.match(/^\/pub\/([^/]+)\/([^/].*)$/);
+    if (pubDocMatch) {
+      const docPath = "/" + pubDocMatch[2].replace(/\/$/, "");
+      return renderPubDoc(env, request, pubDocMatch[1], docPath);
+    }
 
     const pubMatch = url.pathname.match(/^\/pub\/([^/]+)\/?$/);
     if (pubMatch) return renderPub(env, request, pubMatch[1]);
