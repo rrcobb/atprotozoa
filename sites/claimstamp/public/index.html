@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>claimstamp — stamp any Bluesky post CLAIM, then watch it burn — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky post URL. A huge red stamp flies down and marks it CLAIM in bold letters — then, two seconds later, it shatters into pieces and catches fire."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://claimstamp.bisks.net/" />
+    <meta property="og:title" content="claimstamp — CLAIM it, then watch it burn" />
+    <meta
+      property="og:description"
+      content="Paste any Bluesky post URL. A huge red stamp slams down and marks it CLAIM — then two seconds later it shatters into pieces and catches fire."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="claimstamp" />
+    <meta
+      name="twitter:description"
+      content="Paste a Bluesky post URL. It gets stamped CLAIM, then shatters and burns. Nothing on Bluesky is touched — it's all local theater."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, blue accent. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --red: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      .console {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.1rem; margin-bottom: 2rem;
+      }
+      input[type="text"] {
+        width: 100%; font-family: inherit; font-size: 0.95rem; color: var(--ink);
+        background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.7rem 0.85rem;
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--ink); background: var(--bg); }
+      input[type="text"]::placeholder { color: #a0a0a0; }
+
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.85rem; }
+      button {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 1.05rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; line-height: 1;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      button.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover { background: var(--faintbg); }
+      .err { color: var(--red); font-size: 0.82rem; margin: 0.75rem 0 0; min-height: 1em; }
+
+      /* ---------------------------------------------------------------
+         the stage
+         --------------------------------------------------------------- */
+      #stageWrap { margin: 0 0 2.5rem; min-height: 2px; }
+      .stage { position: relative; max-width: 420px; margin: 0 auto; }
+
+      .postcard {
+        position: relative; z-index: 5;
+        border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1rem 1.1rem; background: var(--bg);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        transition: opacity 0.25s ease;
+      }
+      .pc-head { display: flex; align-items: center; gap: 0.6rem; }
+      .pc-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; background: #ddd; }
+      .pc-name { font-weight: 700; font-size: 0.92rem; }
+      .pc-handle { color: var(--muted); font-size: 0.78rem; }
+      .pc-text { margin: 0.65rem 0 0; font-size: 0.95rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+      .pc-text a { color: var(--accent); text-decoration: none; }
+      .pc-text a:hover { text-decoration: underline; }
+      .pc-tag { color: var(--accent); }
+      .pc-embed { max-width: 100%; border-radius: 8px; margin-top: 0.65rem; display: block; }
+      .pc-meta { color: var(--muted); font-size: 0.76rem; margin-top: 0.7rem; }
+
+      /* skeleton */
+      .skel-card { overflow: hidden; }
+      .skel { background: linear-gradient(90deg, var(--faintbg) 25%, #ececec 37%, var(--faintbg) 63%); background-size: 400% 100%; animation: shimmer 1.3s ease infinite; border-radius: 4px; }
+      @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+      .skel.av { width: 42px; height: 42px; border-radius: 50%; }
+      .skel.line { height: 0.85rem; margin-top: 0.6rem; }
+      .skel.w60 { width: 60%; } .skel.w90 { width: 90%; } .skel.w40 { width: 40%; }
+
+      /* the stamp */
+      .stamp {
+        position: absolute; top: 46%; left: 50%; z-index: 20;
+        width: min(78%, 250px); padding: 0.85rem 0; text-align: center;
+        border: 6px solid var(--red); border-radius: 12px; color: var(--red);
+        font-family: Impact, "Arial Narrow", var(--mono), sans-serif;
+        font-weight: 900; font-size: clamp(1.5rem, 7vw, 2.3rem);
+        letter-spacing: 0.12em; text-transform: uppercase;
+        mix-blend-mode: multiply; pointer-events: none;
+        transform: translate(-50%, -1300%) rotate(-22deg) scale(1.7);
+        opacity: 0;
+        box-shadow: inset 0 0 0 3px rgba(192, 57, 43, 0.18);
+      }
+      .stamp.drop {
+        transition: transform 0.5s cubic-bezier(0.17, 1.7, 0.4, 1), opacity 0.12s linear 0.05s;
+        transform: translate(-50%, -50%) rotate(-9deg) scale(1);
+        opacity: 0.9;
+      }
+
+      @keyframes impact-shake {
+        0% { transform: translate(0, 0) rotate(0); }
+        20% { transform: translate(-6px, 3px) rotate(-0.6deg); }
+        40% { transform: translate(5px, -3px) rotate(0.5deg); }
+        60% { transform: translate(-4px, 2px) rotate(-0.3deg); }
+        80% { transform: translate(3px, -1px) rotate(0.2deg); }
+        100% { transform: translate(0, 0) rotate(0); }
+      }
+      .postcard.impact { animation: impact-shake 0.32s ease; }
+
+      .flash {
+        position: absolute; inset: -10%; z-index: 15; pointer-events: none;
+        background: radial-gradient(circle at 50% 55%, rgba(192, 57, 43, 0.5), transparent 60%);
+        opacity: 0;
+      }
+      .flash.go { animation: flash-fade 0.45s ease-out forwards; }
+      @keyframes flash-fade { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+      /* shatter */
+      .shardHost { position: absolute; top: 0; left: 0; z-index: 10; overflow: visible; pointer-events: none; }
+      .shard {
+        position: absolute; top: 0; left: 0; background: var(--bg);
+        border: 1px solid var(--faint); border-radius: 10px; box-sizing: border-box;
+        overflow: hidden; will-change: transform, opacity, filter;
+      }
+
+      /* fire */
+      .fireLayer { position: absolute; inset: 0; z-index: 25; pointer-events: none; overflow: visible; }
+      .flame {
+        position: absolute; bottom: -6%; border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+        background: radial-gradient(circle at 50% 82%, #fff3b0, #ffb703 32%, #fb5607 62%, var(--red) 88%);
+        mix-blend-mode: screen; filter: blur(1px) drop-shadow(0 0 12px rgba(255, 110, 20, 0.55));
+        animation: flame-flicker 0.5s ease-in-out infinite alternate;
+      }
+      @keyframes flame-flicker {
+        0% { transform: scale(1, 0.85) translateY(0) rotate(-2deg); }
+        100% { transform: scale(1.14, 1.05) translateY(-6%) rotate(2deg); }
+      }
+      .smoke {
+        position: absolute; bottom: 40%; border-radius: 50%;
+        background: radial-gradient(circle, rgba(50, 50, 50, 0.5), rgba(50, 50, 50, 0) 70%);
+        animation: smoke-rise 1.6s ease-out forwards;
+      }
+      @keyframes smoke-rise {
+        0% { opacity: 0.5; transform: translateY(0) scale(0.6); }
+        100% { opacity: 0; transform: translateY(-150%) scale(1.7); }
+      }
+
+      /* aftermath */
+      .aftermath { text-align: center; padding: 1.75rem 1rem 0.5rem; }
+      .ash { font-size: 2.5rem; margin-bottom: 0.35rem; }
+      .claimed-h {
+        font-size: 1.5rem; letter-spacing: 0.1em; color: var(--red); font-weight: 900;
+        margin: 0 0 0.6rem; text-transform: uppercase;
+        font-family: Impact, "Arial Narrow", var(--mono), sans-serif;
+      }
+      .ash-note { color: var(--muted); max-width: 32rem; margin: 0 auto 1.1rem; font-size: 0.83rem; line-height: 1.65; }
+      .aftermath .btnrow { justify-content: center; margin-top: 0.4rem; }
+
+      /* reduced motion: skip the slow drop/shatter easing, jump straight through */
+      .rm .stamp.drop { transition-duration: 0.06s; }
+      .rm .postcard.impact { animation-duration: 0.06s; }
+      .rm .shard { transition-duration: 0.08s !important; }
+
+      .about { margin-top: 2.25rem; }
+      .about h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.6rem; }
+      .about p { color: var(--muted); margin: 0 0 0.9rem; line-height: 1.7; font-size: 0.9rem; }
+      .about code { background: var(--faintbg); border: 1px solid var(--faint); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85rem; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--faint); padding-top: 1rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>claimstamp</h1>
+      <p class="intro">
+        Paste a Bluesky post URL below. A <b>huge red stamp</b> flies down and
+        marks it <b>CLAIM</b> in bold letters — then, two seconds later, it
+        shatters into pieces and catches fire. Nothing on Bluesky is ever
+        touched; it's all local theater, right here in your browser.
+      </p>
+
+      <section class="console">
+        <input id="url" type="text" placeholder="https://bsky.app/profile/handle.bsky.social/post/3abcxyz…" autocomplete="off" spellcheck="false" />
+        <div class="btnrow">
+          <button id="go">stamp it</button>
+          <button class="ghost" id="example">try an example</button>
+        </div>
+        <p class="err" id="err"></p>
+      </section>
+
+      <div id="stageWrap"></div>
+
+      <div class="about">
+        <h2>what's actually happening</h2>
+        <p>
+          The post is read live via Bluesky's public, unauthenticated AppView
+          (<code>app.bsky.actor.getProfile</code> to resolve the handle, then
+          <code>app.bsky.feed.getPosts</code> for the record) — a plain
+          browser fetch, no login, no server in between. Everything after
+          that — the stamp drop, the impact shake, the shatter into shards,
+          the fire — is CSS and JS animation on a local copy. The real post,
+          out there on the network, is completely unaffected.
+        </p>
+      </div>
+
+      <footer>
+        <p>
+          asked for by <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a> ·
+          built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>,
+          part of <a href="https://bisks.net">bisks.net</a>
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      const APPVIEW = "https://public.api.bsky.app/xrpc";
+      const REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (REDUCED) document.body.classList.add("rm");
+      const IMPACT_WAIT_MS = REDUCED ? 250 : 2000; // "2 seconds later it shatters"
+      const BURN_MS = REDUCED ? 300 : 1900;
+
+      const FALLBACK_AVATAR =
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#8b98a5"/><circle cx="50" cy="38" r="20" fill="#e1e8ed"/><ellipse cx="50" cy="92" rx="34" ry="30" fill="#e1e8ed"/></svg>'
+        );
+
+      const urlInput = document.getElementById("url");
+      const goBtn = document.getElementById("go");
+      const exampleBtn = document.getElementById("example");
+      const errEl = document.getElementById("err");
+      const stageWrap = document.getElementById("stageWrap");
+
+      function esc(s) {
+        return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function rkeyOf(uri) {
+        return (uri || "").split("/").pop();
+      }
+      function nextFrame() {
+        return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
+
+      // ---- reading the post (public AppView, unauthenticated, read-only) ----
+
+      async function xrpc(method, params) {
+        const url = new URL(`${APPVIEW}/${method}`);
+        for (const [k, v] of Object.entries(params || {})) {
+          if (Array.isArray(v)) v.forEach((x) => url.searchParams.append(k, x));
+          else if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+        }
+        const r = await fetch(url.toString(), { headers: { accept: "application/json" } });
+        if (!r.ok) {
+          const e = new Error(r.status === 400 ? "couldn't find that post — check the URL." : `${method} failed (${r.status})`);
+          e.status = r.status;
+          throw e;
+        }
+        return r.json();
+      }
+
+      // Accepts a bsky.app post URL, or a raw at:// post URI.
+      function extractPostRef(raw) {
+        const s = (raw || "").trim();
+        let m = s.match(/bsky\.app\/profile\/([^/\s?#]+)\/post\/([a-zA-Z0-9]+)/i);
+        if (m) return { actor: decodeURIComponent(m[1]), rkey: m[2] };
+        m = s.match(/at:\/\/(did:[a-zA-Z0-9._:%-]+)\/app\.bsky\.feed\.post\/([a-zA-Z0-9]+)/i);
+        if (m) return { actor: m[1], rkey: m[2] };
+        return null;
+      }
+
+      async function fetchPost(ref) {
+        let did = ref.actor;
+        if (!did.startsWith("did:")) {
+          const profile = await xrpc("app.bsky.actor.getProfile", { actor: ref.actor });
+          did = profile.did;
+        }
+        const uri = `at://${did}/app.bsky.feed.post/${ref.rkey}`;
+        const data = await xrpc("app.bsky.feed.getPosts", { uris: [uri] });
+        const post = (data.posts || [])[0];
+        if (!post) throw new Error("couldn't find that post — it may be deleted, or the account blocks viewers.");
+        return post;
+      }
+
+      function embedImage(post) {
+        const e = post && post.embed;
+        if (!e) return null;
+        const t = e.$type || "";
+        if (t.includes("images#view") && e.images && e.images[0]) return e.images[0].thumb || null;
+        if (t.includes("recordWithMedia#view") && e.media && e.media.images && e.media.images[0]) return e.media.images[0].thumb || null;
+        if (t.includes("external#view") && e.external && e.external.thumb) return e.external.thumb || null;
+        if (t.includes("video#view") && e.thumbnail) return e.thumbnail || null;
+        return null;
+      }
+
+      function richText(text, facets) {
+        text = text || "";
+        if (!facets || !facets.length) return esc(text).replace(/\n/g, "<br>");
+        const bytes = new TextEncoder().encode(text);
+        const dec = new TextDecoder();
+        const sorted = [...facets].filter((f) => f.index && f.index.byteEnd > f.index.byteStart).sort((a, b) => a.index.byteStart - b.index.byteStart);
+        let out = "";
+        let cursor = 0;
+        for (const f of sorted) {
+          const { byteStart, byteEnd } = f.index;
+          if (byteStart < cursor || byteEnd > bytes.length) continue;
+          out += esc(dec.decode(bytes.slice(cursor, byteStart)));
+          const seg = dec.decode(bytes.slice(byteStart, byteEnd));
+          const feat = (f.features || [])[0] || {};
+          if (feat.$type === "app.bsky.richtext.facet#link") out += `<a href="${esc(feat.uri)}" target="_blank" rel="noopener noreferrer nofollow">${esc(seg)}</a>`;
+          else if (feat.$type === "app.bsky.richtext.facet#tag") out += `<span class="pc-tag">${esc(seg)}</span>`;
+          else out += esc(seg);
+          cursor = byteEnd;
+        }
+        out += esc(dec.decode(bytes.slice(cursor)));
+        return out.replace(/\n/g, "<br>");
+      }
+
+      function fmtCount(n) {
+        n = n || 0;
+        if (n < 1000) return String(n);
+        if (n < 1000000) return (n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, "") + "K";
+        return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+      }
+
+      // ---- rendering ----
+
+      function skeletonHtml() {
+        return `<div class="stage"><div class="postcard skel-card">
+          <div class="pc-head"><div class="skel av"></div></div>
+          <div class="skel line w90"></div>
+          <div class="skel line w60"></div>
+          <div class="skel line w40"></div>
+        </div></div>`;
+      }
+
+      function postCardHtml(post) {
+        const author = post.author || {};
+        const rec = post.record || {};
+        const img = embedImage(post);
+        return `<div class="postcard" id="postcard">
+          <div class="pc-head">
+            <img class="pc-avatar" src="${esc(author.avatar || FALLBACK_AVATAR)}" alt="" />
+            <div>
+              <div class="pc-name">${esc(author.displayName || author.handle)}</div>
+              <div class="pc-handle">@${esc(author.handle)}</div>
+            </div>
+          </div>
+          <div class="pc-text">${richText(rec.text, rec.facets)}</div>
+          ${img ? `<img class="pc-embed" src="${esc(img)}" alt="" />` : ""}
+          <div class="pc-meta">❤ ${fmtCount(post.likeCount)} · 🔁 ${fmtCount(post.repostCount)} · 💬 ${fmtCount(post.replyCount)}</div>
+        </div>`;
+      }
+
+      // ---- the show: drop → impact → (2s) → shatter + burn → aftermath ----
+
+      function dropStamp(stageEl, cardEl, post) {
+        const stampEl = document.createElement("div");
+        stampEl.className = "stamp";
+        stampEl.textContent = "CLAIM";
+        stageEl.appendChild(stampEl);
+        nextFrame().then(() => stampEl.classList.add("drop"));
+
+        stampEl.addEventListener(
+          "transitionend",
+          () => {
+            cardEl.classList.add("impact");
+            const flash = document.createElement("div");
+            flash.className = "flash go";
+            stageEl.appendChild(flash);
+            setTimeout(() => flash.remove(), 500);
+            setTimeout(() => shatterAndBurn(stageEl, cardEl, stampEl, post), IMPACT_WAIT_MS);
+          },
+          { once: true }
+        );
+      }
+
+      function spawnFire(host, w, h) {
+        const layer = document.createElement("div");
+        layer.className = "fireLayer";
+        for (let i = 0; i < 4; i++) {
+          const f = document.createElement("div");
+          f.className = "flame";
+          const fw = w * (0.26 + Math.random() * 0.14);
+          const fh = h * (0.5 + Math.random() * 0.3);
+          f.style.width = fw + "px";
+          f.style.height = fh + "px";
+          f.style.left = Math.random() * Math.max(0, w - fw) + "px";
+          f.style.animationDelay = Math.random() * 0.4 + "s";
+          f.style.animationDuration = 0.4 + Math.random() * 0.3 + "s";
+          layer.appendChild(f);
+        }
+        for (let i = 0; i < 3; i++) {
+          const s = document.createElement("div");
+          s.className = "smoke";
+          const sw = w * (0.28 + Math.random() * 0.2);
+          s.style.width = sw + "px";
+          s.style.height = sw + "px";
+          s.style.left = Math.random() * Math.max(0, w - sw) + "px";
+          s.style.animationDelay = Math.random() * 0.6 + "s";
+          layer.appendChild(s);
+        }
+        host.appendChild(layer);
+      }
+
+      function shatterAndBurn(stageEl, cardEl, stampEl, post) {
+        const w = cardEl.offsetWidth;
+        const h = cardEl.offsetHeight;
+
+        // the stamp burns away with everything else
+        stampEl.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        stampEl.style.opacity = "0";
+        stampEl.style.transform += " scale(0.85)";
+
+        const shardHost = document.createElement("div");
+        shardHost.className = "shardHost";
+        shardHost.style.width = w + "px";
+        shardHost.style.height = h + "px";
+        stageEl.appendChild(shardHost);
+
+        const COLS = 4;
+        const ROWS = 3;
+        const cx = w / 2;
+        const cy = h / 2;
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            const x0 = (c / COLS) * 100;
+            const x1 = ((c + 1) / COLS) * 100;
+            const y0 = (r / ROWS) * 100;
+            const y1 = ((r + 1) / ROWS) * 100;
+            const triangles = [
+              [[x0, y0], [x1, y0], [x0, y1]],
+              [[x1, y0], [x1, y1], [x0, y1]],
+            ];
+            for (const tri of triangles) {
+              const shard = cardEl.cloneNode(true);
+              shard.removeAttribute("id");
+              shard.className = "shard";
+              shard.style.width = w + "px";
+              shard.style.height = h + "px";
+              shard.style.clipPath = `polygon(${tri.map((p) => p[0] + "% " + p[1] + "%").join(",")})`;
+
+              const centroidX = ((tri[0][0] + tri[1][0] + tri[2][0]) / 3 / 100) * w;
+              const centroidY = ((tri[0][1] + tri[1][1] + tri[2][1]) / 3 / 100) * h;
+              const dirX = centroidX - cx;
+              const dirY = centroidY - cy;
+              const mag = Math.hypot(dirX, dirY) || 1;
+              const dist = 110 + Math.random() * 220;
+              const tx = (dirX / mag) * dist + (Math.random() - 0.5) * 40;
+              const ty = (dirY / mag) * dist + 240 + Math.random() * 160; // gravity
+              const rot = (Math.random() - 0.5) * 720;
+              const delay = Math.random() * 160;
+
+              shard.style.transition = `transform 1000ms cubic-bezier(.16,.7,.3,1) ${delay}ms, opacity 900ms ease ${delay + 300}ms, filter 1200ms ease ${delay}ms`;
+              shardHost.appendChild(shard);
+              requestAnimationFrame(() => {
+                shard.style.transform = `translate(${tx}px, ${ty}px) rotate(${rot}deg)`;
+                shard.style.filter = "brightness(0.3) sepia(1) hue-rotate(-40deg) saturate(4)";
+                shard.style.opacity = "0";
+              });
+            }
+          }
+        }
+
+        cardEl.style.opacity = "0";
+        spawnFire(shardHost, w, h);
+
+        setTimeout(() => showAftermath(stageWrap, post), BURN_MS);
+      }
+
+      function showAftermath(container, post) {
+        const handle = post.author.handle;
+        const shareUrl = "https://claimstamp.bisks.net/";
+        const shareText = `I stamped @${handle}'s post CLAIM and watched it shatter and burn. ${shareUrl}`;
+        container.innerHTML = `
+          <div class="aftermath">
+            <div class="ash">🔥 💨</div>
+            <h2 class="claimed-h">Claimed.</h2>
+            <p class="ash-note">
+              @${esc(handle)}'s post has been stamped, shattered, and reduced
+              to ash. (It's untouched on Bluesky — this was all local
+              theater.)
+            </p>
+            <div class="btnrow">
+              <a href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener"><button class="ghost">share the claim</button></a>
+              <button id="again">claim another post</button>
+            </div>
+          </div>`;
+        document.getElementById("again").onclick = () => {
+          container.innerHTML = "";
+          errEl.textContent = "";
+          urlInput.value = "";
+          urlInput.focus();
+        };
+      }
+
+      // ---- wiring ----
+
+      async function runClaim(ref) {
+        errEl.textContent = "";
+        goBtn.disabled = true;
+        goBtn.textContent = "loading…";
+        stageWrap.innerHTML = skeletonHtml();
+        try {
+          const post = await fetchPost(ref);
+          stageWrap.innerHTML = `<div class="stage" id="stage">${postCardHtml(post)}</div>`;
+          const stageEl = document.getElementById("stage");
+          const cardEl = document.getElementById("postcard");
+          await nextFrame();
+          dropStamp(stageEl, cardEl, post);
+        } catch (e) {
+          stageWrap.innerHTML = "";
+          errEl.textContent = e.message || "couldn't load that post.";
+        } finally {
+          goBtn.disabled = false;
+          goBtn.textContent = "stamp it";
+        }
+      }
+
+      goBtn.addEventListener("click", () => {
+        const ref = extractPostRef(urlInput.value);
+        if (!ref) {
+          errEl.textContent = "that doesn't look like a bsky.app post URL — try something like https://bsky.app/profile/handle.bsky.social/post/3abc…";
+          return;
+        }
+        runClaim(ref);
+      });
+      urlInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") goBtn.click();
+      });
+
+      exampleBtn.addEventListener("click", async () => {
+        errEl.textContent = "";
+        exampleBtn.disabled = true;
+        try {
+          const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor: "bsky.app", limit: 10, filter: "posts_no_replies" });
+          const item = (data.feed || []).map((f) => f.post).find((p) => p && p.record && p.uri);
+          if (!item) throw new Error("no example available right now — paste a post URL instead.");
+          urlInput.value = `https://bsky.app/profile/${item.author.handle}/post/${rkeyOf(item.uri)}`;
+          runClaim({ actor: item.author.did, rkey: rkeyOf(item.uri) });
+        } catch (e) {
+          errEl.textContent = e.message || "couldn't load an example — paste a post URL instead.";
+        } finally {
+          exampleBtn.disabled = false;
+        }
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
