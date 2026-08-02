@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Overthink — a chatbot that shows its work, all of it, forever</title>
+<meta name="description" content="A fake ChatGPT. The reply streams in like the real thing, then its 'Thinking' chip unfolds into an infinitely-nested tree of increasingly deranged fake reasoning — every subprocess still logically follows from the one above it. Click as deep as you want." />
+<meta property="og:title" content="Overthink — a chatbot that shows its work, all of it, forever" />
+<meta property="og:description" content="A fake ChatGPT whose 'Thinking' chip unfolds into an infinitely-nested tree of fake reasoning steps. Every subprocess still logically follows from its parent. Keep clicking." />
+<meta property="og:url" content="https://overthink.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://overthink.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A fake ChatGPT interface with a reasoning tree expanded several levels deep into increasingly unhinged fake subprocesses." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Overthink — a chatbot that shows its work, all of it, forever" />
+<meta name="twitter:description" content="A fake ChatGPT whose 'Thinking' chip unfolds into an infinitely-nested tree of fake reasoning steps. Every subprocess still logically follows from its parent. Keep clicking." />
+<meta name="twitter:image" content="https://overthink.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #212121;
+    --bg-sidebar: #171717;
+    --bg-elevated: #2f2f2f;
+    --bg-elevated-2: #3a3a3a;
+    --border: #3a3a3a;
+    --text: #ececec;
+    --text-dim: #9b9b9b;
+    --text-dimmer: #6f6f6f;
+    --accent: #12c99b;
+    --accent-dim: #0e8f6e;
+    --user-bubble: #2f2f2f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { overflow: hidden; }
+
+  .app {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    width: 260px;
+    flex: 0 0 260px;
+    background: var(--bg-sidebar);
+    display: flex;
+    flex-direction: column;
+    padding: 0.6rem;
+    transition: margin-left 0.18s ease;
+    overflow: hidden;
+  }
+  .sidebar.collapsed { margin-left: -260px; }
+  .new-chat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.6rem 0.75rem;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .new-chat:hover { background: var(--bg-elevated); }
+  .sidebar-label {
+    color: var(--text-dimmer);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 1rem 0.6rem 0.3rem;
+  }
+  .history { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; flex: 1; }
+  .history-item {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 0.5rem 0.6rem;
+    border-radius: 8px;
+    font-size: 0.83rem;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-item:hover { background: var(--bg-elevated); color: var(--text); }
+  .sidebar-bottom {
+    border-top: 1px solid var(--border);
+    padding: 0.7rem 0.5rem 0.3rem;
+    font-size: 0.72rem;
+    color: var(--text-dimmer);
+    line-height: 1.4;
+  }
+  .model-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    margin-bottom: 0.35rem;
+  }
+  .model-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  /* ---------- main ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-toggle {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 1.2rem; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 6px;
+  }
+  .sidebar-toggle:hover { background: var(--bg-elevated); color: var(--text); }
+  .model-select {
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    padding: 0.3rem 0.5rem;
+    border-radius: 8px;
+  }
+  .model-select:hover { background: var(--bg-elevated); }
+  .model-select svg { width: 14px; height: 14px; opacity: 0.6; }
+  .model-menu {
+    position: absolute;
+    top: 110%; left: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.3rem;
+    min-width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 20;
+  }
+  .model-menu.hidden { display: none; }
+  .model-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--text);
+    padding: 0.55rem 0.6rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .model-option:hover { background: var(--bg-elevated-2); }
+  .model-option .sub { display: block; color: var(--text-dimmer); font-size: 0.72rem; margin-top: 0.1rem; }
+
+  .share-btn {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.45rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .share-btn:hover { background: var(--bg-elevated-2); }
+
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.2rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .chat-inner { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 1.4rem; }
+
+  .empty-state {
+    width: 100%;
+    max-width: 700px;
+    margin: auto;
+    text-align: center;
+    padding: 2rem 0.5rem;
+  }
+  .empty-state h1 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin: 0 0 1.5rem;
+    color: var(--text);
+  }
+  .suggestions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    text-align: left;
+  }
+  @media (max-width: 560px) { .suggestions { grid-template-columns: 1fr; } }
+  .suggestion-chip {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.75rem 0.9rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    line-height: 1.35;
+  }
+  .suggestion-chip:hover { background: var(--bg-elevated-2); }
+
+  /* ---------- messages ---------- */
+  .msg { display: flex; gap: 0.75rem; width: 100%; }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .msg-body {
+    background: var(--user-bubble);
+    padding: 0.65rem 1rem;
+    border-radius: 18px;
+    max-width: 80%;
+    white-space: pre-wrap;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .avatar {
+    flex: 0 0 28px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), #0a6b53);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem;
+    color: #04140f;
+    font-weight: 700;
+  }
+  .msg.assistant .msg-body { flex: 1; min-width: 0; font-size: 0.95rem; line-height: 1.6; }
+
+  .think-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-dim);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.4rem 0.85rem 0.4rem 0.6rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    margin-bottom: 0.6rem;
+    user-select: none;
+  }
+  .think-chip:hover { background: var(--bg-elevated-2); }
+  .think-chip .caret { transition: transform 0.15s ease; opacity: 0.6; }
+  .think-chip.open .caret { transform: rotate(90deg); }
+  .think-spinner {
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    border: 2px solid var(--text-dimmer);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .think-tree {
+    border-left: 2px solid var(--border);
+    margin: 0 0 0.9rem 0.3rem;
+    padding-left: 0.9rem;
+  }
+  .think-tree.hidden { display: none; }
+  .think-tree ul { list-style: none; margin: 0; padding: 0; }
+  .think-tree .children { margin-top: 0.35rem; padding-left: 1.1rem; }
+  .think-tree .children.hidden { display: none; }
+  .node { margin: 0.3rem 0; }
+  .node-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    cursor: pointer;
+  }
+  .expand-btn {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--text-dimmer);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.2rem;
+    margin-top: 0.15rem;
+    transition: transform 0.12s ease;
+    line-height: 1;
+  }
+  .expand-btn.open { transform: rotate(90deg); color: var(--accent); }
+  .node-text {
+    color: var(--text-dim);
+    font-size: 0.83rem;
+    line-height: 1.5;
+  }
+  .node-row:hover .node-text { color: var(--text); }
+  .node.deep .node-text { color: var(--text-dimmer); }
+
+  .answer-text { white-space: pre-wrap; }
+  .answer-text .cursor {
+    display: inline-block;
+    width: 0.5em; height: 1em;
+    background: var(--text-dim);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 0.9s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- composer ---------- */
+  .composer-wrap { padding: 0.6rem 1rem 1rem; display: flex; justify-content: center; }
+  .composer {
+    width: 100%;
+    max-width: 700px;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 0.5rem 0.5rem 0.5rem 1rem;
+  }
+  .composer textarea {
+    flex: 1;
+    resize: none;
+    background: none;
+    border: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    max-height: 160px;
+    padding: 0.4rem 0;
+  }
+  .composer textarea:focus { outline: none; }
+  .composer button.send {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #04140f;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .composer button.send:disabled { background: var(--bg-elevated-2); color: var(--text-dimmer); cursor: default; }
+  .composer-hint {
+    text-align: center;
+    color: var(--text-dimmer);
+    font-size: 0.7rem;
+    margin-top: 0.4rem;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 1.2rem; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--bg-elevated-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.55rem 1rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--bg-elevated-2); border-radius: 8px; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <button class="new-chat" id="newChatBtn">
+        <span>＋</span> New chat
+      </button>
+      <div class="sidebar-label">Recent</div>
+      <nav class="history" id="historyList"></nav>
+      <div class="sidebar-bottom">
+        <div class="model-badge"><span class="dot"></span> Overthink o∞</div>
+        <div>not affiliated with OpenAI. obviously.</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">☰</button>
+        <div style="position:relative;">
+          <button class="model-select" id="modelSelect">
+            <span id="modelLabel">Overthink o∞</span>
+            <svg viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 7.5l4.5 5 4.5-5z"/></svg>
+          </button>
+          <div class="model-menu hidden" id="modelMenu">
+            <button class="model-option" data-label="Overthink o∞">Overthink o∞
+              <span class="sub">max spiral. every subprocess gets a subprocess.</span></button>
+            <button class="model-option" data-label="Overthink mini">Overthink mini
+              <span class="sub">spirals faster. still doesn't land anywhere.</span></button>
+            <button class="model-option" data-label="Overthink pro">Overthink pro
+              <span class="sub">$20/mo for reasoning you can't turn off.</span></button>
+          </div>
+        </div>
+        <a class="share-btn" id="shareBtn" href="#" target="_blank" rel="noopener">Share ↗</a>
+      </header>
+
+      <div class="chat" id="chat">
+        <div class="empty-state" id="emptyState">
+          <h1>What's on your mind (all of it, in order)?</h1>
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+        <div class="chat-inner" id="chatInner"></div>
+      </div>
+
+      <div class="composer-wrap">
+        <form class="composer" id="composer">
+          <textarea id="input" placeholder="Message Overthink…" rows="1"></textarea>
+          <button type="submit" class="send" id="sendBtn" aria-label="Send" disabled>↑</button>
+        </form>
+      </div>
+      <div class="composer-hint">Overthink can be wrong about that, and every layer beneath it too.</div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
