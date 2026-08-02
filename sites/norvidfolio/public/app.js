@@ -165,7 +165,7 @@ function setupGalleryNav() {
 // ── share ─────────────────────────────────────────────────────────────────
 function setupShare() {
   const url = "https://norvidfolio.bisks.net/";
-  const text = `my portfolio, built by @buildthis.bisks.net: best posts and a gallery buildthis curated from reading my last 500. ${url}`;
+  const text = `my portfolio, built by @buildthis.bisks.net: best posts and a gallery buildthis curated from reading my last 5000. ${url}`;
   $("#shareBluesky").href =
     "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
