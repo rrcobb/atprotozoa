@@ -16,6 +16,18 @@
 // Same shape as sites/quotehof/sites/ratioed: one Durable Object ("global")
 // holding the live tally, a Jetstream websocket connected via fetch()+Upgrade
 // (the documented Cloudflare pattern), and an alarm as the tick/heartbeat.
+//
+// @antiali.as followed up asking for a d/o/d w/o/w "vibe-o-meter": backfill
+// history and rank each day from "it's so over" to "we're so back". Every
+// other site in this repo that tried searchPosts hit `public.api.bsky.app`
+// and got 403 and concluded search needs auth (see sites/timeline,
+// sites/giftlinks). That's the wrong host, not a hard limit — sites/trigruessr
+// (notes/history/trigrams-reply-and-quiver.md, "HAMMERED") found
+// `api.bsky.app` serves searchPosts unauthenticated (200, CORS *); only the
+// `public.` subdomain 403s. So the daily backfill below pages that host,
+// newest-first, one page per alarm tick — gentle on the shared endpoint, and
+// any 403/429 (it soft-403s under burst load per that same note) just gets
+// retried on the next 30s tick rather than a tight in-request retry loop.
 
 interface DurableObjectId {
   toString(): string;
@@ -58,6 +70,9 @@ export default {
 const JETSTREAM_URL =
   "https://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
 const APPVIEW = "https://public.api.bsky.app/xrpc";
+// searchPosts specifically — NOT public.api.bsky.app, which 403s it. See the
+// file-header comment: api.bsky.app serves it unauthenticated.
+const SEARCH_URL = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts";
 const PHRASE_RE = /the vibes are/gi;
 // "Up to any punctuation" — Unicode's punctuation category, so ., !, ?, ;,
 // :, quotes, dashes, brackets all count as a boundary, not just a curated
@@ -70,6 +85,13 @@ const MAX_RECENT = 60; // ring buffer of most recent raw matches
 const BOARD_SIZE = 100; // how many ranked entries the API returns
 const PROFILE_TTL_MS = 60 * 60 * 1000; // re-hydrate a profile at most hourly
 const MAX_PROFILE_FETCH_PER_TICK = 100; // 4 getProfiles batches of 25
+
+// ---- daily backfill / vibe-o-meter -----------------------------------------
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BACKFILL_LOOKBACK_DAYS = 35; // enough runway for several w/o/w points
+const BACKFILL_PAGE_LIMIT = 100; // max searchPosts allows per page
+const BACKFILL_MAX_PAGES = 400; // safety valve — stop paging rather than loop forever
+const TIMELINE_DAYS = 21; // how many days the UI's vibe-o-meter shows
 
 interface Deity {
   key: string; // normalized (lowercased, whitespace-collapsed) phrase
@@ -110,6 +132,38 @@ function normalizeWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
 }
 
+// UTC calendar date, "YYYY-MM-DD" — the vibe-o-meter's day boundary. UTC
+// rather than any one poster's local time since posts come from everywhere.
+function dateKey(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function dayStartMs(key: string): number {
+  return Date.parse(key + "T00:00:00.000Z");
+}
+
+function addDays(key: string, n: number): string {
+  return dateKey(dayStartMs(key) + n * DAY_MS);
+}
+
+// log-ratio change with +1 smoothing (so a 0-count day doesn't divide by
+// zero, and going from 0 to a few doesn't read as an infinite swing).
+function logChange(curr: number, prev: number): number {
+  return Math.log((curr + 1) / (prev + 1));
+}
+
+// "it's so over" <-> "we're so back", driven by the average of the day/day
+// and week/week log-changes (whichever are available). null = not enough
+// backfilled history yet to say anything.
+function vibeLabel(combined: number | null): string {
+  if (combined === null) return "gathering data";
+  if (combined <= -1.0) return "it's so over";
+  if (combined <= -0.3) return "kinda over";
+  if (combined < 0.3) return "steady vibes";
+  if (combined < 1.0) return "kinda back";
+  return "we're so back";
+}
+
 // Every phrase that follows "the vibes are" in this post, up to (but not
 // including) the next punctuation mark. A post can only trip this a
 // handful of times at most, but the source regex is /g so we honor that.
@@ -140,19 +194,35 @@ export class VibeTracker {
   private ws: any = null;
   private reconnectDelay = 1000;
 
+  // ---- vibe-o-meter (daily counts + backfill) ----
+  private dailyCounts: Map<string, number> = new Map(); // dateKey -> match count
+  private backfillCursor: string | undefined;
+  private backfillDone = false;
+  private backfillPages = 0;
+  private backfillOldestMs = Date.now(); // watermark: everything newer than this is covered
+
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const [deities, recentFeed, totalMatches, lastUpdated] = await Promise.all([
+      const [deities, recentFeed, totalMatches, lastUpdated, dailyCounts, backfill] = await Promise.all([
         this.state.storage.get<Deity[]>("deities"),
         this.state.storage.get<FeedEntry[]>("recentFeed"),
         this.state.storage.get<number>("totalMatches"),
         this.state.storage.get<number>("lastUpdated"),
+        this.state.storage.get<[string, number][]>("dailyCounts"),
+        this.state.storage.get<{ cursor?: string; done: boolean; pages: number; oldestMs: number }>("backfill"),
       ]);
       for (const d of deities ?? []) this.deities.set(d.key, d);
       this.recentFeed = recentFeed ?? [];
       this.totalMatches = totalMatches ?? 0;
       this.lastUpdated = lastUpdated ?? 0;
+      this.dailyCounts = new Map(dailyCounts ?? []);
+      if (backfill) {
+        this.backfillCursor = backfill.cursor;
+        this.backfillDone = backfill.done;
+        this.backfillPages = backfill.pages;
+        this.backfillOldestMs = backfill.oldestMs;
+      }
       this.recomputeBoard();
     });
     this.connectSocket().catch(() => {});
@@ -250,6 +320,9 @@ export class VibeTracker {
 
     this.recentFeed.unshift({ phrase: d.display, did, rkey, uri, text: text.slice(0, 300), createdAt: now });
     if (this.recentFeed.length > MAX_RECENT) this.recentFeed.length = MAX_RECENT;
+
+    const day = dateKey(now);
+    this.dailyCounts.set(day, (this.dailyCounts.get(day) ?? 0) + 1);
   }
 
   // Long-tail one-off phrases pile up forever otherwise — once over the
@@ -267,6 +340,103 @@ export class VibeTracker {
     this.board = Array.from(this.deities.values())
       .sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen)
       .slice(0, BOARD_SIZE);
+  }
+
+  // ---- vibe-o-meter: one searchPosts page per tick --------------------------
+  // Pages api.bsky.app newest-first via cursor. Today is left to the live
+  // firehose tally (tally() above already bumps dailyCounts) so this only
+  // ever fills in *past* days, and never double-counts today.
+  private async runBackfillStep(): Promise<void> {
+    if (this.backfillDone || this.backfillPages >= BACKFILL_MAX_PAGES) {
+      this.backfillDone = true;
+      return;
+    }
+
+    const cutoffMs = Date.now() - BACKFILL_LOOKBACK_DAYS * DAY_MS;
+    const today = dateKey(Date.now());
+
+    const url = new URL(SEARCH_URL);
+    url.searchParams.set("q", "the vibes are");
+    url.searchParams.set("sort", "latest");
+    url.searchParams.set("limit", String(BACKFILL_PAGE_LIMIT));
+    if (this.backfillCursor) url.searchParams.set("cursor", this.backfillCursor);
+
+    let data: any;
+    try {
+      const r = await fetch(url.toString());
+      if (!r.ok) return; // 403/429 under load — just retry next tick, no busy loop
+      data = await r.json();
+    } catch {
+      return; // network hiccup — retry next tick
+    }
+
+    const posts: any[] = Array.isArray(data.posts) ? data.posts : [];
+    this.backfillPages++;
+
+    if (!posts.length) {
+      this.backfillDone = true;
+      return;
+    }
+
+    let reachedCutoff = false;
+    for (const post of posts) {
+      const text = typeof post?.record?.text === "string" ? post.record.text : "";
+      const createdAt = post?.record?.createdAt || post?.indexedAt;
+      const ms = createdAt ? Date.parse(createdAt) : NaN;
+      if (Number.isNaN(ms)) continue;
+
+      if (ms < this.backfillOldestMs) this.backfillOldestMs = ms;
+      if (ms < cutoffMs) {
+        reachedCutoff = true;
+        continue;
+      }
+
+      const day = dateKey(ms);
+      if (day === today) continue; // today comes from the live tally only
+      if (!text || !/the vibes are/i.test(text)) continue; // cheap pre-filter, same as handleMessage
+
+      const phrases = extractPhrases(text);
+      if (!phrases.length) continue;
+      this.dailyCounts.set(day, (this.dailyCounts.get(day) ?? 0) + phrases.length);
+    }
+
+    if (reachedCutoff || !data.cursor) {
+      this.backfillDone = true;
+      // The watermark can't have gone further back than the cutoff we honored.
+      if (this.backfillOldestMs < cutoffMs) this.backfillOldestMs = cutoffMs;
+    } else {
+      this.backfillCursor = data.cursor;
+    }
+  }
+
+  // Last TIMELINE_DAYS calendar days, each ranked "it's so over" .. "we're
+  // so back" from the average of its day/day and week/week log-change (see
+  // vibeLabel/logChange above). A day only gets a verdict once the backfill
+  // watermark has paged back past its start — otherwise it's honestly
+  // "gathering data" rather than a fabricated flat 0.
+  private computeTimeline(): Array<{
+    date: string;
+    count: number;
+    dod: number | null;
+    wow: number | null;
+    label: string;
+  }> {
+    const today = dateKey(Date.now());
+    const covered = (day: string) => day === today || this.backfillOldestMs <= dayStartMs(day);
+    const countFor = (day: string) => this.dailyCounts.get(day) ?? 0;
+
+    const out: Array<{ date: string; count: number; dod: number | null; wow: number | null; label: string }> = [];
+    for (let i = TIMELINE_DAYS - 1; i >= 0; i--) {
+      const day = addDays(today, -i);
+      const prevDay = addDays(day, -1);
+      const prevWeek = addDays(day, -7);
+      const dod = covered(prevDay) ? logChange(countFor(day), countFor(prevDay)) : null;
+      const wow = covered(prevWeek) ? logChange(countFor(day), countFor(prevWeek)) : null;
+      const parts = [dod, wow].filter((v): v is number => v !== null);
+      const combined = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : null;
+      out.push({ date: day, count: countFor(day), dod, wow, label: vibeLabel(combined) });
+    }
+    return out;
   }
 
   // ---- AppView (best-effort profile hydration only) ------------------------
@@ -330,6 +500,7 @@ export class VibeTracker {
     this.pruneDeities();
     this.recomputeBoard();
     await this.hydrateProfiles().catch(() => {});
+    await this.runBackfillStep().catch(() => {}); // one searchPosts page per tick
 
     this.lastUpdated = Date.now();
     await this.state.storage.put({
@@ -337,6 +508,13 @@ export class VibeTracker {
       recentFeed: this.recentFeed,
       totalMatches: this.totalMatches,
       lastUpdated: this.lastUpdated,
+      dailyCounts: Array.from(this.dailyCounts.entries()),
+      backfill: {
+        cursor: this.backfillCursor,
+        done: this.backfillDone,
+        pages: this.backfillPages,
+        oldestMs: this.backfillOldestMs,
+      },
     });
     await this.state.storage.setAlarm(this.lastUpdated + ALARM_MS);
   }
@@ -371,6 +549,8 @@ export class VibeTracker {
           ...f,
           ...this.profileFor(f.did),
         })),
+        timeline: this.computeTimeline(),
+        backfill: { done: this.backfillDone, pages: this.backfillPages, oldestMs: this.backfillOldestMs },
       });
     }
     return json({ error: "not found" }, 404);

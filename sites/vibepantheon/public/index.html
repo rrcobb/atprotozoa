@@ -150,6 +150,37 @@
       .rowmeta a.perma { color: var(--muted); text-decoration: none; }
       .rowmeta a.perma:hover { color: var(--ink); text-decoration: underline; }
 
+      /* ---- the vibe-o-meter (d/o/d, w/o/w) ---- */
+      .meter-scroll { overflow-x: auto; margin: 0 -1.15rem; padding: 0 1.15rem 0.3rem; }
+      .meter { display: flex; gap: 0.4rem; align-items: flex-end; min-height: 78px; }
+      .meterday {
+        flex: none; width: 34px; display: flex; flex-direction: column; align-items: center;
+        gap: 0.35rem; cursor: default;
+      }
+      .meterday .bar {
+        width: 16px; border-radius: 3px 3px 1px 1px; background: var(--faint);
+        min-height: 4px; transition: background 0.3s;
+      }
+      .meterday .dlabel { font-size: 0.62rem; color: var(--faint); white-space: nowrap; }
+      .meterday.today .dlabel { color: var(--muted); font-weight: 700; }
+      .meterday .dot2 {
+        width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none;
+      }
+      .legend {
+        display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 0.9rem;
+        font-size: 0.72rem; color: var(--muted);
+      }
+      .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+      .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+      .meter-summary {
+        font-size: 0.85rem; color: var(--ink); margin: 0 0 1rem;
+        padding: 0.9rem 1rem; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      .meter-summary b { color: var(--gold); }
+      .meter-summary .deltas { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+      .backfill-note { font-size: 0.72rem; color: var(--faint); margin-top: 0.6rem; }
+
       .feed { list-style: none; margin: 0; padding: 0; }
       .feeditem {
         display: flex; gap: 0.7rem; padding: 0.65rem 0; border-top: 1px solid var(--line);
@@ -192,7 +223,9 @@
           <code>the vibes are ___</code>, it's tallied here — the answer, up
           to whatever punctuation ends it, sampled live off the firehose. The
           most-sworn-to vibe stands at the top of the pantheon; everything
-          else is ranked below it.
+          else is ranked below it. A day-over-day, week-over-week
+          <b>vibe-o-meter</b> below ranks each day from "it's so over" to
+          "we're so back," backfilled from Bluesky search.
         </p>
       </header>
 
@@ -228,6 +261,21 @@
       </div>
 
       <div id="rest" style="display:none">
+        <h2>the vibe-o-meter — d/o/d, w/o/w</h2>
+        <div class="meter-summary" id="meterSummary"></div>
+        <div class="meter-scroll">
+          <div class="meter" id="meter"></div>
+        </div>
+        <div class="legend">
+          <span><i style="background:#e05b5b"></i> it's so over</span>
+          <span><i style="background:#c98a5b"></i> kinda over</span>
+          <span><i style="background:#b6934f"></i> steady vibes</span>
+          <span><i style="background:#c9c05b"></i> kinda back</span>
+          <span><i style="background:#f0c674"></i> we're so back</span>
+          <span><i style="background:#3a2f57"></i> gathering data</span>
+        </div>
+        <p class="backfill-note" id="backfillNote"></p>
+
         <h2>the pantheon, ranked</h2>
         <ol class="board" id="board"></ol>
 
@@ -244,7 +292,9 @@
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
         — every public post that matches, not a curated sample. Ranked by raw
         count since this tracker last restarted, not all-time; a fresh deploy
-        starts the pantheon over. Avatars and handles are looked up from the
+        starts the pantheon over. The vibe-o-meter's daily history is
+        backfilled from Bluesky search, one page at a time — give it a bit to
+        catch up on a fresh deploy. Avatars and handles are looked up from the
         public AppView and refresh about hourly.
         idea from <a href="https://bsky.app/profile/antiali.as">@antiali.as</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
@@ -280,6 +330,66 @@
 
       function postUrl(did, rkey) {
         return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      const LABEL_COLOR = {
+        "it's so over": "#e05b5b",
+        "kinda over": "#c98a5b",
+        "steady vibes": "#b6934f",
+        "kinda back": "#c9c05b",
+        "we're so back": "#f0c674",
+        "gathering data": "#3a2f57",
+      };
+
+      function dayLabel(dateStr) {
+        const d = new Date(dateStr + "T00:00:00.000Z");
+        return d.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" }).slice(0, 2);
+      }
+
+      function pctStr(logRatio) {
+        if (logRatio === null) return "—";
+        const pct = (Math.exp(logRatio) - 1) * 100;
+        const sign = pct > 0 ? "+" : "";
+        return sign + pct.toFixed(0) + "%";
+      }
+
+      function meterDayHTML(e, isToday) {
+        const color = LABEL_COLOR[e.label] || "var(--faint)";
+        const height = Math.max(4, Math.min(60, 6 + e.count * 6));
+        const title = `${e.date}: ${e.count} sworn · ${e.label}` +
+          (e.dod !== null ? ` · d/d ${pctStr(e.dod)}` : "") +
+          (e.wow !== null ? ` · w/w ${pctStr(e.wow)}` : "");
+        return `
+          <div class="meterday${isToday ? " today" : ""}" title="${esc(title)}">
+            <div class="dot2" style="background:${color}"></div>
+            <div class="bar" style="height:${height}px; background:${color}"></div>
+            <div class="dlabel">${isToday ? "today" : dayLabel(e.date)}</div>
+          </div>`;
+      }
+
+      function renderMeter(timeline, backfill) {
+        const meter = document.getElementById("meter");
+        const todayStr = new Date().toISOString().slice(0, 10);
+        meter.innerHTML = timeline.map((e) => meterDayHTML(e, e.date === todayStr)).join("");
+
+        const last = timeline[timeline.length - 1];
+        const summary = document.getElementById("meterSummary");
+        if (last) {
+          const color = LABEL_COLOR[last.label] || "var(--muted)";
+          summary.innerHTML =
+            `today's vibe-day: <b style="color:${color}">${esc(last.label)}</b> — ${last.count.toLocaleString()} sworn so far` +
+            `<div class="deltas">day/day ${pctStr(last.dod)} · week/week ${pctStr(last.wow)}</div>`;
+        } else {
+          summary.textContent = "warming up…";
+        }
+
+        const note = document.getElementById("backfillNote");
+        if (backfill && !backfill.done) {
+          const oldest = backfill.oldestMs ? new Date(backfill.oldestMs).toISOString().slice(0, 10) : "";
+          note.textContent = `still backfilling history from search (back to ${oldest} so far) — older days will fill in as it catches up.`;
+        } else {
+          note.textContent = "history backfilled from Bluesky search; today's count is live and still climbing.";
+        }
       }
 
       function who(e) {
@@ -346,6 +456,7 @@
 
         board.innerHTML = top.map((e, i) => rowHTML(e, i)).join("");
         feed.innerHTML = recent.map(feedHTML).join("");
+        renderMeter(data.timeline || [], data.backfill);
 
         const shareText = `the vibes are currently, above all else, "${first.phrase}" (${first.count} believers and counting) — vibepantheon.bisks.net`;
         shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText.slice(0, 300));
