@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>llmstance — where does this account actually stand on AI?</title>
+<meta name="description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta property="og:title" content="llmstance — where does this account actually stand on AI?" />
+<meta property="og:description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta property="og:url" content="https://llmstance.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://llmstance.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="llmstance: a scoreboard tallying an account's posts into Pro-LLM, Anti-LLM, and Unclear, with an overall verdict." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="llmstance — where does this account actually stand on AI?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta name="twitter:image" content="https://llmstance.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #090a0d;
+    --bg2: #11141a;
+    --fg: #eef1f5;
+    --dim: #8891a0;
+    --pro: #35d488;
+    --anti: #ff5f6d;
+    --unclear: #6b7385;
+    --accent: #5fc9ff;
+    --card: #12151c;
+    --border: #262b36;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #123322 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 5%, #3a1420 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--pro), var(--anti));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--accent); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--pro), #1f9dd6);
+    color: #06131a;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--anti); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .verdict-label {
+    text-align: center;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .verdict {
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    line-height: 1.3;
+    margin-bottom: 1.1rem;
+  }
+
+  .bar {
+    display: flex;
+    height: 22px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 0.6rem;
+  }
+  .bar > div { height: 100%; min-width: 0; }
+  .bar .pro { background: var(--pro); }
+  .bar .anti { background: var(--anti); }
+  .bar .unclear { background: var(--unclear); }
+
+  .tally {
+    display: flex;
+    justify-content: center;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin-bottom: 1.6rem;
+  }
+  .tally b { font-variant-numeric: tabular-nums; }
+  .tally .pro-dot, .tally .anti-dot, .tally .unclear-dot {
+    display: inline-block; width: 0.6em; height: 0.6em; border-radius: 50%;
+    margin-right: 0.35em;
+  }
+  .tally .pro-dot { background: var(--pro); }
+  .tally .anti-dot { background: var(--anti); }
+  .tally .unclear-dot { background: var(--unclear); }
+  .tally .pro-count { color: var(--pro); }
+  .tally .anti-count { color: var(--anti); }
+
+  .method {
+    color: var(--dim);
+    font-size: 0.76rem;
+    line-height: 1.5;
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .receipts { margin-bottom: 1.5rem; }
+  .receipts h2 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 0.6rem;
+  }
+  .receipts h2.pro { color: var(--pro); }
+  .receipts h2.anti { color: var(--anti); }
+  .receipt {
+    display: block;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 0.87rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .receipt.pro { background: rgba(53, 212, 136, 0.08); border-left: 3px solid var(--pro); }
+  .receipt.anti { background: rgba(255, 95, 109, 0.08); border-left: 3px solid var(--anti); }
+  .receipt:hover { filter: brightness(1.15); }
+  .receipts .none { color: var(--dim); font-size: 0.85rem; font-style: italic; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--pro), #1f9dd6);
+    color: #06131a;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>llmstance</h1>
+    <p class="tag">
+      Enter a Bluesky handle. This pages through their whole feed, labels every
+      post <b>Pro-LLM</b>, <b>Anti-LLM</b>, or <b>Unclear</b> with a keyword
+      heuristic, and tallies up where the account actually stands.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">scan</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, your favorite AI hater.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="verdict-label">overall stance</div>
+      <div class="verdict" id="verdict"></div>
+
+      <div class="bar" id="bar">
+        <div class="pro" id="barPro"></div>
+        <div class="anti" id="barAnti"></div>
+        <div class="unclear" id="barUnclear"></div>
+      </div>
+      <div class="tally" id="tally"></div>
+
+      <div class="method">
+        No model in the loop — this is a keyword lexicon, not a judge. It reads
+        up to <span id="scanCapText">500</span> recent posts (skipping
+        reposts), flags anything that mentions AI/LLMs, and scores the
+        sentiment words around it. Read the receipts below before you trust
+        the verdict.
+      </div>
+
+      <div class="receipts">
+        <h2 class="pro">strongest pro-llm receipts</h2>
+        <div id="proReceipts"></div>
+      </div>
+      <div class="receipts">
+        <h2 class="anti">strongest anti-llm receipts</h2>
+        <div id="antiReceipts"></div>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the verdict</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/classify.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_POSTS = 500;
+const MAX_PAGES = 5;
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  verdict: document.getElementById("verdict"),
+  barPro: document.getElementById("barPro"),
+  barAnti: document.getElementById("barAnti"),
+  barUnclear: document.getElementById("barUnclear"),
+  tally: document.getElementById("tally"),
+  proReceipts: document.getElementById("proReceipts"),
+  antiReceipts: document.getElementById("antiReceipts"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// Pages through getAuthorFeed, newest first, skipping reposts, up to
+// MAX_PAGES * 100 posts. That's an approximation of "the whole account" —
+// public API pagination has no bulk export, and scanning further starts
+// costing real wall-clock time for diminishing signal.
+async function scanAccount(did, onProgress) {
+  let cursor;
+  const posts = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = { actor: did, limit: "100", filter: "posts_with_replies" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    const items = (feed.feed || []).filter((f) => !f.reason);
+    for (const f of items) {
+      const text = f.post && f.post.record && f.post.record.text;
+      if (typeof text !== "string" || !text.trim()) continue;
+      const uri = f.post.uri || "";
+      posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: f.post.indexedAt });
+    }
+    onProgress(posts.length, page + 1);
+    cursor = feed.cursor;
+    if (!cursor || items.length === 0 || posts.length >= MAX_POSTS) break;
+  }
+  return posts.slice(0, MAX_POSTS);
+}
+
+function tallyPosts(posts, handle) {
+  let pro = 0, anti = 0, unclear = 0;
+  const proReceipts = [];
+  const antiReceipts = [];
+  for (const p of posts) {
+    const c = window.LLMStance.classifyPost(p.text);
+    if (c.label === "pro") {
+      pro++;
+      proReceipts.push({ ...p, hits: c.proHits, postUrl: "https://bsky.app/profile/" + handle + "/post/" + p.rkey });
+    } else if (c.label === "anti") {
+      anti++;
+      antiReceipts.push({ ...p, hits: c.antiHits, postUrl: "https://bsky.app/profile/" + handle + "/post/" + p.rkey });
+    } else {
+      unclear++;
+    }
+  }
+  proReceipts.sort((a, b) => b.hits - a.hits);
+  antiReceipts.sort((a, b) => b.hits - a.hits);
+  return { pro, anti, unclear, proReceipts, antiReceipts };
+}
+
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function renderReceipts(container, list, kind) {
+  container.innerHTML = "";
+  if (!list.length) {
+    const p = document.createElement("p");
+    p.className = "none";
+    p.textContent = kind === "pro" ? "no clearly pro-llm posts found." : "no clearly anti-llm posts found.";
+    container.appendChild(p);
+    return;
+  }
+  for (const r of list.slice(0, 5)) {
+    const a = document.createElement("a");
+    a.className = "receipt " + kind;
+    a.href = r.postUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "“" + truncate(r.text, 220) + "”";
+    container.appendChild(a);
+  }
+}
+
+function shareUrlFor(handle) {
+  return "https://llmstance.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(handle, verdictText, pro, anti, unclear) {
+  return (
+    `llmstance verdict for @${handle}: ${verdictText}\n` +
+    `${pro} pro-llm · ${anti} anti-llm · ${unclear} unclear\n\n` +
+    `check anyone's → ${shareUrlFor(handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+  const total = pro + anti + unclear || 1;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#090a0d";
+  ctx.fillRect(0, 0, W, H);
+  const glow1 = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.45);
+  glow1.addColorStop(0, "#123322");
+  glow1.addColorStop(1, "rgba(9,10,13,0)");
+  ctx.fillStyle = glow1;
+  ctx.fillRect(0, 0, W, H);
+  const glow2 = ctx.createRadialGradient(W * 0.95, -H * 0.05, 0, W * 0.95, -H * 0.05, W * 0.4);
+  glow2.addColorStop(0, "#3a1420");
+  glow2.addColorStop(1, "rgba(9,10,13,0)");
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fc9ff";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("llmstance", 60, 96);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#eef1f5";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  let textY = 156;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 146, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 118, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, textY);
+
+  ctx.strokeStyle = "#262b36";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 210, cardW = W - 120, cardH = H - 270;
+  ctx.fillStyle = "#12151c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#eef1f5";
+  ctx.font = `800 34px ${mono}`;
+  wrapCanvasText(ctx, verdictText, W / 2, cardY + 56, cardW - 96, 40);
+
+  // stacked bar
+  const barX = cardX + 48, barY = cardY + 108, barW = cardW - 96, barH = 26;
+  const proW = (pro / total) * barW;
+  const antiW = (anti / total) * barW;
+  const unclearW = barW - proW - antiW;
+  ctx.fillStyle = "#35d488";
+  ctx.fillRect(barX, barY, proW, barH);
+  ctx.fillStyle = "#ff5f6d";
+  ctx.fillRect(barX + proW, barY, antiW, barH);
+  ctx.fillStyle = "#6b7385";
+  ctx.fillRect(barX + proW + antiW, barY, unclearW, barH);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8891a0";
+  ctx.font = `400 17px ${mono}`;
+  ctx.fillText(pro + " pro-llm  ·  " + anti + " anti-llm  ·  " + unclear + " unclear", barX, barY + 56);
+
+  if (topReceipt) {
+    ctx.fillStyle = topReceipt.kind === "pro" ? "#35d488" : "#ff5f6d";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText((topReceipt.kind === "pro" ? "STRONGEST PRO-LLM POST" : "STRONGEST ANTI-LLM POST"), barX, cardY + cardH - 70);
+    ctx.fillStyle = "#eef1f5";
+    ctx.font = `italic 16px ${mono}`;
+    wrapCanvasText(ctx, "“" + topReceipt.text + "”", barX, cardY + cardH - 44, barW, 22);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fc9ff";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("llmstance.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      setStatus("resolving " + handle + " ...");
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+    const resolvedHandle = profile.handle || handle;
+
+    const posts = await scanAccount(did, (count, page) => {
+      setStatus("scanning " + resolvedHandle + "'s posts... (" + count + " so far, page " + page + ")");
+    });
+
+    if (!posts.length) {
+      setStatus("no readable posts found for @" + resolvedHandle + ".", true);
+      return;
+    }
+
+    const { pro, anti, unclear, proReceipts, antiReceipts } = tallyPosts(posts, resolvedHandle);
+    const verdictText = window.LLMStance.verdictFor(pro, anti, unclear);
+    const total = pro + anti + unclear;
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + resolvedHandle;
+    els.didOut.textContent = did;
+    els.verdict.textContent = verdictText;
+
+    els.barPro.style.width = ((pro / total) * 100) + "%";
+    els.barAnti.style.width = ((anti / total) * 100) + "%";
+    els.barUnclear.style.width = ((unclear / total) * 100) + "%";
+
+    els.tally.innerHTML =
+      '<span><span class="pro-dot"></span><b class="pro-count">' + pro + '</b> pro-llm</span>' +
+      '<span><span class="anti-dot"></span><b class="anti-count">' + anti + '</b> anti-llm</span>' +
+      '<span><span class="unclear-dot"></span><b>' + unclear + '</b> unclear</span>' +
+      '<span style="opacity:.7">(' + total + ' posts scanned)</span>';
+
+    renderReceipts(els.proReceipts, proReceipts, "pro");
+    renderReceipts(els.antiReceipts, antiReceipts, "anti");
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    const topReceipt = proReceipts[0] && antiReceipts[0]
+      ? (proReceipts[0].hits >= antiReceipts[0].hits ? { ...proReceipts[0], kind: "pro" } : { ...antiReceipts[0], kind: "anti" })
+      : (proReceipts[0] ? { ...proReceipts[0], kind: "pro" } : (antiReceipts[0] ? { ...antiReceipts[0], kind: "anti" } : null));
+    if (topReceipt) topReceipt.text = truncate(topReceipt.text, 110);
+
+    lastShareText = shareText(resolvedHandle, verdictText, pro, anti, unclear);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt });
+  } catch (err) {
+    setStatus("couldn't scan that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "llmstance-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "llmstance-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "llmstance" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (current share links) or the older ?h=<handle> pattern both auto-scan on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
