@@ -363,11 +363,14 @@
 
 <script src="lib/handle-typeahead.js"></script>
 <script src="lib/classify.js"></script>
-<script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 const API = "https://public.api.bsky.app/xrpc/";
-const MAX_POSTS = 500;
+const MAX_POSTS = 500; // cap for the paginated-feed fallback only — the CAR path reads every post record, no cap
 const MAX_PAGES = 5;
+const PLC_DIRECTORY = "https://plc.directory";
 
 // Network scans can't be exhaustive — a popular account can have tens of
 // thousands of followers, and the public API has no bulk export. These caps
@@ -435,11 +438,56 @@ async function xrpc(method, params) {
   return res.json();
 }
 
-// Pages through getAuthorFeed, newest first, skipping reposts, up to
-// MAX_PAGES * 100 posts. That's an approximation of "the whole account" —
-// public API pagination has no bulk export, and scanning further starts
-// costing real wall-clock time for diminishing signal.
-async function scanAccount(did, onProgress) {
+// Resolves a DID's PDS service endpoint straight from its DID doc — no
+// listRecords/getAuthorFeed pagination involved, just enough to know where
+// to point com.atproto.sync.getRepo. Trimmed from sites/padmoot's
+// lib/atproto.js (didDoc + resolvePds).
+async function didDoc(did) {
+  if (did.startsWith("did:plc:")) {
+    const r = await fetch(PLC_DIRECTORY + "/" + did);
+    return r.ok ? r.json() : null;
+  }
+  if (did.startsWith("did:web:")) {
+    const domain = did.replace("did:web:", "").replace(/:/g, "/");
+    const r = await fetch("https://" + domain + "/.well-known/did.json");
+    return r.ok ? r.json() : null;
+  }
+  return null;
+}
+
+async function resolvePds(did) {
+  const doc = await didDoc(did);
+  const svc = ((doc && doc.service) || []).find(
+    (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+  );
+  return (svc && svc.serviceEndpoint) || null;
+}
+
+// Downloads the account's entire repo as one CAR (com.atproto.sync.getRepo)
+// and pulls every app.bsky.feed.post record out of it — every post the
+// account has ever made, not just the first N a paginated read happens to
+// return. This is what "classified wrong, it's not analyzing enough posts"
+// asked for: listRecords/getAuthorFeed both cap out well before an active
+// account's full history; a repo CAR doesn't paginate at all.
+async function scanAccountViaCar(did, onProgress) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("couldn't find a PDS for this account");
+  const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", onProgress);
+  const posts = [];
+  for (const { uri, value } of records) {
+    const text = value && value.text;
+    if (typeof text !== "string" || !text.trim()) continue;
+    posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: value.createdAt });
+  }
+  return posts;
+}
+
+// Fallback for when the CAR path fails (PDS blocks sync.getRepo, repo too
+// big to parse in-tab, network hiccup): pages through getAuthorFeed, newest
+// first, skipping reposts, up to MAX_PAGES * 100 posts. Only an
+// approximation of "the whole account" — kept only so a scan still produces
+// something instead of a hard failure.
+async function scanAccountViaFeed(did, onProgress) {
   let cursor;
   const posts = [];
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -453,11 +501,26 @@ async function scanAccount(did, onProgress) {
       const uri = f.post.uri || "";
       posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: f.post.indexedAt });
     }
-    onProgress(posts.length, page + 1);
+    onProgress("scanning via feed API (no full-repo access)... (" + posts.length + " so far, page " + (page + 1) + ")");
     cursor = feed.cursor;
     if (!cursor || items.length === 0 || posts.length >= MAX_POSTS) break;
   }
   return posts.slice(0, MAX_POSTS);
+}
+
+// Tries the full-repo CAR scan first (every post record, no cap); falls
+// back to the paginated feed API only if that fails. `method` tells the
+// caller which one actually ran, so the UI can be honest about whether this
+// was an exhaustive scan or a bounded sample.
+async function scanAccount(did, onProgress) {
+  try {
+    const posts = await scanAccountViaCar(did, onProgress);
+    return { posts, method: "car" };
+  } catch (err) {
+    onProgress("full repo scan failed (" + err.message + ") — falling back to the feed API...");
+    const posts = await scanAccountViaFeed(did, onProgress);
+    return { posts, method: "feed" };
+  }
 }
 
 function getSelectedScope() {
@@ -763,11 +826,12 @@ async function reveal(rawHandle, scopeOverride) {
     }
     const resolvedHandle = profile.handle || handle;
 
-    let posts, accountCount = null;
+    let posts, accountCount = null, scanMethod = "feed";
     if (scope === "posts") {
-      posts = await scanAccount(did, (count, page) => {
-        setStatus("scanning " + resolvedHandle + "'s posts... (" + count + " so far, page " + page + ")");
-      });
+      setStatus("downloading " + resolvedHandle + "'s repo...");
+      const result = await scanAccount(did, (msg) => setStatus(msg));
+      posts = result.posts;
+      scanMethod = result.method;
     } else {
       const accounts = await buildNetworkAccountList(did, scope, setStatus);
       if (!accounts.length) {
@@ -816,10 +880,17 @@ async function reveal(rawHandle, scopeOverride) {
          POSTS_PER_NETWORK_ACCOUNT + " recent posts from each (skipping reposts), and tallies " +
          "everyone's posts together into one verdict. Networks are sampled, not exhaustively " +
          "crawled — read the receipts below before you trust it.")
-      : ("No model in the loop — this is a keyword lexicon, not a judge. It reads up to " +
-         MAX_POSTS + " recent posts (skipping reposts), flags anything that mentions AI/LLMs, " +
-         "and scores the sentiment words around it. Read the receipts below before you trust " +
-         "the verdict.");
+      : scanMethod === "car"
+      ? ("No model in the loop — this is a keyword lexicon, not a judge. It downloaded the " +
+         "account's entire repo (every app.bsky.feed.post record, via a single " +
+         "com.atproto.sync.getRepo CAR — no page cap, no \"first N posts\" guessing), flags " +
+         "anything that mentions AI/LLMs, and scores the sentiment words around it. Read the " +
+         "receipts below before you trust the verdict.")
+      : ("No model in the loop — this is a keyword lexicon, not a judge. Couldn't pull this " +
+         "account's full repo CAR, so this fell back to reading up to " + MAX_POSTS +
+         " recent posts via the feed API (skipping reposts), flags anything that mentions " +
+         "AI/LLMs, and scores the sentiment words around it. Read the receipts below before " +
+         "you trust the verdict.");
 
     renderReceipts(els.proReceipts, proReceipts, "pro", isNetwork);
     renderReceipts(els.antiReceipts, antiReceipts, "anti", isNetwork);
