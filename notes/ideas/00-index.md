@@ -146,7 +146,15 @@ win.
 The cap now applies to the assembled brief at 20k rather than to the instruction
 at 600, and cuts on a word boundary with a visible `[truncated]` marker.
 
-**20. Do something about the ~20% partial rate.**
+**20. Do something about the ~20% partial rate.** — **measured 2026-08-01,
+partly addressed.** Across 434 builds from the box journal, every partial (89,
+20.5%) was a turn-ceiling hit, and the distribution is unimodal — the ceiling was
+cutting across ordinary big jobs, not catching stuck ones. Turns went to 90 with
+a 20-minute wall clock as the real runaway guard, and dispositions are now logged
+so partials can be counted. What's still open is the auto-continue idea below:
+the re-tag is still manual.
+
+Original framing:
 73 "ran out of runway" vs 285 "built it" across the corpus. Partial work is
 already preserved correctly; the gap is that a human has to notice and re-tag —
 and "keep going" is one of the most common inputs in the whole dataset, which

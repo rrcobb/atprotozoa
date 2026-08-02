@@ -3,7 +3,22 @@
 Both raised by Rob 2026-07-31, both checked against the code and the tag corpus.
 Both are real. Neither needs new infrastructure.
 
-> **Status 2026-08-01: problem 1 is done, problem 2 is not.**
+> **Status 2026-08-01: problem 1 is done; problem 2 is measured and partly
+> addressed.**
+>
+> The measurement this note asks for was run against 434 builds from the box
+> journal. Every partial (89, 20.5%) was a turn-ceiling hit, unimodal — the
+> ceiling was cutting across ordinary big jobs, not catching runaways. Turns went
+> 60 → 90, and a 20-minute wall clock became the real runaway guard (the
+> `TimeoutStopSec` bound this note's section assumes never existed for a
+> *running* build).
+>
+> The outcome-accounting caveat below is also fixed: `DISPOSITION` now flows
+> through to the outcome record, so partials are countable and a deliberate
+> decline no longer logs as a failure. Records predating that change have no
+> disposition and still land in failures.
+>
+> Still open: **auto-continue**. The re-tag is still manual.
 >
 > Shipped in three commits — the brief cap, the text-bearing embeds, and image
 > input. What the bot now sees: quote posts, link cards, image/video alt text,

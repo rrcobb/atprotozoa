@@ -38,7 +38,7 @@ KV build queue  (job:<uri> records in the buildthis Worker's STATE namespace)
 Hetzner box  (systemd service buildthis-poll, runs as unprivileged `builder`)
    │  poll /next-job every 15s → claim the oldest queued job
    │  box-build.sh:  git reset --hard origin/main
-   │                 claude -p  (Sonnet, subscription OAuth token, --max-turns 60)
+   │                 claude -p  (Sonnet, subscription OAuth token, --max-turns 90)
    │                 git push (PAT → fires deploy.yml)
    │                 reply.mjs: post in-thread + POST /outcome
    ▼
@@ -131,11 +131,37 @@ Gotchas that cost real time getting here:
 - **Sonnet** (`claude-sonnet-5`), `BUILDER_MODEL` overrides for a one-off Opus.
   Near-Opus on the copy-a-site-and-edit workload, cheaper, and on a subscription
   the "cost" is subscription rate-limit pressure, not dollars.
-- **`--max-turns 60`** (`BUILDER_MAX_TURNS` overrides). Was 30, tuned for Opus;
-  Sonnet takes more, smaller steps and a real build (a whole game with
-  animations) blew past 30 and got cut off mid-build. 60 gives room. This is a
-  runaway stop, not a budget.
-- **systemd `TimeoutStopSec` + wall-clock** are the outer runaway bounds.
+- **`--max-turns 90`** (`BUILDER_MAX_TURNS` overrides). Raised from 30 → 60 → 90.
+  Measured across 434 builds from the box's journal: every partial (89, 20.5%)
+  was a turn-ceiling hit, and they weren't runaways — the *fastest* partial took
+  longer than the median success, running ~2.3× it. The distribution is
+  unimodal, so the ceiling was cutting across ordinary big jobs rather than
+  catching stuck ones.
+- **A 20-minute wall clock** (`BUILDER_TIMEOUT`, SIGTERM then SIGKILL 30s later)
+  is the actual runaway guard. Note the earlier claim that `systemd
+  TimeoutStopSec` bounded a build was **wrong** — that only applies while systemd
+  is *stopping* the unit, so a running build was unbounded. 20 min exceeds every
+  success ever recorded (max 1091s) and would have cut 4 builds (0.9%), all
+  already partials; 25 min would have cut nothing. A timeout is classified like a
+  turn overrun (`partial` if work landed, `too_big` if not), so it ships its
+  first pass and invites a re-tag rather than vanishing.
+
+The measured distribution behind those numbers (434 builds, 30 days):
+
+| disposition | n | agent-time median |
+| --- | --- | --- |
+| success | 284 | 339s |
+| partial | 89 | 788s |
+| no_build | 19 | 41s |
+| too_big / incomplete / usage_limit | 4 | — |
+
+**Partials are ~20% of builds and ~40% of agent time, and that's fine.** A
+partial ships a live first pass and invites a re-tag; 77% of partial sites (60 of
+78) were continued that way. The re-tag loop is a **feature** — the back-and-forth
+is part of what people like about the bot — so the aim is giving a big build room
+to finish in one go, not automating the conversation away. Auto-continuing a
+partial was considered and rejected on those grounds (Rob, 2026-08-02), even
+though the requeue machinery already exists and would make it a small change.
 
 ## The wall (what stops runaway spend)
 
