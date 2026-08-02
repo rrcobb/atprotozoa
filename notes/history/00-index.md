@@ -4,6 +4,13 @@ Superseded designs and incident logs. **None of this is current guidance** —
 it's kept because the reasoning is often still useful, and because the failure
 modes recur. Check anything here against the code before acting on it.
 
+- **`builder-inputs-and-runway.md`** — why the builder used to see only plain
+  text, and the 434-build measurement of the "ran out of runway" rate. Both
+  problems are fixed (`notes/80` and `notes/90` carry the current behavior), but
+  the measurements are here in full, along with the reasoning behind two
+  decisions: raise the turn ceiling and add a real wall clock, and *don't*
+  auto-continue partial builds because the re-tag is a feature.
+
 - **`2026-07-deploy-incidents.md`** — the original `20-deploy.md`. The Safe
   Browsing flag on the zone and its root cause, the Cloudflare custom-domain
   cap, the path-mounting era and the bugs it produced (unconditional

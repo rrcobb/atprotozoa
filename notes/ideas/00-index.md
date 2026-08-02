@@ -132,33 +132,20 @@ commissioner.
 
 ---
 
-## C2. Things the bot can't currently do (see `builder-inputs-and-runway.md`)
+## C2. Things the bot couldn't do — all resolved, nothing open here
 
-**18. Let the bot see more than plain text.** — **done 2026-08-01.**
-Was: `threadContext()` extracted `record.text` only. Now renders quote posts,
-link cards, and image/video alt text into the brief, fetches the thread root when
-the tag is deeper than the 10-ancestor window, and downloads the images for the
-builder to look at. Alt text was the one ranked cheap-and-high-value and turned
-out to be near-empty in practice (27 of 33 images); quote posts were the real
-win.
+Items 18–20 (thin thread input, the 600-char brief cap, the ~20% partial rate)
+were built or decided on 2026-08-01/02 and are no longer proposals. Current
+behavior: `notes/80-buildthis-bot.md` for what the bot reads from a thread,
+`notes/90-infra-and-budget.md` for turn/time ceilings and dispositions. The
+original reasoning and the measurements behind the decisions are in
+`notes/history/builder-inputs-and-runway.md`.
 
-**19. Raise or drop `MAX_BRIEF_CHARS`.** — **done 2026-08-01.**
-The cap now applies to the assembled brief at 20k rather than to the instruction
-at 600, and cuts on a word boundary with a visible `[truncated]` marker.
-
-**20. Do something about the ~20% partial rate.** — **measured 2026-08-01,
-partly addressed.** Across 434 builds from the box journal, every partial (89,
-20.5%) was a turn-ceiling hit, and the distribution is unimodal — the ceiling was
-cutting across ordinary big jobs, not catching stuck ones. Turns went to 90 with
-a 20-minute wall clock as the real runaway guard, and dispositions are now logged
-so partials can be counted. What's still open is the auto-continue idea below:
-the re-tag is still manual.
-
-Original framing:
-73 "ran out of runway" vs 285 "built it" across the corpus. Partial work is
-already preserved correctly; the gap is that a human has to notice and re-tag —
-and "keep going" is one of the most common inputs in the whole dataset, which
-suggests the harness could close that loop itself.
+One idea from that group was **rejected rather than built**: auto-continuing a
+partial build. The machinery exists and would be small, but 77% of partials
+already get continued by a human re-tagging, and the re-tag is part of what
+people like about the bot — automating it would remove the interaction, not a
+cost.
 
 ## D. Considered and set aside
 
@@ -174,19 +161,10 @@ it, including unique trigrams (already solved by scan-then-verify).
 
 ---
 
-## The four threads
+## The threads
 
-Everything above collapses into four groups, by what kind of work it is:
-
-**Thread 1 — builder input fixes** (#18, #19; `builder-inputs-and-runway.md`) — **done 2026-08-01.**
-Things the bot structurally couldn't see: the 600-char cap, alt text, quote
-posts, link cards, the thread root, and real images. All shipped; see the status
-header on `builder-inputs-and-runway.md` for what the corpus revised along the way.
-
-**Thread 2 — the partial rate** (#20; `builder-inputs-and-runway.md`)
-~1 in 5 builds ends "tag me again." Preservation already works; the gap is the
-manual re-tag. Measure turn distribution from the box logs before touching
-`BUILDER_MAX_TURNS`.
+What's left collapses into two groups. (The original four included builder input
+fixes and the partial rate; both are done — see section C2.)
 
 **Thread 3 — lexicons + atproto-native requests** (#1–3, #15b)
 Write and publish the ten missing schemas, then `listReposByCollection` for

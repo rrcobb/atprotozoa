@@ -216,7 +216,7 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // too_big | no_build | incomplete. `status` is a two-way collapse of this and
     // can't distinguish an overrun that shipped work (success) from a deliberate
     // "nothing to build here" (failure) — so anything counting outcomes should read
-    // THIS, not status. See notes/91.
+    // THIS, not status. See notes/90-infra-and-budget.md.
     disposition: process.env.DISPOSITION || undefined,
     builtName: result || undefined,
     url: url || undefined,

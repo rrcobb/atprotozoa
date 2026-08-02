@@ -1,64 +1,56 @@
-# Two builder problems: thin input, and the runway wall
+# Two builder problems: thin input, and the runway wall (resolved)
 
-Both raised by Rob 2026-07-31, both checked against the code and the tag corpus.
-Both are real. Neither needs new infrastructure.
+**Superseded — not current guidance.** Written 2026-07-31 when the bot could
+only see plain text and nobody had measured the partial rate. Both problems were
+fixed on 2026-08-01/02. Current behavior lives in `notes/80-buildthis-bot.md`
+(what the bot reads from a thread) and `notes/90-infra-and-budget.md` (turn and
+time ceilings, dispositions, how outcomes are counted). Kept for the reasoning
+and the measurements, which don't appear in full anywhere else.
 
-> **Status 2026-08-01: problem 1 is done; problem 2 is measured and partly
-> addressed.**
->
-> The measurement this note asks for was run against 434 builds from the box
-> journal. Every partial (89, 20.5%) was a turn-ceiling hit, unimodal — the
-> ceiling was cutting across ordinary big jobs, not catching runaways. Turns went
-> 60 → 90, and a 20-minute wall clock became the real runaway guard (the
-> `TimeoutStopSec` bound this note's section assumes never existed for a
-> *running* build).
->
-> The outcome-accounting caveat below is also fixed: `DISPOSITION` now flows
-> through to the outcome record, so partials are countable and a deliberate
-> decline no longer logs as a failure. Records predating that change have no
-> disposition and still land in failures.
->
-> Still open: **auto-continue**. The re-tag is still manual.
->
-> Shipped in three commits — the brief cap, the text-bearing embeds, and image
-> input. What the bot now sees: quote posts, link cards, image/video alt text,
-> the thread root when the tag is deeper than the 10-ancestor window, and the
-> images themselves as files the builder opens.
->
-> One thing below turned out to be wrong. This note ranks alt text as the
-> cheapest high-value fix; measured against 39 real tag threads it's the
-> *cheapest* but close to worthless — 27 of 33 images have `alt: ""`, and the
-> populated ones are mostly junk for our purposes ("asked anonymously 15m ago",
-> and bare digits from a poll image). Quote posts are the real win at 15 of 165
-> posts, link cards 5. And empty alt is the argument *for* passing pixels, not
-> against: if nobody writes a description, the image is the only one there is.
->
-> Three bugs that testing caught and reasoning alone hadn't: a quoted post's
-> nested embed is the raw record (blob refs) rather than a hydrated `#view` (CDN
-> urls), so quoted images need the url built from the quoted author's DID; the
-> CDN answers a bad path with a 200-shaped error body, so a download without
-> `--fail` silently hands the builder a 27-byte text file named `.jpg`; and
-> `threadContext()` returned early unless the mention was a reply, which was
-> harmless when it only walked ancestors but silently skipped embeds on a
-> top-level tag — someone posting a screenshot *with* "@buildthis build this"
-> rather than under it. It now runs for every mention.
->
-> The table below lists "sibling replies" as dropped. Still dropped, deliberately:
-> `depth: 0` keeps the response small, and a branch's replies are usually noise
-> rather than the referent.
->
-> **One deploy step was manual** (done 2026-08-02 00:27 UTC). `box-build.sh`
-> re-syncs the checkout at the top of every build, so its half of this ships by
-> itself. `box-poll.sh` does not — it's the long-running systemd unit, and it's
-> where `BRIEF_IMAGES` is read off the job, so images didn't reach a build until
-> `sudo systemctl restart buildthis-poll` ran on the box. Everything else (the
-> cap, quotes, link cards, alt text, the root) is worker-side and live on deploy.
-> See `notes/90` for why that restart has to wait for an idle box.
->
-> Problem 2 (the ~20% partial rate) is untouched — it starts with the
-> measurement described below, against logs on the box. **Read the outcome-
-> accounting caveat there first**: the log's three notions of "what happened"
-> disagree, so a naive count off these logs will be wrong.
+**What came of it:**
+
+- **Problem 1 (thin input) — fixed.** The brief cap now bounds the assembled
+  brief rather than silently cutting the instruction at 600 chars; quote posts,
+  link cards, alt text, and the thread root are read; images are downloaded and
+  shown to the builder. Top-level tags get the same treatment as replies.
+- **Problem 2 (the runway wall) — measured, and mostly resolved as "working as
+  intended."** Every partial was a turn-ceiling hit and partials ran 2.3× the
+  median success, so the ceiling was cutting across ordinary big jobs. Turns
+  60 → 90, plus a 20-minute wall clock (the runaway guard this note assumed
+  already existed — it didn't). The ~20% partial rate itself was left alone:
+  77% of partials get continued by a re-tag, and the re-tag is a feature.
+- **Auto-continue — considered and rejected** (Rob, 2026-08-02). The requeue
+  machinery already exists and this note argues for it, but automating the
+  continuation would remove an interaction people like.
+- **The outcome-accounting caveat — fixed.** `DISPOSITION` now reaches the event
+  record, so partials are countable and a deliberate decline no longer logs as a
+  failure.
+
+**Where this note was wrong**, worth keeping because the error is instructive:
+it ranks alt text as the cheapest high-value fix. Measured across 39 real tag
+threads it *is* the cheapest and close to worthless — 27 of 33 images have
+`alt: ""`, and the populated ones are mostly junk ("asked anonymously 15m ago",
+bare digits from a poll image). Quote posts were the real win at 15 of 165
+posts, link cards 5. Empty alt is the argument *for* passing pixels, not
+against: if nobody writes a description, the image is the only one there is.
+
+Three bugs that testing caught and reasoning alone hadn't: a quoted post's
+nested embed is the raw record (blob refs) rather than a hydrated `#view` (CDN
+urls), so quoted images need the url built from the quoted author's DID; the
+CDN answers a bad path with a 200-shaped error body, so a download without
+`--fail` silently hands the builder a 27-byte text file named `.jpg`; and
+`threadContext()` returned early unless the mention was a reply, which was
+harmless when it only walked ancestors but silently skipped embeds on a
+top-level tag — someone posting a screenshot *with* "@buildthis build this"
+rather than under it. It now runs for every mention.
+
+The table below lists sibling replies as dropped. They still are, deliberately:
+`depth: 0` keeps the response small, and a branch's replies are usually noise
+rather than the referent.
+
+---
+
+*The original note follows, unedited except for this header.*
 
 ## Problem 1: the bot sees almost nothing
 

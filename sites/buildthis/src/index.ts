@@ -1044,7 +1044,8 @@ async function recentMentions(session: Session): Promise<Mention[]> {
 //
 // A post is more than its text. We used to read record.text and drop everything
 // else, so "build this ☝️" under a screenshot reached the builder as the four
-// words alone (notes/91). Now quote posts, link cards, and image/video alt text
+// words alone (notes/history/builder-inputs-and-runway.md). Now quote posts,
+// link cards, and image/video alt text
 // are rendered into the chain, and image refs are collected for the builder to
 // actually look at (see collectImages / BuildPayload.images).
 // Note this runs for a TOP-LEVEL tag too, not just a reply. There are no
@@ -1938,7 +1939,8 @@ function num(s: string): number {
 // The cap applies to the ASSEMBLED brief, not the instruction. It used to cut the
 // instruction at 600 chars while letting ancestors through whole, so the only text
 // it ever damaged was the one that mattered most, and it did it invisibly
-// mid-sentence (notes/91). Now it can only fire on a genuinely huge thread, and
+// mid-sentence (notes/history/builder-inputs-and-runway.md). Now it can only
+// fire on a genuinely huge thread, and
 // when it does it cuts at a word boundary and says so, so the builder can tell
 // it's working from a fragment instead of reading a severed sentence as the ask.
 function buildBrief(

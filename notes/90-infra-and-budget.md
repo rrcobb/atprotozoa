@@ -210,11 +210,28 @@ reply + queue act on it:
   requeues are silent (`REPLY_SKIP` — no "trying again" spam in the thread), and only
   the *final* failed attempt posts a terminal honest-failure reply. This is the case
   the favstar/mistarget bugs fell into.
+- **partial** — work landed, but the build hit the turn ceiling or the 20-minute
+  clock. A real first pass is live and unfinished: reply "first pass is up, tag me
+  to keep going", and retire. **Not** requeued — a continuation is a fresh re-tag,
+  which is deliberate (see the runaway-guards section on why the re-tag is a
+  feature). ~20% of builds.
+- **too_big** — ran out of turns or clock and got *nothing* coherent onto disk.
+  Terminal, no retry: an identical rerun overruns identically.
 - **no_build** — the agent cleanly chose not to build (a note-only reaction to
   banter/a question). Post the note, retire — retrying would just re-react.
 
 The box caps retries on the job's `attempts` field; the worker enforces the same
 ceiling as a backstop, so a buggy box can't loop a job forever.
+
+**Count outcomes on `disposition`, not `status`.** The outcome record carries
+both. `status` is only success/failure, and it collapses the six dispositions in
+a way that misleads in both directions: a `partial` reads as success (work did
+ship) and a `no_build` reads as failure (nothing did). So neither field alone
+answers "how many partials" or "how often does the bot decline". `disposition` is
+stored verbatim on the event record for exactly this reason, and `/health` splits
+partials and declines out rather than lumping them into shipped/failed. Records
+written before 2026-08-02 have no `disposition` — historical counts have to come
+from the box's journal (`disp=` in each `=== build rc=… ===` line) instead.
 
 ### Provenance (each site records its own origin)
 
