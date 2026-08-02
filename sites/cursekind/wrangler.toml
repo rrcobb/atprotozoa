@@ -1,0 +1,28 @@
+name = "atprotozoa-cursekind"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Everything runs client-side (see public/index.html): enter a handle, it
+# pulls the account's latest 10 posts from the public AppView, and runs each
+# one through a real sentiment model — transformers.js
+# (Xenova/distilbert-base-uncased-finetuned-sst-2-english), loaded from a CDN
+# and run in-browser via WASM/ONNX, no server inference. Each post gets a
+# gauge from "<Name>CURSE" to "<Name>KIND", <Name> being the queried
+# account's own first name.
+#
+# The one server job: /s/<handle> is a real per-handle URL so a shared link
+# gets its own og:title/description instead of one generic card for every
+# account — same shape as sites/llmstance's renderShare. The Worker can't
+# afford to run the real transformer model synchronously per-request, so it
+# approximates with a tiny word-list scorer, just for the OG blurb.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "cursekind.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: /s/<handle> is dynamic (personalized OG tags per share), so
+# the Worker must run BEFORE the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true

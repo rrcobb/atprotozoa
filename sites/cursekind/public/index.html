@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cursekind — where does this account fall, CURSE to KIND?</title>
+<meta name="description" content="Enter a Bluesky handle. cursekind pulls their latest 10 posts and runs each through a real in-browser sentiment model, plotted on a gauge from their own name's CURSE to their own name's KIND." />
+<meta property="og:title" content="cursekind — where does this account fall, CURSE to KIND?" />
+<meta property="og:description" content="Enter a Bluesky handle. cursekind pulls their latest 10 posts and runs each through a real in-browser sentiment model, plotted on a gauge from their own name's CURSE to their own name's KIND." />
+<meta property="og:url" content="https://cursekind.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://cursekind.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="cursekind: a gauge running from NAMECURSE to NAMEKIND, with ten posts plotted along it." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="cursekind — where does this account fall, CURSE to KIND?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. cursekind pulls their latest 10 posts and runs each through a real in-browser sentiment model, plotted on a gauge from their own name's CURSE to their own name's KIND." />
+<meta name="twitter:image" content="https://cursekind.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0710;
+    --fg: #f4eef9;
+    --dim: #9c8bae;
+    --curse: #b34cff;
+    --curse2: #6a1b9a;
+    --kind: #ffcf5c;
+    --kind2: #d99a1c;
+    --accent: #ffcf5c;
+    --card: #150d1c;
+    --border: #2c1f38;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #2c123f 0%, transparent 50%),
+      radial-gradient(ellipse at 92% 0%, #3a2807 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--curse), var(--kind));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.55;
+  }
+  .tag code { color: var(--accent); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--curse), var(--kind));
+    color: #180a20;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1.6rem; }
+
+  .status {
+    color: var(--dim);
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin: 0 0 1rem;
+  }
+  .status.err { color: var(--curse); }
+
+  .progress-wrap {
+    display: none;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin: -0.4rem 0 1.2rem;
+  }
+  .progress-wrap.show { display: block; }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--curse), var(--kind));
+    transition: width 0.25s ease;
+  }
+
+  .profile-head {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.5rem 0 1.4rem;
+  }
+  .profile-head.show { display: flex; }
+  .profile-head img {
+    width: 48px; height: 48px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--border);
+    object-fit: cover;
+  }
+  .profile-head .who b { font-size: 1.02rem; }
+  .profile-head .who div { color: var(--dim); font-size: 0.8rem; margin-top: 0.15rem; }
+
+  .overall {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.1rem 1.2rem;
+    margin: 0 0 1.6rem;
+  }
+  .overall.show { display: block; }
+  .overall .verdict-label { color: var(--dim); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.3rem; }
+  .overall .verdict { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.9rem; }
+
+  .gauge { display: flex; align-items: center; gap: 0.5rem; }
+  .gauge-end {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .gauge-end.curse-end { color: var(--curse); text-align: right; }
+  .gauge-end.kind-end { color: var(--kind); }
+  .gauge-track {
+    position: relative;
+    flex: 1;
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--curse2), var(--curse), var(--border) 50%, var(--kind), var(--kind2));
+    border: 1px solid var(--border);
+  }
+  .gauge-marker {
+    position: absolute;
+    top: 50%;
+    width: 14px; height: 14px;
+    border-radius: 999px;
+    background: var(--fg);
+    border: 2px solid #0c0710;
+    box-shadow: 0 0 0 1px rgba(244,238,249,0.35);
+    transform: translate(-50%, -50%);
+    transition: left 0.4s ease;
+  }
+  .gauge-readout {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.75rem;
+    margin-top: 0.35rem;
+  }
+
+  .posts { display: flex; flex-direction: column; gap: 0.85rem; }
+  .post-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .post-card.show { opacity: 1; transform: translateY(0); }
+  .post-text {
+    font-size: 0.92rem;
+    line-height: 1.5;
+    margin-bottom: 0.55rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .post-meta {
+    font-size: 0.72rem;
+    color: var(--dim);
+    margin-bottom: 0.7rem;
+  }
+  .post-meta a { color: var(--dim); }
+  .post-card .gauge-readout.scoring { color: var(--dim); font-style: italic; }
+
+  .method {
+    color: var(--dim);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    margin: 2rem 0 0;
+    border-top: 1px solid var(--border);
+    padding-top: 1.2rem;
+  }
+  .method code { color: var(--accent); }
+
+  .share-row {
+    display: none;
+    gap: 0.6rem;
+    margin: 1.6rem 0 0;
+    flex-wrap: wrap;
+  }
+  .share-row.show { display: flex; }
+  .share-row a, .share-row button {
+    flex: 1 1 auto;
+    text-align: center;
+    text-decoration: none;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .share-row a.primary {
+    background: linear-gradient(90deg, var(--curse), var(--kind));
+    color: #180a20;
+    border: none;
+    font-weight: 700;
+  }
+  #shareCanvas { display: none; }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>cursekind</h1>
+  <p class="tag">
+    Enter a Bluesky handle. It pulls their latest 10 posts and runs each one through
+    a real sentiment model — <code>transformers.js</code>, running entirely in your
+    browser, no server in the loop — then plots every post on a scale from their
+    own <b>CURSE</b> to their own <b>KIND</b>.
+  </p>
+
+  <form id="f">
+    <input type="text" id="handle" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="go" type="submit">read them</button>
+  </form>
+  <p class="hint">works with any public Bluesky handle or DID. first run downloads a sentiment model (~65MB, cached by your browser after that).</p>
+
+  <p class="status" id="status"></p>
+  <div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+
+  <div class="profile-head" id="profileHead">
+    <img id="avatar" alt="" />
+    <div class="who">
+      <b id="handleOut"></b>
+      <div id="didOut"></div>
+    </div>
+  </div>
+
+  <div class="overall" id="overall">
+    <div class="verdict-label">overall reading</div>
+    <div class="verdict" id="verdictText"></div>
+    <div class="gauge">
+      <span class="gauge-end curse-end" id="overallCurseLabel">CURSE</span>
+      <div class="gauge-track"><div class="gauge-marker" id="overallMarker"></div></div>
+      <span class="gauge-end kind-end" id="overallKindLabel">KIND</span>
+    </div>
+  </div>
+
+  <div class="posts" id="posts"></div>
+
+  <div class="share-row" id="shareRow">
+    <a href="#" id="shareBluesky" class="primary" target="_blank" rel="noopener">share on Bluesky</a>
+    <button id="shareDownload" type="button">download card</button>
+    <button id="shareNative" type="button" style="display:none">share…</button>
+  </div>
+  <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+  <p class="method" id="methodText"></p>
+
+  <footer>
+    <a href="https://bisks.net/">bisks.net</a> · every account gets its own scale
+  </footer>
+</div>
+
+<script type="module">
+const API = "https://public.api.bsky.app/xrpc/";
+const MODEL_ID = "Xenova/distilbert-base-uncased-finetuned-sst-2-english";
+const MODEL_CDN = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm";
+const MAX_POSTS = 10;
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  progressWrap: document.getElementById("progressWrap"),
+  progressBar: document.getElementById("progressBar"),
+  profileHead: document.getElementById("profileHead"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  overall: document.getElementById("overall"),
+  verdictText: document.getElementById("verdictText"),
+  overallMarker: document.getElementById("overallMarker"),
+  overallCurseLabel: document.getElementById("overallCurseLabel"),
+  overallKindLabel: document.getElementById("overallKindLabel"),
+  posts: document.getElementById("posts"),
+  shareRow: document.getElementById("shareRow"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  methodText: document.getElementById("methodText"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function setProgress(pct) {
+  if (pct == null) {
+    els.progressWrap.classList.remove("show");
+    return;
+  }
+  els.progressWrap.classList.add("show");
+  els.progressBar.style.width = Math.max(0, Math.min(100, pct)) + "%";
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function firstName(displayName, handle) {
+  const fromDisplay = (displayName || "").trim().split(/\s+/)[0] || "";
+  const cleaned = (fromDisplay || (handle || "").split(".")[0] || "").replace(/[^a-zA-Z]/g, "");
+  const name = cleaned || "THEIR";
+  return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+}
+
+async function fetchLatestPosts(did) {
+  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "30", filter: "posts_with_replies" });
+  const posts = (feed.feed || [])
+    .filter((f) => !f.reason)
+    .map((f) => ({
+      text: f.post && f.post.record && f.post.record.text,
+      uri: f.post && f.post.uri,
+      createdAt: f.post && f.post.record && f.post.record.createdAt,
+    }))
+    .filter((p) => typeof p.text === "string" && p.text.trim().length > 0)
+    .slice(0, MAX_POSTS);
+  return posts;
+}
+
+// ---- transformers.js sentiment model --------------------------------------
+// Loaded lazily, from a CDN, run entirely client-side via WASM/ONNX. Real
+// inference, not a keyword list — see sites/cursekind/src/index.ts for the
+// (deliberately much cruder) server-side approximation used only for share
+// links' OG text.
+let pipelinePromise = null;
+const progressByFile = {};
+
+function onModelProgress(e) {
+  if (e.status === "progress" && typeof e.progress === "number") {
+    progressByFile[e.file] = e.progress;
+    const vals = Object.values(progressByFile);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    setStatus("loading sentiment model (transformers.js)… " + Math.round(avg) + "%");
+    setProgress(avg);
+  } else if (e.status === "initiate") {
+    setStatus("loading sentiment model (transformers.js)…");
+  }
+}
+
+async function getPipeline() {
+  if (!pipelinePromise) {
+    pipelinePromise = (async () => {
+      const mod = await import(/* webpackIgnore: true */ MODEL_CDN);
+      mod.env.allowLocalModels = false;
+      return mod.pipeline("sentiment-analysis", MODEL_ID, { progress_callback: onModelProgress });
+    })();
+  }
+  return pipelinePromise;
+}
+
+// Returns a value in [-1, 1]: -1 is maximum curse, +1 is maximum kind.
+async function scorePost(pipe, text) {
+  const out = await pipe(text.slice(0, 512), { truncation: true });
+  const r = out[0];
+  return r.label === "POSITIVE" ? r.score : -r.score;
+}
+
+function labelFor(avg) {
+  if (avg >= 0.5) return "reads pure kind.";
+  if (avg >= 0.15) return "leans kind.";
+  if (avg > -0.15) return "dead even — a wash of both.";
+  if (avg > -0.5) return "leans curse.";
+  return "reads pure curse.";
+}
+
+function pct(value) {
+  // value is [-1, 1] -> gauge position [0, 100]
+  return ((value + 1) / 2) * 100;
+}
+
+function readoutFor(value) {
+  const p = Math.round(((value + 1) / 2) * 100);
+  return value >= 0 ? p + "% kind" : (100 - p) + "% curse";
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch (_) { return ""; }
+}
+
+function postCard(post, name) {
+  const div = document.createElement("div");
+  div.className = "post-card";
+  const rkey = (post.uri || "").split("/").pop();
+  const handle = els.handleOut.textContent.replace(/^@/, "");
+  const link = rkey ? `https://bsky.app/profile/${handle}/post/${rkey}` : "";
+  div.innerHTML =
+    `<div class="post-text">${esc(post.text)}</div>` +
+    `<div class="post-meta">${fmtDate(post.createdAt)}${link ? ` · <a href="${link}" target="_blank" rel="noopener">view</a>` : ""}</div>` +
+    `<div class="gauge">` +
+    `<span class="gauge-end curse-end">${name}CURSE</span>` +
+    `<div class="gauge-track"><div class="gauge-marker" style="left:50%"></div></div>` +
+    `<span class="gauge-end kind-end">${name}KIND</span>` +
+    `</div>` +
+    `<div class="gauge-readout scoring">scoring…</div>`;
+  return div;
+}
+
+function shareUrlFor(handle) {
+  return "https://cursekind.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function shareText(handle, name, verdict, avg) {
+  const url = shareUrlFor(handle);
+  const body = `cursekind reading for @${handle}: ${verdict}\n${name}CURSE ↔ ${name}KIND, avg ${readoutFor(avg)}\n\ncheck anyone's → ${url}`;
+  return truncate(body, 300);
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, name, verdict, avg, scored }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0c0710";
+  ctx.fillRect(0, 0, W, H);
+  const glow1 = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.5);
+  glow1.addColorStop(0, "#2c123f");
+  glow1.addColorStop(1, "rgba(12,7,16,0)");
+  ctx.fillStyle = glow1;
+  ctx.fillRect(0, 0, W, H);
+  const glow2 = ctx.createRadialGradient(W * 0.95, -H * 0.05, 0, W * 0.95, -H * 0.05, W * 0.4);
+  glow2.addColorStop(0, "#3a2807");
+  glow2.addColorStop(1, "rgba(12,7,16,0)");
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffcf5c";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("cursekind", 60, 96);
+
+  ctx.fillStyle = "#f4eef9";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60, textY = 156;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 146, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 118, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText("@" + profile.handle, textX, textY);
+
+  ctx.strokeStyle = "#2c1f38";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 210, cardW = W - 120, cardH = H - 270;
+  ctx.fillStyle = "#150d1c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#f4eef9";
+  ctx.font = `800 32px ${mono}`;
+  wrapCanvasText(ctx, verdict, W / 2, cardY + 56, cardW - 96, 40);
+
+  // gauge
+  const barX = cardX + 60, barY = cardY + 116, barW = cardW - 120, barH = 22;
+  const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  grad.addColorStop(0, "#6a1b9a");
+  grad.addColorStop(0.5, "#2c1f38");
+  grad.addColorStop(1, "#d99a1c");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.roundRect(barX, barY, barW, barH, 11);
+  ctx.fill();
+
+  const markerX = barX + ((avg + 1) / 2) * barW;
+  ctx.beginPath();
+  ctx.arc(markerX, barY + barH / 2, 11, 0, Math.PI * 2);
+  ctx.fillStyle = "#f4eef9";
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#0c0710";
+  ctx.stroke();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#b34cff";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText(name + "CURSE", barX, barY + 50);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#ffcf5c";
+  ctx.fillText(name + "KIND", barX + barW, barY + 50);
+
+  if (scored && scored.length) {
+    const kindest = scored.reduce((a, b) => (b.value > a.value ? b : a));
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#8891a0";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText("KINDEST OF THE LAST " + scored.length, barX, cardY + cardH - 70);
+    ctx.fillStyle = "#f4eef9";
+    ctx.font = `italic 16px ${mono}`;
+    wrapCanvasText(ctx, "“" + truncate(kindest.text, 100) + "”", barX, cardY + cardH - 44, barW, 22);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffcf5c";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("cursekind.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.overall.classList.remove("show");
+  els.profileHead.classList.remove("show");
+  els.shareRow.classList.remove("show");
+  els.posts.innerHTML = "";
+  els.methodText.textContent = "";
+  setProgress(null);
+
+  try {
+    setStatus("resolving " + handle + " …");
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+    const resolvedHandle = profile.handle || handle;
+    const name = firstName(profile.displayName, resolvedHandle);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + resolvedHandle;
+    els.didOut.textContent = did;
+    els.profileHead.classList.add("show");
+
+    setStatus("fetching " + resolvedHandle + "'s latest posts…");
+    const [posts, pipe] = await Promise.all([
+      fetchLatestPosts(did),
+      getPipeline(),
+    ]);
+    setProgress(null);
+
+    if (!posts.length) {
+      setStatus("couldn't find any recent posts for @" + resolvedHandle + ".", true);
+      return;
+    }
+
+    els.overallCurseLabel.textContent = name + "CURSE";
+    els.overallKindLabel.textContent = name + "KIND";
+
+    const cards = posts.map((p) => postCard(p, name));
+    cards.forEach((c) => els.posts.appendChild(c));
+
+    const scored = [];
+    for (let i = 0; i < posts.length; i++) {
+      setStatus("scoring post " + (i + 1) + "/" + posts.length + "…");
+      const value = await scorePost(pipe, posts[i].text);
+      scored.push({ ...posts[i], value });
+
+      const card = cards[i];
+      card.classList.add("show");
+      const marker = card.querySelector(".gauge-marker");
+      marker.style.left = pct(value) + "%";
+      const readout = card.querySelector(".gauge-readout");
+      readout.classList.remove("scoring");
+      readout.textContent = readoutFor(value);
+    }
+
+    const avg = scored.reduce((a, b) => a + b.value, 0) / scored.length;
+    const verdict = labelFor(avg);
+    els.verdictText.textContent = "@" + resolvedHandle + " " + verdict;
+    els.overallMarker.style.left = pct(avg) + "%";
+    els.overall.classList.add("show");
+
+    els.methodText.innerHTML =
+      `Real model, not a keyword list: <code>Xenova/distilbert-base-uncased-finetuned-sst-2-english</code>, ` +
+      `run in your browser via <code>transformers.js</code> (WASM/ONNX). Each of the last ${scored.length} ` +
+      `non-repost posts is scored independently and plotted from ${name}CURSE (most negative) to ${name}KIND ` +
+      `(most positive); the overall reading is their average. Nothing leaves your browser except the public ` +
+      `posts themselves, fetched from Bluesky's AppView.`;
+
+    lastShareText = shareText(resolvedHandle, name, verdict, avg);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    els.shareRow.classList.add("show");
+    buildShareCard({ profile, name, verdict: "@" + resolvedHandle + " " + verdict, avg, scored });
+
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't read that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "cursekind-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "cursekind-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "cursekind" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or the older ?h=<handle> pattern both auto-read on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+</body>
+</html>
