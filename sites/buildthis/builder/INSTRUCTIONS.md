@@ -51,11 +51,12 @@ there's genuinely nothing to make.
 - **Copy, don't abstract.** Need an OAuth helper, a card component, an AppView
   fetch that another site already has? Copy the file in and edit it. No shared
   packages across sites; near-duplicate files are fine and expected.
-- **New site = one directory = one Worker = one path.** The zone hit a Cloudflare
-  own `<newname>.bisks.net` subdomain — the zone's custom-domain cap no longer
-  applies, because a wildcard `*.bisks.net` DNS record plus a wildcard cert mean
-  a plain hostname *route* works (routes cap at 1000/zone, custom domains at
-  100). See `notes/20-deploy.md` and `notes/40-new-site-playbook.md`.
+- **New site = one directory = one Worker = one subdomain.** A new site gets its
+  own `<newname>.bisks.net` hostname. A wildcard `*.bisks.net` DNS record plus a
+  wildcard cert mean a plain hostname *route* resolves without being registered
+  in advance, so a site claims a hostname with a route rather than a Custom
+  Domain (routes cap at 1000/zone, Custom Domains at 100). See
+  `notes/20-deploy.md` and `notes/40-new-site-playbook.md`.
 
   For a new standalone idea: `cp -r` the closest existing site (or
   `sites/trigrams` if nothing's close), then rename — `wrangler.toml`
