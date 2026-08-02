@@ -64,6 +64,20 @@
 // steamdb.info/app/<appid>/, and the search box now also accepts a pasted
 // steamdb.info URL alongside a store URL or bare appid.
 //
+// Owned-games library (added 2026-08-02). The block above explains why
+// "browse your full Steam library" wasn't buildable from this side: Valve's
+// own GetOwnedGames needs a private Web API key, and the key-free profile
+// XML feed 302s anonymous requests to a login wall. @7778777.online (the
+// original requester) has since stood up their own proxy for exactly this —
+// steamapi.7778777.online's GET /owned-games/{steamid} — and posted it
+// straight into the build thread along with the anti-scraping header it
+// wants, explicitly flagging that header value as "not a real secret". That
+// unblocks the feature: /api/steam/owned-games proxies to it server-side
+// (same shape as the SteamSpy/Store proxying above — keeps the token off
+// the client and lets the response get cached briefly), and the client
+// renders it as a real "your steam library" list once you've connected
+// Steam, each game clicking through into the normal tag-rating flow.
+//
 // /api/global is backed by a Durable Object (GlobalTracker, name "global").
 // Ratings are per-user PDS records (net.bisks.steamtags.rating) — there's no
 // AppView endpoint that hands back "every record of this custom collection
@@ -105,6 +119,7 @@ export interface DurableObjectState {
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   GLOBAL: DurableObjectNamespace;
+  STEAM_API_TOKEN: string;
 }
 
 // --- tags ----------------------------------------------------------------
@@ -204,6 +219,30 @@ async function handleSearch(url: URL): Promise<Response> {
     return jsonResponse({ results });
   } catch (_) {
     return jsonResponse({ results: [] });
+  }
+}
+
+// --- owned games (via @7778777.online's steamapi.7778777.online proxy) ---
+
+const STEAM_API_BASE = "https://steamapi.7778777.online";
+
+function isSteamId64(s: string): boolean {
+  return /^\d{17}$/.test(s);
+}
+
+async function handleOwnedGames(url: URL, env: Env): Promise<Response> {
+  const steamid = (url.searchParams.get("steamid") || "").trim();
+  if (!isSteamId64(steamid)) return jsonResponse({ error: "bad steamid" }, 400);
+  try {
+    const res = await fetch(`${STEAM_API_BASE}/owned-games/${steamid}`, {
+      headers: { "X-Api-Token": env.STEAM_API_TOKEN },
+      cf: { cacheTtl: 300 } as unknown as Record<string, unknown>,
+    });
+    if (!res.ok) throw new Error(`owned-games -> ${res.status}`);
+    const data = await res.json();
+    return jsonResponse(data);
+  } catch (err: any) {
+    return jsonResponse({ error: err?.message || "couldn't reach the owned-games proxy" }, 502);
   }
 }
 
@@ -377,6 +416,7 @@ export default {
 
     if (path === "/api/steam/login") return handleSteamLogin(request);
     if (path === "/api/steam/callback") return handleSteamCallback(request);
+    if (path === "/api/steam/owned-games") return handleOwnedGames(url, env);
 
     if (path === "/api/global") {
       const stub = env.GLOBAL.get(env.GLOBAL.idFromName("global"));

@@ -139,6 +139,27 @@
   .steam-bar a { cursor: pointer; text-decoration: underline; }
   .steam-avatar { width: 20px; height: 20px; border-radius: 4px; vertical-align: middle; }
 
+  .steam-lib {
+    margin: 0 0 26px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+  }
+  .steam-lib-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 0 4px;
+  }
+  .steam-lib-head h3 { margin: 0; font-size: 0.95rem; }
+  .steam-lib .lib-sub { color: var(--dim); font-size: 0.78rem; margin: 0 0 12px; }
+  .steam-lib .lib-search { margin: 0 0 10px; }
+  .steam-lib .lib-list { max-height: 320px; overflow-y: auto; }
+  .lib-row .lib-playtime { flex: none; color: var(--dim); font-size: 0.76rem; }
+
   .lib-search { margin: 0 0 14px; }
   .lib-search input {
     width: 100%;
@@ -365,6 +386,16 @@
   <div class="auth-bar" id="authBar"></div>
   <div class="steam-bar" id="steamBar"></div>
 
+  <div class="steam-lib" id="steamLib" hidden>
+    <div class="steam-lib-head">
+      <h3>your steam library</h3>
+      <button class="global-refresh" id="steamLibRefresh" type="button">↻ refresh</button>
+    </div>
+    <p class="lib-sub">your actual owned games, via <a href="https://steamapi.7778777.online" target="_blank" rel="noopener">steamapi.7778777.online</a> — click one to see and rate its tags.</p>
+    <div class="lib-search"><input id="steamLibSearch" type="text" placeholder="filter your owned games by name or appid…" autocomplete="off" /></div>
+    <div id="steamLibList" class="lib-list"></div>
+  </div>
+
   <div class="search-box">
     <input id="q" type="text" placeholder="search a Steam game…" autocomplete="off" />
     <div id="results" class="results"></div>
@@ -433,6 +464,10 @@
     state: document.getElementById("state"),
     authBar: document.getElementById("authBar"),
     steamBar: document.getElementById("steamBar"),
+    steamLib: document.getElementById("steamLib"),
+    steamLibList: document.getElementById("steamLibList"),
+    steamLibRefresh: document.getElementById("steamLibRefresh"),
+    steamLibSearch: document.getElementById("steamLibSearch"),
     libSearch: document.getElementById("libSearch"),
     libraryList: document.getElementById("libraryList"),
     syncMsg: document.getElementById("syncMsg"),
@@ -759,13 +794,15 @@
     }
   }
 
-  // --- Steam login (identity only) ----------------------------------------
+  // --- Steam login (identity) ----------------------------------------
   // Steam's OpenID 2.0 endpoint verifies a real SteamID64 with no API key —
   // the Worker's /api/steam/login + /api/steam/callback handle the redirect
-  // dance server-side (see src/index.ts for why this stops at identity and
-  // doesn't pull an owned-games list: that needs a private Valve key this
-  // build doesn't have). This is purely a "yes, that's really them" badge;
-  // it isn't wired into ratings or the library at all.
+  // dance server-side. Ratings made while connected carry a "steam-verified"
+  // checkmark (see setTagRating). Once connected, the steamid also drives
+  // the "your steam library" section below (loadOwnedGames), which pulls the
+  // real owned-games list through @7778777.online's steamapi.7778777.online
+  // proxy — see src/index.ts's "owned games" comment for why that needed a
+  // third-party proxy rather than Valve's own key-gated API.
   const STEAM_KEY = "steamtags:steam:v1";
 
   function loadSteamInfo() {
@@ -829,10 +866,107 @@
       const returnTo = encodeURIComponent(location.pathname);
       els.steamBar.innerHTML = `
         <span>${errorText ? esc(errorText) + " — " : ""}optionally verify it's really you on Steam:</span>
-        <a id="steamConnect" href="${MOUNT}/api/steam/login?returnTo=${returnTo}" title="verifies your SteamID only — pulling your full owned-games list needs a private Valve API key this build doesn't have, so your library search below still runs off what you've rated here. Ratings you make while connected get a steam-verified checkmark.">connect Steam</a>
+        <a id="steamConnect" href="${MOUNT}/api/steam/login?returnTo=${returnTo}" title="verifies your SteamID and pulls your real owned-games list to browse below. Ratings you make while connected get a steam-verified checkmark.">connect Steam</a>
       `;
     }
+    renderSteamLibSection(info);
   }
+
+  // --- steam owned games (real library, via the community proxy) ---------
+  let ownedGames = null; // null = not loaded yet for the current steamid
+  let ownedGamesQuery = "";
+  let ownedGamesSteamId = null;
+
+  function parseOwnedGame(g) {
+    const appid = Number(g.appid ?? g.app_id ?? g.id);
+    return {
+      appid,
+      name: g.name || g.game_name || g.title || "",
+      playtime: Number(g.playtime_forever ?? g.playtime_minutes ?? g.minutes_played ?? 0) || 0,
+    };
+  }
+
+  function parseOwnedGamesResponse(data) {
+    const body = data && data.response ? data.response : data || {};
+    const list = Array.isArray(body.games) ? body.games : [];
+    return list.map(parseOwnedGame).filter((g) => Number.isFinite(g.appid));
+  }
+
+  async function loadOwnedGames(steamid) {
+    ownedGamesSteamId = steamid;
+    els.steamLibList.innerHTML = '<div class="lib-empty">loading your steam library…</div>';
+    try {
+      const res = await fetch(MOUNT + "/api/steam/owned-games?steamid=" + encodeURIComponent(steamid));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "couldn't load your library");
+      ownedGames = parseOwnedGamesResponse(data).sort(
+        (a, b) => b.playtime - a.playtime || a.name.localeCompare(b.name)
+      );
+      renderOwnedGames();
+    } catch (err) {
+      ownedGames = null;
+      els.steamLibList.innerHTML = `<div class="lib-empty">couldn't load your steam library — ${esc(err.message || "try again")}</div>`;
+    }
+  }
+
+  function renderOwnedGames() {
+    if (!ownedGames) return;
+    if (!ownedGames.length) {
+      els.steamLibList.innerHTML =
+        '<div class="lib-empty">no games came back — your Steam profile/game list is probably set to private.</div>';
+      return;
+    }
+    const needle = ownedGamesQuery.trim().toLowerCase();
+    const filtered = needle
+      ? ownedGames.filter((g) => (g.name || "").toLowerCase().includes(needle) || String(g.appid).includes(needle))
+      : ownedGames;
+    if (!filtered.length) {
+      els.steamLibList.innerHTML = `<div class="lib-empty">nothing in your owned games matches "${esc(ownedGamesQuery.trim())}".</div>`;
+      return;
+    }
+    els.steamLibList.innerHTML = filtered
+      .map(
+        (g) => `
+      <div class="lib-row" data-appid="${escAttr(String(g.appid))}">
+        <img src="https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+        <span class="lib-name"><span class="n">${esc(g.name || "appid " + g.appid)}</span></span>
+        ${g.playtime ? `<span class="lib-playtime">${formatPlaytime(g.playtime)}</span>` : ""}
+      </div>`
+      )
+      .join("");
+    [...els.steamLibList.querySelectorAll(".lib-row")].forEach((row) => {
+      row.addEventListener("click", () => {
+        goToGame(row.getAttribute("data-appid"), true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+  }
+
+  function formatPlaytime(minutes) {
+    const hours = minutes / 60;
+    if (hours < 1) return `${minutes}m played`;
+    return `${hours >= 10 ? Math.round(hours) : hours.toFixed(1)}h played`;
+  }
+
+  function renderSteamLibSection(info) {
+    if (!info) {
+      els.steamLib.hidden = true;
+      ownedGames = null;
+      ownedGamesSteamId = null;
+      return;
+    }
+    els.steamLib.hidden = false;
+    if (ownedGamesSteamId !== info.steamid) loadOwnedGames(info.steamid);
+  }
+
+  els.steamLibRefresh.addEventListener("click", () => {
+    const info = loadSteamInfo();
+    if (info) loadOwnedGames(info.steamid);
+  });
+  els.steamLibSearch.addEventListener("input", (e) => {
+    ownedGamesQuery = e.target.value;
+    renderOwnedGames();
+  });
 
   // --- library rendering: grouped by tag, ranked by the user's own tag ranks --
   // "Tag rank" = the average fit score the user has given that tag across
