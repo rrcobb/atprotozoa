@@ -175,6 +175,9 @@
   }
   .card .body { padding: 20px; }
   .card h2 { margin: 0 0 4px; font-size: 1.3rem; }
+  .steamdb-link { margin: 0 0 10px; font-size: 0.78rem; }
+  .steamdb-link a { color: var(--dim); text-decoration: underline; }
+  .steamdb-link a:hover { color: var(--accent); }
   .card .short-desc { color: var(--dim); font-size: 0.85rem; margin: 0 0 18px; }
 
   .cloud-hint { color: var(--dim); font-size: 0.82rem; margin: 0 0 12px; }
@@ -290,6 +293,7 @@
   .lib-row .lib-name { flex: 1; overflow: hidden; }
   .lib-row .lib-name .n { font-size: 0.9rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lib-row .lib-name .sub { font-size: 0.72rem; color: var(--dim); }
+  .steam-verified-dot { color: var(--good); font-size: 0.78em; font-weight: 800; }
   .lib-row .lib-score { flex: none; font-size: 0.9rem; font-weight: 700; }
   .lib-row .lib-remove {
     flex: none;
@@ -365,7 +369,7 @@
     <input id="q" type="text" placeholder="search a Steam game…" autocomplete="off" />
     <div id="results" class="results"></div>
   </div>
-  <p class="hint">or paste a Steam store URL / appid directly and hit enter</p>
+  <p class="hint">or paste a Steam store / SteamDB URL / appid directly and hit enter</p>
 
   <div id="state"></div>
 
@@ -488,6 +492,13 @@
     entry.headerImage = meta.headerImage;
     entry.tagScores = Object.assign({}, entry.tagScores, { [tagName]: { score, votes } });
     entry.updatedAt = Date.now();
+    // Snapshot the currently-connected Steam identity onto the entry, same
+    // as name/headerImage — a rating made while steam-verified stays marked
+    // as such even if the user later disconnects. This is what makes
+    // "connect Steam" more than a decorative badge (see index.ts's comment
+    // on why it stopped at identity, not an owned-games list).
+    const steamInfo = loadSteamInfo();
+    if (steamInfo) entry.steamId = steamInfo.steamid;
     if (idx >= 0) db[idx] = entry;
     else db.push(entry);
     saveDb(db);
@@ -535,7 +546,7 @@
   // page never has to block on a network round trip to render.
 
   function recordFromEntry(entry) {
-    return {
+    const rec = {
       $type: COLLECTION,
       appid: Number(entry.appid),
       name: entry.name || "",
@@ -547,6 +558,8 @@
       })),
       updatedAt: new Date(entry.updatedAt || Date.now()).toISOString(),
     };
+    if (entry.steamId) rec.steamid = entry.steamId;
+    return rec;
   }
 
   function entryFromRecord(rec) {
@@ -559,6 +572,7 @@
       appid: v.appid,
       name: v.name || "",
       headerImage: v.headerImage || "",
+      steamId: typeof v.steamid === "string" ? v.steamid : undefined,
       tagScores,
       updatedAt: v.updatedAt ? Date.parse(v.updatedAt) || 0 : 0,
     };
@@ -645,6 +659,7 @@
       appid: newer.appid,
       name: newer.name || older.name,
       headerImage: newer.headerImage || older.headerImage,
+      steamId: newer.steamId || older.steamId,
       tagScores: Object.assign({}, older.tagScores, newer.tagScores),
       updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
     };
@@ -814,7 +829,7 @@
       const returnTo = encodeURIComponent(location.pathname);
       els.steamBar.innerHTML = `
         <span>${errorText ? esc(errorText) + " — " : ""}optionally verify it's really you on Steam:</span>
-        <a id="steamConnect" href="${MOUNT}/api/steam/login?returnTo=${returnTo}" title="verifies your SteamID only — pulling your full owned-games list needs a private Valve API key this build doesn't have, so your library search below still runs off what you've rated here.">connect Steam</a>
+        <a id="steamConnect" href="${MOUNT}/api/steam/login?returnTo=${returnTo}" title="verifies your SteamID only — pulling your full owned-games list needs a private Valve API key this build doesn't have, so your library search below still runs off what you've rated here. Ratings you make while connected get a steam-verified checkmark.">connect Steam</a>
       `;
     }
   }
@@ -833,6 +848,7 @@
           appid: entry.appid,
           name: entry.name,
           headerImage: entry.headerImage,
+          steamId: entry.steamId,
           score: v.score,
           votes: v.votes || 0,
         });
@@ -896,7 +912,7 @@
             <div class="lib-row" data-appid="${escAttr(String(game.appid))}" data-tag="${escAttr(g.tag)}">
               <span class="lib-rank">#${i + 1}</span>
               ${game.headerImage ? `<img src="${escAttr(game.headerImage)}" alt="" loading="lazy" />` : ""}
-              <span class="lib-name"><span class="n">${esc(game.name || "appid " + game.appid)}</span></span>
+              <span class="lib-name"><span class="n">${esc(game.name || "appid " + game.appid)}${game.steamId ? ' <span class="steam-verified-dot" title="rated while steam-verified">✓</span>' : ""}</span></span>
               <span class="lib-score" style="color:${scoreColor10(game.score)}">${game.score}/10</span>
               <button class="lib-remove" data-remove-appid="${escAttr(String(game.appid))}" data-remove-tag="${escAttr(g.tag)}" title="remove this rating">✕</button>
             </div>`
@@ -1113,8 +1129,10 @@
   function extractAppid(raw) {
     const s = raw.trim();
     if (/^\d+$/.test(s)) return s;
-    const m = s.match(/store\.steampowered\.com\/app\/(\d+)/i);
-    if (m) return m[1];
+    const store = s.match(/store\.steampowered\.com\/app\/(\d+)/i);
+    if (store) return store[1];
+    const db = s.match(/steamdb\.info\/app\/(\d+)/i);
+    if (db) return db[1];
     return null;
   }
 
@@ -1209,6 +1227,7 @@
         ${g.headerImage ? `<img class="header" src="${escAttr(g.headerImage)}" alt="${escAttr(g.name)}" />` : ""}
         <div class="body">
           <h2>${esc(g.name)}</h2>
+          <p class="steamdb-link"><a href="https://steamdb.info/app/${g.appid}/" target="_blank" rel="noopener">view on SteamDB →</a></p>
           ${g.shortDescription ? `<p class="short-desc">${esc(g.shortDescription)}</p>` : ""}
           <p class="cloud-hint">bigger tag = more community votes. click one and score how much it actually fits.</p>
           <div class="tag-cloud">${tagChips}</div>

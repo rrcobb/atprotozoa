@@ -49,6 +49,21 @@
 // or id, which is what "games in your library searchable by..." becomes
 // client-side in public/index.html's #libSearch.
 //
+// Steam identity -> rating integration (added 2026-08-02). The verified
+// SteamID64 is no longer purely a decorative badge: public/index.html
+// snapshots it onto a library entry the same way it already snapshots
+// name/headerImage, so a rating made while steam-verified carries an
+// optional `steamid` field into its net.bisks.steamtags.rating record (see
+// the lexicon) and shows a small checkmark in "your library". Purely
+// informational — nothing server-side reads or trusts it, it's just
+// provenance a consumer of the public record could choose to weight.
+//
+// SteamDB (added 2026-08-02, the "steamdb" half of the same request). No
+// public SteamDB API exists to integrate against, so the integration is a
+// straightforward link-out: the game card links to
+// steamdb.info/app/<appid>/, and the search box now also accepts a pasted
+// steamdb.info URL alongside a store URL or bare appid.
+//
 // /api/global is backed by a Durable Object (GlobalTracker, name "global").
 // Ratings are per-user PDS records (net.bisks.steamtags.rating) — there's no
 // AppView endpoint that hands back "every record of this custom collection
