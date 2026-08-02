@@ -52,6 +52,17 @@ const HIT_R = 12;
 const TAP_DIST = 6;
 const EDGE_HIT_DIST = 8;
 
+// snap-to-vertex: mouse/pen get a modest magnet radius, touch gets a much
+// fatter one since fingertips are wide and imprecise on small screens
+const SNAP_R_POINTER = 16;
+const SNAP_R_TOUCH = 30;
+let activeSnapR = SNAP_R_POINTER;
+let snapTarget = null; // vertex the current drag would connect to, or null
+
+function snapRadiusFor(pointerType) {
+  return pointerType === "touch" ? SNAP_R_TOUCH : SNAP_R_POINTER;
+}
+
 // ---- geometry helpers -----------------------------------------------------
 
 function dist(x1, y1, x2, y2) {
@@ -71,8 +82,8 @@ function vertexById(id) {
   return vertices.find((v) => v.id === id);
 }
 
-function findVertexNear(x, y) {
-  let best = null, bestD = HIT_R;
+function findVertexNear(x, y, radius = HIT_R) {
+  let best = null, bestD = radius;
   for (const v of vertices) {
     const d = dist(x, y, v.x, v.y);
     if (d <= bestD) { best = v; bestD = d; }
@@ -268,6 +279,21 @@ function draw() {
     ctx.setLineDash([]);
   }
 
+  // magnet ring: shows which vertex a drag will snap to on release
+  if (dragStart && tool === "draw" && snapTarget) {
+    ctx.beginPath();
+    ctx.arc(snapTarget.x, snapTarget.y, VERTEX_R + 8, 0, Math.PI * 2);
+    ctx.strokeStyle = "#56d2c2";
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([3, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(snapTarget.x, snapTarget.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#56d2c2";
+    ctx.fill();
+  }
+
   els.vertexCount.textContent = String(vertices.length);
   els.edgeCount.textContent = String(edges.length);
 }
@@ -280,9 +306,10 @@ canvas.addEventListener("pointerdown", (evt) => {
   canvas.setPointerCapture(evt.pointerId);
   pointerActive = true;
   const pos = pointerPos(evt);
+  activeSnapR = snapRadiusFor(evt.pointerType);
 
   if (tool === "erase") {
-    const v = findVertexNear(pos.x, pos.y);
+    const v = findVertexNear(pos.x, pos.y, activeSnapR);
     if (v) {
       snapshot();
       removeVertex(v.id);
@@ -301,21 +328,30 @@ canvas.addEventListener("pointerdown", (evt) => {
   }
 
   dragStart = pos;
-  dragStartVertex = findVertexNear(pos.x, pos.y);
+  dragStartVertex = findVertexNear(pos.x, pos.y, activeSnapR);
   dragCurrent = pos;
+  snapTarget = dragStartVertex;
+  draw();
 });
 
 canvas.addEventListener("pointermove", (evt) => {
   if (!pointerActive || tool !== "draw" || !dragStart) return;
-  dragCurrent = pointerPos(evt);
+  const pos = pointerPos(evt);
+  const near = findVertexNear(pos.x, pos.y, activeSnapR);
+  snapTarget = near;
+  // lock the preview line's endpoint to the magnet target so you can see
+  // exactly which point you'll connect to before letting go
+  dragCurrent = near ? { x: near.x, y: near.y } : pos;
   draw();
 });
 
 canvas.addEventListener("pointerup", (evt) => {
   pointerActive = false;
-  if (tool !== "draw" || !dragStart) { dragStart = null; dragCurrent = null; return; }
+  if (tool !== "draw" || !dragStart) { dragStart = null; dragCurrent = null; snapTarget = null; return; }
 
-  const end = pointerPos(evt);
+  const rawEnd = pointerPos(evt);
+  const endSnap = findVertexNear(rawEnd.x, rawEnd.y, activeSnapR);
+  const end = endSnap || rawEnd;
   const startPos = dragStartVertex || dragStart;
   const d = dist(startPos.x, startPos.y, end.x, end.y);
 
@@ -329,8 +365,7 @@ canvas.addEventListener("pointerup", (evt) => {
     }
   } else {
     const a = dragStartVertex || addVertex(dragStart.x, dragStart.y);
-    const existingB = findVertexNear(end.x, end.y);
-    const b = existingB || addVertex(end.x, end.y);
+    const b = endSnap || addVertex(end.x, end.y);
     if (a.id !== b.id) {
       addEdge(a.id, b.id);
       mutated = true;
@@ -346,6 +381,7 @@ canvas.addEventListener("pointerup", (evt) => {
   dragStart = null;
   dragStartVertex = null;
   dragCurrent = null;
+  snapTarget = null;
   draw();
 });
 
@@ -354,6 +390,7 @@ canvas.addEventListener("pointercancel", () => {
   dragStart = null;
   dragStartVertex = null;
   dragCurrent = null;
+  snapTarget = null;
   draw();
 });
 
