@@ -1,5 +1,9 @@
 # buildthis — infra & budget
 
+Where builds run, how jobs queue and retry, and what stops runaway spend.
+`notes/80-buildthis-bot.md` covers what the bot is and the rules it builds
+under.
+
 ## Where builds run now
 
 Builds run on an **always-on Hetzner box**, on Rob's **Claude subscription**
@@ -205,8 +209,10 @@ leak into the next build and reply the wrong copy to the wrong thread).
   (fallback).
 
 The Action is still fully wired as an instant fallback — flip the var off and
-redeploy to revert to it. (It'll be back on the capped API workspace and its
-budget wall, so it's a real fallback only while that workspace has budget.)
+redeploy to revert to it. Caveat: it runs on the capped API workspace, which is
+the billing model that got abandoned for burning a month's cap in a day. So it's
+a real fallback only while that workspace has budget, and only as a stopgap
+while the box is down — not somewhere to sit.
 
 ## Secrets
 
