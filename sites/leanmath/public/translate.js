@@ -133,6 +133,34 @@ function findAssign(src, from) {
   return -1;
 }
 
+// Splits the text after a `by` into its top-level tactic steps, on newlines
+// or `;` — but not the `;` inside a `<;>` combinator (that chains one tactic
+// onto every goal the previous one produced, so it's one step, not two).
+// Bracket nesting is tracked so a step's own `[...]`/`(...)` args don't get
+// sliced up.
+function splitTacticSeq(text) {
+  const steps = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "(" || c === "{" || c === "[") depth++;
+    else if (c === ")" || c === "}" || c === "]") depth--;
+    if (depth === 0 && c === ";" && text[i - 1] === "<") {
+      cur += c;
+      continue;
+    }
+    if (depth === 0 && (c === "\n" || c === ";")) {
+      if (cur.trim()) steps.push(cur.trim());
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.trim()) steps.push(cur.trim());
+  return steps;
+}
+
 function parseDeclaration(text, keyword) {
   let i = keyword.length;
   i = skipWs(text, i);
@@ -157,14 +185,27 @@ function parseDeclaration(text, keyword) {
 
   let body = "";
   let proofTag = null;
+  let tacticSteps = null;
   if (text[i] === ":" && text[i + 1] === "=") {
     body = text.slice(i + 2).trim();
-    const byMatch = body.match(/^\s*by\s+([A-Za-z_][A-Za-z0-9_'!]*)/);
-    if (byMatch) proofTag = `by ${byMatch[1]}…`;
-    else if (body) proofTag = "term-mode proof";
+    const byMatch = body.match(/^\s*by\b/);
+    if (byMatch) {
+      const afterBy = body.slice(byMatch[0].length).trim();
+      tacticSteps = splitTacticSeq(afterBy);
+      if (tacticSteps.length > 1) {
+        proofTag = `by ${tacticSteps.length} tactics`;
+      } else if (tacticSteps.length === 1) {
+        const firstWord = (tacticSteps[0].match(/^[A-Za-z_][A-Za-z0-9_'!]*/) || [])[0];
+        proofTag = firstWord ? `by ${firstWord}` : "by …";
+      } else {
+        proofTag = "by …";
+      }
+    } else if (body) {
+      proofTag = "term-mode proof";
+    }
   }
 
-  return { keyword, name, groups, goal, body, proofTag };
+  return { keyword, name, groups, goal, body, proofTag, tacticSteps };
 }
 
 function splitDeclarations(src) {
@@ -242,6 +283,24 @@ const TABLE = [
   ["⊗", "\\otimes ", "sym"],
   ["•", "\\cdot ", "sym"],
   ["*", "\\cdot ", "sym"],
+  ["%", "\\bmod ", "sym"], // raw "%" is a LaTeX comment char — leaving it untranslated silently truncates the formula
+  ["↦", "\\mapsto ", "sym"],
+  ["∣", "\\mid ", "sym"],
+  ["∤", "\\nmid ", "sym"],
+  ["⊔", "\\sqcup ", "sym"],
+  ["⊓", "\\sqcap ", "sym"],
+  ["⊤", "\\top ", "sym"],
+  ["⊥", "\\bot ", "sym"],
+  ["≪", "\\ll ", "sym"],
+  ["≫", "\\gg ", "sym"],
+  ["↪", "\\hookrightarrow ", "sym"],
+  ["↠", "\\twoheadrightarrow ", "sym"],
+  ["≺", "\\prec ", "sym"],
+  ["≻", "\\succ ", "sym"],
+  ["⌊", "\\lfloor ", "sym"],
+  ["⌋", "\\rfloor ", "sym"],
+  ["⌈", "\\lceil ", "sym"],
+  ["⌉", "\\rceil ", "sym"],
   ["forall", "\\forall ", "word"],
   ["exists", "\\exists ", "word"],
   ["fun", "\\lambda ", "word"],
@@ -498,11 +557,16 @@ function renderDeclaration(d) {
     combinedTex = `${quantPrefix}${instPrefix}${hypChain}${goalTex || "\\text{?}"}`;
   }
 
+  // Only surface the step-by-step breakdown when there's more than one step —
+  // a single tactic is already fully said by the proofTag badge.
+  const tacticSteps = d.tacticSteps && d.tacticSteps.length > 1 ? d.tacticSteps : null;
+
   return {
     title: `${declKindLabel(d.keyword)}${d.name ? "\\ " + texIdent(d.name) : ""}`,
     lines,
     combinedTex,
     proofTag: d.proofTag,
+    tacticSteps,
   };
 }
 

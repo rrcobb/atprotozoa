@@ -8,6 +8,7 @@ const EXAMPLES = [
   "theorem exists_infinite_primes (n : ℕ) : ∃ p, p ≥ n ∧ Nat.Prime p :=\n  Nat.exists_infinite_primes n",
   "def is_even (n : ℕ) : Prop := ∃ k, n = 2 * k",
   "theorem le_trans {a b c : ℕ} (h1 : a ≤ b) (h2 : b ≤ c) : a ≤ c :=\n  le_trans h1 h2",
+  "theorem even_mod (n : ℕ) (h : n % 2 = 0) : ∃ k, n = 2 * k := by\n  obtain ⟨k, hk⟩ := Nat.even_iff.mp h\n  exact ⟨k, hk⟩",
 ];
 
 const els = {
@@ -73,6 +74,23 @@ function buildDeclNode(decl) {
     renderKatex(line.tex, math, false);
     row.appendChild(math);
     wrap.appendChild(row);
+  }
+
+  if (decl.tacticSteps) {
+    const sketch = document.createElement("div");
+    sketch.className = "proofSketch";
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = "Proof sketch";
+    sketch.appendChild(label);
+    const ol = document.createElement("ol");
+    for (const step of decl.tacticSteps) {
+      const li = document.createElement("li");
+      li.textContent = step;
+      ol.appendChild(li);
+    }
+    sketch.appendChild(ol);
+    wrap.appendChild(sketch);
   }
 
   return wrap;
