@@ -8,14 +8,17 @@ atprotozoa/
 ├── package.json            # pnpm workspace root
 ├── pnpm-workspace.yaml     # sites/* and apex are workspace packages
 ├── notes/                  # these docs
+├── audit/                  # repo-wide scripts: gallery build, path checks,
+│                           #   Cloudflare inventory, site surveys
 ├── apex/                   # front-door Worker for bisks.net (apex domain)
 │   ├── src/index.ts
-│   ├── public/             # static landing/gallery page
+│   ├── public/             # generated landing/gallery page
 │   └── wrangler.toml
-└── sites/
-    ├── trigrams/           # first experiment → trigrams.bisks.net
+└── sites/                  # ~200 of these, one per experiment
+    ├── trigrams/           # the first one → trigrams.bisks.net
     │   ├── src/index.ts
     │   ├── public/
+    │   ├── site.json
     │   └── wrangler.toml
     └── <next-site>/        # copy an existing site, rename, edit
 ```
@@ -25,10 +28,9 @@ atprotozoa/
 Each site is a **Worker with static assets** (the `assets` binding), not a Pages
 project. Reasons:
 
-- **One Worker per site, one path per site.** A Worker maps cleanly to
-  `bisks.net/<name>` via a plain (non-custom-domain) Route on the shared zone.
-  Pages gives one project per repo connection, which fights the "tons of tiny
-  sites" goal.
+- **One Worker per site, one hostname per site.** A Worker maps cleanly to
+  `<name>.bisks.net` via a plain Route on the shared zone. Pages gives one
+  project per repo connection, which fights the "tons of tiny sites" goal.
 - **Server surface when we want it.** atproto experiments routinely need a little
   server: an OAuth callback, a CORS-dodging proxy to a PDS or AppView, a cron
   trigger, a Durable Object for firehose state. Workers give each site that for
@@ -42,17 +44,19 @@ a trivial (or absent) fetch handler. The overhead is one `wrangler.toml`.
 
 Minimum viable site = a directory under `sites/` with:
 
-- `wrangler.toml` — name, `main`, `assets` dir, a path Route on the shared zone
-  (`bisks.net/<name>` + `bisks.net/<name>/*`).
+- `wrangler.toml` — name, `main`, `assets` dir, and one Route on the shared
+  zone (`<name>.bisks.net/*`, with `zone_name`, not `custom_domain`).
 - `public/` — static files (at least `index.html`).
-- `src/index.ts` — a fetch handler is required even for a static site now: it
-  strips the `/<name>` mount prefix before handing the request to the ASSETS
-  binding (the assets directory has no idea it's not living at the domain
-  root). See `notes/40-new-site-playbook.md` for the copyable template. (Sites
-  still on their own `<name>.bisks.net` custom domain can omit `main` and stay
-  pure-static, since they don't need prefix-stripping.)
+- `src/index.ts` — the fetch handler. A purely static site just forwards to the
+  ASSETS binding; server surface (an OAuth callback, a share route, a cron) goes
+  here. See `notes/40-new-site-playbook.md` for the template.
+- `site.json` — the site's canonical record; the apex gallery is generated from
+  these.
 - `package.json` — so pnpm treats it as a workspace member and `wrangler` deps
   resolve. Kept minimal.
+
+Sites built during the path-mounting era also carry a `bisks.net/<name>` route
+and prefix-stripping in their handler; see the playbook before editing one.
 
 Each site is deployed independently as its own Cloudflare Worker named
 `atprotozoa-<sitename>` (see `notes/20-deploy.md`).
