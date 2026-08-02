@@ -70,7 +70,7 @@ Durable Object storage. The migration must say:
 ```toml
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["YourClassName"]   # NOT new_classes
+new_sqlite_classes = ["YourClassName"]   # not new_classes
 ```
 
 `new_classes` passes TOML validation and then fails at `wrangler deploy` on this
@@ -108,14 +108,13 @@ one URL flagged every site on `bisks.net`. There is no safe way to display an
 unfiltered live public image firehose. See `sites/catsofatproto/RETIRED.md` and
 `notes/history/2026-07-deploy-incidents.md`.
 
-Note the deploy workflow has no delete path — it only ever runs `wrangler
-deploy` on changed directories. Removing a live Worker or a stale hostname is a
-manual step.
+The deploy workflow has no delete path; it only runs `wrangler deploy` on
+changed directories. Removing a live Worker or a stale hostname is a manual step.
 
 ## History
 
 `notes/history/2026-07-deploy-incidents.md` has the full incident log from the
 first weeks: the Safe Browsing flag and its root cause, the custom-domain cap
 discovery, the path-migration bugs (unconditional prefix-strip, bare-mount
-trailing slash), and the subdomain migration. Worth reading if a symptom here
-looks familiar; not required for normal work.
+trailing slash), and the subdomain migration. Read it if a symptom here looks
+familiar.

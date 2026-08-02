@@ -66,9 +66,9 @@ named `atprotozoa-<name>`, served at `<name>.bisks.net`.
 ## Why a route and not a Custom Domain
 
 The zone has a wildcard `*.bisks.net` DNS record (proxied) and a wildcard ACM
-certificate. Together those mean an arbitrary subdomain resolves and completes
-TLS without being registered in advance — so a site claims its hostname with a
-plain **route**:
+certificate, so an arbitrary subdomain resolves and completes TLS without being
+registered in advance. A site therefore claims its hostname with a plain
+**route**:
 
 ```toml
 routes = [
@@ -77,10 +77,10 @@ routes = [
 ```
 
 **Don't use `custom_domain = true`.** Custom Domains cap at 100 per zone and
-routes cap at 1000. The zone hit that cap once already, which is what forced the
-path-mounting era; a Custom Domain now consumes a scarce slot for no benefit.
-The apex is the one exception — `*.bisks.net` matches one level below the apex,
-so `bisks.net` itself stays a Custom Domain.
+routes cap at 1000. The zone has hit that cap before, and a Custom Domain
+consumes a slot without giving a site anything a route doesn't. The apex is the
+one exception: `*.bisks.net` matches one level below the apex, so `bisks.net`
+itself stays a Custom Domain.
 
 ## Template
 
@@ -130,10 +130,10 @@ See `sites/windmill` for a personalized `/r/<code>` share route and
 
 ## Older sites: legacy path routes
 
-For a stretch, sites were mounted at `bisks.net/<name>` because the zone was at
-its Custom Domain cap. Those sites kept their path routes alongside their
-subdomain so previously-shared links still work, so **an older site may answer
-on both** and its `src/index.ts` strips the mount prefix.
+Between mid-July and 2026-07-31, sites were mounted at `bisks.net/<name>`
+because the zone was at its Custom Domain cap. Those sites kept their path
+routes alongside their subdomain so previously-shared links still work, so **an
+older site may answer on both**, and its `src/index.ts` strips the mount prefix.
 
 If you're editing one, the prefix-strip must be **conditional**:
 
@@ -143,17 +143,16 @@ if (url.pathname === PREFIX || url.pathname.startsWith(PREFIX + "/")) {
 }
 ```
 
-Stripping unconditionally is a real bug and a quiet one. Reached on the
-subdomain the prefix isn't there, so the slice chops the front off short paths
-instead (`"/app.js".slice(6)` → `""` → falls back to `"/"`), and every asset
-request serves `index.html` with a 200. The page renders; nothing works.
+Stripping unconditionally fails silently. Reached on the subdomain the prefix
+isn't there, so the slice chops the front off short paths instead
+(`"/app.js".slice(6)` → `""` → falls back to `"/"`), and every asset request
+serves `index.html` with a 200. The page renders; nothing works.
 
-The ~30 sites under `bisks.net/games/<name>` are the same story one level
-deeper — their `PREFIX` is `/games/<name>`. `sites/games` serves the cluster's
-index page at the bare `bisks.net/games`, and deliberately does *not* claim
-`bisks.net/games/*`, which would shadow each game's own path route. Clusters
-are no longer a routing concept: a new game is an ordinary site with its own
-subdomain.
+About 30 sites sit one level deeper at `bisks.net/games/<name>`, so their
+`PREFIX` is `/games/<name>`. `sites/games` serves the cluster's index page at
+the bare `bisks.net/games`, and deliberately does not claim `bisks.net/games/*`,
+which would shadow each game's own path route. Clusters are no longer a routing
+concept: a new game is an ordinary site with its own subdomain.
 
 **OAuth sites need a single canonical host.** An atproto client is identified by
 its `client_id` URL, and the PDS fetches `client-metadata.json` from that URL and

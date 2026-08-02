@@ -68,7 +68,7 @@ agents never push to main at once). The box makes only **outbound** calls
   + enables the `buildthis-poll` systemd service. Idempotent.
 - **The work loop:** `builder/box-poll.sh` (the systemd service). Claims a job,
   runs `builder/box-build.sh`, repeats. `set -uo` (not `-e`) so one failed build
-  never kills the loop; a wedged build ages out of the queue rather than
+  never kills the loop; a stuck build ages out of the queue rather than
   re-looping.
 - **One build:** `builder/box-build.sh` — the box equivalent of the Action's
   build+reply steps, behavior-identical so the cutover was safe.

@@ -8,8 +8,8 @@ The one settled decision is the design principle in
 `store-ours-rederive-theirs.md`: **store what's ours, re-derive the rest.**
 Several items below were re-scoped by it.
 
-The files here keep their original shape — they're thinking, not
-specifications. Check anything against the code before acting on it.
+These files are thinking, not specifications. Check anything against the code
+before acting on it.
 
 ---
 

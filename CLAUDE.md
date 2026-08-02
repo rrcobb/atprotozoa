@@ -34,6 +34,6 @@ buys isn't worth the ceremony here.
 
 - Numbered notes at the top level describe how things work **now**. When
   something changes, edit the note rather than appending a dated entry to it.
-- `notes/history/` holds incident logs and superseded designs — worth keeping,
-  not part of the reading path.
+- `notes/history/` holds incident logs and superseded designs. Consult it when a
+  symptom looks familiar; don't treat it as current.
 - `notes/ideas/` holds undecided proposals. Nothing there is committed to.

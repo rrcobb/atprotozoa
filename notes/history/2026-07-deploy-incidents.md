@@ -1,14 +1,13 @@
 # Deploy incidents, July 2026 (archived)
 
-> **This is history, not current guidance.** It's the original `20-deploy.md`,
-> kept for the incident record: the Safe Browsing flag and its root cause, the
-> custom-domain cap, the path-mounting era and the bugs it produced, and the
-> migration back to subdomains. The rules that still bind live in
-> `notes/20-deploy.md`.
+> **This is history, not current guidance.** It's the original `20-deploy.md`:
+> the Safe Browsing flag and its root cause, the custom-domain cap, the
+> path-mounting era and the bugs it produced, and the migration back to
+> subdomains. The rules that still bind are in `notes/20-deploy.md`.
 >
 > Much of what follows describes the path-mounting period, when sites were
-> served at `bisks.net/<name>`. That's over — sites get their own subdomain.
-> Read the current playbook before acting on anything here.
+> served at `bisks.net/<name>`. Sites now get their own subdomain, so read
+> `notes/40-new-site-playbook.md` before acting on anything here.
 
 ## Goal
 

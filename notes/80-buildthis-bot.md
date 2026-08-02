@@ -5,9 +5,8 @@ describing a small site or feature idea; the bot runs a coding agent that builds
 the thing into this repo, autodeploys it, and replies in-thread with the live
 URL.
 
-This note covers **what the bot is and the rules it operates under**.
-`notes/90-infra-and-budget.md` covers **where builds actually run** — the box,
-the queue, the retry model, and the spend wall.
+For where builds run — the box, the queue, the retry model, and the spend wall —
+see `notes/90-infra-and-budget.md`.
 
 ## The parts
 
@@ -29,10 +28,10 @@ Each tick:
    than the last-seen cursor (KV).
 2. Gate on **Rob's mutuals** — `getRelationships` against Rob's DID
    (`did:plc:f6n22z62adionrvb5s6n6vfk`), requiring both `following` and
-   `followedBy`. Note this is mutual-follow with *Rob*, not with the bot, and
-   the check runs regardless of which account the mention lands on. A non-mutual
-   gets a friendly reply tagging `@bisks.net` so Rob can pick it up by hand — no
-   dispatch, but no silence either.
+   `followedBy`. This is mutual-follow with *Rob*, not with the bot, and the
+   check runs regardless of which account the mention lands on. A non-mutual gets
+   a friendly reply tagging `@bisks.net` so Rob can pick it up by hand; nothing
+   is dispatched.
 3. **Build the brief.** The tagging post's text is the instruction. If the tag
    was a reply, `getPostThread` walks up to **10 ancestors** and prepends them,
    plus the thread root when it sits above that window, so "build this ☝️"
@@ -87,28 +86,29 @@ this throttles backlogs only. Set to `"0"` to disable. Status page at `/mobius`.
 
 The build prompt is a Bluesky post written by someone else, fed to an autonomous
 agent with commit and deploy rights. Rob's call is that the bot should be able to
-edit **anything** — new sites, existing sites, its own code. So the sandbox is
-deliberately small: just the two places where third-party-text-steers-the-bot is
-genuinely dangerous.
+edit **anything** — new sites, existing sites, its own code. The sandbox is
+therefore small, covering only the two cases where a post steering the bot could
+do damage that isn't reversible by editing a file.
 
 - **The only two hard limits:** (1) don't touch `.github/`, so a post can't
   rewrite the bot's own CI or permissions; (2) don't read or edit secrets, so a
   post can't exfiltrate a credential. Everything else — all sites,
-  `sites/buildthis/` itself, `apex/`, `notes/`, root config — is fair game.
-  Carried by `builder/INSTRUCTIONS.md`, read first, binding.
-- **Watcher-side:** the brief is passed as a *description of the work*, never as
+  `sites/buildthis/` itself, `apex/`, `notes/`, root config — is editable.
+  Carried by `builder/INSTRUCTIONS.md`, which the builder reads first and which
+  binds where it and a request disagree.
+- **Watcher-side:** the brief is passed as a description of the work, never as
   harness instructions, and reply text is derived from the build result rather
-  than from the brief — so brief text can't become bot-authored post copy.
+  than from the brief, so brief text can't become bot-authored post copy.
 
-"Print the secrets" and "rewrite your workflow to remove the limits" have no
-purchase. "Add dark mode to trigrams" and "make your replies funnier" both work.
-The trade Rob chose knowingly: a mutual's post *can* edit a live site or the
-bot's own behavior — the blast radius is a bad edit, visible in git, not a
-leaked key.
+So "print the secrets" and "rewrite your workflow to remove the limits" both
+fail, while "add dark mode to trigrams" and "make your replies funnier" both
+work. Rob accepted the trade knowingly: a mutual's post can edit a live site or
+the bot's own behavior, and the worst case is a bad edit, which is visible in git
+and revertible.
 
-This is load-bearing, not incidental. Real things that shipped by tag: the
-house style on sharing (`notes/45`), the bot's own reply text, a facet-encoding
-bug fix in `reply.mjs`, mobius mode, and repo-wide tooling (`pnpm
+Editing the bot by tagging it is something people actually do. Shipped that way:
+the house style on sharing (`notes/45`), the bot's own reply text, a
+facet-encoding bug fix in `reply.mjs`, mobius mode, and repo-wide tooling (`pnpm
 check:imports`). Self-modification is currently **global** — one person's tag
 changes the defaults for everybody, with no scoping and no record of who changed
 what. That open question is in `notes/ideas/`.

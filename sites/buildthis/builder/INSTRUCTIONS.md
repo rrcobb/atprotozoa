@@ -62,9 +62,9 @@ there's genuinely nothing to make.
   `sites/trigrams` if nothing's close), then rename — `wrangler.toml`
   `name = "atprotozoa-<newname>"` + `main = "src/index.ts"` + a single route
   `{ pattern = "<newname>.bisks.net/*", zone_name = "bisks.net" }`
-  (`zone_name`, NOT `custom_domain = true`); `package.json`
+  (`zone_name`, *not* `custom_domain = true`); `package.json`
   `"name": "@atprotozoa/<newname>"`. A brand-new site is served at the root of
-  its own hostname, so `src/index.ts` needs **no** mount-prefix stripping —
+  its own hostname, so `src/index.ts` needs **no mount-prefix stripping** —
   just forward to the `ASSETS` binding. (Older sites still carry a
   `bisks.net/<name>` path route for previously-shared links; if you copied one,
   delete that route and its prefix-strip rather than keeping them.)

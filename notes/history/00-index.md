@@ -1,15 +1,15 @@
 # History
 
 Superseded designs and incident logs. **None of this is current guidance** —
-it's kept because the reasoning is often still useful, and because the failure
-modes recur. Check anything here against the code before acting on it.
+check anything here against the code before acting on it. The reasoning and the
+measurements are often still useful, and several of the failure modes recur.
 
 - **`builder-inputs-and-runway.md`** — why the builder used to see only plain
   text, and the 434-build measurement of the "ran out of runway" rate. Both
-  problems are fixed (`notes/80` and `notes/90` carry the current behavior), but
-  the measurements are here in full, along with the reasoning behind two
-  decisions: raise the turn ceiling and add a real wall clock, and *don't*
-  auto-continue partial builds because the re-tag is a feature.
+  problems are fixed (`notes/80` and `notes/90` carry the current behavior). The
+  measurements are here in full, with the reasoning behind two decisions: raise
+  the turn ceiling and add a wall clock, and leave partial builds to be continued
+  by a human re-tagging rather than automatically.
 
 - **`2026-07-deploy-incidents.md`** — the original `20-deploy.md`. The Safe
   Browsing flag on the zone and its root cause, the Cloudflare custom-domain
@@ -22,18 +22,17 @@ modes recur. Check anything here against the code before acting on it.
 
 - **`prior-art-mino.md`** — mino.mobi (`github.com/minormobius/agent01`), the
   project this one took its shape from, and where it deliberately diverged
-  (Workers rather than Pages; a stricter no-shared-package rule). Still the
-  first place to look for a pattern this repo hasn't built yet.
+  (Workers rather than Pages; a stricter no-shared-package rule). Its source is a
+  good reference for any atproto pattern this repo hasn't built yet.
 
 - **`trigrams-design.md`** — the design of the first site: live 3-grams off the
   firehose, and the honest scoping of "novel" (novel to the session, not
   globally unique).
 
 - **`trigrams-reply-and-quiver.md`** — the `/quiver` and `/reply` views, and
-  what reading mino's source settled about atproto OAuth. Its conclusion is
-  worth keeping in mind generally: the "this needs a server" instinct was wrong
-  every time here — search, OAuth, and uniqueness verification all turned out to
-  work client-side.
+  what reading mino's source settled about atproto OAuth. Its general conclusion
+  still applies: search, OAuth, and uniqueness verification all work client-side,
+  so check the real endpoints before adding a server.
 
 - **`trigrams-taste-calibration.md`** — calibrating what makes a trigram good
   against ~128 hand-curated examples. Concluded that heuristics filter well and
