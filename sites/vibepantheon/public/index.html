@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>the pantheon of vibes — live off the Bluesky firehose</title>
+    <meta
+      name="description"
+      content="Every time someone on Bluesky finishes the sentence &quot;the vibes are ___,&quot; it gets tallied here. The most-sworn-to vibe sits at the top of the pantheon."
+    />
+    <meta property="og:title" content="the pantheon of vibes" />
+    <meta
+      property="og:description"
+      content="Scanning the Bluesky firehose for &quot;the vibes are ___,&quot; live, and ranking every answer anyone's ever given."
+    />
+    <meta property="og:image" content="https://vibepantheon.bisks.net/og.png" />
+    <meta property="og:url" content="https://vibepantheon.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #100c17;
+        --panel: #18122a;
+        --panel2: #1f1836;
+        --ink: #f3ecff;
+        --muted: #ab9dcf;
+        --faint: #3a2f57;
+        --line: #382c53;
+        --gold: #f0c674;
+        --gold-dim: #b6934f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(120% 90% at 50% -10%, #241a3f 0%, var(--bg) 55%);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--gold); }
+      a:hover { color: var(--ink); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.2rem 0 0.4rem; }
+      h1 {
+        font-size: 1.95rem; font-weight: 800; letter-spacing: -0.01em;
+        margin: 0 0 0.35rem; color: var(--gold);
+      }
+      .sub {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.65;
+        max-width: 58ch; margin: 0 0 1.4rem;
+      }
+      .sub code {
+        color: var(--ink); background: var(--panel2); border: 1px solid var(--line);
+        border-radius: 4px; padding: 0.05rem 0.35rem;
+      }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--line);
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%; background: var(--faint);
+        transition: background 0.3s;
+      }
+      .dot.live { background: var(--gold); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+
+      /* ---- the top of the pantheon ---- */
+      .spotlight {
+        display: none;
+        background: linear-gradient(160deg, var(--panel2), var(--panel));
+        border: 1px solid var(--gold-dim);
+        border-radius: 16px;
+        padding: 1.6rem 1.5rem;
+        margin-bottom: 2rem;
+      }
+      .spotlight.show { display: block; }
+      .spotlight .label {
+        font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--gold); font-weight: 700; margin-bottom: 0.5rem;
+      }
+      .spotlight .phrase {
+        font-size: 1.55rem; font-weight: 800; line-height: 1.35;
+        color: var(--ink); margin-bottom: 0.6rem; overflow-wrap: break-word;
+      }
+      .spotlight .phrase::before { content: "“the vibes are "; color: var(--muted); font-weight: 500; }
+      .spotlight .phrase::after { content: "”"; color: var(--muted); font-weight: 500; }
+      .spotlight .meta {
+        display: flex; align-items: center; gap: 0.7rem; color: var(--muted); font-size: 0.82rem;
+        flex-wrap: wrap;
+      }
+      .spotlight .count {
+        color: var(--gold); font-weight: 800; font-size: 0.95rem;
+      }
+      .spotlight .quote {
+        margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px dashed var(--line);
+        display: flex; gap: 0.7rem; align-items: flex-start;
+      }
+      .spotlight .quote img {
+        width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 1px solid var(--line); flex: none;
+      }
+      .spotlight .quote .text {
+        font-size: 0.85rem; color: var(--muted); line-height: 1.5;
+        white-space: pre-wrap; overflow-wrap: break-word; word-break: break-word;
+      }
+      .spotlight .quote .who { color: var(--ink); font-weight: 700; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--line);
+      }
+
+      h2 {
+        font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--muted); font-weight: 700; margin: 2rem 0 0.8rem;
+      }
+
+      ol.board { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; gap: 0.85rem; padding: 0.85rem 0;
+        border-top: 1px solid var(--line); align-items: flex-start;
+        animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .rank {
+        font-weight: 800; font-size: 0.9rem; color: var(--gold-dim);
+        min-width: 1.8rem; padding-top: 0.15rem; text-align: right;
+      }
+      .body { flex: 1; min-width: 0; }
+      .phrase2 {
+        font-size: 0.98rem; font-weight: 700; color: var(--ink);
+        margin: 0 0 0.25rem; overflow-wrap: break-word;
+      }
+      .phrase2 .q { color: var(--muted); font-weight: 500; }
+      .rowmeta {
+        display: flex; flex-wrap: wrap; gap: 0.7rem; color: var(--muted);
+        font-size: 0.76rem; align-items: center;
+      }
+      .rowmeta .n { font-weight: 800; color: var(--gold); }
+      .rowmeta a.perma { color: var(--muted); text-decoration: none; }
+      .rowmeta a.perma:hover { color: var(--ink); text-decoration: underline; }
+
+      .feed { list-style: none; margin: 0; padding: 0; }
+      .feeditem {
+        display: flex; gap: 0.7rem; padding: 0.65rem 0; border-top: 1px solid var(--line);
+        font-size: 0.82rem; align-items: flex-start;
+      }
+      .feeditem:first-of-type { border-top: none; }
+      .feeditem img {
+        width: 24px; height: 24px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 1px solid var(--line); flex: none; margin-top: 0.1rem;
+      }
+      .feeditem .body { flex: 1; min-width: 0; }
+      .feeditem .who { color: var(--muted); }
+      .feeditem .who b { color: var(--ink); }
+      .feeditem .ph { color: var(--ink); }
+      .feeditem .ph .q { color: var(--muted); }
+      .feeditem .ago { color: var(--faint); font-size: 0.72rem; }
+
+      .share { margin: 1.9rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--gold);
+        background: var(--panel); border: 1px solid var(--gold-dim); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--gold); }
+
+      footer {
+        margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7;
+      }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>the pantheon of vibes</h1>
+        <p class="sub">
+          Every time someone on Bluesky finishes the sentence
+          <code>the vibes are ___</code>, it's tallied here — the answer, up
+          to whatever punctuation ends it, sampled live off the firehose. The
+          most-sworn-to vibe stands at the top of the pantheon; everything
+          else is ranked below it.
+        </p>
+      </header>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span id="trackingText"></span>
+      </div>
+
+      <div class="spotlight" id="spotlight">
+        <div class="label">reigning vibe</div>
+        <div class="phrase" id="spPhrase"></div>
+        <div class="meta">
+          <span class="count" id="spCount"></span>
+          <span>believers</span>
+          <span class="sep">·</span>
+          <span id="spAgo"></span>
+        </div>
+        <div class="quote" id="spQuote" style="display:none">
+          <img id="spAvatar" alt="" referrerpolicy="no-referrer" />
+          <div class="text">
+            <span class="who" id="spWho"></span><br />
+            <span id="spText"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="empty" id="empty" style="display:none">
+        Nobody's said it yet — or the tracker just came back up and hasn't
+        heard it again. The pantheon fills in as soon as it does. Check back
+        shortly.
+      </div>
+
+      <div id="rest" style="display:none">
+        <h2>the pantheon, ranked</h2>
+        <ol class="board" id="board"></ol>
+
+        <h2>freshly ascended</h2>
+        <ul class="feed" id="feed"></ul>
+      </div>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=vibepantheon.bisks.net" target="_blank" rel="noopener">share the pantheon</a>
+      </div>
+
+      <footer>
+        Sampled from the live firehose via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        — every public post that matches, not a curated sample. Ranked by raw
+        count since this tracker last restarted, not all-time; a fresh deploy
+        starts the pantheon over. Avatars and handles are looked up from the
+        public AppView and refresh about hourly.
+        idea from <a href="https://bsky.app/profile/antiali.as">@antiali.as</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const trackingText = document.getElementById("trackingText");
+      const spotlight = document.getElementById("spotlight");
+      const empty = document.getElementById("empty");
+      const rest = document.getElementById("rest");
+      const board = document.getElementById("board");
+      const feed = document.getElementById("feed");
+      const shareLink = document.getElementById("shareLink");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      function who(e) {
+        return e.displayName || (e.handle ? "@" + e.handle : e.lastDid || e.did || "someone");
+      }
+
+      function rowHTML(e, i) {
+        return `
+          <li class="row">
+            <div class="rank">${i + 1}</div>
+            <div class="body">
+              <p class="phrase2"><span class="q">“the vibes are</span> ${esc(e.phrase)} <span class="q">”</span></p>
+              <div class="rowmeta">
+                <span class="n">${e.count.toLocaleString()}×</span>
+                <span>last by ${esc(who(e))}</span>
+                <span>${timeAgo(e.lastSeen)}</span>
+                <a class="perma" href="${postUrl(e.lastDid, e.lastRkey)}" target="_blank" rel="noopener">open ↗</a>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function feedHTML(e) {
+        return `
+          <li class="feeditem">
+            <img src="${esc(e.avatar || "")}" alt="" referrerpolicy="no-referrer" />
+            <div class="body">
+              <div class="ph"><span class="q">“the vibes are</span> ${esc(e.phrase)} <span class="q">”</span></div>
+              <div class="who">${esc(who(e))} <span class="ago">· ${timeAgo(e.createdAt)}</span>
+                · <a class="perma" href="${postUrl(e.did, e.rkey)}" target="_blank" rel="noopener">open ↗</a>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      function render(data) {
+        const top = data.top || [];
+        const recent = data.recent || [];
+        trackingText.textContent = `${data.tracked || 0} distinct vibes · ${(data.totalMatches || 0).toLocaleString()} total sworn`;
+
+        if (!top.length) {
+          spotlight.classList.remove("show");
+          empty.style.display = "";
+          rest.style.display = "none";
+          return;
+        }
+        empty.style.display = "none";
+        rest.style.display = "";
+
+        const first = top[0];
+        document.getElementById("spPhrase").textContent = first.phrase;
+        document.getElementById("spCount").textContent = first.count.toLocaleString();
+        document.getElementById("spAgo").textContent = "last sworn " + timeAgo(first.lastSeen);
+        const spQuote = document.getElementById("spQuote");
+        if (first.lastText) {
+          spQuote.style.display = "flex";
+          document.getElementById("spAvatar").src = first.avatar || "";
+          document.getElementById("spWho").textContent = who(first);
+          document.getElementById("spText").textContent = first.lastText;
+        } else {
+          spQuote.style.display = "none";
+        }
+        spotlight.classList.add("show");
+
+        board.innerHTML = top.map((e, i) => rowHTML(e, i)).join("");
+        feed.innerHTML = recent.map(feedHTML).join("");
+
+        const shareText = `the vibes are currently, above all else, "${first.phrase}" (${first.count} believers and counting) — vibepantheon.bisks.net`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText.slice(0, 300));
+      }
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const r = await fetch("/api/leaderboard", { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          dot.classList.add("live");
+          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 15000);
+    </script>
+  </body>
+</html>
