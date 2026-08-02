@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>norvidfolio — @norvid-studies.bsky.social</title>
+    <meta
+      name="description"
+      content="A portfolio of norvid-studies' best posts and images: a live image gallery and a set of favorites curated by buildthis after reading the last 500 posts."
+    />
+    <meta property="og:title" content="norvidfolio — @norvid-studies.bsky.social" />
+    <meta
+      property="og:description"
+      content="A live image gallery pulled from the post history, and buildthis's own curated favorite posts from the last 500."
+    />
+    <meta property="og:image" content="https://norvidfolio.bisks.net/og.png" />
+    <meta property="og:url" content="https://norvidfolio.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #fbf9f2;
+        --ink: #1f2417;
+        --muted: #6b6f5e;
+        --faint: #e3e0cd;
+        --accent: #3f6b30;
+        --accent2: #b8862c;
+        --paper: #f3f1e2;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image: linear-gradient(180deg, #eef4e2 0%, var(--bg) 340px);
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      /* ── header / profile ─────────────────────────────────────────── */
+      .eyebrow {
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--accent2); margin: 0 0 0.6rem; font-weight: 700;
+      }
+      #profile {
+        display: flex; gap: 1rem; align-items: center;
+        padding-bottom: 1.4rem; margin-bottom: 0.5rem;
+        border-bottom: 2px solid var(--ink);
+      }
+      #profile img#avatar {
+        width: 64px; height: 64px; border-radius: 50%; flex: none;
+        background: var(--faint); object-fit: cover; border: 2px solid var(--ink);
+      }
+      #profile .who { min-width: 0; }
+      #profile .name { font-weight: 700; font-size: 1.2rem; }
+      #profile .name a { color: inherit; }
+      #profile .handle { color: var(--muted); font-size: 0.88rem; }
+      #profile .stats { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
+      #bio { color: var(--muted); font-size: 0.85rem; margin: 0.6rem 0 0; white-space: pre-line; }
+      #profile.loading .who > * { opacity: 0.35; }
+
+      .intro { color: var(--muted); font-size: 0.92rem; margin: 1.3rem 0 2.4rem; max-width: 62ch; }
+      .intro strong { color: var(--ink); }
+
+      section { margin-bottom: 3rem; }
+      h2 {
+        font-size: 1.05rem; margin: 0 0 0.3rem; letter-spacing: -0.01em;
+        display: flex; align-items: baseline; gap: 0.5rem;
+      }
+      h2 .count { font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+      .section-note { color: var(--muted); font-size: 0.82rem; margin: 0 0 1.2rem; max-width: 60ch; }
+
+      /* ── gallery ──────────────────────────────────────────────────── */
+      .status { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
+      #gallery {
+        display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, 1fr);
+        grid-auto-columns: 150px; gap: 0.6rem;
+        height: 56vh; overflow-x: auto; overflow-y: hidden;
+        scroll-behavior: smooth; scroll-snap-type: x proximity;
+        padding: 0.6rem; border: 1px solid var(--faint); border-radius: 10px;
+      }
+      @media (min-width: 620px) { #gallery { grid-template-rows: repeat(2, 1fr); grid-auto-columns: 190px; height: 60vh; } }
+      @media (min-width: 900px) { #gallery { grid-template-rows: repeat(3, 1fr); grid-auto-columns: 220px; height: 66vh; } }
+      .shot { scroll-snap-align: start; border-radius: 8px; overflow: hidden; border: 1px solid var(--faint); }
+      .shot img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+      .gallery-nav {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 0.6rem; margin: 0.5rem 0; color: var(--muted); font-size: 0.76rem;
+      }
+      .gallery-nav .hint { flex: 1; text-align: center; }
+      .gallery-nav button {
+        font-family: var(--mono); font-size: 0.76rem; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid var(--faint);
+        background: var(--paper); color: var(--ink);
+      }
+      .gallery-nav button:hover { border-color: var(--accent); color: var(--accent); }
+      .gallery-nav button:disabled { opacity: 0.4; cursor: default; border-color: var(--faint); color: var(--muted); }
+
+      /* ── picks ────────────────────────────────────────────────────── */
+      #picks {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 1.1rem;
+      }
+      .pick {
+        margin: 0; border: 1px solid var(--faint); border-radius: 10px;
+        background: var(--paper); overflow: hidden; display: flex; flex-direction: column;
+      }
+      .pick-img { display: block; background: var(--faint); }
+      .pick-img img { width: 100%; display: block; max-height: 260px; object-fit: cover; }
+      .pick blockquote {
+        margin: 0; padding: 0.9rem 1rem 0.4rem;
+        font-family: var(--serif); font-size: 1.02rem; line-height: 1.45;
+      }
+      .pick blockquote.empty { font-style: italic; color: var(--muted); font-family: var(--mono); font-size: 0.82rem; }
+      .pick blockquote a { color: inherit; }
+      .pick blockquote a:hover { color: var(--accent); }
+      .pick figcaption {
+        padding: 0.2rem 1rem 0.9rem; display: flex; justify-content: space-between;
+        gap: 0.6rem; align-items: baseline; flex-wrap: wrap;
+      }
+      .pick-note { color: var(--accent); font-size: 0.78rem; font-style: italic; }
+      .pick-date { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+
+      /* ── footer ───────────────────────────────────────────────────── */
+      footer {
+        border-top: 1px solid var(--faint); padding-top: 1.5rem;
+        display: flex; flex-wrap: wrap; gap: 0.8rem 1.2rem; align-items: center;
+        color: var(--muted); font-size: 0.82rem;
+      }
+      .btn {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.5rem 0.9rem; border-radius: 999px; border: 1px solid var(--ink);
+        color: var(--ink); font-size: 0.85rem;
+      }
+      .btn:hover { background: var(--ink); color: var(--bg); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="eyebrow">norvidfolio</div>
+      <div id="profile" class="loading">
+        <img id="avatar" alt="" />
+        <div class="who">
+          <div class="name"><a id="displayName" target="_blank" rel="noopener">loading…</a></div>
+          <div class="handle"><a id="handle" target="_blank" rel="noopener"></a></div>
+          <div class="stats"><span id="postsCount">—</span> posts</div>
+          <div id="bio"></div>
+        </div>
+      </div>
+
+      <p class="intro">
+        <strong>@norvid-studies.bsky.social</strong> asked for the same thing
+        <strong>@fromthewestmeadow.com</strong> got at
+        <a href="https://meadowfolio.bisks.net/" target="_blank" rel="noopener">meadowfolio</a>,
+        scoped to their two asks: a live gallery pulled from their post history,
+        and a set of favorites <strong>buildthis</strong> picked after reading
+        the last 500 posts (norvid posts fast enough that 500 barely covers a
+        week — they said that was probably enough, and it was).
+      </p>
+
+      <section>
+        <h2>gallery <span class="count" id="galleryCount"></span></h2>
+        <p class="section-note">Every image found while paging back through the post history, newest on the left. Reads the public AppView live, and keeps loading further back as you scroll right.</p>
+        <p class="status" id="galleryStatus">fetching posts…</p>
+        <div class="gallery-nav">
+          <button type="button" id="galleryToTop">⇤ newest</button>
+          <span class="hint">scroll left/right, or jump to an end</span>
+          <button type="button" id="galleryToBottomTop">first images ⇥</button>
+        </div>
+        <div id="gallery"></div>
+        <div class="gallery-nav">
+          <button type="button" id="galleryToTopBottom">⇤ newest</button>
+          <span class="hint">scroll left/right, or jump to an end</span>
+          <button type="button" id="galleryToBottom">first images ⇥</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>buildthis picks</h2>
+        <p class="section-note">I read back through the last 500 posts — 2026-07-27 through 2026-08-02 — to put this together. These are the ones that stuck.</p>
+        <div id="picks"></div>
+      </section>
+
+      <footer>
+        <a class="btn" id="shareBluesky" target="_blank" rel="noopener">share on Bluesky</a>
+        <span>built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> for <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a></span>
+        <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
+      </footer>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
