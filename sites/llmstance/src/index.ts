@@ -15,6 +15,10 @@
 // og:title/og:description/og:url onto the same page shell before handing it
 // back — same shape as sites/didscope's /s/<handle>.
 //
+// /s/<handle>?scope=followers|following|network carries the client's scan
+// mode into the share card too, so "scan my followers" shares a card about
+// the followers' verdict, not the account's own posts.
+//
 // Duplicated, not imported: copy-don't-abstract applies within one site too.
 
 export interface Env {
@@ -122,21 +126,85 @@ function verdictFor(pro: number, anti: number, unclear: number): string {
   return netLabel(pro, anti);
 }
 
-async function scanForVerdict(did: string): Promise<{ pro: number; anti: number; unclear: number }> {
-  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "100", filter: "posts_with_replies" });
-  const posts = (feed.feed || [])
-    .filter((f: any) => !f.reason)
-    .map((f: any) => f.post?.record?.text)
-    .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0);
+// Sharing a network scan (followers/following/network) still needs a real
+// per-link OG card. This mirrors public/index.html's scan, but the Worker
+// runs synchronously per-request (no progress bar, no user patience to
+// spend), so the caps here are much smaller than the client's.
+const SHARE_NETWORK_SIDE_CAP = 8;
+const SHARE_POSTS_PER_ACCOUNT = 15;
+
+async function fetchGraphList(kind: "followers" | "follows", did: string, cap: number): Promise<{ did: string; handle: string }[]> {
+  const method = kind === "followers" ? "app.bsky.graph.getFollowers" : "app.bsky.graph.getFollows";
+  const key = kind === "followers" ? "followers" : "follows";
+  const out: { did: string; handle: string }[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 2 && out.length < cap; page++) {
+    const params: Record<string, string> = { actor: did, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const res = await xrpc(method, params);
+    const items = res[key] || [];
+    for (const a of items) {
+      out.push({ did: a.did, handle: a.handle });
+      if (out.length >= cap) break;
+    }
+    cursor = res.cursor;
+    if (!cursor || items.length === 0) break;
+  }
+  return out;
+}
+
+async function scanForVerdict(
+  did: string,
+  scope: string
+): Promise<{ pro: number; anti: number; unclear: number; accountCount: number | null }> {
+  if (scope !== "followers" && scope !== "following" && scope !== "network") {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "100", filter: "posts_with_replies" });
+    const posts = (feed.feed || [])
+      .filter((f: any) => !f.reason)
+      .map((f: any) => f.post?.record?.text)
+      .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0);
+
+    let pro = 0, anti = 0, unclear = 0;
+    for (const text of posts) {
+      const label = classifyPost(text);
+      if (label === "pro") pro++;
+      else if (label === "anti") anti++;
+      else unclear++;
+    }
+    return { pro, anti, unclear, accountCount: null };
+  }
+
+  let accounts: { did: string; handle: string }[] = [];
+  if (scope === "followers" || scope === "network") accounts.push(...(await fetchGraphList("followers", did, SHARE_NETWORK_SIDE_CAP)));
+  if (scope === "following" || scope === "network") accounts.push(...(await fetchGraphList("follows", did, SHARE_NETWORK_SIDE_CAP)));
+  const seen = new Set([did]);
+  accounts = accounts.filter((a) => (seen.has(a.did) ? false : (seen.add(a.did), true)));
 
   let pro = 0, anti = 0, unclear = 0;
-  for (const text of posts) {
-    const label = classifyPost(text);
-    if (label === "pro") pro++;
-    else if (label === "anti") anti++;
-    else unclear++;
-  }
-  return { pro, anti, unclear };
+  await Promise.all(
+    accounts.map(async (acc) => {
+      try {
+        const feed = await xrpc("app.bsky.feed.getAuthorFeed", {
+          actor: acc.did,
+          limit: String(SHARE_POSTS_PER_ACCOUNT),
+          filter: "posts_with_replies",
+        });
+        const posts = (feed.feed || [])
+          .filter((f: any) => !f.reason)
+          .map((f: any) => f.post?.record?.text)
+          .filter((t: unknown): t is string => typeof t === "string" && t.trim().length > 0);
+        for (const text of posts) {
+          const label = classifyPost(text);
+          if (label === "pro") pro++;
+          else if (label === "anti") anti++;
+          else unclear++;
+        }
+      } catch (_) {
+        // one bad account (blocked, deactivated, rate-limited) shouldn't sink the whole preview
+      }
+    })
+  );
+  return { pro, anti, unclear, accountCount: accounts.length };
 }
 
 function truncate(s: string, max: number): string {
@@ -161,12 +229,16 @@ const GENERIC_DESC =
   "Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance.";
 const GENERIC_OG_URL = "https://llmstance.bisks.net/";
 
+const SCOPE_NOUN: Record<string, string> = { followers: "followers", following: "following", network: "network" };
+
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
   let html = await base.text();
 
   const handle = cleanHandle(rawHandle);
   if (!handle) return new Response(html, { headers: base.headers });
+
+  const scope = new URL(request.url).searchParams.get("scope") || "posts";
 
   try {
     let did: string;
@@ -175,12 +247,15 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
 
     const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
     const who = "@" + (profile.handle || handle);
-    const { pro, anti, unclear } = await scanForVerdict(did);
+    const { pro, anti, unclear, accountCount } = await scanForVerdict(did, scope);
     const verdict = verdictFor(pro, anti, unclear);
 
-    const title = `llmstance: ${who} is ${verdict.replace(/\.$/, "")}`;
+    const scopeNoun = SCOPE_NOUN[scope];
+    const subject = scopeNoun ? `${who}'s ${scopeNoun}${accountCount ? ` (${accountCount})` : ""}` : who;
+
+    const title = `llmstance: ${subject} is ${verdict.replace(/\.$/, "")}`;
     const desc = truncate(`${pro} pro-llm · ${anti} anti-llm · ${unclear} unclear. ${verdict}`, 300);
-    const ogUrl = `https://llmstance.bisks.net/s/${encodeURIComponent(handle)}`;
+    const ogUrl = `https://llmstance.bisks.net/s/${encodeURIComponent(handle)}${scopeNoun ? `?scope=${scope}` : ""}`;
 
     html = html
       .split(GENERIC_TITLE).join(esc(title))

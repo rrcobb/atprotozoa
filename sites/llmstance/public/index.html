@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>llmstance — where does this account actually stand on AI?</title>
-<meta name="description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta name="description" content="Enter a Bluesky handle. llmstance pages through their feed — or their followers, following, or entire network — labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up the overall stance." />
 <meta property="og:title" content="llmstance — where does this account actually stand on AI?" />
-<meta property="og:description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta property="og:description" content="Enter a Bluesky handle. llmstance pages through their feed — or their followers, following, or entire network — labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up the overall stance." />
 <meta property="og:url" content="https://llmstance.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://llmstance.bisks.net/og.png" />
@@ -15,7 +15,7 @@
 <meta property="og:image:alt" content="llmstance: a scoreboard tallying an account's posts into Pro-LLM, Anti-LLM, and Unclear, with an overall verdict." />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="llmstance — where does this account actually stand on AI?" />
-<meta name="twitter:description" content="Enter a Bluesky handle. llmstance pages through their feed, labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up their overall stance." />
+<meta name="twitter:description" content="Enter a Bluesky handle. llmstance pages through their feed — or their followers, following, or entire network — labels every post Pro-LLM, Anti-LLM, or Unclear with a keyword heuristic, and tallies up the overall stance." />
 <meta name="twitter:image" content="https://llmstance.bisks.net/og.png" />
 <style>
   :root {
@@ -93,7 +93,35 @@
     white-space: nowrap;
   }
   button:disabled { opacity: 0.55; cursor: wait; }
-  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1.1rem; }
+
+  .scope-control {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.6rem;
+  }
+  .scope-control label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.78rem;
+    color: var(--dim);
+    cursor: pointer;
+  }
+  .scope-control input {
+    accent-color: var(--accent);
+    margin: 0;
+  }
+  .scope-control label:has(input:checked) {
+    color: var(--fg);
+    border-color: var(--accent);
+    background: rgba(95, 201, 255, 0.08);
+  }
   .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
   .status.err { color: var(--anti); }
 
@@ -112,6 +140,13 @@
   .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
   .who .handle { font-weight: 700; }
   .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .scope-note {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin: -0.8rem 0 1.2rem;
+  }
 
   .verdict-label {
     text-align: center;
@@ -195,6 +230,13 @@
   .receipt.pro { background: rgba(53, 212, 136, 0.08); border-left: 3px solid var(--pro); }
   .receipt.anti { background: rgba(255, 95, 109, 0.08); border-left: 3px solid var(--anti); }
   .receipt:hover { filter: brightness(1.15); }
+  .receipt .receipt-author {
+    display: block;
+    color: var(--dim);
+    font-size: 0.72rem;
+    margin-top: 0.35rem;
+    white-space: normal;
+  }
   .receipts .none { color: var(--dim); font-size: 0.85rem; font-style: italic; }
 
   .share {
@@ -250,16 +292,24 @@
   <div class="wrap">
     <h1>llmstance</h1>
     <p class="tag">
-      Enter a Bluesky handle. This pages through their whole feed, labels every
-      post <b>Pro-LLM</b>, <b>Anti-LLM</b>, or <b>Unclear</b> with a keyword
-      heuristic, and tallies up where the account actually stands.
+      Enter a Bluesky handle. This pages through their feed — or their
+      followers, following, or entire network — labels every post
+      <b>Pro-LLM</b>, <b>Anti-LLM</b>, or <b>Unclear</b> with a keyword
+      heuristic, and tallies up where the account (or their whole crowd)
+      actually stands.
     </p>
 
     <form id="f">
       <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
       <button id="go" type="submit">scan</button>
     </form>
-    <p class="hint">works on any handle. yours, a friend's, your favorite AI hater.</p>
+    <div class="scope-control" id="scopeControl" role="radiogroup" aria-label="what to scan">
+      <label><input type="radio" name="scope" value="posts" checked /> just their posts</label>
+      <label><input type="radio" name="scope" value="followers" /> their followers</label>
+      <label><input type="radio" name="scope" value="following" /> their following</label>
+      <label><input type="radio" name="scope" value="network" /> entire network (both)</label>
+    </div>
+    <p class="hint">works on any handle. yours, a friend's, your favorite AI hater. network modes sample a batch of accounts, not literally everyone.</p>
 
     <p id="status" class="status"></p>
 
@@ -272,7 +322,9 @@
         </div>
       </div>
 
-      <div class="verdict-label">overall stance</div>
+      <div class="scope-note" id="scopeNote"></div>
+
+      <div class="verdict-label" id="verdictLabel">overall stance</div>
       <div class="verdict" id="verdict"></div>
 
       <div class="bar" id="bar">
@@ -282,13 +334,7 @@
       </div>
       <div class="tally" id="tally"></div>
 
-      <div class="method">
-        No model in the loop — this is a keyword lexicon, not a judge. It reads
-        up to <span id="scanCapText">500</span> recent posts (skipping
-        reposts), flags anything that mentions AI/LLMs, and scores the
-        sentiment words around it. Read the receipts below before you trust
-        the verdict.
-      </div>
+      <div class="method" id="methodText"></div>
 
       <div class="receipts">
         <h2 class="pro">strongest pro-llm receipts</h2>
@@ -323,6 +369,21 @@ const API = "https://public.api.bsky.app/xrpc/";
 const MAX_POSTS = 500;
 const MAX_PAGES = 5;
 
+// Network scans can't be exhaustive — a popular account can have tens of
+// thousands of followers, and the public API has no bulk export. These caps
+// keep a network scan a bounded, honest *sample* instead of a runaway crawl.
+const NETWORK_SIDE_CAP = 20; // per side (followers / following) when scope is "network"
+const SOLO_SIDE_CAP = 40; // when scope is just "followers" or just "following"
+const POSTS_PER_NETWORK_ACCOUNT = 30;
+const NETWORK_CONCURRENCY = 5;
+
+const SCOPE_INFO = {
+  posts: { verb: "posts", short: "their own posts", card: "" },
+  followers: { verb: "followers", short: "their followers", card: "followers" },
+  following: { verb: "following", short: "their following", card: "following" },
+  network: { verb: "network", short: "their entire network (followers + following)", card: "network" },
+};
+
 function cleanHandle(raw) {
   let h = raw.trim();
   h = h.replace(/^@/, "");
@@ -340,7 +401,10 @@ const els = {
   avatar: document.getElementById("avatar"),
   handleOut: document.getElementById("handleOut"),
   didOut: document.getElementById("didOut"),
+  scopeNote: document.getElementById("scopeNote"),
+  verdictLabel: document.getElementById("verdictLabel"),
   verdict: document.getElementById("verdict"),
+  methodText: document.getElementById("methodText"),
   barPro: document.getElementById("barPro"),
   barAnti: document.getElementById("barAnti"),
   barUnclear: document.getElementById("barUnclear"),
@@ -396,18 +460,110 @@ async function scanAccount(did, onProgress) {
   return posts.slice(0, MAX_POSTS);
 }
 
-function tallyPosts(posts, handle) {
+function getSelectedScope() {
+  const el = document.querySelector('input[name="scope"]:checked');
+  return el ? el.value : "posts";
+}
+
+// Pages through getFollowers/getFollows for one side of the graph, capped at
+// `cap` accounts (a few pages at most — this is a sample, not a full crawl).
+async function fetchGraphList(did, kind, cap) {
+  const method = kind === "followers" ? "app.bsky.graph.getFollowers" : "app.bsky.graph.getFollows";
+  const key = kind === "followers" ? "followers" : "follows";
+  const out = [];
+  let cursor;
+  for (let page = 0; page < 3 && out.length < cap; page++) {
+    const params = { actor: did, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const res = await xrpc(method, params);
+    const items = res[key] || [];
+    for (const a of items) {
+      out.push({ did: a.did, handle: a.handle, avatar: a.avatar });
+      if (out.length >= cap) break;
+    }
+    cursor = res.cursor;
+    if (!cursor || items.length === 0) break;
+  }
+  return out;
+}
+
+async function buildNetworkAccountList(rootDid, scope, onProgress) {
+  const accounts = [];
+  if (scope === "followers" || scope === "network") {
+    onProgress("finding followers...");
+    accounts.push(...(await fetchGraphList(rootDid, "followers", scope === "network" ? NETWORK_SIDE_CAP : SOLO_SIDE_CAP)));
+  }
+  if (scope === "following" || scope === "network") {
+    onProgress("finding who they follow...");
+    accounts.push(...(await fetchGraphList(rootDid, "follows", scope === "network" ? NETWORK_SIDE_CAP : SOLO_SIDE_CAP)));
+  }
+  const seen = new Set([rootDid]);
+  const deduped = [];
+  for (const a of accounts) {
+    if (seen.has(a.did)) continue;
+    seen.add(a.did);
+    deduped.push(a);
+  }
+  return deduped;
+}
+
+async function fetchAccountPosts(did, cap) {
+  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: String(cap), filter: "posts_with_replies" });
+  const items = (feed.feed || []).filter((f) => !f.reason);
+  const posts = [];
+  for (const f of items) {
+    const text = f.post && f.post.record && f.post.record.text;
+    if (typeof text !== "string" || !text.trim()) continue;
+    const uri = f.post.uri || "";
+    posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: f.post.indexedAt });
+    if (posts.length >= cap) break;
+  }
+  return posts;
+}
+
+// Small bounded worker pool — scanning 40+ accounts serially would take
+// forever, and unbounded Promise.all risks hammering the public AppView.
+async function mapLimit(items, limit, fn) {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+async function scanNetwork(accounts, onProgress) {
+  const allPosts = [];
+  let done = 0;
+  await mapLimit(accounts, NETWORK_CONCURRENCY, async (acc) => {
+    try {
+      const posts = await fetchAccountPosts(acc.did, POSTS_PER_NETWORK_ACCOUNT);
+      for (const p of posts) allPosts.push({ ...p, authorHandle: acc.handle });
+    } catch (_) {
+      // one account failing (blocked, deactivated, rate-limited) shouldn't sink the whole scan
+    }
+    done++;
+    onProgress(done, accounts.length, allPosts.length);
+  });
+  return allPosts;
+}
+
+function tallyPosts(posts, fallbackHandle) {
   let pro = 0, anti = 0, unclear = 0;
   const proReceipts = [];
   const antiReceipts = [];
   for (const p of posts) {
     const c = window.LLMStance.classifyPost(p.text);
+    const authorHandle = p.authorHandle || fallbackHandle;
+    const entry = { ...p, authorHandle, postUrl: "https://bsky.app/profile/" + authorHandle + "/post/" + p.rkey };
     if (c.label === "pro") {
       pro++;
-      proReceipts.push({ ...p, hits: c.proHits, postUrl: "https://bsky.app/profile/" + handle + "/post/" + p.rkey });
+      proReceipts.push({ ...entry, hits: c.proHits });
     } else if (c.label === "anti") {
       anti++;
-      antiReceipts.push({ ...p, hits: c.antiHits, postUrl: "https://bsky.app/profile/" + handle + "/post/" + p.rkey });
+      antiReceipts.push({ ...entry, hits: c.antiHits });
     } else {
       unclear++;
     }
@@ -422,7 +578,7 @@ function truncate(s, max) {
   return s.slice(0, max - 1).trimEnd() + "…";
 }
 
-function renderReceipts(container, list, kind) {
+function renderReceipts(container, list, kind, showAuthor) {
   container.innerHTML = "";
   if (!list.length) {
     const p = document.createElement("p");
@@ -437,20 +593,32 @@ function renderReceipts(container, list, kind) {
     a.href = r.postUrl;
     a.target = "_blank";
     a.rel = "noopener";
-    a.textContent = "“" + truncate(r.text, 220) + "”";
+    a.append("“" + truncate(r.text, 220) + "”");
+    if (showAuthor) {
+      const span = document.createElement("span");
+      span.className = "receipt-author";
+      span.textContent = "— @" + r.authorHandle;
+      a.appendChild(span);
+    }
     container.appendChild(a);
   }
 }
 
-function shareUrlFor(handle) {
-  return "https://llmstance.bisks.net/s/" + encodeURIComponent(handle);
+function shareUrlFor(handle, scope) {
+  const base = "https://llmstance.bisks.net/s/" + encodeURIComponent(handle);
+  return scope && scope !== "posts" ? base + "?scope=" + scope : base;
 }
 
-function shareText(handle, verdictText, pro, anti, unclear) {
+function shareText(handle, verdictText, pro, anti, unclear, scope, accountCount) {
+  const info = SCOPE_INFO[scope] || SCOPE_INFO.posts;
+  const subject =
+    scope && scope !== "posts"
+      ? `@${handle}'s ${info.verb}${accountCount ? ` (${accountCount} accounts)` : ""}`
+      : `@${handle}`;
   return (
-    `llmstance verdict for @${handle}: ${verdictText}\n` +
+    `llmstance verdict for ${subject}: ${verdictText}\n` +
     `${pro} pro-llm · ${anti} anti-llm · ${unclear} unclear\n\n` +
-    `check anyone's → ${shareUrlFor(handle)}`
+    `check anyone's → ${shareUrlFor(handle, scope)}`
   );
 }
 
@@ -483,7 +651,7 @@ function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
   return cy;
 }
 
-async function buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt }) {
+async function buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt, scope, accountCount }) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -510,7 +678,8 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, topRec
   ctx.font = `800 52px ${mono}`;
   ctx.fillText("llmstance", 60, 96);
 
-  const who = "@" + profile.handle;
+  const scopeCard = scope && scope !== "posts" ? (SCOPE_INFO[scope] || SCOPE_INFO.posts).card : "";
+  const who = "@" + profile.handle + (scopeCard ? `'s ${scopeCard}${accountCount ? ` (${accountCount})` : ""}` : "");
   ctx.fillStyle = "#eef1f5";
   ctx.font = `700 28px ${mono}`;
   let textX = 60;
@@ -573,10 +742,11 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, topRec
   ctx.fillText("llmstance.bisks.net", 60, H - 40);
 }
 
-async function reveal(rawHandle) {
+async function reveal(rawHandle, scopeOverride) {
   const handle = cleanHandle(rawHandle);
   if (!handle) { setStatus("enter a handle first.", true); return; }
 
+  const scope = scopeOverride || getSelectedScope();
   els.go.disabled = true;
   els.card.classList.remove("show");
 
@@ -593,23 +763,41 @@ async function reveal(rawHandle) {
     }
     const resolvedHandle = profile.handle || handle;
 
-    const posts = await scanAccount(did, (count, page) => {
-      setStatus("scanning " + resolvedHandle + "'s posts... (" + count + " so far, page " + page + ")");
-    });
+    let posts, accountCount = null;
+    if (scope === "posts") {
+      posts = await scanAccount(did, (count, page) => {
+        setStatus("scanning " + resolvedHandle + "'s posts... (" + count + " so far, page " + page + ")");
+      });
+    } else {
+      const accounts = await buildNetworkAccountList(did, scope, setStatus);
+      if (!accounts.length) {
+        setStatus("couldn't find any " + SCOPE_INFO[scope].verb + " for @" + resolvedHandle + ".", true);
+        return;
+      }
+      accountCount = accounts.length;
+      posts = await scanNetwork(accounts, (done, total, totalPosts) => {
+        setStatus("scanning " + SCOPE_INFO[scope].verb + ": " + done + "/" + total + " accounts (" + totalPosts + " posts so far)");
+      });
+    }
 
     if (!posts.length) {
-      setStatus("no readable posts found for @" + resolvedHandle + ".", true);
+      setStatus("no readable posts found for @" + resolvedHandle + "'s " + SCOPE_INFO[scope].verb + ".", true);
       return;
     }
 
     const { pro, anti, unclear, proReceipts, antiReceipts } = tallyPosts(posts, resolvedHandle);
     const verdictText = window.LLMStance.verdictFor(pro, anti, unclear);
     const total = pro + anti + unclear;
+    const isNetwork = scope !== "posts";
 
     els.avatar.src = profile.avatar || "";
     els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
     els.handleOut.textContent = "@" + resolvedHandle;
     els.didOut.textContent = did;
+    els.scopeNote.textContent = isNetwork
+      ? "scanning " + SCOPE_INFO[scope].short + " — " + accountCount + " accounts sampled"
+      : "";
+    els.verdictLabel.textContent = isNetwork ? "network stance" : "overall stance";
     els.verdict.textContent = verdictText;
 
     els.barPro.style.width = ((pro / total) * 100) + "%";
@@ -620,10 +808,21 @@ async function reveal(rawHandle) {
       '<span><span class="pro-dot"></span><b class="pro-count">' + pro + '</b> pro-llm</span>' +
       '<span><span class="anti-dot"></span><b class="anti-count">' + anti + '</b> anti-llm</span>' +
       '<span><span class="unclear-dot"></span><b>' + unclear + '</b> unclear</span>' +
-      '<span style="opacity:.7">(' + total + ' posts scanned)</span>';
+      '<span style="opacity:.7">(' + total + ' posts scanned' + (isNetwork ? " across " + accountCount + " accounts" : "") + ')</span>';
 
-    renderReceipts(els.proReceipts, proReceipts, "pro");
-    renderReceipts(els.antiReceipts, antiReceipts, "anti");
+    els.methodText.textContent = isNetwork
+      ? ("No model in the loop — this is a keyword lexicon, not a judge. It samples up to " +
+         accountCount + " accounts from " + SCOPE_INFO[scope].short + ", reads up to " +
+         POSTS_PER_NETWORK_ACCOUNT + " recent posts from each (skipping reposts), and tallies " +
+         "everyone's posts together into one verdict. Networks are sampled, not exhaustively " +
+         "crawled — read the receipts below before you trust it.")
+      : ("No model in the loop — this is a keyword lexicon, not a judge. It reads up to " +
+         MAX_POSTS + " recent posts (skipping reposts), flags anything that mentions AI/LLMs, " +
+         "and scores the sentiment words around it. Read the receipts below before you trust " +
+         "the verdict.");
+
+    renderReceipts(els.proReceipts, proReceipts, "pro", isNetwork);
+    renderReceipts(els.antiReceipts, antiReceipts, "anti", isNetwork);
 
     setStatus("");
     els.card.classList.add("show");
@@ -633,9 +832,9 @@ async function reveal(rawHandle) {
       : (proReceipts[0] ? { ...proReceipts[0], kind: "pro" } : (antiReceipts[0] ? { ...antiReceipts[0], kind: "anti" } : null));
     if (topReceipt) topReceipt.text = truncate(topReceipt.text, 110);
 
-    lastShareText = shareText(resolvedHandle, verdictText, pro, anti, unclear);
+    lastShareText = shareText(resolvedHandle, verdictText, pro, anti, unclear, scope, accountCount);
     els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
-    buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt });
+    buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt, scope, accountCount });
   } catch (err) {
     setStatus("couldn't scan that: " + err.message, true);
   } finally {
@@ -686,11 +885,17 @@ if (canShareFiles()) {
 }
 
 // /s/<handle> (current share links) or the older ?h=<handle> pattern both auto-scan on load.
+// An optional ?scope= carries which scan mode the sharer used.
 const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
 const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+const sharedScope = new URLSearchParams(location.search).get("scope");
 if (sharedHandle) {
   els.input.value = sharedHandle;
-  reveal(sharedHandle);
+  if (sharedScope && SCOPE_INFO[sharedScope]) {
+    const radio = document.querySelector('input[name="scope"][value="' + sharedScope + '"]');
+    if (radio) radio.checked = true;
+  }
+  reveal(sharedHandle, sharedScope && SCOPE_INFO[sharedScope] ? sharedScope : undefined);
 }
 </script>
 
