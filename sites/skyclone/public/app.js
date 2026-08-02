@@ -532,6 +532,96 @@ function h(strings, ...vals) {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// ---------- "Elsewhere" profile panel ----------
+// Every profile links out to a few sibling atprotozoa sites, pre-filled with
+// this handle via their shared `?h=`/`?handle=` autoload convention, plus one
+// inline reading computed the same way didscope's does (last DID char picks
+// a sign) — copied in rather than fetched, since it's a pure function of the
+// DID and doesn't need a round trip. didrank's rank is the one live fetch:
+// its /api/top is CORS-open, so we just ask it directly from the browser.
+const ELSEWHERE_SIGNS = {
+  a: ["The Lurker", "Thirty tabs open, eleven of them this app, logged out."],
+  b: ["The Backtester", "Up 4% on paper, down $600 in reality. Let it rip anyway."],
+  c: ["The Committer", "You push straight to main and you sleep fine. Actually fine."],
+  d: ["The Daemon", "You run in the background of everyone's life, invited or not."],
+  e: ["The Edge Case", "Nobody accounted for you and now the whole system is down."],
+  f: ["The Forkbomb", "One small idea, nine open terminals, none of them okay."],
+  g: ["The Ghostwriter", "Your documentation is always such AI slop. You know. You continue."],
+  h: ["The Harness", "Somewhere an agent is running unsupervised. It's you. It's fine."],
+  i: ["The Idempotent", "Can be run again and again with no new consequences. Enlightenment, or exhaustion."],
+  j: ["The Jailbreaker", "You've tried to get a customer-service chatbot to write Python. You'll try again."],
+  k: ["The Kimi Disciple", "Still waiting on the reset. Always waiting on the reset."],
+  l: ["The Loom", "Every persistent agent you build must use this word somewhere. Those are the rules."],
+  m: ["The Mutual", "Followed back out of guilt eleven months ago. Turned out great, actually."],
+  n: ["The Nerd-Sniped", "Went in to talk about computers. It's 4am. You're arguing about type systems."],
+  o: ["The OAuth Sufferer", "You have gone through hell, more than once, for a login button nobody asked for."],
+  p: ["The Prompt Engineer", "You've said “actually...” to a model more times today than to a person."],
+  q: ["The Quiet Quitter", "Turned off like-notifications months ago. Felt good. Would recommend."],
+  r: ["The Rate-Limited", "Waiting on a reset that is always about to come out."],
+  s: ["The Sleeve", "Money carved into little independent risk-managed pieces. Still losing it all, with structure."],
+  t: ["Top Chicken", "Extremely famous, once, within a group of forty people. You remember."],
+  u: ["Unhinged Slop", "A personal website nobody asked for, updated more than the actual job."],
+  v: ["The Vibe Coder", "You do not read the code. Have never read the code. Deadlines wait for no one."],
+  w: ["The Worker", "Deploys on push. Has never once regretted it. (Has regretted it.)"],
+  x: ["The Exploit", "Found the one input nobody validated. God help you, you used it."],
+  y: ["The Yak Shaver", "Meant to fix one small thing. That was four repos ago."],
+  z: ["Toxic Zig", "Got into something specifically because you heard it was toxic. No further questions."],
+  2: ["Second-Order", "Already three moves ahead of a plan that doesn't have a first move yet."],
+  3: ["The 3AM Committer", "Your best code and your worst decisions share a timestamp."],
+  4: ["The 404", "Not remotely accessible via the internet. And yet, somehow, here."],
+  5: ["Five-Turn Agent", "Had a budget. Do not have a budget anymore."],
+  6: ["Sixth Sense Debugger", "Knew it was a race condition before you even opened the logs."],
+  7: ["Lucky Deploy", "Worked first try. Has never fully trusted it since."],
+};
+const ELSEWHERE_SIGN_ORDER = Object.keys(ELSEWHERE_SIGNS);
+const ELSEWHERE_SITES = [
+  { name: "didscope", emoji: "\u{1F52E}", url: (h) => `https://didscope.bisks.net/?h=${encodeURIComponent(h)}` },
+  { name: "didrank", emoji: "\u{1F4C8}", url: (h) => `https://didrank.bisks.net/` },
+  { name: "llmstance", emoji: "\u{1F916}", url: (h) => `https://llmstance.bisks.net/?h=${encodeURIComponent(h)}` },
+  { name: "activitygrid", emoji: "\u{1F7E9}", url: (h) => `https://activitygrid.bisks.net/?h=${encodeURIComponent(h)}` },
+  { name: "favstar", emoji: "⭐", url: (h) => `https://favstar.bisks.net/?handle=${encodeURIComponent(h)}` },
+];
+
+function elsewhereReading(did) {
+  const lastChar = (did || "").slice(-1).toLowerCase();
+  let key = lastChar;
+  if (!ELSEWHERE_SIGNS[key]) {
+    const hash = [...key].reduce((a, c) => a + c.charCodeAt(0), 0);
+    key = ELSEWHERE_SIGN_ORDER[hash % ELSEWHERE_SIGN_ORDER.length] || "a";
+  }
+  const [name, reading] = ELSEWHERE_SIGNS[key];
+  return { name, reading };
+}
+
+function elsewherePanelHtml(profile) {
+  const { name, reading } = elsewhereReading(profile.did);
+  const chips = ELSEWHERE_SITES.map(
+    (s) => `<a class="elsewhere-chip" href="${esc(s.url(profile.handle))}" target="_blank" rel="noopener">${s.emoji} ${esc(s.name)}</a>`
+  ).join("");
+  return `<div class="elsewhere-panel">
+    <div class="elsewhere-title">Elsewhere in the atprotozoa</div>
+    <div class="elsewhere-reading">By the last character of their DID, @${esc(profile.handle)} is <b>${esc(name)}</b> — ${esc(reading)}</div>
+    <div class="elsewhere-rank" id="elsewhere-rank"></div>
+    <div class="elsewhere-links">${chips}</div>
+  </div>`;
+}
+
+async function loadElsewhereRank(did, handle) {
+  const box = document.getElementById("elsewhere-rank");
+  if (!box) return;
+  try {
+    const res = await fetch("https://didrank.bisks.net/api/top?window=all&limit=1000");
+    if (!res.ok) return;
+    const data = await res.json();
+    const idx = (data.entries || []).findIndex((e) => e.did === did);
+    if (idx === -1) return;
+    box.innerHTML = `#${idx + 1} on <a href="https://didrank.bisks.net/" target="_blank" rel="noopener">didrank</a>'s all-time poster leaderboard`;
+  } catch (_) {
+    // didrank unreachable or rate-limited — the chip row still links out, so
+    // just skip the inline rank rather than showing an error.
+  }
+}
 function rkeyOf(uri) {
   return (uri || "").split("/").pop();
 }
@@ -1316,9 +1406,11 @@ async function ProfileView(main, params, args) {
         <span><b>${fmtCount(profile.postsCount)}</b> Posts</span>
       </div>
     </div>
+    ${elsewherePanelHtml(profile)}
     <div class="tabs">${PROFILE_TABS.map((t) => `<div class="tab ${t.key === activeTab ? "active" : ""}" data-href="${profileUrl(profile.handle)}?tab=${t.key}">${t.label}</div>`).join("")}</div>
     <div id="feed-posts">${skeleton(5)}</div>`;
 
+  loadElsewhereRank(profile.did, profile.handle);
   const tab = PROFILE_TABS.find((t) => t.key === activeTab) || PROFILE_TABS[0];
   await loadAuthorFeed(profile.did, tab.filter, document.getElementById("feed-posts"));
 }
