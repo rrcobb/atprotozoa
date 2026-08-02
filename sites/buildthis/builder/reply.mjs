@@ -212,6 +212,12 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // A partial IS a shipped, live outcome (status success), tagged `partial:true`
     // so the timeline/directory can show it as a work-in-progress rather than done.
     status: ok && result ? "success" : "failure",
+    // The harness's own classification, verbatim: success | partial | usage_limit |
+    // too_big | no_build | incomplete. `status` is a two-way collapse of this and
+    // can't distinguish an overrun that shipped work (success) from a deliberate
+    // "nothing to build here" (failure) — so anything counting outcomes should read
+    // THIS, not status. See notes/91.
+    disposition: process.env.DISPOSITION || undefined,
     builtName: result || undefined,
     url: url || undefined,
     // Don't overwrite the event's replyText with copy we never posted — on a

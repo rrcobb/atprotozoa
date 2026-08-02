@@ -192,13 +192,30 @@ BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5}"
 # Turn ceiling: a runaway stop, not a build budget. The Action used 30 (tuned for
 # Opus, which is more turn-efficient). Sonnet takes more, smaller steps, and a real
 # build — a whole game with animations, not a one-file edit — blew past 30 and got
-# cut off mid-build. 60 gives room; the systemd TimeoutStopSec + wall-clock are the
-# real runaway guards. Overridable via BUILDER_MAX_TURNS.
-BUILDER_MAX_TURNS="${BUILDER_MAX_TURNS:-60}"
+# cut off mid-build. 60 gave room but became the BINDING constraint rather than a
+# backstop: measured over 434 builds, every single partial (89) was a turn-ceiling
+# hit, and they ran 2.3x the median success — big jobs, not stuck ones. 90 gives
+# the near-misses room to finish. Overridable via BUILDER_MAX_TURNS.
+BUILDER_MAX_TURNS="${BUILDER_MAX_TURNS:-90}"
+# Wall-clock ceiling — the actual runaway guard, and until now it did not exist.
+# The old comment here claimed "systemd TimeoutStopSec + wall-clock" bounded a
+# build; TimeoutStopSec only applies while systemd is STOPPING the unit, so a
+# running build was in fact unbounded. With turns raised, something has to stop a
+# build that is looping rather than working, and time is the honest measure of
+# that. 20min is chosen from the same 434 builds: it exceeds every success ever
+# recorded (max 1091s) and cuts 4 builds (0.9%), all already partials.
+#
+# SIGTERM first so the agent can flush, SIGKILL 30s later if it ignores that.
+# Timing out is NOT special-cased below: the tree is preserved and pushed by the
+# same always-push path as any other outcome, so a timed-out build ships its work
+# and reads as a partial ("first pass is up, tag me to keep going") — the same
+# thing a turn overrun does.
+BUILDER_TIMEOUT="${BUILDER_TIMEOUT:-20m}"
 CLAUDE_LOG="$(mktemp /tmp/buildthis-claude.XXXXXX.log)"
 set +e
 CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
 AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
+  timeout --signal=TERM --kill-after=30s "$BUILDER_TIMEOUT" \
   claude -p "$(cat sites/buildthis/builder/BUILD_PROMPT.md)" \
     --model "$BUILDER_MODEL" \
     --max-turns "$BUILDER_MAX_TURNS" \
@@ -207,6 +224,10 @@ AUTHOR="${AUTHOR:-someone}" BRIEF="$BRIEF" \
   2>&1 | tee "$CLAUDE_LOG"
 BUILD_RC=${PIPESTATUS[0]}
 set -e
+# `timeout` reports 124 when it fired (137 if it had to SIGKILL). Recorded so the
+# disposition logic can tell "ran out of clock" from "the agent exited 1".
+BUILD_TIMED_OUT=""
+{ [ "$BUILD_RC" -eq 124 ] || [ "$BUILD_RC" -eq 137 ]; } && BUILD_TIMED_OUT="1"
 
 # Read the agent's per-build scratch files. Both are gitignored, cleared before the
 # build above, and now ADVISORY — the harness preserves and reports work on its own
@@ -319,13 +340,15 @@ fi
 #                 not usage-limit). REQUEUE up to MAX_ATTEMPTS; a retry might get through.
 ATTEMPT="${ATTEMPT:-1}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
-if [ "$PUSHED" = "true" ] && [ -n "$MAX_TURNS_HIT" ]; then
+if [ "$PUSHED" = "true" ] && { [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; }; then
+  # Cut off mid-build with work on disk — by turns or by the clock. Same user-
+  # facing situation either way: a real first pass is live and isn't finished.
   DISPOSITION="partial"
 elif [ "$PUSHED" = "true" ]; then
   DISPOSITION="success"
 elif [ -n "$USAGE_LIMIT" ]; then
   DISPOSITION="usage_limit"
-elif [ -n "$MAX_TURNS_HIT" ]; then
+elif [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; then
   DISPOSITION="too_big"
 elif [ "$BUILD_RC" -eq 0 ] && [ -z "$CHANGED" ]; then
   # Clean exit, nothing changed: the agent looked and chose not to build. If it left

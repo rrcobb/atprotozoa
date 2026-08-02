@@ -20,13 +20,20 @@ buys isn't worth the ceremony here.
 
 - **Copy, don't abstract.** New sites copy from existing ones; no shared package
   across sites. See `notes/10-architecture.md` and `notes/00-vision.md`.
-- **One site = one directory = one Worker = one path.** `sites/<name>` →
-  `atprotozoa-<name>` → `bisks.net/<name>`. A dedicated `<name>.bisks.net`
-  subdomain is the exception now, not the default — the zone hit a
-  Cloudflare custom-domain cap (see `notes/20-deploy.md`), so new sites mount
-  as a path route on the already-provisioned `bisks.net` zone instead of
-  requesting a new hostname. See `notes/40-new-site-playbook.md`.
+- **One site = one directory = one Worker = one subdomain.** `sites/<name>` →
+  `atprotozoa-<name>` → `<name>.bisks.net`, claimed with a plain route
+  (`zone_name`), not `custom_domain = true`. Sites built during the
+  path-mounting era also answer at `bisks.net/<name>`; see
+  `notes/40-new-site-playbook.md` before editing one.
 - **Views within a site are paths**, not subdomains (e.g.
-  `bisks.net/trigrams/firehose`).
+  `trigrams.bisks.net/firehose`).
 
-Start with `notes/` — `00-vision.md` first.
+## Notes
+
+`notes/` is documentation, not a journal. Start with `00-vision.md`.
+
+- Numbered notes at the top level describe how things work **now**. When
+  something changes, edit the note rather than appending a dated entry to it.
+- `notes/history/` holds incident logs and superseded designs — worth keeping,
+  not part of the reading path.
+- `notes/ideas/` holds undecided proposals. Nothing there is committed to.

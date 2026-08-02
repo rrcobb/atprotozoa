@@ -32,4 +32,5 @@ fundamentally different design (e.g. a human-moderated, curated set — not a li
 unfiltered firehose grid) **and** a conversation with Rob first, because the
 blast radius is the entire `bisks.net` zone.
 
-See `notes/20-deploy.md` (the Safe Browsing section) for the full incident.
+See `notes/history/2026-07-deploy-incidents.md` (the Safe Browsing sections) for
+the full incident, and `notes/20-deploy.md` for the standing rule.
