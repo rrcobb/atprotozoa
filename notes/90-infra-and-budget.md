@@ -69,6 +69,37 @@ agents never push to main at once). The box makes only **outbound** calls
 - **One build:** `builder/box-build.sh` — the box equivalent of the Action's
   build+reply steps, behavior-identical so the cutover was safe.
 
+### Changing the box scripts (which need a restart, and when it's safe)
+
+The two scripts deploy differently, which is easy to get wrong:
+
+- **`box-build.sh` ships by itself.** Every build starts by syncing the checkout
+  to `origin/main`, so a pushed change is picked up by the next build.
+- **`box-poll.sh` does NOT.** It's the long-running systemd unit; the running
+  process keeps its old copy until `sudo systemctl restart buildthis-poll`.
+  Pushing is not enough.
+
+**Restart only when no build is in flight.** The unit runs with systemd's default
+`KillMode=control-group` and `TimeoutStopUSec=30s`, so a restart SIGTERMs every
+process in the service cgroup — `box-poll.sh`, its `box-build.sh` child, and the
+`claude -p` grandchild all sit in `/system.slice/buildthis-poll.service` — then
+SIGKILLs after 30s. A mid-build `claude -p` won't exit in 30s, so it dies before
+`box-build.sh` reaches its reply step: the job stays `claimed`, ages out on TTL
+without being re-served, and the requester gets silence. That's the stranded-work
+mode the harness otherwise works hard to avoid.
+
+Check idle first, with a pattern that can't match its own command line:
+
+```
+ssh buildthis-box "pgrep -af '[b]ox-build.sh'"   # exit 1 / no output = idle
+```
+
+The `[b]` matters. A plain `pgrep -f box-build.sh` over SSH matches the `bash -c`
+wrapper running it, so it always reports a build in progress — a check that can
+never come back idle. Builds run one at a time and take minutes to tens of
+minutes; the gap between one finishing and the next claim is up to the 15s poll
+interval.
+
 ## Auth on the box (the tricky part)
 
 Inference is Rob's **Claude subscription**, via a headless OAuth token, NOT an

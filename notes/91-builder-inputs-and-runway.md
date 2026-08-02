@@ -32,15 +32,18 @@ Both are real. Neither needs new infrastructure.
 > `depth: 0` keeps the response small, and a branch's replies are usually noise
 > rather than the referent.
 >
-> **One deploy step is manual.** `box-build.sh` re-syncs the checkout at the top
-> of every build, so its half of this ships by itself. `box-poll.sh` does not —
-> it's the long-running systemd unit, and it's where `BRIEF_IMAGES` is read off
-> the job. Images don't reach a build until the box runs
-> `sudo systemctl restart buildthis-poll`. Everything else (the cap, quotes,
-> link cards, alt text, the root) is worker-side and live on deploy.
+> **One deploy step was manual** (done 2026-08-02 00:27 UTC). `box-build.sh`
+> re-syncs the checkout at the top of every build, so its half of this ships by
+> itself. `box-poll.sh` does not — it's the long-running systemd unit, and it's
+> where `BRIEF_IMAGES` is read off the job, so images didn't reach a build until
+> `sudo systemctl restart buildthis-poll` ran on the box. Everything else (the
+> cap, quotes, link cards, alt text, the root) is worker-side and live on deploy.
+> See `notes/90` for why that restart has to wait for an idle box.
 >
 > Problem 2 (the ~20% partial rate) is untouched — it starts with the
-> measurement described below, against logs on the box.
+> measurement described below, against logs on the box. **Read the outcome-
+> accounting caveat there first**: the log's three notions of "what happened"
+> disagree, so a naive count off these logs will be wrong.
 
 ## Problem 1: the bot sees almost nothing
 
@@ -176,6 +179,33 @@ isn't data loss, it's that the user has to notice and re-tag.
 counts out of the box's build logs, bucket by outcome and by request shape. That
 turns all of the above from speculation into a decision. The logs are on the
 Hetzner box; nothing here needs new instrumentation.
+
+**Caveat: the logs carry three disagreeing notions of "what happened."** Two real
+consecutive builds, 2026-08-01:
+
+```
+build rc=1 ... disp=no_build  ... → outcome reported: failure   # deliberate non-build
+build rc=1 ... disp=partial   ... → outcome reported: success   # max-turns overrun, work shipped
+```
+
+`rc` is the agent's exit code, `disp` is the harness's disposition, and the
+reported outcome is what the event log stores. `rc=1` covers both a max-turns
+overrun and a clean decline. The reported outcome is narrower still: `BUILD_OK`
+is set by `{ success || partial }` (box-build.sh:394), so an overrun reports
+`success` because work did ship, and a deliberate non-build reports `failure`
+because nothing did. Defensible individually; together it means **no single
+field counts partials**.
+
+`disp` is the field to bucket on — it's the only one that distinguishes all six
+states (`success`, `partial`, `usage_limit`, `too_big`, `no_build`,
+`incomplete`, classified at box-build.sh:306-335). `rc` and the reported outcome
+both collapse states you care about. Note the corpus counts at the top of this
+section came from *reply text*, which tracks `disp` closely but isn't the same
+field — worth re-deriving from `disp` before trusting the ~20%.
+
+Worth reconciling regardless of the measurement: a deliberate "nothing to build
+here" reply logging as `failure` also inflates the failure rate on the health
+page.
 
 ## Why these two matter more than most of `notes/89`
 
