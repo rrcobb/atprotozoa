@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>leanmath — turn Lean into readable math notation — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Lean theorem, lemma, or definition and get it back as ordinary mathematical notation — a readable breakdown plus copyable LaTeX. Best-effort, not a real parser."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://leanmath.bisks.net/" />
+    <meta property="og:title" content="leanmath — turn Lean into readable math notation" />
+    <meta
+      property="og:description"
+      content="Paste Lean code, hit convert, get a plain-math breakdown and copyable LaTeX. ∀ x y : ℕ instead of (x y : Nat)."
+    />
+    <meta property="og:image" content="https://leanmath.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="leanmath: paste Lean, get readable math notation and LaTeX." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="leanmath — turn Lean into readable math notation" />
+    <meta
+      name="twitter:description"
+      content="Paste Lean code, hit convert, get a plain-math breakdown and copyable LaTeX."
+    />
+    <meta name="twitter:image" content="https://leanmath.bisks.net/og.png" />
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+
+    <!-- bisks.net house palette: black on white, one readable mono, blue accent. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      header { margin: 0 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .dim { color: var(--muted); font-weight: 400; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 66ch; margin: 0 0 1.6rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      label.fieldLabel {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin-bottom: 0.4rem;
+      }
+
+      textarea#input {
+        width: 100%;
+        min-height: 9rem;
+        resize: vertical;
+        font-family: var(--mono);
+        font-size: 0.92rem;
+        line-height: 1.5;
+        padding: 0.85rem 0.95rem;
+        border: 1px solid var(--faint);
+        border-radius: 10px;
+        background: var(--faintbg);
+        color: var(--ink);
+      }
+      textarea#input:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+
+      .examples { margin: 0.6rem 0 1.3rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+      .examples span { font-size: 0.78rem; color: var(--muted); }
+      .exampleBtn {
+        font-family: inherit; font-size: 0.76rem;
+        padding: 0.3rem 0.6rem; border: 1px solid var(--faint); border-radius: 999px;
+        background: var(--bg); color: var(--ink); cursor: pointer;
+      }
+      .exampleBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+      .actionRow { display: flex; align-items: center; gap: 0.8rem; margin: 0.2rem 0 1.8rem; }
+      #convertBtn {
+        font-family: inherit; font-size: 0.95rem; font-weight: 700;
+        padding: 0.65rem 1.3rem; border: 1px solid var(--ink); border-radius: 8px;
+        background: var(--ink); color: #fff; cursor: pointer;
+      }
+      #convertBtn:hover { background: var(--accent); border-color: var(--accent); }
+      #convertBtn:active { transform: translateY(1px); }
+      .hint { color: var(--muted); font-size: 0.78rem; }
+
+      #output { display: none; }
+      #output.show { display: block; }
+
+      .decl {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1.1rem 1.25rem 1.25rem;
+        margin-bottom: 1.2rem;
+        background: var(--faintbg);
+        overflow-x: auto;
+      }
+      .declTitle { font-size: 1.02rem; font-weight: 800; margin-bottom: 0.7rem; }
+      .declTitle .proofTag {
+        font-family: var(--mono); font-weight: 700; font-size: 0.72rem;
+        color: var(--good); border: 1px solid var(--good); border-radius: 999px;
+        padding: 0.1rem 0.55rem; margin-left: 0.6rem; vertical-align: middle;
+      }
+      .line { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.32rem 0; flex-wrap: wrap; }
+      .line .label { color: var(--muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; min-width: 6.2rem; flex-shrink: 0; }
+      .line .katex { font-size: 1.05em; }
+
+      .rawFallback { font-size: 0.9rem; color: var(--bad); }
+
+      h2.sectionHead { font-size: 0.85rem; font-weight: 800; margin: 1.6rem 0 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+      .latexBox { position: relative; }
+      textarea#latexOut {
+        width: 100%; min-height: 4.5rem; resize: vertical;
+        font-family: var(--mono); font-size: 0.82rem; line-height: 1.5;
+        padding: 0.75rem 0.85rem; border: 1px solid var(--faint); border-radius: 10px;
+        background: var(--bg); color: var(--ink);
+      }
+      .copyRow { display: flex; gap: 0.6rem; margin-top: 0.5rem; }
+      .smallBtn {
+        font-family: inherit; font-size: 0.78rem; font-weight: 700;
+        padding: 0.4rem 0.75rem; border: 1px solid var(--faint); border-radius: 7px;
+        background: var(--bg); color: var(--ink); cursor: pointer;
+      }
+      .smallBtn:hover { border-color: var(--accent); color: var(--accent); }
+      .smallBtn.shareBtn:hover { border-color: var(--good); color: var(--good); }
+
+      footer { margin-top: 3rem; font-size: 0.78rem; color: var(--muted); border-top: 1px solid var(--faint); padding-top: 1.2rem; }
+      footer a { color: var(--muted); }
+      footer a:hover { color: var(--accent); }
+
+      .disclaimer { font-size: 0.78rem; color: var(--muted); margin-top: 1.6rem; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>leanmath<span class="dim"> · Lean → readable math</span></h1>
+        <p class="sub">
+          Paste Lean 4 / Mathlib-flavored code — a <code>theorem</code>, <code>lemma</code>,
+          <code>def</code>, or just a bare expression. <b>leanmath</b> reads its shape the way a
+          math-literate human skims Lean, and renders it back as ordinary notation: quantifiers,
+          hypotheses laid out plainly, and a copyable LaTeX formula underneath.
+        </p>
+      </header>
+
+      <label class="fieldLabel" for="input">Lean code</label>
+      <textarea id="input" spellcheck="false" placeholder="theorem add_comm (a b : Nat) : a + b = b + a := by ring"></textarea>
+
+      <div class="examples">
+        <span>try:</span>
+        <button class="exampleBtn" data-ex="0">add_comm</button>
+        <button class="exampleBtn" data-ex="1">sq_nonneg</button>
+        <button class="exampleBtn" data-ex="2">exists_infinite_primes</button>
+        <button class="exampleBtn" data-ex="3">is_even (def)</button>
+        <button class="exampleBtn" data-ex="4">le_trans</button>
+      </div>
+
+      <div class="actionRow">
+        <button id="convertBtn">Convert →</button>
+        <span class="hint" id="statusHint"></span>
+      </div>
+
+      <div id="output">
+        <div id="declList"></div>
+
+        <h2 class="sectionHead">LaTeX source</h2>
+        <div class="latexBox">
+          <textarea id="latexOut" spellcheck="false" readonly></textarea>
+          <div class="copyRow">
+            <button class="smallBtn" id="copyBtn">copy LaTeX</button>
+            <button class="smallBtn shareBtn" id="shareBtn">share on Bluesky</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="disclaimer">
+        This is a best-effort translator, not a Lean parser — it pattern-matches common syntax
+        (binders, quantifiers, logical connectives, arithmetic, <code>sqrt</code>/<code>abs</code>,
+        <code>Nat</code>/<code>Real</code>/…) and juxtaposition-as-application (<code>f x y</code>
+        → <code>f(x, y)</code>). Custom notation, tactic proofs, and anything elaboration-dependent
+        won't be understood — it just renders the text it can see. Always sanity-check the output
+        against the source.
+      </p>
+
+      <footer>
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        for <a href="https://bsky.app/profile/dulanyw.bsky.social">dulanyw.bsky.social</a> ·
+        <a href="https://bisks.net/">bisks.net</a>
+      </footer>
+    </div>
+
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="./translate.js"></script>
+    <script defer src="./app.js"></script>
+  </body>
+</html>
