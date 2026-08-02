@@ -2,8 +2,8 @@
 
 Loose brainstorm, not a plan and not conclusions. Five directions Rob wants,
 plus what's appealing / awkward about each. Companion to
-`notes/83-atproto-surface-map.md` (what the protocol offers) and
-`notes/82-other-bots.md` (earlier riff on separate bot accounts).
+`atproto-surface-map.md` (what the protocol offers) and
+`other-bots.md` (earlier riff on separate bot accounts).
 
 ## 1. Image / video gen bot
 
@@ -61,14 +61,14 @@ something.
 
 Why it's appealing: this is the category the repo most obviously lacks, and the
 surface map makes the case — several sites read Jetstream live and throw it all
-away; nothing persists. Also the verifier idea from `notes/82` lives here: a
+away; nothing persists. Also the verifier idea from `other-bots.md` lives here: a
 whole class of trailing-slash breakage went unnoticed for days because nothing
 was checking.
 
 Riffs:
 - **Link/health checker.** Fetch every site's URL, confirm it 200s and its
   scripts load. Silent unless broken.
-- ~~**Jetstream tailer → durable index.**~~ Dropped, see `notes/88`. The
+- ~~**Jetstream tailer → durable index.**~~ Dropped, see `store-ours-rederive-theirs.md`. The
   dataset/annual-review idea should be built off *our own* records
   (`net.bisks.*` via `listReposByCollection`) rather than a copy of the network.
 - **PLC audit log watcher.** Free, public, nobody's watching it. Who migrated
@@ -136,7 +136,7 @@ it better" is exactly the kind of vague brief that produces churn.
 
 **Things that keep recurring across all five:**
 
-- ~~*A persistent index* is upstream of 3, 4, and 5.~~ Dropped — see `notes/88`.
+- ~~*A persistent index* is upstream of 3, 4, and 5.~~ Dropped — see `store-ours-rederive-theirs.md`.
   Observers compare against small saved state (last-seen values), not an archive
   of the network. The digest bot queries the AppView for "today" like everything
   else here does.

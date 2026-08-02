@@ -73,7 +73,7 @@ That turns eleven isolated toys into something that looks like a small network o
 apps sharing a data layer. Same house style (copy, don't abstract) — the sites
 stay independent, they just agree on record shapes.
 
-**Worth noting:** this is the "dataset maker" idea from `notes/81`, except the
+**Worth noting:** this is the "dataset maker" idea from `beyond-buildthis.md`, except the
 dataset is one you already own and already generate. Much less work than indexing
 the firehose, and more distinctive.
 
@@ -108,7 +108,7 @@ someone else's pager. `notes/90-infra-and-budget.md` exists because this project
 is deliberately cheap; a PDS is the first thing that breaks that.
 
 **The middle path**, if the appeal is really "more atproto": do Tier 1–3 above,
-publish a feed generator (per `notes/83`, that surface is completely untouched
+publish a feed generator (per `atproto-surface-map.md`, that surface is completely untouched
 and is a *much* more visible bit of protocol ownership than storage), and revisit
 the PDS if a concrete need shows up — e.g. wanting to mint many bot accounts
 without bsky.social signups, which is the one scenario in the current notes where

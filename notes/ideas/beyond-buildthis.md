@@ -96,7 +96,7 @@ where everything else is a static page.
 > **Correction, later:** this section lumps feed generators in with labelers as
 > credential-blocked. That's wrong — a feed generator's service DID can be
 > `did:web:` (a served document, no key), so only the labeler needs a signing
-> key. See `notes/86` and `notes/87`.
+> key. See `feeds-and-labels.md` and `protocol-object-bot.md`.
 
 thebadcode: *"an atproto appview implementation that allows you to mute semantic
 concepts."* semanticmute got a first pass and stalled. The thread is unusually

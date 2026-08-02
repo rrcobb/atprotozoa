@@ -68,14 +68,14 @@ as a prerequisite for anything.
 
 - **Feed generators as pure functions.** `getFeedSkeleton` evaluates a query per
   request. Most feed ideas are expressible this way: an author set, a search
-  term, a graph hop. See `notes/87`.
+  term, a graph hop. See `protocol-object-bot.md`.
 - **Short-lived caching.** Minutes, to avoid hammering the AppView on a popular
   feed. A cache you can drop at any time without losing anything is categorically
   different from an archive.
 - **Storing our own records properly.** This is the part that *should* grow —
   write the ten missing lexicons, publish them, and use
   `listReposByCollection` to get aggregate views of records our own sites wrote
-  (`notes/85`). That data is genuinely ours to hold, and nobody else has it.
+  (`pds-and-lexicons.md`). That data is genuinely ours to hold, and nobody else has it.
 - **Small derived state where it's clearly ours.** The buildthis queue, build
   outcomes, health status. Already exists, already fine.
 

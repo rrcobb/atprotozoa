@@ -5,7 +5,7 @@ protocol objects.** Tag it, and instead of a website you get a feed generator, a
 labeler, a lexicon, a list — a thing that lives *in* atproto rather than a page
 that reads it.
 
-This reframes several earlier notes. `notes/82` and `notes/84` listed candidates
+This reframes several earlier notes. `other-bots.md` and `bot-ideas-riff.md` listed candidates
 as separate bots; a lot of them are better understood as **outputs of one bot**.
 That's the more useful organizing idea, so treat this note as superseding the
 "one bot per idea" framing there.
@@ -43,7 +43,7 @@ They split cleanly along one line — whether a signing key is involved.
 | **labeler** | `app.bsky.labeler.service` record | label websocket | own DID | **yes** | needs Rob |
 
 Three of four need no secret the builder is forbidden to touch. That's better
-than `notes/81` implied — I had lumped feeds in with labelers, and they're not
+than `beyond-buildthis.md` implied — I had lumped feeds in with labelers, and they're not
 the same. A feed generator's service DID can be `did:web:bisks.net` (or a
 subpath), which is *just a served document* — and `apex/src/index.ts` already
 serves `.well-known/atproto-did` for exactly this class of thing. No PLC
@@ -64,7 +64,7 @@ A page is finished when it deploys. A feed generator has to keep answering
 return post URIs.
 
 **But "alive" does not mean "storing."** See
-`notes/88-store-ours-rederive-theirs.md` for the governing principle: we store
+`store-ours-rederive-theirs.md` for the governing principle: we store
 what's ours (build requests, sites, interactions) and re-derive network data on
 demand, caching where it helps. A feed generator is a *function*, evaluated per
 request against the AppView, not a view over a private archive.
@@ -81,7 +81,7 @@ tag-driven bot creates will be jokes nobody follows.
 - Feeds still need an **expiry / garbage collection** story, but for a different
   reason than cost: stale declaration records and dead feeds cluttering the
   ecosystem's directories. Same "expiry by default" instinct as the cron manager
-  in `notes/84`.
+  in `bot-ideas-riff.md`.
 
 ### 2. Who owns the thing
 
@@ -96,7 +96,7 @@ Open questions, all worth settling once:
   ceremony, but the feed is genuinely theirs and leaves with them.
 - **Who can delete or edit it?** If a mutual's tag creates a feed, can another
   mutual's tag change it? This is the same scoping question as
-  "customization by tagging" in `notes/81`, arriving from a different angle —
+  "customization by tagging" in `beyond-buildthis.md`, arriving from a different angle —
   worth one answer for both.
 - **What if the classifier is wrong?** A bad feed is low-stakes (unsubscribe). A
   bad *label* is on someone else's post. Different tolerance, which is the main
@@ -117,7 +117,7 @@ Riffing on the UX, since it can't just be buildthis's:
   subscribe link.
 - `@thatbot a lexicon for <site>'s records` → reads the site's `createRecord`
   calls, writes the schema, serves it, adds the `_lexicon` DNS entry
-  (per `notes/85`, ten sites need exactly this).
+  (per `pds-and-lexicons.md`, ten sites need exactly this).
 - `@thatbot a list of everyone who's ever tagged buildthis` → a real
   `app.bsky.graph.list`, which is more useful than the `timeline/scene` page that
   currently does this.
@@ -132,7 +132,7 @@ lands inside the Bluesky app rather than requiring a click out.
 
 Not a design, just the shape implied by the above. Note there is **no tailer and
 no index** — an earlier draft of this note had one at the center, which was
-wrong (see `notes/88`).
+wrong (see `store-ours-rederive-theirs.md`).
 
 ```
   the bot  ──writes──▶  declaration records   (feed generator / lexicon / list)
@@ -147,7 +147,7 @@ wrong (see `notes/88`).
                       AppView queries  ──▶  post URIs  (+ short-lived cache)
 
   our own records (build requests, sites, outcomes) live in our repo,
-  published as net.bisks.* — see notes/85, notes/88
+  published as net.bisks.* — see `pds-and-lexicons.md`, `store-ours-rederive-theirs.md`
 ```
 
 The only persistent state is **feed definitions** (small: a query, a ranking, an
@@ -181,7 +181,7 @@ Sensible order, given everything:
 2. **Then the bot**, whose job is to do step 1 on request. Much easier to
    automate a path already walked once by hand.
 3. Lexicons in parallel — they need none of the above and there are ten sites
-   waiting (`notes/85`).
+   waiting (`pds-and-lexicons.md`).
 4. Labeler last, gated on the key and on the classifier having proven itself as a
    feed.
 

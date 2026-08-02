@@ -276,9 +276,15 @@ interface LogEvent {
     // undefined = not a success / older record from before the check existed.
     liveVerified?: boolean;
     // A partial build: a real first pass shipped and is live, but the build ran out
-    // of turns before finishing. The site is continuable by re-tagging the thread.
-    // status is still "success" (it IS live); this flags it as work-in-progress.
+    // of turns (or wall clock) before finishing. The site is continuable by
+    // re-tagging the thread. status is still "success" (it IS live); this flags it
+    // as work-in-progress.
     partial?: boolean;
+    // The box's full classification: success | partial | usage_limit | too_big |
+    // no_build | incomplete. Count outcomes on THIS, not on `status` — status
+    // collapses six states into two and reads a deliberate non-build as a failure.
+    // Absent on records written before 2026-08-02.
+    disposition?: string;
     at: string; // ISO
   };
 }
@@ -911,6 +917,10 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     liveVerified?: boolean;
     // A partial (shipped-but-unfinished) build, continuable by re-tagging.
     partial?: boolean;
+    // The box's own classification — the field to count outcomes on. `status` is a
+    // two-way collapse that reads a shipped-but-unfinished build as success and a
+    // deliberate non-build as failure, so it can't answer "how many partials".
+    disposition?: string;
   };
   try {
     body = await request.json();
@@ -944,6 +954,7 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       replyText: body.replyText || undefined,
       liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
       partial: body.partial === true ? true : undefined,
+      disposition: body.disposition || undefined,
       at: new Date().toISOString(),
     },
   });
@@ -1663,7 +1674,15 @@ interface HealthSnapshot {
     backlog: boolean;
   };
   orphans: number; // claimed jobs stuck past ORPHAN_AGE_MS (died without reporting)
-  recent: { window: number; successes: number; failures: number };
+  recent: {
+    window: number;
+    successes: number;
+    failures: number;
+    // Of `successes`, how many shipped a first pass but ran out of turns/clock.
+    partials: number;
+    // Deliberate non-builds ("nothing to build here") — not failures.
+    declined: number;
+  };
   deadLinks: string[]; // recent successes whose URL didn't serve after deploy
   // Recent successes this Worker couldn't verify either way — a same-zone probe
   // returns 522 regardless of whether the site is up. Reported, but not an issue.
@@ -1717,7 +1736,9 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   events.sort((a, b) => (a.firstSeen < b.firstSeen ? 1 : -1));
   const recentWindow = events.slice(0, 20);
   let successes = 0,
-    failures = 0;
+    failures = 0,
+    partials = 0,
+    declined = 0;
   // Candidates for the dead-link check: recent successes the box couldn't verify
   // live at build time (liveVerified===false). But that's often just new-custom-
   // -domain lag — the cert/DNS provisions a minute or two after the box's 90s
@@ -1729,13 +1750,23 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   for (const e of recentWindow) {
     if (e.outcome?.status === "success") {
       successes++;
+      // A shipped-but-unfinished build is live and counts as shipped; tracked
+      // separately so the page shows how much of the recent output is a first pass.
+      if (e.outcome.partial || e.outcome.disposition === "partial") partials++;
       if (e.outcome.liveVerified === false && e.outcome.builtName) {
         deadLinkCandidates.push({
           name: e.outcome.builtName,
           url: canonicalUrl(e.outcome.builtName, e.outcome.url),
         });
       }
-    } else if (e.outcome?.status === "failure") failures++;
+    } else if (e.outcome?.status === "failure") {
+      // "Nothing to build here" is a deliberate, correct outcome — the bot looked
+      // and chose not to build. Counting it as a failure inflated the failure rate
+      // and made a healthy bot look broken. Older records have no disposition, so
+      // they still land in `failures`; the split is right going forward.
+      if (e.outcome.disposition === "no_build") declined++;
+      else failures++;
+    }
   }
 
   // Re-probe each candidate live: a site that serves NOW has recovered (new-domain
@@ -1793,7 +1824,7 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       backlog,
     },
     orphans,
-    recent: { window: recentWindow.length, successes, failures },
+    recent: { window: recentWindow.length, successes, failures, partials, declined },
     deadLinks,
     unverifiable,
     issues,
@@ -1875,7 +1906,8 @@ function renderHealthPage(s: HealthSnapshot): string {
   </table>
   <h2>recent builds (last ${s.recent.window})</h2>
   <table>
-    ${row("shipped", String(s.recent.successes))}
+    ${row("shipped", `${s.recent.successes}${s.recent.partials ? ` (${s.recent.partials} a first pass)` : ""}`)}
+    ${s.recent.declined ? row("nothing to build", String(s.recent.declined)) : ""}
     ${row("failed", String(s.recent.failures))}
     ${row("pushed but not live", `${dot(s.deadLinks.length === 0)} ${s.deadLinks.length}${s.deadLinks.length ? " (" + s.deadLinks.join(", ") + ")" : ""}`)}
     ${(s.unverifiable || []).length ? row("couldn't verify (same-zone probe)", `${(s.unverifiable || []).length} (${(s.unverifiable || []).join(", ")}) — watchtower checks these from off-zone`) : ""}

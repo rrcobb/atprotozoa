@@ -1,4 +1,11 @@
-# Going live — one-time setup + deploy
+# Going live — the original bootstrap checklist (archived)
+
+> **Done, July 2026.** This was the one-time checklist to put the project
+> online: Cloudflare login, the DID for handle verification, the first manual
+> deploys, and wiring deploy-on-commit. All of it happened. Kept because it
+> records how the apex handle and CI were originally set up.
+>
+> For deploying today, see `notes/20-deploy.md`.
 
 Everything up to here is code in the repo. Nothing is deployed yet, and
 `bisks.net` currently resolves to nothing (zone is on Cloudflare, no records).

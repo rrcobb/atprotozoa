@@ -81,10 +81,10 @@ everyone using `net.bisks.whatever`. Used 6 times here; underexploited.
 **Jetstream** — the same thing as JSON over a WebSocket, no CAR decoding.
 Touched: several sites read it live in the browser (trigrams/firehose,
 catsofatproto, koipond, chironhell, logjam, fruitninja).
-Nothing persists what it sees, and per `notes/88` that's the right call — the
+Nothing persists what it sees, and per `store-ours-rederive-theirs.md` that's the right call — the
 AppView is the database for network data. cloutgraph's author wanted a standing
 Jetstream index for his ranking; the cheaper answer is a bounded live query.
-Measured volume is in `notes/88` if the question comes up again.
+Measured volume is in `store-ours-rederive-theirs.md` if the question comes up again.
 
 **PDS** — the host that stores a repo and serves its records.
 
@@ -101,7 +101,7 @@ distribution inside the Bluesky app rather than requiring a link click.
 
 **Labeler** (`app.bsky.labeler.service`) — publishes labels on accounts/posts;
 users subscribe. Needs its own signing key and a persistent endpoint. Discussed
-in `notes/81`. The natural home for thebadcode's semantic-mute idea.
+in `beyond-buildthis.md`. The natural home for thebadcode's semantic-mute idea.
 
 **Lists** (`app.bsky.graph.list`) — curated account collections, usable for
 moderation or feeds. Lightly touched.
@@ -150,6 +150,6 @@ Grouping the untouched surfaces by what kind of bot they'd make:
   turns the sites' scattered records into a network.
 
 **On the "no persistent index" theme** that ran through an earlier draft of this
-note: dropped. See `notes/88` — network data gets re-derived from the AppView,
+note: dropped. See `store-ours-rederive-theirs.md` — network data gets re-derived from the AppView,
 not stored. What *should* grow is our own records (`net.bisks.*`), which is a
 much smaller and more distinctive dataset.

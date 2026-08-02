@@ -1,11 +1,11 @@
 # Other bots worth making
 
-Companion to `notes/81-beyond-buildthis.md`. That one asked "what else could
+Companion to `beyond-buildthis.md`. That one asked "what else could
 buildthis build." This one asks a different question: **what other taggable bots
 should exist alongside it?** Not features of buildthis — separate accounts with
 their own handle, their own trigger, their own job.
 
-> **Later reframing:** `notes/87-protocol-object-bot.md` argues several of these
+> **Later reframing:** `protocol-object-bot.md` argues several of these
 > are better understood as *outputs of one bot* that makes protocol objects
 > (feeds, labelers, lexicons, lists) than as separate bots. Read that one after
 > this; the "one bot per idea" framing below is the earlier, looser take.
@@ -59,7 +59,7 @@ new bots assuming other bots will be a caller.
 
 ## The blocker, restated
 
-Per `notes/81`, everything here needs its own DID + app password. That's the
+Per `beyond-buildthis.md`, everything here needs its own DID + app password. That's the
 thing `builder/INSTRUCTIONS.md` forbids the builder from touching. **But that
 rule constrains the builder, not Rob.** These are new accounts Rob provisions the
 same way buildthis was provisioned (bsky signup → app password → worker secret);

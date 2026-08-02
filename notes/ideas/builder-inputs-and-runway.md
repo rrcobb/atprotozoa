@@ -207,7 +207,7 @@ Worth reconciling regardless of the measurement: a deliberate "nothing to build
 here" reply logging as `failure` also inflates the failure rate on the health
 page.
 
-## Why these two matter more than most of `notes/89`
+## Why these two matter more than most of `00-index.md`
 
 They're both **things the bot can't currently do** rather than new things to
 build, which is the filter Rob asked for. And both are ordinary changes to

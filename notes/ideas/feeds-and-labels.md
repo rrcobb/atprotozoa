@@ -54,7 +54,7 @@ builder knows how to make.
 
 **None of them persist anything** — they read live and discard on reload. An
 earlier draft of this note treated that as the blocker ("a classifier without a
-memory can't be a feed"). That was wrong; see `notes/88`.
+memory can't be a feed"). That was wrong; see `store-ours-rederive-theirs.md`.
 
 A feed generator answers a request by *evaluating a query*, and most of these
 classifiers are expressible as AppView queries: giftlinks is a search, the
@@ -79,7 +79,7 @@ see; stating that bound honestly is better than building an archive to remove it
    cursor. The AppView hydrates them; you never serve post content.
 4. Something that decides which URIs — evaluated per request against the
    AppView. ← the actual work, and it needs no storage for most feeds
-   (`notes/88`).
+   (`store-ours-rederive-theirs.md`).
 
 Notably: **no signing key, no moderation semantics, and it's reversible** — a bad
 feed is unsubscribed and forgotten. The blast radius is near zero, which makes it
