@@ -18,6 +18,8 @@
 <meta name="twitter:description" content="tune a heat sensor's range and gain, drop it at a location, and watch the path it walks chasing warmth in real weather data." />
 <meta name="twitter:image" content="https://warmtrail.bisks.net/og.png" />
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
 <style>
   :root {
     color-scheme: light dark;
@@ -231,15 +233,36 @@
     margin-top: 1.5rem;
   }
   #path-wrap.show { display: block; }
-  #path-canvas {
+  #map {
     width: 100%;
     max-width: 560px;
-    aspect-ratio: 1 / 1;
+    height: 360px;
     display: block;
     margin: 0 auto;
     border-radius: 0.8rem;
     border: 1px solid var(--line);
     background: var(--card);
+    overflow: hidden;
+  }
+  #map .leaflet-popup-content-wrapper,
+  #map .leaflet-popup-tip {
+    background: var(--card);
+    color: var(--ink);
+  }
+  #temp-legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  #temp-legend .bar {
+    width: 110px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(to right, var(--accent2), var(--accent));
   }
   #path-summary {
     margin-top: 0.9rem;
@@ -345,7 +368,12 @@
   </div>
 
   <div id="path-wrap">
-    <canvas id="path-canvas" width="560" height="560"></canvas>
+    <div id="map" role="img" aria-label="map of the sensor's walk"></div>
+    <div id="temp-legend">
+      <span id="legend-lo"></span>
+      <span class="bar"></span>
+      <span id="legend-hi"></span>
+    </div>
     <div id="path-summary"></div>
   </div>
 
@@ -367,6 +395,7 @@
   </footer>
 </main>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   const form = document.getElementById("search-form");
   const statusEl = document.getElementById("status");
@@ -375,8 +404,8 @@
   const stepCaption = document.getElementById("step-caption");
   const useLocationBtn = document.getElementById("use-location");
   const pathWrap = document.getElementById("path-wrap");
-  const canvas = document.getElementById("path-canvas");
-  const ctx = canvas.getContext("2d");
+  const legendLo = document.getElementById("legend-lo");
+  const legendHi = document.getElementById("legend-hi");
   const pathSummary = document.getElementById("path-summary");
   const controlsRow = document.getElementById("controls-row");
   const replayBtn = document.getElementById("replay-btn");
@@ -406,68 +435,95 @@
 
   let lastData = null;
 
-  // Local tangent-plane projection: km east/north of the origin.
-  function toLocalKm(originLat, originLon, lat, lon) {
-    const kmPerDegLat = 110.574;
-    const kmPerDegLon = 111.320 * Math.cos((originLat * Math.PI) / 180);
-    return { x: (lon - originLon) * kmPerDegLon, y: (lat - originLat) * kmPerDegLat };
+  function themeColor(varName) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
   }
 
-  function drawPath(data, upToIndex) {
-    const w = canvas.width, h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    const style = getComputedStyle(document.documentElement);
-    const lineColor = style.getPropertyValue("--path").trim();
-    const accent = style.getPropertyValue("--accent").trim();
-    const muted = style.getPropertyValue("--muted").trim();
-    const ink = style.getPropertyValue("--ink").trim();
+  function hexToRgb(hex) {
+    const h = hex.replace("#", "");
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
 
-    const pts = data.path.map((p) => toLocalKm(data.origin.lat, data.origin.lon, p.lat, p.lon));
-    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
-    const spanX = Math.max(0.05, Math.max(...xs) - Math.min(...xs));
-    const spanY = Math.max(0.05, Math.max(...ys) - Math.min(...ys));
-    const span = Math.max(spanX, spanY) * 1.4 + 0.05;
-    const midX = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const midY = (Math.max(...ys) + Math.min(...ys)) / 2;
-    const scale = (Math.min(w, h) * 0.8) / span;
-    const toPx = (p) => ({ px: w / 2 + (p.x - midX) * scale, py: h / 2 - (p.y - midY) * scale });
+  // Cool-to-warm scale reusing the compass's own accent2 (cool) -> accent (warm) colors.
+  function tempColor(tempC, lo, hi) {
+    if (tempC === null || hi <= lo) return themeColor("--muted");
+    const a = hexToRgb(themeColor("--accent2"));
+    const b = hexToRgb(themeColor("--accent"));
+    const t = Math.max(0, Math.min(1, (tempC - lo) / (hi - lo)));
+    const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+  }
 
-    const shown = pts.slice(0, upToIndex + 1).map(toPx);
+  const darkModeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function tileUrlFor(isDark) {
+    return isDark
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  }
+  const TILE_ATTRIBUTION =
+    '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
+    '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
 
-    // grid
-    ctx.strokeStyle = muted;
-    ctx.globalAlpha = 0.15;
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      ctx.beginPath(); ctx.moveTo((w / 4) * i, 0); ctx.lineTo((w / 4) * i, h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, (h / 4) * i); ctx.lineTo(w, (h / 4) * i); ctx.stroke();
+  let map = null;
+  let tileLayer = null;
+  let pathLayerGroup = null;
+
+  function ensureMap() {
+    if (map) return;
+    map = L.map("map", { attributionControl: true, zoomControl: true }).setView([0, 0], 2);
+    tileLayer = L.tileLayer(tileUrlFor(darkModeQuery.matches), {
+      maxZoom: 19,
+      attribution: TILE_ATTRIBUTION,
+    }).addTo(map);
+    L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+    pathLayerGroup = L.layerGroup().addTo(map);
+  }
+
+  darkModeQuery.addEventListener("change", (e) => {
+    if (!map) return;
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(tileUrlFor(e.matches), { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+  });
+
+  function updateMap(data, upToIndex) {
+    ensureMap();
+    pathLayerGroup.clearLayers();
+
+    const temps = data.path.map((p) => p.tempC).filter((t) => t !== null);
+    const lo = temps.length ? Math.min(...temps) : 0;
+    const hi = temps.length ? Math.max(...temps) : 0;
+    legendLo.textContent = temps.length ? Math.round(lo) + "°C" : "—";
+    legendHi.textContent = temps.length ? Math.round(hi) + "°C" : "—";
+
+    const shown = data.path.slice(0, upToIndex + 1);
+    const latlngs = shown.map((p) => [p.lat, p.lon]);
+
+    if (latlngs.length > 1) {
+      L.polyline(latlngs, { color: themeColor("--path"), weight: 3, opacity: 0.85 }).addTo(pathLayerGroup);
     }
-    ctx.globalAlpha = 1;
 
-    // path line
-    if (shown.length > 1) {
-      ctx.strokeStyle = lineColor;
-      ctx.lineWidth = 2.5;
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(shown[0].px, shown[0].py);
-      for (let i = 1; i < shown.length; i++) ctx.lineTo(shown[i].px, shown[i].py);
-      ctx.stroke();
+    shown.forEach((p, i) => {
+      const isStart = i === 0;
+      const isCurrent = i === shown.length - 1;
+      const fill = tempColor(p.tempC, lo, hi);
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: isCurrent ? 8 : isStart ? 7 : 5,
+        color: isStart ? themeColor("--ink") : isCurrent ? themeColor("--accent") : fill,
+        weight: isCurrent ? 3 : 1.5,
+        fillColor: fill,
+        fillOpacity: 0.9,
+      }).addTo(pathLayerGroup);
+      const label = isStart
+        ? "<b>start</b>" + (p.tempC !== null ? "<br>" + Math.round(p.tempC) + "°C" : "")
+        : "<b>step " + i + "</b><br>" + compassLetters(p.bearingDeg) + " (" + Math.round(p.bearingDeg) + "°)" +
+          (p.tempC !== null ? "<br>" + Math.round(p.tempC) + "°C" : "");
+      marker.bindPopup(label);
+    });
+
+    if (upToIndex === 0) {
+      const fullLatLngs = data.path.map((p) => [p.lat, p.lon]);
+      map.fitBounds(L.latLngBounds(fullLatLngs).pad(0.25));
     }
-
-    // step dots
-    for (let i = 0; i < shown.length; i++) {
-      ctx.beginPath();
-      ctx.arc(shown[i].px, shown[i].py, i === shown.length - 1 ? 6 : 3, 0, Math.PI * 2);
-      ctx.fillStyle = i === 0 ? ink : i === shown.length - 1 ? accent : lineColor;
-      ctx.fill();
-    }
-
-    // origin label
-    ctx.fillStyle = muted;
-    ctx.font = "12px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("start", shown[0].px, shown[0].py - 12);
   }
 
   function confidenceWord(strength) {
@@ -491,13 +547,15 @@
     let i = 0;
     compassWrap.classList.add("show");
     pathWrap.classList.add("show");
+    ensureMap();
+    requestAnimationFrame(() => map.invalidateSize());
     const total = data.path.length;
 
     function showStep() {
       const p = data.path[i];
       needle.style.transform = "rotate(" + p.bearingDeg + "deg)";
       stepCaption.innerHTML = stepLabel(data, i);
-      drawPath(data, i);
+      updateMap(data, i);
       if (i < total - 1) {
         i++;
         setTimeout(showStep, 550);
