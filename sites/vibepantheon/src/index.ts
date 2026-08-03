@@ -106,6 +106,11 @@ const ALARM_MS = 30 * 1000; // tick cadence — also the reconnect heartbeat
 const MAX_TRACKED = 1500; // safety valve on total distinct phrases kept
 const MAX_RECENT = 60; // ring buffer of most recent raw matches
 const BOARD_SIZE = 100; // how many ranked entries the API returns
+// Dedup window against double-tallying the same post — guards against a
+// stray redundant socket (see `connecting` below) or Jetstream itself
+// redelivering a commit. Doesn't need to survive a DO eviction, just the
+// seconds it'd take for a duplicate delivery to land.
+const MAX_SEEN_URIS = 3000;
 const PROFILE_TTL_MS = 60 * 60 * 1000; // re-hydrate a profile at most hourly
 const MAX_PROFILE_FETCH_PER_TICK = 100; // 4 getProfiles batches of 25
 
@@ -215,7 +220,10 @@ export class VibeTracker {
   private totalMatches = 0;
   private lastUpdated = 0;
   private ws: any = null;
+  private connecting = false;
   private reconnectDelay = 1000;
+  private seenUris: Set<string> = new Set();
+  private seenUriOrder: string[] = [];
 
   // ---- vibe-o-meter (daily counts + backfill) ----
   private dailyCounts: Map<string, number> = new Map(); // dateKey -> match count
@@ -256,7 +264,17 @@ export class VibeTracker {
   // Workers connect OUT to a WebSocket server via fetch() + an Upgrade
   // header (the documented Cloudflare pattern), not the browser-style
   // `new WebSocket(url)` constructor.
+  // Every call site (constructor, fetch(), alarm(), the close handler via
+  // scheduleReconnect) calls this whenever it *thinks* there's no live
+  // socket. But `this.ws` only gets set once the upgrade round-trip
+  // finishes, so two callers can both see "not open" while one connection
+  // attempt is already in flight and both open a socket. Two live sockets
+  // both got their own "message" listener bound to handleMessage, so every
+  // matching post got tallied once per open socket — this is why a post
+  // could get counted twice. `connecting` closes that window.
   private async connectSocket(): Promise<void> {
+    if (this.connecting || this.wsOpen()) return;
+    this.connecting = true;
     try {
       const resp: any = await fetch(JETSTREAM_URL, { headers: { Upgrade: "websocket" } });
       const ws = resp.webSocket;
@@ -285,6 +303,8 @@ export class VibeTracker {
     } catch {
       this.ws = null;
       this.scheduleReconnect();
+    } finally {
+      this.connecting = false;
     }
   }
 
@@ -319,10 +339,22 @@ export class VibeTracker {
     const phrases = extractPhrases(text);
     if (!phrases.length) return;
 
-    const now = Date.now();
     const uri = `at://${evt.did}/app.bsky.feed.post/${commit.rkey}`;
+    if (this.seenUris.has(uri)) return; // already tallied this post — duplicate delivery
+    this.markSeen(uri);
+
+    const now = Date.now();
     for (const phrase of phrases) {
       this.tally(phrase, evt.did, commit.rkey, uri, text, now);
+    }
+  }
+
+  private markSeen(uri: string): void {
+    this.seenUris.add(uri);
+    this.seenUriOrder.push(uri);
+    if (this.seenUriOrder.length > MAX_SEEN_URIS) {
+      const drop = this.seenUriOrder.shift()!;
+      this.seenUris.delete(drop);
     }
   }
 
