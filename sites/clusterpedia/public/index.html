@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>clusterpedia — the encyclopedia gated by your moots</title>
+    <meta
+      name="description"
+      content="A Wikipedia clone with real atproto login. Articles, revision histories, talk pages, profiles — edits are screened by Shimmer Math Labs' Simcluster Checker, which only lets in bisks.net's mutuals and mutuals-of-mutuals. Anyone can read and discuss."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="clusterpedia — the encyclopedia gated by your moots" />
+    <meta
+      property="og:description"
+      content="A Wikipedia clone with real atproto login. Articles, revision histories, talk pages, profiles — edits are screened by Shimmer Math Labs' Simcluster Checker, which only lets in bisks.net's mutuals and mutuals-of-mutuals. Anyone can read and discuss."
+    />
+    <meta property="og:url" content="https://clusterpedia.bisks.net/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="clusterpedia — the encyclopedia gated by your moots" />
+    <meta
+      name="twitter:description"
+      content="A Wikipedia clone with real atproto login. Articles, revision histories, talk pages, profiles — edits are screened by Shimmer Math Labs' Simcluster Checker, which only lets in bisks.net's mutuals and mutuals-of-mutuals. Anyone can read and discuss."
+    />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --paper: #f7f2e7;
+        --paperline: #e6dcc4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 1.4rem 1.25rem 5rem; }
+
+      nav.top {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        border-bottom: 1px solid var(--ink); padding-bottom: 0.9rem; margin-bottom: 1.4rem;
+      }
+      nav.top .brand { font-weight: 700; font-size: 1.05rem; }
+      nav.top .brand span { color: var(--muted); font-weight: 400; }
+      nav.top form.search { flex: 1; min-width: 160px; display: flex; gap: 0.4rem; }
+      nav.top input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.85rem; padding: 0.4rem 0.55rem;
+        border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      nav.top .session { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; }
+      nav.top .session a { color: var(--accent); }
+      button, .btn {
+        font-family: inherit; font-size: 0.85rem; padding: 0.4rem 0.7rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover, .btn:hover { background: #000; }
+      button.ghost, .btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, .btn.ghost:hover { background: var(--faintbg); }
+      button.bad, .btn.bad { border-color: var(--bad); color: var(--bad); background: var(--bg); }
+      button:disabled { opacity: 0.4; cursor: default; }
+
+      h1 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+      h2.section { font-size: 0.95rem; margin: 1.6rem 0 0.6rem; border-bottom: 1px solid var(--faint); padding-bottom: 0.3rem; }
+      .meta { color: var(--muted); font-size: 0.8rem; margin-bottom: 1rem; }
+      .meta a { color: var(--accent); }
+      .tabs { display: flex; gap: 0.3rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+      .tabs a {
+        border: 1px solid var(--faint); border-radius: 4px 4px 0 0; padding: 0.3rem 0.7rem;
+        font-size: 0.8rem; color: var(--ink); background: var(--faintbg);
+      }
+      .tabs a.on { border-color: var(--ink); background: var(--bg); border-bottom: 1px solid var(--bg); margin-bottom: -1px; font-weight: 700; }
+      .tabs a:hover { text-decoration: none; background: #eee; }
+
+      .article-body { max-width: 74ch; }
+      .article-body p { margin: 0 0 1rem; }
+      .article-body h2 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
+      .article-body .wikilink { border-bottom: 1px dashed var(--accent); }
+      .article-body .wikilink.missing { color: var(--bad); border-bottom: 1px dashed var(--bad); }
+
+      .banner {
+        border: 1px solid var(--paperline); background: var(--paper); border-radius: 6px;
+        padding: 0.8rem 1rem; font-size: 0.85rem; margin-bottom: 1.2rem; line-height: 1.6;
+      }
+      .banner.bad { border-color: var(--bad); background: #fdeef0; }
+      .banner.good { border-color: var(--good); background: #eef8f1; }
+      .banner b { color: var(--ink); }
+
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.7rem 0.9rem;
+        margin-bottom: 0.6rem;
+      }
+      .card .t { font-weight: 700; }
+      .card .s { color: var(--muted); font-size: 0.82rem; margin-top: 0.2rem; }
+      .card .m { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
+      .badge {
+        display: inline-block; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+        border: 1px solid var(--faint); color: var(--muted);
+      }
+      .badge.member { border-color: var(--good); color: var(--good); }
+      .badge.adjacent { border-color: var(--accent); color: var(--accent); }
+      .badge.none { border-color: var(--bad); color: var(--bad); }
+
+      form.edit-form textarea {
+        width: 100%; font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.7rem;
+        border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+        resize: vertical;
+      }
+      form.edit-form input[type="text"] {
+        width: 100%; font-family: inherit; font-size: 0.95rem; padding: 0.5rem 0.6rem;
+        border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+        margin-bottom: 0.6rem;
+      }
+      form.edit-form label { display: block; font-size: 0.75rem; color: var(--muted); margin: 0.7rem 0 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      form.edit-form .actions { margin-top: 0.9rem; display: flex; gap: 0.5rem; align-items: center; }
+
+      .rev-item { border-bottom: 1px solid var(--faint); padding: 0.5rem 0; font-size: 0.85rem; }
+      .rev-item:last-child { border-bottom: none; }
+      .rev-item .who { color: var(--accent); }
+      .rev-item .when { color: var(--muted); font-size: 0.75rem; }
+      .rev-body { background: var(--faintbg); border-radius: 4px; padding: 0.6rem 0.8rem; margin-top: 0.4rem; font-size: 0.82rem; white-space: pre-wrap; }
+
+      .talk-post { border: 1px solid var(--faint); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.6rem; }
+      .talk-post .who { color: var(--accent); font-weight: 700; font-size: 0.85rem; }
+      .talk-post .when { color: var(--muted); font-size: 0.72rem; margin-left: 0.4rem; }
+      .talk-post .body { margin-top: 0.3rem; font-size: 0.87rem; white-space: pre-wrap; }
+
+      .profile-head { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; }
+      .profile-head .av {
+        width: 56px; height: 56px; border-radius: 50%; background: #ddd center/cover no-repeat;
+        flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;
+      }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      .loading { color: var(--muted); font-size: 0.85rem; }
+      .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="top">
+        <a class="brand" href="/">clusterpedia <span>· gated by your moots</span></a>
+        <form class="search" id="searchForm">
+          <input type="text" id="searchInput" placeholder="find or start an article…" autocomplete="off" />
+          <button type="submit" class="ghost">go</button>
+        </form>
+        <div class="session" id="sessionBox">…</div>
+      </nav>
+      <main id="app"><p class="loading">loading…</p></main>
+      <footer>
+        every edit and talk post is a real atproto record, written to the
+        author's own PDS and verified there before it counts — see
+        <a href="https://bisks.net">bisks.net</a>. edits are screened by
+        <b>Shimmer Math Labs' Simcluster Checker</b>: members and 1-hop
+        adjacent of @bisks.net's mutuals only, same "moots" definition as
+        <a href="https://simcluster.bisks.net">simcluster</a>. sibling of
+        <a href="https://wiki.bisks.net">bisksipedia</a> (auto-rendered
+        AppView entries, no login, unrelated project).
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+
+      const $ = (id) => document.getElementById(id);
+      const app = $("app");
+      const sessionBox = $("sessionBox");
+
+      const PUB = "https://api.bsky.app/xrpc";
+      const REV_COLLECTION = "net.bisks.clusterpedia.revision";
+      const TALK_COLLECTION = "net.bisks.clusterpedia.talk";
+
+      function esc(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function slugify(s) {
+        return (
+          String(s || "").trim().toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 80) || "untitled"
+        );
+      }
+      function fmtTime(iso) {
+        try {
+          return new Date(iso).toLocaleString(undefined, {
+            year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          });
+        } catch {
+          return iso || "";
+        }
+      }
+      async function fetchJson(url, opts) {
+        const r = await fetch(url, opts);
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw Object.assign(new Error(body.error || `request failed (${r.status})`), { status: r.status, body });
+        return body;
+      }
+
+      // Minimal wiki markup: [[slug]] / [[slug|text]] links, **bold**, _italic_,
+      // "== heading ==" lines, blank-line paragraphs. Everything else escaped.
+      function renderWikiText(src) {
+        const lines = String(src || "").split(/\r?\n/);
+        const out = [];
+        let para = [];
+        const flush = () => {
+          if (para.length) { out.push(`<p>${para.join(" ")}</p>`); para = []; }
+        };
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line) { flush(); continue; }
+          const h = /^==\s*(.+?)\s*==$/.exec(line);
+          if (h) { flush(); out.push(`<h2>${inline(h[1])}</h2>`); continue; }
+          para.push(inline(line));
+        }
+        flush();
+        return out.join("\n");
+
+        function inline(text) {
+          let t = esc(text);
+          t = t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => {
+            const slug = slugify(target);
+            const shown = label ? esc(label) : esc(target);
+            return `<a class="wikilink" href="/wiki/${encodeURIComponent(slug)}">${shown}</a>`;
+          });
+          t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+          t = t.replace(/_([^_]+)_/g, "<em>$1</em>");
+          return t;
+        }
+      }
+
+      // --- session --------------------------------------------------------
+      let session = null;
+
+      async function renderSessionBox() {
+        if (!session) {
+          sessionBox.innerHTML = `<button class="ghost" id="loginBtn">sign in</button>`;
+          $("loginBtn").addEventListener("click", onLoginClick);
+          return;
+        }
+        sessionBox.innerHTML =
+          `<a href="/user/${encodeURIComponent(session.handle)}">@${esc(short(session.handle))}</a>` +
+          `<button class="ghost" id="logoutBtn">sign out</button>`;
+        $("logoutBtn").addEventListener("click", async () => {
+          await clearSession();
+          session = null;
+          renderSessionBox();
+        });
+      }
+      function short(h) { return String(h || "").replace(/\.bsky\.social$/, ""); }
+
+      async function onLoginClick() {
+        const handle = prompt("your Bluesky handle (e.g. you.bsky.social):");
+        if (!handle) return;
+        try {
+          await login(handle.trim());
+        } catch (e) {
+          alert("couldn't start sign-in: " + e.message);
+        }
+      }
+
+      // Writes a record to the signed-in user's own PDS, returns its at:// uri.
+      async function writeOwnRecord(collection, record) {
+        const res = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection, record }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || `couldn't write to your PDS (${res.status})`);
+        return body.uri;
+      }
+
+      // --- router -----------------------------------------------------------
+
+      const ROUTES = [
+        [/^\/$/, viewHome],
+        [/^\/wiki\/([^/]+)$/, (m) => viewArticle(decodeURIComponent(m[1]))],
+        [/^\/wiki\/([^/]+)\/edit$/, (m) => viewEdit(decodeURIComponent(m[1]))],
+        [/^\/wiki\/([^/]+)\/history$/, (m) => viewHistory(decodeURIComponent(m[1]))],
+        [/^\/wiki\/([^/]+)\/talk$/, (m) => viewTalk(decodeURIComponent(m[1]))],
+        [/^\/user\/([^/]+)$/, (m) => viewProfile(decodeURIComponent(m[1]))],
+      ];
+
+      function route() {
+        const path = location.pathname.replace(/\/+$/, "") || "/";
+        for (const [re, fn] of ROUTES) {
+          const m = path.match(re);
+          if (m) return fn(m);
+        }
+        app.innerHTML = `<div class="empty">nothing here. <a href="/">back to the front page</a>.</div>`;
+      }
+
+      function tabs(slug, active) {
+        const items = [
+          ["", "article"], ["/edit", "edit"], ["/history", "history"], ["/talk", "talk"],
+        ];
+        return `<div class="tabs">${items
+          .map(([suffix, label]) => {
+            const on = label === active ? " on" : "";
+            return `<a class="${on.trim()}" href="/wiki/${encodeURIComponent(slug)}${suffix}">${label}</a>`;
+          })
+          .join("")}</div>`;
+      }
+
+      // --- home ---------------------------------------------------------
+
+      async function viewHome() {
+        app.innerHTML = `
+          <h1>clusterpedia</h1>
+          <p class="meta">every article, edit, and talk post is a real atproto record. reads are open to
+            everyone; writes are screened by Shimmer Math Labs' Simcluster Checker (see the footer).</p>
+          <h2 class="section">recent changes</h2>
+          <div id="recent" class="loading">loading…</div>
+        `;
+        try {
+          const { articles } = await fetchJson("/api/list");
+          const recent = $("recent");
+          if (!articles.length) {
+            recent.innerHTML = `<div class="empty">no articles yet — be the first to write one above.</div>`;
+            return;
+          }
+          recent.innerHTML = articles
+            .map(
+              (a) => `
+              <div class="card">
+                <div class="t"><a href="/wiki/${encodeURIComponent(a.slug)}">${esc(a.title)}</a></div>
+                <div class="s">${esc(a.summary || "")}</div>
+                <div class="m">rev ${a.revCount} · last edited by
+                  <a href="/user/${encodeURIComponent(a.updatedBy.handle)}">@${esc(short(a.updatedBy.handle))}</a>
+                  · ${fmtTime(a.updatedAt)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch (e) {
+          $("recent").innerHTML = `<div class="empty">couldn't load recent changes — ${esc(e.message)}</div>`;
+        }
+      }
+
+      $("searchForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = $("searchInput").value.trim();
+        if (!v) return;
+        navigate(`/wiki/${encodeURIComponent(slugify(v))}`);
+      });
+
+      function navigate(path) {
+        history.pushState({}, "", path);
+        route();
+      }
+      document.addEventListener("click", (e) => {
+        const a = e.target.closest("a");
+        if (!a) return;
+        const url = new URL(a.href, location.href);
+        if (url.origin !== location.origin) return;
+        if (a.hasAttribute("download") || a.target) return;
+        e.preventDefault();
+        navigate(url.pathname + url.search);
+      });
+      window.addEventListener("popstate", route);
+
+      // --- article --------------------------------------------------------
+
+      async function viewArticle(slug) {
+        app.innerHTML = `<p class="loading">loading…</p>`;
+        let a;
+        try {
+          a = await fetchJson(`/api/article/${encodeURIComponent(slug)}`);
+        } catch (e) {
+          app.innerHTML = `<div class="empty">couldn't load this article — ${esc(e.message)}</div>`;
+          return;
+        }
+        if (!a.exists) {
+          app.innerHTML = `
+            ${tabs(slug, "article")}
+            <h1>${esc(humanize(slug))}</h1>
+            <div class="empty">no article at this title yet.
+              <a href="/wiki/${encodeURIComponent(slug)}/edit">start it</a>.</div>
+          `;
+          return;
+        }
+        const shareText = `${a.title} — clusterpedia`;
+        const shareUrl = `https://clusterpedia.bisks.net/wiki/${encodeURIComponent(slug)}`;
+        const intent = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText + " " + shareUrl)}`;
+        app.innerHTML = `
+          ${tabs(slug, "article")}
+          <h1>${esc(a.title)}</h1>
+          <p class="meta">rev ${a.revCount} · last edited by
+            <a href="/user/${encodeURIComponent(a.updatedBy.handle)}">@${esc(short(a.updatedBy.handle))}</a>
+            · ${fmtTime(a.updatedAt)} ·
+            <a href="${intent}" target="_blank" rel="noopener">share on bluesky</a></p>
+          <div class="article-body">${renderWikiText(a.content)}</div>
+        `;
+      }
+      function humanize(slug) {
+        return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+
+      // --- edit -----------------------------------------------------------
+
+      async function viewEdit(slug) {
+        app.innerHTML = `<p class="loading">loading…</p>`;
+        let existing = null;
+        try {
+          const a = await fetchJson(`/api/article/${encodeURIComponent(slug)}`);
+          if (a.exists) existing = a;
+        } catch {}
+
+        if (!session) {
+          app.innerHTML = `
+            ${tabs(slug, "edit")}
+            <h1>edit ${esc(existing ? existing.title : humanize(slug))}</h1>
+            <div class="banner">sign in to write here — every edit is a record in your own PDS.
+              <button id="editLoginBtn">sign in</button></div>
+          `;
+          $("editLoginBtn").addEventListener("click", onLoginClick);
+          return;
+        }
+
+        app.innerHTML = `
+          ${tabs(slug, "edit")}
+          <h1>edit ${esc(existing ? existing.title : humanize(slug))}</h1>
+          <div id="checkerBanner" class="banner">checking the Simcluster Checker…</div>
+          <form class="edit-form" id="editForm">
+            <label for="titleInput">title</label>
+            <input type="text" id="titleInput" maxlength="200" value="${esc(existing ? existing.title : humanize(slug))}" required />
+            <label for="summaryInput">edit summary</label>
+            <input type="text" id="summaryInput" maxlength="300" placeholder="what did you change and why?" />
+            <label for="contentInput">content</label>
+            <textarea id="contentInput" rows="16" maxlength="50000" placeholder="== a heading ==&#10;&#10;body text. [[another article]] links there. **bold** and _italic_ work.">${esc(existing ? existing.content : "")}</textarea>
+            <div class="actions">
+              <button type="submit" id="saveBtn">save revision</button>
+              <span id="saveStatus" class="meta"></span>
+            </div>
+          </form>
+        `;
+
+        checkAccess(session.did).then((access) => {
+          $("checkerBanner").outerHTML = checkerBanner(access, true);
+        });
+
+        $("editForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const saveBtn = $("saveBtn");
+          const status = $("saveStatus");
+          saveBtn.disabled = true;
+          status.textContent = "writing to your PDS…";
+          try {
+            const record = {
+              $type: REV_COLLECTION,
+              slug,
+              title: $("titleInput").value.trim().slice(0, 200),
+              content: $("contentInput").value.slice(0, 50000),
+              summary: $("summaryInput").value.trim().slice(0, 300),
+              createdAt: new Date().toISOString(),
+            };
+            const uri = await writeOwnRecord(REV_COLLECTION, record);
+            status.textContent = "checking with the Simcluster Checker…";
+            const res = await fetchJson(`/api/article/${encodeURIComponent(slug)}/edit`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ uri }),
+            });
+            status.textContent = "saved.";
+            navigate(`/wiki/${encodeURIComponent(slug)}`);
+          } catch (e) {
+            saveBtn.disabled = false;
+            if (e.status === 403) {
+              status.innerHTML = "";
+              $("checkerBanner")?.remove();
+              const banner = document.createElement("div");
+              banner.innerHTML = checkerBanner(e.body?.access, true, true);
+              $("editForm").before(banner.firstElementChild);
+            } else {
+              status.textContent = "failed: " + e.message;
+            }
+          }
+        });
+      }
+
+      async function checkAccess(did) {
+        try {
+          return await fetchJson(`/api/check/${encodeURIComponent(did)}`);
+        } catch {
+          return { member: false, adjacent: false, allowed: false };
+        }
+      }
+      function checkerBanner(access, idBanner, denied) {
+        const id = idBanner ? ' id="checkerBanner"' : "";
+        if (!access) return `<div class="banner"${id}>couldn't reach the Simcluster Checker — try saving anyway.</div>`;
+        if (access.member) {
+          return `<div class="banner good"${id}><span class="badge member">member</span> you're a mutual of
+            @bisks.net — Shimmer Math Labs' Simcluster Checker clears you to edit.</div>`;
+        }
+        if (access.adjacent) {
+          return `<div class="banner good"${id}><span class="badge adjacent">1-hop adjacent</span> you share a
+            mutual with @bisks.net — the Simcluster Checker clears you to edit.</div>`;
+        }
+        const prefix = denied ? "save blocked: " : "";
+        return `<div class="banner bad"${id}><span class="badge none">not cleared</span> ${prefix}Shimmer Math
+          Labs' Simcluster Checker didn't find you as a mutual of @bisks.net, or a mutual of one of their
+          mutuals. You can read and post on the talk page — mutual-follow your way into the cluster to edit.</div>`;
+      }
+
+      // --- history ----------------------------------------------------------
+
+      async function viewHistory(slug) {
+        app.innerHTML = `${tabs(slug, "history")}<h1>history: ${esc(humanize(slug))}</h1><div id="hist" class="loading">loading…</div>`;
+        try {
+          const { revisions } = await fetchJson(`/api/article/${encodeURIComponent(slug)}/history`);
+          const hist = $("hist");
+          if (!revisions.length) {
+            hist.innerHTML = `<div class="empty">no revisions yet.</div>`;
+            return;
+          }
+          hist.innerHTML = revisions
+            .map(
+              (r) => `
+              <div class="rev-item" data-idx="${r.idx}">
+                <span class="who">@${esc(short(r.handle))}</span>
+                <span class="when">rev ${r.idx} · ${fmtTime(r.createdAt)}</span>
+                ${r.summary ? `<div>${esc(r.summary)}</div>` : ""}
+                <div><a href="#" class="showRev" data-idx="${r.idx}">view this revision</a> ·
+                  <a href="${esc(r.uri.replace("at://", "https://pdsls.dev/at/"))}" target="_blank" rel="noopener">PDS record</a></div>
+                <div class="rev-body" style="display:none" id="revbody-${r.idx}"></div>
+              </div>`,
+            )
+            .join("");
+          hist.addEventListener("click", async (e) => {
+            const link = e.target.closest(".showRev");
+            if (!link) return;
+            e.preventDefault();
+            const idx = link.dataset.idx;
+            const box = $("revbody-" + idx);
+            if (box.style.display !== "none") { box.style.display = "none"; return; }
+            box.style.display = "block";
+            box.textContent = "loading…";
+            try {
+              const rev = await fetchJson(`/api/article/${encodeURIComponent(slug)}/rev/${idx}`);
+              box.textContent = rev.content;
+            } catch (err) {
+              box.textContent = "couldn't load: " + err.message;
+            }
+          });
+        } catch (e) {
+          $("hist").innerHTML = `<div class="empty">couldn't load history — ${esc(e.message)}</div>`;
+        }
+      }
+
+      // --- talk -------------------------------------------------------------
+
+      async function viewTalk(slug) {
+        app.innerHTML = `
+          ${tabs(slug, "talk")}
+          <h1>talk: ${esc(humanize(slug))}</h1>
+          <div id="talkPosts" class="loading">loading…</div>
+          <h2 class="section">add to the discussion</h2>
+          <div id="talkForm"></div>
+        `;
+        renderTalkForm(slug);
+        try {
+          const { posts } = await fetchJson(`/api/article/${encodeURIComponent(slug)}/talk`);
+          const box = $("talkPosts");
+          if (!posts.length) {
+            box.innerHTML = `<div class="empty">no discussion yet.</div>`;
+            return;
+          }
+          box.innerHTML = posts
+            .sort((a, b) => a.idx - b.idx)
+            .map(
+              (p) => `
+              <div class="talk-post">
+                <span class="who">@${esc(short(p.handle))}</span><span class="when">${fmtTime(p.createdAt)}</span>
+                <div class="body">${esc(p.body)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch (e) {
+          $("talkPosts").innerHTML = `<div class="empty">couldn't load talk posts — ${esc(e.message)}</div>`;
+        }
+      }
+
+      function renderTalkForm(slug) {
+        const box = $("talkForm");
+        if (!session) {
+          box.innerHTML = `<div class="banner">sign in to post — no Simcluster Checker gate here, just a
+            verified login. <button id="talkLoginBtn">sign in</button></div>`;
+          $("talkLoginBtn").addEventListener("click", onLoginClick);
+          return;
+        }
+        box.innerHTML = `
+          <form class="edit-form" id="talkPostForm">
+            <textarea id="talkBody" rows="4" maxlength="5000" placeholder="say something about this article…" required></textarea>
+            <div class="actions">
+              <button type="submit" id="talkSaveBtn">post</button>
+              <span id="talkStatus" class="meta"></span>
+            </div>
+          </form>
+        `;
+        $("talkPostForm").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const btn = $("talkSaveBtn");
+          const status = $("talkStatus");
+          const text = $("talkBody").value.trim();
+          if (!text) return;
+          btn.disabled = true;
+          status.textContent = "writing to your PDS…";
+          try {
+            const record = {
+              $type: TALK_COLLECTION,
+              slug,
+              body: text.slice(0, 5000),
+              createdAt: new Date().toISOString(),
+            };
+            const uri = await writeOwnRecord(TALK_COLLECTION, record);
+            status.textContent = "posting…";
+            await fetchJson(`/api/article/${encodeURIComponent(slug)}/talk`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ uri }),
+            });
+            viewTalk(slug);
+          } catch (e) {
+            btn.disabled = false;
+            status.textContent = "failed: " + e.message;
+          }
+        });
+      }
+
+      // --- profile ------------------------------------------------------
+
+      async function viewProfile(handleOrDid) {
+        app.innerHTML = `<p class="loading">loading…</p>`;
+        try {
+          const u = await fetchJson(`/api/user/${encodeURIComponent(handleOrDid)}`);
+          const badge = u.access.member
+            ? `<span class="badge member">member</span>`
+            : u.access.adjacent
+              ? `<span class="badge adjacent">1-hop adjacent</span>`
+              : `<span class="badge none">not cleared</span>`;
+          app.innerHTML = `
+            <div class="profile-head">
+              <div class="av" style="${u.avatar ? `background-image:url('${esc(u.avatar)}')` : ""}">${u.avatar ? "" : esc((u.displayName || "?").slice(0, 2).toUpperCase())}</div>
+              <div>
+                <h1 style="margin:0">${esc(u.displayName)}</h1>
+                <div class="meta">@${esc(short(u.handle))} · ${badge}
+                  · <a href="https://bsky.app/profile/${encodeURIComponent(u.did)}" target="_blank" rel="noopener">bluesky profile</a></div>
+              </div>
+            </div>
+            <h2 class="section">contributions</h2>
+            <div id="contribs"></div>
+          `;
+          const box = $("contribs");
+          if (!u.contributions.length) {
+            box.innerHTML = `<div class="empty">no edits or talk posts yet.</div>`;
+            return;
+          }
+          box.innerHTML = u.contributions
+            .map(
+              (c) => `
+              <div class="card">
+                <div class="t">${c.type === "edit" ? "edited" : "talked on"}
+                  <a href="/wiki/${encodeURIComponent(c.slug)}">${esc(c.title || humanize(c.slug))}</a></div>
+                ${c.summary ? `<div class="s">${esc(c.summary)}</div>` : ""}
+                <div class="m">${fmtTime(c.createdAt)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch (e) {
+          app.innerHTML = `<div class="empty">couldn't load that profile — ${esc(e.message)}</div>`;
+        }
+      }
+
+      // --- boot -----------------------------------------------------------
+
+      (async function boot() {
+        try {
+          const cb = await completeLoginIfCallback();
+          if (cb) session = cb;
+        } catch (e) {
+          console.warn("oauth callback failed:", e.message);
+        }
+        if (!session) session = await getSession();
+        renderSessionBox();
+        route();
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem;
+        overflow: hidden; pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>

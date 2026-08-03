@@ -1,0 +1,33 @@
+# @fromthewestmeadow.com asked for a Wikipedia clone with atproto login,
+# articles, histories, talk pages, and profiles — edits gated by "Shimmer Math
+# Labs' Simcluster Checker": bisks.net's mutuals ("members") or a mutual of one
+# of those mutuals ("1-hop adjacent"). See src/index.ts for the checker logic.
+#
+# New site, canonical host only (no legacy bisks.net/<name> path route) — see
+# notes/40-new-site-playbook.md.
+name = "atprotozoa-clusterpedia"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+routes = [
+  { pattern = "clusterpedia.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# The Worker runs first for everything: it forwards /api/* to the Wiki
+# Durable Object and server-renders per-article OG tags for GET /wiki/<slug>;
+# everything else falls through to the ASSETS binding.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "WIKI"
+class_name = "Wiki"
+
+# new_sqlite_classes, not new_classes: legacy KV-backed DO storage needs
+# Workers Paid; SQLite-backed DOs work on the Free plan this account is on
+# (see sites/docmoot, sites/the-place, sites/ratioed wrangler.tomls).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Wiki"]
