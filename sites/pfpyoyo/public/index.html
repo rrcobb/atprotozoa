@@ -361,9 +361,14 @@
   }
 
   function setShareText() {
+    // The link itself carries ?handle=<handle> so that opening it preloads
+    // the same pfp being shared, instead of everyone landing on the demo.
+    var url = handle.toLowerCase() === DEMO_HANDLE.toLowerCase()
+      ? shareUrl
+      : shareUrl + "?handle=" + encodeURIComponent(handle);
     var text = handle === DEMO_HANDLE
-      ? "watching @" + DEMO_HANDLE + "'s pfp yoyo-zoom itself into a singularity, steady acceleration and everything. " + shareUrl
-      : "put @" + handle + "'s pfp through the yoyo zoom. steady acceleration, no brakes. " + shareUrl;
+      ? "watching @" + DEMO_HANDLE + "'s pfp yoyo-zoom itself into a singularity, steady acceleration and everything. " + url
+      : "put @" + handle + "'s pfp through the yoyo zoom. steady acceleration, no brakes. " + url;
     shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
   }
 
@@ -487,10 +492,21 @@
   // try a live refetch in case the cached CDN URL ever goes stale.
   pfp.src = DEMO_AVATAR;
   setShareText();
-  fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=" + DEMO_HANDLE)
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (data) { if (data && data.avatar) pfp.src = data.avatar; })
-    .catch(function () {});
+
+  // A share link carries ?handle=<handle> — if present, load that profile
+  // instead of the demo, so the link actually shows what was shared.
+  var queryHandle = null;
+  try {
+    queryHandle = new URLSearchParams(window.location.search).get("handle");
+  } catch (e) {}
+  if (queryHandle && queryHandle.trim().replace(/^@/, "").toLowerCase() !== DEMO_HANDLE.toLowerCase()) {
+    loadHandle(queryHandle);
+  } else {
+    fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=" + DEMO_HANDLE)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data && data.avatar) pfp.src = data.avatar; })
+      .catch(function () {});
+  }
 })();
 </script>
 </body>
