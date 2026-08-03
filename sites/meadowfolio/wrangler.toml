@@ -5,10 +5,19 @@ compatibility_date = "2025-01-01"
 # @fromthewestmeadow.com asked for a portfolio of their own best work: an
 # image gallery, an index of the software they've shipped on the
 # fromthewestmeadow.com domain, and a curated "favorites" pick from their
-# post history. Pure static site — the gallery reads the public AppView
-# anonymously client-side (public/lib/feed.js, copied from sites/portfolio),
-# releases + curator picks are baked into public/data.js at build time. No
-# dynamic routes, so the Worker is a straight passthrough to ASSETS.
+# post history. Mostly static — the gallery, buildthis-requests, and
+# dreamnet sections all read live data client-side (public/app.js +
+# public/lib/feed.js, the latter copied from sites/portfolio); only curator
+# picks are baked into public/data.js at build time.
+#
+# One dynamic route: GET /api/releases proxies fromthewestmeadow.com's own
+# landing page server-side (it has no CORS headers, so the browser can't read
+# it directly) and parses out her "Featured Tools" list — the actual source
+# of truth for older releases, since not every one was ever announced in a
+# Bluesky post. See handleReleasesApi in src/index.ts.
+#
+# run_worker_first: that route is dynamic, so the Worker must run BEFORE the
+# static-asset router, or env.ASSETS would 404 it.
 routes = [
   { pattern = "meadowfolio.bisks.net/*", zone_name = "bisks.net" },
 ]
@@ -16,4 +25,4 @@ routes = [
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = false
+run_worker_first = true

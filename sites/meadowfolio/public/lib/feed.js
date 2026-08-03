@@ -13,8 +13,13 @@ const PUB = "https://public.api.bsky.app/xrpc";
 const FEED_PAGE_LIMIT = 100;
 // Hard cap on how many pages a resumable pager (see createPortfolioPager)
 // will ever fetch, so scroll-triggered loading can't hammer the AppView
-// forever on a mega-account. 40 pages * 100 posts ≈ 4000 posts of history.
-export const MAX_FEED_PAGES = 40;
+// forever on a mega-account. 70 pages * 100 posts ≈ 7000 posts of history —
+// @fromthewestmeadow.com measured at 6067 posts including replies on
+// 2026-08-03 (4539 without). The original 40-page cap (4000) fell short of
+// the account's oldest posts either way, which made the live
+// domain-releases scan (app.js scanDomainAndDreamnet) miss releases from its
+// first weeks. Bumped with headroom for growth.
+export const MAX_FEED_PAGES = 70;
 
 async function jget(url) {
   const r = await fetch(url);
@@ -86,13 +91,19 @@ function toPost(it, handle) {
   };
 }
 
-// A resumable pager over an account's top-level post history (getAuthorFeed,
-// anonymous — skips reposts + replies, newest page first). Each call to
-// next() fetches one page (up to 100 posts) and returns { posts, done }.
-// Lets a caller render a fast first batch, then keep paging on demand — e.g.
-// as a gallery is scrolled toward its older end — instead of blocking on the
-// whole history up front.
-export function createPortfolioPager(did, handle) {
+// A resumable pager over an account's post history (getAuthorFeed,
+// anonymous — skips reposts, newest page first). Each call to next() fetches
+// one page (up to 100 posts) and returns { posts, done }. Lets a caller
+// render a fast first batch, then keep paging on demand — e.g. as a gallery
+// is scrolled toward its older end — instead of blocking on the whole
+// history up front.
+//
+// Defaults to skipping replies too (posts_no_replies), which is what the
+// gallery/dreamnet callers want. Pass filter: "posts_with_replies" to
+// include them — some domain-release announcements turned out to be posted
+// as replies (e.g. compass.fromthewestmeadow.com, 2025-09-10), which the
+// no-replies feed silently drops.
+export function createPortfolioPager(did, handle, { filter = "posts_no_replies" } = {}) {
   let cursor = "";
   let page = 0;
   let done = false;
@@ -103,7 +114,7 @@ export function createPortfolioPager(did, handle) {
       const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
       u.searchParams.set("actor", did);
       u.searchParams.set("limit", String(FEED_PAGE_LIMIT));
-      u.searchParams.set("filter", "posts_no_replies");
+      u.searchParams.set("filter", filter);
       if (cursor) u.searchParams.set("cursor", cursor);
       let d;
       try {

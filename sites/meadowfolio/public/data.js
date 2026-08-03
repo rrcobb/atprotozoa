@@ -1,12 +1,14 @@
 // meadowfolio — static data, baked at build time.
 //
-// RELEASES: every piece of software fromthewestmeadow.com has shipped on
-// its own domain. Order is reverse chronological (newest first) — dates
-// come from the launch posts on the account's feed (getAuthorFeed, searched
-// for each host), except `self`, which predates the searchable window and
-// is placed by its position on the fromthewestmeadow.com landing page
-// (between `deleted` and `sound`, so its date is approximate). Hand-
-// maintained, same spirit as sites/*/site.json — short, not generated.
+// RELEASES and REQUESTS used to live here as hand-maintained snapshots.
+// @fromthewestmeadow.com asked (2026-08-03) for both to "update on their own
+// automatically as part of the page load" — they're now computed live in
+// app.js instead: REQUESTS from buildthis.bisks.net/logs.json (the same
+// event log westmeadow.bisks.net reads), RELEASES by scanning the post
+// history for external links to any *.fromthewestmeadow.com subdomain
+// (generalizing the same live-card trick the dreamnet section already did
+// for one specific host). See renderRequests()/scanDomainAndDreamnet() in
+// app.js.
 //
 // PICKS: buildthis's own curated favorites, picked by actually reading a
 // chunk of the post history (getAuthorFeed) and choosing the ones that made
@@ -17,184 +19,9 @@
 // first post in Nov 2024. Expanded again 2026-08-03: a fourth pass over just
 // the newest posts (2026-08-01 through 2026-08-03), since the third pass
 // already covered everything older.
-//
-// REQUESTS: every buildthis-built site this account has asked for, on this
-// account (by === HANDLE across sites/*/site.json), newest first — ordered
-// by each site's earliest commit in the repo, since not every site.json
-// carries a `builtAt`. Hand-maintained same as RELEASES/PICKS, so a brand
-// new build won't show up here until this list is next touched; the live,
-// always-current version of the same list is westmeadow.bisks.net.
 
 export const HANDLE = "fromthewestmeadow.com";
 export const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
-
-export const REQUESTS = [
-  {
-    name: "clusterpedia",
-    url: "https://clusterpedia.bisks.net/",
-    title: "clusterpedia",
-    blurb: "A Wikipedia clone with real atproto login — articles, revision histories, talk pages, profiles. Edits gated to bisks.net mutuals and mutuals-of-mutuals.",
-  },
-  {
-    name: "dontpressit",
-    url: "https://dontpressit.bisks.net/",
-    title: "dontpressit",
-    blurb: "One button, labeled do not press this. Each round is named after one of her followers — pressing it graduates that name forever.",
-  },
-  {
-    name: "llmstance",
-    url: "https://llmstance.bisks.net/",
-    title: "llmstance",
-    blurb: "Scans an account (or their whole network) and labels every post Pro-LLM, Anti-LLM, or Unclear, then tallies the overall stance with receipts.",
-  },
-  {
-    name: "curtaintwitcher",
-    url: "https://curtaintwitcher.bisks.net/",
-    title: "curtaintwitcher",
-    blurb: "A fake Nextdoor where the whole neighborhood's posts escalate into paranoia together. Vote REAL or UNHINGED on every complaint.",
-  },
-  {
-    name: "overthink",
-    url: "https://overthink.bisks.net/",
-    title: "overthink",
-    blurb: "A fake ChatGPT whose reply streams in normally, then its \"thinking\" chip unfolds into an infinitely-nested, increasingly unhinged reasoning tree.",
-  },
-  {
-    name: "westmeadow",
-    url: "https://westmeadow.bisks.net/",
-    title: "westmeadow",
-    blurb: "A bare list of every site this account has asked buildthis to build, recomputed live from the event log on every page load.",
-  },
-  {
-    name: "freecondoms",
-    url: "https://freecondoms.bisks.net/",
-    title: "freecondoms",
-    blurb: "Type an address, get nearby free condom vending machines and family-planning clinics from OpenStreetMap, plus national resources as backup.",
-  },
-  {
-    name: "promptrot",
-    url: "https://promptrot.bisks.net/",
-    title: "promptrot",
-    blurb: "Paste a clean, well-specified prompt and watch it decay into a stacked, lowercase, typo'd, scope-creeping Bluesky thread.",
-  },
-  {
-    name: "nothingness",
-    url: "https://nothingness.bisks.net/",
-    title: "nothingness",
-    blurb: "A near-blank void that makes you click the nothing every five seconds or lose your witness streak. Real leaderboard for longest nothing witnessed.",
-  },
-  {
-    name: "chrysalis",
-    url: "https://chrysalis.bisks.net/",
-    title: "chrysalis",
-    blurb: "A countdown that reveals something in exactly one week — the reveal is AES-encrypted in the source, unreadable before the deadline.",
-  },
-  {
-    name: "didrank",
-    url: "https://didrank.bisks.net/",
-    title: "didrank",
-    blurb: "A live leaderboard of the most-frequently-posting Bluesky DIDs, over windows from the last minute out to all-time. Straight off the firehose.",
-  },
-  {
-    name: "wentviral",
-    url: "https://wentviral.bisks.net/",
-    title: "wentviral",
-    blurb: "A fake compose box: whatever you \"post\" racks up a deterministic, reproducible pile-on of replies, likes, reposts, and quote posts over time.",
-  },
-  {
-    name: "resetwatch",
-    url: "https://resetwatch.bisks.net/",
-    title: "resetwatch",
-    blurb: "A live clock counting time since the last Codex / ChatGPT usage-limit reset, plus a timeline of every one before it.",
-  },
-  {
-    name: "didscope",
-    url: "https://didscope.bisks.net/",
-    title: "didscope",
-    blurb: "Astrology, but it's the last character of your did:plc. 32 signs, a cosmic rival, and one real recent post as today's omen.",
-  },
-  {
-    name: "flamewordart",
-    url: "https://flamewordart.bisks.net/",
-    title: "flame word art in space",
-    blurb: "Type a word, get back a GIF of it on fire, tumbling end over end against a starfield. Rendered entirely in your browser.",
-  },
-  {
-    name: "portfolio",
-    url: "https://portfolio.bisks.net/",
-    title: "portfolio",
-    blurb: "Enter any Bluesky handle for a \"portfolio\": media and links up top, everything else clustered into topic boxes, all client-side searchable.",
-  },
-];
-
-export const RELEASES = [
-  {
-    host: "cancelled.fromthewestmeadow.com",
-    title: "Cancelled",
-    blurb: "Scan any Bluesky account for offensive content. Win98-style results.",
-    date: "2026-07-26",
-  },
-  {
-    host: "dreamnet.fromthewestmeadow.com",
-    title: "DreamNet",
-    blurb: "Remote desktops for computers that never existed.",
-    date: "2026-07-16",
-  },
-  {
-    host: "compass.fromthewestmeadow.com",
-    title: "Political Compass Meme Generator",
-    blurb: "A shareable, deterministic political-compass meme for any Bluesky user.",
-    date: "2025-09-10",
-  },
-  {
-    host: "speed.fromthewestmeadow.com",
-    title: "Speed Reader Firehose",
-    blurb: "Every new post speed-reads itself, one grid cell at a time.",
-    date: "2025-09-09",
-  },
-  {
-    host: "links.fromthewestmeadow.com",
-    title: "Links Firehose",
-    blurb: "StumbleUpon-style: surf every link posted to Bluesky as it happens.",
-    date: "2025-09-08",
-  },
-  {
-    host: "emoji.fromthewestmeadow.com",
-    title: "Emoji Heatmap",
-    blurb: "Live heatmap of emoji usage on Bluesky posts.",
-    date: "2025-09-08",
-  },
-  {
-    host: "matrix.fromthewestmeadow.com",
-    title: "Matrix Firehose",
-    blurb: "Bluesky posts as falling matrix rain, sideways and readable.",
-    date: "2025-09-08",
-  },
-  {
-    host: "markov.fromthewestmeadow.com",
-    title: "Profile Markov Chain",
-    blurb: "Remix any user's posts with Markov magic.",
-    date: "2025-09-07",
-  },
-  {
-    host: "sound.fromthewestmeadow.com",
-    title: "DID Sound Firehose",
-    blurb: "Hear a note for every user on the firehose.",
-    date: "2025-09-07",
-  },
-  {
-    host: "self.fromthewestmeadow.com",
-    title: "Self-Like Watcher",
-    blurb: "Find posts liked by their own authors.",
-    date: "2025-09-07",
-  },
-  {
-    host: "deleted.fromthewestmeadow.com",
-    title: "Deleted Posts Watcher",
-    blurb: "See recently deleted Bluesky posts in real time.",
-    date: "2025-09-06",
-  },
-];
 
 export const PICKS = [
   {

@@ -1,9 +1,11 @@
 // meadowfolio — glue script. Profile header + image gallery are live (public
 // AppView, anonymous, via lib/feed.js — copied from sites/portfolio).
-// Releases + curator picks are static, from ./data.js.
+// Releases, buildthis requests, and dreamnet are also live (recomputed on
+// every page load, no baked snapshot); only curator picks stay static, from
+// ./data.js.
 
 import { getProfile, createPortfolioPager, MAX_FEED_PAGES } from "./lib/feed.js";
-import { HANDLE, DID, RELEASES, REQUESTS, PICKS } from "./data.js";
+import { HANDLE, DID, PICKS } from "./data.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -36,44 +38,131 @@ async function renderProfile() {
   }
 }
 
-// ── releases ─────────────────────────────────────────────────────────────
-function renderReleases() {
-  const el = $("#releases");
-  el.innerHTML = RELEASES.map(
-    (r) => `
-      <a class="release" href="https://${esc(r.host)}" target="_blank" rel="noopener">
-        <div class="release-title">${esc(r.title)}</div>
-        <div class="release-host">${esc(r.host)}</div>
-        <div class="release-blurb">${esc(r.blurb)}</div>
-      </a>`,
-  ).join("");
+// ── requests: every buildthis site built for this account, live ───────────
+// Reads buildthis.bisks.net/logs.json — the same public, CORS-open event log
+// westmeadow.bisks.net reads — filters to this account, dedupes by built
+// name (an edit re-ships the same name; keep the latest outcome), and pulls
+// a one-line description the same way buildthis's own /directory does: the
+// builder's BUILD_NOTE (recovered from replyText by stripping the fixed
+// "built it 🎉 — <url> / (give the deploy a minute...)" template), falling
+// back to the original request text. Copied rather than shared (house
+// style) from entryDescription()/canonicalUrl() in
+// sites/buildthis/src/index.ts and sites/westmeadow/src/index.ts.
+const LOGS_SOURCE = "https://buildthis.bisks.net/logs.json";
+const REPLY_TEMPLATE_MARKER = "built it 🎉";
+
+// Every site moved to its own `<name>.bisks.net` subdomain 2026-07-31; these
+// two are the still-path-mounted exceptions (see notes/20-deploy.md).
+const PATH_MOUNTED = { apex: "bisks.net", games: "bisks.net/games" };
+
+function fallbackUrl(builtName) {
+  const site = builtName.split("/")[0];
+  const rest = builtName.slice(site.length); // "" or "/sub/path..."
+  const pathMount = PATH_MOUNTED[site];
+  return pathMount ? `https://${pathMount}${rest}` : `https://${site}.bisks.net${rest}`;
 }
 
-// ── requests: every buildthis site built for this account ─────────────────
-function renderRequests() {
+// Old events (pre-2026-07-31) stored a `bisks.net/<name>` path url — normalize
+// those to the site's own subdomain rather than trusting the stored value.
+function canonicalUrl(builtName, stored) {
+  if (!stored) return fallbackUrl(builtName);
+  const m = stored.match(/^https:\/\/bisks\.net\/(?:games\/)?([a-z0-9-]+)(\/.*)?$/i);
+  if (!m) return stored;
+  const [, site, rest] = m;
+  if (PATH_MOUNTED[site]) return stored;
+  return `https://${site}.bisks.net${rest || "/"}`;
+}
+
+function entryDescription(text, replyText) {
+  const reply = (replyText || "").trim();
+  if (reply) {
+    const idx = reply.indexOf(REPLY_TEMPLATE_MARKER);
+    const note = idx === -1 ? reply : reply.slice(0, idx).trim();
+    if (note) return note;
+  }
+  return (text || "").trim();
+}
+
+function hostLabel(url) {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\/$/, "");
+    return path ? `${u.host}${path}` : u.host;
+  } catch {
+    return url;
+  }
+}
+
+async function renderRequests() {
   const el = $("#requests");
   const count = $("#requestsCount");
-  if (count) count.textContent = `(${REQUESTS.length})`;
-  el.innerHTML = REQUESTS.map(
-    (r) => `
+  const status = $("#requestsStatus");
+  let requests;
+  try {
+    const res = await fetch(`${LOGS_SOURCE}?limit=500`);
+    if (!res.ok) throw new Error(`logs source returned ${res.status}`);
+    const { events } = await res.json();
+    const byName = new Map();
+    for (const e of events || []) {
+      if ((e.authorHandle || "").toLowerCase() !== HANDLE.toLowerCase()) continue;
+      if (e.outcome?.status !== "success" || !e.outcome.builtName) continue;
+      const entry = {
+        name: e.outcome.builtName,
+        url: canonicalUrl(e.outcome.builtName, e.outcome.url),
+        blurb: entryDescription(e.text, e.outcome.replyText),
+        at: e.outcome.at,
+      };
+      const prev = byName.get(entry.name);
+      if (!prev || prev.at < entry.at) byName.set(entry.name, entry);
+    }
+    requests = [...byName.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
+  } catch {
+    if (status) status.textContent = "couldn't load the requests list right now — the log might be having a moment.";
+    return;
+  }
+  if (status) status.remove();
+  if (count) count.textContent = `(${requests.length})`;
+  if (!requests.length) {
+    el.innerHTML = `<p class="status">nothing shipped yet.</p>`;
+    return;
+  }
+  el.innerHTML = requests
+    .map(
+      (r) => `
       <a class="release" href="${esc(r.url)}" target="_blank" rel="noopener">
-        <div class="release-title">${esc(r.title)}</div>
-        <div class="release-host">${esc(r.name)}.bisks.net</div>
-        <div class="release-blurb">${esc(r.blurb)}</div>
+        <div class="release-title">${esc(r.name.replace(/-/g, " "))}</div>
+        <div class="release-host">${esc(hostLabel(r.url))}</div>
+        ${r.blurb ? `<div class="release-blurb">${esc(r.blurb)}</div>` : ""}
       </a>`,
-  ).join("");
+    )
+    .join("");
 }
 
-// ── dreamnet: every dreamnet.fromthewestmeadow.com link posted, live ───────
-// Pages the same public AppView post history as the gallery (createPortfolioPager),
-// but looks for posts whose embed is an external link card pointing at
-// DREAMNET_HOST — that embed already carries Bluesky's own unfurled card data
-// (title/description/thumb), which is exactly the "embed card" asked for.
-// Stops paging once posts get older than DreamNet's own release date, since
-// no dreamnet link could exist before the tool did.
+// ── releases + dreamnet ─────────────────────────────────────────────────────
+// "releases" merges two live sources:
+//  1. fromthewestmeadow.com's own landing page ("Featured Tools"), proxied
+//     through /api/releases (see src/index.ts — the page has no CORS headers,
+//     so the browser can't read it directly). This is the ground truth for
+//     her older tools: some of them (e.g. self.fromthewestmeadow.com) were
+//     never actually linked in a Bluesky post, so no amount of feed-scanning
+//     finds them — only her own site lists them, in oldest-first order.
+//  2. A pass over the post history for any *.fromthewestmeadow.com link the
+//     landing page DOESN'T list yet — how a brand-new release (dreamnet,
+//     cancelled) shows up here before she's gotten around to updating that
+//     page. Sorted newest-first and prepended, since anything found this way
+//     is safely newer than everything on the (rarely-touched) landing page.
+// "dreamnet" = every individual dreamnet.fromthewestmeadow.com link from that
+// same pass, not deduped by host (each dream is its own card).
+//
+// Asks for replies too (posts_with_replies, unlike the gallery's no-replies
+// pager) — at least one release announcement
+// (compass.fromthewestmeadow.com) was itself posted as a reply, and would be
+// silently dropped otherwise. Also checks for a bare "host.fromthewestmeadow.com"
+// mention in the post text even without a clickable embed — that's how
+// emoji.fromthewestmeadow.com was originally announced.
 const DREAMNET_HOST = "dreamnet.fromthewestmeadow.com";
-const DREAMNET_LAUNCH =
-  RELEASES.find((r) => r.host === DREAMNET_HOST)?.date || "2026-07-16";
+const DOMAIN_SUFFIX = ".fromthewestmeadow.com";
+const DOMAIN_TEXT_RE = /\b([a-z0-9-]+)\.fromthewestmeadow\.com\b/i;
 
 function linkHost(uri) {
   try {
@@ -83,42 +172,131 @@ function linkHost(uri) {
   }
 }
 
-async function renderDreamnet() {
-  const el = $("#dreamnet");
-  const status = $("#dreamnetStatus");
-  const seen = new Set();
-  const cards = [];
+async function fetchLandingReleases() {
   try {
-    const pager = createPortfolioPager(DID, HANDLE);
-    for (let i = 0; i < MAX_FEED_PAGES; i++) {
-      const { posts, done } = await pager.next();
-      let pastLaunch = false;
-      for (const post of posts) {
-        if (post.createdAt && post.createdAt < DREAMNET_LAUNCH) {
-          pastLaunch = true;
-          continue;
-        }
-        if (post.kind !== "link" || !post.link) continue;
-        if (linkHost(post.link.uri) !== DREAMNET_HOST) continue;
-        if (seen.has(post.link.uri)) continue;
-        seen.add(post.link.uri);
-        cards.push({ ...post.link, postUrl: post.url, date: post.createdAt });
-      }
-      if (done || pastLaunch) break;
-    }
+    const res = await fetch("/api/releases");
+    if (!res.ok) return [];
+    const { releases } = await res.json();
+    return Array.isArray(releases) ? releases : [];
   } catch {
-    if (status) status.textContent = "couldn't load DreamNet links right now — the AppView might be having a moment.";
+    return [];
+  }
+}
+
+async function scanDomainAndDreamnet() {
+  const releaseByHost = new Map();
+  const dreamnetSeen = new Set();
+  const dreamnetCards = [];
+  const pager = createPortfolioPager(DID, HANDLE, { filter: "posts_with_replies" });
+  for (let i = 0; i < MAX_FEED_PAGES; i++) {
+    const { posts, done } = await pager.next();
+    for (const post of posts) {
+      let host = null;
+      let cardTitle = null;
+      let cardBlurb = null;
+      let isCard = false;
+      if (post.kind === "link" && post.link) {
+        const h = linkHost(post.link.uri);
+        if (h.endsWith(DOMAIN_SUFFIX)) {
+          host = h;
+          cardTitle = post.link.title;
+          cardBlurb = post.link.description;
+          isCard = true;
+        }
+      }
+      if (!host) {
+        const m = DOMAIN_TEXT_RE.exec(post.text || "");
+        if (m) host = `${m[1].toLowerCase()}.fromthewestmeadow.com`;
+      }
+      if (host) {
+        const date = post.createdAt || "";
+        const existing = releaseByHost.get(host);
+        if (!existing) {
+          releaseByHost.set(host, {
+            host,
+            date,
+            cardDate: isCard ? date : null,
+            title: isCard ? cardTitle || host : host,
+            blurb: isCard ? cardBlurb || "" : post.text || "",
+          });
+        } else {
+          if (date && date < existing.date) existing.date = date;
+          // Prefer the EARLIEST card (not just the first one this scan hits —
+          // pages come back newest-first, so a host linked many times, like
+          // dreamnet, would otherwise show whichever individual link the scan
+          // saw first instead of the tool's actual launch announcement).
+          if (isCard && (existing.cardDate === null || date < existing.cardDate)) {
+            existing.title = cardTitle || host;
+            existing.blurb = cardBlurb || "";
+            existing.cardDate = date;
+          }
+        }
+      }
+
+      if (post.kind === "link" && post.link && linkHost(post.link.uri) === DREAMNET_HOST) {
+        if (!dreamnetSeen.has(post.link.uri)) {
+          dreamnetSeen.add(post.link.uri);
+          dreamnetCards.push({ ...post.link, postUrl: post.url, date: post.createdAt });
+        }
+      }
+    }
+    if (done) break;
+  }
+  const found = [...releaseByHost.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+  dreamnetCards.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return { found, dreamnetCards };
+}
+
+async function renderDomainSections() {
+  const releasesEl = $("#releases");
+  const releasesStatus = $("#releasesStatus");
+  const releasesCount = $("#releasesCount");
+  const dreamnetEl = $("#dreamnet");
+  const dreamnetStatus = $("#dreamnetStatus");
+  const dreamnetCount = $("#dreamnetCount");
+
+  let landing = [];
+  let found = [];
+  let dreamnetCards = [];
+  try {
+    [landing, { found, dreamnetCards }] = await Promise.all([fetchLandingReleases(), scanDomainAndDreamnet()]);
+  } catch {
+    if (releasesStatus) releasesStatus.textContent = "couldn't load the releases list right now — the AppView might be having a moment.";
+    if (dreamnetStatus) dreamnetStatus.textContent = "couldn't load DreamNet links right now — the AppView might be having a moment.";
     return;
   }
-  if (!cards.length) {
-    if (status) status.textContent = "no DreamNet links found (yet).";
+
+  const landingHosts = new Set(landing.map((r) => r.host));
+  const extra = found.filter((r) => !landingHosts.has(r.host));
+  const releases = [
+    ...extra.map((r) => ({ host: r.host, title: r.title, blurb: r.blurb })),
+    ...[...landing].reverse(),
+  ];
+
+  if (releasesCount) releasesCount.textContent = `(${releases.length} shipped on fromthewestmeadow.com)`;
+  if (!releases.length) {
+    if (releasesStatus) releasesStatus.textContent = "no fromthewestmeadow.com releases found (yet).";
+  } else {
+    if (releasesStatus) releasesStatus.remove();
+    releasesEl.innerHTML = releases
+      .map(
+        (r) => `
+        <a class="release" href="https://${esc(r.host)}" target="_blank" rel="noopener">
+          <div class="release-title">${esc(r.title)}</div>
+          <div class="release-host">${esc(r.host)}</div>
+          ${r.blurb ? `<div class="release-blurb">${esc(r.blurb)}</div>` : ""}
+        </a>`,
+      )
+      .join("");
+  }
+
+  if (!dreamnetCards.length) {
+    if (dreamnetStatus) dreamnetStatus.textContent = "no DreamNet links found (yet).";
     return;
   }
-  cards.sort((a, b) => (a.date < b.date ? 1 : -1));
-  if (status) status.remove();
-  const count = $("#dreamnetCount");
-  if (count) count.textContent = `(${cards.length})`;
-  el.innerHTML = cards
+  if (dreamnetStatus) dreamnetStatus.remove();
+  if (dreamnetCount) dreamnetCount.textContent = `(${dreamnetCards.length})`;
+  dreamnetEl.innerHTML = dreamnetCards
     .map(
       (c) => `
       <a class="dreamnet-card" href="${esc(c.uri)}" target="_blank" rel="noopener">
@@ -263,9 +441,8 @@ function setupShare() {
 }
 
 renderProfile();
-renderReleases();
 renderRequests();
-renderDreamnet();
+renderDomainSections();
 renderPicks();
 renderGallery();
 setupGalleryNav();
