@@ -77,7 +77,30 @@ const PHRASE_RE = /the vibes are/gi;
 // "Up to any punctuation" — Unicode's punctuation category, so ., !, ?, ;,
 // :, quotes, dashes, brackets all count as a boundary, not just a curated
 // ASCII list.
-const PUNCT_RE = /\p{P}/u;
+const PUNCT_RE = /\p{P}/gu;
+const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
+
+// First "real" punctuation boundary in `s` — like PUNCT_RE.exec, but an
+// apostrophe (straight or curly) sitting between two word characters is a
+// contraction (it's, we're, don't, y'all), not a boundary. Without this,
+// "the vibes are we're so back" tallied as just "we" — every contraction
+// in a vibe answer got truncated to its first syllable.
+function findBoundary(s: string): number {
+  PUNCT_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = PUNCT_RE.exec(s))) {
+    const ch = m[0];
+    if (ch === "'" || ch === "’") {
+      const before = s[m.index - 1];
+      const after = s[m.index + 1];
+      if (before && after && WORD_CHAR_RE.test(before) && WORD_CHAR_RE.test(after)) {
+        continue; // contraction apostrophe — not a boundary
+      }
+    }
+    return m.index;
+  }
+  return -1;
+}
 
 const ALARM_MS = 30 * 1000; // tick cadence — also the reconnect heartbeat
 const MAX_TRACKED = 1500; // safety valve on total distinct phrases kept
@@ -174,8 +197,8 @@ function extractPhrases(text: string): string[] {
   while ((m = PHRASE_RE.exec(text))) {
     let rest = text.slice(m.index + m[0].length);
     rest = rest.replace(/^[ \t]+/, ""); // eat the space before the phrase, not punctuation after it
-    const p = PUNCT_RE.exec(rest);
-    const phrase = normalizeWhitespace(p ? rest.slice(0, p.index) : rest);
+    const boundary = findBoundary(rest);
+    const phrase = normalizeWhitespace(boundary >= 0 ? rest.slice(0, boundary) : rest);
     if (phrase) out.push(phrase.slice(0, 140));
     if (m[0].length === 0) PHRASE_RE.lastIndex++; // guard against zero-length matches
   }
