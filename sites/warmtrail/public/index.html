@@ -139,6 +139,16 @@
     font-size: 0.78rem;
     margin-top: 0.15rem;
   }
+  .auto-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .auto-toggle input { accent-color: var(--accent); }
 
   #status {
     margin-top: 1rem;
@@ -344,7 +354,8 @@
     <div class="control">
       <label for="gain">gain <span class="val" id="gain-val">3</span></label>
       <input type="range" id="gain" min="1" max="10" step="1" value="3" />
-      <div class="hint">how twitchy the sensor is — low gain trusts a clean reading, high gain amplifies everything it finds, including noise, and the path gets jittery.</div>
+      <label class="auto-toggle"><input type="checkbox" id="gain-auto" /> auto-calibrate from the dropped location's gradient</label>
+      <div class="hint">how twitchy the sensor is — low gain trusts a clean reading, high gain amplifies everything it finds, including noise, and the path gets jittery. auto samples the ring right at the drop point first and picks a gain to match how strong the real gradient looks there.</div>
     </div>
     <div class="control">
       <label for="steps">steps <span class="val" id="steps-val">8</span></label>
@@ -414,6 +425,7 @@
 
   const distanceInput = document.getElementById("distance");
   const gainInput = document.getElementById("gain");
+  const gainAutoInput = document.getElementById("gain-auto");
   const stepsInput = document.getElementById("steps");
   const distanceVal = document.getElementById("distance-val");
   const gainVal = document.getElementById("gain-val");
@@ -423,6 +435,10 @@
   distanceInput.addEventListener("input", () => { distanceVal.textContent = fmtKm(parseFloat(distanceInput.value)); });
   gainInput.addEventListener("input", () => { gainVal.textContent = gainInput.value; });
   stepsInput.addEventListener("input", () => { stepsVal.textContent = stepsInput.value; });
+  gainAutoInput.addEventListener("change", () => {
+    gainInput.disabled = gainAutoInput.checked;
+    gainVal.textContent = gainAutoInput.checked ? "auto" : gainInput.value;
+  });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -568,11 +584,12 @@
 
   function finishWalk(data) {
     const dirWord = compassLetters(data.finalBearingDeg);
+    const gainNote = data.params.auto ? data.params.gain + " (auto)" : String(data.params.gain);
     pathSummary.innerHTML =
       '<div class="headline">walked ' + fmtKm(data.totalDistanceKm) + ", ended up " + fmtKm(data.netDistanceKm) +
       " " + dirWord + " of start</div>" +
       '<div class="sub">' + data.params.steps + " steps · range " + fmtKm(data.params.distanceKm) +
-      " · gain " + data.params.gain + "</div>";
+      " · gain " + gainNote + "</div>";
     controlsRow.classList.add("show");
     shareRow.classList.add("show");
     shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data));
@@ -581,8 +598,9 @@
   function buildShareText(data) {
     const url = "https://warmtrail.bisks.net/";
     const dirWord = compassLetters(data.finalBearingDeg);
+    const gainNote = data.params.gain + (data.params.auto ? " auto" : "");
     const text =
-      "🧭🚶 dropped a heat sensor (range " + fmtKm(data.params.distanceKm) + ", gain " + data.params.gain +
+      "🧭🚶 dropped a heat sensor (range " + fmtKm(data.params.distanceKm) + ", gain " + gainNote +
       ") near " + data.origin.label + " and it walked " + fmtKm(data.totalDistanceKm) +
       " over " + data.params.steps + " steps, ending up " + fmtKm(data.netDistanceKm) + " " + dirWord + " of start. " +
       url;
@@ -597,7 +615,7 @@
     lastData = null;
     statusEl.textContent = "surveying the air over " + queryLabel + "...";
     params.set("distance", distanceInput.value);
-    params.set("gain", gainInput.value);
+    params.set("gain", gainAutoInput.checked ? "auto" : gainInput.value);
     params.set("steps", stepsInput.value);
     try {
       const res = await fetch("/api/walk?" + params.toString());
@@ -606,7 +624,10 @@
         statusEl.textContent = data.error || "something went wrong";
         return;
       }
-      statusEl.textContent = "sensor dropped near " + data.origin.label + " — watching it walk...";
+      const autoNote = data.params.auto
+        ? " — auto-calibrated gain to " + data.params.gain + " (" + confidenceWord(data.params.auto.strength) + " here)"
+        : "";
+      statusEl.textContent = "sensor dropped near " + data.origin.label + autoNote + " — watching it walk...";
       lastData = data;
       animateWalk(data);
     } catch (err) {

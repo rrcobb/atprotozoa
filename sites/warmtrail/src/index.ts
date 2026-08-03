@@ -109,6 +109,38 @@ async function fetchTemps(points: Array<{ lat: number; lon: number }>): Promise<
   return points.map((_, i) => arr[i]?.current?.temperature_2m ?? null);
 }
 
+// Samples the ring around a candidate drop point (same math the walk itself
+// uses per-step) to measure how strong the real temperature gradient is
+// there, then picks a gain to match: a nearly flat location gets the lowest
+// gain so the walk doesn't spend its whole path chasing noise, while a
+// location sitting on a genuine hot/cold edge can afford a livelier sensor.
+async function calibrateGain(
+  lat: number,
+  lon: number,
+  distanceKm: number,
+): Promise<{ gain: number; magnitude: number; strength: number }> {
+  const ring = RING_BEARINGS.map((b) => ({ b, ...destination(lat, lon, b, distanceKm) }));
+  const temps = await fetchTemps(ring);
+  const valid = ring
+    .map((r, idx) => ({ b: r.b, t: temps[idx] }))
+    .filter((r): r is { b: number; t: number } => r.t !== null);
+
+  if (!valid.length) return { gain: MIN_GAIN, magnitude: 0, strength: 0 };
+
+  const mean = valid.reduce((s, r) => s + r.t, 0) / valid.length;
+  let vx = 0;
+  let vy = 0;
+  for (const r of valid) {
+    const w = r.t - mean;
+    vx += w * Math.sin(toRad(r.b));
+    vy += w * Math.cos(toRad(r.b));
+  }
+  const mag = Math.hypot(vx, vy);
+  const strength = Math.max(0, Math.min(1, mag / (valid.length * 2)));
+  const gain = Math.round(MIN_GAIN + strength * (MAX_GAIN - MIN_GAIN));
+  return { gain, magnitude: mag, strength };
+}
+
 interface StepResult {
   lat: number;
   lon: number;
@@ -211,7 +243,7 @@ async function handleWalk(url: URL): Promise<Response> {
     MIN_DISTANCE_KM,
     Math.min(MAX_DISTANCE_KM, parseFloat(url.searchParams.get("distance") || "2") || 2),
   );
-  const gain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, parseFloat(url.searchParams.get("gain") || "3") || 3));
+  const gainParam = url.searchParams.get("gain");
   const steps = Math.max(
     MIN_STEPS,
     Math.min(MAX_STEPS, Math.round(parseFloat(url.searchParams.get("steps") || "8") || 8)),
@@ -238,6 +270,16 @@ async function handleWalk(url: URL): Promise<Response> {
       return Response.json({ error: "that location didn't parse" }, { status: 400 });
     }
 
+    let gain: number;
+    let auto: { magnitude: number; strength: number } | null = null;
+    if (gainParam === "auto") {
+      const cal = await calibrateGain(lat, lon, distanceKm);
+      gain = cal.gain;
+      auto = { magnitude: cal.magnitude, strength: cal.strength };
+    } else {
+      gain = Math.max(MIN_GAIN, Math.min(MAX_GAIN, parseFloat(gainParam || "3") || 3));
+    }
+
     const seed = Math.floor((lat * 1e4 + lon * 1e4 + distanceKm * 1e3 + gain * 97 + steps) * 1000) >>> 0;
     const path = await simulateWalk(lat, lon, distanceKm, gain, steps, seed);
     if (path.length < 2) {
@@ -250,7 +292,7 @@ async function handleWalk(url: URL): Promise<Response> {
     const last = path[path.length - 1];
     return Response.json({
       origin: { lat, lon, label },
-      params: { distanceKm, gain, steps },
+      params: { distanceKm, gain, steps, auto },
       path,
       totalDistanceKm: last.cumulativeDistanceKm,
       netDistanceKm: last.distanceFromOriginKm,
