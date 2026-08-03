@@ -1405,6 +1405,15 @@
     while ((m = jsonKey.exec(trimmed))) ids.add(Number(m[1]));
     const storeUrl = /store\.steampowered\.com\/app\/(\d+)/g;
     while ((m = storeUrl.exec(trimmed))) ids.add(Number(m[1]));
+    // The page's ~16 visible tiles cover storeUrl above, but the full wishlist
+    // (hundreds/thousands of items) only exists in the page as Steam's SSR
+    // hydration state — a JSON blob serialized to a string and re-embedded,
+    // so each entry's quotes pick up a run of escaping backslashes
+    // (`appid\\\":123,\\\"priority\\\":0,\\\"date_added\\\":...`). Matching
+    // the whole {appid, priority, date_added} shape (backslash count varies
+    // with escaping depth) is what actually recovers all ~4000+ items.
+    const ssrEntry = /appid\\*"\s*:\s*(\d+)\s*,\s*\\*"priority\\*"\s*:\s*-?\d+\s*,\s*\\*"date_added\\*"/g;
+    while ((m = ssrEntry.exec(trimmed))) ids.add(Number(m[1]));
     return [...ids];
   }
 
