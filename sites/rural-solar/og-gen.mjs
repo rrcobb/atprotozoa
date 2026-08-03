@@ -14,36 +14,36 @@ import { fileURLToPath } from "node:url";
 const fontPath = fileURLToPath(new URL("../skyclone/fonts/JetBrainsMono.ttf", import.meta.url));
 
 const W = 1200, H = 630;
-const BG = "#ffffff", INK = "#111111", MUTED = "#6b6b6b", FAINT = "#e4e4e4";
-const ACCENT = "#1a7d3a", BAD = "#b3401e";
+const CREAM = "#f7f2e3", NAVY = "#0a2647", RED = "#a3172a", GOLD = "#b8860b", INK = "#171410";
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function row(y, claim, reality) {
+function stamp(y, claim) {
   return `
   <g>
-    <rect x="64" y="${y}" width="${W - 128}" height="94" fill="none" stroke="${FAINT}" stroke-width="2"/>
-    <text x="88" y="${y + 34}" font-family="JetBrains Mono" font-weight="700" font-size="19" fill="${BAD}">CLAIM</text>
-    <text x="180" y="${y + 34}" font-family="JetBrains Mono" font-size="19" fill="${INK}">${esc(claim)}</text>
-    <text x="88" y="${y + 68}" font-family="JetBrains Mono" font-weight="700" font-size="19" fill="${ACCENT}">REALITY</text>
-    <text x="212" y="${y + 68}" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">${esc(reality)}</text>
+    <rect x="64" y="${y}" width="${W - 128}" height="76" fill="#fffdf7" stroke="${INK}" stroke-width="2"/>
+    <text x="88" y="${y + 32}" font-family="JetBrains Mono" font-weight="800" font-size="18" fill="${RED}">DEBUNKED —</text>
+    <text x="230" y="${y + 32}" font-family="JetBrains Mono" font-size="18" fill="${INK}">${esc(claim)}</text>
   </g>`;
 }
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <rect width="${W}" height="${H}" fill="${BG}"/>
+  <rect width="${W}" height="${H}" fill="${CREAM}"/>
+  <rect width="${W}" height="128" fill="${NAVY}"/>
+  <rect y="128" width="${W}" height="10" fill="${RED}"/>
 
-  <text x="64" y="100" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="${INK}">rural solar is ok</text>
-  <text x="64" y="140" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">a myth-by-myth answer to the "panels will kill your cows" panic</text>
+  <text x="600" y="58" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="20" fill="${GOLD}" letter-spacing="4">FOR GOD, FOR FAMILY, FOR THE FAMILY FARM</text>
+  <text x="600" y="105" text-anchor="middle" font-family="JetBrains Mono" font-weight="900" font-size="44" fill="#fffdf7" letter-spacing="1">THE HEARTLAND SENTINEL</text>
 
-  <line x1="64" y1="172" x2="${W - 64}" y2="172" stroke="${INK}" stroke-width="2"/>
+  <text x="64" y="200" font-family="JetBrains Mono" font-weight="800" font-size="30" fill="${INK}">They said solar would kill your herd.</text>
+  <text x="64" y="238" font-family="JetBrains Mono" font-weight="800" font-size="30" fill="${INK}">We checked. Here's the truth.</text>
 
-  ${row(200, "panels will kill livestock", "cows nap in whatever shade they can find")}
-  ${row(304, "panels ruin crops and soil", "shade-grown berries test out sweeter, not worse")}
-  ${row(408, "panels leach metals + PFAS", "sealed glass and silicon — nothing to leach")}
+  ${stamp(280, "\"panels will kill livestock\"")}
+  ${stamp(368, "\"panels ruin crops and soil\"")}
+  ${stamp(456, "\"panels leach metals + PFAS\"")}
 
-  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">rural-solar.bisks.net</text>
-  <text x="64" y="588" font-family="JetBrains Mono" font-size="15" fill="${MUTED}">what the actual agrivoltaics research says</text>
+  <text x="64" y="580" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${RED}">rural-solar.bisks.net</text>
+  <text x="64" y="608" font-family="JetBrains Mono" font-size="15" fill="${INK}">exclusive report: the actual agrivoltaics research</text>
 </svg>`;
 
 const resvg = new Resvg(svg, {
