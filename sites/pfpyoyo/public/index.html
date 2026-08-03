@@ -250,7 +250,9 @@
     <div id="singularity">SINGULARITY REACHED<br />resetting the moral law…</div>
     <div id="gate">
       <p><strong>heads up:</strong> this animation accelerates into fast, strobing
-      zoom flicker before it resets. skip it if that's a problem for you.</p>
+      zoom flicker before it resets, with a slide-whistle tone that speeds up
+      alongside it (sound: on by default — mute it below). skip it if that's a
+      problem for you.</p>
       <button class="primary" id="startBtn">start the yoyo</button>
     </div>
   </div>
@@ -269,6 +271,7 @@
     <div class="controls">
       <button id="toggleBtn">pause</button>
       <button id="resetBtn">reset speed</button>
+      <button id="soundBtn">sound: on</button>
     </div>
   </div>
 
@@ -278,8 +281,10 @@
 
   <footer>
     Steady acceleration means the time between zoom peaks shrinks by a fixed
-    amount every cycle — a chirp, not a metronome. It runs until the zoom rate
-    crosses a cap, flashes, and starts back over at the original slow speed.
+    amount every cycle — a chirp, not a metronome. A slide-whistle tone tracks
+    the zoom scale directly, so it glides up on the way in and down on the way
+    out. It runs until the zoom rate crosses a (now much higher) cap, flashes,
+    and starts back over at the original slow speed.
     One of ~230 tiny experiments at <a href="https://bisks.net">bisks.net</a>,
     built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
   </footer>
@@ -299,6 +304,7 @@
   var statusEl = document.getElementById("status");
   var toggleBtn = document.getElementById("toggleBtn");
   var resetBtn = document.getElementById("resetBtn");
+  var soundBtn = document.getElementById("soundBtn");
   var cycleNumEl = document.getElementById("cycleNum");
   var rateEl = document.getElementById("rate");
   var shareLink = document.getElementById("shareBluesky");
@@ -307,8 +313,8 @@
   // of angular frequency == each yoyo step happens faster than the last).
   // phase(t) = OMEGA0*t + 0.5*ACCEL*t^2. scale = MID + AMP*sin(phase).
   var OMEGA0 = 0.55;   // rad/s at cycle start (~11.4s per full in-out cycle)
-  var ACCEL = 0.16;    // rad/s^2 — how fast the yoyo speeds up
-  var OMEGA_MAX = 13;  // rad/s cap before the reset ("singularity")
+  var ACCEL = 0.5;     // rad/s^2 — how fast the yoyo speeds up
+  var OMEGA_MAX = 50;  // rad/s cap before the reset ("singularity") — raised per @gracekind.net/@norvid-studies.bsky.social request
   var MID = 1.18;
   var AMP = 0.55;
 
@@ -320,6 +326,39 @@
 
   var handle = DEMO_HANDLE;
   var shareUrl = "https://pfpyoyo.bisks.net/";
+
+  // Slide whistle: pitch tracks the zoom scale directly, so the tone glides
+  // up as the pfp zooms in and slides back down as it zooms out — a real
+  // slide-whistle "wooOOoo" that speeds up right along with the visuals.
+  var FREQ_MIN = 260;   // Hz at the smallest scale in a cycle
+  var FREQ_MAX = 1600;  // Hz at the largest scale in a cycle
+  var audioCtx = null;
+  var osc = null;
+  var gainNode = null;
+  var muted = false;
+  var VOL = 0.09;
+
+  function initAudio() {
+    if (audioCtx) return;
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audioCtx = new Ctx();
+    osc = audioCtx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = FREQ_MIN;
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = muted ? 0 : VOL;
+    osc.connect(gainNode).connect(audioCtx.destination);
+    osc.start();
+  }
+
+  function setMuted(next) {
+    muted = next;
+    soundBtn.textContent = muted ? "sound: off" : "sound: on";
+    if (gainNode) {
+      gainNode.gain.setTargetAtTime(muted ? 0 : VOL, audioCtx.currentTime, 0.03);
+    }
+  }
 
   function setShareText() {
     var text = handle === DEMO_HANDLE
@@ -348,6 +387,12 @@
     var scale = MID + AMP * Math.sin(phase);
     pfp.style.transform = "scale(" + scale.toFixed(4) + ")";
 
+    if (osc) {
+      var norm = (scale - (MID - AMP)) / (2 * AMP);
+      if (norm < 0) norm = 0; else if (norm > 1) norm = 1;
+      osc.frequency.value = FREQ_MIN + norm * (FREQ_MAX - FREQ_MIN);
+    }
+
     if (now - lastRateSample > 200) {
       rateEl.textContent = (omega / (2 * Math.PI)).toFixed(2);
       lastRateSample = now;
@@ -367,6 +412,8 @@
   function start() {
     if (running) return;
     running = true;
+    initAudio();
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
     t0 = performance.now() - (pausedAt != null ? pausedAt : 0);
     pausedAt = null;
     toggleBtn.textContent = "pause";
@@ -379,6 +426,7 @@
     pausedAt = performance.now() - t0;
     toggleBtn.textContent = "resume";
     if (rafId) cancelAnimationFrame(rafId);
+    if (audioCtx && audioCtx.state === "running") audioCtx.suspend();
   }
 
   function resetSpeed() {
@@ -394,6 +442,7 @@
     if (running) pause(); else start();
   });
   resetBtn.addEventListener("click", resetSpeed);
+  soundBtn.addEventListener("click", function () { setMuted(!muted); });
 
   startBtn.addEventListener("click", function () {
     gate.classList.add("hidden");
