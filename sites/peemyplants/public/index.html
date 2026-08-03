@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>peemyplants — free fertilizer, delivered on foot</title>
+<meta name="description" content="a map where gardens that need fertilizing meet people who need to go. a joke site — no real addresses, nothing leaves your browser." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://peemyplants.bisks.net/" />
+<meta property="og:title" content="peemyplants — free fertilizer, delivered on foot" />
+<meta property="og:description" content="a map where gardens that need fertilizing meet people who need to go. a joke site — nothing you add ever leaves your own browser." />
+<meta property="og:image" content="https://peemyplants.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="peemyplants — free fertilizer, delivered on foot" />
+<meta name="twitter:description" content="a map where gardens that need fertilizing meet people who need to go. a joke site, not a real directory." />
+<meta name="twitter:image" content="https://peemyplants.bisks.net/og.png" />
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f3f7ee;
+    --card: #ffffff;
+    --ink: #182412;
+    --muted: #5c6b53;
+    --accent: #4a7a1e;
+    --accent-ink: #ffffff;
+    --line: #dde8d0;
+    --pee: #d9a441;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131810;
+      --card: #1c231a;
+      --ink: #e9f0e2;
+      --muted: #a1af96;
+      --accent: #86c14a;
+      --accent-ink: #0e1509;
+      --line: #2b3427;
+      --pee: #e2b158;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.7rem;
+    margin: 0 0 0.3rem;
+  }
+  h1 .drip { color: var(--pee); }
+  p.lede {
+    color: var(--muted);
+    margin: 0 0 1.25rem;
+    max-width: 56ch;
+  }
+  .disclaimer {
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: 0.7rem;
+    padding: 0.8rem 1rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 1.5rem;
+  }
+  .disclaimer strong { color: var(--ink); }
+  #map {
+    width: 100%;
+    height: 360px;
+    border-radius: 0.9rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  .leaflet-popup-content { font-size: 0.9rem; }
+  .leaflet-popup-content .pname { font-weight: 700; margin: 0 0 0.2rem; }
+  .leaflet-popup-content .pnote { color: #555; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+    padding: 1.1rem 1.2rem;
+    margin-top: 1.25rem;
+  }
+  .panel h2 {
+    font-size: 1rem;
+    margin: 0 0 0.6rem;
+  }
+  .panel p.hint {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0 0 0.8rem;
+  }
+  form { display: flex; flex-direction: column; gap: 0.6rem; }
+  label { font-size: 0.82rem; color: var(--muted); }
+  input[type="text"], select {
+    width: 100%;
+    padding: 0.65rem 0.8rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 1rem;
+  }
+  .row { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .row > * { flex: 1 1 160px; }
+  button {
+    padding: 0.7rem 1.1rem;
+    border-radius: 0.6rem;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 700;
+  }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+  button:disabled { opacity: 0.55; cursor: not-allowed; }
+  #status { font-size: 0.85rem; color: var(--muted); min-height: 1.1em; }
+  #pick-hint {
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 600;
+    min-height: 1.1em;
+  }
+  .mine-list {
+    list-style: none;
+    margin: 0.8rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .mine-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.88rem;
+    border-top: 1px solid var(--line);
+    padding-top: 0.4rem;
+  }
+  .mine-list button.remove {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 0.8rem;
+    padding: 0.1rem 0.3rem;
+    text-decoration: underline;
+  }
+  .share-row { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+  footer {
+    margin-top: 2.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>peemyplants<span class="drip">.</span></h1>
+  <p class="lede">
+    a map of gardens that could use some free, nitrogen-rich fertilizer, for
+    people who happen to be carrying some. list a spot, find a spot, water
+    something.
+  </p>
+
+  <div class="disclaimer">
+    <strong>this is a bit, not a directory.</strong> the pins already on the
+    map are made up — no real addresses, no real gardens. if you "list a
+    garden," the pin only ever lives in <em>your own browser's</em> local
+    storage — it is never sent anywhere, never public, never seen by anyone
+    else. also: public urination is illegal basically everywhere. this site
+    doesn't invite you to do it, it's a joke about the idea of it. touch
+    grass, not literally.
+  </div>
+
+  <div id="map"></div>
+
+  <div class="panel">
+    <h2>list a garden (locally, just for you)</h2>
+    <p class="hint" id="pick-hint">tap a spot on the map to place your garden, then fill in the rest.</p>
+    <form id="garden-form">
+      <div class="row">
+        <div>
+          <label for="gname">garden name</label>
+          <input type="text" id="gname" placeholder="Big Steve's Tomato Patch" maxlength="60" required />
+        </div>
+        <div>
+          <label for="gwant">what it needs</label>
+          <select id="gwant">
+            <option>tomatoes, mostly</option>
+            <option>the hydrangeas are struggling</option>
+            <option>anything, honestly</option>
+            <option>very specifically the compost heap</option>
+            <option>a whole lawn, go nuts</option>
+          </select>
+        </div>
+      </div>
+      <button class="primary" type="submit" id="submit-btn" disabled>drop pin</button>
+    </form>
+    <div id="status" role="status"></div>
+
+    <ul class="mine-list" id="mine-list"></ul>
+  </div>
+
+  <div class="share-row">
+    <a class="ghost-link" id="share-bluesky" target="_blank" rel="noopener">
+      <button class="ghost" type="button">share on Bluesky</button>
+    </a>
+  </div>
+
+  <footer>
+    map tiles &amp; data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
+    idea from <a href="https://bsky.app/profile/schizanon.bsky.social" target="_blank" rel="noopener">@schizanon.bsky.social</a>,
+    green-lit by <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a>.
+    built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+  </footer>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+  const STORAGE_KEY = "peemyplants.mine.v1";
+
+  // Seed gardens: fictional, city-level only, deliberately not real
+  // addresses — this is set dressing so the map doesn't look empty, not a
+  // real database of anyone's yard.
+  const SEED = [
+    { name: "Big Steve's Tomato Patch", want: "tomatoes, mostly", lat: 39.77, lon: -104.87 },
+    { name: "The Hydrangea Situation", want: "the hydrangeas are struggling", lat: 51.48, lon: -0.09 },
+    { name: "Nan's Compost Empire", want: "very specifically the compost heap", lat: -33.86, lon: 151.24 },
+    { name: "Communal Lot #4", want: "a whole lawn, go nuts", lat: 52.51, lon: 13.42 },
+    { name: "Windowsill Basil Crisis", want: "anything, honestly", lat: 35.68, lon: 139.72 },
+    { name: "The Zucchini That Won't Quit", want: "tomatoes, mostly", lat: 45.5, lon: -73.6 },
+    { name: "Roof Garden, 4th Floor", want: "a whole lawn, go nuts", lat: 40.71, lon: -74.0 },
+  ];
+
+  const map = L.map("map", { scrollWheelZoom: false }).setView([30, 10], 2);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function popupHtml(g, mine) {
+    return (
+      '<div class="pname">' + escapeHtml(g.name) + (mine ? " 🌱" : "") + "</div>" +
+      '<div class="pnote">needs: ' + escapeHtml(g.want) + "</div>"
+    );
+  }
+
+  function seedMarker(g) {
+    L.marker([g.lat, g.lon]).addTo(map).bindPopup(popupHtml(g, false));
+  }
+  SEED.forEach(seedMarker);
+
+  function loadMine() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function saveMine(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  let mineMarkers = [];
+  function renderMine() {
+    mineMarkers.forEach((m) => map.removeLayer(m));
+    mineMarkers = [];
+    const mine = loadMine();
+    const listEl = document.getElementById("mine-list");
+    listEl.innerHTML = "";
+    mine.forEach((g, i) => {
+      const marker = L.marker([g.lat, g.lon], {
+        icon: L.icon({
+          iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+          iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+          shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+          iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41],
+          className: "mine-marker",
+        }),
+      }).addTo(map).bindPopup(popupHtml(g, true));
+      mineMarkers.push(marker);
+
+      const li = document.createElement("li");
+      const span = document.createElement("span");
+      span.textContent = g.name + " — " + g.want;
+      const btn = document.createElement("button");
+      btn.className = "remove";
+      btn.type = "button";
+      btn.textContent = "remove";
+      btn.addEventListener("click", () => {
+        const cur = loadMine();
+        cur.splice(i, 1);
+        saveMine(cur);
+        renderMine();
+      });
+      li.appendChild(span);
+      li.appendChild(btn);
+      listEl.appendChild(li);
+    });
+  }
+  renderMine();
+
+  let pending = null;
+  const pickHint = document.getElementById("pick-hint");
+  const submitBtn = document.getElementById("submit-btn");
+  const statusEl = document.getElementById("status");
+
+  map.on("click", (e) => {
+    pending = { lat: e.latlng.lat, lon: e.latlng.lng };
+    pickHint.textContent = "spot picked at " + e.latlng.lat.toFixed(2) + ", " + e.latlng.lng.toFixed(2) + " — name it below.";
+    submitBtn.disabled = false;
+  });
+
+  document.getElementById("garden-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!pending) return;
+    const name = document.getElementById("gname").value.trim();
+    const want = document.getElementById("gwant").value;
+    if (!name) return;
+    const mine = loadMine();
+    mine.push({ name, want, lat: pending.lat, lon: pending.lon });
+    saveMine(mine);
+    renderMine();
+    document.getElementById("gname").value = "";
+    pending = null;
+    pickHint.textContent = "tap a spot on the map to place your garden, then fill in the rest.";
+    submitBtn.disabled = true;
+    statusEl.textContent = "planted. only you can see this pin — it lives in your browser, not a server.";
+    setTimeout(() => { statusEl.textContent = ""; }, 4000);
+  });
+
+  const shareText = "found the most useful garden map on the internet: peemyplants.bisks.net — free fertilizer, delivered on foot 🌱";
+  document.getElementById("share-bluesky").href =
+    "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+</script>
+</body>
+</html>
