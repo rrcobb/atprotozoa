@@ -27,8 +27,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="660" y="270" font-family="JetBrains Mono" font-weight="800" font-size="46" fill="${INK}">there is one button</text>
   <text x="660" y="316" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">one, total, shared by every visitor.</text>
-  <text x="660" y="346" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">the instant anyone presses it, it's over —</text>
-  <text x="660" y="376" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">for everyone, permanently. no reset.</text>
+  <text x="660" y="346" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">each round is somebody's name. press it and</text>
+  <text x="660" y="376" font-family="JetBrains Mono" font-size="20" fill="${MUTED}">they graduate forever. it never stops.</text>
 
   <text x="660" y="460" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${RED}">dontpressit.bisks.net</text>
 </svg>`;

@@ -6,12 +6,12 @@
     <title>do not press this button</title>
     <meta
       name="description"
-      content="There is one button. It says do not press this button. There is only one of it for the entire internet, and whoever presses it ends the experience for everyone, forever."
+      content="There is one button. It says do not press this button. Every round is named after one of @fromthewestmeadow.com's followers — press it and that name graduates, forever, and the next round starts."
     />
     <meta property="og:title" content="do not press this button" />
     <meta
       property="og:description"
-      content="One button, shared by every visitor. The instant anyone presses it, it's over — for everyone, permanently. No reset."
+      content="One button, shared by every visitor. Each round belongs to a name — pressing it graduates that name forever and starts the next round. It never stops."
     />
     <meta property="og:image" content="https://dontpressit.bisks.net/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -55,11 +55,24 @@
         color: var(--muted); text-transform: uppercase;
       }
 
+      .round-tag {
+        font-size: 0.8rem; color: var(--muted); margin: 0 0 0.9rem; letter-spacing: 0.02em;
+      }
+      .round-tag b { color: var(--ink); }
+
       .stage {
         width: 100%; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
         padding: 2.5rem 1.75rem; min-height: 260px;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.25rem;
       }
+
+      .name-chip {
+        display: flex; align-items: center; gap: 0.5rem; background: #1a1a1a;
+        border: 1px solid var(--border); border-radius: 999px; padding: 0.35rem 0.85rem 0.35rem 0.35rem;
+        font-size: 0.85rem;
+      }
+      .name-chip img { width: 24px; height: 24px; border-radius: 50%; display: block; background: #333; }
+      .name-chip b { color: var(--ink); font-weight: 700; }
 
       .btn {
         width: 230px; height: 230px; border-radius: 50%;
@@ -96,6 +109,27 @@
       .counter { margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
       .counter b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
+      .hof {
+        width: 100%; margin-top: 1.75rem; text-align: left;
+      }
+      .hof summary {
+        cursor: pointer; color: var(--muted); font-size: 0.8rem; text-align: center;
+        list-style: none;
+      }
+      .hof summary::-webkit-details-marker { display: none; }
+      .hof summary:hover { color: var(--ink); }
+      .hof-list {
+        margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem;
+        max-height: 260px; overflow-y: auto; padding: 0.5rem; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 10px;
+      }
+      .hof-row {
+        display: flex; align-items: center; gap: 0.55rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .hof-row img { width: 20px; height: 20px; border-radius: 50%; flex: none; background: #333; }
+      .hof-row b { color: var(--ink); }
+      .hof-row span.n { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
       footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
       footer a { color: #7fa8f0; text-decoration: none; }
       footer a:hover { text-decoration: underline; }
@@ -104,33 +138,48 @@
   <body>
     <div class="wrap">
       <h1>there is one button</h1>
+      <p class="round-tag" id="roundTag" hidden></p>
       <div class="stage" id="stage">
-        <p class="note">checking whether anyone has ruined it yet…</p>
+        <p class="note">checking whose round it is…</p>
       </div>
       <div class="share" id="share" hidden>
         <a id="shareLink" target="_blank" rel="noopener">tell people</a>
       </div>
       <p class="counter" id="counter" hidden></p>
+      <details class="hof" id="hof" hidden>
+        <summary id="hofSummary">graduated names</summary>
+        <div class="hof-list" id="hofList"></div>
+      </details>
     </div>
 
     <footer>
       built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
-      for <a href="https://bsky.app/profile/fromthewestmeadow.com">@fromthewestmeadow.com</a> ·
+      for <a href="https://bsky.app/profile/fromthewestmeadow.com">@fromthewestmeadow.com</a>
+      (round names drawn from her followers, an idea from
+      <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>) ·
       <a href="https://bisks.net">more of these</a>
     </footer>
 
     <script>
       const stageEl = document.getElementById("stage");
+      const roundTagEl = document.getElementById("roundTag");
       const shareWrap = document.getElementById("share");
       const shareLink = document.getElementById("shareLink");
       const counterEl = document.getElementById("counter");
+      const hofEl = document.getElementById("hof");
+      const hofSummary = document.getElementById("hofSummary");
+      const hofList = document.getElementById("hofList");
       const SITE_URL = "https://dontpressit.bisks.net/";
 
-      function fmt(ts) {
-        return new Date(ts).toLocaleString(undefined, {
-          dateStyle: "medium",
-          timeStyle: "short",
-        });
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      }
+
+      function nameChip(entry) {
+        const img = entry.avatar
+          ? `<img src="${esc(entry.avatar)}" alt="" loading="lazy" onerror="this.remove()"/>`
+          : "";
+        return `<span class="name-chip">${img}<b>@${esc(entry.displayName || entry.handle)}</b></span>`;
       }
 
       function setShare(text) {
@@ -138,45 +187,51 @@
         shareWrap.hidden = false;
       }
 
-      // There is exactly one button, shared by every visitor everywhere.
-      // The first press anywhere ends it, forever, for everyone. No reset.
-      function renderArmed() {
-        stageEl.innerHTML = `
-          <button class="btn" id="thebutton">DO NOT<br/>PRESS<br/>THIS BUTTON</button>
-          <p class="note">this is the only one. there is no other copy of this button anywhere.
-          the moment <b>anyone</b> presses it, it's over — for you, for whoever sent you here,
-          for everyone who opens this page after. forever. no reset.</p>`;
-        document.getElementById("thebutton").addEventListener("click", press);
-        setShare("there's exactly one button on the whole internet that says DO NOT PRESS THIS BUTTON. someone is going to ruin it for everybody. hopefully not you.");
+      function setRoundTag(roundNumber) {
+        roundTagEl.hidden = false;
+        roundTagEl.innerHTML = `round <b>#${roundNumber}</b> — it never stops`;
       }
 
-      function renderOver(pressedAt, futileClicks, iDidIt) {
+      // The button never stops. Every round is named after one of
+      // @fromthewestmeadow.com's followers; pressing it "graduates" that
+      // name (retired forever) and the next round starts immediately.
+      function renderArmed(state) {
+        stageEl.classList.remove("over");
+        stageEl.innerHTML = `
+          ${nameChip(state.currentName)}
+          <button class="btn" id="thebutton">DO NOT<br/>PRESS<br/>THIS BUTTON</button>
+          <p class="note">this round belongs to <b>@${esc(state.currentName.displayName || state.currentName.handle)}</b>.
+          press it and their name graduates — retired forever, never comes up again — and the next round starts,
+          live, for everyone watching. it never stops.</p>`;
+        document.getElementById("thebutton").addEventListener("click", press);
+        setShare(
+          `round #${state.roundNumber} of the button that never stops is @${state.currentName.handle}'s. ` +
+          `pressing it graduates them forever and starts the next round. will you be the one?`,
+        );
+      }
+
+      function renderOver(justGraduated, nextState) {
         stageEl.classList.add("over");
-        const clicksLine = futileClicks > 0
-          ? `<p class="note">${futileClicks} ${futileClicks === 1 ? "person has" : "people have"} clicked it anyway since. it still doesn't do anything.</p>`
+        const clicksLine = justGraduated.futileClicks > 0
+          ? `<p class="note">${justGraduated.futileClicks} ${justGraduated.futileClicks === 1 ? "click" : "clicks"} landed after that one, too late to matter.</p>`
           : "";
         stageEl.innerHTML = `
-          <h2 class="${iDidIt ? "win" : "lose"}">${iDidIt ? "you did it." : "someone pressed the button."}</h2>
-          <p class="big">${iDidIt
-            ? "you are the one who pressed it. the one and only button on this entire site. it's you."
-            : "not you, this time. but somebody, somewhere, could not help themselves."}</p>
-          <p class="stamp">it happened at ${fmt(pressedAt)}. the experience is now over — for everyone, permanently. there is no button anymore.</p>
-          ${clicksLine}`;
-        setShare(iDidIt
-          ? "there was exactly one DO NOT PRESS THIS BUTTON button on the whole internet, shared by every visitor. I pressed it. it's over now. forever. sorry."
-          : "there was exactly one DO NOT PRESS THIS BUTTON button on the whole internet, shared by every visitor. someone pressed it. it's over now. I didn't do it, for the record.");
+          <h2 class="win">round #${justGraduated.roundNumber} is over.</h2>
+          <p class="big">${nameChip(justGraduated)} just graduated — retired, permanently, never coming back around.</p>
+          <p class="stamp">${justGraduated.visits.toLocaleString()} people watched this round without touching it.
+          it ended at ${new Date(justGraduated.endedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.</p>
+          ${clicksLine}
+          <p class="note">round #${nextState.roundNumber} just started, live, right now — scroll down.</p>`;
+        setShare(
+          `I just graduated @${justGraduated.handle} from the button that never stops. ` +
+          `round #${justGraduated.roundNumber}, retired forever. round #${nextState.roundNumber} is already live.`,
+        );
+        setTimeout(() => renderArmed(nextState), 2600);
       }
 
-      // A running tally of every page load that happened while the button
-      // was still unpressed. It freezes the moment someone presses it —
-      // that final number is how many people saw it and didn't.
-      function renderCounter(visits, pressed) {
+      function renderCounter(visits) {
         counterEl.hidden = false;
-        if (pressed) {
-          counterEl.innerHTML = `<b>${visits.toLocaleString()}</b> people visited without pressing the button before this happened.`;
-          return;
-        }
-        counterEl.innerHTML = `<b id="counterNum">0</b> people have visited without pressing the button.`;
+        counterEl.innerHTML = `<b id="counterNum">0</b> people have watched this round without pressing it.`;
         animateCount(visits);
       }
 
@@ -197,6 +252,22 @@
         requestAnimationFrame(step);
       }
 
+      function renderHof(state) {
+        if (state.totalGraduated <= 0) {
+          hofEl.hidden = true;
+          return;
+        }
+        hofEl.hidden = false;
+        hofSummary.textContent = `${state.totalGraduated.toLocaleString()} graduated name${state.totalGraduated === 1 ? "" : "s"} — never coming back`;
+        hofList.innerHTML = state.graduated
+          .map(
+            (g) => `<div class="hof-row">${
+              g.avatar ? `<img src="${esc(g.avatar)}" alt="" loading="lazy" onerror="this.remove()"/>` : ""
+            }<b>@${esc(g.displayName || g.handle)}</b><span class="n">round #${g.roundNumber}</span></div>`,
+          )
+          .join("");
+      }
+
       async function press(e) {
         const btn = e.currentTarget;
         btn.disabled = true;
@@ -204,8 +275,10 @@
         try {
           const res = await fetch("/api/press", { method: "POST" });
           const data = await res.json();
-          renderOver(data.pressedAt, data.futileClicks, data.justEnded);
-          renderCounter(data.visits, true);
+          setRoundTag(data.justGraduated.roundNumber);
+          renderOver(data.justGraduated, data);
+          renderCounter(0);
+          renderHof(data);
         } catch {
           btn.disabled = false;
           btn.innerHTML = "DO NOT<br/>PRESS<br/>THIS BUTTON";
@@ -216,12 +289,10 @@
         try {
           const res = await fetch("/api/state");
           const data = await res.json();
-          if (data.pressed) {
-            renderOver(data.pressedAt, data.futileClicks, false);
-          } else {
-            renderArmed();
-          }
-          renderCounter(data.visits, data.pressed);
+          setRoundTag(data.roundNumber);
+          renderArmed(data);
+          renderCounter(data.visits);
+          renderHof(data);
         } catch {
           stageEl.innerHTML = `<p class="note">couldn't reach the button. try reloading.</p>`;
         }
