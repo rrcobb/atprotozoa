@@ -96,10 +96,15 @@ async function renderArticleShell(env: Env, request: Request, slug: string): Pro
       280,
     ) || `An article on clusterpedia.`;
     const ogUrl = `https://clusterpedia.bisks.net/wiki/${encodeURIComponent(slug)}`;
+    // GENERIC_OG_URL ("https://clusterpedia.bisks.net/") is also a *prefix* of
+    // the shareUrl template literal built client-side in index.html's script
+    // (".../wiki/${encodeURIComponent(slug)}"), so a bare .split/.join on that
+    // string would mangle the script too — anchor the match to the og:url
+    // meta tag's quoted attribute so only that one occurrence is touched.
     html = html
       .split(GENERIC_TITLE).join(esc(`${title} — clusterpedia`))
       .split(GENERIC_DESC).join(esc(desc))
-      .split(GENERIC_OG_URL).join(ogUrl);
+      .split(`content="${GENERIC_OG_URL}"`).join(`content="${ogUrl}"`);
     return new Response(html, {
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
     });
