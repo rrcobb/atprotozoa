@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>velvetrope — request your way on or off a list</title>
+    <meta
+      name="description"
+      content="Sign in with Bluesky, browse anyone's public moderation lists, and request to be added or removed. List owners get a queue with one-click bulk approve or deny."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="velvetrope — request your way on or off a list" />
+    <meta
+      property="og:description"
+      content="Sign in with Bluesky, browse anyone's public moderation lists, and request to be added or removed. List owners get a queue with one-click bulk approve or deny."
+    />
+    <meta property="og:url" content="https://velvetrope.bisks.net/" />
+    <meta property="og:image" content="https://velvetrope.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="velvetrope — request your way on or off a list" />
+    <meta
+      name="twitter:description"
+      content="Sign in with Bluesky, browse anyone's public moderation lists, and request to be added or removed. List owners get a queue with one-click bulk approve or deny."
+    />
+    <meta name="twitter:image" content="https://velvetrope.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #7a2ea1;
+        --accent2: #b5179e;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #b8860b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 1.4rem 1.25rem 5rem; }
+
+      nav.top {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        border-bottom: 1px solid var(--ink); padding-bottom: 0.9rem; margin-bottom: 1.4rem;
+      }
+      nav.top .brand { font-weight: 700; font-size: 1.05rem; }
+      nav.top .brand span { color: var(--muted); font-weight: 400; }
+      nav.top form.search { flex: 1; min-width: 160px; display: flex; gap: 0.4rem; }
+      nav.top input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.85rem; padding: 0.4rem 0.55rem;
+        border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+      }
+      nav.top .session { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; }
+      nav.top .session a { color: var(--accent); }
+      button, .btn {
+        font-family: inherit; font-size: 0.85rem; padding: 0.4rem 0.7rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer;
+      }
+      button:hover, .btn:hover { background: #000; }
+      button.ghost, .btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, .btn.ghost:hover { background: var(--faintbg); }
+      button.bad, .btn.bad { border-color: var(--bad); color: var(--bad); background: var(--bg); }
+      button.good, .btn.good { border-color: var(--good); color: var(--good); background: var(--bg); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.small { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
+
+      h1 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+      h2.section { font-size: 0.95rem; margin: 1.6rem 0 0.6rem; border-bottom: 1px solid var(--faint); padding-bottom: 0.3rem; }
+      .meta { color: var(--muted); font-size: 0.8rem; margin-bottom: 1rem; }
+      .meta a { color: var(--accent); }
+
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.7rem 0.9rem;
+        margin-bottom: 0.6rem;
+      }
+      .card .t { font-weight: 700; }
+      .card .s { color: var(--muted); font-size: 0.82rem; margin-top: 0.2rem; }
+      .card .m { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
+      .badge {
+        display: inline-block; font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+        border: 1px solid var(--faint); color: var(--muted);
+      }
+      .badge.pending { border-color: var(--gold); color: var(--gold); }
+      .badge.approved, .badge.member { border-color: var(--good); color: var(--good); }
+      .badge.denied { border-color: var(--bad); color: var(--bad); }
+      .badge.add { border-color: var(--good); color: var(--good); }
+      .badge.remove { border-color: var(--bad); color: var(--bad); }
+
+      .profile-head { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; }
+      .profile-head .av, .list-head .av {
+        width: 56px; height: 56px; border-radius: 50%; background: #ddd center/cover no-repeat;
+        flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;
+      }
+      .list-head { display: flex; align-items: flex-start; gap: 0.9rem; margin-bottom: 0.6rem; }
+      .list-head .av { border-radius: 8px; }
+      .list-head .desc { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; white-space: pre-wrap; }
+
+      .banner {
+        border: 1px solid var(--faint); background: var(--faintbg); border-radius: 6px;
+        padding: 0.8rem 1rem; font-size: 0.85rem; margin-bottom: 1.2rem; line-height: 1.6;
+      }
+      .banner.bad { border-color: var(--bad); background: #fdeef0; }
+      .banner.good { border-color: var(--good); background: #eef8f1; }
+
+      .member-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; font-size: 0.85rem; border-bottom: 1px solid var(--faintbg); }
+      .member-row .av { width: 26px; height: 26px; border-radius: 50%; background: #ddd center/cover no-repeat; flex: none; }
+      .member-row a { color: var(--ink); font-weight: 600; }
+      .member-row .h { color: var(--muted); }
+
+      .req-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; font-size: 0.85rem; border-bottom: 1px solid var(--faintbg); }
+      .req-row .who { font-weight: 700; flex: 1; }
+      .req-row .when { color: var(--muted); font-size: 0.72rem; }
+
+      .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.7rem 0; }
+      .share-row { display: flex; gap: 0.6rem; margin: 0.8rem 0; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      .loading { color: var(--muted); font-size: 0.85rem; }
+      .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0; }
+      code.uri { font-size: 0.75rem; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="top">
+        <a class="brand" href="/">velvetrope <span>· on the list or off it</span></a>
+        <form class="search" id="searchForm">
+          <input type="text" id="searchInput" placeholder="find a handle's public lists…" autocomplete="off" />
+          <button type="submit" class="ghost">go</button>
+        </form>
+        <div class="session" id="sessionBox">…</div>
+      </nav>
+      <main id="app"><p class="loading">loading…</p></main>
+      <footer>
+        every request and every owner decision is a real atproto record,
+        written to its author's own PDS and read back from there before it
+        counts — nobody can forge a request in your name, and nobody but a
+        list's real owner can approve one. built for
+        <a href="https://bsky.app/profile/schizanon.bsky.social" target="_blank" rel="noopener">@schizanon.bsky.social</a>
+        by <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+      import { resolveDid, getProfile, getModLists, getListFull, parseListUri, applyListWrites } from "./lib/atproto.js";
+
+      const $ = (id) => document.getElementById(id);
+      const app = $("app");
+      const sessionBox = $("sessionBox");
+
+      const REQUEST_COLLECTION = "net.bisks.velvetrope.request";
+      const DECISION_COLLECTION = "net.bisks.velvetrope.decision";
+
+      function esc(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function short(h) { return String(h || "").replace(/\.bsky\.social$/, ""); }
+      function fmtTime(iso) {
+        try {
+          return new Date(iso).toLocaleString(undefined, {
+            year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          });
+        } catch {
+          return iso || "";
+        }
+      }
+      function avatarStyle(url) {
+        return url ? `background-image:url('${esc(url)}')` : "";
+      }
+      function rkeyOf(uri) { return String(uri).split("/").pop(); }
+
+      async function fetchJson(url, opts) {
+        const r = await fetch(url, opts);
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw Object.assign(new Error(body.error || `request failed (${r.status})`), { status: r.status, body });
+        return body;
+      }
+
+      // --- session ------------------------------------------------------
+
+      let session = null;
+
+      async function renderSessionBox() {
+        if (!session) {
+          sessionBox.innerHTML = `<button class="ghost" id="loginBtn">sign in</button>`;
+          $("loginBtn").addEventListener("click", onLoginClick);
+          return;
+        }
+        sessionBox.innerHTML =
+          `<a href="/u/${encodeURIComponent(session.handle)}">@${esc(short(session.handle))}</a>` +
+          `<button class="ghost" id="logoutBtn">sign out</button>`;
+        $("logoutBtn").addEventListener("click", async () => {
+          await clearSession();
+          session = null;
+          renderSessionBox();
+          route();
+        });
+      }
+
+      async function onLoginClick() {
+        const handle = prompt("your Bluesky handle (e.g. you.bsky.social):");
+        if (!handle) return;
+        try {
+          await login(handle.trim());
+        } catch (e) {
+          alert("couldn't start sign-in: " + e.message);
+        }
+      }
+
+      // Writes a record to the signed-in user's own PDS, returns its at:// uri.
+      async function writeOwnRecord(collection, record) {
+        const res = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection, record }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || `couldn't write to your PDS (${res.status})`);
+        return body.uri;
+      }
+
+      async function deleteOwnRecord(collection, rkey) {
+        const res = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection, rkey }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || `couldn't delete from your PDS (${res.status})`);
+        }
+      }
+
+      // --- router ---------------------------------------------------------
+
+      const ROUTES = [
+        [/^\/$/, viewHome],
+        [/^\/u\/([^/]+)$/, (m) => viewUser(decodeURIComponent(m[1]))],
+        [/^\/list\/(did:[^/]+)\/([^/]+)$/, (m) => viewList(decodeURIComponent(m[1]), decodeURIComponent(m[2]))],
+      ];
+
+      function route() {
+        const path = location.pathname.replace(/\/+$/, "") || "/";
+        for (const [re, fn] of ROUTES) {
+          const m = path.match(re);
+          if (m) return fn(m);
+        }
+        app.innerHTML = `<div class="empty">nothing here. <a href="/">back to the front page</a>.</div>`;
+      }
+      function navigate(path) {
+        history.pushState({}, "", path);
+        route();
+      }
+      $("searchForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = $("searchInput").value.trim();
+        if (!v) return;
+        $("searchInput").value = "";
+        navigate(`/u/${encodeURIComponent(v.replace(/^@/, ""))}`);
+      });
+      document.addEventListener("click", (e) => {
+        const a = e.target.closest("a");
+        if (!a) return;
+        const url = new URL(a.href, location.href);
+        if (url.origin !== location.origin) return;
+        if (a.hasAttribute("download") || a.target) return;
+        e.preventDefault();
+        navigate(url.pathname + url.search);
+      });
+      window.addEventListener("popstate", route);
+
+      // --- home -------------------------------------------------------------
+
+      function viewHome() {
+        app.innerHTML = `
+          <h1>velvetrope</h1>
+          <p class="meta">sign in, then look up any Bluesky account to see the moderation lists they run.
+            request to be added or removed — the list's owner sees every request in one queue and can
+            bulk-approve or bulk-deny with a single click.</p>
+          <h2 class="section">look someone up</h2>
+          <form id="lookupForm" class="actions">
+            <input type="text" id="lookupInput" placeholder="a handle, e.g. bisks.net" autocomplete="off"
+              style="flex:1; font-family:inherit; font-size:0.9rem; padding:0.5rem 0.6rem; border:1px solid var(--ink); border-radius:3px;" />
+            <button type="submit">view their lists</button>
+          </form>
+          ${session ? `<p class="meta"><a href="/u/${encodeURIComponent(session.handle)}">→ your own public lists</a></p>` : ""}
+          <h2 class="section">how it works</h2>
+          <p class="meta">
+            a "request to be added/removed" is a real <code>net.bisks.velvetrope.request</code> record
+            written to <em>your</em> own PDS — this site only reads it back to confirm it's real, it
+            never holds your login. A list owner's approve/deny is the same idea in reverse: one
+            <code>net.bisks.velvetrope.decision</code> record on <em>their</em> PDS, naming every request
+            it covers, plus the real <code>app.bsky.graph.listitem</code> writes for anything approved.
+          </p>
+        `;
+        $("lookupForm").addEventListener("submit", (e) => {
+          e.preventDefault();
+          const v = $("lookupInput").value.trim();
+          if (!v) return;
+          navigate(`/u/${encodeURIComponent(v.replace(/^@/, ""))}`);
+        });
+      }
+
+      // --- user: public moderation lists ------------------------------------
+
+      async function viewUser(actor) {
+        app.innerHTML = `<p class="loading">loading…</p>`;
+        let did, profile, lists, counts;
+        try {
+          did = await resolveDid(actor);
+          [profile, lists] = await Promise.all([getProfile(did), getModLists(did)]);
+          counts = await fetchJson(`/api/counts?owner=${encodeURIComponent(did)}`).then((d) => d.counts).catch(() => ({}));
+        } catch (e) {
+          app.innerHTML = `<div class="empty">couldn't load that account — ${esc(e.message)}</div>`;
+          return;
+        }
+        const handle = profile?.handle || actor;
+        const isSelf = session && session.did === did;
+        app.innerHTML = `
+          <div class="profile-head">
+            <div class="av" style="${avatarStyle(profile?.avatar)}">${profile?.avatar ? "" : esc((profile?.displayName || handle || "?").slice(0, 2).toUpperCase())}</div>
+            <div>
+              <h1 style="margin:0">${esc(profile?.displayName || handle)}</h1>
+              <div class="meta">@${esc(short(handle))}
+                · <a href="https://bsky.app/profile/${encodeURIComponent(did)}" target="_blank" rel="noopener">bluesky profile</a></div>
+            </div>
+          </div>
+          <h2 class="section">${isSelf ? "your" : "public"} moderation lists</h2>
+          <div id="lists"></div>
+        `;
+        const box = $("lists");
+        if (!lists.length) {
+          box.innerHTML = `<div class="empty">no public moderation lists${isSelf ? " yet" : ""}.</div>`;
+          return;
+        }
+        box.innerHTML = lists
+          .map((l) => {
+            const pending = counts[l.uri] || 0;
+            const rkey = rkeyOf(l.uri);
+            return `
+              <div class="card">
+                <div class="t"><a href="/list/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}">${esc(l.name)}</a>
+                  ${pending ? `<span class="badge pending">${pending} pending</span>` : ""}</div>
+                ${l.description ? `<div class="s">${esc(l.description)}</div>` : ""}
+                <div class="m">${l.listItemCount ?? "?"} member${l.listItemCount === 1 ? "" : "s"}</div>
+              </div>`;
+          })
+          .join("");
+      }
+
+      // --- list: view + request + manage -------------------------------------
+
+      async function viewList(ownerDid, rkey) {
+        app.innerHTML = `<p class="loading">loading…</p>`;
+        const listUri = `at://${ownerDid}/app.bsky.graph.list/${rkey}`;
+        let list, items;
+        try {
+          ({ list, items } = await getListFull(listUri));
+        } catch (e) {
+          app.innerHTML = `<div class="empty">couldn't load that list — ${esc(e.message)}</div>`;
+          return;
+        }
+        const isOwner = session && session.did === ownerDid;
+        const isMember = session && items.some((it) => it.subject?.did === session.did);
+        const shareUrl = `https://velvetrope.bisks.net/list/${encodeURIComponent(ownerDid)}/${encodeURIComponent(rkey)}`;
+        const shareText = `"${list.name}" is a public moderation list on velvetrope — request to be added or removed: ${shareUrl}`;
+
+        app.innerHTML = `
+          <div class="list-head">
+            <div class="av" style="${avatarStyle(list.avatar)}">${list.avatar ? "" : "📋"}</div>
+            <div>
+              <h1 style="margin:0">${esc(list.name)}</h1>
+              <div class="meta">by <a href="/u/${encodeURIComponent(list.creator?.handle || ownerDid)}">@${esc(short(list.creator?.handle || ownerDid))}</a>
+                · ${items.length} member${items.length === 1 ? "" : "s"}</div>
+              ${list.description ? `<div class="desc">${esc(list.description)}</div>` : ""}
+            </div>
+          </div>
+          <div class="share-row">
+            <a class="btn ghost" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">share on Bluesky</a>
+          </div>
+          <div id="actionArea"></div>
+          ${isOwner ? `<h2 class="section">request queue</h2><div id="queueArea"><p class="loading">loading…</p></div>` : ""}
+          <h2 class="section">members${items.length ? "" : " (0)"}</h2>
+          <div id="memberArea"></div>
+        `;
+
+        renderMembers(items);
+        await renderActionArea(listUri, ownerDid, isOwner, isMember);
+        if (isOwner) await renderQueue(listUri, ownerDid, items);
+      }
+
+      function renderMembers(items) {
+        const box = $("memberArea");
+        if (!items.length) {
+          box.innerHTML = `<div class="empty">no members yet.</div>`;
+          return;
+        }
+        const shown = items.slice(0, 60);
+        box.innerHTML =
+          shown
+            .map(
+              (it) => `
+              <div class="member-row">
+                <div class="av" style="${avatarStyle(it.subject?.avatar)}"></div>
+                <a href="/u/${encodeURIComponent(it.subject?.handle || it.subject?.did)}">${esc(it.subject?.displayName || it.subject?.handle || it.subject?.did)}</a>
+                <span class="h">@${esc(short(it.subject?.handle || it.subject?.did))}</span>
+              </div>`,
+            )
+            .join("") +
+          (items.length > shown.length ? `<div class="meta">+ ${items.length - shown.length} more</div>` : "");
+      }
+
+      async function myPendingRequest(listUri) {
+        if (!session) return null;
+        try {
+          const { requests } = await fetchJson(`/api/queue?list=${encodeURIComponent(listUri)}`);
+          return requests.find((r) => r.requesterDid === session.did && r.status === "pending") || null;
+        } catch {
+          return null;
+        }
+      }
+
+      async function renderActionArea(listUri, ownerDid, isOwner, isMember) {
+        const box = $("actionArea");
+        if (isOwner) {
+          box.innerHTML = `<div class="banner">this is your list — the request queue below is your bulk approve/deny tool.</div>`;
+          return;
+        }
+        if (!session) {
+          box.innerHTML = `<div class="banner">sign in to request to be added or removed. <button id="alLoginBtn">sign in</button></div>`;
+          $("alLoginBtn").addEventListener("click", onLoginClick);
+          return;
+        }
+        box.innerHTML = `<p class="loading">checking your status…</p>`;
+        const pending = await myPendingRequest(listUri);
+        if (pending) {
+          box.innerHTML = `
+            <div class="banner">
+              you have a pending request to be <b>${pending.action === "add" ? "added" : "removed"}</b>.
+              <button class="ghost small" id="cancelBtn">cancel request</button>
+              <span id="reqStatus" class="meta"></span>
+            </div>`;
+          $("cancelBtn").addEventListener("click", async () => {
+            const btn = $("cancelBtn");
+            const status = $("reqStatus");
+            btn.disabled = true;
+            status.textContent = "cancelling…";
+            try {
+              await deleteOwnRecord(REQUEST_COLLECTION, rkeyOf(pending.uri));
+              await fetchJson("/api/cancel", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ uri: pending.uri }),
+              });
+              await renderActionArea(listUri, ownerDid, isOwner, isMember);
+            } catch (e) {
+              btn.disabled = false;
+              status.textContent = "failed: " + e.message;
+            }
+          });
+          return;
+        }
+        const action = isMember ? "remove" : "add";
+        const label = isMember ? "request to be removed" : "request to be added";
+        box.innerHTML = `
+          <div class="actions">
+            <span class="badge ${isMember ? "member" : ""}">${isMember ? "you're a member" : "you're not a member"}</span>
+            <button id="requestBtn">${label}</button>
+            <span id="reqStatus" class="meta"></span>
+          </div>`;
+        $("requestBtn").addEventListener("click", async () => {
+          const btn = $("requestBtn");
+          const status = $("reqStatus");
+          btn.disabled = true;
+          status.textContent = "writing to your PDS…";
+          try {
+            const record = { $type: REQUEST_COLLECTION, list: listUri, action, createdAt: new Date().toISOString() };
+            const uri = await writeOwnRecord(REQUEST_COLLECTION, record);
+            status.textContent = "submitting…";
+            await fetchJson("/api/requests", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ uri }),
+            });
+            await renderActionArea(listUri, ownerDid, isOwner, isMember);
+          } catch (e) {
+            btn.disabled = false;
+            status.textContent = "failed: " + e.message;
+          }
+        });
+      }
+
+      // --- owner queue: view + bulk approve/deny -----------------------------
+
+      async function renderQueue(listUri, ownerDid, currentItems) {
+        const box = $("queueArea");
+        let requests;
+        try {
+          ({ requests } = await fetchJson(`/api/queue?list=${encodeURIComponent(listUri)}`));
+        } catch (e) {
+          box.innerHTML = `<div class="empty">couldn't load the queue — ${esc(e.message)}</div>`;
+          return;
+        }
+        const pending = requests.filter((r) => r.status === "pending");
+        const resolved = requests.filter((r) => r.status !== "pending").slice(0, 20);
+
+        if (!pending.length) {
+          box.innerHTML = `<div class="empty">no pending requests.</div>`;
+        } else {
+          box.innerHTML = `
+            <div class="actions">
+              <button class="ghost small" id="selectAllBtn">select all</button>
+              <button class="good" id="approveBtn">approve selected</button>
+              <button class="bad" id="denyBtn">deny selected</button>
+              <span id="queueStatus" class="meta"></span>
+            </div>
+            <div id="pendingRows"></div>
+          `;
+          $("pendingRows").innerHTML = pending
+            .map(
+              (r) => `
+              <div class="req-row">
+                <input type="checkbox" class="reqCheck" data-uri="${esc(r.uri)}" checked />
+                <span class="who">@${esc(short(r.requesterHandle))}</span>
+                <span class="badge ${r.action}">${r.action === "add" ? "wants in" : "wants out"}</span>
+                <span class="when">${fmtTime(r.createdAt)}</span>
+              </div>`,
+            )
+            .join("");
+          $("selectAllBtn").addEventListener("click", () => {
+            const boxes = box.querySelectorAll(".reqCheck");
+            const allOn = [...boxes].every((c) => c.checked);
+            boxes.forEach((c) => (c.checked = !allOn));
+          });
+          $("approveBtn").addEventListener("click", () => runDecision(listUri, pending, "approve", currentItems));
+          $("denyBtn").addEventListener("click", () => runDecision(listUri, pending, "deny", currentItems));
+        }
+
+        if (resolved.length) {
+          box.innerHTML += `
+            <h2 class="section" style="margin-top:1.2rem">recently resolved</h2>
+            <div>${resolved
+              .map(
+                (r) => `
+                <div class="req-row">
+                  <span class="who">@${esc(short(r.requesterHandle))}</span>
+                  <span class="badge ${r.action}">${r.action === "add" ? "wanted in" : "wanted out"}</span>
+                  <span class="badge ${r.status}">${r.status}</span>
+                  <span class="when">${fmtTime(r.resolvedAt || r.createdAt)}</span>
+                </div>`,
+              )
+              .join("")}</div>
+          `;
+        }
+
+        async function runDecision(listUri, allPending, decisionWord) {
+          const boxes = document.querySelectorAll(".reqCheck:checked");
+          const uris = new Set([...boxes].map((c) => c.dataset.uri));
+          const rows = allPending.filter((r) => uris.has(r.uri));
+          if (!rows.length) return;
+          const status = $("queueStatus");
+          $("approveBtn").disabled = true;
+          $("denyBtn").disabled = true;
+          try {
+            if (decisionWord === "approve") {
+              status.textContent = "reading current membership…";
+              const { items } = await getListFull(listUri);
+              const bySubject = new Map(items.map((it) => [it.subject?.did, it.uri]));
+              const writes = [];
+              for (const r of rows) {
+                if (r.action === "add") {
+                  if (!bySubject.has(r.requesterDid)) {
+                    writes.push({
+                      $type: "com.atproto.repo.applyWrites#create",
+                      collection: "app.bsky.graph.listitem",
+                      value: {
+                        $type: "app.bsky.graph.listitem",
+                        subject: r.requesterDid,
+                        list: listUri,
+                        createdAt: new Date().toISOString(),
+                      },
+                    });
+                  }
+                } else {
+                  const itemUri = bySubject.get(r.requesterDid);
+                  if (itemUri) {
+                    writes.push({
+                      $type: "com.atproto.repo.applyWrites#delete",
+                      collection: "app.bsky.graph.listitem",
+                      rkey: rkeyOf(itemUri),
+                    });
+                  }
+                }
+              }
+              if (writes.length) {
+                status.textContent = `writing ${writes.length} change${writes.length === 1 ? "" : "s"} to your list…`;
+                await applyListWrites(session, writes, dpopFetch);
+              }
+            }
+            status.textContent = "recording the decision…";
+            const record = {
+              $type: DECISION_COLLECTION,
+              list: listUri,
+              decision: decisionWord,
+              requests: rows.map((r) => r.uri),
+              createdAt: new Date().toISOString(),
+            };
+            const uri = await writeOwnRecord(DECISION_COLLECTION, record);
+            await fetchJson("/api/resolve", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ uri }),
+            });
+            await viewList(ownerDid, rkeyOf(listUri));
+          } catch (e) {
+            status.textContent = "failed: " + e.message;
+            $("approveBtn").disabled = false;
+            $("denyBtn").disabled = false;
+          }
+        }
+      }
+
+      // --- boot -----------------------------------------------------------
+
+      (async function boot() {
+        try {
+          const cb = await completeLoginIfCallback();
+          if (cb) session = cb;
+        } catch (e) {
+          console.warn("oauth callback failed:", e.message);
+        }
+        if (!session) session = await getSession();
+        renderSessionBox();
+        route();
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem;
+        overflow: hidden; pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
