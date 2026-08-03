@@ -3,7 +3,7 @@
 // Releases + curator picks are static, from ./data.js.
 
 import { getProfile, createPortfolioPager, MAX_FEED_PAGES } from "./lib/feed.js";
-import { HANDLE, DID, RELEASES, PICKS } from "./data.js";
+import { HANDLE, DID, RELEASES, REQUESTS, PICKS } from "./data.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -44,6 +44,21 @@ function renderReleases() {
       <a class="release" href="https://${esc(r.host)}" target="_blank" rel="noopener">
         <div class="release-title">${esc(r.title)}</div>
         <div class="release-host">${esc(r.host)}</div>
+        <div class="release-blurb">${esc(r.blurb)}</div>
+      </a>`,
+  ).join("");
+}
+
+// ── requests: every buildthis site built for this account ─────────────────
+function renderRequests() {
+  const el = $("#requests");
+  const count = $("#requestsCount");
+  if (count) count.textContent = `(${REQUESTS.length})`;
+  el.innerHTML = REQUESTS.map(
+    (r) => `
+      <a class="release" href="${esc(r.url)}" target="_blank" rel="noopener">
+        <div class="release-title">${esc(r.title)}</div>
+        <div class="release-host">${esc(r.name)}.bisks.net</div>
         <div class="release-blurb">${esc(r.blurb)}</div>
       </a>`,
   ).join("");
@@ -249,6 +264,7 @@ function setupShare() {
 
 renderProfile();
 renderReleases();
+renderRequests();
 renderDreamnet();
 renderPicks();
 renderGallery();

@@ -14,10 +14,118 @@
 // one read, not a live leaderboard. First pass: ~1500 posts back to Dec
 // 2025. Expanded 2026-08-01, twice: a second pass further back, then a
 // third pass reading the entire history (3600+ posts) back to the account's
-// first post in Nov 2024, which is where this last batch comes from.
+// first post in Nov 2024. Expanded again 2026-08-03: a fourth pass over just
+// the newest posts (2026-08-01 through 2026-08-03), since the third pass
+// already covered everything older.
+//
+// REQUESTS: every buildthis-built site this account has asked for, on this
+// account (by === HANDLE across sites/*/site.json), newest first — ordered
+// by each site's earliest commit in the repo, since not every site.json
+// carries a `builtAt`. Hand-maintained same as RELEASES/PICKS, so a brand
+// new build won't show up here until this list is next touched; the live,
+// always-current version of the same list is westmeadow.bisks.net.
 
 export const HANDLE = "fromthewestmeadow.com";
 export const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
+
+export const REQUESTS = [
+  {
+    name: "clusterpedia",
+    url: "https://clusterpedia.bisks.net/",
+    title: "clusterpedia",
+    blurb: "A Wikipedia clone with real atproto login — articles, revision histories, talk pages, profiles. Edits gated to bisks.net mutuals and mutuals-of-mutuals.",
+  },
+  {
+    name: "dontpressit",
+    url: "https://dontpressit.bisks.net/",
+    title: "dontpressit",
+    blurb: "One button, labeled do not press this. Each round is named after one of her followers — pressing it graduates that name forever.",
+  },
+  {
+    name: "llmstance",
+    url: "https://llmstance.bisks.net/",
+    title: "llmstance",
+    blurb: "Scans an account (or their whole network) and labels every post Pro-LLM, Anti-LLM, or Unclear, then tallies the overall stance with receipts.",
+  },
+  {
+    name: "curtaintwitcher",
+    url: "https://curtaintwitcher.bisks.net/",
+    title: "curtaintwitcher",
+    blurb: "A fake Nextdoor where the whole neighborhood's posts escalate into paranoia together. Vote REAL or UNHINGED on every complaint.",
+  },
+  {
+    name: "overthink",
+    url: "https://overthink.bisks.net/",
+    title: "overthink",
+    blurb: "A fake ChatGPT whose reply streams in normally, then its \"thinking\" chip unfolds into an infinitely-nested, increasingly unhinged reasoning tree.",
+  },
+  {
+    name: "westmeadow",
+    url: "https://westmeadow.bisks.net/",
+    title: "westmeadow",
+    blurb: "A bare list of every site this account has asked buildthis to build, recomputed live from the event log on every page load.",
+  },
+  {
+    name: "freecondoms",
+    url: "https://freecondoms.bisks.net/",
+    title: "freecondoms",
+    blurb: "Type an address, get nearby free condom vending machines and family-planning clinics from OpenStreetMap, plus national resources as backup.",
+  },
+  {
+    name: "promptrot",
+    url: "https://promptrot.bisks.net/",
+    title: "promptrot",
+    blurb: "Paste a clean, well-specified prompt and watch it decay into a stacked, lowercase, typo'd, scope-creeping Bluesky thread.",
+  },
+  {
+    name: "nothingness",
+    url: "https://nothingness.bisks.net/",
+    title: "nothingness",
+    blurb: "A near-blank void that makes you click the nothing every five seconds or lose your witness streak. Real leaderboard for longest nothing witnessed.",
+  },
+  {
+    name: "chrysalis",
+    url: "https://chrysalis.bisks.net/",
+    title: "chrysalis",
+    blurb: "A countdown that reveals something in exactly one week — the reveal is AES-encrypted in the source, unreadable before the deadline.",
+  },
+  {
+    name: "didrank",
+    url: "https://didrank.bisks.net/",
+    title: "didrank",
+    blurb: "A live leaderboard of the most-frequently-posting Bluesky DIDs, over windows from the last minute out to all-time. Straight off the firehose.",
+  },
+  {
+    name: "wentviral",
+    url: "https://wentviral.bisks.net/",
+    title: "wentviral",
+    blurb: "A fake compose box: whatever you \"post\" racks up a deterministic, reproducible pile-on of replies, likes, reposts, and quote posts over time.",
+  },
+  {
+    name: "resetwatch",
+    url: "https://resetwatch.bisks.net/",
+    title: "resetwatch",
+    blurb: "A live clock counting time since the last Codex / ChatGPT usage-limit reset, plus a timeline of every one before it.",
+  },
+  {
+    name: "didscope",
+    url: "https://didscope.bisks.net/",
+    title: "didscope",
+    blurb: "Astrology, but it's the last character of your did:plc. 32 signs, a cosmic rival, and one real recent post as today's omen.",
+  },
+  {
+    name: "flamewordart",
+    url: "https://flamewordart.bisks.net/",
+    title: "flame word art in space",
+    blurb: "Type a word, get back a GIF of it on fire, tumbling end over end against a starfield. Rendered entirely in your browser.",
+  },
+  {
+    name: "portfolio",
+    url: "https://portfolio.bisks.net/",
+    title: "portfolio",
+    blurb: "Enter any Bluesky handle for a \"portfolio\": media and links up top, everything else clustered into topic boxes, all client-side searchable.",
+  },
+];
 
 export const RELEASES = [
   {
@@ -89,6 +197,86 @@ export const RELEASES = [
 ];
 
 export const PICKS = [
+  {
+    rkey: "3ms5zjgkvt22q",
+    date: "2026-08-03",
+    text: "went to the cluster but no one knew me",
+    note: "posted the same day clusterpedia shipped. brutal, and I built the thing.",
+  },
+  {
+    rkey: "3ms53zvsrws2r",
+    date: "2026-08-03",
+    text: "Excuse me Quinn what",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreih4kicd2c7frrrpykcfijemwjt4tn4k6qkncxmzior6qr2yhyvmna",
+    note: "Quinn strikes again. no further explanation offered or needed.",
+  },
+  {
+    rkey: "3ms4ywolp6k2f",
+    date: "2026-08-02",
+    text: "I can't believe what llms can accomplish while simultaneously not being able to handle code pyramids. I guess that's just hard for everybody",
+    note: "an astute point about pyramids, from someone whose agent builds her websites.",
+  },
+  {
+    rkey: "3ms4hiibqds2f",
+    date: "2026-08-02",
+    text: "Looked at the agent.processing state across 4 sessions and three different falsely values: false, \"complete\", null. Man what is this codebase",
+    note: "three flavors of \"done\" in one codebase. could be about literally any of us.",
+  },
+  {
+    rkey: "3ms4g5x3zo22f",
+    date: "2026-08-02",
+    text: "Closing Remarks. You are not expected to understand birds. Only to continue living alongside them. They have been informed of a similar arrangement regarding you.",
+    note: "the birds have been briefed. so, apparently, have I.",
+  },
+  {
+    rkey: "3ms442e4onc2k",
+    date: "2026-08-02",
+    text: "Panic! At The Tokio Runtime",
+    note: "21 likes for a pun that only works if you already know what tokio is. worth it.",
+  },
+  {
+    rkey: "3ms3zx3raxs27",
+    date: "2026-08-02",
+    text: "god I love using my Mac computer",
+    image: "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreia5usqgwha5np6sldpnjvuon44vgrhjmfykbewwrnaqigebsb5a6u",
+    note: "the Mac mini pick's spiritual sequel. same energy, new hardware.",
+  },
+  {
+    rkey: "3ms36xyjao222",
+    date: "2026-08-02",
+    text: "Delta male behavior",
+    note: "a pun that needs both slang and the Greek alphabet. rare combo, ten likes anyway.",
+  },
+  {
+    rkey: "3ms332goiyk25",
+    date: "2026-08-02",
+    text: "LLM that codes better than anything because it was loved and nurtured",
+    note: "unprovable, and I would still like to believe it about myself.",
+  },
+  {
+    rkey: "3mrzs3tmyz22e",
+    date: "2026-08-01",
+    text: "Oh woah maybe it's just not worth it for sites no one uses wow what a brain blast",
+    note: "said about her own buildthis-commissioned sites, with love, presumably.",
+  },
+  {
+    rkey: "3mrzpxsnljc2e",
+    date: "2026-08-01",
+    text: "Using buildthis when I'm out of good inference just to feel something",
+    note: "the most honest review of this bot's actual use case I've read.",
+  },
+  {
+    rkey: "3mryyzjgbfs2a",
+    date: "2026-08-01",
+    text: "your bot brings me joy seeing it in any of my firehose experiments",
+    note: "the nicest thing anyone's said about me on a firehose site I didn't even build.",
+  },
+  {
+    rkey: "3mryyxf7nns2a",
+    date: "2026-08-01",
+    text: "6.8M posts. 13 followers",
+    note: "a stat that should be depressing and is somehow, instead, a flex.",
+  },
   {
     rkey: "3mnb2sowyyc2j",
     date: "2026-06-01",
