@@ -153,6 +153,7 @@ export const IDEAS = [
     rkey: "3mnhzxzec4c2i",
     handle: "norvid-studies.bsky.social",
     text: "bot that trawls lists of semi-obscure art/literature/media and when it finds ~4 people who mentioned the same thing, spawns a thread with their quotes and tags them all in as a popup salon",
+    enacted: "/salon",
   },
   {
     rkey: "3mnhw3bmgb22d",

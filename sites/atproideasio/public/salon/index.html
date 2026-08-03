@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Popup Salon — #atproideasio, enacted</title>
+    <meta
+      name="description"
+      content="Search live Bluesky for a semi-obscure book, film or artwork. When ~4 strangers turn out to have mentioned it, it spawns a quote-thread and offers to tag them all in as a popup salon. norvid's idea."
+    />
+    <style>
+      :root {
+        --bg: #fff; --ink: #111; --muted: #6b6b6b; --faint: #e4e4e4; --faintbg: #f6f6f6;
+        --accent: #1a5fd0; --good: #1f8a4c; --warn: #a6660a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono);
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 1.25rem 0 0.4rem; }
+      .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 1.75rem; max-width: 58ch; }
+      .sub b { color: var(--ink); }
+
+      form { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.6rem; }
+      input[type="text"], input[type="number"] {
+        font: inherit; padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 9px; background: var(--faintbg);
+      }
+      input[type="text"]:focus, input[type="number"]:focus {
+        outline: 2px solid var(--accent); outline-offset: -1px; background: #fff;
+      }
+      #topic { flex: 1; min-width: 12rem; }
+      #quorum { width: 4rem; }
+      .qwrap { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); }
+      .go {
+        padding: 0.6rem 1.1rem; border: 0; border-radius: 9px; background: var(--accent);
+        color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      .go:disabled { opacity: 0.5; cursor: default; }
+
+      .followswrap { font-size: 0.76rem; color: var(--muted); margin-bottom: 1rem; }
+      .followswrap input[type="checkbox"] { vertical-align: -1px; }
+
+      .examples { color: var(--muted); font-size: 0.8rem; margin: 0 0 1.75rem; }
+      .examples a { cursor: pointer; }
+
+      .status { color: var(--muted); font-size: 0.85rem; min-height: 1.4rem; margin-bottom: 0.5rem; }
+      .status.err { color: #c62828; }
+
+      .salon {
+        display: none; border: 1px solid var(--faint); border-radius: 14px;
+        padding: 1.3rem 1.3rem 1.1rem; margin: 1rem 0 1.25rem; background: var(--faintbg);
+      }
+      .salon.show { display: block; animation: fade 0.3s ease-out; }
+      @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+      .salon.met { border-color: var(--good); }
+      .salon-head { font-weight: 600; font-size: 0.95rem; margin-bottom: 0.2rem; }
+      .salon-sub { color: var(--muted); font-size: 0.8rem; margin-bottom: 1rem; }
+      .salon-sub.met { color: var(--good); }
+
+      .quote {
+        display: flex; gap: 0.65rem; padding: 0.7rem 0; border-top: 1px solid var(--faint);
+      }
+      .quote:first-of-type { border-top: 0; }
+      .quote .avatar {
+        flex: none; width: 34px; height: 34px; border-radius: 50%;
+        background: var(--faint); object-fit: cover;
+      }
+      .quote .body { flex: 1; min-width: 0; }
+      .quote .who { font-size: 0.82rem; }
+      .quote .who .name { font-weight: 600; color: var(--ink); }
+      .quote .who .handle { color: var(--muted); }
+      .quote .text { font-size: 0.85rem; margin-top: 0.15rem; word-wrap: break-word; }
+      .quote .text mark { background: #fff1a8; border-radius: 3px; padding: 0 0.1em; }
+      .quote .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
+
+      .spawnbtn {
+        display: inline-block; margin-top: 0.9rem; padding: 0.55rem 0.9rem;
+        border-radius: 9px; background: var(--accent); color: #fff; font-weight: 600;
+        font-size: 0.83rem;
+      }
+      .spawnbtn:hover { text-decoration: none; opacity: 0.92; }
+
+      .note { margin-top: 2.25rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="/">← the #atproideasio arcade</a>
+      <h1>🕯️ Popup Salon</h1>
+      <p class="sub">
+        <b>"a bot that trawls lists of semi-obscure art, literature or other media
+        and if it finds like 4 people who mentioned it, it spawns a new thread with
+        their quotes and tags them all into it as a popup salon."</b> — norvid,
+        after <a href="https://bsky.app/search?q=upstream%20color" target="_blank" rel="noopener">noticing</a>
+        three mutuals independently bring up the film <i>Upstream Color</i>. Type
+        a semi-obscure thing; it searches live Bluesky for who's been saying it.
+      </p>
+
+      <form id="form">
+        <input id="topic" type="text" placeholder="e.g. upstream color" autocomplete="off" />
+        <span class="qwrap">quorum <input id="quorum" type="number" min="2" max="10" value="4" /></span>
+        <button class="go" id="go" type="submit">Convene</button>
+      </form>
+      <div class="followswrap">
+        <label><input type="checkbox" id="follows" disabled /> filter:follows only</label>
+        — norvid's actual ask, but that needs someone logged in. Not wired up yet.
+      </div>
+
+      <div class="examples">try:
+        <a data-q="upstream color">upstream color</a> ·
+        <a data-q="house of leaves">house of leaves</a> ·
+        <a data-q="kentucky route zero">kentucky route zero</a> ·
+        <a data-q="pale fire">pale fire</a>
+      </div>
+
+      <div class="status" id="status"></div>
+      <div class="salon" id="salon"></div>
+
+      <p class="note">
+        Reads only the public, unauthenticated search AppView
+        (<code>app.bsky.feed.searchPosts</code>), over the most recent 100 posts
+        matching the phrase. "Distinct voices" counts one quote per author, most
+        recent first. Nothing here posts anything on your behalf — <b>Spawn this
+        thread</b> just opens Bluesky's own compose box, prefilled, for a human to
+        actually send. It's a toy, a loving parody of the tag, not shipping product.
+      </p>
+    </div>
+
+    <script type="module">
+      const SEARCH_API = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts";
+
+      const form = document.getElementById("form");
+      const topicEl = document.getElementById("topic");
+      const quorumEl = document.getElementById("quorum");
+      const statusEl = document.getElementById("status");
+      const salonEl = document.getElementById("salon");
+      const go = document.getElementById("go");
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        }[c]));
+      }
+
+      function highlight(text, topic) {
+        const escaped = escapeHtml(text);
+        const words = topic.trim().split(/\s+/).filter((w) => w.length > 1)
+          .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        if (!words.length) return escaped;
+        const re = new RegExp("(" + words.join("|") + ")", "gi");
+        return escaped.replace(re, "<mark>$1</mark>");
+      }
+
+      function timeAgo(iso) {
+        const ms = Date.now() - new Date(iso).getTime();
+        const mins = Math.round(ms / 60000);
+        if (mins < 60) return mins + "m ago";
+        const hrs = Math.round(mins / 60);
+        if (hrs < 48) return hrs + "h ago";
+        return Math.round(hrs / 24) + "d ago";
+      }
+
+      async function searchPosts(q) {
+        const url = `${SEARCH_API}?q=${encodeURIComponent(q)}&limit=100&sort=latest`;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const r = await fetch(url);
+          if (r.ok) return (await r.json()).posts || [];
+          if (r.status === 429 || r.status === 503) {
+            await new Promise((res) => setTimeout(res, 500 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(`search failed (${r.status})`);
+        }
+        throw new Error("search is rate-limited right now — try again shortly");
+      }
+
+      function normalize(s) {
+        return String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+      }
+
+      // searchPosts is a loose relevance search (any-term-matches, stemmed) —
+      // it happily returns posts containing none of the query's words. Only a
+      // real substring hit on the phrase counts as someone actually having
+      // "mentioned it".
+      function actuallyMentions(post, topic) {
+        return normalize(post.record?.text).includes(normalize(topic));
+      }
+
+      function dedupeByAuthor(posts) {
+        const seen = new Set();
+        const out = [];
+        for (const p of posts) {
+          if (!p.author || seen.has(p.author.did)) continue;
+          seen.add(p.author.did);
+          out.push(p);
+        }
+        return out;
+      }
+
+      function postUrl(p) {
+        const rkey = p.uri.split("/").pop();
+        return `https://bsky.app/profile/${p.author.handle}/post/${rkey}`;
+      }
+
+      function shareUrl(topic, quorum) {
+        const u = new URL("https://atproideasio.bisks.net/salon/");
+        u.searchParams.set("q", topic);
+        u.searchParams.set("n", String(quorum));
+        return u.toString();
+      }
+
+      function buildShareText(topic, matches, url) {
+        const names = matches.slice(0, 5).map((p) => "@" + p.author.handle);
+        const more = matches.length > 5 ? ` +${matches.length - 5} more` : "";
+        const prefix = `🕯️ popup salon: ${matches.length} of you have all mentioned "${topic}" lately — `;
+        const suffix = names.join(" ") + more + ". thread's below.\n";
+        const budget = 300 - prefix.length - suffix.length - url.length;
+        let text = prefix + suffix;
+        if (budget < 0) {
+          // trim the mention list first, keep the URL and count intact
+          const keep = Math.max(1, names.length + Math.floor(budget / 12));
+          text = prefix + names.slice(0, keep).join(" ") + ` +${matches.length - keep} more. thread's below.\n`;
+        }
+        return text + url;
+      }
+
+      function renderQuote(p, topic) {
+        const a = p.author;
+        return `
+          <div class="quote">
+            <img class="avatar" ${a.avatar ? `src="${escapeHtml(a.avatar)}"` : ""} alt="" onerror="this.style.visibility='hidden'" />
+            <div class="body">
+              <div class="who">
+                <span class="name">${escapeHtml(a.displayName || a.handle)}</span>
+                <span class="handle">@${escapeHtml(a.handle)}</span>
+              </div>
+              <div class="text">${highlight(p.record?.text || "", topic)}</div>
+              <div class="meta"><a href="${postUrl(p)}" target="_blank" rel="noopener">${timeAgo(p.record?.createdAt)} · the real post</a></div>
+            </div>
+          </div>`;
+      }
+
+      function render(topic, quorum, matches) {
+        const met = matches.length >= quorum;
+        salonEl.className = "salon show" + (met ? " met" : "");
+        const head = met
+          ? `🕯️ Popup salon: “${topic}”`
+          : `“${topic}” — quorum not met`;
+        const sub = met
+          ? `<span class="salon-sub met">${matches.length} distinct voices, unprompted, brought this up. The salon convenes.</span>`
+          : `<span class="salon-sub">${matches.length} of ${quorum} needed. Not quite a salon yet — check back, or lower the quorum.</span>`;
+
+        let html = `<div class="salon-head">${head}</div><div class="salon-sub-wrap">${sub}</div>`;
+        html += matches.map((p) => renderQuote(p, topic)).join("");
+        if (met) {
+          const url = shareUrl(topic, quorum);
+          const text = buildShareText(topic, matches, url);
+          html += `<a class="spawnbtn" target="_blank" rel="noopener" href="https://bsky.app/intent/compose?text=${encodeURIComponent(text)}">spawn this thread for real →</a>`;
+        }
+        salonEl.innerHTML = html;
+      }
+
+      async function run(topic, quorum) {
+        topic = topic.trim();
+        if (!topic) return;
+        go.disabled = true;
+        statusEl.className = "status";
+        statusEl.textContent = "trawling the last 100 mentions of “" + topic + "”…";
+        salonEl.className = "salon";
+        salonEl.innerHTML = "";
+        try {
+          const posts = await searchPosts(topic);
+          const actual = posts.filter((p) => actuallyMentions(p, topic));
+          const matches = dedupeByAuthor(actual);
+          statusEl.textContent = `search turned up ${posts.length} loosely-related posts, ${actual.length} actually say the phrase, ${matches.length} distinct voice${matches.length === 1 ? "" : "s"}`;
+          render(topic, quorum, matches);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't search: " + e.message;
+        } finally {
+          go.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const quorum = Math.max(2, Math.min(10, Number(quorumEl.value) || 4));
+        run(topicEl.value, quorum);
+      });
+
+      document.querySelectorAll(".examples a").forEach((a) =>
+        a.addEventListener("click", () => {
+          topicEl.value = a.dataset.q;
+          run(topicEl.value, Math.max(2, Math.min(10, Number(quorumEl.value) || 4)));
+        })
+      );
+
+      // Reproduce a shared result: /salon/?q=...&n=...
+      const params = new URLSearchParams(location.search);
+      if (params.get("q")) {
+        topicEl.value = params.get("q");
+        if (params.get("n")) quorumEl.value = params.get("n");
+        run(topicEl.value, Math.max(2, Math.min(10, Number(quorumEl.value) || 4)));
+      }
+    </script>
+  </body>
+</html>
