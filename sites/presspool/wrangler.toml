@@ -1,0 +1,39 @@
+name = "atprotozoa-presspool"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @shimmermathlabs.com tagged the bot on a post quoting
+# @fromthewestmeadow.com's original "do not press this button" idea (built as
+# sites/dontpressit — one shared button, first press anywhere ends it for
+# everyone forever, no reset). The ask: a betting market on WHEN that button
+# gets pressed, without encouraging anyone to actually press it, plus a clear
+# warning that betting and then affecting the outcome yourself is grounds for
+# punishment.
+#
+# dontpressit.bisks.net/api/state is public and CORS-open (pressed, pressedAt,
+# futileClicks, visits) — this Worker polls it server-side. Bettors stake play
+# money on one of six time buckets measured from when this market opened
+# ("within the hour" ... "180+ days"); when the source flips to pressed, the
+# Market DO resolves once, pari-mutuel, into whichever bucket pressedAt -
+# epoch falls into, and stays resolved forever — same one-shot, no-reset shape
+# as the thing it's betting on. Copied from sites/guestbet (closest lineage:
+# a Durable Object pari-mutuel market with no login), with guestbet's
+# repeating-round logic replaced by a single terminal resolution.
+routes = [
+  { pattern = "presspool.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "MARKET"
+class_name = "Market"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Market"]
