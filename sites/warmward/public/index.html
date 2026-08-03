@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>warmward — a compass that points at the warmest nearby city</title>
+<meta name="description" content="share your location (or type one) and a compass needle swings to point at whichever of the nearest cities is warmest right now." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://warmward.bisks.net/" />
+<meta property="og:title" content="warmward — a compass that points at the warmest nearby city" />
+<meta property="og:description" content="share your location and the needle swings to whichever nearby city is warmest right now." />
+<meta property="og:image" content="https://warmward.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="warmward — a compass that points at the warmest nearby city" />
+<meta name="twitter:description" content="share your location and the needle swings to whichever nearby city is warmest right now." />
+<meta name="twitter:image" content="https://warmward.bisks.net/og.png" />
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f1e9;
+    --card: #ffffff;
+    --ink: #201c14;
+    --muted: #6b6250;
+    --accent: #c0532a;
+    --accent2: #2a6f77;
+    --accent-ink: #ffffff;
+    --line: #e3ddc9;
+    --needle: #c0532a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171410;
+      --card: #211d16;
+      --ink: #f2ede0;
+      --muted: #b3a890;
+      --accent: #ef7b4a;
+      --accent2: #5fc4cd;
+      --accent-ink: #171410;
+      --line: #3a3325;
+      --needle: #ef7b4a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 0.25rem;
+  }
+  h1 .dot { color: var(--accent); }
+  p.lede {
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  input[type="text"] {
+    flex: 1 1 240px;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 1rem;
+  }
+  button {
+    padding: 0.7rem 1.1rem;
+    border-radius: 0.6rem;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .row { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+  #status {
+    margin-top: 1rem;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+
+  #compass-wrap {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    margin: 1.75rem 0 0.5rem;
+  }
+  #compass-wrap.show { display: flex; }
+  .compass {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    position: relative;
+    box-shadow: 0 1px 0 var(--line) inset;
+  }
+  .compass .tick {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .compass .tick.n { align-items: flex-start; justify-content: center; padding-top: 0.5rem; color: var(--accent2); }
+  .compass .tick.e { align-items: center; justify-content: flex-end; padding-right: 0.6rem; }
+  .compass .tick.s { align-items: flex-end; justify-content: center; padding-bottom: 0.5rem; }
+  .compass .tick.w { align-items: center; justify-content: flex-start; padding-left: 0.6rem; }
+  .compass .needle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 6px;
+    height: 44%;
+    margin-left: -3px;
+    margin-top: -44%;
+    transform-origin: 50% 100%;
+    transition: transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .compass .needle::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 26px solid var(--needle);
+    transform: translateX(-50%);
+  }
+  .compass .needle::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    width: 5px;
+    height: 60%;
+    background: var(--line);
+    transform: translateX(-50%);
+  }
+  .compass .hub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    margin: -6px 0 0 -6px;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  #compass-caption {
+    margin-top: 1rem;
+    text-align: center;
+    max-width: 30rem;
+  }
+  #compass-caption .warm-name {
+    font-size: 1.3rem;
+    font-weight: 700;
+  }
+  #compass-caption .warm-temp {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  #compass-caption .warm-meta {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin-top: 0.15rem;
+  }
+
+  #results {
+    list-style: none;
+    margin: 1.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .city {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+    padding: 0.7rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .city.warmest {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .city .name { font-weight: 600; }
+  .city .meta { color: var(--muted); font-size: 0.85rem; }
+  .city .temp {
+    font-size: 1.1rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .city.warmest .temp { color: var(--accent); }
+
+  #share-row {
+    display: none;
+    margin-top: 1.5rem;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  #share-row.show { display: flex; }
+  a.share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--accent2);
+    color: var(--accent-ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  footer {
+    margin-top: 2.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>warmward<span class="dot">.</span></h1>
+  <p class="lede">
+    a compass that points at whichever nearby city is warmest right now.
+    share your location, or type a place — we'll check the
+    <span id="n-label">8</span> nearest cities and swing the needle toward
+    the warmest one. idea from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>.
+  </p>
+
+  <form id="search-form">
+    <input type="text" id="address" name="address" placeholder="an address, city, or zip" autocomplete="off" />
+    <button class="primary" type="submit">point the needle</button>
+  </form>
+  <div class="row">
+    <button class="ghost" type="button" id="use-location">use my location instead</button>
+  </div>
+
+  <div id="status" role="status"></div>
+
+  <div id="compass-wrap">
+    <div class="compass" id="compass">
+      <div class="tick n">N</div>
+      <div class="tick e">E</div>
+      <div class="tick s">S</div>
+      <div class="tick w">W</div>
+      <div class="needle" id="needle"></div>
+      <div class="hub"></div>
+    </div>
+    <div id="compass-caption"></div>
+  </div>
+
+  <ul id="results"></ul>
+
+  <div id="share-row">
+    <a class="share-btn" id="share-bluesky" target="_blank" rel="noopener">share on Bluesky</a>
+  </div>
+
+  <footer>
+    city list from <a href="https://www.geonames.org/" target="_blank" rel="noopener">GeoNames</a> (CC BY 4.0, cities pop. 50,000+),
+    live temperatures from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
+    address lookup via <a href="https://nominatim.org/" target="_blank" rel="noopener">OpenStreetMap Nominatim</a>.
+    built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>, asked for by
+    <a href="https://bsky.app/profile/dave.9000ish.uk" target="_blank" rel="noopener">dave.9000ish.uk</a>
+    relaying an idea from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">cee.wtf</a>.
+    a typed address is sent to Nominatim to look up coordinates — nothing here is stored.
+  </footer>
+</main>
+
+<script>
+  const form = document.getElementById("search-form");
+  const statusEl = document.getElementById("status");
+  const compassWrap = document.getElementById("compass-wrap");
+  const needle = document.getElementById("needle");
+  const captionEl = document.getElementById("compass-caption");
+  const resultsEl = document.getElementById("results");
+  const useLocationBtn = document.getElementById("use-location");
+  const shareRow = document.getElementById("share-row");
+  const shareBluesky = document.getElementById("share-bluesky");
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function fToC(c) { return c * 9 / 5 + 32; }
+  function fmtTemp(c) { return Math.round(c) + "°C (" + Math.round(fToC(c)) + "°F)"; }
+  function fmtDist(km) { return km < 10 ? km.toFixed(1) + " km" : Math.round(km) + " km"; }
+
+  // WMO weather codes, collapsed to a small emoji set.
+  function weatherEmoji(code) {
+    if (code === null || code === undefined) return "";
+    if (code === 0) return "☀️";
+    if (code <= 2) return "🌤️";
+    if (code === 3) return "☁️";
+    if (code === 45 || code === 48) return "🌫️";
+    if (code >= 51 && code <= 67) return "🌧️";
+    if (code >= 71 && code <= 77) return "🌨️";
+    if (code >= 80 && code <= 82) return "🌦️";
+    if (code >= 85 && code <= 86) return "🌨️";
+    if (code >= 95) return "⛈️";
+    return "";
+  }
+
+  function compassLetters(bearing) {
+    const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    return dirs[Math.round(bearing / 22.5) % 16];
+  }
+
+  function renderCity(c, isWarmest) {
+    return (
+      '<li class="city' + (isWarmest ? " warmest" : "") + '">' +
+      "<div>" +
+      '<div class="name">' + (isWarmest ? "🔥 " : "") + escapeHtml(c.name) + ", " + escapeHtml(c.country) + "</div>" +
+      '<div class="meta">' + fmtDist(c.distanceKm) + " away</div>" +
+      "</div>" +
+      '<div class="temp">' + weatherEmoji(c.weatherCode) + " " + (c.tempC === null ? "?" : Math.round(c.tempC) + "°C") + "</div>" +
+      "</li>"
+    );
+  }
+
+  function buildShareText(data) {
+    const url = "https://warmward.bisks.net/";
+    const text =
+      "🧭 the warmest of the nearest cities to " + data.origin.label + " is " +
+      data.warmest.name + ", " + data.warmest.country + " at " + Math.round(data.warmest.tempC) +
+      "°C, bearing " + compassLetters(data.bearingDeg) + " (" + Math.round(data.bearingDeg) + "°). " +
+      url;
+    return text.length > 300 ? text.slice(0, 297) + "..." : text;
+  }
+
+  async function runSearch(params, queryLabel) {
+    resultsEl.innerHTML = "";
+    compassWrap.classList.remove("show");
+    shareRow.classList.remove("show");
+    statusEl.textContent = "checking the sky over " + queryLabel + "...";
+    try {
+      const res = await fetch("/api/warmward?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = data.error || "something went wrong";
+        return;
+      }
+      statusEl.textContent =
+        "near " + data.origin.label + " — " + data.cities.length + " nearest cities checked";
+
+      needle.style.transform = "rotate(" + data.bearingDeg + "deg)";
+      captionEl.innerHTML =
+        '<div class="warm-name">' + escapeHtml(data.warmest.name) + ", " + escapeHtml(data.warmest.country) + "</div>" +
+        '<div class="warm-temp">' + fmtTemp(data.warmest.tempC) + "</div>" +
+        '<div class="warm-meta">' + compassLetters(data.bearingDeg) + " · " + Math.round(data.bearingDeg) + "° · " +
+        fmtDist(data.warmest.distanceKm) + " away</div>";
+      compassWrap.classList.add("show");
+
+      const sorted = data.cities.slice().sort((a, b) => a.distanceKm - b.distanceKm);
+      resultsEl.innerHTML = sorted.map((c) => renderCity(c, c.name === data.warmest.name && c.country === data.warmest.country)).join("");
+
+      shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data));
+      shareRow.classList.add("show");
+    } catch (err) {
+      statusEl.textContent = "couldn't reach the lookup service, try again in a moment";
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const address = document.getElementById("address").value.trim();
+    if (!address) return;
+    runSearch(new URLSearchParams({ address }), address);
+  });
+
+  useLocationBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      statusEl.textContent = "your browser doesn't support geolocation";
+      return;
+    }
+    statusEl.textContent = "getting your location...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        runSearch(
+          new URLSearchParams({
+            lat: String(pos.coords.latitude),
+            lon: String(pos.coords.longitude),
+          }),
+          "you",
+        );
+      },
+      () => {
+        statusEl.textContent = "couldn't get your location — try typing a place instead";
+      },
+    );
+  });
+</script>
+</body>
+</html>
