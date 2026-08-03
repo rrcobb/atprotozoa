@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>biskywang — is it BISKYWANG? — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky post link, or just paste the text of one. A secret, deterministic algorithm rotates the board and renders judgement: THAT'S BISKYWANG, or it isn't. There is no appeal."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://biskywang.bisks.net/" />
+    <meta property="og:title" content="biskywang — is it BISKYWANG?" />
+    <meta
+      property="og:description"
+      content="Paste a Bluesky post link, or the text of one. A secret algorithm crunches the numbers and decides: BISKYWANG, or not. That's the whole show."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="biskywang" />
+    <meta
+      name="twitter:description"
+      content="Paste a Bluesky post. A secret algorithm decides if it's BISKYWANG. Nothing on Bluesky is ever touched."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, blue accent —
+         plus a garish gameshow palette for the board/verdict, kept contained
+         to that one part of the page. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --red: #c0392b;
+        --wang-a: #ff2fb0;
+        --wang-b: #2fd4ff;
+        --wang-c: #ffd400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --display: Impact, "Arial Narrow", var(--mono), sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+      h1 .w { color: var(--wang-a); }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      .console {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.1rem; margin-bottom: 2rem;
+      }
+      textarea {
+        width: 100%; font-family: inherit; font-size: 0.92rem; color: var(--ink);
+        background: var(--faintbg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.7rem 0.85rem; resize: vertical;
+        min-height: 4.6em; line-height: 1.5;
+      }
+      textarea:focus { outline: none; border-color: var(--ink); background: var(--bg); }
+      textarea::placeholder { color: #a0a0a0; }
+
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.85rem; }
+      button {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 1.05rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; line-height: 1;
+      }
+      button:hover { background: #000; }
+      button:disabled { opacity: 0.55; cursor: not-allowed; }
+      button.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover { background: var(--faintbg); }
+      .err { color: var(--red); font-size: 0.82rem; margin: 0.75rem 0 0; min-height: 1em; }
+
+      /* ---------------------------------------------------------------
+         the quoted post
+         --------------------------------------------------------------- */
+      #stageWrap { margin: 0 0 2.5rem; min-height: 2px; }
+
+      .postcard {
+        border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1rem 1.1rem; background: var(--bg);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      .pc-head { display: flex; align-items: center; gap: 0.6rem; }
+      .pc-avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; flex: none; background: #ddd; }
+      .pc-name { font-weight: 700; font-size: 0.92rem; }
+      .pc-handle { color: var(--muted); font-size: 0.78rem; }
+      .pc-text { margin: 0.65rem 0 0; font-size: 0.95rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+      .pc-text a { color: var(--accent); text-decoration: none; }
+      .pc-text a:hover { text-decoration: underline; }
+      .pc-tag { color: var(--accent); }
+      .pc-meta { color: var(--muted); font-size: 0.76rem; margin-top: 0.7rem; }
+      .pc-pasted { color: var(--muted); font-size: 0.76rem; margin-bottom: 0.55rem; }
+
+      /* skeleton */
+      .skel-card { overflow: hidden; }
+      .skel { background: linear-gradient(90deg, var(--faintbg) 25%, #ececec 37%, var(--faintbg) 63%); background-size: 400% 100%; animation: shimmer 1.3s ease infinite; border-radius: 4px; }
+      @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+      .skel.av { width: 42px; height: 42px; border-radius: 50%; }
+      .skel.line { height: 0.85rem; margin-top: 0.6rem; }
+      .skel.w60 { width: 60%; } .skel.w90 { width: 90%; } .skel.w40 { width: 40%; }
+
+      /* ---------------------------------------------------------------
+         the board
+         --------------------------------------------------------------- */
+      .arena {
+        margin-top: 1.1rem; border-radius: 12px; padding: 1.6rem 1.1rem 1.4rem;
+        text-align: center; position: relative; overflow: hidden;
+        background: linear-gradient(160deg, #1a0f2e 0%, #241040 55%, #0f1a3a 100%);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      }
+      .arena-label {
+        color: rgba(255, 255, 255, 0.55); font-size: 0.68rem; letter-spacing: 0.22em;
+        text-transform: uppercase; margin-bottom: 0.9rem;
+      }
+      .board { display: flex; justify-content: center; gap: 0.4rem; }
+      .digit {
+        width: 2.5rem; height: 3.4rem; border-radius: 5px;
+        background: linear-gradient(180deg, #0c0c14, #1c1c2c);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 4px 10px rgba(0, 0, 0, 0.4);
+        display: flex; align-items: center; justify-content: center;
+        font-family: var(--display); font-size: 2rem; font-weight: 900;
+        color: var(--wang-c); text-shadow: 0 0 10px rgba(255, 212, 0, 0.55);
+      }
+      .digit.spin { animation: digit-flicker 0.09s steps(1) infinite; }
+      @keyframes digit-flicker {
+        0% { color: var(--wang-c); }
+        33% { color: var(--wang-a); }
+        66% { color: var(--wang-b); }
+        100% { color: var(--wang-c); }
+      }
+      .rm .digit.spin { animation-duration: 0.4s; }
+
+      .caption {
+        margin-top: 1rem; color: rgba(255, 255, 255, 0.68); font-size: 0.8rem;
+        min-height: 1.2em; letter-spacing: 0.02em;
+      }
+
+      .verdict { margin-top: 1.2rem; }
+      .verdict-word {
+        font-family: var(--display); font-weight: 900; letter-spacing: 0.05em;
+        text-transform: uppercase; line-height: 1.05;
+        opacity: 0; transform: scale(0.6);
+      }
+      .verdict-word.go {
+        animation: verdict-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+      }
+      @keyframes verdict-pop {
+        0% { opacity: 0; transform: scale(0.5) rotate(-6deg); }
+        60% { opacity: 1; transform: scale(1.12) rotate(2deg); }
+        100% { opacity: 1; transform: scale(1) rotate(0deg); }
+      }
+      .verdict-word.win {
+        font-size: clamp(1.9rem, 9vw, 3.1rem);
+        background: linear-gradient(90deg, var(--wang-a), var(--wang-c), var(--wang-b));
+        background-size: 260% auto;
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        animation-name: verdict-pop, wang-shine;
+        animation-duration: 0.5s, 2.2s;
+        animation-timing-function: cubic-bezier(0.2, 1.4, 0.4, 1), linear;
+        animation-iteration-count: 1, infinite;
+        animation-fill-mode: forwards, none;
+        filter: drop-shadow(0 4px 18px rgba(255, 47, 176, 0.45));
+      }
+      @keyframes wang-shine { to { background-position: 260% center; } }
+      .verdict-word.lose {
+        font-size: clamp(1.3rem, 6vw, 1.9rem);
+        color: rgba(255, 255, 255, 0.82);
+      }
+      .verdict-sub {
+        margin-top: 0.5rem; font-size: 0.78rem; color: rgba(255, 255, 255, 0.5);
+        opacity: 0; animation: fade-in 0.4s ease 0.35s forwards;
+      }
+      @keyframes fade-in { to { opacity: 1; } }
+
+      .score-strip {
+        margin-top: 0.65rem; font-size: 0.72rem; color: rgba(255, 255, 255, 0.4);
+        letter-spacing: 0.06em; opacity: 0; animation: fade-in 0.4s ease 0.5s forwards;
+      }
+
+      /* confetti, win only */
+      .confetti {
+        position: absolute; top: -10%; width: 8px; height: 14px; opacity: 0;
+        animation: confetti-fall linear forwards;
+      }
+      @keyframes confetti-fall {
+        0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+        100% { opacity: 0.9; transform: translateY(320px) rotate(540deg); }
+      }
+      .rm .confetti { display: none; }
+
+      .arena .btnrow { justify-content: center; margin-top: 1.3rem; opacity: 0; animation: fade-in 0.4s ease 0.6s forwards; }
+      .arena button.ghost { border-color: rgba(255, 255, 255, 0.35); background: transparent; color: rgba(255, 255, 255, 0.85); }
+      .arena button.ghost:hover { background: rgba(255, 255, 255, 0.08); }
+      .arena button:not(.ghost) { background: rgba(255, 255, 255, 0.92); color: #17102b; border-color: rgba(255,255,255,0.92); }
+      .arena button:not(.ghost):hover { background: #fff; }
+
+      /* reduced motion: skip the flicker/pop/shine timings, jump straight through */
+      .rm .verdict-word.go { animation-duration: 0.08s; }
+      .rm .verdict-word.win { animation-duration: 0.08s, 0.01s; }
+
+      .about { margin-top: 2.25rem; }
+      .about h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.6rem; }
+      .about p { color: var(--muted); margin: 0 0 0.9rem; line-height: 1.7; font-size: 0.9rem; }
+      .about code { background: var(--faintbg); border: 1px solid var(--faint); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85rem; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--faint); padding-top: 1rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>bisky<span class="w">wang</span></h1>
+      <p class="intro">
+        Paste a Bluesky post below — a link to it, or just the words. A
+        <b>secret algorithm</b> rotates the board, crunches the numbers, and
+        delivers a verdict nobody is entitled to question:
+        <b>BISKYWANG</b>, or not. That's the whole show.
+      </p>
+
+      <section class="console">
+        <textarea id="input" placeholder="https://bsky.app/profile/handle.bsky.social/post/3abcxyz… — or just paste the text of a post" autocomplete="off" spellcheck="false"></textarea>
+        <div class="btnrow">
+          <button id="go">run the algorithm</button>
+          <button class="ghost" id="example">try a real post</button>
+        </div>
+        <p class="err" id="err"></p>
+      </section>
+
+      <div id="stageWrap"></div>
+
+      <div class="about">
+        <h2>how the judging works</h2>
+        <p>
+          If you paste a <code>bsky.app</code> post link, the real post is
+          read live from Bluesky's public, unauthenticated AppView
+          (<code>app.bsky.actor.getProfile</code> then
+          <code>app.bsky.feed.getPosts</code>) — a plain browser fetch, no
+          login, nothing ever written back. If you paste plain text instead,
+          that text is judged directly.
+        </p>
+        <p>
+          Either way, the exact text is run through a deterministic hash and
+          a small set of arbitrary scoring rules — what they are is the
+          whole bit, and this note isn't going to be the thing that spoils
+          it. What matters: the same post gets the same verdict every time,
+          which is more than you can say for the real show.
+        </p>
+      </div>
+
+      <footer>
+        <p>
+          asked for by <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a> ·
+          built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>,
+          part of <a href="https://bisks.net">bisks.net</a>
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      const APPVIEW = "https://public.api.bsky.app/xrpc";
+      const REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (REDUCED) document.body.classList.add("rm");
+      const SPIN_MS = REDUCED ? 200 : 1350;
+
+      const FALLBACK_AVATAR =
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#8b98a5"/><circle cx="50" cy="38" r="20" fill="#e1e8ed"/><ellipse cx="50" cy="92" rx="34" ry="30" fill="#e1e8ed"/></svg>'
+        );
+
+      const inputEl = document.getElementById("input");
+      const goBtn = document.getElementById("go");
+      const exampleBtn = document.getElementById("example");
+      const errEl = document.getElementById("err");
+      const stageWrap = document.getElementById("stageWrap");
+
+      function esc(s) {
+        return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function rkeyOf(uri) {
+        return (uri || "").split("/").pop();
+      }
+      function nextFrame() {
+        return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
+      function sleep(ms) {
+        return new Promise((r) => setTimeout(r, ms));
+      }
+
+      // ---- reading the post (public AppView, unauthenticated, read-only) ----
+
+      async function xrpc(method, params) {
+        const url = new URL(`${APPVIEW}/${method}`);
+        for (const [k, v] of Object.entries(params || {})) {
+          if (Array.isArray(v)) v.forEach((x) => url.searchParams.append(k, x));
+          else if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
+        }
+        const r = await fetch(url.toString(), { headers: { accept: "application/json" } });
+        if (!r.ok) {
+          const e = new Error(r.status === 400 ? "couldn't find that post — check the URL." : `${method} failed (${r.status})`);
+          e.status = r.status;
+          throw e;
+        }
+        return r.json();
+      }
+
+      // Accepts a bsky.app post URL, or a raw at:// post URI. Anything else
+      // is treated as plain pasted text, judged as-is.
+      function extractPostRef(raw) {
+        const s = (raw || "").trim();
+        let m = s.match(/bsky\.app\/profile\/([^/\s?#]+)\/post\/([a-zA-Z0-9]+)/i);
+        if (m) return { actor: decodeURIComponent(m[1]), rkey: m[2] };
+        m = s.match(/at:\/\/(did:[a-zA-Z0-9._:%-]+)\/app\.bsky\.feed\.post\/([a-zA-Z0-9]+)/i);
+        if (m) return { actor: m[1], rkey: m[2] };
+        return null;
+      }
+
+      async function fetchPost(ref) {
+        let did = ref.actor;
+        if (!did.startsWith("did:")) {
+          const profile = await xrpc("app.bsky.actor.getProfile", { actor: ref.actor });
+          did = profile.did;
+        }
+        const uri = `at://${did}/app.bsky.feed.post/${ref.rkey}`;
+        const data = await xrpc("app.bsky.feed.getPosts", { uris: [uri] });
+        const post = (data.posts || [])[0];
+        if (!post) throw new Error("couldn't find that post — it may be deleted, or the account blocks viewers.");
+        return post;
+      }
+
+      function richText(text, facets) {
+        text = text || "";
+        if (!facets || !facets.length) return esc(text).replace(/\n/g, "<br>");
+        const bytes = new TextEncoder().encode(text);
+        const dec = new TextDecoder();
+        const sorted = [...facets].filter((f) => f.index && f.index.byteEnd > f.index.byteStart).sort((a, b) => a.index.byteStart - b.index.byteStart);
+        let out = "";
+        let cursor = 0;
+        for (const f of sorted) {
+          const { byteStart, byteEnd } = f.index;
+          if (byteStart < cursor || byteEnd > bytes.length) continue;
+          out += esc(dec.decode(bytes.slice(cursor, byteStart)));
+          const seg = dec.decode(bytes.slice(byteStart, byteEnd));
+          const feat = (f.features || [])[0] || {};
+          if (feat.$type === "app.bsky.richtext.facet#link") out += `<a href="${esc(feat.uri)}" target="_blank" rel="noopener noreferrer nofollow">${esc(seg)}</a>`;
+          else if (feat.$type === "app.bsky.richtext.facet#tag") out += `<span class="pc-tag">${esc(seg)}</span>`;
+          else out += esc(seg);
+          cursor = byteEnd;
+        }
+        out += esc(dec.decode(bytes.slice(cursor)));
+        return out.replace(/\n/g, "<br>");
+      }
+
+      // ---- the secret algorithm ----
+      // FNV-1a over the exact text, folded through a handful of arbitrary
+      // rules. Deterministic: the same text always yields the same score and
+      // the same verdict, which is the one promise this bit makes good on.
+
+      function hashText(s) {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 0x01000193);
+        }
+        return h >>> 0;
+      }
+
+      function judge(rawText) {
+        const s = (rawText || "").trim();
+        const h = hashText(s);
+        const words = s.split(/\s+/).filter(Boolean);
+        const vowels = (s.match(/[aeiouAEIOU]/g) || []).length;
+        const wn = (s.match(/[wWnN]/g) || []).length;
+        const hasDigit = /\d/.test(s);
+        const exclaims = (s.match(/!/g) || []).length;
+        let emoji = 0;
+        try {
+          emoji = (s.match(/\p{Extended_Pictographic}/gu) || []).length;
+        } catch (e) {
+          /* older engines without unicode property escapes: skip the bonus */
+        }
+
+        let score = h % 1000;
+        if (wn >= 4) score += 118; // enough w's and n's to spell "wang" and "num-" twice over
+        if (words.length > 0 && words.length % 7 === 0) score += 91; // the judges like multiples of seven
+        if (hasDigit) score += 42;
+        score += Math.min(vowels, 12) * 3;
+        score -= Math.min(exclaims, 5) * 13;
+        score += Math.min(emoji, 5) * 7;
+        score = ((score % 1000) + 1000) % 1000;
+
+        return { score, isWang: score >= 620 };
+      }
+
+      // ---- rendering the quoted post ----
+
+      function skeletonHtml() {
+        return `<div class="postcard skel-card">
+          <div class="pc-head"><div class="skel av"></div></div>
+          <div class="skel line w90"></div>
+          <div class="skel line w60"></div>
+          <div class="skel line w40"></div>
+        </div>`;
+      }
+
+      function postCardHtml(post) {
+        const author = post.author || {};
+        const rec = post.record || {};
+        return `<div class="postcard" id="postcard">
+          <div class="pc-head">
+            <img class="pc-avatar" src="${esc(author.avatar || FALLBACK_AVATAR)}" alt="" />
+            <div>
+              <div class="pc-name">${esc(author.displayName || author.handle)}</div>
+              <div class="pc-handle">@${esc(author.handle)}</div>
+            </div>
+          </div>
+          <div class="pc-text">${richText(rec.text, rec.facets)}</div>
+        </div>`;
+      }
+
+      function pastedCardHtml(text) {
+        return `<div class="postcard" id="postcard">
+          <div class="pc-pasted">pasted text, no author attached</div>
+          <div class="pc-text">${richText(text, null)}</div>
+        </div>`;
+      }
+
+      // ---- the board: reel a few digits, then land on the verdict ----
+
+      const CAPTIONS = ["rotating the board…", "consulting the panel…", "checking the working…", "cross-referencing…"];
+      const WIN_LINES = [
+        "That's Biskywang!",
+        "And there it is — Biskywang!",
+        "No dispute. Biskywang.",
+        "The board has spoken: Biskywang.",
+      ];
+      const LOSE_SUB = [
+        "Back to you in the studio.",
+        "Better luck with the next one.",
+        "No wangernumb is going to save that.",
+        "The panel was unanimous.",
+      ];
+
+      function pick(arr, seed) {
+        return arr[seed % arr.length];
+      }
+
+      function arenaHtml() {
+        return `
+          <div class="arena" id="arena">
+            <div class="arena-label">THE BOARD</div>
+            <div class="board" id="board"></div>
+            <div class="caption" id="caption"></div>
+            <div class="verdict" id="verdict"></div>
+          </div>`;
+      }
+
+      function digitEls(n) {
+        const board = document.getElementById("board");
+        board.innerHTML = "";
+        const els = [];
+        for (let i = 0; i < n; i++) {
+          const d = document.createElement("div");
+          d.className = "digit spin";
+          d.textContent = String(Math.floor(Math.random() * 10));
+          board.appendChild(d);
+          els.push(d);
+        }
+        return els;
+      }
+
+      function spawnConfetti(host) {
+        if (REDUCED) return;
+        const colors = ["#ff2fb0", "#2fd4ff", "#ffd400", "#ffffff", "#7cff5a"];
+        const n = 42;
+        const w = host.clientWidth;
+        for (let i = 0; i < n; i++) {
+          const c = document.createElement("div");
+          c.className = "confetti";
+          c.style.left = Math.random() * w + "px";
+          c.style.background = colors[i % colors.length];
+          c.style.animationDuration = 1.1 + Math.random() * 1.1 + "s";
+          c.style.animationDelay = Math.random() * 0.4 + "s";
+          c.style.transform = `rotate(${Math.random() * 360}deg)`;
+          host.appendChild(c);
+          setTimeout(() => c.remove(), 2600);
+        }
+      }
+
+      async function runBoard(result, seed) {
+        const arena = document.getElementById("arena");
+        const captionEl = document.getElementById("caption");
+        const verdictEl = document.getElementById("verdict");
+        verdictEl.innerHTML = "";
+
+        const digits = digitEls(3);
+        let ci = 0;
+        captionEl.textContent = CAPTIONS[0];
+        const capTimer = setInterval(() => {
+          ci = (ci + 1) % CAPTIONS.length;
+          captionEl.textContent = CAPTIONS[ci];
+        }, 380);
+
+        const spinTimer = setInterval(() => {
+          digits.forEach((d) => (d.textContent = String(Math.floor(Math.random() * 10))));
+        }, REDUCED ? 60 : 55);
+
+        await sleep(SPIN_MS);
+        clearInterval(spinTimer);
+        clearInterval(capTimer);
+
+        const padded = String(result.score).padStart(3, "0").split("");
+        digits.forEach((d, i) => {
+          d.classList.remove("spin");
+          d.textContent = padded[i];
+        });
+        captionEl.textContent = result.isWang ? "…and the board agrees:" : "…and the board says:";
+
+        await sleep(REDUCED ? 30 : 380);
+
+        const word = document.createElement("div");
+        word.className = "verdict-word go " + (result.isWang ? "win" : "lose");
+        word.textContent = result.isWang ? "That's Biskywang!!" : "Not Biskywang.";
+        verdictEl.appendChild(word);
+
+        const sub = document.createElement("div");
+        sub.className = "verdict-sub";
+        sub.textContent = result.isWang ? pick(WIN_LINES, seed + 1) : pick(LOSE_SUB, seed + 2);
+        verdictEl.appendChild(sub);
+
+        const strip = document.createElement("div");
+        strip.className = "score-strip";
+        strip.textContent = `score ${result.score} / 999 · threshold 620`;
+        verdictEl.appendChild(strip);
+
+        if (result.isWang) spawnConfetti(arena);
+
+        const btnrow = document.createElement("div");
+        btnrow.className = "btnrow";
+        btnrow.innerHTML = `
+          <button class="ghost" id="wangernumb">wangernumb!</button>
+          <button class="ghost" id="shareBtn">share the verdict</button>
+          <button id="again">judge another</button>`;
+        verdictEl.appendChild(btnrow);
+
+        document.getElementById("again").onclick = () => {
+          stageWrap.innerHTML = "";
+          errEl.textContent = "";
+          inputEl.value = "";
+          inputEl.focus();
+        };
+        document.getElementById("wangernumb").onclick = () => {
+          runBoard(result, seed + 1);
+        };
+        document.getElementById("shareBtn").onclick = () => {
+          const verdictText = result.isWang ? "THAT'S BISKYWANG!!" : "not biskywang.";
+          const shareText = `I ran a post through biskywang and the board says: ${verdictText} (score ${result.score}/999) — try yours: https://biskywang.bisks.net/`;
+          window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText), "_blank", "noopener");
+        };
+      }
+
+      // ---- wiring ----
+
+      async function runJudge(raw) {
+        errEl.textContent = "";
+        goBtn.disabled = true;
+        goBtn.textContent = "loading…";
+
+        const ref = extractPostRef(raw);
+        let judgeText = raw.trim();
+
+        try {
+          if (ref) {
+            stageWrap.innerHTML = skeletonHtml();
+            const post = await fetchPost(ref);
+            judgeText = (post.record && post.record.text) || "";
+            stageWrap.innerHTML = postCardHtml(post) + arenaHtml();
+          } else {
+            if (!judgeText) throw new Error("paste a post link, or the text of a post, first.");
+            stageWrap.innerHTML = pastedCardHtml(judgeText) + arenaHtml();
+          }
+          await nextFrame();
+          const result = judge(judgeText);
+          runBoard(result, hashText(judgeText));
+        } catch (e) {
+          stageWrap.innerHTML = "";
+          errEl.textContent = e.message || "couldn't judge that.";
+        } finally {
+          goBtn.disabled = false;
+          goBtn.textContent = "run the algorithm";
+        }
+      }
+
+      goBtn.addEventListener("click", () => runJudge(inputEl.value));
+      inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) goBtn.click();
+      });
+
+      exampleBtn.addEventListener("click", async () => {
+        errEl.textContent = "";
+        exampleBtn.disabled = true;
+        try {
+          const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor: "bsky.app", limit: 10, filter: "posts_no_replies" });
+          const item = (data.feed || []).map((f) => f.post).find((p) => p && p.record && p.uri);
+          if (!item) throw new Error("no example available right now — paste a post instead.");
+          const url = `https://bsky.app/profile/${item.author.handle}/post/${rkeyOf(item.uri)}`;
+          inputEl.value = url;
+          runJudge(url);
+        } catch (e) {
+          errEl.textContent = e.message || "couldn't load an example — paste a post instead.";
+        } finally {
+          exampleBtn.disabled = false;
+        }
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
