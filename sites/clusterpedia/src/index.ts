@@ -620,6 +620,7 @@ const SEED_ARTICLES: SeedArticle[] = [
 export class Wiki {
   private state: DurableObjectState;
   private storage: DurableObjectStorage;
+  private seedChecked = false;
 
   constructor(state: DurableObjectState) {
     this.state = state;
@@ -662,12 +663,15 @@ export class Wiki {
     return json({ error: "not found" }, 404);
   }
 
-  // Writes the SEED_ARTICLES the first time this Durable Object wakes up, and
-  // never again after — guarded by "seeded:v1" so it's cheap on every later
-  // request. Per-slug existence is also checked so a real article (or a
-  // reseed after a code change) never clobbers something a real editor wrote.
+  // Writes any SEED_ARTICLES that aren't in storage yet. Runs once per cold
+  // start (guarded by an in-memory flag, not a storage one — a storage flag
+  // that trips after the *first ever* seeding would permanently skip this on
+  // every later request, silently dropping any seed article added in a
+  // later code change, which is exactly what happened before this fix).
+  // Per-slug existence is checked so a real article a user has since edited
+  // never gets clobbered by a reseed.
   private async ensureSeeded(): Promise<void> {
-    if (await this.storage.get("seeded:v1")) return;
+    if (this.seedChecked) return;
     const now = Date.now();
     for (const seed of SEED_ARTICLES) {
       const artKey = `article:${seed.slug}`;
@@ -704,7 +708,7 @@ export class Wiki {
         createdAt,
       });
     }
-    await this.storage.put("seeded:v1", true);
+    this.seedChecked = true;
   }
 
   private async listArticles() {
