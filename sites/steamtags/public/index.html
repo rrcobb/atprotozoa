@@ -419,8 +419,9 @@
       <h3>your steam library</h3>
       <button class="global-refresh" id="steamLibRefresh" type="button">↻ refresh</button>
     </div>
-    <p class="lib-sub">your actual owned games, via <a href="https://steamapi.7778777.online" target="_blank" rel="noopener">steamapi.7778777.online</a> — click one to see and rate its tags.</p>
-    <div class="lib-search"><input id="steamLibSearch" type="text" placeholder="filter your owned games by name or appid…" autocomplete="off" /></div>
+    <p class="lib-sub">your actual owned games, via <a href="https://steamapi.7778777.online" target="_blank" rel="noopener">steamapi.7778777.online</a> — click one to see and rate its tags. ranked by predicted fit the same way as your wishlist below: tags matching what you already rate highly.</p>
+    <div class="lib-search"><input id="steamLibSearch" type="text" placeholder="filter your owned games by name, tag, or appid…" autocomplete="off" /></div>
+    <div id="steamLibMsg" class="sync-msg"></div>
     <div id="steamLibList" class="lib-list"></div>
   </div>
 
@@ -444,7 +445,7 @@
 
   <section class="library">
     <h3>your library</h3>
-    <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser. schema: <a href="/lexicons/net.bisks.steamtags.rating.json">lexicon</a>. unrated games from your imported wishlist show up here too: under a tag you've already rated they're slotted in as <code>??/10</code>, under a tag you haven't they get their own <span class="tag-group-new">new</span> group — click either to go rate it for real.</p>
+    <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser. schema: <a href="/lexicons/net.bisks.steamtags.rating.json">lexicon</a>. unrated games from your imported wishlist and connected steam library show up here too: under a tag you've already rated they're slotted in as <code>??/10</code>, under a tag you haven't they get their own <span class="tag-group-new">new</span> group — click either to go rate it for real.</p>
     <div class="lib-search"><input id="libSearch" type="text" placeholder="filter your library by name, tag, or appid…" autocomplete="off" /></div>
     <div class="lib-actions">
       <button class="btn" id="exportLib">export database</button>
@@ -510,6 +511,7 @@
     steamLibList: document.getElementById("steamLibList"),
     steamLibRefresh: document.getElementById("steamLibRefresh"),
     steamLibSearch: document.getElementById("steamLibSearch"),
+    steamLibMsg: document.getElementById("steamLibMsg"),
     libSearch: document.getElementById("libSearch"),
     libraryList: document.getElementById("libraryList"),
     syncMsg: document.getElementById("syncMsg"),
@@ -677,6 +679,49 @@
       }
     }
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Requested by @7778777.online (2026-08-03): a wishlist can be 4000+
+  // items, and now owned libraries get tag-fetched too — firing that many
+  // /api/tags lookups at once (even at pMapLimit's concurrency of 4) risks
+  // Steam/SteamSpy soft-blocking the Worker's shared outbound IP, which
+  // would break tag lookups for every visitor, not just this one. Unlike
+  // pMapLimit (used for the user's own PDS, which isn't the concern here),
+  // this caps concurrency lower, spaces every dispatch out, and treats a
+  // 429 from our own /api/tags proxy (see src/index.ts's UpstreamError) as
+  // a shared cool-off signal — pause, then requeue that item for a later
+  // retry (capped) instead of ploughing through the rest of the queue at
+  // the same rate that just got rate-limited.
+  async function pacedFetchAll(ids, fetchOne) {
+    const CONCURRENCY = 2;
+    const DISPATCH_DELAY_MS = 300;
+    const BACKOFF_MS = 8000;
+    const MAX_RETRIES = 5;
+    const queue = ids.map((id) => ({ id, tries: 0 }));
+    let backoffUntil = 0;
+    async function worker() {
+      while (queue.length) {
+        const item = queue.shift();
+        const wait = backoffUntil - Date.now();
+        if (wait > 0) await sleep(wait);
+        let rateLimited = false;
+        try {
+          rateLimited = await fetchOne(item.id);
+        } catch (_) {
+          // fetchOne already swallows its own errors; treat a throw as a miss
+        }
+        if (rateLimited) {
+          backoffUntil = Date.now() + BACKOFF_MS;
+          if (item.tries < MAX_RETRIES) queue.push({ id: item.id, tries: item.tries + 1 });
+        }
+        await sleep(DISPATCH_DELAY_MS);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker));
   }
 
   async function pdsListRecords(sess) {
@@ -943,9 +988,38 @@
     return list.map(parseOwnedGame).filter((g) => Number.isFinite(g.appid));
   }
 
+  // Requested by @7778777.online (2026-08-03): "do the tag-matching and the
+  // tag-suggestions with the owned titles just like the wishlist" — same
+  // cache-by-appid + predictedFit() machinery as the wishlist section below
+  // (personalTagAverages/predictedFit are defined there but hoisted, so
+  // they're available here too), just against the owned-games list instead
+  // of a pasted wishlist. An owned game's community tags come through the
+  // same paced /api/tags/<appid> lookup (see pacedFetchAll above) since a
+  // large library can run to hundreds or thousands of titles too.
+  const OWNED_TAGS_CACHE_KEY = "steamtags:owned-tags-cache:v1";
+
+  function loadOwnedTagsCache() {
+    try {
+      const raw = localStorage.getItem(OWNED_TAGS_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveOwnedTagsCache(cache) {
+    try {
+      localStorage.setItem(OWNED_TAGS_CACHE_KEY, JSON.stringify(cache));
+    } catch (_) {
+      // best-effort cache — a miss just means re-fetching that game's tags
+    }
+  }
+
   async function loadOwnedGames(steamid) {
     ownedGamesSteamId = steamid;
     els.steamLibList.innerHTML = '<div class="lib-empty">loading your steam library…</div>';
+    setSteamLibMsg("");
     try {
       const res = await fetch(MOUNT + "/api/steam/owned-games?steamid=" + encodeURIComponent(steamid));
       const data = await res.json();
@@ -954,10 +1028,57 @@
         (a, b) => b.playtime - a.playtime || a.name.localeCompare(b.name)
       );
       renderOwnedGames();
+      renderLibrary();
+      loadOwnedTagsDetails(ownedGames.map((g) => g.appid));
     } catch (err) {
       ownedGames = null;
       els.steamLibList.innerHTML = `<div class="lib-empty">couldn't load your steam library — ${esc(err.message || "try again")}</div>`;
     }
+  }
+
+  // Paced tag fetch for the owned library, same shape as loadWishlistDetails
+  // below — separate cache (owned vs. wishlist) since a game can appear in
+  // both and either could get rated/removed independently.
+  async function loadOwnedTagsDetails(appids) {
+    const cache = loadOwnedTagsCache();
+    const need = appids.filter((id) => !cache[String(id)]);
+    if (!need.length) return;
+    let lastRenderAt = 0;
+    await pacedFetchAll(need, async (id) => {
+      try {
+        const res = await fetch(MOUNT + "/api/tags/" + id);
+        if (res.status === 429) return true;
+        const data = await res.json();
+        if (res.ok) {
+          cache[String(id)] = { appid: id, name: data.name, headerImage: data.headerImage, tags: data.tags || [] };
+          saveOwnedTagsCache(cache);
+        }
+      } catch (_) {
+        // leave it missing — renderOwnedGames shows "…" until it resolves
+      }
+      const now = Date.now();
+      if (now - lastRenderAt > 800) {
+        lastRenderAt = now;
+        renderOwnedGames();
+        renderLibrary();
+      }
+      return false;
+    });
+    renderOwnedGames();
+    renderLibrary();
+  }
+
+  // Unrated owned games with their community tags already cached — feeds
+  // buildTagGroups the same way pendingWishlistEntries does, so an owned
+  // game you haven't rated yet shows up as a "??/10" placeholder under the
+  // tags it carries instead of only existing in the list above.
+  function pendingOwnedEntries(db) {
+    if (!ownedGames || !ownedGames.length) return [];
+    const cache = loadOwnedTagsCache();
+    const rated = new Set(db.map((e) => String(e.appid)));
+    return ownedGames
+      .map((g) => cache[String(g.appid)])
+      .filter((info) => info && Array.isArray(info.tags) && info.tags.length && !rated.has(String(info.appid)));
   }
 
   function renderOwnedGames() {
@@ -965,32 +1086,81 @@
     if (!ownedGames.length) {
       els.steamLibList.innerHTML =
         '<div class="lib-empty">no games came back — your Steam profile/game list is probably set to private.</div>';
+      setSteamLibMsg("");
       return;
     }
+    const cache = loadOwnedTagsCache();
+    const tagAverages = personalTagAverages(loadDb());
     const needle = ownedGamesQuery.trim().toLowerCase();
-    const filtered = needle
-      ? ownedGames.filter((g) => (g.name || "").toLowerCase().includes(needle) || String(g.appid).includes(needle))
-      : ownedGames;
-    if (!filtered.length) {
-      els.steamLibList.innerHTML = `<div class="lib-empty">nothing in your owned games matches "${esc(ownedGamesQuery.trim())}".</div>`;
-      return;
-    }
-    els.steamLibList.innerHTML = filtered
-      .map(
-        (g) => `
-      <div class="lib-row" data-appid="${escAttr(String(g.appid))}">
-        <img src="https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
-        <span class="lib-name"><span class="n">${esc(g.name || "appid " + g.appid)}</span></span>
-        ${g.playtime ? `<span class="lib-playtime">${formatPlaytime(g.playtime)}</span>` : ""}
-      </div>`
-      )
-      .join("");
-    [...els.steamLibList.querySelectorAll(".lib-row")].forEach((row) => {
-      row.addEventListener("click", () => {
-        goToGame(row.getAttribute("data-appid"), true);
-        window.scrollTo({ top: 0, behavior: "smooth" });
+    let missing = 0;
+
+    const rows = ownedGames
+      .map((g) => {
+        const info = cache[String(g.appid)];
+        if (!info) missing++;
+        const tags = info && Array.isArray(info.tags) ? info.tags : [];
+        return {
+          appid: g.appid,
+          name: g.name,
+          playtime: g.playtime,
+          headerImage: info ? info.headerImage || "" : "",
+          tags,
+          fit: info ? predictedFit(tags, tagAverages) : null,
+        };
+      })
+      .filter((it) => {
+        if (!needle) return true;
+        if ((it.name || "").toLowerCase().includes(needle)) return true;
+        if (String(it.appid).includes(needle)) return true;
+        return it.tags.some((t) => t.name.toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        const as = a.fit ? a.fit.score : -1;
+        const bs = b.fit ? b.fit.score : -1;
+        if (Math.abs(as - bs) > 1e-9) return bs - as;
+        return b.playtime - a.playtime || a.name.localeCompare(b.name);
       });
-    });
+
+    if (!rows.length) {
+      els.steamLibList.innerHTML = `<div class="lib-empty">nothing in your owned games matches "${esc(ownedGamesQuery.trim())}".</div>`;
+    } else {
+      els.steamLibList.innerHTML = rows
+        .map(
+          (g) => `
+        <div class="lib-row" data-appid="${escAttr(String(g.appid))}">
+          <img src="${g.headerImage ? escAttr(g.headerImage) : `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`}" alt="" loading="lazy" onerror="this.style.visibility='hidden'" />
+          <span class="lib-name">
+            <span class="n">${esc(g.name || "appid " + g.appid)}</span>
+            ${g.tags.length ? `<span class="sub">${esc(g.tags.slice(0, 3).map((t) => t.name).join(", "))}</span>` : ""}
+          </span>
+          ${g.playtime ? `<span class="lib-playtime">${formatPlaytime(g.playtime)}</span>` : ""}
+          ${
+            g.fit
+              ? `<span class="lib-score" style="color:${scoreColor10(g.fit.score)}" title="predicted from your own ratings on: ${escAttr(g.fit.matchedTags.join(", "))}">${g.fit.score.toFixed(1)}/10*</span>`
+              : `<span class="lib-score" style="color:var(--dim)" title="${g.tags.length ? "no overlap yet with tags you've rated" : "still fetching its tags…"}">${g.tags.length ? "?" : "…"}</span>`
+          }
+        </div>`
+        )
+        .join("");
+      [...els.steamLibList.querySelectorAll(".lib-row")].forEach((row) => {
+        row.addEventListener("click", () => {
+          goToGame(row.getAttribute("data-appid"), true);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      });
+    }
+
+    setSteamLibMsg(
+      missing
+        ? `${ownedGames.length} owned games — fetching tag fit for the rest (${ownedGames.length - missing}/${ownedGames.length} loaded)…`
+        : `${ownedGames.length} owned game${ownedGames.length === 1 ? "" : "s"} · * = predicted fit from tags you've already rated, like the wishlist below.`
+    );
+  }
+
+  function setSteamLibMsg(text, isErr) {
+    if (!els.steamLibMsg) return;
+    els.steamLibMsg.textContent = text || "";
+    els.steamLibMsg.className = "sync-msg" + (isErr ? " err" : "");
   }
 
   function formatPlaytime(minutes) {
@@ -1032,7 +1202,11 @@
   // guess: you haven't rated it), and a game with only tags you've never
   // rated gets its own new group, keyed by that tag, entirely of placeholders
   // — so every wishlist tag is visible somewhere and a click takes you to
-  // rate it for real. `pending` is the output of pendingWishlistEntries().
+  // rate it for real. Owned-but-unrated games from "your steam library" fold
+  // in the same way (same request, "do the tag-matching... with the owned
+  // titles just like the wishlist"). `pending` is the output of
+  // pendingEntries(), which merges pendingWishlistEntries() and
+  // pendingOwnedEntries().
   function buildTagGroups(db, pending) {
     const tagMap = new Map();
     db.forEach((entry) => {
@@ -1107,9 +1281,22 @@
     );
   }
 
+  // Merges the two pending sources (wishlist + owned) into one list for
+  // buildTagGroups. De-duped by appid for the rare case a game is on both
+  // (wishlist wins ties) — both sides carry the same cached name/tags
+  // shape, so it doesn't matter which copy renders.
+  function pendingEntries(db) {
+    const map = new Map();
+    pendingWishlistEntries(db).forEach((e) => map.set(String(e.appid), e));
+    pendingOwnedEntries(db).forEach((e) => {
+      if (!map.has(String(e.appid))) map.set(String(e.appid), e);
+    });
+    return [...map.values()];
+  }
+
   function renderLibrary() {
     const db = loadDb();
-    const pending = pendingWishlistEntries(db);
+    const pending = pendingEntries(db);
     if (!db.length && !pending.length) {
       els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — pick a game, click a tag, and score how well it fits.</div>';
       return;
@@ -1538,9 +1725,14 @@
     renderWishlist();
     renderLibrary();
     if (need.length) {
-      await pMapLimit(need, 4, async (id) => {
+      // A wishlist this size takes minutes at a paced rate (see
+      // pacedFetchAll) — repaint every so often instead of only at the end,
+      // so "loaded X/Y" actually moves.
+      let lastRenderAt = 0;
+      await pacedFetchAll(need, async (id) => {
         try {
           const res = await fetch(MOUNT + "/api/tags/" + id);
+          if (res.status === 429) return true;
           const data = await res.json();
           if (res.ok) {
             cache[String(id)] = { appid: id, name: data.name, headerImage: data.headerImage, tags: data.tags || [] };
@@ -1549,6 +1741,13 @@
         } catch (_) {
           // leave it missing — renderWishlist shows "appid N" with a "?" fit
         }
+        const now = Date.now();
+        if (now - lastRenderAt > 800) {
+          lastRenderAt = now;
+          renderWishlist();
+          renderLibrary();
+        }
+        return false;
       });
       renderWishlist();
       renderLibrary();

@@ -152,9 +152,21 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+// Carries the upstream status code through to the /api/tags handler below,
+// so a 429 from Steam/SteamSpy can be surfaced to the client as a 429 too
+// (rather than a generic 404) — that's the signal the client's paced
+// fetcher backs off on instead of plowing through its whole queue.
+class UpstreamError extends Error {
+  status: number;
+  constructor(url: string, status: number) {
+    super(`${url} -> ${status}`);
+    this.status = status;
+  }
+}
+
 async function fetchJson(url: string): Promise<any> {
   const res = await fetch(url, { cf: { cacheTtl: 300 } as unknown as Record<string, unknown> });
-  if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+  if (!res.ok) throw new UpstreamError(url, res.status);
   return res.json();
 }
 
@@ -429,6 +441,20 @@ export default {
         const g = await computeGameInfo(tagsMatch[1]);
         return jsonResponse(g);
       } catch (err: any) {
+        // Bulk lookups (a 4000+ item wishlist, a large owned-games library)
+        // page through this endpoint one appid at a time from the client —
+        // if Steam/SteamSpy rate-limit us, tell the client so it can back
+        // off and retry rather than treating a 429 the same as "not found".
+        if (err instanceof UpstreamError && err.status === 429) {
+          return new Response(JSON.stringify({ error: "upstream rate-limited this lookup, retry shortly" }), {
+            status: 429,
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "access-control-allow-origin": "*",
+              "retry-after": "10",
+            },
+          });
+        }
         return jsonResponse({ error: err?.message || "lookup failed" }, 404);
       }
     }
