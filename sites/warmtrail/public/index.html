@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>warmtrail — walk the path a heat sensor would take</title>
+<meta name="description" content="tune a heat sensor's range and gain, drop it at a location, and watch the path it walks chasing warmth in real weather data." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://warmtrail.bisks.net/" />
+<meta property="og:title" content="warmtrail — walk the path a heat sensor would take" />
+<meta property="og:description" content="tune a heat sensor's range and gain, drop it at a location, and watch the path it walks chasing warmth in real weather data." />
+<meta property="og:image" content="https://warmtrail.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="warmtrail — walk the path a heat sensor would take" />
+<meta name="twitter:description" content="tune a heat sensor's range and gain, drop it at a location, and watch the path it walks chasing warmth in real weather data." />
+<meta name="twitter:image" content="https://warmtrail.bisks.net/og.png" />
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f1e9;
+    --card: #ffffff;
+    --ink: #201c14;
+    --muted: #6b6250;
+    --accent: #c0532a;
+    --accent2: #2a6f77;
+    --accent-ink: #ffffff;
+    --line: #e3ddc9;
+    --needle: #c0532a;
+    --path: #2a6f77;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171410;
+      --card: #211d16;
+      --ink: #f2ede0;
+      --muted: #b3a890;
+      --accent: #ef7b4a;
+      --accent2: #5fc4cd;
+      --accent-ink: #171410;
+      --line: #3a3325;
+      --needle: #ef7b4a;
+      --path: #5fc4cd;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin: 0 0 0.25rem;
+  }
+  h1 .dot { color: var(--accent); }
+  p.lede {
+    color: var(--muted);
+    margin: 0 0 1.5rem;
+  }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  input[type="text"] {
+    flex: 1 1 240px;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 1rem;
+  }
+  button {
+    padding: 0.7rem 1.1rem;
+    border-radius: 0.6rem;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .row { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+
+  fieldset.sensor {
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+    margin: 1.1rem 0 0;
+    padding: 0.9rem 1rem 1.1rem;
+  }
+  fieldset.sensor legend {
+    padding: 0 0.4rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .control {
+    margin-top: 0.7rem;
+  }
+  .control:first-child { margin-top: 0; }
+  .control label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.88rem;
+    margin-bottom: 0.25rem;
+  }
+  .control label .val {
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .control input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+  .control .hint {
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-top: 0.15rem;
+  }
+
+  #status {
+    margin-top: 1rem;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+
+  #compass-wrap {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    margin: 1.75rem 0 0.5rem;
+  }
+  #compass-wrap.show { display: flex; }
+  .compass {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    position: relative;
+    box-shadow: 0 1px 0 var(--line) inset;
+  }
+  .compass .tick {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .compass .tick.n { align-items: flex-start; justify-content: center; padding-top: 0.5rem; color: var(--accent2); }
+  .compass .tick.e { align-items: center; justify-content: flex-end; padding-right: 0.6rem; }
+  .compass .tick.s { align-items: flex-end; justify-content: center; padding-bottom: 0.5rem; }
+  .compass .tick.w { align-items: center; justify-content: flex-start; padding-left: 0.6rem; }
+  .compass .needle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 5px;
+    height: 42%;
+    margin-left: -2.5px;
+    margin-top: -42%;
+    transform-origin: 50% 100%;
+    transition: transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .compass .needle::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 22px solid var(--needle);
+    transform: translateX(-50%);
+  }
+  .compass .needle::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    width: 4px;
+    height: 60%;
+    background: var(--line);
+    transform: translateX(-50%);
+  }
+  .compass .hub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  #step-caption {
+    margin-top: 0.85rem;
+    text-align: center;
+    max-width: 30rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    min-height: 1.2em;
+  }
+  #step-caption b { color: var(--ink); }
+
+  #path-wrap {
+    display: none;
+    margin-top: 1.5rem;
+  }
+  #path-wrap.show { display: block; }
+  #path-canvas {
+    width: 100%;
+    max-width: 560px;
+    aspect-ratio: 1 / 1;
+    display: block;
+    margin: 0 auto;
+    border-radius: 0.8rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  #path-summary {
+    margin-top: 0.9rem;
+    text-align: center;
+  }
+  #path-summary .headline {
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+  #path-summary .sub {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 0.15rem;
+  }
+
+  #controls-row {
+    display: none;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+  }
+  #controls-row.show { display: flex; }
+
+  #share-row {
+    display: none;
+    margin-top: 1.5rem;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #share-row.show { display: flex; }
+  a.share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--accent2);
+    color: var(--accent-ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  footer {
+    margin-top: 2.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>warmtrail<span class="dot">.</span></h1>
+  <p class="lede">
+    drop a heat sensor at a location and watch the path it walks: it samples the
+    temperature in a ring around itself, turns toward whichever direction smells
+    warmest, takes a step, and repeats. <a href="https://warmward.bisks.net/" target="_blank" rel="noopener">warmward</a>
+    just points the needle — this simulates actually following it. a follow-up idea
+    from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>.
+  </p>
+
+  <form id="search-form">
+    <input type="text" id="address" name="address" placeholder="an address, city, or zip" autocomplete="off" />
+    <button class="primary" type="submit">drop the sensor</button>
+  </form>
+  <div class="row">
+    <button class="ghost" type="button" id="use-location">use my location instead</button>
+  </div>
+
+  <fieldset class="sensor">
+    <legend>sensor settings</legend>
+    <div class="control">
+      <label for="distance">range <span class="val" id="distance-val">2 km</span></label>
+      <input type="range" id="distance" min="0.2" max="20" step="0.1" value="2" />
+      <div class="hint">how far apart it samples each direction — short range often means real weather barely differs, so the walk wanders on noise; long range can catch a genuine regional gradient.</div>
+    </div>
+    <div class="control">
+      <label for="gain">gain <span class="val" id="gain-val">3</span></label>
+      <input type="range" id="gain" min="1" max="10" step="1" value="3" />
+      <div class="hint">how twitchy the sensor is — low gain trusts a clean reading, high gain amplifies everything it finds, including noise, and the path gets jittery.</div>
+    </div>
+    <div class="control">
+      <label for="steps">steps <span class="val" id="steps-val">8</span></label>
+      <input type="range" id="steps" min="4" max="12" step="1" value="8" />
+      <div class="hint">how many times it re-samples and takes another stride.</div>
+    </div>
+  </fieldset>
+
+  <div id="status" role="status"></div>
+
+  <div id="compass-wrap">
+    <div class="compass" id="compass">
+      <div class="tick n">N</div>
+      <div class="tick e">E</div>
+      <div class="tick s">S</div>
+      <div class="tick w">W</div>
+      <div class="needle" id="needle"></div>
+      <div class="hub"></div>
+    </div>
+    <div id="step-caption"></div>
+  </div>
+
+  <div id="path-wrap">
+    <canvas id="path-canvas" width="560" height="560"></canvas>
+    <div id="path-summary"></div>
+  </div>
+
+  <div id="controls-row">
+    <button class="ghost" type="button" id="replay-btn">replay the walk</button>
+  </div>
+
+  <div id="share-row">
+    <a class="share-btn" id="share-bluesky" target="_blank" rel="noopener">share on Bluesky</a>
+  </div>
+
+  <footer>
+    live temperatures from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
+    address lookup via <a href="https://nominatim.org/" target="_blank" rel="noopener">OpenStreetMap Nominatim</a>.
+    built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>, asked for by
+    <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">cee.wtf</a>,
+    a follow-up to <a href="https://warmward.bisks.net/" target="_blank" rel="noopener">warmward</a>.
+    a typed address is sent to Nominatim to look up coordinates — nothing here is stored.
+  </footer>
+</main>
+
+<script>
+  const form = document.getElementById("search-form");
+  const statusEl = document.getElementById("status");
+  const compassWrap = document.getElementById("compass-wrap");
+  const needle = document.getElementById("needle");
+  const stepCaption = document.getElementById("step-caption");
+  const useLocationBtn = document.getElementById("use-location");
+  const pathWrap = document.getElementById("path-wrap");
+  const canvas = document.getElementById("path-canvas");
+  const ctx = canvas.getContext("2d");
+  const pathSummary = document.getElementById("path-summary");
+  const controlsRow = document.getElementById("controls-row");
+  const replayBtn = document.getElementById("replay-btn");
+  const shareRow = document.getElementById("share-row");
+  const shareBluesky = document.getElementById("share-bluesky");
+
+  const distanceInput = document.getElementById("distance");
+  const gainInput = document.getElementById("gain");
+  const stepsInput = document.getElementById("steps");
+  const distanceVal = document.getElementById("distance-val");
+  const gainVal = document.getElementById("gain-val");
+  const stepsVal = document.getElementById("steps-val");
+
+  function fmtKm(km) { return km < 10 ? km.toFixed(1) + " km" : Math.round(km) + " km"; }
+  distanceInput.addEventListener("input", () => { distanceVal.textContent = fmtKm(parseFloat(distanceInput.value)); });
+  gainInput.addEventListener("input", () => { gainVal.textContent = gainInput.value; });
+  stepsInput.addEventListener("input", () => { stepsVal.textContent = stepsInput.value; });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function compassLetters(bearing) {
+    const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    return dirs[Math.round(bearing / 22.5) % 16];
+  }
+
+  let lastData = null;
+
+  // Local tangent-plane projection: km east/north of the origin.
+  function toLocalKm(originLat, originLon, lat, lon) {
+    const kmPerDegLat = 110.574;
+    const kmPerDegLon = 111.320 * Math.cos((originLat * Math.PI) / 180);
+    return { x: (lon - originLon) * kmPerDegLon, y: (lat - originLat) * kmPerDegLat };
+  }
+
+  function drawPath(data, upToIndex) {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const style = getComputedStyle(document.documentElement);
+    const lineColor = style.getPropertyValue("--path").trim();
+    const accent = style.getPropertyValue("--accent").trim();
+    const muted = style.getPropertyValue("--muted").trim();
+    const ink = style.getPropertyValue("--ink").trim();
+
+    const pts = data.path.map((p) => toLocalKm(data.origin.lat, data.origin.lon, p.lat, p.lon));
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const spanX = Math.max(0.05, Math.max(...xs) - Math.min(...xs));
+    const spanY = Math.max(0.05, Math.max(...ys) - Math.min(...ys));
+    const span = Math.max(spanX, spanY) * 1.4 + 0.05;
+    const midX = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const midY = (Math.max(...ys) + Math.min(...ys)) / 2;
+    const scale = (Math.min(w, h) * 0.8) / span;
+    const toPx = (p) => ({ px: w / 2 + (p.x - midX) * scale, py: h / 2 - (p.y - midY) * scale });
+
+    const shown = pts.slice(0, upToIndex + 1).map(toPx);
+
+    // grid
+    ctx.strokeStyle = muted;
+    ctx.globalAlpha = 0.15;
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      ctx.beginPath(); ctx.moveTo((w / 4) * i, 0); ctx.lineTo((w / 4) * i, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, (h / 4) * i); ctx.lineTo(w, (h / 4) * i); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // path line
+    if (shown.length > 1) {
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(shown[0].px, shown[0].py);
+      for (let i = 1; i < shown.length; i++) ctx.lineTo(shown[i].px, shown[i].py);
+      ctx.stroke();
+    }
+
+    // step dots
+    for (let i = 0; i < shown.length; i++) {
+      ctx.beginPath();
+      ctx.arc(shown[i].px, shown[i].py, i === shown.length - 1 ? 6 : 3, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? ink : i === shown.length - 1 ? accent : lineColor;
+      ctx.fill();
+    }
+
+    // origin label
+    ctx.fillStyle = muted;
+    ctx.font = "12px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("start", shown[0].px, shown[0].py - 12);
+  }
+
+  function confidenceWord(strength) {
+    if (strength > 0.5) return "a clear pull";
+    if (strength > 0.15) return "a faint pull";
+    return "no real signal, just guessing";
+  }
+
+  function stepLabel(data, i) {
+    const p = data.path[i];
+    if (i === 0) {
+      return "sensor placed near <b>" + escapeHtml(data.origin.label) + "</b>" +
+        (p.tempC !== null ? " — reads <b>" + Math.round(p.tempC) + "°C</b>" : "");
+    }
+    return "step " + i + ": " + confidenceWord(p.gradientStrength) + ", turned <b>" + compassLetters(p.bearingDeg) +
+      "</b> (" + Math.round(p.bearingDeg) + "°), walked " + fmtKm(data.params.distanceKm) +
+      (p.tempC !== null ? " — now <b>" + Math.round(p.tempC) + "°C</b>" : "");
+  }
+
+  function animateWalk(data) {
+    let i = 0;
+    compassWrap.classList.add("show");
+    pathWrap.classList.add("show");
+    const total = data.path.length;
+
+    function showStep() {
+      const p = data.path[i];
+      needle.style.transform = "rotate(" + p.bearingDeg + "deg)";
+      stepCaption.innerHTML = stepLabel(data, i);
+      drawPath(data, i);
+      if (i < total - 1) {
+        i++;
+        setTimeout(showStep, 550);
+      } else {
+        finishWalk(data);
+      }
+    }
+    showStep();
+  }
+
+  function finishWalk(data) {
+    const dirWord = compassLetters(data.finalBearingDeg);
+    pathSummary.innerHTML =
+      '<div class="headline">walked ' + fmtKm(data.totalDistanceKm) + ", ended up " + fmtKm(data.netDistanceKm) +
+      " " + dirWord + " of start</div>" +
+      '<div class="sub">' + data.params.steps + " steps · range " + fmtKm(data.params.distanceKm) +
+      " · gain " + data.params.gain + "</div>";
+    controlsRow.classList.add("show");
+    shareRow.classList.add("show");
+    shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data));
+  }
+
+  function buildShareText(data) {
+    const url = "https://warmtrail.bisks.net/";
+    const dirWord = compassLetters(data.finalBearingDeg);
+    const text =
+      "🧭🚶 dropped a heat sensor (range " + fmtKm(data.params.distanceKm) + ", gain " + data.params.gain +
+      ") near " + data.origin.label + " and it walked " + fmtKm(data.totalDistanceKm) +
+      " over " + data.params.steps + " steps, ending up " + fmtKm(data.netDistanceKm) + " " + dirWord + " of start. " +
+      url;
+    return text.length > 300 ? text.slice(0, 297) + "..." : text;
+  }
+
+  async function runWalk(params, queryLabel) {
+    compassWrap.classList.remove("show");
+    pathWrap.classList.remove("show");
+    controlsRow.classList.remove("show");
+    shareRow.classList.remove("show");
+    lastData = null;
+    statusEl.textContent = "surveying the air over " + queryLabel + "...";
+    params.set("distance", distanceInput.value);
+    params.set("gain", gainInput.value);
+    params.set("steps", stepsInput.value);
+    try {
+      const res = await fetch("/api/walk?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = data.error || "something went wrong";
+        return;
+      }
+      statusEl.textContent = "sensor dropped near " + data.origin.label + " — watching it walk...";
+      lastData = data;
+      animateWalk(data);
+    } catch (err) {
+      statusEl.textContent = "couldn't reach the sensor, try again in a moment";
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const address = document.getElementById("address").value.trim();
+    if (!address) return;
+    runWalk(new URLSearchParams({ address }), address);
+  });
+
+  useLocationBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      statusEl.textContent = "your browser doesn't support geolocation";
+      return;
+    }
+    statusEl.textContent = "getting your location...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        runWalk(
+          new URLSearchParams({
+            lat: String(pos.coords.latitude),
+            lon: String(pos.coords.longitude),
+          }),
+          "you",
+        );
+      },
+      () => {
+        statusEl.textContent = "couldn't get your location — try typing a place instead";
+      },
+    );
+  });
+
+  replayBtn.addEventListener("click", () => {
+    if (lastData) animateWalk(lastData);
+  });
+</script>
+</body>
+</html>
