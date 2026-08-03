@@ -242,8 +242,15 @@ export class PressState {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/state") {
-      this.visits++;
-      await this.state.storage.put({ visits: this.visits });
+      // ?poll=1 is the background live-sync tick (see public/index.html) —
+      // it exists so every open tab sees a round change without a reload,
+      // and it must NOT count toward "visits": that number is meant to read
+      // as people who watched this round, not requests a browser happened
+      // to make while idle on the page.
+      if (url.searchParams.get("poll") !== "1") {
+        this.visits++;
+        await this.state.storage.put({ visits: this.visits });
+      }
       return json(this.publicState());
     }
 

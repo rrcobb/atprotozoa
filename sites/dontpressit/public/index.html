@@ -235,6 +235,13 @@
         animateCount(visits);
       }
 
+      // Live poll ticks nudge the number directly rather than replaying the
+      // count-up animation from zero every 4s, which would be distracting.
+      function bumpCounter(visits) {
+        const el = document.getElementById("counterNum");
+        if (el) el.textContent = visits.toLocaleString();
+      }
+
       function animateCount(target) {
         const el = document.getElementById("counterNum");
         if (!el) return;
@@ -268,6 +275,13 @@
           .join("");
       }
 
+      // The presser's own tab updates instantly from the /api/press
+      // response. Every OTHER open tab only finds out via this poll — it's
+      // what makes "starts, live, for everyone watching" actually true
+      // instead of just a line of copy that needs a reload to catch up.
+      let knownRound = 0;
+      let transitioning = false;
+
       async function press(e) {
         const btn = e.currentTarget;
         btn.disabled = true;
@@ -275,10 +289,16 @@
         try {
           const res = await fetch("/api/press", { method: "POST" });
           const data = await res.json();
+          transitioning = true;
+          knownRound = data.justGraduated.roundNumber;
           setRoundTag(data.justGraduated.roundNumber);
           renderOver(data.justGraduated, data);
           renderCounter(0);
           renderHof(data);
+          setTimeout(() => {
+            knownRound = data.roundNumber;
+            transitioning = false;
+          }, 2600);
         } catch {
           btn.disabled = false;
           btn.innerHTML = "DO NOT<br/>PRESS<br/>THIS BUTTON";
@@ -289,13 +309,45 @@
         try {
           const res = await fetch("/api/state");
           const data = await res.json();
+          knownRound = data.roundNumber;
           setRoundTag(data.roundNumber);
           renderArmed(data);
           renderCounter(data.visits);
           renderHof(data);
+          startPolling();
         } catch {
           stageEl.innerHTML = `<p class="note">couldn't reach the button. try reloading.</p>`;
         }
+      }
+
+      function startPolling() {
+        setInterval(async () => {
+          if (transitioning || document.hidden) return;
+          try {
+            const res = await fetch("/api/state?poll=1");
+            const data = await res.json();
+            if (data.roundNumber !== knownRound) {
+              // Someone else pressed it while this tab was open. Replay the
+              // same transition locally, using the round that just
+              // graduated (the newest hall-of-fame entry) as the pressed
+              // one, then land on the new live round.
+              transitioning = true;
+              const justGraduated = data.graduated[0];
+              setRoundTag(justGraduated.roundNumber);
+              renderOver(justGraduated, data);
+              renderHof(data);
+              setTimeout(() => {
+                knownRound = data.roundNumber;
+                transitioning = false;
+              }, 2600);
+            } else {
+              bumpCounter(data.visits);
+              renderHof(data);
+            }
+          } catch {
+            // Transient — next tick tries again.
+          }
+        }, 4000);
       }
 
       load();
