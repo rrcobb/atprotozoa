@@ -161,7 +161,7 @@
 
     <script type="module">
       import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
-      import { resolveDid, getProfile, getModLists, getListFull, parseListUri, applyListWrites } from "./lib/atproto.js";
+      import { resolveDid, getProfile, getModLists, getListFull, parseListUri, applyListWrites, getFollows, getFollowers } from "./lib/atproto.js";
 
       const $ = (id) => document.getElementById(id);
       const app = $("app");
@@ -303,7 +303,7 @@
               style="flex:1; font-family:inherit; font-size:0.9rem; padding:0.5rem 0.6rem; border:1px solid var(--ink); border-radius:3px;" />
             <button type="submit">view their lists</button>
           </form>
-          ${session ? `<p class="meta"><a href="/u/${encodeURIComponent(session.handle)}">→ your own public lists</a></p>` : ""}
+          ${session ? `<p class="meta"><a href="/u/${encodeURIComponent(session.handle)}">→ your own lists, and a scan of lists you might be on</a></p>` : ""}
           <h2 class="section">how it works</h2>
           <p class="meta">
             a "request to be added/removed" is a real <code>net.bisks.velvetrope.request</code> record
@@ -347,25 +347,108 @@
           </div>
           <h2 class="section">${isSelf ? "your" : "public"} moderation lists</h2>
           <div id="lists"></div>
+          ${isSelf ? `<h2 class="section">lists you might be on</h2><div id="membershipArea"></div>` : ""}
         `;
         const box = $("lists");
         if (!lists.length) {
           box.innerHTML = `<div class="empty">no public moderation lists${isSelf ? " yet" : ""}.</div>`;
-          return;
+        } else {
+          box.innerHTML = lists
+            .map((l) => {
+              const pending = counts[l.uri] || 0;
+              const rkey = rkeyOf(l.uri);
+              return `
+                <div class="card">
+                  <div class="t"><a href="/list/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}">${esc(l.name)}</a>
+                    ${pending ? `<span class="badge pending">${pending} pending</span>` : ""}</div>
+                  ${l.description ? `<div class="s">${esc(l.description)}</div>` : ""}
+                  <div class="m">${l.listItemCount ?? "?"} member${l.listItemCount === 1 ? "" : "s"}</div>
+                </div>`;
+            })
+            .join("");
         }
-        box.innerHTML = lists
-          .map((l) => {
-            const pending = counts[l.uri] || 0;
-            const rkey = rkeyOf(l.uri);
-            return `
-              <div class="card">
-                <div class="t"><a href="/list/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}">${esc(l.name)}</a>
-                  ${pending ? `<span class="badge pending">${pending} pending</span>` : ""}</div>
-                ${l.description ? `<div class="s">${esc(l.description)}</div>` : ""}
-                <div class="m">${l.listItemCount ?? "?"} member${l.listItemCount === 1 ? "" : "s"}</div>
-              </div>`;
-          })
-          .join("");
+        if (isSelf) renderMembershipScan(did);
+      }
+
+      // --- self: scan your network for mod lists you're on -----------------
+      //
+      // No AppView endpoint answers "which lists is DID X on" — membership
+      // only indexes forward (owner -> members). So this checks the mod
+      // lists made by people in your own network (who you follow, who
+      // follows you) rather than claiming to cover the whole network.
+
+      async function scanMemberships(selfDid, onProgress) {
+        const [follows, followers] = await Promise.all([getFollows(selfDid), getFollowers(selfDid)]);
+        const pool = [...new Set([...follows, ...followers])].filter((d) => d !== selfDid);
+        const found = [];
+        let checked = 0;
+        let idx = 0;
+        const CONCURRENCY = 8;
+        async function worker() {
+          while (idx < pool.length) {
+            const ownerDid = pool[idx++];
+            try {
+              const lists = await getModLists(ownerDid);
+              for (const l of lists) {
+                try {
+                  const { items } = await getListFull(l.uri);
+                  if (items.some((it) => it.subject?.did === selfDid)) {
+                    found.push({ uri: l.uri, ownerDid, ownerHandle: l.creator?.handle || ownerDid, name: l.name });
+                  }
+                } catch {}
+              }
+            } catch {}
+            checked++;
+            onProgress?.(checked, pool.length, found.length);
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pool.length) || 1 }, worker));
+        return { found, checkedCount: pool.length };
+      }
+
+      function renderMembershipScan(selfDid) {
+        const box = $("membershipArea");
+        box.innerHTML = `
+          <div class="banner">
+            velvetrope can't see every mod list on the network (nothing indexes
+            "which lists is this DID on" in reverse) — but it can check the public
+            mod lists made by people you follow or who follow you, which is
+            usually where you'd actually turn up.
+            <div class="actions"><button id="scanBtn">scan your network</button></div>
+          </div>`;
+        $("scanBtn").addEventListener("click", async () => {
+          const btn = $("scanBtn");
+          btn.disabled = true;
+          const banner = box.querySelector(".banner");
+          const status = document.createElement("div");
+          status.className = "meta";
+          status.style.marginTop = "0.5rem";
+          banner.appendChild(status);
+          try {
+            const { found, checkedCount } = await scanMemberships(selfDid, (checked, total, foundSoFar) => {
+              status.textContent = `checked ${checked}/${total} accounts in your network… ${foundSoFar} match${foundSoFar === 1 ? "" : "es"} so far`;
+            });
+            if (!found.length) {
+              box.innerHTML = `<div class="empty">checked ${checkedCount} accounts you follow or who follow you — no matches. (that's not a guarantee for the whole network, just the part velvetrope could see.)</div>`;
+              return;
+            }
+            box.innerHTML = `
+              <p class="meta">found on ${found.length} list${found.length === 1 ? "" : "s"} among the ${checkedCount} accounts in your network — click through to request removal.</p>
+              ${found
+                .map(
+                  (l) => `
+                <div class="card">
+                  <div class="t"><a href="/list/${encodeURIComponent(l.ownerDid)}/${encodeURIComponent(rkeyOf(l.uri))}">${esc(l.name)}</a></div>
+                  <div class="s">by @${esc(short(l.ownerHandle))}</div>
+                </div>`,
+                )
+                .join("")}
+            `;
+          } catch (e) {
+            status.textContent = "scan failed: " + e.message;
+            btn.disabled = false;
+          }
+        });
       }
 
       // --- list: view + request + manage -------------------------------------

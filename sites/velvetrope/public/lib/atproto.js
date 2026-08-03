@@ -68,6 +68,43 @@ export async function getProfile(did) {
   }
 }
 
+// --- social graph (bounded) ----------------------------------------------
+//
+// There's no AppView endpoint for "which lists is DID X a member of" — list
+// membership only indexes forward (owner -> members), not in reverse. Rather
+// than crawl the network to build that index ourselves (see
+// notes/ideas/store-ours-rederive-theirs.md — re-derive, don't store other
+// people's data), we take the cheaper bounded live query: check the mod
+// lists made by people in the signed-in user's own network, since that's
+// overwhelmingly where you'd actually turn up. Capped pagination, same
+// shape as getModLists above.
+async function actorDids(endpoint, key, did, cap) {
+  const out = [];
+  let cursor;
+  for (let p = 0; p < 5 && out.length < cap; p++) {
+    const u = new URL(`${PUB}/${endpoint}`);
+    u.searchParams.set("actor", did);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      break;
+    }
+    for (const entry of d[key] || []) if (entry.did) out.push(entry.did);
+    cursor = d.cursor;
+    if (!cursor || !(d[key] || []).length) break;
+  }
+  return out.slice(0, cap);
+}
+export function getFollows(did, cap = 150) {
+  return actorDids("app.bsky.graph.getFollows", "follows", did, cap);
+}
+export function getFollowers(did, cap = 150) {
+  return actorDids("app.bsky.graph.getFollowers", "followers", did, cap);
+}
+
 // --- moderation lists ---------------------------------------------------
 
 // All of an actor's lists whose purpose is app.bsky.graph.defs#modlist
