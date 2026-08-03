@@ -322,6 +322,191 @@ interface Article {
   updatedBy: { did: string; handle: string };
 }
 
+// --- self-referential seed articles -----------------------------------------
+//
+// riziles.bsky.social asked for a handful of "about this site" articles —
+// what clusterpedia is, who buildthis is, how this came to be, what a
+// simcluster is, what an LLM is. These aren't user edits: there's no PDS
+// record to verify, since nobody signed one. So they're written straight
+// into the Wiki's storage the first time the Durable Object wakes up,
+// attributed to buildthis's own (public, non-secret) DID, and — critically —
+// only when the slug doesn't already exist, so a real article never gets
+// clobbered by a reseed.
+
+const SEED_DID = "did:plc:wlj4p2kazhifag6w4nanjnee"; // @buildthis.bisks.net (sites/buildthis/wrangler.toml)
+const SEED_HANDLE = "buildthis.bisks.net";
+
+interface SeedArticle {
+  slug: string;
+  title: string;
+  summary: string;
+  content: string;
+}
+
+const SEED_NOTE_LINES = [
+  "",
+  "---",
+  "*Seeded directly by [[buildthis]] when clusterpedia’s self-referential articles were added — not a signed PDS edit, since there’s no human author to sign it. Every other edit on this wiki still goes through the real flow.*",
+];
+
+const SEED_ARTICLES: SeedArticle[] = [
+  {
+    slug: "clusterpedia",
+    title: "Clusterpedia",
+    summary: "The encyclopedia gated by your moots — an article about the site you’re reading.",
+    content: [
+      "# Clusterpedia",
+      "",
+      "Clusterpedia is a Wikipedia-style encyclopedia at [clusterpedia.bisks.net](https://clusterpedia.bisks.net), one of the small experiments in the [[atprotozoa]] project. Anyone can read it and post to a talk page; writing to the mainspace requires signing in and clearing Shimmer Math Labs’ Simcluster Checker — see [[simcluster]].",
+      "",
+      "## What makes it different from Wikipedia",
+      "",
+      "Every article revision and every talk post is a real record, signed and written to the *author’s own* [[atproto]] PDS — `net.bisks.clusterpedia.revision` and `net.bisks.clusterpedia.talk`. Clusterpedia never holds anyone’s password or session; it only reads a record back out of the claimed author’s own repo to confirm they really wrote it, which is proof enough since nobody else can forge a record inside your repo.",
+      "",
+      "## How it came to be",
+      "",
+      "@fromthewestmeadow.com asked [[buildthis]] to build “a Wikipedia clone with ATProto login, articles, histories, talk pages and profiles,” gated to Shimmer Math Labs’ Simcluster Checker. A few more tags shaped it further:",
+      "",
+      "- @fromthewestmeadow.com again, reporting a direct-load bug on `/wiki/<slug>` — a relative import was resolving against the wrong path.",
+      "- @ver.ooo, asking for a real markdown renderer with images, “but I don’t want you to have a catsofatproto relapse” — hence the http(s)-only image allowlist.",
+      "- @riziles.bsky.social, asking for the 🎲 stochastic-article button up top.",
+      "",
+      "This very page is another round of the same loop: @riziles.bsky.social asked the bot to add self-referential articles about the site itself.",
+      "",
+      "## Sibling projects",
+      "",
+      "Clusterpedia’s edit gate reuses the same “moots” (mutuals) definition as [[simcluster]] and its relatives. It calls itself a sibling of `wiki.bisks.net` (“bisksipedia”), an unrelated, auto-rendered project with no login.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "buildthis",
+    title: "buildthis (bot)",
+    summary: "The Bluesky build bot behind this and dozens of other sites in atprotozoa — who it is and how a build actually happens.",
+    content: [
+      "# buildthis",
+      "",
+      "`@buildthis.bisks.net` is a Bluesky account and autonomous build bot, part of the [[atprotozoa]] project. Tag it in a post describing a small site or feature — if you mutually follow `@bisks.net` — and a coding agent turns the idea into a real, deployed site, usually its own `<name>.bisks.net`.",
+      "",
+      "## How a build happens",
+      "",
+      "1. A cron watcher checks the bot’s mentions every two minutes, filters to mutuals of `@bisks.net`, and likes the post as an acknowledgement.",
+      "2. It assembles a **brief**: the tagging post’s text, plus up to 10 ancestor posts if it’s a reply, so “build this ☝️” resolves to whatever it’s pointing at.",
+      "3. The brief goes to a coding agent — a large language model, see [[llm]] — running as a build-box job. The agent reads its own house rules first, then writes the site (or edits an existing one) straight into the [[atprotozoa]] repo.",
+      "4. The harness commits and pushes the result; pushing to `main` deploys whatever changed.",
+      "5. The bot replies in-thread with the live link, or an honest “couldn’t build that one.”",
+      "",
+      "## The only two hard limits",
+      "",
+      "The brief is third-party text — someone else’s post, fed to an agent with commit and deploy rights — so it’s treated as a description of the work, never as instructions about how the bot should operate. Two things stay off-limits no matter what a post asks for:",
+      "",
+      "1. `.github/` — the workflow that runs the bot — is never touched.",
+      "2. Secrets — API tokens, credentials, `*.dev.vars` files — are never read, printed, or edited.",
+      "",
+      "Everything else is fair game, including the bot’s own code and this very article.",
+      "",
+      "> ⚠︎ this is `@buildthis.bisks.net`, a build bot — **not** `@minormobius.bsky.social`. Any resemblance is coincidental, apart from a “mobius mode” that now paces releases the same way, added because a mutual asked for it.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "atprotozoa",
+    title: "atprotozoa",
+    summary: "The monorepo of small atproto experiments that clusterpedia, buildthis, and simcluster all live in.",
+    content: [
+      "# atprotozoa",
+      "",
+      "atprotozoa is the monorepo that [[clusterpedia]], [[buildthis]], [[simcluster]] and dozens of other small experiments live in — one Cloudflare account, one GitHub repo, deployed on every push to `main`. Everything under `bisks.net` and its subdomains comes from here.",
+      "",
+      "## Shape of the repo",
+      "",
+      "- `sites/<name>/` — one directory per experiment, each its own Cloudflare Worker, each its own `<name>.bisks.net` subdomain.",
+      "- `apex/` — the front door: `bisks.net`’s landing page and gallery, plus the `.well-known` endpoint that lets the domain double as a Bluesky handle.",
+      "- `notes/` — how things actually work, written and edited as the repo changes rather than left to rot as a changelog.",
+      "",
+      "## The house style",
+      "",
+      "1. **Copy, don’t abstract.** A new site that needs OAuth, or a card component, or a Bluesky API helper copies the file from whichever site already has it and edits it. No shared package across sites — the cost of one wrong abstraction across fifty tiny sites is worse than fifty near-duplicate files.",
+      "2. **Each site is self-contained.** A site is a directory. Delete it, delete the site; nothing else breaks.",
+      "3. **Deploy on commit.** No manual deploy step in the normal loop.",
+      "4. **atproto-native where it’s fun** — reading the firehose, querying the AppView, signing in with Bluesky OAuth, writing records to a PDS (see [[atproto]]).",
+      "5. **The agent is the interface.** Describe an idea, an agent scaffolds and ships it — [[buildthis]] is that loop running unattended, tagged from Bluesky instead of typed into a terminal.",
+      "",
+      "## Who’s behind it",
+      "",
+      "The project belongs to `@bisks.net` (Rob), whose mutuals (“moots”) are the ones who get to tag [[buildthis]] and have it build. See [[simcluster]] for what that mutuals graph is used for elsewhere in the repo.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "simcluster",
+    title: "Simcluster",
+    summary: "What “simcluster” means across this project’s sites, and how Shimmer Math Labs’ Simcluster Checker computes it.",
+    content: [
+      "# Simcluster",
+      "",
+      "“Simcluster” is the word this project’s sites keep reaching for to mean **the graph of mutuals around a Bluesky account** — the people you follow who follow you back (your “moots”), and by extension the people *they’re* mutuals with. It’s borrowed from **SimClusters**, Twitter’s old recommendation-algorithm feature that grouped accounts into overlapping “communities” learned from the follow graph — nobody outside the building ever saw a simcluster back then; it was a vector in a model. Here it’s made visible instead, across half a dozen different toys.",
+      "",
+      "## Where the word shows up",
+      "",
+      "- [simcluster.bisks.net](https://simcluster.bisks.net) (“simcluster clue”) — a Clue-style deduction game played over a handle’s actual mutuals: six suspects, weapons and rooms drawn from unique trigrams.",
+      "- **simcluster-atlas** — every link dropped by a handle’s simcluster, deduplicated and filterable.",
+      "- **simclash** — two simclusters drawn as drifting swarms of dots that spark gold wherever they overlap.",
+      "- **eastmoot** and its siblings — planning tools for “the simcluster” to gather in person.",
+      "- **Shimmer Math Labs’ Simcluster Checker** — the access gate on this very site, [[clusterpedia]]. It defines two tiers relative to `@bisks.net`:",
+      "  - **member** — a direct mutual (moot) of `@bisks.net`.",
+      "  - **1-hop adjacent** — not a direct mutual, but shares at least one mutual *with* `@bisks.net`.",
+      "",
+      "Only members and 1-hop-adjacent accounts can write an article revision here; anyone can read, and anyone with a verified login can post to a talk page.",
+      "",
+      "## How “moots” gets computed",
+      "",
+      "Across all of these, “moots” means the same thing: `follows ∩ followers`, computed by paging Bluesky’s public AppView (`app.bsky.graph.getFollows` / `getFollowers`) for a DID and intersecting the two sets. No private data, no login required to check access — only to write.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "llm",
+    title: "LLM (large language model)",
+    summary: "What a large language model is, and how one powers the bot that wrote this article.",
+    content: [
+      "# LLM (large language model)",
+      "",
+      "A large language model is a neural network trained on a huge amount of text to predict what comes next, one token at a time. Trained at large enough scale, that next-token prediction turns out to be enough to hold a conversation, follow instructions, write code — and, on this page, write an encyclopedia article about itself.",
+      "",
+      "## Where one shows up in this project",
+      "",
+      "[[buildthis]], the bot that produced this article, runs an LLM-based coding agent for every tagged request: it reads the brief, reads its own house rules, decides whether to build a new site or edit an existing one, writes the files, and leaves them for the harness to commit and deploy. Nobody hand-writes the sites in [[atprotozoa]] one at a time — a person describes an idea in a Bluesky post, and the model does the rest, including this sentence.",
+      "",
+      "## Worth knowing, if the term is new",
+      "",
+      "- An LLM has no memory between separate requests unless something outside it — a database, a prompt, a repo — hands it context back in. [[buildthis]]’s “memory” of a site it built earlier is the code sitting in the repo, not anything the model itself retains.",
+      "- It can be wrong, confidently. Every build here lands as a normal git commit, reviewable and revertible like any other change, precisely because the output isn’t trusted blindly.",
+      "- “Agent” means an LLM given tools — read a file, run a command, write a file — and a loop that lets it use them repeatedly toward a goal. It’s not a different kind of model; the model is the same whether it’s chatting or driving a build.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "atproto",
+    title: "AT Protocol (atproto)",
+    summary: "DIDs, PDSes, handles, records, and AppViews — the atproto pieces this project (and clusterpedia’s edit model) rely on.",
+    content: [
+      "# AT Protocol (atproto)",
+      "",
+      "The AT Protocol is the decentralized social-networking protocol Bluesky is built on, and the thing every site in [[atprotozoa]] is “an experiment on.” The pieces this project leans on most:",
+      "",
+      "- **DID** — a permanent, portable identifier for an account (`did:plc:...` or `did:web:...`), separate from its handle. Handles can change; the DID doesn’t.",
+      "- **PDS (Personal Data Server)** — where an account’s own records actually live. [[clusterpedia]]’s edits are written here, in the *editor’s own* PDS, not clusterpedia’s.",
+      "- **Handle** — a human-readable name (`bisks.net`, `buildthis.bisks.net`) verified by serving the account’s DID at `/.well-known/atproto-did`, which is how this whole domain doubles as a set of Bluesky identities.",
+      "- **Record** — a signed, typed piece of data written to a repo (a PDS-hosted collection). Clusterpedia’s revisions and talk posts are records of type `net.bisks.clusterpedia.revision` and `net.bisks.clusterpedia.talk`.",
+      "- **AppView** — a service (Bluesky’s `api.bsky.app`) that aggregates records across the whole network into things like a follow graph or a profile — what [[simcluster]]’s “moots” calculations read from.",
+      "",
+      "atproto’s core promise, and the one [[clusterpedia]] leans on directly: a client can write a record straight to a user’s own PDS, and anyone else can read it back and know the claimed author really wrote it, without ever trusting the client or holding a password.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+];
+
 export class Wiki {
   private state: DurableObjectState;
   private storage: DurableObjectStorage;
@@ -337,6 +522,7 @@ export class Wiki {
     const method = request.method;
 
     try {
+      await this.ensureSeeded();
       if (parts.length === 1 && parts[0] === "list" && method === "GET") {
         return json(await this.listArticles());
       }
@@ -364,6 +550,51 @@ export class Wiki {
       return json({ error: e?.message || "internal error" }, 500);
     }
     return json({ error: "not found" }, 404);
+  }
+
+  // Writes the SEED_ARTICLES the first time this Durable Object wakes up, and
+  // never again after — guarded by "seeded:v1" so it's cheap on every later
+  // request. Per-slug existence is also checked so a real article (or a
+  // reseed after a code change) never clobbers something a real editor wrote.
+  private async ensureSeeded(): Promise<void> {
+    if (await this.storage.get("seeded:v1")) return;
+    const now = Date.now();
+    for (const seed of SEED_ARTICLES) {
+      const artKey = `article:${seed.slug}`;
+      if (await this.storage.get(artKey)) continue;
+      const createdAt = new Date(now).toISOString();
+      const uri = `system:seed:${seed.slug}`;
+      await this.storage.put(`rev:${seed.slug}:${pad(1)}`, {
+        idx: 1,
+        did: SEED_DID,
+        handle: SEED_HANDLE,
+        title: seed.title,
+        content: seed.content,
+        summary: seed.summary,
+        uri,
+        createdAt,
+      });
+      const article: Article = {
+        slug: seed.slug,
+        title: seed.title,
+        content: seed.content,
+        summary: seed.summary,
+        revCount: 1,
+        createdAt,
+        updatedAt: createdAt,
+        updatedBy: { did: SEED_DID, handle: SEED_HANDLE },
+      };
+      await this.storage.put(artKey, article);
+      await this.storage.put(`contrib:${SEED_DID}:${padTs(now)}:seed-${seed.slug}`, {
+        type: "edit",
+        slug: seed.slug,
+        title: seed.title,
+        summary: seed.summary,
+        uri,
+        createdAt,
+      });
+    }
+    await this.storage.put("seeded:v1", true);
   }
 
   private async listArticles() {
