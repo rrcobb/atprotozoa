@@ -350,6 +350,10 @@
     padding: 2px 6px;
   }
   .lib-row .lib-remove:hover { color: var(--bad); }
+  .lib-row-pending { border-style: dashed; opacity: 0.82; }
+  .lib-row-pending .lib-name .n { font-style: italic; }
+  .tag-group-avg.pending-avg { color: var(--dim); font-weight: 400; }
+  .tag-group-new { color: var(--accent2); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; margin-left: 6px; }
   #importFile { display: none; }
 
   .tag-group + .tag-group { margin-top: 20px; }
@@ -440,7 +444,7 @@
 
   <section class="library">
     <h3>your library</h3>
-    <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser. schema: <a href="/lexicons/net.bisks.steamtags.rating.json">lexicon</a>.</p>
+    <p class="lib-sub">grouped by tag, ranked by the tags you tend to rate highest overall — sign in above to keep it synced to your PDS as <code>net.bisks.steamtags.rating</code> records instead of just this browser. schema: <a href="/lexicons/net.bisks.steamtags.rating.json">lexicon</a>. unrated games from your imported wishlist show up here too: under a tag you've already rated they're slotted in as <code>??/10</code>, under a tag you haven't they get their own <span class="tag-group-new">new</span> group — click either to go rate it for real.</p>
     <div class="lib-search"><input id="libSearch" type="text" placeholder="filter your library by name, tag, or appid…" autocomplete="off" /></div>
     <div class="lib-actions">
       <button class="btn" id="exportLib">export database</button>
@@ -1020,7 +1024,16 @@
   // every game they've rated it on. Groups (tags) are ordered by that
   // average descending; within a group, games are ordered by their score
   // for that specific tag.
-  function buildTagGroups(db) {
+  //
+  // Requested by @7778777.online (2026-08-03): fold unrated wishlist imports
+  // into this same grouped-by-tag view instead of leaving them in their own
+  // flat list — a wishlist game whose community tags match a tag you already
+  // rate slots into that group as a "??/10" placeholder row (a fact, not a
+  // guess: you haven't rated it), and a game with only tags you've never
+  // rated gets its own new group, keyed by that tag, entirely of placeholders
+  // — so every wishlist tag is visible somewhere and a click takes you to
+  // rate it for real. `pending` is the output of pendingWishlistEntries().
+  function buildTagGroups(db, pending) {
     const tagMap = new Map();
     db.forEach((entry) => {
       Object.entries(entry.tagScores).forEach(([tagName, v]) => {
@@ -1035,17 +1048,49 @@
         });
       });
     });
+    const knownTags = new Set(tagMap.keys());
+    (pending || []).forEach((info) => {
+      info.tags.forEach((t) => {
+        if (!tagMap.has(t.name)) tagMap.set(t.name, []);
+        tagMap.get(t.name).push({
+          appid: info.appid,
+          name: info.name,
+          headerImage: info.headerImage,
+          pending: true,
+        });
+      });
+    });
     const groups = [...tagMap.entries()].map(([tag, games]) => {
-      games.sort((a, b) => b.score - a.score);
-      const avg = games.reduce((s, g) => s + g.score, 0) / games.length;
-      return { tag, games, avg };
+      const rated = games.filter((g) => !g.pending);
+      const pendingGames = games.filter((g) => g.pending);
+      rated.sort((a, b) => b.score - a.score);
+      pendingGames.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const avg = rated.length ? rated.reduce((s, g) => s + g.score, 0) / rated.length : null;
+      return { tag, games: [...rated, ...pendingGames], avg, isNew: !knownTags.has(tag) };
     });
     groups.sort((a, b) => {
+      if (a.avg == null && b.avg == null) return b.games.length - a.games.length;
+      if (a.avg == null) return 1;
+      if (b.avg == null) return -1;
       const diff = b.avg - a.avg;
       if (Math.abs(diff) > 1e-9) return diff;
       return b.games.length - a.games.length;
     });
     return groups;
+  }
+
+  // Unrated (not yet in db) games from the imported wishlist, with their
+  // community tags loaded from the wishlist cache — the raw material for the
+  // placeholder rows buildTagGroups slots into the rankings above.
+  function pendingWishlistEntries(db) {
+    const ids = loadWishlistIds();
+    if (!ids.length) return [];
+    const cache = loadWishlistCache();
+    const rated = new Set(db.map((e) => String(e.appid)));
+    return ids
+      .filter((id) => !rated.has(String(id)))
+      .map((id) => cache[String(id)])
+      .filter((info) => info && Array.isArray(info.tags) && info.tags.length);
   }
 
   let libraryQuery = "";
@@ -1064,12 +1109,13 @@
 
   function renderLibrary() {
     const db = loadDb();
-    if (!db.length) {
+    const pending = pendingWishlistEntries(db);
+    if (!db.length && !pending.length) {
       els.libraryList.innerHTML = '<div class="lib-empty">nothing rated yet — pick a game, click a tag, and score how well it fits.</div>';
       return;
     }
     const needle = libraryQuery.trim().toLowerCase();
-    const groups = buildTagGroups(db)
+    const groups = buildTagGroups(db, pending)
       .map((g) => ({ ...g, games: g.games.filter((game) => matchesLibraryQuery(g.tag, game, needle)) }))
       .filter((g) => g.games.length);
     if (needle && !groups.length) {
@@ -1083,19 +1129,28 @@
         <div class="tag-group-head">
           <span class="tag-group-rank">#${gi + 1}</span>
           <span class="tag-group-name">${esc(g.tag)}</span>
-          <span class="tag-group-avg" style="color:${scoreColor10(g.avg)}">${g.avg.toFixed(1)}/10 avg</span>
+          ${
+            g.avg != null
+              ? `<span class="tag-group-avg" style="color:${scoreColor10(g.avg)}">${g.avg.toFixed(1)}/10 avg</span>`
+              : `<span class="tag-group-avg pending-avg">not rated yet</span>`
+          }
+          ${g.isNew ? '<span class="tag-group-new" title="a tag from your wishlist you haven\'t rated anything under yet">new</span>' : ""}
           <span class="tag-group-count">${g.games.length} game${g.games.length === 1 ? "" : "s"}</span>
         </div>
         <div class="tag-group-games">
           ${g.games
             .map(
               (game, i) => `
-            <div class="lib-row" data-appid="${escAttr(String(game.appid))}" data-tag="${escAttr(g.tag)}">
+            <div class="lib-row${game.pending ? " lib-row-pending" : ""}" data-appid="${escAttr(String(game.appid))}" data-tag="${escAttr(g.tag)}">
               <span class="lib-rank">#${i + 1}</span>
               ${game.headerImage ? `<img src="${escAttr(game.headerImage)}" alt="" loading="lazy" />` : ""}
               <span class="lib-name"><span class="n">${esc(game.name || "appid " + game.appid)}${game.steamId ? ' <span class="steam-verified-dot" title="rated while steam-verified">✓</span>' : ""}</span></span>
-              <span class="lib-score" style="color:${scoreColor10(game.score)}">${game.score}/10</span>
-              <button class="lib-remove" data-remove-appid="${escAttr(String(game.appid))}" data-remove-tag="${escAttr(g.tag)}" title="remove this rating">✕</button>
+              ${
+                game.pending
+                  ? `<span class="lib-score" style="color:var(--dim)" title="on your imported wishlist — not rated yet, click to rate it">??/10</span>`
+                  : `<span class="lib-score" style="color:${scoreColor10(game.score)}">${game.score}/10</span>
+              <button class="lib-remove" data-remove-appid="${escAttr(String(game.appid))}" data-remove-tag="${escAttr(g.tag)}" title="remove this rating">✕</button>`
+              }
             </div>`
             )
             .join("")}
@@ -1472,6 +1527,7 @@
     const cache = loadWishlistCache();
     const need = ids.filter((id) => !cache[String(id)]);
     renderWishlist();
+    renderLibrary();
     if (need.length) {
       await pMapLimit(need, 4, async (id) => {
         try {
@@ -1486,6 +1542,7 @@
         }
       });
       renderWishlist();
+      renderLibrary();
     }
   }
 
@@ -1511,6 +1568,7 @@
     saveWishlistCache({});
     setWishlistMsg("");
     renderWishlist();
+    renderLibrary();
   });
 
   els.wishlistSearch.addEventListener("input", (e) => {
