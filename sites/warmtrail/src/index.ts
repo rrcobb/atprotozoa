@@ -22,7 +22,10 @@ export interface Env {
 const UA = "atprotozoa-warmtrail/1.0 (https://warmtrail.bisks.net)";
 
 const MIN_STEPS = 4;
-const MAX_STEPS = 12;
+// Each step is one sequential fetch to Open-Meteo (plus one for the origin
+// reading), and Workers on the free plan cap a single invocation at 50
+// external subrequests — stay comfortably under that regardless of plan tier.
+const MAX_STEPS = 40;
 const MIN_DISTANCE_KM = 0.2;
 const MAX_DISTANCE_KM = 20;
 const MIN_GAIN = 1;
