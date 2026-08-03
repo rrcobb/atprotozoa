@@ -294,6 +294,30 @@
   }
   .library h3 { margin: 0 0 4px; font-size: 1.05rem; }
   .library .lib-sub { color: var(--dim); font-size: 0.8rem; margin: 0 0 14px; }
+
+  .wishlist {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  .wishlist h3 { margin: 0 0 4px; font-size: 1.05rem; }
+  .wishlist .lib-sub { color: var(--dim); font-size: 0.8rem; margin: 0 0 10px; }
+  .wishlist-link-hint { color: var(--dim); font-size: 0.8rem; margin: 0 0 10px; }
+  .wishlist-link-hint code { background: var(--bg2); padding: 1px 5px; border-radius: 4px; }
+  .wishlist textarea {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    outline: none;
+    resize: vertical;
+    font-family: ui-monospace, monospace;
+    margin-bottom: 10px;
+  }
+  .wishlist textarea:focus { border-color: var(--accent2); }
   .lib-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
   .lib-actions .btn { padding: 8px 12px; font-size: 0.8rem; }
   .lib-empty { color: var(--dim); font-size: 0.85rem; padding: 10px 0; }
@@ -313,7 +337,7 @@
   .lib-row img { width: 56px; height: 26px; object-fit: cover; border-radius: 3px; background: #000; flex: none; }
   .lib-row .lib-name { flex: 1; overflow: hidden; }
   .lib-row .lib-name .n { font-size: 0.9rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lib-row .lib-name .sub { font-size: 0.72rem; color: var(--dim); }
+  .lib-row .lib-name .sub { display: block; font-size: 0.72rem; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .steam-verified-dot { color: var(--good); font-size: 0.78em; font-weight: 800; }
   .lib-row .lib-score { flex: none; font-size: 0.9rem; font-weight: 700; }
   .lib-row .lib-remove {
@@ -428,6 +452,20 @@
     <div id="libraryList"></div>
   </section>
 
+  <section class="wishlist">
+    <h3>your wishlist</h3>
+    <p class="lib-sub">Steam doesn't hand wishlists to outside sites, so this is manual: open your wishlist's raw data page, copy everything on it, and paste it below. We rank it by how well each game's community tags match tags you've already rated highly in your library above — a predicted fit, not a real one, until you actually rate it.</p>
+    <div class="wishlist-link-hint" id="wishlistLinkHint"></div>
+    <textarea id="wishlistPaste" rows="3" placeholder="paste the wishlistdata page's contents here…"></textarea>
+    <div class="lib-actions">
+      <button class="btn primary" id="wishlistImport">parse wishlist</button>
+      <button class="btn" id="wishlistClear">clear wishlist</button>
+    </div>
+    <div id="wishlistMsg" class="sync-msg"></div>
+    <div class="lib-search"><input id="wishlistSearch" type="text" placeholder="filter your wishlist by name, tag, or appid…" autocomplete="off" /></div>
+    <div id="wishlistList" class="lib-list"></div>
+  </section>
+
   <footer>
     data from the Steam Store API and <a href="https://steamspy.com" target="_blank" rel="noopener">SteamSpy</a> ·
     tag fit scores are yours, not ours ·
@@ -478,6 +516,13 @@
     importLibBtn: document.getElementById("importLibBtn"),
     importFile: document.getElementById("importFile"),
     clearLib: document.getElementById("clearLib"),
+    wishlistLinkHint: document.getElementById("wishlistLinkHint"),
+    wishlistPaste: document.getElementById("wishlistPaste"),
+    wishlistImport: document.getElementById("wishlistImport"),
+    wishlistClear: document.getElementById("wishlistClear"),
+    wishlistMsg: document.getElementById("wishlistMsg"),
+    wishlistSearch: document.getElementById("wishlistSearch"),
+    wishlistList: document.getElementById("wishlistList"),
   };
 
   // --- personal library: per-tag fit ratings (1-10) --------------------------
@@ -734,6 +779,7 @@
       });
       saveDb(merged);
       renderLibrary();
+      renderWishlist();
       if (toPush.length) await pMapLimit(toPush, 4, (m) => pdsPutRecord(sess, m));
       setSyncMsg(toPush.length ? `synced ${toPush.length} game${toPush.length === 1 ? "" : "s"} to your PDS.` : "library in sync with your PDS.");
     } catch (e) {
@@ -870,6 +916,7 @@
       `;
     }
     renderSteamLibSection(info);
+    renderWishlistHint(info);
   }
 
   // --- steam owned games (real library, via the community proxy) ---------
@@ -1072,6 +1119,7 @@
         const tag = btn.getAttribute("data-remove-tag");
         clearTagRating(appid, tag);
         renderLibrary();
+      renderWishlist();
         await afterMutate(appid);
       });
     });
@@ -1181,6 +1229,7 @@
       const games = Array.isArray(parsed) ? parsed : parsed.games;
       const db = mergeDb(games);
       renderLibrary();
+      renderWishlist();
       if (session) {
         const imported = games.filter(isValidEntry).map((e) => findEntry(db, e.appid)).filter(Boolean);
         setSyncMsg(`pushing ${imported.length} imported game${imported.length === 1 ? "" : "s"} to your PDS…`);
@@ -1200,11 +1249,272 @@
     const appids = db.map((e) => e.appid);
     saveDb([]);
     renderLibrary();
+    renderWishlist();
     if (session) {
       setSyncMsg("clearing your PDS library…");
       await pMapLimit(appids, 4, (appid) => pdsDeleteRecord(session, appid));
       setSyncMsg("cleared.");
     }
+  });
+
+  // --- wishlist (added 2026-08-03, requested by @7778777.online: "add
+  // wishlist integration"). Unlike owned-games, there's no third-party proxy
+  // for this — Valve's wishlist data lives behind each user's own session,
+  // and the public wishlistdata endpoint 403s/empties out for anyone whose
+  // profile isn't fully public. So this is manual by design, same shape the
+  // requester described: they open their own wishlist data page (it's their
+  // session, so it always works for them), copy what's on it, and paste it
+  // here. We parse appids out of that paste — JSON.parse first (the shape
+  // wishlistdata actually returns, an object keyed by appid), falling back
+  // to a few regexes in case someone pastes the rendered wishlist page's
+  // HTML instead. Each appid then rides through the /api/tags/<appid> proxy
+  // this site already has for the search flow, so no new server route is
+  // needed. The "propriety" part of the ask — surfacing wishlist items by
+  // how well their tags fit — reuses buildTagGroups' per-tag averages from
+  // the user's own rated library as a predicted-fit score, so the wishlist
+  // ranks by tags you already know you like rather than a fresh algorithm.
+  const WISHLIST_IDS_KEY = "steamtags:wishlist:v1";
+  const WISHLIST_CACHE_KEY = "steamtags:wishlist-cache:v1";
+
+  function loadWishlistIds() {
+    try {
+      const raw = localStorage.getItem(WISHLIST_IDS_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && Array.isArray(parsed.appids) ? parsed.appids : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveWishlistIds(appids) {
+    try {
+      localStorage.setItem(WISHLIST_IDS_KEY, JSON.stringify({ appids, updatedAt: Date.now() }));
+    } catch (_) {
+      // storage full/unavailable — the import still rendered for this session
+    }
+  }
+
+  function loadWishlistCache() {
+    try {
+      const raw = localStorage.getItem(WISHLIST_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveWishlistCache(cache) {
+    try {
+      localStorage.setItem(WISHLIST_CACHE_KEY, JSON.stringify(cache));
+    } catch (_) {
+      // best-effort cache — a miss just means re-fetching that game's tags
+    }
+  }
+
+  // The wishlistdata endpoint returns `{"<appid>": {...}, ...}` — that's the
+  // expected paste. Falls back to scraping appids out of raw HTML (data-appid
+  // attributes, embedded "appid":N JSON, or store URLs) in case someone
+  // pasted the rendered wishlist page instead of the data endpoint.
+  function parseWishlistPaste(text) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const ids = Object.keys(parsed)
+          .filter((k) => /^\d+$/.test(k))
+          .map(Number);
+        if (ids.length) return ids;
+      }
+      if (Array.isArray(parsed)) {
+        const ids = parsed
+          .map((it) => Number(typeof it === "object" && it ? it.appid ?? it.appId ?? it.id : it))
+          .filter((n) => Number.isFinite(n));
+        if (ids.length) return ids;
+      }
+    } catch (_) {
+      // not JSON — fall through to scraping it as HTML/text below
+    }
+    const ids = new Set();
+    let m;
+    const dataAppid = /data-appid="(\d+)"/g;
+    while ((m = dataAppid.exec(trimmed))) ids.add(Number(m[1]));
+    const jsonKey = /"appid"\s*:\s*(\d+)/g;
+    while ((m = jsonKey.exec(trimmed))) ids.add(Number(m[1]));
+    const storeUrl = /store\.steampowered\.com\/app\/(\d+)/g;
+    while ((m = storeUrl.exec(trimmed))) ids.add(Number(m[1]));
+    return [...ids];
+  }
+
+  function setWishlistMsg(text, isErr) {
+    if (!els.wishlistMsg) return;
+    els.wishlistMsg.textContent = text || "";
+    els.wishlistMsg.className = "sync-msg" + (isErr ? " err" : "");
+  }
+
+  function renderWishlistHint(info) {
+    if (!els.wishlistLinkHint) return;
+    if (info && info.steamid) {
+      const url = `https://store.steampowered.com/wishlist/profiles/${encodeURIComponent(info.steamid)}/wishlistdata/`;
+      els.wishlistLinkHint.innerHTML = `<a href="${escAttr(url)}" target="_blank" rel="noopener">open your wishlist data →</a> then copy everything on that page (Ctrl/Cmd+A, Ctrl/Cmd+C) and paste it below.`;
+    } else {
+      els.wishlistLinkHint.innerHTML = `connect Steam above (so we know your SteamID64), or find it yourself on your <a href="https://steamcommunity.com/my/wishlist" target="_blank" rel="noopener">wishlist page</a>'s URL — then open <code>store.steampowered.com/wishlist/profiles/&lt;your steamid64&gt;/wishlistdata/</code> in a new tab, copy everything on that page, and paste it below.`;
+    }
+  }
+
+  // Weighted by each tag's vote share on the game, same weighting the tag
+  // cloud itself uses — a tag with more votes says more about the game than
+  // one with a handful, so it should count for more of the predicted score.
+  function personalTagAverages(db) {
+    const map = new Map();
+    buildTagGroups(db).forEach((g) => map.set(g.tag, g.avg));
+    return map;
+  }
+
+  function predictedFit(gameTags, tagAverages) {
+    if (!gameTags || !gameTags.length) return null;
+    const totalVotes = gameTags.reduce((s, t) => s + (t.votes || 0), 0);
+    let weightedSum = 0;
+    let weightUsed = 0;
+    const matchedTags = [];
+    gameTags.forEach((t) => {
+      if (!tagAverages.has(t.name)) return;
+      const w = totalVotes ? (t.votes || 0) / totalVotes : 1 / gameTags.length;
+      weightedSum += tagAverages.get(t.name) * w;
+      weightUsed += w;
+      matchedTags.push(t.name);
+    });
+    if (!matchedTags.length) return null;
+    return { score: weightedSum / weightUsed, matchedTags };
+  }
+
+  let wishlistQuery = "";
+
+  function renderWishlist() {
+    const ids = loadWishlistIds();
+    if (!ids.length) {
+      els.wishlistList.innerHTML =
+        '<div class="lib-empty">nothing imported yet — paste your wishlist data above.</div>';
+      return;
+    }
+    const cache = loadWishlistCache();
+    const tagAverages = personalTagAverages(loadDb());
+    const needle = wishlistQuery.trim().toLowerCase();
+    let missing = 0;
+
+    const rows = ids
+      .map((appid) => {
+        const info = cache[String(appid)];
+        if (!info) missing++;
+        const name = info ? info.name || `appid ${appid}` : `appid ${appid}`;
+        const tags = info && Array.isArray(info.tags) ? info.tags : [];
+        return {
+          appid,
+          name,
+          headerImage: info ? info.headerImage || "" : "",
+          tags,
+          fit: info ? predictedFit(tags, tagAverages) : null,
+        };
+      })
+      .filter((it) => {
+        if (!needle) return true;
+        if (it.name.toLowerCase().includes(needle)) return true;
+        if (String(it.appid).includes(needle)) return true;
+        return it.tags.some((t) => t.name.toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        const as = a.fit ? a.fit.score : -1;
+        const bs = b.fit ? b.fit.score : -1;
+        if (Math.abs(as - bs) > 1e-9) return bs - as;
+        return a.name.localeCompare(b.name);
+      });
+
+    if (!rows.length) {
+      els.wishlistList.innerHTML = needle
+        ? `<div class="lib-empty">nothing in your wishlist matches "${esc(wishlistQuery.trim())}".</div>`
+        : '<div class="lib-empty">nothing imported yet — paste your wishlist data above.</div>';
+    } else {
+      els.wishlistList.innerHTML = rows
+        .map(
+          (it, i) => `
+        <div class="lib-row" data-appid="${escAttr(String(it.appid))}">
+          <span class="lib-rank">#${i + 1}</span>
+          ${it.headerImage ? `<img src="${escAttr(it.headerImage)}" alt="" loading="lazy" />` : ""}
+          <span class="lib-name"><span class="n">${esc(it.name)}</span>${
+            it.tags.length ? `<span class="sub">${esc(it.tags.slice(0, 3).map((t) => t.name).join(", "))}</span>` : ""
+          }</span>
+          ${
+            it.fit
+              ? `<span class="lib-score" style="color:${scoreColor10(it.fit.score)}" title="predicted from your own ratings on: ${escAttr(it.fit.matchedTags.join(", "))}">${it.fit.score.toFixed(1)}/10*</span>`
+              : `<span class="lib-score" style="color:var(--dim)" title="no overlap yet with tags you've rated">?</span>`
+          }
+        </div>`
+        )
+        .join("");
+      [...els.wishlistList.querySelectorAll(".lib-row")].forEach((row) => {
+        row.addEventListener("click", () => {
+          goToGame(row.getAttribute("data-appid"), true);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      });
+    }
+
+    setWishlistMsg(
+      missing
+        ? `loaded ${ids.length - missing}/${ids.length} games — still fetching the rest…`
+        : `${ids.length} game${ids.length === 1 ? "" : "s"} in your wishlist · * = predicted fit from tags you've already rated, "?" = no overlap yet.`
+    );
+  }
+
+  async function loadWishlistDetails(ids) {
+    const cache = loadWishlistCache();
+    const need = ids.filter((id) => !cache[String(id)]);
+    renderWishlist();
+    if (need.length) {
+      await pMapLimit(need, 4, async (id) => {
+        try {
+          const res = await fetch(MOUNT + "/api/tags/" + id);
+          const data = await res.json();
+          if (res.ok) {
+            cache[String(id)] = { appid: id, name: data.name, headerImage: data.headerImage, tags: data.tags || [] };
+            saveWishlistCache(cache);
+          }
+        } catch (_) {
+          // leave it missing — renderWishlist shows "appid N" with a "?" fit
+        }
+      });
+      renderWishlist();
+    }
+  }
+
+  els.wishlistImport.addEventListener("click", () => {
+    const ids = parseWishlistPaste(els.wishlistPaste.value);
+    if (!ids.length) {
+      setWishlistMsg(
+        "couldn't find any appids in that paste — make sure you copied the wishlistdata page's full contents.",
+        true
+      );
+      return;
+    }
+    saveWishlistIds(ids);
+    els.wishlistPaste.value = "";
+    setWishlistMsg(`found ${ids.length} game${ids.length === 1 ? "" : "s"} — fetching tags…`);
+    loadWishlistDetails(ids);
+  });
+
+  els.wishlistClear.addEventListener("click", () => {
+    if (!loadWishlistIds().length) return;
+    if (!confirm("clear your imported wishlist? this only clears the local copy here, not your actual Steam wishlist.")) return;
+    saveWishlistIds([]);
+    saveWishlistCache({});
+    setWishlistMsg("");
+    renderWishlist();
+  });
+
+  els.wishlistSearch.addEventListener("input", (e) => {
+    wishlistQuery = e.target.value;
+    renderWishlist();
   });
 
   let searchAbort = null;
@@ -1478,6 +1788,7 @@
       setTagRating(g.appid, { name: g.name, headerImage: g.headerImage }, activeTag, votes, score);
       openPanel(activeTag);
       renderLibrary();
+      renderWishlist();
       refreshShareLink(g);
       await afterMutate(g.appid);
     });
@@ -1487,6 +1798,7 @@
       clearTagRating(g.appid, activeTag);
       openPanel(activeTag);
       renderLibrary();
+      renderWishlist();
       refreshShareLink(g);
       await afterMutate(g.appid);
     });
@@ -1632,6 +1944,10 @@
   renderLibrary();
   loadGlobal();
   if (session) syncOnLogin(session);
+
+  const bootWishlistIds = loadWishlistIds();
+  if (bootWishlistIds.length) loadWishlistDetails(bootWishlistIds);
+  else renderWishlist();
 })();
 </script>
 </body>
