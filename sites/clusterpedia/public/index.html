@@ -89,9 +89,29 @@
 
       .article-body { max-width: 74ch; }
       .article-body p { margin: 0 0 1rem; }
-      .article-body h2 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
+      .article-body h1, .article-body h2, .article-body h3,
+      .article-body h4, .article-body h5, .article-body h6 { margin: 1.4rem 0 0.5rem; font-weight: 700; }
+      .article-body h1 { font-size: 1.25rem; }
+      .article-body h2 { font-size: 1.05rem; }
+      .article-body h3 { font-size: 0.95rem; }
+      .article-body h4, .article-body h5, .article-body h6 { font-size: 0.9rem; }
       .article-body .wikilink { border-bottom: 1px dashed var(--accent); }
       .article-body .wikilink.missing { color: var(--bad); border-bottom: 1px dashed var(--bad); }
+      .article-body img.wiki-img { max-width: 100%; height: auto; border-radius: 4px; margin: 0.6rem 0; display: block; }
+      .article-body blockquote {
+        margin: 0 0 1rem; padding: 0.2rem 0 0.2rem 0.9rem; border-left: 3px solid var(--faint); color: var(--muted);
+      }
+      .article-body blockquote p:last-child { margin-bottom: 0; }
+      .article-body ul, .article-body ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+      .article-body li { margin-bottom: 0.3rem; }
+      .article-body hr { border: none; border-top: 1px solid var(--faint); margin: 1.4rem 0; }
+      .article-body code { font-family: var(--mono); background: var(--faintbg); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.9em; }
+      .article-body pre {
+        background: var(--faintbg); border-radius: 4px; padding: 0.7rem 0.85rem; margin: 0 0 1rem;
+        overflow-x: auto; font-size: 0.85em;
+      }
+      .article-body pre code { background: none; padding: 0; }
+      .fmt-help { color: var(--muted); font-size: 0.75rem; margin: -0.3rem 0 0.6rem; }
 
       .banner {
         border: 1px solid var(--paperline); background: var(--paper); border-radius: 6px;
@@ -217,33 +237,112 @@
         return body;
       }
 
-      // Minimal wiki markup: [[slug]] / [[slug|text]] links, **bold**, _italic_,
-      // "== heading ==" lines, blank-line paragraphs. Everything else escaped.
+      // A small real markdown renderer: headings (# / legacy == heading ==),
+      // paragraphs, bold/italic, inline code + fenced code blocks,
+      // blockquotes, lists, rules, [[wikilinks]], [links](url) and
+      // ![images](url). Everything starts HTML-escaped; only the constructs
+      // recognized below turn into tags. Link/image URLs are allowlisted to
+      // http(s) only — no javascript:/data:, no proxying, nothing fetched or
+      // rendered by this Worker itself. Images are plain hotlinked <img> tags
+      // an editor points at, and only Simcluster-Checker-cleared editors can
+      // write them at all — not an open, unvetted stream (see
+      // notes/history/2026-07-deploy-incidents.md re: catsofatproto).
       function renderWikiText(src) {
         const lines = String(src || "").split(/\r?\n/);
         const out = [];
         let para = [];
-        const flush = () => {
+        let list = null; // { type: "ul"|"ol", items: [] }
+        let quote = null; // string[] of raw lines inside a blockquote
+        let codeLines = null; // string[] while inside a ``` fence
+
+        const flushPara = () => {
           if (para.length) { out.push(`<p>${para.join(" ")}</p>`); para = []; }
         };
+        const flushList = () => {
+          if (list) {
+            out.push(`<${list.type}>${list.items.map((i) => `<li>${i}</li>`).join("")}</${list.type}>`);
+            list = null;
+          }
+        };
+        const flushQuote = () => {
+          if (quote) { out.push(`<blockquote>${renderWikiText(quote.join("\n"))}</blockquote>`); quote = null; }
+        };
+        const flushAll = () => { flushPara(); flushList(); flushQuote(); };
+
         for (const raw of lines) {
           const line = raw.trim();
-          if (!line) { flush(); continue; }
-          const h = /^==\s*(.+?)\s*==$/.exec(line);
-          if (h) { flush(); out.push(`<h2>${inline(h[1])}</h2>`); continue; }
+
+          if (codeLines) {
+            if (/^```\s*$/.test(line)) {
+              out.push(`<pre><code>${esc(codeLines.join("\n"))}</code></pre>`);
+              codeLines = null;
+            } else {
+              codeLines.push(raw);
+            }
+            continue;
+          }
+          if (/^```/.test(line)) { flushAll(); codeLines = []; continue; }
+
+          if (!line) { flushAll(); continue; }
+
+          const h = /^(#{1,6})\s+(.+)$/.exec(line);
+          if (h) { flushAll(); const lvl = h[1].length; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); continue; }
+          const legacyH = /^==\s*(.+?)\s*==$/.exec(line);
+          if (legacyH) { flushAll(); out.push(`<h2>${inline(legacyH[1])}</h2>`); continue; }
+
+          if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) { flushAll(); out.push("<hr>"); continue; }
+
+          const bq = /^>\s?(.*)$/.exec(line);
+          if (bq) { flushPara(); flushList(); if (!quote) quote = []; quote.push(bq[1]); continue; }
+          flushQuote();
+
+          const ul = /^[-*]\s+(.+)$/.exec(line);
+          if (ul) {
+            flushPara();
+            if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; }
+            list.items.push(inline(ul[1]));
+            continue;
+          }
+          const ol = /^\d+\.\s+(.+)$/.exec(line);
+          if (ol) {
+            flushPara();
+            if (!list || list.type !== "ol") { flushList(); list = { type: "ol", items: [] }; }
+            list.items.push(inline(ol[1]));
+            continue;
+          }
+          flushList();
+
           para.push(inline(line));
         }
-        flush();
+        flushAll();
+        if (codeLines && codeLines.length) out.push(`<pre><code>${esc(codeLines.join("\n"))}</code></pre>`);
         return out.join("\n");
+
+        // Only http(s) URLs pass — no javascript:/data:/vbscript:, no proxy.
+        function safeUrl(u) {
+          return /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u : null;
+        }
 
         function inline(text) {
           let t = esc(text);
+          t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (whole, alt, url) => {
+            const safe = safeUrl(url);
+            if (!safe) return whole;
+            return `<img class="wiki-img" src="${safe}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer">`;
+          });
+          t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (whole, label, url) => {
+            const safe = safeUrl(url);
+            if (!safe) return whole;
+            return `<a href="${safe}" target="_blank" rel="noopener noreferrer ugc">${label}</a>`;
+          });
           t = t.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => {
             const slug = slugify(target);
-            const shown = label ? esc(label) : esc(target);
+            const shown = label || target;
             return `<a class="wikilink" href="/wiki/${encodeURIComponent(slug)}">${shown}</a>`;
           });
+          t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
           t = t.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+          t = t.replace(/\*([^*]+)\*/g, "<em>$1</em>");
           t = t.replace(/_([^_]+)_/g, "<em>$1</em>");
           return t;
         }
@@ -447,7 +546,9 @@
             <label for="summaryInput">edit summary</label>
             <input type="text" id="summaryInput" maxlength="300" placeholder="what did you change and why?" />
             <label for="contentInput">content</label>
-            <textarea id="contentInput" rows="16" maxlength="50000" placeholder="== a heading ==&#10;&#10;body text. [[another article]] links there. **bold** and _italic_ work.">${esc(existing ? existing.content : "")}</textarea>
+            <div class="fmt-help">markdown: # heading, **bold**, _italic_, \`code\`, &gt; quote, - list, 1. list,
+              [text](https://…), ![alt](https://image-url) · plus wiki [[another article]] links</div>
+            <textarea id="contentInput" rows="16" maxlength="50000" placeholder="# a heading&#10;&#10;body text. [[another article]] links there. **bold** and _italic_ work.&#10;&#10;![a caption](https://example.com/image.jpg)">${esc(existing ? existing.content : "")}</textarea>
             <div class="actions">
               <button type="submit" id="saveBtn">save revision</button>
               <span id="saveStatus" class="meta"></span>
