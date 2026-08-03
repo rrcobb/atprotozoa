@@ -93,6 +93,9 @@
         background: #1a5fd0; color: #fff; font-family: var(--mono); font-weight: 600;
       }
 
+      .counter { margin-top: 1.5rem; color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+      .counter b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
       footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
       footer a { color: #7fa8f0; text-decoration: none; }
       footer a:hover { text-decoration: underline; }
@@ -107,6 +110,7 @@
       <div class="share" id="share" hidden>
         <a id="shareLink" target="_blank" rel="noopener">tell people</a>
       </div>
+      <p class="counter" id="counter" hidden></p>
     </div>
 
     <footer>
@@ -119,6 +123,7 @@
       const stageEl = document.getElementById("stage");
       const shareWrap = document.getElementById("share");
       const shareLink = document.getElementById("shareLink");
+      const counterEl = document.getElementById("counter");
       const SITE_URL = "https://dontpressit.bisks.net/";
 
       function fmt(ts) {
@@ -162,6 +167,36 @@
           : "there was exactly one DO NOT PRESS THIS BUTTON button on the whole internet, shared by every visitor. someone pressed it. it's over now. I didn't do it, for the record.");
       }
 
+      // A running tally of every page load that happened while the button
+      // was still unpressed. It freezes the moment someone presses it —
+      // that final number is how many people saw it and didn't.
+      function renderCounter(visits, pressed) {
+        counterEl.hidden = false;
+        if (pressed) {
+          counterEl.innerHTML = `<b>${visits.toLocaleString()}</b> people visited without pressing the button before this happened.`;
+          return;
+        }
+        counterEl.innerHTML = `<b id="counterNum">0</b> people have visited without pressing the button.`;
+        animateCount(visits);
+      }
+
+      function animateCount(target) {
+        const el = document.getElementById("counterNum");
+        if (!el) return;
+        if (target <= 0) {
+          el.textContent = "0";
+          return;
+        }
+        const duration = Math.min(1400, 300 + target * 3);
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / duration);
+          el.textContent = Math.floor(t * target).toLocaleString();
+          if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+
       async function press(e) {
         const btn = e.currentTarget;
         btn.disabled = true;
@@ -170,6 +205,7 @@
           const res = await fetch("/api/press", { method: "POST" });
           const data = await res.json();
           renderOver(data.pressedAt, data.futileClicks, data.justEnded);
+          renderCounter(data.visits, true);
         } catch {
           btn.disabled = false;
           btn.innerHTML = "DO NOT<br/>PRESS<br/>THIS BUTTON";
@@ -185,6 +221,7 @@
           } else {
             renderArmed();
           }
+          renderCounter(data.visits, data.pressed);
         } catch {
           stageEl.innerHTML = `<p class="note">couldn't reach the button. try reloading.</p>`;
         }

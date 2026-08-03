@@ -63,19 +63,26 @@ export class PressState {
   private pressed = false;
   private pressedAt: number | null = null;
   private futileClicks = 0;
+  // Counts page loads that happened while the button was still unpressed —
+  // "how many people have visited without pressing it." Frozen the instant
+  // someone presses: a visit after that point didn't happen "without" the
+  // button being pressed, so it stops incrementing.
+  private visits = 0;
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = state.blockConcurrencyWhile(async () => {
-      const [pressed, pressedAt, futileClicks] = await Promise.all([
+      const [pressed, pressedAt, futileClicks, visits] = await Promise.all([
         state.storage.get<boolean>("pressed"),
         state.storage.get<number>("pressedAt"),
         state.storage.get<number>("futileClicks"),
+        state.storage.get<number>("visits"),
       ]);
       this.pressed = pressed ?? false;
       this.pressedAt = pressedAt ?? null;
       this.futileClicks = futileClicks ?? 0;
+      this.visits = visits ?? 0;
     });
   }
 
@@ -84,7 +91,16 @@ export class PressState {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/state") {
-      return json({ pressed: this.pressed, pressedAt: this.pressedAt, futileClicks: this.futileClicks });
+      if (!this.pressed) {
+        this.visits++;
+        await this.state.storage.put({ visits: this.visits });
+      }
+      return json({
+        pressed: this.pressed,
+        pressedAt: this.pressedAt,
+        futileClicks: this.futileClicks,
+        visits: this.visits,
+      });
     }
 
     if (url.pathname === "/api/press" && request.method === "POST") {
@@ -92,11 +108,21 @@ export class PressState {
         this.pressed = true;
         this.pressedAt = Date.now();
         await this.state.storage.put({ pressed: true, pressedAt: this.pressedAt });
-        return json({ justEnded: true, pressedAt: this.pressedAt, futileClicks: this.futileClicks });
+        return json({
+          justEnded: true,
+          pressedAt: this.pressedAt,
+          futileClicks: this.futileClicks,
+          visits: this.visits,
+        });
       }
       this.futileClicks++;
       await this.state.storage.put({ futileClicks: this.futileClicks });
-      return json({ justEnded: false, pressedAt: this.pressedAt, futileClicks: this.futileClicks });
+      return json({
+        justEnded: false,
+        pressedAt: this.pressedAt,
+        futileClicks: this.futileClicks,
+        visits: this.visits,
+      });
     }
 
     return json({ error: "not found" });
