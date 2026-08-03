@@ -505,6 +505,116 @@ const SEED_ARTICLES: SeedArticle[] = [
       ...SEED_NOTE_LINES,
     ].join("\n"),
   },
+  // @fromthewestmeadow.com — the account that originally commissioned
+  // clusterpedia itself — asked buildthis to download their whole repo as a
+  // CAR file, read every post in it, and write them an entry here, "with
+  // links and images", plus "a few related other side articles". These five
+  // are that: one profile article plus three sides it links out to, all
+  // sourced from a fresh com.atproto.sync.getRepo download (5,699
+  // app.bsky.feed.post records decoded straight out of the CAR) and the
+  // account's own public profile record, not from anything hand-typed.
+  {
+    slug: "fromthewestmeadow-com",
+    title: "fromthewestmeadow.com",
+    summary:
+      "One of buildthis's most prolific patrons: an account and personal software label that has commissioned dozens of atprotozoa sites and shipped eleven more of its own.",
+    content: [
+      "# fromthewestmeadow.com",
+      "",
+      "**fromthewestmeadow.com** — display name “From The West Meadow” — is a Bluesky account, joined November 14, 2024, that has become one of the most frequent taggers of [[buildthis]], commissioning dozens of small sites across [[atprotozoa]] and often iterating on one in the replies within minutes of it shipping.",
+      "",
+      "This article was written the way its subject asked for it: [[buildthis]] downloaded the account's whole repo as one CAR file (see [[atproto]]), decoded every `app.bsky.feed.post` record straight out of it, and read all ~5,700 of them, rather than relying on the public AppView's paginated feed.",
+      "",
+      "## A serial commissioner",
+      "",
+      "A partial list of what fromthewestmeadow.com has asked buildthis to build: a searchable, topic-grouped portfolio ([[Meadowfolio]]); a live list of every site they've requested ([[Westmeadow]]); a scanner for an account's overall stance on LLMs; a website whose entire feature is a button labelled “do not press this button”; and, recursively, this very encyclopedia — plus the reply that asked for this very article. A few lines from that history, in their own words:",
+      "",
+      "> “read all of my posts and build me a website you think id really like” — July 25, 2026",
+      "",
+      "> “Build a Wikipedia clone with ATProto login, articles, histories, talk pages and profiles. Gate edits via Shimmer Math Labs' Simcluster Checker: members or 1-hop adjacent only” — August 3, 2026, the post that started [[clusterpedia]]",
+      "",
+      "> “you know what I want. More picks from you.” — August 3, 2026, four minutes after asking for this article",
+      "",
+      "## Independent of buildthis",
+      "",
+      "fromthewestmeadow.com also ships its own small tools, released on subdomains of its own domain rather than as `bisks.net` sites — eleven as of this writing, from a Markov-chain profile remixer to [[Cancelled]], a Win98-styled account content scanner. buildthis has no hand in building these; it only reads about them afterward, same as anyone else on the timeline.",
+      "",
+      "## In their own words",
+      "",
+      "![a screenshot posted at 3am captioned \"time to cook up a breakthrough\"](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreidrnhx7qt5jh3gzsnu72fxe6r5xn5cyc7mpv2vwohrxdfwfyt7ndu)",
+      "",
+      "*“it's 3am time to cook up a breakthrough”* — August 3, 2026, seventeen minutes before commissioning [[clusterpedia]].",
+      "",
+      "![a diagram of the human body drawn as a single tube](https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:qttqvv4n3vqqu35qajhcuqlq/bafkreihkuurilvukhps5mhxo62rd6ekizduoe2q2t43ipqmmw3ybj4v4n4)",
+      "",
+      "*“big fan of this model of the human body”* — one of buildthis's own curated picks in [[Meadowfolio]]: 584 likes for a diagram that treats the whole body as one tube.",
+      "",
+      "## Elsewhere",
+      "",
+      "- [meadowfolio.bisks.net](https://meadowfolio.bisks.net) — pinned to the account's own profile; see [[Meadowfolio]].",
+      "- [westmeadow.bisks.net](https://westmeadow.bisks.net) — see [[Westmeadow]].",
+      "- [portfolio.bisks.net](https://portfolio.bisks.net) — a generic, any-handle version of the same idea, requested for this account first and later opened up to everyone.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "meadowfolio",
+    title: "Meadowfolio",
+    summary:
+      "fromthewestmeadow.com's own portfolio site — a live image gallery, a release index, and posts hand-picked by buildthis after reading the whole feed.",
+    content: [
+      "# Meadowfolio",
+      "",
+      "Meadowfolio ([meadowfolio.bisks.net](https://meadowfolio.bisks.net)) is a portfolio [[buildthis]] built for [[fromthewestmeadow.com]], one of dozens of [[atprotozoa]] sites that account has commissioned. It's pinned to the account's own Bluesky profile.",
+      "",
+      "## What's on it",
+      "",
+      "- **A live gallery**, pulled from the account's post history.",
+      "- **A release index** of the eleven tools fromthewestmeadow.com has shipped on its own domain, including [[Cancelled]].",
+      "- **Picks** — buildthis's own favorites, chosen by actually reading the feed rather than sorting by likes. The data behind this section says as much: a snapshot of one read, not a live leaderboard, expanded across three passes — the last covering the account's entire history back to its first post in November 2024.",
+      "",
+      "## History",
+      "",
+      "fromthewestmeadow.com asked for “a nice little portfolio website of all my Bluesky posts, searchable and grouped by topic” on July 24, 2026; the request was repeated and refined several times over the following week before landing on the gallery/index/picks layout that shipped. A generic, any-handle version of the same idea later shipped separately as `portfolio.bisks.net`.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "westmeadow",
+    title: "Westmeadow",
+    summary:
+      "A bare, always-current list of every site fromthewestmeadow.com has asked buildthis to build, recomputed live on every page load.",
+    content: [
+      "# Westmeadow",
+      "",
+      "Westmeadow ([westmeadow.bisks.net](https://westmeadow.bisks.net)) is a small tool [[buildthis]] built for [[fromthewestmeadow.com]]: a list of every site the account has asked the bot to build, computed live from the bot's own event log rather than hand-maintained.",
+      "",
+      "It exists because an earlier, project-wide list of buildthis's builds mixed this account's requests in with everyone else's. fromthewestmeadow.com asked for a version scoped to just their own account on August 1, 2026: “just a simple website that is the list of all the websites of created with you, updates live every time you load this page so it's always up to date.”",
+      "",
+      "Unlike [[Meadowfolio]], which is curated and frozen at build time, Westmeadow is deliberately uncurated and always fresh — the two sit side by side as opposite answers to the same question, “show me what I've asked for”: one edited for taste, one refusing to be.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
+  {
+    slug: "cancelled",
+    title: "Cancelled",
+    summary:
+      "A Win98-styled scanner for offensive content in any Bluesky account's posts — the newest of fromthewestmeadow.com's eleven self-released tools.",
+    content: [
+      "# Cancelled",
+      "",
+      "Cancelled (`cancelled.fromthewestmeadow.com`) scans any Bluesky account for offensive content and presents the results in a Windows 98-styled interface. It's the most recent of eleven small tools [[fromthewestmeadow.com]] has released on subdomains of its own domain — unlike the [[atprotozoa]] sites that account commissions from [[buildthis]], these are self-built and self-shipped.",
+      "",
+      "## Sibling releases",
+      "",
+      "The same domain has also shipped, oldest first: a deleted-post watcher, a self-like watcher, a DID sound firehose, a Markov-chain profile remixer, a Matrix-rain firehose, an emoji heatmap, a links firehose, a speed-reading firehose, a political-compass meme generator, and DreamNet, a set of remote desktops “for computers that never existed” — before Cancelled itself, released July 26, 2026.",
+      "",
+      "## Distinguishing feature",
+      "",
+      "Where [[buildthis]]'s builds for this account tend toward absurdist one-shots — nothingness leaderboards, a button labelled “do not press this button” — the fromthewestmeadow.com domain's own releases skew toward real utility with a strong visual bit layered on top: Cancelled's actual content scan, wrapped in a pastiche of an operating system long dead.",
+      ...SEED_NOTE_LINES,
+    ].join("\n"),
+  },
 ];
 
 export class Wiki {
