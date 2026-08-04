@@ -255,12 +255,26 @@
 
       const ROUTES = [
         [/^\/$/, viewHome],
-        [/^\/u\/([^/]+)$/, (m) => viewUser(decodeURIComponent(m[1]))],
-        [/^\/list\/(did:[^/]+)\/([^/]+)$/, (m) => viewList(decodeURIComponent(m[1]), decodeURIComponent(m[2]))],
+        [/^\/u\/([^/]+)$/, (m) => viewUser(m[1])],
+        [/^\/list\/(did:[^/]+)\/([^/]+)$/, (m) => viewList(m[1], m[2])],
       ];
 
+      // Links this site generates itself (e.g. href="/list/${encodeURIComponent(did)}/...")
+      // percent-encode ":" as "%3A" — and the URL Standard's parser (what both
+      // the browser and `new URL()` here use) never decodes an already-
+      // percent-encoded character back out of `location.pathname`. A route
+      // regex looking for a literal "did:" never matches the raw pathname, so
+      // decode once before matching instead of decoding each capture group.
+      function decodePath(raw) {
+        try {
+          return decodeURIComponent(raw);
+        } catch {
+          return raw;
+        }
+      }
+
       function route() {
-        const path = location.pathname.replace(/\/+$/, "") || "/";
+        const path = decodePath(location.pathname.replace(/\/+$/, "") || "/");
         for (const [re, fn] of ROUTES) {
           const m = path.match(re);
           if (m) return fn(m);
@@ -540,8 +554,11 @@
           box.innerHTML = `
             <div class="banner">
               you have a pending request to be <b>${pending.action === "add" ? "added" : "removed"}</b>.
-              <button class="ghost small" id="cancelBtn">cancel request</button>
-              <span id="reqStatus" class="meta"></span>
+              ${pending.reason ? `<div class="s" style="margin-top:0.3rem">your reason: "${esc(pending.reason)}"</div>` : ""}
+              <div class="actions">
+                <button class="ghost small" id="cancelBtn">cancel request</button>
+                <span id="reqStatus" class="meta"></span>
+              </div>
             </div>`;
           $("cancelBtn").addEventListener("click", async () => {
             const btn = $("cancelBtn");
@@ -568,16 +585,27 @@
         box.innerHTML = `
           <div class="actions">
             <span class="badge ${isMember ? "member" : ""}">${isMember ? "you're a member" : "you're not a member"}</span>
+          </div>
+          <textarea id="reasonInput" maxlength="500" rows="2" placeholder="reason (optional) — the list owner will see this"
+            style="width:100%; font-family:inherit; font-size:0.85rem; padding:0.5rem 0.6rem; border:1px solid var(--ink); border-radius:3px; background:var(--bg); color:var(--ink); resize:vertical;"></textarea>
+          <div class="actions">
             <button id="requestBtn">${label}</button>
             <span id="reqStatus" class="meta"></span>
           </div>`;
         $("requestBtn").addEventListener("click", async () => {
           const btn = $("requestBtn");
           const status = $("reqStatus");
+          const reason = $("reasonInput").value.trim().slice(0, 500);
           btn.disabled = true;
           status.textContent = "writing to your PDS…";
           try {
-            const record = { $type: REQUEST_COLLECTION, list: listUri, action, createdAt: new Date().toISOString() };
+            const record = {
+              $type: REQUEST_COLLECTION,
+              list: listUri,
+              action,
+              createdAt: new Date().toISOString(),
+              ...(reason ? { reason } : {}),
+            };
             const uri = await writeOwnRecord(REQUEST_COLLECTION, record);
             status.textContent = "submitting…";
             await fetchJson("/api/requests", {
@@ -622,11 +650,12 @@
           $("pendingRows").innerHTML = pending
             .map(
               (r) => `
-              <div class="req-row">
+              <div class="req-row" style="flex-wrap:wrap;">
                 <input type="checkbox" class="reqCheck" data-uri="${esc(r.uri)}" checked />
                 <span class="who">@${esc(short(r.requesterHandle))}</span>
                 <span class="badge ${r.action}">${r.action === "add" ? "wants in" : "wants out"}</span>
                 <span class="when">${fmtTime(r.createdAt)}</span>
+                ${r.reason ? `<div class="s" style="flex-basis:100%; margin-left:1.6rem;">"${esc(r.reason)}"</div>` : ""}
               </div>`,
             )
             .join("");

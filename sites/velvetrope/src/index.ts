@@ -89,6 +89,19 @@ const GENERIC_OG_URL = "https://velvetrope.bisks.net/";
 
 const LIST_RE = /^\/list\/(did:[^/]+)\/([^/]+)\/?$/;
 
+// Links this site generates itself encode the did with encodeURIComponent,
+// which percent-encodes ":" as "%3A" — and the URL Standard's parser (used by
+// both browsers and this Worker's `new URL()`) does NOT decode already-
+// percent-encoded characters back out of `pathname`/`url.pathname`. So a
+// literal `did:` match against the raw pathname never fires; decode first.
+function decodePath(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function renderListShell(env: Env, request: Request, ownerDid: string, rkey: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
   let html = await base.text();
@@ -135,9 +148,9 @@ export default {
       return stub.fetch(new Request(inner, request));
     }
 
-    const m = url.pathname.match(LIST_RE);
+    const m = LIST_RE.exec(decodePath(url.pathname));
     if (m && request.method === "GET") {
-      return renderListShell(env, request, decodeURIComponent(m[1]), decodeURIComponent(m[2]));
+      return renderListShell(env, request, m[1], m[2]);
     }
 
     // SPA fallback for /u/<actor> — a plain "no dot in the path means it's a
@@ -264,7 +277,10 @@ interface RequestRow {
   createdAt: string;
   resolvedAt?: string;
   decisionUri?: string;
+  reason?: string;
 }
+
+const MAX_REASON_LEN = 500;
 
 function freshAt(createdAtIso: string): number {
   const ms = Date.parse(createdAtIso || "");
@@ -343,6 +359,8 @@ export class Rope {
     if (Date.now() - validAt > MAX_RECORD_AGE_MS)
       return json({ error: "that record is too old to apply — write a fresh one" }, 400);
 
+    const reason = typeof v.reason === "string" && v.reason.trim() ? v.reason.trim().slice(0, MAX_REASON_LEN) : undefined;
+
     // Supersede any still-pending request from the same requester for the
     // same list (they changed their mind, or double-submitted).
     const all = await this.allRequests();
@@ -363,6 +381,7 @@ export class Rope {
       action,
       status: "pending",
       createdAt: new Date(validAt).toISOString(),
+      ...(reason ? { reason } : {}),
     };
     await this.storage.put(`req:${body.uri}`, row);
     await this.storage.put(`seen:${body.uri}`, true);
