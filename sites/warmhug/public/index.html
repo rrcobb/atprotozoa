@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>warmhug — wrap someone a hug</title>
+    <meta name="description" content="Pick who it's from and who it's for, and warmhug wraps up a cozy personalized message with a glowing hug animation and gentle synthesized ambience — then turns it into a card you can send to someone who needs one." />
+    <meta property="og:title" content="warmhug — wrap someone a hug" />
+    <meta property="og:description" content="A cozy personalized message, a glowing hug animation, soft ambient sound, and a card to send someone who needs one." />
+    <meta property="og:url" content="https://warmhug.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://warmhug.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="warmhug: two soft round characters hugging, glowing warm colors, with a wrapped message card." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="warmhug — wrap someone a hug" />
+    <meta name="twitter:description" content="A cozy personalized message, a glowing hug animation, soft ambient sound, and a card to send someone who needs one." />
+    <meta name="twitter:image" content="https://warmhug.bisks.net/og.png" />
+    <meta name="color-scheme" content="dark" />
+    <style>
+      :root {
+        --bg: #201230;
+        --bg2: #150b22;
+        --coral: #ff8a65;
+        --gold: #ffd97a;
+        --lavender: #b39ddb;
+        --rose: #ff8fab;
+        --ink: #fff6ee;
+        --dim: #cdbdd8;
+        --card: rgba(255,255,255,0.055);
+        --card-border: rgba(255,255,255,0.14);
+        --rounded: ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background:
+          radial-gradient(90% 60% at 15% -10%, rgba(255,138,101,0.22) 0%, transparent 55%),
+          radial-gradient(90% 60% at 90% 0%, rgba(179,157,219,0.20) 0%, transparent 55%),
+          radial-gradient(70% 50% at 50% 100%, rgba(255,217,122,0.14) 0%, transparent 60%),
+          linear-gradient(180deg, var(--bg), var(--bg2));
+        background-attachment: fixed;
+        color: var(--ink);
+        font-family: var(--rounded);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a { color: var(--gold); }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2rem 1.1rem 3rem; }
+
+      header { text-align: center; margin-bottom: 1.2rem; }
+      h1 {
+        margin: 0; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.01em;
+        background: linear-gradient(90deg, var(--coral), var(--rose) 45%, var(--lavender));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      header p.tag { color: var(--dim); margin: 0.5rem auto 0; font-size: 0.92rem; max-width: 42ch; }
+
+      .card {
+        background: var(--card); border: 1px solid var(--card-border);
+        border-radius: 22px; padding: 1.4rem 1.3rem; margin-top: 1.1rem;
+        backdrop-filter: blur(6px);
+      }
+
+      label { display: block; font-size: 0.78rem; color: var(--dim); margin: 0.7rem 0 0.3rem; font-weight: 700; }
+      label:first-of-type { margin-top: 0; }
+      input[type="text"] {
+        width: 100%; font: inherit; font-size: 1rem; padding: 0.62rem 0.8rem;
+        border-radius: 12px; border: 1px solid var(--card-border);
+        background: rgba(0,0,0,0.22); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: rgba(255,246,238,0.35); }
+      input[type="text"]:focus { outline: 2px solid var(--coral); outline-offset: 1px; }
+
+      .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.3rem; }
+      .chip {
+        font: inherit; font-size: 0.82rem; padding: 0.44rem 0.85rem; border-radius: 999px;
+        border: 1px solid var(--card-border); background: rgba(0,0,0,0.2); color: var(--dim);
+        cursor: pointer;
+      }
+      .chip.selected { border-color: var(--coral); background: rgba(255,138,101,0.22); color: var(--ink); }
+
+      button {
+        font-family: var(--rounded); font-size: 0.95rem; font-weight: 800;
+        color: #2a1610; background: linear-gradient(90deg, var(--coral), var(--gold));
+        border: none; border-radius: 14px; padding: 0.7rem 1.2rem; cursor: pointer;
+        box-shadow: 0 6px 18px rgba(255,138,101,0.25);
+      }
+      button:hover { filter: brightness(1.05); }
+      button:active { transform: translateY(1px); }
+      button.ghost {
+        background: transparent; color: var(--dim); border: 1px solid var(--card-border);
+        box-shadow: none; font-weight: 700;
+      }
+      .wrapBtn { width: 100%; padding: 0.85rem; font-size: 1.02rem; margin-top: 1.1rem; }
+
+      .result { display: none; margin-top: 1.3rem; }
+      .result.show { display: block; animation: fadeUp 0.5s ease both; }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+      .stage {
+        position: relative; border-radius: 20px; overflow: hidden;
+        background: radial-gradient(80% 80% at 50% 60%, rgba(255,217,122,0.16), transparent 70%), rgba(0,0,0,0.18);
+        border: 1px solid var(--card-border);
+      }
+      .stage svg { display: block; width: 100%; height: auto; }
+      .figA, .figB { transform-box: fill-box; transform-origin: 50% 90%; }
+      .heart { transform-box: fill-box; transform-origin: 50% 50%; }
+      .stage.hugging .figA { animation: squeezeA 2.4s ease-in-out infinite; }
+      .stage.hugging .figB { animation: squeezeB 2.4s ease-in-out infinite; }
+      .stage.hugging .heart { animation: pulseHeart 1.2s ease-in-out infinite; }
+      @keyframes squeezeA { 0%, 100% { transform: translateX(0) rotate(0deg); } 50% { transform: translateX(4px) rotate(-1.5deg); } }
+      @keyframes squeezeB { 0%, 100% { transform: translateX(0) rotate(0deg); } 50% { transform: translateX(-4px) rotate(1.5deg); } }
+      @keyframes pulseHeart { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.18); opacity: 1; } }
+
+      .floatie {
+        position: absolute; pointer-events: none; font-size: 1.1rem; left: 50%; top: 66%;
+        animation: floatUp 3.2s ease-out forwards;
+      }
+      @keyframes floatUp {
+        0% { transform: translate(-50%, 0) scale(0.6); opacity: 0; }
+        12% { opacity: 1; }
+        100% { transform: translate(calc(-50% + var(--dx, 0px)), -120px) scale(1); opacity: 0; }
+      }
+
+      .message {
+        margin-top: 1rem; padding: 1.1rem 1.2rem; border-radius: 16px;
+        background: rgba(0,0,0,0.22); border: 1px solid var(--card-border);
+        font-size: 1.06rem; text-align: center; line-height: 1.55;
+      }
+      .message .from-to { display: block; font-size: 0.74rem; color: var(--dim); margin-top: 0.6rem; letter-spacing: 0.03em; }
+
+      .resultBtns { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+      .resultBtns button, .resultBtns a { flex: 1; min-width: 130px; }
+
+      #shareCanvas { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--card-border); margin-top: 1rem; }
+      .share-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.8rem; }
+      .share-actions a, .share-actions button {
+        flex: 1; min-width: 130px; text-align: center; border-radius: 12px;
+        padding: 0.6rem 0.8rem; font: inherit; font-size: 0.82rem; font-weight: 800;
+        cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+      }
+      .share-actions a { background: linear-gradient(90deg, var(--coral), var(--rose)); color: #2a1610; }
+      .share-actions button { background: transparent; border: 1px solid var(--card-border); color: var(--ink); }
+
+      footer { margin-top: 2.4rem; text-align: center; color: var(--dim); font-size: 0.74rem; line-height: 1.7; }
+      footer a { text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>warmhug</h1>
+        <p class="tag">wrap up a hug for someone — a cozy message, a little glowing animation, soft ambient sound. send it, or keep it for yourself.</p>
+      </header>
+
+      <div class="card" id="formCard">
+        <label for="fromInput">who's it from?</label>
+        <input type="text" id="fromInput" placeholder="a friend" maxlength="40" autocomplete="off" />
+
+        <label for="toInput">who's it for?</label>
+        <input type="text" id="toInput" placeholder="you" maxlength="40" autocomplete="off" />
+
+        <label id="occasionLabel">what's it for?</label>
+        <div class="chips" id="chips" role="group" aria-labelledby="occasionLabel">
+          <button type="button" class="chip selected" data-occ="justbecause">just because</button>
+          <button type="button" class="chip" data-occ="thinking">thinking of you</button>
+          <button type="button" class="chip" data-occ="roughday">rough day</button>
+          <button type="button" class="chip" data-occ="celebrating">celebrating you</button>
+          <button type="button" class="chip" data-occ="missing">missing you</button>
+          <button type="button" class="chip" data-occ="newstart">new beginnings</button>
+        </div>
+
+        <button type="button" class="wrapBtn" id="wrapBtn">wrap the hug 🤗</button>
+      </div>
+
+      <div class="card result" id="result">
+        <div class="stage" id="stage">
+          <svg viewBox="0 0 300 210" aria-hidden="true">
+            <defs>
+              <radialGradient id="glow" cx="50%" cy="55%" r="60%">
+                <stop offset="0" stop-color="#ffd97a" stop-opacity="0.55" />
+                <stop offset="1" stop-color="#ffd97a" stop-opacity="0" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="150" cy="145" rx="120" ry="60" fill="url(#glow)" />
+            <g class="figA">
+              <path class="armA" d="M136 138 Q170 122 178 150" stroke="#ff8fab" stroke-width="18" fill="none" stroke-linecap="round" />
+              <ellipse cx="110" cy="148" rx="34" ry="40" fill="#ff8fab" />
+              <circle cx="110" cy="94" r="26" fill="#ffcaa8" />
+              <ellipse cx="94" cy="98" rx="6" ry="3.4" fill="#ff7a59" opacity="0.55" />
+              <ellipse cx="126" cy="98" rx="6" ry="3.4" fill="#ff7a59" opacity="0.55" />
+              <circle cx="101" cy="92" r="3" fill="#3a2440" />
+              <circle cx="119" cy="92" r="3" fill="#3a2440" />
+              <path d="M100 102 Q110 109 120 102" stroke="#3a2440" stroke-width="2.4" fill="none" stroke-linecap="round" />
+            </g>
+            <g class="figB">
+              <path class="armB" d="M164 138 Q130 122 122 150" stroke="#b39ddb" stroke-width="18" fill="none" stroke-linecap="round" />
+              <ellipse cx="190" cy="148" rx="34" ry="40" fill="#b39ddb" />
+              <circle cx="190" cy="94" r="26" fill="#ffd9c2" />
+              <ellipse cx="174" cy="98" rx="6" ry="3.4" fill="#ff7a59" opacity="0.55" />
+              <ellipse cx="206" cy="98" rx="6" ry="3.4" fill="#ff7a59" opacity="0.55" />
+              <circle cx="181" cy="92" r="3" fill="#3a2440" />
+              <circle cx="199" cy="92" r="3" fill="#3a2440" />
+              <path d="M180 102 Q190 109 200 102" stroke="#3a2440" stroke-width="2.4" fill="none" stroke-linecap="round" />
+            </g>
+            <path class="heart" d="M150 168 c-9-9-23-4-23 7 c0 10 14 18 23 27 c9-9 23-17 23-27 c0-11-14-16-23-7 z" fill="#ff5a7a" />
+          </svg>
+        </div>
+
+        <div class="message" id="messageBox">
+          <span id="messageText"></span>
+          <span class="from-to" id="fromTo"></span>
+        </div>
+
+        <div class="resultBtns">
+          <button type="button" class="ghost" id="soundBtn">🔈 cozy sounds: off</button>
+          <button type="button" class="ghost" id="againBtn">wrap another hug</button>
+        </div>
+
+        <div class="share-actions">
+          <button type="button" id="shareNative" style="display:none;">📤 share card</button>
+          <a id="shareBluesky" target="_blank" rel="noopener">🦋 send this hug</a>
+          <button type="button" id="shareDownload">⬇ download card</button>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display:none;"></canvas>
+      </div>
+
+      <footer>
+        this tick's theme-box idea, for "something that makes people feel loved" ·
+        built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+        part of <a href="https://bisks.net">atprotozoa</a>
+      </footer>
+    </div>
+
+    <script>
+    "use strict";
+    (function () {
+      // ---------------------------------------------------------------
+      // message templates
+      // ---------------------------------------------------------------
+      var TEMPLATES = {
+        justbecause: [
+          "No reason at all — {from} just wanted {to} to feel this for a second.",
+          "{from} is sending {to} a hug for absolutely no occasion, which is the best kind.",
+          "Consider this your scheduled reminder that {to} is loved, from {from}.",
+          "{from} thought of {to} out of nowhere, and this is what came of it."
+        ],
+        thinking: [
+          "{from} has been thinking about {to} today — here's a hug to prove it.",
+          "You crossed {from}'s mind, {to}, and it turned into this.",
+          "A little signal from {from} to {to}: still thinking of you.",
+          "{from} wanted {to} to know: you're on my mind, in a good way."
+        ],
+        roughday: [
+          "{from} heard {to} is having a hard one. This hug doesn't fix it, but it's real.",
+          "For {to}, from {from} — rough days deserve soft landings.",
+          "{from} wraps this around {to} like a blanket. Breathe. You're doing fine.",
+          "No advice, no fixing — just {from} holding space for {to} today."
+        ],
+        celebrating: [
+          "{from} is so proud of {to} right now it needed its own hug.",
+          "For {to}, from {from}: you did the thing. Let this hug say it louder.",
+          "{from} is celebrating {to} today, hug included.",
+          "Look at {to} go. {from} is genuinely thrilled for you."
+        ],
+        missing: [
+          "{from} misses {to} more than usual today. Consider this a placeholder hug.",
+          "Distance is just a hug {from} owes {to} later. Here's a down payment.",
+          "{to}, {from} wishes this was in person. It isn't, but it's still real.",
+          "{from} saved you a spot. Come back soon, {to}."
+        ],
+        newstart: [
+          "{from} sends {to} a hug for whatever's starting next.",
+          "New chapter, same {from} in {to}'s corner. Go get it.",
+          "For {to}, stepping into something new — {from}'s got you.",
+          "{from} believes in whatever {to} is about to try."
+        ]
+      };
+
+      function fill(tpl, from, to) {
+        return tpl.split("{from}").join(from).split("{to}").join(to);
+      }
+
+      // ---------------------------------------------------------------
+      // elements + occasion chips
+      // ---------------------------------------------------------------
+      var els = {
+        from: document.getElementById("fromInput"),
+        to: document.getElementById("toInput"),
+        chips: document.getElementById("chips"),
+        wrapBtn: document.getElementById("wrapBtn"),
+        result: document.getElementById("result"),
+        stage: document.getElementById("stage"),
+        messageText: document.getElementById("messageText"),
+        fromTo: document.getElementById("fromTo"),
+        soundBtn: document.getElementById("soundBtn"),
+        againBtn: document.getElementById("againBtn"),
+        shareNative: document.getElementById("shareNative"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareDownload: document.getElementById("shareDownload"),
+        shareCanvas: document.getElementById("shareCanvas")
+      };
+
+      var occasion = "justbecause";
+      els.chips.addEventListener("click", function (e) {
+        var btn = e.target.closest(".chip");
+        if (!btn) return;
+        occasion = btn.dataset.occ;
+        Array.prototype.forEach.call(els.chips.querySelectorAll(".chip"), function (c) {
+          c.classList.toggle("selected", c === btn);
+        });
+      });
+
+      // ---------------------------------------------------------------
+      // floating hearts / sparkles inside the stage
+      // ---------------------------------------------------------------
+      var FLOATIES = ["💗", "✨", "💫", "🩷"];
+      var floatTimer = null;
+      function spawnFloatie() {
+        var f = document.createElement("span");
+        f.className = "floatie";
+        f.textContent = FLOATIES[(Math.random() * FLOATIES.length) | 0];
+        var dx = (Math.random() - 0.5) * 140;
+        f.style.setProperty("--dx", dx + "px");
+        f.style.left = 40 + Math.random() * 20 + "%";
+        f.style.fontSize = 0.9 + Math.random() * 0.9 + "rem";
+        els.stage.appendChild(f);
+        setTimeout(function () { f.remove(); }, 3300);
+      }
+      function startFloaties() {
+        stopFloaties();
+        spawnFloatie();
+        floatTimer = setInterval(spawnFloatie, 700);
+      }
+      function stopFloaties() {
+        if (floatTimer) clearInterval(floatTimer);
+        floatTimer = null;
+      }
+
+      // ---------------------------------------------------------------
+      // tiny WebAudio ambience — warm pad + soft chimes + hearth noise,
+      // all synthesized, no audio assets
+      // ---------------------------------------------------------------
+      var AC = null, master = null, soundOn = false, chimeTimer = null, started = false;
+      function ac() {
+        if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+        return AC;
+      }
+
+      function startAmbience() {
+        var a = ac();
+        if (!a || started) return;
+        started = true;
+
+        master = a.createGain();
+        master.gain.value = 0;
+        master.connect(a.destination);
+
+        // warm pad: two detuned tones through a slow-sweeping lowpass filter
+        var padGain = a.createGain();
+        padGain.gain.value = 0.11;
+        var filter = a.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 900;
+        filter.Q.value = 0.6;
+        padGain.connect(filter).connect(master);
+
+        [130.81, 196.0, 261.63].forEach(function (freq, i) {
+          var o = a.createOscillator();
+          o.type = "sine";
+          o.frequency.value = freq;
+          o.detune.value = i === 1 ? 6 : -4;
+          var g = a.createGain();
+          g.gain.value = i === 0 ? 0.6 : 0.32;
+          o.connect(g).connect(padGain);
+          o.start();
+        });
+
+        // slow LFO breathing the filter cutoff for gentle movement
+        var lfo = a.createOscillator();
+        lfo.type = "sine";
+        lfo.frequency.value = 0.06;
+        var lfoGain = a.createGain();
+        lfoGain.gain.value = 260;
+        lfo.connect(lfoGain).connect(filter.frequency);
+        lfo.start();
+
+        // hearth warmth: filtered brown-ish noise, very low
+        var bufSize = 2 * a.sampleRate;
+        var buf = a.createBuffer(1, bufSize, a.sampleRate);
+        var data = buf.getChannelData(0);
+        var last = 0;
+        for (var i = 0; i < bufSize; i++) {
+          var white = Math.random() * 2 - 1;
+          last = (last + 0.02 * white) / 1.02;
+          data[i] = last * 4.5;
+        }
+        var noise = a.createBufferSource();
+        noise.buffer = buf;
+        noise.loop = true;
+        var noiseFilter = a.createBiquadFilter();
+        noiseFilter.type = "lowpass";
+        noiseFilter.frequency.value = 420;
+        var noiseGain = a.createGain();
+        noiseGain.gain.value = 0.05;
+        noise.connect(noiseFilter).connect(noiseGain).connect(master);
+        noise.start();
+
+        scheduleChimes();
+      }
+
+      var PENTATONIC = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5];
+      function playChime() {
+        var a = ac();
+        if (!a || !master) return;
+        var t = a.currentTime;
+        var freq = PENTATONIC[(Math.random() * PENTATONIC.length) | 0];
+        var o = a.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = freq;
+        var g = a.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.09, t + 0.4);
+        g.gain.exponentialRampToValueAtTime(0.0008, t + 3.2);
+        var pan = (a.createStereoPanner && a.createStereoPanner()) || null;
+        if (pan) {
+          pan.pan.value = (Math.random() - 0.5) * 1.2;
+          o.connect(g).connect(pan).connect(master);
+        } else {
+          o.connect(g).connect(master);
+        }
+        o.start(t);
+        o.stop(t + 3.4);
+      }
+      function scheduleChimes() {
+        clearTimeout(chimeTimer);
+        chimeTimer = setTimeout(function () {
+          if (soundOn) playChime();
+          scheduleChimes();
+        }, 2600 + Math.random() * 3200);
+      }
+
+      function setSound(on) {
+        soundOn = on;
+        els.soundBtn.textContent = on ? "🔊 cozy sounds: on" : "🔈 cozy sounds: off";
+        if (on) {
+          startAmbience();
+          var a = ac();
+          if (a && a.state === "suspended") a.resume();
+          if (master) master.gain.linearRampToValueAtTime(1, (a ? a.currentTime : 0) + 1.2);
+        } else if (master && AC) {
+          master.gain.linearRampToValueAtTime(0, AC.currentTime + 0.6);
+        }
+      }
+      els.soundBtn.addEventListener("click", function () { setSound(!soundOn); });
+
+      // ---------------------------------------------------------------
+      // wrap the hug
+      // ---------------------------------------------------------------
+      var lastMessage = "", lastFrom = "", lastTo = "";
+
+      function wrapHug() {
+        var from = (els.from.value || "").trim() || "a friend";
+        var to = (els.to.value || "").trim() || "you";
+        var pool = TEMPLATES[occasion] || TEMPLATES.justbecause;
+        var tpl = pool[(Math.random() * pool.length) | 0];
+        var message = fill(tpl, from, to);
+
+        lastMessage = message; lastFrom = from; lastTo = to;
+
+        els.messageText.textContent = message;
+        els.fromTo.textContent = "from " + from + ", for " + to;
+
+        els.result.classList.add("show");
+        els.stage.classList.remove("hugging");
+        void els.stage.offsetWidth;
+        els.stage.classList.add("hugging");
+        startFloaties();
+
+        if (!soundOn) setSound(true);
+        else if (master) playChime();
+
+        buildShareCard();
+        var text = from + " sent " + to + " a warm hug: \"" + message + "\" 🤗 warmhug.bisks.net";
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+
+        els.result.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      els.wrapBtn.addEventListener("click", wrapHug);
+      els.againBtn.addEventListener("click", wrapHug);
+
+      // ---------------------------------------------------------------
+      // share card — canvas, downloadable / native-shareable
+      // (notes/45-sharing-and-virality.md: bake the URL into the shared text)
+      // ---------------------------------------------------------------
+      function wrapCanvasText(c, text, x, y, maxWidth, lineHeight) {
+        var words = text.split(" ");
+        var line = "", cy = y;
+        for (var i = 0; i < words.length; i++) {
+          var test = line ? line + " " + words[i] : words[i];
+          if (line && c.measureText(test).width > maxWidth) {
+            c.fillText(line, x, cy); line = words[i]; cy += lineHeight;
+          } else { line = test; }
+        }
+        if (line) c.fillText(line, x, cy);
+        return cy;
+      }
+      function truncate(s, max) {
+        return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
+      }
+
+      function drawBlobPair(c, cx, cy, scale) {
+        c.save();
+        c.translate(cx, cy);
+        c.scale(scale, scale);
+        // arm A
+        c.strokeStyle = "#ff8fab"; c.lineWidth = 20; c.lineCap = "round";
+        c.beginPath(); c.moveTo(-56, -6); c.quadraticCurveTo(-6, -32, 14, 4); c.stroke();
+        // body A
+        c.fillStyle = "#ff8fab";
+        c.beginPath(); c.ellipse(-72, 6, 40, 48, 0, 0, Math.PI * 2); c.fill();
+        // head A
+        c.fillStyle = "#ffcaa8";
+        c.beginPath(); c.arc(-72, -62, 30, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#3a2440";
+        c.beginPath(); c.arc(-82, -64, 3.4, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(-62, -64, 3.4, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "#3a2440"; c.lineWidth = 2.6;
+        c.beginPath(); c.arc(-72, -60, 9, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+
+        // arm B
+        c.strokeStyle = "#b39ddb"; c.lineWidth = 20;
+        c.beginPath(); c.moveTo(56, -6); c.quadraticCurveTo(6, -32, -14, 4); c.stroke();
+        // body B
+        c.fillStyle = "#b39ddb";
+        c.beginPath(); c.ellipse(72, 6, 40, 48, 0, 0, Math.PI * 2); c.fill();
+        // head B
+        c.fillStyle = "#ffd9c2";
+        c.beginPath(); c.arc(72, -62, 30, 0, Math.PI * 2); c.fill();
+        c.fillStyle = "#3a2440";
+        c.beginPath(); c.arc(62, -64, 3.4, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(82, -64, 3.4, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = "#3a2440"; c.lineWidth = 2.6;
+        c.beginPath(); c.arc(72, -60, 9, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+
+        // heart
+        c.fillStyle = "#ff5a7a";
+        c.beginPath();
+        c.moveTo(0, 36);
+        c.bezierCurveTo(-16, 20, -40, 28, -40, 48);
+        c.bezierCurveTo(-40, 66, -18, 78, 0, 96);
+        c.bezierCurveTo(18, 78, 40, 66, 40, 48);
+        c.bezierCurveTo(40, 28, 16, 20, 0, 36);
+        c.closePath(); c.fill();
+        c.restore();
+      }
+
+      function buildShareCard() {
+        var canvas = els.shareCanvas;
+        var ctx = canvas.getContext("2d");
+        var W = canvas.width, H = canvas.height;
+
+        var grad = ctx.createLinearGradient(0, 0, W, H);
+        grad.addColorStop(0, "#201230");
+        grad.addColorStop(1, "#150b22");
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+
+        var glow1 = ctx.createRadialGradient(W * 0.14, H * -0.1, 0, W * 0.14, H * -0.1, W * 0.5);
+        glow1.addColorStop(0, "rgba(255,138,101,0.30)");
+        glow1.addColorStop(1, "rgba(255,138,101,0)");
+        ctx.fillStyle = glow1; ctx.fillRect(0, 0, W, H);
+        var glow2 = ctx.createRadialGradient(W * 0.88, H * 0.05, 0, W * 0.88, H * 0.05, W * 0.45);
+        glow2.addColorStop(0, "rgba(179,157,219,0.26)");
+        glow2.addColorStop(1, "rgba(179,157,219,0)");
+        ctx.fillStyle = glow2; ctx.fillRect(0, 0, W, H);
+
+        drawBlobPair(ctx, W / 2, 205, 1.65);
+
+        var quoted = "“" + truncate(lastMessage, 170) + "”";
+        var msgFontSize = quoted.length > 130 ? 22 : quoted.length > 90 ? 26 : 30;
+        ctx.fillStyle = "#fff6ee";
+        ctx.textAlign = "center";
+        ctx.font = "700 " + msgFontSize + "px ui-rounded, Nunito, sans-serif";
+        var msgBottom = wrapCanvasText(ctx, quoted, W / 2, 412, 980, Math.round(msgFontSize * 1.35));
+
+        ctx.fillStyle = "#cdbdd8";
+        ctx.font = "600 20px ui-rounded, Nunito, sans-serif";
+        var fromToLine = "from " + truncate(lastFrom, 28) + ", for " + truncate(lastTo, 28);
+        ctx.fillText(fromToLine, W / 2, Math.min(msgBottom + 44, H - 66));
+
+        ctx.fillStyle = "#ffd97a";
+        ctx.font = "800 24px ui-rounded, Nunito, sans-serif";
+        ctx.fillText("warmhug.bisks.net", W / 2, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          var probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (e) { return false; }
+      }
+      if (canShareFiles()) {
+        els.shareNative.style.display = "";
+        els.shareNative.addEventListener("click", function () {
+          els.shareCanvas.toBlob(function (blob) {
+            if (!blob) return;
+            var file = new File([blob], "warmhug.png", { type: "image/png" });
+            var text = lastFrom + " sent " + lastTo + " a warm hug: \"" + lastMessage + "\" 🤗 warmhug.bisks.net";
+            navigator.share({ files: [file], text: text, title: "warmhug" }).catch(function () {});
+          }, "image/png");
+        });
+      }
+      els.shareDownload.addEventListener("click", function () {
+        var link = document.createElement("a");
+        link.download = "warmhug.png";
+        link.href = els.shareCanvas.toDataURL("image/png");
+        link.click();
+      });
+    })();
+    </script>
+  </body>
+</html>
