@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>postcid — write a Bluesky post, watch its record CID compute live — bisks.net</title>
+    <meta
+      name="description"
+      content="A full-featured Bluesky post composer — text, languages, hashtags, mentions, link cards, quote posts, images — that shows you the exact record CID your PDS would assign it, recomputed as you type."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://postcid.bisks.net/" />
+    <meta property="og:title" content="postcid — watch your post's CID compute live" />
+    <meta
+      property="og:description"
+      content="A full-featured Bluesky composer that shows the exact dag-cbor record CID your PDS would assign your post — recomputed live as you type, including facets and blob-accurate embeds."
+    />
+    <meta property="og:image" content="https://postcid.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="postcid" />
+    <meta
+      name="twitter:description"
+      content="A full-featured Bluesky composer that shows your post's exact record CID, live, as you type."
+    />
+    <meta property="og:image" content="https://postcid.bisks.net/og.png" />
+
+    <link rel="stylesheet" href="style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@atproto/api": "https://esm.sh/@atproto/api@0.20.37",
+          "@ipld/dag-cbor": "https://esm.sh/@ipld/dag-cbor@10.0.2",
+          "multiformats/": "https://esm.sh/multiformats@14.0.5/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net">← bisks.net</a>
+        <h1>postcid</h1>
+        <p class="tag">
+          A full-featured Bluesky post composer — languages, hashtags, mentions,
+          link cards, quote posts, images — that shows you the exact
+          <code>app.bsky.feed.post</code> record CID a PDS would assign your post,
+          recomputed live as you type. Nothing here posts anything or needs a login.
+        </p>
+      </header>
+
+      <div class="grid">
+        <div>
+          <section>
+            <h2 class="section-title">text</h2>
+            <textarea id="text" placeholder="what's on your mind? try @bsky.app, #atproto, or a link…" spellcheck="true"></textarea>
+            <div class="counter-row">
+              <span id="counter" class="counter">0 / 300 graphemes · 0 / 3000 bytes</span>
+            </div>
+          </section>
+
+          <section>
+            <h2 class="section-title">languages</h2>
+            <div id="langChips" class="chip-row"></div>
+          </section>
+
+          <section>
+            <h2 class="section-title">created at</h2>
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+              <input type="datetime-local" id="createdAt" step="1" style="width:auto; flex:1; min-width:14rem;" />
+              <button class="secondary tiny" id="nowBtn">now</button>
+            </div>
+            <p class="hint">the record's <code>createdAt</code> is part of what gets hashed — nudge it and watch the CID change even if the text doesn't.</p>
+          </section>
+
+          <section>
+            <h2 class="section-title">embed</h2>
+            <div class="segmented">
+              <button data-kind="none" class="on">none</button>
+              <button data-kind="images">images</button>
+              <button data-kind="external">link card</button>
+              <button data-kind="record">quote post</button>
+            </div>
+
+            <div class="embed-panel hidden" data-panel="images">
+              <div id="imageAddRow">
+                <input type="file" id="imageInput" accept="image/*" multiple />
+                <p class="hint">up to 4 images. each blob's CID is the real sha2-256 of its exact bytes — the same CID a PDS's uploadBlob would hand back.</p>
+              </div>
+              <div id="imageGrid" class="image-grid"></div>
+            </div>
+
+            <div class="embed-panel hidden" data-panel="external">
+              <label for="externalUrl">link</label>
+              <div style="display:flex; gap:0.5rem;">
+                <input type="url" id="externalUrl" placeholder="https://example.com/some-article" />
+                <button class="secondary" id="externalFetchBtn">fetch</button>
+              </div>
+              <div id="externalStatus" class="status"></div>
+              <div id="linkCardPreview"></div>
+              <p class="hint">fetched server-side (browsers can't read another origin's HTML) — see <code>/api/unfurl</code> in this site's Worker.</p>
+            </div>
+
+            <div class="embed-panel hidden" data-panel="record">
+              <label for="quoteInput">bsky.app post url or at:// uri</label>
+              <div style="display:flex; gap:0.5rem;">
+                <input type="text" id="quoteInput" placeholder="https://bsky.app/profile/handle.bsky.social/post/3abc…" />
+                <button class="secondary" id="quoteResolveBtn">resolve</button>
+              </div>
+              <div id="quoteStatus" class="status"></div>
+              <div id="quoteCardPreview"></div>
+            </div>
+          </section>
+
+          <section>
+            <h2 class="section-title">detected facets</h2>
+            <div id="facetList" class="facet-list"></div>
+          </section>
+        </div>
+
+        <div class="sticky-panel">
+          <section>
+            <h2 class="section-title">record cid</h2>
+            <div class="cid-box">
+              <div class="cid-label">app.bsky.feed.post</div>
+              <div id="cidValue" class="cid-value">computing…</div>
+              <div id="cidMeta" class="cid-meta"></div>
+              <div class="copy-row">
+                <button class="secondary tiny" id="copyCidBtn">copy cid</button>
+                <button class="secondary tiny" id="copyJsonBtn">copy record json</button>
+              </div>
+            </div>
+            <div id="warnList" class="warn-list"></div>
+            <details class="record-json" open>
+              <summary>record json</summary>
+              <pre id="recordJson" class="json"></pre>
+            </details>
+            <div class="share-row">
+              <a id="shareBtn" href="#" target="_blank" rel="noopener"><button class="secondary">share postcid</button></a>
+            </div>
+          </section>
+
+          <section>
+            <h2 class="section-title">how this works</h2>
+            <p class="hint">
+              The CID is computed exactly the way a PDS computes it: the record
+              above gets deterministically <a href="https://ipld.io/specs/codecs/dag-cbor/spec/" target="_blank" rel="noopener">dag-cbor</a>-encoded,
+              sha2-256 hashed, and wrapped as a CIDv1. Blob refs (images, link-card
+              thumbnails) use the same math with the <em>raw</em> codec over the
+              literal bytes — no upload needed to know what CID they'd get. Mentions
+              are resolved to DIDs and links/tags detected with the same
+              <code>@atproto/api</code> <code>RichText</code> code the real Bluesky
+              client uses, so the facets you see here are what it would actually send.
+            </p>
+          </section>
+        </div>
+      </div>
+
+      <footer>
+        <p>built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, for <a href="https://bsky.app/profile/mfzx.net">@mfzx.net</a> · nothing here touches your Bluesky account</p>
+      </footer>
+    </div>
+
+    <script type="module" src="lib/compose.js"></script>
+  </body>
+</html>
