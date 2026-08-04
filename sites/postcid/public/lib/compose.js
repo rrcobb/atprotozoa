@@ -65,6 +65,7 @@ const state = {
   text: "",
   langs: new Set(),
   createdAt: new Date().toISOString(),
+  via: "",
   embedKind: "none", // none | images | external | record
   images: [], // { bytes, alt, width, height, mimeType, size, cid, previewUrl }
   external: { uri: "", title: "", description: "", thumb: null, includeThumb: true },
@@ -139,6 +140,7 @@ function buildRecord() {
   if (state.langs.size) record.langs = [...state.langs];
   const embed = buildEmbed();
   if (embed) record.embed = embed;
+  if (state.via.trim()) record.via = state.via.trim();
   return record;
 }
 
@@ -523,7 +525,7 @@ async function resolveQuote(rawInput) {
 // ---------- wiring ----------
 function initEls() {
   [
-    "text", "counter", "createdAt", "nowBtn", "langChips",
+    "text", "counter", "createdAt", "nowBtn", "langChips", "viaInput",
     "imageInput", "imageGrid", "imageAddRow", "externalUrl", "externalFetchBtn",
     "externalStatus", "linkCardPreview", "quoteInput", "quoteResolveBtn",
     "quoteStatus", "quoteCardPreview", "facetList", "cidValue", "cidMeta",
@@ -559,6 +561,11 @@ function init() {
     const now = new Date();
     state.createdAt = now.toISOString();
     els.createdAt.value = toLocalInputValue(now);
+    scheduleRecompute();
+  });
+
+  els.viaInput.addEventListener("input", (e) => {
+    state.via = e.target.value;
     scheduleRecompute();
   });
 
