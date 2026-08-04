@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ngmi — are you gonna make it?</title>
+<meta name="description" content="Enter a Bluesky handle. ngmi downloads their whole repo straight from their PDS and reads their posting history for grift language, doomer talk, reply-guy ratios, 3am posting, and more — verdict with receipts, not vibes." />
+<meta property="og:title" content="ngmi — are you gonna make it?" />
+<meta property="og:description" content="Enter a Bluesky handle. ngmi downloads their whole repo straight from their PDS and reads their posting history for grift language, doomer talk, reply-guy ratios, 3am posting, and more — verdict with receipts, not vibes." />
+<meta property="og:url" content="https://ngmi.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://ngmi.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="ngmi: a scorecard reading NGMI SCORE with a big number and a verdict." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="ngmi — are you gonna make it?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. ngmi downloads their whole repo straight from their PDS and reads their posting history for grift language, doomer talk, reply-guy ratios, 3am posting, and more — verdict with receipts, not vibes." />
+<meta name="twitter:image" content="https://ngmi.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #08090a;
+    --bg2: #121415;
+    --fg: #eef3ef;
+    --dim: #8a978f;
+    --accent: #39ff88;
+    --bad: #ff3b3b;
+    --warn: #ffb84c;
+    --card: #101312;
+    --border: #232a26;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #0d2a18 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #2a0d0d 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 2.1rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--bad));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.95rem; font: inherit; font-size: 0.98rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[type="submit"] {
+    background: linear-gradient(90deg, var(--accent), var(--warn));
+    color: #06120a; border: none; border-radius: 8px; padding: 0.8rem 1.2rem;
+    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer; white-space: nowrap;
+  }
+  button[type="submit"]:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  #result { display: none; }
+  #result.show { display: block; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.8rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.3rem; }
+  .who img { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .who .name { font-weight: 700; font-size: 1rem; }
+  .who .handle { color: var(--dim); font-size: 0.82rem; }
+  .who .handle a { color: inherit; text-decoration: none; }
+  .who .handle a:hover { text-decoration: underline; }
+
+  .verdict-box { text-align: center; border: 1px dashed var(--border); border-radius: 12px; padding: 1.3rem 1rem; margin-bottom: 1.4rem; }
+  .score-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 0.3rem; }
+  .score { font-size: 3rem; font-weight: 800; color: var(--bad); line-height: 1; }
+  .score.good { color: var(--accent); }
+  .score.mid { color: var(--warn); }
+  .verdict-text { margin-top: 0.6rem; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .verdict-blurb { color: var(--dim); font-size: 0.87rem; font-style: italic; margin-top: 0.3rem; }
+
+  .totals { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.2rem; }
+  .stat { flex: 1; min-width: 90px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.6rem; text-align: center; }
+  .stat .n { font-size: 1.1rem; font-weight: 800; color: var(--warn); }
+  .stat .l { font-size: 0.64rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .evidence { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 0.4rem; }
+  .ev { border-left: 3px solid var(--border); padding-left: 0.9rem; font-size: 0.87rem; line-height: 1.5; }
+  .ev.hot { border-left-color: var(--bad); }
+  .ev.good { border-left-color: var(--accent); }
+  .ev-head { font-weight: 700; }
+  .ev-detail { color: var(--dim); }
+  .ev-posts { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .ev-post { font-size: 0.8rem; border-left: 2px solid var(--border); padding-left: 0.6rem; color: var(--fg); opacity: 0.85; }
+  .ev-post a { color: var(--accent); text-decoration: none; font-size: 0.75rem; }
+  .ev-post a:hover { text-decoration: underline; }
+  .ev-post q { font-style: italic; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.6rem; padding-top: 1.3rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--bad)); color: #06120a; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--bad); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ngmi</h1>
+    <p class="tag">
+      Paste a Bluesky handle. ngmi downloads their <b>whole repo</b> straight
+      from their PDS — every post they've ever made, not a recent sample —
+      and reads it for grift language, doomer talk, reply-guy ratios, 3am
+      posting clusters, going dark, and a few counter-signals that actually
+      help. Verdict with <b>receipts</b>: every flag links back to the exact
+      post that triggered it.
+    </p>
+    <p class="credit">
+      built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>,
+      who asked whether people are ngmi. <em>no LLM behind this, just word
+      lists and timestamps read off the public record.</em>
+    </p>
+
+    <form id="f">
+      <input type="text" id="handleInput" placeholder="e.g. alice.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">check</button>
+    </form>
+    <p class="hint">reads the account's entire post history, so prolific posters take a little longer.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="result"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/ngmi-analysis.js"></script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { resolvePds } from "./lib/identity.js";
+
+const API = "https://public.api.bsky.app/xrpc/";
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handleInput"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  result: document.getElementById("result"),
+};
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.input);
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function resolveOne(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) throw new Error("empty handle");
+  const did = handle.startsWith("did:") ? handle : (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+  return {
+    did,
+    handle: profile.handle || handle,
+    displayName: profile.displayName || "",
+    avatar: profile.avatar || "",
+    followersCount: profile.followersCount || 0,
+    followsCount: profile.followsCount || 0,
+    postsCount: profile.postsCount || 0,
+  };
+}
+
+function shareUrlFor(handle) {
+  return "https://ngmi.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(person, result) {
+  const url = shareUrlFor(person.handle);
+  const headline = result.noData
+    ? `checked @${person.handle} on ngmi: no posts found to read.`
+    : `checked @${person.handle} on ngmi: ${result.score}/100 — ${result.verdict.label}.`;
+  let text = `${headline}\n\n${url}`;
+  if (text.length > 300) text = `${headline}\n${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines) { ctx.fillText("…", x, cy); return cy; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(canvas, person, result) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(person.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#08090a";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#0d2a18");
+  glow.addColorStop(1, "rgba(8,9,10,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#39ff88";
+  ctx.font = `800 44px ${mono}`;
+  ctx.fillText("ngmi", 56, 84);
+
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(W / 2, 150, 46, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, W / 2 - 46, 150 - 46, 92, 92);
+    ctx.restore();
+  }
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#eef3ef";
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText("@" + person.handle, W / 2, 226);
+
+  ctx.strokeStyle = "#232a26";
+  ctx.lineWidth = 1.5;
+  const cardX = 130, cardY = 260, cardW = W - 260, cardH = H - 320;
+  ctx.fillStyle = "#101312";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#8a978f";
+  ctx.font = `700 16px ${mono}`;
+  ctx.fillText("NGMI SCORE", W / 2, cardY + 50);
+
+  const scoreColor = result.noData ? "#8a978f" : result.score >= 46 ? "#ff3b3b" : result.score >= 21 ? "#ffb84c" : "#39ff88";
+  ctx.fillStyle = scoreColor;
+  ctx.font = `800 100px ${mono}`;
+  ctx.fillText(result.noData ? "—" : String(result.score), W / 2, cardY + 158);
+
+  ctx.fillStyle = "#ff3b3b";
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText((result.verdict.label || "").toUpperCase(), W / 2, cardY + 198);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#eef3ef";
+  ctx.font = `italic 19px ${mono}`;
+  wrapCanvasText(ctx, result.verdict.blurb, cardX + 48, cardY + 236, cardW - 96, 26, 2);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff3b3b";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("ngmi.bisks.net", 56, H - 40);
+}
+
+function statBlock(n, label) {
+  return `<div class="stat"><div class="n">${esc(n)}</div><div class="l">${esc(label)}</div></div>`;
+}
+
+function renderEvidence(ev) {
+  const cls = ev.weight >= 15 ? " hot" : ev.weight < 0 ? " good" : "";
+  const postsHtml = (ev.posts || [])
+    .map((p) => `<div class="ev-post"><q>${esc(p.text)}</q>${p.url ? ` — <a href="${esc(p.url)}" target="_blank" rel="noopener">view post →</a>` : ""}</div>`)
+    .join("");
+  return `<div class="ev${cls}"><div class="ev-head">${ev.icon} ${esc(ev.label)}</div><div class="ev-detail">${esc(ev.detail)}</div>${postsHtml ? `<div class="ev-posts">${postsHtml}</div>` : ""}</div>`;
+}
+
+function renderResult(person, result) {
+  const scoreClass = result.noData ? "" : result.score <= 20 ? " good" : result.score <= 45 ? " mid" : "";
+  const avatarHtml = person.avatar ? `<img src="${esc(person.avatar)}" alt="" />` : `<img src="" alt="" style="visibility:hidden;" />`;
+
+  const totalsHtml = result.noData
+    ? ""
+    : `<div class="totals">
+        ${statBlock(result.totals.posts, "posts read")}
+        ${statBlock(result.totals.replies, "replies")}
+        ${statBlock(result.totals.original, "original posts")}
+        ${statBlock(result.totals.lastPostDaysAgo === null ? "—" : result.totals.lastPostDaysAgo, "days since last post")}
+      </div>`;
+
+  const evidenceHtml = result.evidence.length
+    ? `<div class="evidence">${result.evidence.map(renderEvidence).join("")}</div>`
+    : "";
+
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `
+    <div class="who">
+      ${avatarHtml}
+      <div>
+        <div class="name">${esc(person.displayName || person.handle)}</div>
+        <div class="handle"><a href="https://bsky.app/profile/${esc(person.handle)}" target="_blank" rel="noopener">@${esc(person.handle)}</a></div>
+      </div>
+    </div>
+    <div class="verdict-box">
+      <div class="score-label">ngmi score</div>
+      <div class="score${scoreClass}">${result.noData ? "—" : result.score}</div>
+      <div class="verdict-text">${esc((result.verdict.label || "").toUpperCase())}</div>
+      <div class="verdict-blurb">${esc(result.verdict.blurb)}</div>
+    </div>
+    ${totalsHtml}
+    ${evidenceHtml}
+    <div class="share">
+      <canvas class="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button class="shareNative" type="button" style="display:none;border:none;">📤 share card</button>
+        <a class="shareBluesky" target="_blank" rel="noopener">🦋 share the verdict</a>
+        <button class="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+  `;
+
+  const canvas = div.querySelector(".shareCanvas");
+  const shareBluesky = div.querySelector(".shareBluesky");
+  const shareDownload = div.querySelector(".shareDownload");
+  const shareNative = div.querySelector(".shareNative");
+  const shareText = buildShareText(person, result);
+  shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(canvas, person, result);
+
+  shareDownload.addEventListener("click", () => {
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `ngmi-${person.handle}.png`.replace(/[^a-z0-9.-]/gi, "_");
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    shareNative.style.display = "";
+    shareNative.addEventListener("click", () => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "ngmi.png", { type: "image/png" });
+        try { await navigator.share({ files: [file], text: shareText, title: "ngmi" }); } catch (_) {}
+      }, "image/png");
+    });
+  }
+
+  return div;
+}
+
+async function run(rawHandle) {
+  const handle = cleanHandle(rawHandle !== undefined ? rawHandle : els.input.value);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.result.classList.remove("show");
+  els.result.innerHTML = "";
+  setStatus("resolving handle...");
+
+  try {
+    const person = await resolveOne(handle);
+
+    setStatus(`finding @${person.handle}'s PDS...`);
+    const pds = await resolvePds(person.did);
+    if (!pds) throw new Error("couldn't resolve a PDS for this account");
+
+    const { records } = await fetchRepoRecordsWithKeys(pds, person.did, "app.bsky.feed.post", (msg) => setStatus(msg));
+
+    setStatus("reading the receipts...");
+    const result = window.NgmiAnalysis.analyze({
+      handle: person.handle,
+      records,
+      profile: person,
+    });
+
+    els.result.innerHTML = "";
+    els.result.appendChild(renderResult(person, result));
+    els.result.classList.add("show");
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't run that check: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run();
+});
+
+// /s/<handle> (share links) or ?h=<handle> both auto-run on load.
+const pathMatch = location.pathname.match(/\/s\/([^/]+)\/?$/);
+const qs = new URLSearchParams(location.search);
+const shared = (pathMatch && decodeURIComponent(pathMatch[1])) || qs.get("h");
+if (shared) {
+  els.input.value = shared;
+  run(shared);
+}
+</script>
+</body>
+</html>
