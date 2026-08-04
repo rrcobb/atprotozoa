@@ -246,8 +246,54 @@ function renderFacets() {
 }
 
 function renderLangChips() {
+  const customLangs = [...state.langs].filter((l) => !COMMON_LANGS.some(([code]) => code === l));
+  els.langChips.innerHTML =
+    COMMON_LANGS.map(
+      ([code, name]) =>
+        `<label class="chip${state.langs.has(code) ? " on" : ""}" data-lang="${code}"><input type="checkbox" ${state.langs.has(code) ? "checked" : ""} />${name}</label>`
+    ).join("") +
+    customLangs
+      .map(
+        (code) => `<span class="chip on custom-chip" data-custom-lang="${escapeHtml(code)}">${escapeHtml(code)}<button type="button" class="chip-remove" data-custom-lang="${escapeHtml(code)}" aria-label="remove ${escapeHtml(code)}">&times;</button></span>`
+      )
+      .join("") +
+    `<span class="chip"><input type="text" class="custom-input" id="customLangInput" placeholder="+ code" maxlength="8" /></span>`;
+
+  // A <label> wrapping its <input> gets a click fired on the label itself
+  // AND a second, synthetic click forwarded to (and bubbled back up from)
+  // the input for every physical click — so a listener on the label toggles
+  // twice per click and net-cancels. Listen for the checkbox's own "change"
+  // instead; that fires exactly once regardless of whether the label or the
+  // checkbox was clicked.
   els.langChips.querySelectorAll(".chip[data-lang]").forEach((chip) => {
-    chip.classList.toggle("on", state.langs.has(chip.dataset.lang));
+    const checkbox = chip.querySelector("input[type=checkbox]");
+    checkbox.addEventListener("change", () => {
+      const lang = chip.dataset.lang;
+      if (checkbox.checked) state.langs.add(lang);
+      else state.langs.delete(lang);
+      renderLangChips();
+      scheduleRecompute();
+    });
+  });
+  els.langChips.querySelectorAll(".chip-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.langs.delete(btn.dataset.customLang);
+      renderLangChips();
+      scheduleRecompute();
+    });
+  });
+  q("customLangInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const v = e.target.value.trim().toLowerCase();
+      if (v && !state.langs.has(v)) {
+        state.langs.add(v);
+        renderLangChips();
+        scheduleRecompute();
+      } else {
+        e.target.value = "";
+      }
+    }
   });
 }
 
@@ -477,7 +523,7 @@ async function resolveQuote(rawInput) {
 // ---------- wiring ----------
 function initEls() {
   [
-    "text", "counter", "createdAt", "nowBtn", "langChips", "customLangInput",
+    "text", "counter", "createdAt", "nowBtn", "langChips",
     "imageInput", "imageGrid", "imageAddRow", "externalUrl", "externalFetchBtn",
     "externalStatus", "linkCardPreview", "quoteInput", "quoteResolveBtn",
     "quoteStatus", "quoteCardPreview", "facetList", "cidValue", "cidMeta",
@@ -494,31 +540,7 @@ function setEmbedKind(kind) {
 
 function init() {
   initEls();
-
-  els.langChips.innerHTML =
-    COMMON_LANGS.map(([code, name]) => `<label class="chip" data-lang="${code}"><input type="checkbox" />${name}</label>`).join("") +
-    `<span class="chip"><input type="text" class="custom-input" id="customLangInput" placeholder="+ code" maxlength="8" /></span>`;
-  els.langChips.querySelectorAll(".chip[data-lang]").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const lang = chip.dataset.lang;
-      if (state.langs.has(lang)) state.langs.delete(lang);
-      else state.langs.add(lang);
-      renderLangChips();
-      scheduleRecompute();
-    });
-  });
-  q("customLangInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const v = e.target.value.trim();
-      if (v) {
-        state.langs.add(v);
-        e.target.value = "";
-        renderLangChips();
-        scheduleRecompute();
-      }
-    }
-  });
+  renderLangChips();
 
   els.text.addEventListener("input", (e) => {
     state.text = e.target.value;
