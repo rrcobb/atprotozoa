@@ -1,0 +1,41 @@
+name = "atprotozoa-constraintfund"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @shimmermathlabs.com tagged the bot on a thread where @ver.ooo said "many
+# people should be exploring the space of generative constraints that make
+# things interesting, and there should be funding for that, tbh" — this site
+# is that idea made literal: a public board to nominate who should get funded
+# to do that, with an optional message on why, and votes. Nominating someone
+# already on the board just adds a vote instead of splitting into a new row,
+# and near-identical names (typos, punctuation, spacing) get folded together
+# automatically so votes don't split there either.
+#
+# Copied from sites/simcluster-guests — same "single-writer rolling state in
+# one Durable Object" shape (see notes/10-architecture.md), same fuzzy-merge
+# dedupe logic (exact normalized match, then Levenshtein fallback), just
+# relabeled guest/reason -> nominee/message. No login: nominating and voting
+# are both open, with per-IP cooldowns as the only anti-spam.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (the gotcha called out in sites/logs, sites/didscope, sites/the-place).
+routes = [
+  { pattern = "constraintfund.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "BOARD"
+class_name = "FundBoard"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml for the
+# full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FundBoard"]
