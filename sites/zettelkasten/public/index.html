@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zettelkasten — a slip-box for atomic, linked notes</title>
+<meta name="description" content="a little slip-box: atomic notes linked by [[wikilinks]] instead of folders, with backlinks and a live link graph. everything lives in your browser.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="zettelkasten — a slip-box for atomic, linked notes">
+<meta property="og:description" content="atomic notes linked by [[wikilinks]] instead of folders — write, link, watch structure emerge in the graph.">
+<meta property="og:image" content="https://zettelkasten.bisks.net/og.png">
+<meta property="og:url" content="https://zettelkasten.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="zettelkasten — a slip-box for atomic, linked notes">
+<meta name="twitter:description" content="atomic notes linked by [[wikilinks]] instead of folders — write, link, watch structure emerge in the graph.">
+<meta name="twitter:image" content="https://zettelkasten.bisks.net/og.png">
+
+<style>
+  :root {
+    --bg: #14110d;
+    --panel: #1c1712;
+    --panel2: #241d15;
+    --line: #3c3226;
+    --ink: #eee3c8;
+    --dim: #a89a7c;
+    --card: #f3ead4;
+    --card-ink: #2b2418;
+    --card-line: #d9c9a0;
+    --red: #c0574a;
+    --red-dim: #7a3a30;
+    --gold: #c9a227;
+    --gold-dim: #8a6f1c;
+    --good: #7fae74;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(circle at 15% -10%, #241c12 0%, var(--bg) 55%);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  a { color: var(--gold); }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 32px 18px 60px; }
+
+  header { margin-bottom: 20px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: 0.3px; color: var(--gold); }
+  .tagline { color: var(--dim); font-size: 14px; max-width: 68ch; }
+  .origin { color: var(--dim); font-size: 12px; margin-top: 8px; opacity: 0.85; max-width: 68ch; }
+  .origin a { color: var(--gold-dim); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.3px;
+    color: var(--dim);
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel h2 .count { color: var(--gold-dim); text-transform: none; letter-spacing: 0; font-size: 11px; }
+
+  button, .btn {
+    font: inherit;
+    font-size: 12.5px;
+    background: var(--panel2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px 12px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  button:hover, .btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+  button.primary {
+    background: linear-gradient(180deg, var(--gold), var(--gold-dim));
+    color: #1a1509;
+    border-color: var(--gold-dim);
+    font-weight: 700;
+  }
+  button.primary:hover { color: #1a1509; filter: brightness(1.08); }
+  button.ghost { background: transparent; }
+  button.danger { color: #c98878; }
+  button.danger:hover { color: #e0a08e; border-color: #6b3a30; }
+  button.active { border-color: var(--gold-dim); color: var(--gold); background: var(--panel); }
+  button.small { font-size: 11.5px; padding: 6px 10px; }
+  input, textarea { font: inherit; color: var(--ink); background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; }
+  input:focus, textarea:focus { outline: 1px solid var(--gold-dim); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .toolbar input#search { flex: 1 1 180px; padding: 9px 12px; }
+  .toolbar .spacer { flex: 1 1 auto; }
+  .kbd-hint { color: var(--dim); font-size: 11px; }
+  .kbd-hint kbd { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 10.5px; }
+
+  .board { display: grid; grid-template-columns: 240px 1fr 300px; gap: 14px; align-items: start; }
+  @media (max-width: 920px) {
+    .board { grid-template-columns: 1fr; }
+  }
+
+  /* --- note list --- */
+  .taglist { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+  .tagchip {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--dim); cursor: pointer;
+  }
+  .tagchip:hover { color: var(--gold); border-color: var(--gold-dim); }
+  .tagchip.active { color: var(--gold); border-color: var(--gold); background: var(--panel); }
+
+  #noteList { list-style: none; margin: 0; padding: 0; max-height: 560px; overflow-y: auto; }
+  #noteList li {
+    background: var(--card);
+    color: var(--card-ink);
+    border: 1px solid var(--card-line);
+    border-radius: 6px;
+    padding: 9px 10px;
+    margin-bottom: 7px;
+    cursor: pointer;
+    box-shadow: 2px 2px 0 rgba(0,0,0,0.18);
+  }
+  #noteList li:hover { transform: translateY(-1px); }
+  #noteList li.active { border-color: var(--gold); box-shadow: 2px 2px 0 var(--gold-dim); }
+  #noteList li .t { font-weight: 700; font-size: 13px; margin-bottom: 3px; }
+  #noteList li .s { font-size: 11px; color: #5c4f38; line-height: 1.35; }
+  #noteList li .m { font-size: 10px; color: #8a7a56; margin-top: 4px; }
+  .empty-note { color: var(--dim); font-size: 12.5px; font-style: italic; padding: 10px 2px; }
+
+  /* --- editor --- */
+  .editor-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  #titleInput { flex: 1; font-size: 18px; font-weight: 700; padding: 10px 12px; background: var(--card); color: var(--card-ink); border-color: var(--card-line); }
+  .tabs { display: flex; gap: 4px; }
+  .own-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; min-height: 20px; }
+  #bodyInput { width: 100%; min-height: 340px; resize: vertical; padding: 12px; font-size: 13.5px; }
+  #previewPane { display: none; min-height: 340px; padding: 14px 16px; background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; font-size: 13.5px; }
+  #previewPane h3, #previewPane h4, #previewPane h5 { color: var(--gold); margin: 14px 0 6px; }
+  #previewPane h3:first-child { margin-top: 0; }
+  #previewPane p { margin: 0 0 10px; }
+  #previewPane blockquote { margin: 0 0 10px; padding: 4px 12px; border-left: 3px solid var(--gold-dim); color: var(--dim); }
+  #previewPane code { background: var(--panel); padding: 1px 5px; border-radius: 4px; color: var(--good); }
+  #previewPane ul { margin: 0 0 10px; padding-left: 20px; }
+  a.wikilink { color: var(--gold); text-decoration: none; border-bottom: 1px dotted var(--gold-dim); }
+  a.wikilink:hover { color: #e0c060; }
+  a.wikilink.missing { color: var(--red); border-bottom-color: var(--red-dim); }
+  a.tag { color: var(--dim); text-decoration: none; }
+  a.tag:hover { color: var(--gold); }
+  .editor-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: var(--dim); }
+  .editor-empty { color: var(--dim); font-size: 13px; font-style: italic; padding: 60px 0; text-align: center; }
+
+  /* --- right column --- */
+  #backlinkList { list-style: none; margin: 0; padding: 0; }
+  #backlinkList li { margin-bottom: 8px; padding: 8px 9px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  #backlinkList li:hover { border-color: var(--gold-dim); }
+  #backlinkList li .t { font-weight: 700; font-size: 12.5px; color: var(--gold); }
+  #backlinkList li .s { font-size: 11px; color: var(--dim); margin-top: 2px; }
+
+  #graphWrap { position: relative; }
+  canvas#graph { width: 100%; height: 240px; display: block; border-radius: 7px; background: var(--panel2); border: 1px solid var(--line); cursor: default; }
+  .graph-hint { font-size: 10.5px; color: var(--dim); margin-top: 6px; }
+
+  .share-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+  /* --- quick switcher --- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(10,8,5,0.7);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 12vh; z-index: 50;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal { width: min(520px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  #qsInput { width: 100%; padding: 10px 12px; font-size: 14px; margin-bottom: 8px; }
+  #qsList { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+  #qsList li { padding: 8px 9px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  #qsList li .s { color: var(--dim); font-size: 11px; }
+  #qsList li.sel { background: var(--panel2); color: var(--gold); }
+
+  footer { margin-top: 26px; color: var(--dim); font-size: 12px; text-align: center; }
+  footer a { color: var(--gold-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🗃️ zettelkasten</h1>
+    <div class="tagline">
+      one idea per note, connected by <code>[[wikilinks]]</code> instead of folders —
+      write, link, and watch structure emerge in the graph. everything lives in this
+      browser, nowhere else.
+    </div>
+    <div class="origin">
+      built after <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a>
+      tagged the bot warning it not to "go psychotic and incommunicado" designing one.
+      the box stayed legible — see <a href="#" data-goto="do not go psychotic">the note about it</a>.
+    </div>
+  </header>
+
+  <div class="panel toolbar">
+    <input id="search" type="text" placeholder="search notes…">
+    <button id="newNote" class="primary">+ new note</button>
+    <span class="kbd-hint"><kbd>⌘K</kbd> jump · <kbd>⌘N</kbd> new</span>
+    <span class="spacer"></span>
+    <button id="exportBtn" class="ghost">⬇ export</button>
+    <button id="importBtn" class="ghost">⬆ import</button>
+    <input id="importFile" type="file" accept="application/json" style="display:none;">
+    <button id="resetBox" class="ghost danger">empty the box</button>
+  </div>
+
+  <div class="board">
+    <div class="panel">
+      <h2>the box <span class="count" id="boxCount">0 notes</span></h2>
+      <div class="taglist" id="tagFilterRow"></div>
+      <ul id="noteList"></ul>
+    </div>
+
+    <div class="panel">
+      <div id="editorEmpty" class="editor-empty" style="display:none;">the box is empty. start a note →</div>
+      <div id="editorBody">
+        <div class="editor-head">
+          <input id="titleInput" type="text" placeholder="untitled">
+          <div class="tabs">
+            <button id="tabWrite" class="small active">write</button>
+            <button id="tabRead" class="small">read</button>
+          </div>
+          <button id="deleteNote" class="ghost danger small">delete</button>
+        </div>
+        <div class="own-tags" id="ownTags"></div>
+        <textarea id="bodyInput" placeholder="write here. use [[note title]] to link, #tag to tag."></textarea>
+        <div id="previewPane"></div>
+        <div class="editor-foot">
+          <span id="saveStatus">—</span>
+          <span id="wordCount">0 words</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>linked from</h2>
+        <ul id="backlinkList"></ul>
+        <div class="empty-note" id="backlinkEmpty">nothing links here yet.</div>
+      </div>
+      <div class="panel">
+        <h2>the web</h2>
+        <div id="graphWrap">
+          <canvas id="graph" width="600" height="480"></canvas>
+        </div>
+        <div class="graph-hint">click a node to open that note. gold = the note you're on.</div>
+      </div>
+      <div class="panel">
+        <h2>share</h2>
+        <div class="share-row">
+          <a id="shareBluesky" class="btn" target="_blank" rel="noopener">🦋 tell people</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<div class="modal-overlay" id="quickSwitch" hidden>
+  <div class="modal">
+    <input id="qsInput" type="text" placeholder="jump to a note…">
+    <ul id="qsList"></ul>
+  </div>
+</div>
+
+<script>
+const STORE_KEY = "zettelkasten.notes.v1";
+
+const SEED_NOTES = [
+  { title: "welcome to the box", body:
+`this is a **zettelkasten** — a slip-box of small, linked notes. one idea per note, connected by [[wikilinks]] instead of folders.
+
+type \`[[Note Title]]\` anywhere in a note's body to link to another note — if it doesn't exist yet, clicking the link creates it. that's the whole trick.
+
+start with [[the zettelkasten method]], or riff on [[open questions]] — that note doesn't exist yet; clicking it will make it.
+
+tag notes with #hashtags to filter the box later. (also: this app exists so nobody has to lose their mind organizing their own notes by hand — see [[do not go psychotic]].)` },
+  { title: "the zettelkasten method", body:
+`invented by sociologist niklas luhmann, who kept a box of roughly 90,000 index cards and used it to write 70+ books.
+
+the core moves:
+- write [[atomic notes]] — one idea per note, in your own words
+- link liberally instead of filing into categories
+- let structure **emerge** — see [[emergence]] — instead of planning a hierarchy up front
+
+the box isn't a filing cabinet. it's a conversation partner.
+
+#method` },
+  { title: "atomic notes", body:
+`a note should hold exactly one idea — small enough to link to precisely.
+
+if a note is doing two jobs, split it. each half becomes its own node in [[the zettelkasten method]], and now you can link to just the part you need.
+
+#method` },
+  { title: "emergence", body:
+`structure you didn't plan, showing up anyway.
+
+a slip-box has no fixed hierarchy — see [[the zettelkasten method]] — but after enough notes and enough [[wikilinks]], clusters and through-lines appear in the graph that weren't designed in advance. that's the payoff.` },
+  { title: "wikilinks", body:
+`type \`[[note title]]\` to link. type \`[[note title|shown text]]\` to link with an alias, like [[the zettelkasten method|Luhmann's method]].
+
+a link to a note that doesn't exist yet renders in red — click it to create that note on the spot. this is how the box grows: follow a red thread, write the note it deserves.` },
+  { title: "do not go psychotic", body:
+`a note to self, prompted by the brief that built this app: "do NOT go psychotic and incommunicado from designing a zettelkasten app."
+
+so: the box stays legible. every note stays small ([[atomic notes]]), every link stays visible in the graph panel, and nothing is ever more than a few clicks from [[welcome to the box]].
+
+#reminder` },
+];
+
+function uid() { return "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function now() { return Date.now(); }
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((now() - ts) / 1000));
+  if (s < 30) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  if (s < 86400 * 30) return Math.floor(s / 86400) + "d ago";
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+const state = { notes: {}, activeId: null, filterTag: null, query: "" };
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state.notes = parsed.notes || {};
+    }
+  } catch (_) { state.notes = {}; }
+}
+function persist() {
+  localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, notes: state.notes }));
+}
+function seedIfEmpty() {
+  if (Object.keys(state.notes).length) return;
+  const t = now();
+  SEED_NOTES.forEach((s, i) => {
+    const id = uid();
+    const ts = t - (SEED_NOTES.length - i) * 1000;
+    state.notes[id] = { id, title: s.title, body: s.body, created: ts, updated: ts };
+  });
+  persist();
+}
+
+function notesArray() { return Object.values(state.notes).sort((a, b) => b.updated - a.updated); }
+function findByTitle(title) {
+  const t = String(title).trim().toLowerCase();
+  return notesArray().find((n) => n.title.trim().toLowerCase() === t) || null;
+}
+function parseLinks(body) {
+  const out = [];
+  const re = /\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g;
+  let m;
+  while ((m = re.exec(body))) out.push({ target: m[1].trim(), alias: m[2] ? m[2].trim() : null });
+  return out;
+}
+function parseTags(body) {
+  const out = new Set();
+  const re = /(^|\s)#([a-zA-Z][\w-]*)/g;
+  let m;
+  while ((m = re.exec(body))) out.add(m[2].toLowerCase());
+  return [...out];
+}
+function countUniqueLinks() {
+  const seen = new Set();
+  for (const n of notesArray()) {
+    for (const l of parseLinks(n.body)) {
+      const t = findByTitle(l.target);
+      if (!t || t.id === n.id) continue;
+      seen.add([n.id, t.id].sort().join("|"));
+    }
+  }
+  return seen.size;
+}
+function computeBacklinks(note) {
+  const t = note.title.trim().toLowerCase();
+  return notesArray().filter((n) => n.id !== note.id && parseLinks(n.body).some((l) => l.target.trim().toLowerCase() === t));
+}
+function snippet(body) {
+  return body
+    .replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, (m, t, a) => a || t)
+    .replace(/[#*>`_]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+function renderMarkdown(raw) {
+  const lines = raw.split(/\r?\n/);
+  let html = "", inList = false, inQuote = false;
+  function closeBlocks() {
+    if (inList) { html += "</ul>"; inList = false; }
+    if (inQuote) { html += "</blockquote>"; inQuote = false; }
+  }
+  function inline(s) {
+    s = escapeHtml(s);
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    s = s.replace(/\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g, (m, title, alias) => {
+      const t = title.trim();
+      const exists = !!findByTitle(t);
+      const label = escapeHtml((alias || t).trim());
+      return `<a href="#" class="wikilink${exists ? "" : " missing"}" data-goto="${escapeHtml(t)}">${label}</a>`;
+    });
+    s = s.replace(/(^|\s)#([a-zA-Z][\w-]*)/g, (m, pre, tag) => `${pre}<a href="#" class="tag" data-tag="${escapeHtml(tag.toLowerCase())}">#${escapeHtml(tag)}</a>`);
+    return s;
+  }
+  for (const line of lines) {
+    if (/^\s*$/.test(line)) { closeBlocks(); continue; }
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) { closeBlocks(); const lvl = h[1].length + 2; html += `<h${lvl}>${inline(h[2])}</h${lvl}>`; continue; }
+    const li = line.match(/^\s*[-*]\s+(.*)$/);
+    if (li) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(li[1])}</li>`; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    const q = line.match(/^\s*>\s?(.*)$/);
+    if (q) { if (!inQuote) { html += "<blockquote>"; inQuote = true; } html += `<p>${inline(q[1])}</p>`; continue; }
+    if (inQuote) { html += "</blockquote>"; inQuote = false; }
+    html += `<p>${inline(line)}</p>`;
+  }
+  closeBlocks();
+  return html || `<p class="empty-note">nothing here yet.</p>`;
+}
+
+// --- rename propagation: editing a title fixes up every [[link]] to it ---
+function renameNote(noteId, oldTitle, newTitle) {
+  if (oldTitle.trim().toLowerCase() === newTitle.trim().toLowerCase()) return;
+  const esc = oldTitle.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("\\[\\[\\s*" + esc + "\\s*(\\|[^\\]]+)?\\]\\]", "gi");
+  for (const n of notesArray()) {
+    if (n.id === noteId) continue;
+    const before = n.body;
+    const after = before.replace(re, (m, aliasPart) => `[[${newTitle}${aliasPart || ""}]]`);
+    if (after !== before) { n.body = after; n.updated = now(); }
+  }
+}
+
+// --- DOM refs ---
+const els = {
+  search: document.getElementById("search"),
+  newNote: document.getElementById("newNote"),
+  exportBtn: document.getElementById("exportBtn"),
+  importBtn: document.getElementById("importBtn"),
+  importFile: document.getElementById("importFile"),
+  resetBox: document.getElementById("resetBox"),
+  boxCount: document.getElementById("boxCount"),
+  tagFilterRow: document.getElementById("tagFilterRow"),
+  noteList: document.getElementById("noteList"),
+  editorEmpty: document.getElementById("editorEmpty"),
+  editorBody: document.getElementById("editorBody"),
+  titleInput: document.getElementById("titleInput"),
+  bodyInput: document.getElementById("bodyInput"),
+  previewPane: document.getElementById("previewPane"),
+  ownTags: document.getElementById("ownTags"),
+  tabWrite: document.getElementById("tabWrite"),
+  tabRead: document.getElementById("tabRead"),
+  deleteNote: document.getElementById("deleteNote"),
+  saveStatus: document.getElementById("saveStatus"),
+  wordCount: document.getElementById("wordCount"),
+  backlinkList: document.getElementById("backlinkList"),
+  backlinkEmpty: document.getElementById("backlinkEmpty"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  quickSwitch: document.getElementById("quickSwitch"),
+  qsInput: document.getElementById("qsInput"),
+  qsList: document.getElementById("qsList"),
+  graph: document.getElementById("graph"),
+};
+
+let titleBeforeEdit = "";
+let tab = "write";
+
+function visibleNotes() {
+  let arr = notesArray();
+  if (state.filterTag) arr = arr.filter((n) => parseTags(n.body).includes(state.filterTag));
+  const q = state.query.trim().toLowerCase();
+  if (q) arr = arr.filter((n) => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
+  return arr;
+}
+
+function renderTagFilterRow() {
+  const counts = {};
+  for (const n of notesArray()) for (const t of parseTags(n.body)) counts[t] = (counts[t] || 0) + 1;
+  const tags = Object.keys(counts).sort();
+  els.tagFilterRow.innerHTML = tags.map((t) =>
+    `<span class="tagchip${state.filterTag === t ? " active" : ""}" data-tag="${escapeHtml(t)}">#${escapeHtml(t)} <span style="opacity:.6">${counts[t]}</span></span>`
+  ).join("") || "";
+}
+
+function renderList() {
+  const arr = visibleNotes();
+  els.boxCount.textContent = `${notesArray().length} note${notesArray().length === 1 ? "" : "s"} · ${countUniqueLinks()} links`;
+  if (!arr.length) {
+    els.noteList.innerHTML = `<div class="empty-note">${notesArray().length ? "no notes match." : "empty — start one below."}</div>`;
+    return;
+  }
+  els.noteList.innerHTML = arr.map((n) => `
+    <li data-id="${n.id}" class="${n.id === state.activeId ? "active" : ""}">
+      <div class="t">${escapeHtml(n.title || "untitled")}</div>
+      <div class="s">${escapeHtml(snippet(n.body)) || "empty note"}</div>
+      <div class="m">${timeAgo(n.updated)}</div>
+    </li>`).join("");
+}
+
+function renderOwnTags(note) {
+  const tags = parseTags(note.body);
+  els.ownTags.innerHTML = tags.map((t) => `<span class="tagchip" data-tag="${escapeHtml(t)}">#${escapeHtml(t)}</span>`).join("");
+}
+
+function renderBacklinks(note) {
+  const back = computeBacklinks(note);
+  els.backlinkEmpty.style.display = back.length ? "none" : "";
+  els.backlinkList.innerHTML = back.map((n) => `
+    <li data-id="${n.id}">
+      <div class="t">${escapeHtml(n.title)}</div>
+      <div class="s">${escapeHtml(snippet(n.body))}</div>
+    </li>`).join("");
+}
+
+function renderPreview(note) {
+  els.previewPane.innerHTML = renderMarkdown(note.body);
+}
+
+function setTab(next) {
+  tab = next;
+  els.tabWrite.classList.toggle("active", tab === "write");
+  els.tabRead.classList.toggle("active", tab === "read");
+  els.bodyInput.style.display = tab === "write" ? "" : "none";
+  els.previewPane.style.display = tab === "read" ? "" : "none";
+  if (tab === "read" && state.activeId) renderPreview(state.notes[state.activeId]);
+}
+
+function loadEditorFor(note) {
+  els.editorEmpty.style.display = "none";
+  els.editorBody.style.display = "";
+  els.titleInput.value = note.title;
+  els.bodyInput.value = note.body;
+  titleBeforeEdit = note.title;
+  els.saveStatus.textContent = "saved " + timeAgo(note.updated);
+  els.wordCount.textContent = (note.body.trim() ? note.body.trim().split(/\s+/).length : 0) + " words";
+  renderOwnTags(note);
+  renderBacklinks(note);
+  if (tab === "read") renderPreview(note);
+}
+
+function clearEditor() {
+  els.editorEmpty.style.display = "";
+  els.editorBody.style.display = "none";
+}
+
+function selectNote(id) {
+  const note = state.notes[id];
+  if (!note) return;
+  flushPendingSave();
+  state.activeId = id;
+  loadEditorFor(note);
+  renderList();
+  highlightGraphNode(id);
+}
+
+function goToOrCreate(title) {
+  const existing = findByTitle(title);
+  if (existing) { selectNote(existing.id); return; }
+  createNote(title);
+}
+
+function createNote(initialTitle) {
+  flushPendingSave();
+  const id = uid();
+  const ts = now();
+  state.notes[id] = { id, title: (initialTitle && initialTitle.trim()) || "untitled", body: "", created: ts, updated: ts };
+  persist();
+  state.activeId = id;
+  renderTagFilterRow();
+  renderList();
+  loadEditorFor(state.notes[id]);
+  scheduleGraphRebuild();
+  els.titleInput.focus();
+  els.titleInput.select();
+  return state.notes[id];
+}
+
+function deleteActive() {
+  const note = state.notes[state.activeId];
+  if (!note) return;
+  if (!confirm(`delete "${note.title}"? links to it will show up red until you make it again.`)) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  delete state.notes[note.id];
+  persist();
+  const rest = notesArray();
+  state.activeId = rest.length ? rest[0].id : null;
+  renderTagFilterRow();
+  renderList();
+  if (state.activeId) loadEditorFor(state.notes[state.activeId]); else clearEditor();
+  scheduleGraphRebuild();
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  els.saveStatus.textContent = "saving…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 400);
+}
+function flushPendingSave() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; doSave(); }
+}
+function doSave() {
+  const note = state.notes[state.activeId];
+  if (!note) return;
+  const newTitle = els.titleInput.value.trim() || "untitled";
+  if (newTitle !== titleBeforeEdit) {
+    renameNote(note.id, titleBeforeEdit, newTitle);
+    note.title = newTitle;
+    titleBeforeEdit = newTitle;
+  }
+  note.body = els.bodyInput.value;
+  note.updated = now();
+  persist();
+  els.saveStatus.textContent = "saved " + timeAgo(note.updated);
+  els.wordCount.textContent = (note.body.trim() ? note.body.trim().split(/\s+/).length : 0) + " words";
+  renderOwnTags(note);
+  renderTagFilterRow();
+  renderList();
+  renderBacklinks(note);
+  if (tab === "read") renderPreview(note);
+  scheduleGraphRebuild();
+}
+
+// --- events: list, toolbar, editor ---
+els.noteList.addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-id]");
+  if (li) selectNote(li.dataset.id);
+});
+els.backlinkList.addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-id]");
+  if (li) selectNote(li.dataset.id);
+});
+els.tagFilterRow.addEventListener("click", (e) => {
+  const chip = e.target.closest(".tagchip");
+  if (!chip) return;
+  const t = chip.dataset.tag;
+  state.filterTag = state.filterTag === t ? null : t;
+  renderTagFilterRow();
+  renderList();
+});
+els.ownTags.addEventListener("click", (e) => {
+  const chip = e.target.closest(".tagchip");
+  if (!chip) return;
+  state.filterTag = chip.dataset.tag;
+  renderTagFilterRow();
+  renderList();
+});
+els.search.addEventListener("input", () => { state.query = els.search.value; renderList(); });
+els.newNote.addEventListener("click", () => createNote());
+els.deleteNote.addEventListener("click", deleteActive);
+els.titleInput.addEventListener("input", scheduleSave);
+els.bodyInput.addEventListener("input", scheduleSave);
+els.tabWrite.addEventListener("click", () => setTab("write"));
+els.tabRead.addEventListener("click", () => setTab("read"));
+els.previewPane.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-goto]");
+  if (link) { e.preventDefault(); goToOrCreate(link.dataset.goto); return; }
+  const tag = e.target.closest(".tag");
+  if (tag) { e.preventDefault(); state.filterTag = tag.dataset.tag; renderTagFilterRow(); renderList(); }
+});
+document.querySelector(".origin").addEventListener("click", (e) => {
+  const link = e.target.closest("[data-goto]");
+  if (link) { e.preventDefault(); goToOrCreate(link.dataset.goto); }
+});
+
+// --- export / import / reset ---
+els.exportBtn.addEventListener("click", () => {
+  flushPendingSave();
+  const data = JSON.stringify({ version: 1, notes: Object.values(state.notes) }, null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "zettelkasten-export.json";
+  a.click();
+});
+els.importBtn.addEventListener("click", () => els.importFile.click());
+els.importFile.addEventListener("change", () => {
+  const file = els.importFile.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const list = Array.isArray(data) ? data : (data.notes || []);
+      let added = 0, updated = 0;
+      for (const n of list) {
+        if (!n || !n.id || !n.title) continue;
+        if (state.notes[n.id]) updated++; else added++;
+        state.notes[n.id] = { id: n.id, title: n.title, body: n.body || "", created: n.created || now(), updated: n.updated || now() };
+      }
+      persist();
+      renderTagFilterRow();
+      renderList();
+      scheduleGraphRebuild();
+      alert(`imported: ${added} new, ${updated} updated.`);
+    } catch (_) {
+      alert("could not read that file — expected a zettelkasten export.");
+    }
+    els.importFile.value = "";
+  };
+  reader.readAsText(file);
+});
+els.resetBox.addEventListener("click", () => {
+  if (!confirm("empty the entire box? every note is deleted, permanently.")) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  state.notes = {};
+  state.activeId = null;
+  persist();
+  renderTagFilterRow();
+  renderList();
+  clearEditor();
+  scheduleGraphRebuild();
+});
+
+// --- quick switcher ---
+let qsIndex = 0, qsItems = [];
+function openQuickSwitch() {
+  els.quickSwitch.hidden = false;
+  els.qsInput.value = "";
+  renderQsList("");
+  els.qsInput.focus();
+}
+function closeQuickSwitch() { els.quickSwitch.hidden = true; }
+function renderQsList(query) {
+  const q = query.trim().toLowerCase();
+  qsItems = notesArray().filter((n) => !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q)).slice(0, 30);
+  qsIndex = 0;
+  els.qsList.innerHTML = qsItems.map((n, i) => `
+    <li data-id="${n.id}" class="${i === qsIndex ? "sel" : ""}">
+      <div>${escapeHtml(n.title)}</div>
+      <div class="s">${escapeHtml(snippet(n.body))}</div>
+    </li>`).join("") || `<li class="s">no matches — enter creates "${escapeHtml(query.trim())}"</li>`;
+}
+els.qsInput.addEventListener("input", () => renderQsList(els.qsInput.value));
+els.qsInput.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") { e.preventDefault(); qsIndex = Math.min(qsIndex + 1, qsItems.length - 1); paintQsSel(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); qsIndex = Math.max(qsIndex - 1, 0); paintQsSel(); }
+  else if (e.key === "Enter") {
+    e.preventDefault();
+    if (qsItems[qsIndex]) { selectNote(qsItems[qsIndex].id); closeQuickSwitch(); }
+    else if (els.qsInput.value.trim()) { createNote(els.qsInput.value.trim()); closeQuickSwitch(); }
+  } else if (e.key === "Escape") { closeQuickSwitch(); }
+});
+function paintQsSel() {
+  [...els.qsList.children].forEach((li, i) => li.classList.toggle("sel", i === qsIndex));
+}
+els.qsList.addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-id]");
+  if (li) { selectNote(li.dataset.id); closeQuickSwitch(); }
+});
+els.quickSwitch.addEventListener("click", (e) => { if (e.target === els.quickSwitch) closeQuickSwitch(); });
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "k") { e.preventDefault(); openQuickSwitch(); }
+  else if (mod && e.key.toLowerCase() === "n") { e.preventDefault(); createNote(); }
+  else if (e.key === "Escape" && !els.quickSwitch.hidden) { closeQuickSwitch(); }
+});
+
+// --- graph: simple force-directed layout on a canvas ---
+const graphPositions = {};
+let graphNodes = [], graphEdges = [], graphById = {};
+let graphRebuildTimer = null;
+function scheduleGraphRebuild() {
+  clearTimeout(graphRebuildTimer);
+  graphRebuildTimer = setTimeout(buildGraph, 250);
+}
+function buildGraph() {
+  const arr = notesArray();
+  graphById = {};
+  graphNodes = arr.map((n) => {
+    const prev = graphPositions[n.id];
+    const node = prev
+      ? { id: n.id, title: n.title, x: prev.x, y: prev.y, vx: prev.vx, vy: prev.vy }
+      : { id: n.id, title: n.title, x: (Math.random() - 0.5) * 160, y: (Math.random() - 0.5) * 160, vx: 0, vy: 0 };
+    graphById[n.id] = node;
+    return node;
+  });
+  graphEdges = [];
+  const seen = new Set();
+  for (const n of arr) {
+    for (const l of parseLinks(n.body)) {
+      const t = findByTitle(l.target);
+      if (!t || t.id === n.id) continue;
+      const key = [n.id, t.id].sort().join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      graphEdges.push({ a: n.id, b: t.id });
+    }
+  }
+}
+
+let dpr = Math.max(1, window.devicePixelRatio || 1);
+function sizeCanvas() {
+  const rect = els.graph.getBoundingClientRect();
+  dpr = Math.max(1, window.devicePixelRatio || 1);
+  els.graph.width = Math.max(1, Math.round(rect.width * dpr));
+  els.graph.height = Math.max(1, Math.round(rect.height * dpr));
+}
+
+function simStep() {
+  if (!graphNodes.length) return;
+  const W = els.graph.width / dpr, H = els.graph.height / dpr;
+  const cx = W / 2, cy = H / 2;
+  for (let i = 0; i < graphNodes.length; i++) {
+    const a = graphNodes[i];
+    let fx = 0, fy = 0;
+    for (let j = 0; j < graphNodes.length; j++) {
+      if (i === j) continue;
+      const b = graphNodes[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const distSq = Math.max(dx * dx + dy * dy, 4);
+      const dist = Math.sqrt(distSq);
+      const force = 900 / distSq;
+      fx += (dx / dist) * force;
+      fy += (dy / dist) * force;
+    }
+    fx += (cx - a.x) * 0.012;
+    fy += (cy - a.y) * 0.012;
+    a.vx = (a.vx + fx * 0.02) * 0.82;
+    a.vy = (a.vy + fy * 0.02) * 0.82;
+  }
+  for (const e of graphEdges) {
+    const a = graphById[e.a], b = graphById[e.b];
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 0.01);
+    const targetLen = 78;
+    const force = (dist - targetLen) * 0.03;
+    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  }
+  const margin = 16;
+  for (const n of graphNodes) {
+    n.x += n.vx; n.y += n.vy;
+    n.x = Math.max(margin - cx, Math.min(cx - margin, n.x));
+    n.y = Math.max(margin - cy, Math.min(cy - margin, n.y));
+    graphPositions[n.id] = n;
+  }
+}
+
+function drawGraph() {
+  const ctx = els.graph.getContext("2d");
+  const W = els.graph.width / dpr, H = els.graph.height / dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2;
+
+  if (!graphNodes.length) {
+    ctx.fillStyle = "#a89a7c";
+    ctx.font = "12px JetBrains Mono, monospace";
+    ctx.fillText("no notes yet.", 14, 20);
+    return;
+  }
+
+  ctx.strokeStyle = "#7a3a30";
+  ctx.lineWidth = 1;
+  for (const e of graphEdges) {
+    const a = graphById[e.a], b = graphById[e.b];
+    if (!a || !b) continue;
+    ctx.beginPath();
+    ctx.moveTo(a.x + cx, a.y + cy);
+    ctx.lineTo(b.x + cx, b.y + cy);
+    ctx.stroke();
+  }
+
+  for (const n of graphNodes) {
+    const isActive = n.id === state.activeId;
+    ctx.beginPath();
+    ctx.arc(n.x + cx, n.y + cy, isActive ? 7 : 5, 0, Math.PI * 2);
+    ctx.fillStyle = isActive ? "#c9a227" : "#f3ead4";
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = isActive ? "#8a6f1c" : "#d9c9a0";
+    ctx.stroke();
+    if (isActive || graphNodes.length <= 24) {
+      ctx.fillStyle = isActive ? "#c9a227" : "#a89a7c";
+      ctx.font = (isActive ? "700 " : "") + "10px JetBrains Mono, monospace";
+      const label = n.title.length > 18 ? n.title.slice(0, 17) + "…" : n.title;
+      ctx.fillText(label, n.x + cx + 9, n.y + cy + 3);
+    }
+  }
+}
+
+function highlightGraphNode() { /* drawGraph reads state.activeId directly each frame */ }
+
+function hitTestGraph(px, py) {
+  const rect = els.graph.getBoundingClientRect();
+  const x = (px - rect.left) - rect.width / 2;
+  const y = (py - rect.top) - rect.height / 2;
+  let best = null, bestDist = 14;
+  for (const n of graphNodes) {
+    const d = Math.hypot(n.x - x, n.y - y);
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return best;
+}
+els.graph.addEventListener("click", (e) => {
+  const hit = hitTestGraph(e.clientX, e.clientY);
+  if (hit) selectNote(hit.id);
+});
+els.graph.addEventListener("mousemove", (e) => {
+  els.graph.style.cursor = hitTestGraph(e.clientX, e.clientY) ? "pointer" : "default";
+});
+
+let rafId = null;
+function tick() { simStep(); drawGraph(); rafId = requestAnimationFrame(tick); }
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { if (rafId) cancelAnimationFrame(rafId); rafId = null; }
+  else if (!rafId) { tick(); }
+});
+window.addEventListener("resize", () => sizeCanvas());
+
+window.addEventListener("beforeunload", flushPendingSave);
+
+// --- share ---
+els.shareBluesky.href = "https://bsky.app/intent/compose?text=" +
+  encodeURIComponent("started a zettelkasten — atomic notes linked by [[wikilinks]], with a live link graph. zettelkasten.bisks.net");
+
+// --- boot ---
+load();
+seedIfEmpty();
+const first = notesArray()[0];
+if (first) { state.activeId = first.id; }
+renderTagFilterRow();
+renderList();
+if (state.activeId) loadEditorFor(state.notes[state.activeId]); else clearEditor();
+setTab("write");
+sizeCanvas();
+buildGraph();
+tick();
+</script>
+</body>
+</html>
