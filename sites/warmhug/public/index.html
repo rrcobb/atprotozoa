@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <title>warmhug — wrap someone a hug</title>
-    <meta name="description" content="Pick who it's from and who it's for, and warmhug wraps up a cozy personalized message with a glowing hug animation and gentle synthesized ambience — then turns it into a card you can send to someone who needs one." />
+    <meta name="description" content="Pick who it's from and who it's for, and warmhug wraps up a cozy personalized message with a glowing hug animation and gentle synthesized ambience — then turns it into a card, or a surprise link, you can send to someone who needs one." />
     <meta property="og:title" content="warmhug — wrap someone a hug" />
     <meta property="og:description" content="A cozy personalized message, a glowing hug animation, soft ambient sound, and a card to send someone who needs one." />
     <meta property="og:url" content="https://warmhug.bisks.net/" />
@@ -146,6 +146,12 @@
       .share-actions button { background: transparent; border: 1px solid var(--card-border); color: var(--ink); }
       .share-actions a.ghost-link { background: transparent; border: 1px solid var(--card-border); color: var(--ink); }
 
+      .giftStage { display: flex; align-items: center; justify-content: center; min-height: 150px; }
+      .giftBox { font-size: 4.2rem; animation: giftBob 2.4s ease-in-out infinite; filter: drop-shadow(0 8px 18px rgba(255,138,101,0.35)); }
+      @keyframes giftBob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-8px) rotate(2deg); } }
+      #giftFromTo { display: block; }
+      #openGiftBtn { width: 100%; padding: 0.85rem; font-size: 1.02rem; margin-top: 1.1rem; }
+
       footer { margin-top: 2.4rem; text-align: center; color: var(--dim); font-size: 0.74rem; line-height: 1.7; }
       footer a { text-decoration: none; }
       footer a:hover { text-decoration: underline; }
@@ -155,8 +161,18 @@
     <div class="wrap">
       <header>
         <h1>warmhug</h1>
-        <p class="tag">wrap up a hug for someone — a cozy message, a little glowing animation, soft ambient sound. send it, or keep it for yourself.</p>
+        <p class="tag">wrap up a hug for someone — a cozy message, a little glowing animation, soft ambient sound. send it as a surprise link, post it, or keep it for yourself.</p>
       </header>
+
+      <div class="card" id="giftCard" style="display:none;">
+        <div class="stage giftStage">
+          <div class="giftBox" aria-hidden="true">🎁</div>
+        </div>
+        <div class="message" id="giftMessage">
+          <span class="from-to" id="giftFromTo" style="margin-top:0;"></span>
+        </div>
+        <button type="button" id="openGiftBtn">open your hug 🎁</button>
+      </div>
 
       <div class="card" id="formCard">
         <label for="fromInput">who's it from?</label>
@@ -224,7 +240,8 @@
 
         <div class="share-actions">
           <button type="button" id="shareNative" style="display:none;">📤 share card</button>
-          <a id="shareBluesky" target="_blank" rel="noopener">🦋 send this hug</a>
+          <button type="button" id="shareSurprise">🎁 copy surprise link</button>
+          <a id="shareBluesky" target="_blank" rel="noopener">🦋 post this hug</a>
           <button type="button" id="shareDownload">⬇ download card</button>
           <a id="plantGarden" class="ghost-link" target="_blank" rel="noopener">🌱 keep it in your garden</a>
         </div>
@@ -303,10 +320,15 @@
         soundBtn: document.getElementById("soundBtn"),
         againBtn: document.getElementById("againBtn"),
         shareNative: document.getElementById("shareNative"),
+        shareSurprise: document.getElementById("shareSurprise"),
         shareBluesky: document.getElementById("shareBluesky"),
         shareDownload: document.getElementById("shareDownload"),
         shareCanvas: document.getElementById("shareCanvas"),
-        plantGarden: document.getElementById("plantGarden")
+        plantGarden: document.getElementById("plantGarden"),
+        formCard: document.getElementById("formCard"),
+        giftCard: document.getElementById("giftCard"),
+        giftFromTo: document.getElementById("giftFromTo"),
+        openGiftBtn: document.getElementById("openGiftBtn")
       };
 
       var occasion = "justbecause";
@@ -467,13 +489,7 @@
       // ---------------------------------------------------------------
       var lastMessage = "", lastFrom = "", lastTo = "";
 
-      function wrapHug() {
-        var from = (els.from.value || "").trim() || "a friend";
-        var to = (els.to.value || "").trim() || "you";
-        var pool = TEMPLATES[occasion] || TEMPLATES.justbecause;
-        var tpl = pool[(Math.random() * pool.length) | 0];
-        var message = fill(tpl, from, to);
-
+      function showHug(from, to, message) {
         lastMessage = message; lastFrom = from; lastTo = to;
 
         els.messageText.textContent = message;
@@ -495,8 +511,64 @@
 
         els.result.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-      els.wrapBtn.addEventListener("click", wrapHug);
-      els.againBtn.addEventListener("click", wrapHug);
+
+      function composeAndShow() {
+        var from = (els.from.value || "").trim() || "a friend";
+        var to = (els.to.value || "").trim() || "you";
+        var pool = TEMPLATES[occasion] || TEMPLATES.justbecause;
+        var tpl = pool[(Math.random() * pool.length) | 0];
+        showHug(from, to, fill(tpl, from, to));
+      }
+      els.wrapBtn.addEventListener("click", composeAndShow);
+      els.againBtn.addEventListener("click", composeAndShow);
+
+      // ---------------------------------------------------------------
+      // send as a surprise — the hug is baked into a link (?f=&t=&m=)
+      // instead of a public post; opening it shows a sealed gift first
+      // ---------------------------------------------------------------
+      function buildSurpriseLink() {
+        var params = new URLSearchParams();
+        params.set("f", lastFrom);
+        params.set("t", lastTo);
+        params.set("m", lastMessage);
+        return "https://warmhug.bisks.net/?" + params.toString();
+      }
+      els.shareSurprise.addEventListener("click", function () {
+        var url = buildSurpriseLink();
+        var original = els.shareSurprise.textContent;
+        function flash(label) {
+          els.shareSurprise.textContent = label;
+          setTimeout(function () { els.shareSurprise.textContent = original; }, 1800);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () { flash("✅ link copied!"); })
+            .catch(function () { window.prompt("copy this link and send it:", url); });
+        } else {
+          window.prompt("copy this link and send it:", url);
+        }
+      });
+
+      function parseIncomingGift() {
+        var p = new URLSearchParams(window.location.search);
+        var m = p.get("m");
+        if (!m) return null;
+        return {
+          from: (p.get("f") || "a friend").trim().slice(0, 60) || "a friend",
+          to: (p.get("t") || "you").trim().slice(0, 60) || "you",
+          msg: m.slice(0, 600)
+        };
+      }
+      var incomingGift = parseIncomingGift();
+      if (incomingGift) {
+        els.formCard.style.display = "none";
+        els.giftCard.style.display = "";
+        els.giftFromTo.textContent = incomingGift.from + " sent " + incomingGift.to + " a surprise hug";
+        els.openGiftBtn.addEventListener("click", function () {
+          els.giftCard.style.display = "none";
+          els.formCard.style.display = "";
+          showHug(incomingGift.from, incomingGift.to, incomingGift.msg);
+        });
+      }
 
       // ---------------------------------------------------------------
       // share card — canvas, downloadable / native-shareable
