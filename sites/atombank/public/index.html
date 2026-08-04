@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>atombank — lexical atom bank</title>
+<meta name="description" content="paste any text, dedup it into unique &quot;lexical atoms,&quot; and deposit them into a running vault. named after a bsky in-joke about lexical atom bank deduplication.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="atombank — lexical atom bank">
+<meta property="og:description" content="paste any text, dedup it into unique lexical atoms, and deposit them into a running vault.">
+<meta property="og:image" content="https://atombank.bisks.net/og.png">
+<meta property="og:url" content="https://atombank.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="atombank — lexical atom bank">
+<meta name="twitter:description" content="paste any text, dedup it into unique lexical atoms, and deposit them into a running vault.">
+<meta name="twitter:image" content="https://atombank.bisks.net/og.png">
+
+<style>
+  :root {
+    --bg: #12100d;
+    --panel: #1b1812;
+    --panel2: #221e16;
+    --line: #3a3324;
+    --ink: #f1e9d6;
+    --dim: #a99a78;
+    --gold: #d9a441;
+    --gold-dim: #8a6a2c;
+    --good: #7fb87a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(circle at 20% -10%, #241f14 0%, var(--bg) 55%);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { margin-bottom: 28px; }
+  h1 {
+    font-size: 32px;
+    margin: 0 0 6px;
+    letter-spacing: 0.5px;
+    color: var(--gold);
+  }
+  h1 .atom { display: inline-block; animation: spin 6s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .tagline { color: var(--dim); font-size: 14.5px; max-width: 56ch; }
+  .origin { color: var(--dim); font-size: 12.5px; margin-top: 10px; opacity: 0.8; }
+  .origin a { color: var(--gold-dim); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--dim);
+    margin: 0 0 12px;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 140px;
+    resize: vertical;
+    background: var(--panel2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    font: inherit;
+    font-size: 14px;
+  }
+  textarea:focus { outline: 1px solid var(--gold-dim); }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+
+  button, .btn {
+    font: inherit;
+    font-size: 13.5px;
+    background: var(--panel2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 9px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:hover, .btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary {
+    background: linear-gradient(180deg, var(--gold), var(--gold-dim));
+    color: #1a1509;
+    border-color: var(--gold-dim);
+    font-weight: 700;
+  }
+  button.primary:hover { color: #1a1509; filter: brightness(1.08); }
+  button.ghost { background: transparent; }
+  .small { font-size: 12px; padding: 6px 10px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 4px; }
+  .stat {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 10px;
+    text-align: center;
+  }
+  .stat .n { font-size: 22px; font-weight: 700; color: var(--gold); display: block; }
+  .stat .l { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; max-height: 220px; overflow-y: auto; }
+  .chip {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .chip .c { color: var(--gold-dim); font-size: 10.5px; }
+  .chip.fresh { border-color: var(--good); color: var(--good); }
+  .more { color: var(--dim); font-size: 12px; padding: 3px 4px; }
+
+  .empty { color: var(--dim); font-size: 13px; font-style: italic; }
+
+  .deposit-result {
+    margin-top: 12px;
+    font-size: 13.5px;
+    color: var(--good);
+    display: none;
+  }
+  .deposit-result.show { display: block; }
+
+  .share-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  canvas#card { display: none; }
+
+  footer {
+    margin-top: 32px;
+    color: var(--dim);
+    font-size: 12px;
+    text-align: center;
+  }
+  footer a { color: var(--gold-dim); }
+
+  .vault-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .vault-actions .danger { color: #b56a5a; }
+  .vault-actions .danger:hover { color: #d98a78; border-color: #6b3a30; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="atom">⚛</span> atombank</h1>
+    <div class="tagline">
+      paste text below. every distinct word is a <strong>lexical atom</strong> — deposit the
+      unique ones into your vault and watch it grow, deposit by deposit.
+    </div>
+    <div class="origin">
+      named for a bsky in-joke: <a href="https://bsky.app/profile/librarianofbabl.bsky.social" target="_blank" rel="noopener">@librarianofbabl</a>'s
+      post got dubbed "Lexical Atom Bank Deduplication." now there's one.
+    </div>
+  </header>
+
+  <div class="panel">
+    <h2>deposit slip</h2>
+    <textarea id="input" placeholder="paste or type anything — a post, a paragraph, a whole essay..."></textarea>
+    <div class="row">
+      <button id="sample" class="ghost small">try sample text</button>
+      <span id="tokenStatus" class="empty" style="margin-left:auto;"></span>
+    </div>
+
+    <div class="stats" id="stats" style="display:none;">
+      <div class="stat"><span class="n" id="statTotal">0</span><span class="l">total words</span></div>
+      <div class="stat"><span class="n" id="statUnique">0</span><span class="l">unique atoms</span></div>
+      <div class="stat"><span class="n" id="statDedup">0%</span><span class="l">dedup rate</span></div>
+    </div>
+
+    <div class="chips" id="chips"></div>
+
+    <div class="row">
+      <button id="deposit" class="primary" disabled>deposit into vault →</button>
+    </div>
+    <div class="deposit-result" id="depositResult"></div>
+  </div>
+
+  <div class="panel">
+    <h2>your vault</h2>
+    <div class="stats">
+      <div class="stat"><span class="n" id="vaultUnique">0</span><span class="l">atoms banked</span></div>
+      <div class="stat"><span class="n" id="vaultDeposits">0</span><span class="l">deposits</span></div>
+      <div class="stat"><span class="n" id="vaultRare">0</span><span class="l">rare atoms (×1)</span></div>
+    </div>
+
+    <div class="share-row">
+      <a id="shareBluesky" class="btn" target="_blank" rel="noopener">🦋 share your vault</a>
+      <button id="shareDownload" class="ghost">⬇ download card</button>
+      <button id="shareNative" class="ghost" style="display:none;">📤 share</button>
+    </div>
+
+    <div class="vault-actions">
+      <span class="empty" id="vaultEmpty">nothing banked yet — deposit something above.</span>
+      <button id="resetVault" class="ghost small danger" style="display:none;">empty the vault</button>
+    </div>
+  </div>
+
+  <canvas id="card" width="1200" height="630"></canvas>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<script>
+const STORAGE_KEY = "atombank.vault.v1";
+const SAMPLE = "Good news everyone: the lexical atom bank now accepts deposits. " +
+  "A bank of atoms, a bank of atoms, deduplicated down to its rarest atoms — " +
+  "this is your best work yet, lexical atom bank.";
+
+function loadVault() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { atoms: {}, deposits: 0, totalWords: 0 };
+    const v = JSON.parse(raw);
+    return { atoms: v.atoms || {}, deposits: v.deposits || 0, totalWords: v.totalWords || 0 };
+  } catch (_) {
+    return { atoms: {}, deposits: 0, totalWords: 0 };
+  }
+}
+function saveVault(v) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(v));
+}
+
+function tokenize(text) {
+  const raw = (text.toLowerCase().match(/[a-z0-9']+/g) || []);
+  return raw.filter((t) => /[a-z0-9]/.test(t));
+}
+
+function tally(tokens) {
+  const counts = {};
+  for (const t of tokens) counts[t] = (counts[t] || 0) + 1;
+  return counts;
+}
+
+const els = {
+  input: document.getElementById("input"),
+  sample: document.getElementById("sample"),
+  tokenStatus: document.getElementById("tokenStatus"),
+  stats: document.getElementById("stats"),
+  statTotal: document.getElementById("statTotal"),
+  statUnique: document.getElementById("statUnique"),
+  statDedup: document.getElementById("statDedup"),
+  chips: document.getElementById("chips"),
+  deposit: document.getElementById("deposit"),
+  depositResult: document.getElementById("depositResult"),
+  vaultUnique: document.getElementById("vaultUnique"),
+  vaultDeposits: document.getElementById("vaultDeposits"),
+  vaultRare: document.getElementById("vaultRare"),
+  vaultEmpty: document.getElementById("vaultEmpty"),
+  resetVault: document.getElementById("resetVault"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  card: document.getElementById("card"),
+};
+
+let currentCounts = {};
+let vault = loadVault();
+let lastShareText = "";
+
+function renderCurrent() {
+  const tokens = tokenize(els.input.value);
+  currentCounts = tally(tokens);
+  const uniqueWords = Object.keys(currentCounts);
+
+  if (!tokens.length) {
+    els.stats.style.display = "none";
+    els.chips.innerHTML = "";
+    els.tokenStatus.textContent = "";
+    els.deposit.disabled = true;
+    return;
+  }
+
+  const total = tokens.length;
+  const unique = uniqueWords.length;
+  const dedup = total > 0 ? Math.round((1 - unique / total) * 100) : 0;
+
+  els.stats.style.display = "grid";
+  els.statTotal.textContent = total;
+  els.statUnique.textContent = unique;
+  els.statDedup.textContent = dedup + "%";
+  els.tokenStatus.textContent = "";
+  els.deposit.disabled = false;
+
+  const sorted = uniqueWords.sort((a, b) => currentCounts[b] - currentCounts[a]);
+  const shown = sorted.slice(0, 80);
+  els.chips.innerHTML = shown.map((w) => {
+    const isNew = !vault.atoms[w];
+    return `<span class="chip${isNew ? " fresh" : ""}">${escapeHtml(w)} <span class="c">×${currentCounts[w]}</span></span>`;
+  }).join("") + (sorted.length > shown.length ? `<span class="more">+${sorted.length - shown.length} more</span>` : "");
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderVault() {
+  const words = Object.keys(vault.atoms);
+  const rare = words.filter((w) => vault.atoms[w] === 1).length;
+  els.vaultUnique.textContent = words.length;
+  els.vaultDeposits.textContent = vault.deposits;
+  els.vaultRare.textContent = rare;
+
+  const has = words.length > 0;
+  els.vaultEmpty.style.display = has ? "none" : "";
+  els.resetVault.style.display = has ? "" : "none";
+  els.shareBluesky.style.display = has ? "" : "none";
+  els.shareDownload.style.display = has ? "" : "none";
+
+  if (has) updateShare();
+}
+
+function updateShare(depositNewCount, depositKnownCount) {
+  const words = Object.keys(vault.atoms);
+  const rare = words.filter((w) => vault.atoms[w] === 1).length;
+  let text;
+  if (typeof depositNewCount === "number") {
+    text = `just deposited ${depositNewCount} new atom${depositNewCount === 1 ? "" : "s"} into my lexical atom bank` +
+      (depositKnownCount ? ` (${depositKnownCount} already banked)` : "") +
+      `. vault now holds ${words.length} unique atoms across ${vault.deposits} deposits. atombank.bisks.net`;
+  } else {
+    text = `my lexical atom bank holds ${words.length} unique atoms across ${vault.deposits} deposits, ${rare} of them seen only once. atombank.bisks.net`;
+  }
+  lastShareText = text;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  buildCard(words.length, vault.deposits, rare, depositNewCount);
+}
+
+function buildCard(uniqueCount, deposits, rare, newCount) {
+  const canvas = els.card;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "JetBrains Mono, ui-monospace, monospace";
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#181410");
+  bg.addColorStop(1, "#0f0d09");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "#3a3324";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(36, 36, W - 72, H - 72);
+
+  ctx.fillStyle = "#d9a441";
+  ctx.font = `700 46px ${mono}`;
+  ctx.fillText("⚛ atombank", 72, 110);
+
+  ctx.fillStyle = "#a99a78";
+  ctx.font = `20px ${mono}`;
+  ctx.fillText("lexical atom bank", 72, 145);
+
+  ctx.fillStyle = "#f1e9d6";
+  ctx.font = `700 120px ${mono}`;
+  ctx.fillText(String(uniqueCount), 72, 320);
+
+  ctx.fillStyle = "#a99a78";
+  ctx.font = `26px ${mono}`;
+  ctx.fillText("unique atoms banked", 72, 360);
+
+  ctx.fillStyle = "#7fb87a";
+  ctx.font = `24px ${mono}`;
+  let y = 420;
+  if (typeof newCount === "number") {
+    ctx.fillText(`+${newCount} deposited just now`, 72, y);
+    y += 36;
+  }
+  ctx.fillStyle = "#a99a78";
+  ctx.fillText(`${deposits} deposit${deposits === 1 ? "" : "s"} total · ${rare} rare atom${rare === 1 ? "" : "s"} (×1)`, 72, y);
+
+  ctx.fillStyle = "#d9a441";
+  ctx.font = `700 24px ${mono}`;
+  ctx.textAlign = "right";
+  ctx.fillText("atombank.bisks.net", W - 72, H - 60);
+  ctx.textAlign = "left";
+}
+
+function doDeposit() {
+  const words = Object.keys(currentCounts);
+  if (!words.length) return;
+  let fresh = 0, known = 0;
+  for (const w of words) {
+    if (vault.atoms[w]) { known++; vault.atoms[w] += currentCounts[w]; }
+    else { fresh++; vault.atoms[w] = currentCounts[w]; }
+  }
+  vault.deposits += 1;
+  vault.totalWords += words.reduce((s, w) => s + currentCounts[w], 0);
+  saveVault(vault);
+
+  els.depositResult.textContent = `deposited ${fresh} new atom${fresh === 1 ? "" : "s"}` +
+    (known ? `, ${known} already in the vault (topped up).` : ".");
+  els.depositResult.classList.add("show");
+
+  renderVault();
+  renderCurrent();
+  updateShare(fresh, known);
+}
+
+els.input.addEventListener("input", renderCurrent);
+els.sample.addEventListener("click", () => {
+  els.input.value = SAMPLE;
+  renderCurrent();
+});
+els.deposit.addEventListener("click", doDeposit);
+els.resetVault.addEventListener("click", () => {
+  if (!confirm("empty your entire lexical atom vault? this can't be undone.")) return;
+  vault = { atoms: {}, deposits: 0, totalWords: 0 };
+  saveVault(vault);
+  els.depositResult.classList.remove("show");
+  renderVault();
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.card.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "atombank-vault.png";
+    a.click();
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.card.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "atombank-vault.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "atombank" });
+      } catch (_) {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+renderVault();
+renderCurrent();
+</script>
+</body>
+</html>
