@@ -2,34 +2,40 @@
 //
 // @shimmermathlabs.com tagged the bot on a post quoting
 // @fromthewestmeadow.com's original idea — a site with one button labeled "do
-// not press this button" (built as sites/dontpressit: exactly one button,
-// shared by every visitor on earth, and the first press anywhere ends it for
-// everyone, forever — no reset). The ask here: build a betting market on WHEN
-// that button gets pressed. Don't encourage anyone to press it. Make it clear
-// that betting here and then going to press the button yourself to cash in is
-// grounds for punishment.
+// not press this button" (built as sites/dontpressit). The ask: build a
+// betting market on WHEN that button gets pressed. Don't encourage anyone to
+// press it. Make it clear that betting here and then going to press the
+// button yourself to cash in is grounds for punishment.
 //
-// dontpressit.bisks.net/api/state is public and CORS-open — it returns
-// { pressed, pressedAt, futileClicks, visits }. This Worker polls it
-// server-side (no CORS concerns for a server-to-server fetch; that header
-// only governs browser access). Bettors stake play money on one of six time
-// buckets measured from EPOCH, the moment this market's Durable Object was
-// first created — "within the hour", ... "180+ days (maybe never)". The
-// instant the source flips to pressed, the market resolves exactly once:
-// whichever bucket contains (pressedAt - epoch) wins, and the real pool
-// splits pari-mutuel across everyone holding that bucket. If nobody backed
-// the winning bucket, every stake is refunded. After that the market is
-// closed forever, same as the button it's watching — there is no next round,
-// and no reset route.
+// v1 shipped against dontpressit's original one-shot shape: exactly one
+// button, first press anywhere ends it for everyone, forever, no reset. This
+// market mirrored that — resolve pari-mutuel exactly once, then close
+// permanently.
 //
-// One Durable Object ("global") holds pools, bets, balances, and the
-// resolution, checked defensively on every request (so a quiet market still
-// resolves promptly once someone loads the page) plus a backup alarm every
-// few minutes so it can resolve even with zero traffic. No login: the page
+// v2, this file: dontpressit was rebuilt (see sites/dontpressit/src/index.ts)
+// into a round system — the button never stops. Every round carries a name
+// pulled from @fromthewestmeadow.com's followers; pressing it "graduates"
+// that name forever and immediately starts the next round. There is no
+// terminal state to mirror anymore, so this market doesn't have one either:
+// it tracks whichever dontpressit round is currently live, takes bets on how
+// long THAT round survives, and the instant dontpressit's roundNumber
+// advances (detected by polling its public /api/state), resolves the round
+// that just ended pari-mutuel and opens a fresh board for the new one — same
+// balances and leaderboard carried forward, same six time buckets, just
+// looping instead of stopping. dontpressit.bisks.net/api/state is public and
+// CORS-open; this Worker polls it server-side (no CORS concerns for a
+// server-to-server fetch — that header only governs browser access) and now
+// returns { roundNumber, currentName, roundStartedAt, futileClicks, visits,
+// totalGraduated, graduated }.
+//
+// One Durable Object ("global") holds pools, bets, balances, and round
+// tracking, checked defensively on every request (so a quiet market still
+// advances promptly once someone loads the page) plus a backup alarm every
+// few minutes so it can advance even with zero traffic. No login: the page
 // mints an opaque id into localStorage and sends it as X-Client-Id, same
-// anonymous-identity shape as sites/guestbet, which this was copied from —
-// closest lineage (a DO pari-mutuel market with no login) — with guestbet's
-// repeating-round logic replaced by this one-shot terminal resolution.
+// anonymous-identity shape as sites/guestbet, which this was originally
+// copied from — closest lineage (a DO pari-mutuel market with repeating
+// rounds and no login).
 
 interface DurableObjectId {
   toString(): string;
@@ -71,7 +77,7 @@ export default {
 // ---- config --------------------------------------------------------------
 const SOURCE_STATE_URL = "https://dontpressit.bisks.net/api/state";
 const STATE_CACHE_MS = 15_000; // don't hammer the upstream DO on every poll
-const ALARM_INTERVAL_MS = 5 * 60 * 1000; // resolve promptly even with zero visitors
+const ALARM_INTERVAL_MS = 5 * 60 * 1000; // advance promptly even with zero visitors
 const START_BALANCE = 1000;
 const MIN_BET = 10;
 const BET_COOLDOWN_MS = 1500; // per-client, guards double-submit
@@ -79,6 +85,7 @@ const STIPEND_AMOUNT = 100;
 const STIPEND_THRESHOLD = 50;
 const STIPEND_COOLDOWN_MS = 30 * 60 * 1000;
 const ACTIVITY_MAX = 15;
+const RESULTS_HISTORY_MAX = 10;
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -91,17 +98,17 @@ interface BucketDef {
   maxMs: number; // Infinity for the open-ended last bucket
 }
 
-// Measured from EPOCH — the moment this market opened, not from whenever
-// dontpressit itself first went up. Six buckets, open-ended at the top
-// because the button might never get pressed, and that has to be a bettable
-// (if permanently unresolved) outcome.
+// Measured from the current round's start (dontpressit's roundStartedAt),
+// not from whenever this market itself first opened — every round gets its
+// own clock. Six buckets, open-ended at the top because a round might run a
+// very long time before anyone cracks.
 const BUCKETS: BucketDef[] = [
   { id: "rash", label: "within the hour", flavor: "someone's thumb slips almost immediately", minMs: 0, maxMs: HOUR },
   { id: "today", label: "later today", flavor: "a cooler head, same day", minMs: HOUR, maxMs: DAY },
   { id: "week", label: "this week", flavor: "it takes a few days to wear someone down", minMs: DAY, maxMs: 7 * DAY },
   { id: "month", label: "this month", flavor: "a slow bleed of willpower", minMs: 7 * DAY, maxMs: 30 * DAY },
   { id: "season", label: "within a season", flavor: "the long game", minMs: 30 * DAY, maxMs: 180 * DAY },
-  { id: "forever", label: "180+ days (maybe never)", flavor: "humanity holds the line, allegedly", minMs: 180 * DAY, maxMs: Infinity },
+  { id: "forever", label: "180+ days (maybe never)", flavor: "this round holds the line, allegedly", minMs: 180 * DAY, maxMs: Infinity },
 ];
 
 function bucketFor(deltaMs: number): BucketDef {
@@ -115,14 +122,34 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-interface ButtonState {
-  pressed: boolean;
-  pressedAt: number | null;
+interface RoundName {
+  handle: string;
+  displayName: string;
+  avatar: string;
+}
+interface GraduatedEntry {
+  handle: string;
+  displayName: string;
+  avatar: string;
+  roundNumber: number;
+  endedAt: number;
+  visits: number;
+  futileClicks: number;
+}
+interface SourceState {
+  roundNumber: number;
+  currentName: RoundName | null;
+  roundStartedAt: number;
+  totalGraduated: number;
+  graduated: GraduatedEntry[];
 }
 
-interface Resolution {
-  pressedAt: number;
-  winningBucketId: string | null;
+interface RoundResult {
+  roundNumber: number;
+  name: RoundName | null;
+  roundStartedAt: number;
+  endedAt: number;
+  winningBucketId: string;
   totalRealPool: number;
   paidOut: number;
   winners: number;
@@ -148,7 +175,12 @@ function freshStats(): LifetimeStats {
 export class Market {
   private state: DurableObjectState;
   private ready: Promise<void>;
-  private epoch = 0;
+
+  // The dontpressit round this market is currently taking bets on.
+  private trackedRoundNumber = 0; // 0 = not yet synced with the source
+  private trackedRoundStartedAt = 0;
+  private trackedName: RoundName | null = null;
+
   private balances: Map<string, number> = new Map();
   private pools: Record<string, number> = {};
   private bets: Record<string, Record<string, number>> = {};
@@ -156,9 +188,12 @@ export class Market {
   private lastBetAt: Map<string, number> = new Map();
   private lifetime: Map<string, LifetimeStats> = new Map();
   private activity: ActivityEntry[] = [];
-  private resolution: Resolution | null = null;
-  private buttonCache: { data: ButtonState; fetchedAt: number; stale: boolean } = {
-    data: { pressed: false, pressedAt: null },
+
+  private lastResult: RoundResult | null = null;
+  private resultsHistory: RoundResult[] = [];
+
+  private sourceCache: { data: SourceState; fetchedAt: number; stale: boolean } = {
+    data: { roundNumber: 0, currentName: null, roundStartedAt: 0, totalGraduated: 0, graduated: [] },
     fetchedAt: 0,
     stale: true,
   };
@@ -166,8 +201,12 @@ export class Market {
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const epoch = await this.state.storage.get<number>("epoch");
-      this.epoch = epoch ?? Date.now();
+      const trackedRoundNumber = await this.state.storage.get<number>("trackedRoundNumber");
+      this.trackedRoundNumber = trackedRoundNumber ?? 0;
+      const trackedRoundStartedAt = await this.state.storage.get<number>("trackedRoundStartedAt");
+      this.trackedRoundStartedAt = trackedRoundStartedAt ?? 0;
+      const trackedName = await this.state.storage.get<RoundName | null>("trackedName");
+      this.trackedName = trackedName ?? null;
       const balances = await this.state.storage.get<[string, number][]>("balances");
       if (balances) this.balances = new Map(balances);
       const pools = await this.state.storage.get<Record<string, number>>("pools");
@@ -180,23 +219,42 @@ export class Market {
       if (lifetime) this.lifetime = new Map(lifetime);
       const activity = await this.state.storage.get<ActivityEntry[]>("activity");
       if (activity) this.activity = activity;
-      const resolution = await this.state.storage.get<Resolution>("resolution");
-      this.resolution = resolution ?? null;
-      await this.state.storage.put({ epoch: this.epoch });
-      if (!this.resolution) await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+      const lastResult = await this.state.storage.get<RoundResult>("lastResult");
+      this.lastResult = lastResult ?? null;
+      const resultsHistory = await this.state.storage.get<RoundResult[]>("resultsHistory");
+      this.resultsHistory = resultsHistory ?? [];
+
+      if (this.trackedRoundNumber === 0) {
+        // First boot (or storage wiped): sync onto whatever round dontpressit
+        // is on right now rather than guessing. If the source is unreachable
+        // at boot, this stays 0 and betting is refused until a later poll
+        // succeeds — see the /api/bet guard below.
+        const { data, stale } = await this.fetchSourceState();
+        if (!stale && data.roundNumber > 0) {
+          this.trackedRoundNumber = data.roundNumber;
+          this.trackedRoundStartedAt = data.roundStartedAt;
+          this.trackedName = data.currentName;
+          await this.persist();
+        }
+      }
+
+      await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
     });
   }
 
   private async persist(): Promise<void> {
     await this.state.storage.put({
-      epoch: this.epoch,
+      trackedRoundNumber: this.trackedRoundNumber,
+      trackedRoundStartedAt: this.trackedRoundStartedAt,
+      trackedName: this.trackedName,
       balances: Array.from(this.balances.entries()),
       pools: this.pools,
       bets: this.bets,
       lastStipend: Array.from(this.lastStipend.entries()),
       lifetime: Array.from(this.lifetime.entries()),
       activity: this.activity,
-      resolution: this.resolution,
+      lastResult: this.lastResult,
+      resultsHistory: this.resultsHistory,
     });
   }
 
@@ -210,33 +268,36 @@ export class Market {
     return this.lifetime.get(clientId)!;
   }
 
-  private async fetchButtonState(): Promise<{ data: ButtonState; stale: boolean }> {
+  private async fetchSourceState(): Promise<{ data: SourceState; stale: boolean }> {
     const now = Date.now();
-    if (now - this.buttonCache.fetchedAt < STATE_CACHE_MS) {
-      return { data: this.buttonCache.data, stale: this.buttonCache.stale };
+    if (now - this.sourceCache.fetchedAt < STATE_CACHE_MS) {
+      return { data: this.sourceCache.data, stale: this.sourceCache.stale };
     }
     try {
       const r = await fetch(SOURCE_STATE_URL);
       if (!r.ok) throw new Error("http " + r.status);
-      const body = await r.json<{ pressed?: boolean; pressedAt?: number | null }>();
-      const data: ButtonState = { pressed: Boolean(body.pressed), pressedAt: body.pressedAt ?? null };
-      this.buttonCache = { data, fetchedAt: now, stale: false };
+      const body = await r.json<Partial<SourceState>>();
+      const data: SourceState = {
+        roundNumber: Number(body.roundNumber) || 0,
+        currentName: body.currentName ?? null,
+        roundStartedAt: Number(body.roundStartedAt) || 0,
+        totalGraduated: Number(body.totalGraduated) || 0,
+        graduated: Array.isArray(body.graduated) ? body.graduated : [],
+      };
+      this.sourceCache = { data, fetchedAt: now, stale: false };
     } catch {
       // Upstream hiccup — keep serving the last good snapshot rather than
       // breaking the market; just flag it so the UI can say so.
-      this.buttonCache = { ...this.buttonCache, fetchedAt: now, stale: true };
+      this.sourceCache = { ...this.sourceCache, fetchedAt: now, stale: true };
     }
-    return { data: this.buttonCache.data, stale: this.buttonCache.stale };
+    return { data: this.sourceCache.data, stale: this.sourceCache.stale };
   }
 
-  // Resolves the market exactly once, the instant the source button flips to
-  // pressed. Called defensively on every request (in addition to the backup
-  // alarm) so resolution can't be missed by a late/cold-started alarm.
-  private async maybeResolve(button: ButtonState): Promise<boolean> {
-    if (this.resolution) return false;
-    if (!button.pressed || button.pressedAt == null) return false;
-
-    const deltaMs = Math.max(0, button.pressedAt - this.epoch);
+  // Pays out the round that just ended, pari-mutuel, then wipes the board
+  // for the next one. Balances, lifetime stats, and the leaderboard are not
+  // reset — only the per-round pools/bets/activity are.
+  private resolveRound(endedAt: number): void {
+    const deltaMs = Math.max(0, endedAt - this.trackedRoundStartedAt);
     const winningBucketId = bucketFor(deltaMs).id;
     const totalRealPool = Object.values(this.pools).reduce((a, b) => a + b, 0);
     const winnerPool = this.pools[winningBucketId] || 0;
@@ -261,23 +322,62 @@ export class Market {
       }
     }
 
-    this.resolution = {
-      pressedAt: button.pressedAt,
+    const result: RoundResult = {
+      roundNumber: this.trackedRoundNumber,
+      name: this.trackedName,
+      roundStartedAt: this.trackedRoundStartedAt,
+      endedAt,
       winningBucketId,
       totalRealPool,
       paidOut,
       winners,
       refunded,
     };
+    this.lastResult = result;
+    this.resultsHistory.unshift(result);
+    if (this.resultsHistory.length > RESULTS_HISTORY_MAX) this.resultsHistory.length = RESULTS_HISTORY_MAX;
+
+    this.pools = {};
+    this.bets = {};
+    this.activity = [];
+  }
+
+  // Checked defensively on every request (in addition to the backup alarm)
+  // so a round change can't be missed by a late/cold-started alarm. Returns
+  // true if state changed and needs persisting.
+  private async maybeAdvance(): Promise<boolean> {
+    const { data: source, stale } = await this.fetchSourceState();
+    if (stale) return false;
+
+    if (this.trackedRoundNumber === 0) {
+      if (source.roundNumber <= 0) return false;
+      this.trackedRoundNumber = source.roundNumber;
+      this.trackedRoundStartedAt = source.roundStartedAt;
+      this.trackedName = source.currentName;
+      return true;
+    }
+
+    if (source.roundNumber === this.trackedRoundNumber) return false;
+
+    // The round we were tracking ended somewhere between our last poll and
+    // this one — dontpressit has already moved on. Its graduated log only
+    // keeps the last 12 entries, so if this market was quiet long enough to
+    // fall further behind than that, fall back to "now" as an approximation
+    // rather than losing the round's payout entirely.
+    const grad = source.graduated.find((g) => g.roundNumber === this.trackedRoundNumber);
+    this.resolveRound(grad ? grad.endedAt : Date.now());
+
+    this.trackedRoundNumber = source.roundNumber;
+    this.trackedRoundStartedAt = source.roundStartedAt;
+    this.trackedName = source.currentName;
     return true;
   }
 
   async alarm(): Promise<void> {
     await this.ready;
-    const { data } = await this.fetchButtonState();
-    const justResolved = await this.maybeResolve(data);
-    await this.persist();
-    if (!justResolved) await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+    const changed = await this.maybeAdvance();
+    if (changed) await this.persist();
+    await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
   }
 
   private buildBuckets() {
@@ -291,15 +391,14 @@ export class Market {
         pool,
         impliedPct: totalPool > 0 ? Math.round((pool / totalPool) * 1000) / 10 : 0,
         odds: pool > 0 ? Math.round((totalPool / pool) * 100) / 100 : null,
-        won: this.resolution ? this.resolution.winningBucketId === b.id : null,
       };
     });
   }
 
   private async marketView(clientId: string) {
-    const { data: button, stale } = await this.fetchButtonState();
-    const justResolved = await this.maybeResolve(button);
-    if (justResolved) await this.persist();
+    const { stale } = await this.fetchSourceState();
+    const changed = await this.maybeAdvance();
+    if (changed) await this.persist();
 
     const balance = this.getBalance(clientId);
     const yourBets = this.bets[clientId] || {};
@@ -307,10 +406,10 @@ export class Market {
     const stats = this.lifetime.get(clientId) || freshStats();
 
     return {
-      epoch: this.epoch,
-      now: Date.now(),
-      button: { pressed: button.pressed, pressedAt: button.pressedAt, stale },
-      resolution: this.resolution,
+      synced: this.trackedRoundNumber > 0,
+      round: { number: this.trackedRoundNumber, startedAt: this.trackedRoundStartedAt, name: this.trackedName },
+      sourceStale: stale,
+      lastResult: this.lastResult,
       buckets: this.buildBuckets(),
       totalRealPool,
       balance,
@@ -322,7 +421,6 @@ export class Market {
       },
       activity: this.activity.slice(0, ACTIVITY_MAX),
       canClaimStipend:
-        !this.resolution &&
         balance < STIPEND_THRESHOLD &&
         Date.now() - (this.lastStipend.get(clientId) || 0) > STIPEND_COOLDOWN_MS,
       leaderboard: Array.from(this.balances.entries())
@@ -344,7 +442,6 @@ export class Market {
 
     if (url.pathname === "/api/bet" && request.method === "POST") {
       if (!clientId) return json({ error: "missing client id" }, 400);
-      if (this.resolution) return json({ error: "market's closed — the button was already pressed" }, 400);
 
       const last = this.lastBetAt.get(clientId) || 0;
       if (Date.now() - last < BET_COOLDOWN_MS) {
@@ -366,14 +463,22 @@ export class Market {
         return json({ error: `bets start at ${MIN_BET} coins` }, 400);
       }
 
-      // Re-check the real button, synchronously, before touching any money —
-      // a stale cached "unpressed" must never let a bet slip in after the
-      // real press just because the periodic check hasn't run yet.
-      const { data: button } = await this.fetchButtonState();
-      const justResolved = await this.maybeResolve(button);
-      if (justResolved) {
+      // Re-sync against the real round, synchronously, before touching any
+      // money — a stale cached round number must never let a bet slip in
+      // after the real round has already turned over.
+      const wasSynced = this.trackedRoundNumber > 0;
+      const changed = await this.maybeAdvance();
+      if (changed) {
         await this.persist();
-        return json({ error: "market's closed — the button was just pressed" }, 400);
+        return json(
+          wasSynced
+            ? { error: "that round just ended — the board reset, place your bet on the new one" }
+            : { error: "still syncing with dontpressit — try again in a moment" },
+          400,
+        );
+      }
+      if (this.trackedRoundNumber === 0) {
+        return json({ error: "still syncing with dontpressit — try again in a moment" }, 400);
       }
 
       const balance = this.getBalance(clientId);
@@ -397,7 +502,6 @@ export class Market {
 
     if (url.pathname === "/api/stipend" && request.method === "POST") {
       if (!clientId) return json({ error: "missing client id" }, 400);
-      if (this.resolution) return json({ error: "market's closed" }, 400);
       const balance = this.getBalance(clientId);
       const last = this.lastStipend.get(clientId) || 0;
       if (balance >= STIPEND_THRESHOLD) return json({ error: "you're not broke yet" }, 400);
