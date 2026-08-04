@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>followwall — a wall of everyone who follows this account</title>
+    <meta name="description" content="Enter a Bluesky handle: followwall pulls everyone who follows that account off the public AppView and lays them out as a wall of avatars, newest first." />
+    <meta property="og:title" content="followwall — a wall of everyone who follows this account" />
+    <meta property="og:description" content="Enter a handle. followwall pulls its followers off the public AppView and lays them out as a wall of avatars." />
+    <meta property="og:image" content="https://followwall.bisks.net/og.png" />
+    <meta property="og:url" content="https://followwall.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="followwall — a wall of everyone who follows this account" />
+    <meta name="twitter:description" content="Enter a handle. followwall pulls its followers off the public AppView and lays them out as a wall of avatars." />
+    <meta name="twitter:image" content="https://followwall.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#150c1c; --panel:#20132a; --panel2:#2a1938; --ink:#f7edff;
+        --muted:#a68fc0; --faint:#392249; --accent:#c084fc; --accent2:#f472b6;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #2c1840, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:760px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:60ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#6d5286; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#22092f; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:#ff6b6b; }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.4rem; }
+      .examples a { cursor:pointer; }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .profile { display:none; align-items:center; gap:0.75rem; margin:0.4rem 0 1.4rem;
+        padding-bottom:1.2rem; border-bottom:1px solid var(--faint); }
+      .profile.show { display:flex; }
+      .profile img { width:52px; height:52px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .profile .pname { font-weight:800; font-size:1.02rem; line-height:1.25; }
+      .profile .phandle { color:var(--muted); font-size:0.85rem; }
+      .profile .pcount { margin-left:auto; text-align:right; color:var(--muted);
+        font-size:0.76rem; font-family:var(--mono); line-height:1.4; }
+
+      .resultWrap { display:none; }
+      .resultWrap.show { display:block; }
+
+      .wallhead { display:flex; align-items:baseline; justify-content:space-between;
+        margin:0 0 0.7rem; }
+      .wallhead h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;
+        color:var(--muted); margin:0; font-weight:700; }
+      .wallhead .cap { color:var(--muted); font-size:0.74rem; font-family:var(--mono); }
+
+      .wall { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+        gap:0.65rem; margin-bottom:1.6rem; }
+      .fcard { background:var(--panel); border:1px solid var(--faint); border-radius:14px;
+        padding:0.75rem; display:flex; flex-direction:column; align-items:center; text-align:center;
+        gap:0.35rem; min-width:0; }
+      .fcard:hover { border-color:var(--accent); text-decoration:none; }
+      .fcard img { width:48px; height:48px; border-radius:50%; background:var(--faint);
+        object-fit:cover; }
+      .fcard .fname { font-weight:700; font-size:0.82rem; color:var(--ink); width:100%;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fcard .fhandle { font-size:0.72rem; color:var(--muted); width:100%;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+      .share { display:none; margin:1.4rem 0 1rem; flex-wrap:wrap; gap:0.55rem; }
+      .share.show { display:flex; }
+      .share button, .share a.btn { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.5rem 0.85rem;
+        cursor:pointer; text-decoration:none; }
+      .share button:hover, .share a.btn:hover { color:var(--ink); border-color:var(--accent); text-decoration:none; }
+      .share a.compose { color:#22092f; background:var(--accent); border-color:var(--accent); font-weight:700; }
+      .share a.compose:hover { color:#22092f; }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🧱 followwall</h1>
+      <p class="sub">
+        A website where some people follow this account. Enter a handle and
+        we pull <b>everyone who follows it</b> off Bluesky's public AppView
+        and lay them out as a wall of avatars, newest follower first.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. buildthis.bisks.net" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">show the wall</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="buildthis.bisks.net">buildthis.bisks.net</a> ·
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+        <div class="pcount" id="pcount"></div>
+      </div>
+
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="resultWrap" id="resultWrap">
+        <div class="wallhead">
+          <h3>the wall</h3>
+          <span class="cap" id="wallcap"></span>
+        </div>
+        <div class="wall" id="wall"></div>
+
+        <div class="share" id="share">
+          <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
+          <button id="shareDownload">⬇ download card</button>
+          <button id="shareNative" style="display:none">📤 share</button>
+          <button id="copyLink">🔗 copy link</button>
+        </div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+      <p class="note">
+        Reads only public data (Bluesky's anonymous AppView —
+        <code>getFollowers</code>, <code>getProfile</code>). Everything runs
+        in your browser. Capped at 4,000 followers (40 pages) so a huge
+        account doesn't turn one page load into thousands of requests — the
+        follower-count badge at top is the real total even when the wall
+        below is a partial sample. Nothing is posted or changed — it just reads.
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/thegodfungi.bsky.social">@thegodfungi.bsky.social</a></p>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveDid, fetchProfile, fetchFollowers } from "./lib/followers.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const profile = document.getElementById("profile");
+      const progwrap = document.getElementById("progwrap");
+      const progbarfill = document.getElementById("progbarfill");
+      const proglabel = document.getElementById("proglabel");
+      const resultWrap = document.getElementById("resultWrap");
+      const wall = document.getElementById("wall");
+      const wallcap = document.getElementById("wallcap");
+      const share = document.getElementById("share");
+      const shareCanvas = document.getElementById("shareCanvas");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function renderProfile(prof) {
+        document.getElementById("pavatar").src = prof.avatar || "";
+        document.getElementById("pname").textContent = prof.displayName || prof.handle || "";
+        document.getElementById("phandle").textContent = "@" + (prof.handle || "");
+        document.getElementById("pcount").innerHTML =
+          `${prof.followersCount.toLocaleString()} followers<br>${prof.followingCount.toLocaleString()} following`;
+        profile.classList.add("show");
+      }
+
+      function fcardHTML(f) {
+        return `
+          <a class="fcard" href="https://bsky.app/profile/${esc(f.handle)}" target="_blank" rel="noopener">
+            <img src="${esc(f.avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy" />
+            <div class="fname">${esc(f.displayName)}</div>
+            <div class="fhandle">@${esc(f.handle)}</div>
+          </a>`;
+      }
+
+      async function loadImg(url) {
+        if (!url) return null;
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(prof, followers) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        const avatar = await loadImg(prof.avatar);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#150c1c";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, -H * 0.15, 0, W * 0.5, -H * 0.15, W * 0.6);
+        glow.addColorStop(0, "#2c1840");
+        glow.addColorStop(1, "rgba(21,12,28,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#c084fc";
+        ctx.font = `800 44px ${mono}`;
+        ctx.fillText("🧱 followwall", 60, 96);
+
+        ctx.fillStyle = "#a68fc0";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(`who follows @${prof.handle || ""}`, 60, 132);
+
+        const cardX = 60, cardY = 168, cardW = W - 120, cardH = H - 320;
+        ctx.fillStyle = "#20132a";
+        ctx.strokeStyle = "#392249";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        let textX = cardX + 40;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cardX + 70, cardY + 62, 30, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, cardX + 40, cardY + 32, 60, 60);
+          ctx.restore();
+          textX = cardX + 114;
+        }
+        ctx.fillStyle = "#f7edff";
+        ctx.font = `800 26px ${mono}`;
+        ctx.fillText(prof.displayName || prof.handle || "", textX, cardY + 54);
+        ctx.fillStyle = "#a68fc0";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText("@" + (prof.handle || ""), textX, cardY + 82);
+
+        ctx.fillStyle = "#f472b6";
+        ctx.font = `800 40px ${mono}`;
+        ctx.fillText(`${prof.followersCount.toLocaleString()} followers`, cardX + 40, cardY + 150);
+
+        // avatar mosaic of the first ~30 followers on the wall
+        const grid = followers.slice(0, 30);
+        const cols = 10, size = 56, gap = 10;
+        const gridX = cardX + 40, gridY = cardY + 190;
+        for (let i = 0; i < grid.length; i++) {
+          const cx = gridX + (i % cols) * (size + gap);
+          const cy = gridY + Math.floor(i / cols) * (size + gap);
+          ctx.fillStyle = "#392249";
+          ctx.beginPath();
+          ctx.arc(cx + size / 2, cy + size / 2, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#c084fc";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("followwall.bisks.net", 60, H - 40);
+
+        // draw real avatars over the mosaic placeholders, then finish
+        for (let i = 0; i < grid.length; i++) {
+          const img = await loadImg(grid[i].avatar);
+          if (!img) continue;
+          const cx = gridX + (i % cols) * (size + gap);
+          const cy = gridY + Math.floor(i / cols) * (size + gap);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx + size / 2, cy + size / 2, size / 2, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(img, cx, cy, size, size);
+          ctx.restore();
+        }
+      }
+
+      function buildShareText(prof) {
+        const url = "https://followwall.bisks.net/?handle=" + encodeURIComponent(prof.handle);
+        return `🧱 followwall: ${prof.followersCount.toLocaleString()} people follow @${prof.handle}\n\n${url}`;
+      }
+
+      let lastShareText = "";
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        profile.classList.remove("show");
+        progwrap.classList.remove("show");
+        resultWrap.classList.remove("show");
+        share.classList.remove("show");
+        wall.innerHTML = "";
+
+        try {
+          statusEl.textContent = "resolving handle…";
+          const did = await resolveDid(rawHandle);
+          const prof = await fetchProfile(did);
+          renderProfile(prof);
+
+          if (prof.followersCount === 0) {
+            statusEl.textContent = `@${prof.handle} has no followers yet.`;
+            busy = false;
+            go.disabled = false;
+            return;
+          }
+
+          progwrap.classList.add("show");
+          const followers = await fetchFollowers(did, {
+            onStep: (msg) => {
+              statusEl.textContent = msg;
+              proglabel.textContent = msg;
+            },
+          });
+          progwrap.classList.remove("show");
+          statusEl.textContent = "";
+
+          wall.innerHTML = followers.map(fcardHTML).join("");
+          wallcap.textContent = followers.length < prof.followersCount
+            ? `showing ${followers.length.toLocaleString()} of ${prof.followersCount.toLocaleString()}`
+            : `all ${followers.length.toLocaleString()}`;
+          resultWrap.classList.add("show");
+          share.classList.add("show");
+
+          lastShareText = buildShareText(prof);
+          document.getElementById("shareBluesky").href =
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(prof, followers);
+
+          const url = new URL(location.href);
+          url.searchParams.set("handle", prof.handle);
+          history.replaceState(null, "", url);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't load that: " + e.message;
+          progwrap.classList.remove("show");
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+
+      document.getElementById("shareDownload").addEventListener("click", () => {
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "followwall.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) { return false; }
+      }
+      if (canShareFiles()) {
+        document.getElementById("shareNative").style.display = "";
+        document.getElementById("shareNative").addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "followwall.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "followwall" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+  </body>
+</html>
