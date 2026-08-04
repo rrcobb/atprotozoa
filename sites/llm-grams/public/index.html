@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230d0d0d'/%3E%3Cpath d='M4 18 L9 11 L13 14 L20 5' stroke='%233987e5' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<title>llm-grams — search trends for the phrases LLMs won't stop using</title>
+<meta name="description" content="Google-Trends-style charts of common LLM n-grams — delve, tapestry, boasts, and 'wearing a trenchcoat' itself — since ChatGPT launched. Illustrative, not measured, and says so.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="llm-grams — search trends for the phrases LLMs won't stop using">
+<meta property="og:description" content="delve, tapestry, boasts, 'it's not just X, it's Y' — charted like Google Trends since ChatGPT launched. Add 'wearing a trenchcoat' and watch it eat every other line.">
+<meta property="og:image" content="https://llm-grams.bisks.net/og.png">
+<meta property="og:url" content="https://llm-grams.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --series-3:       #1baf7a;
+    --series-4:       #eda100;
+    --good-text:      #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --series-4:       #c98500;
+      --good-text:      #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+    --series-4:       #c98500;
+    --good-text:      #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 18px 64px; }
+
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 6px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .tag { color: var(--text-secondary); font-size: 13px; }
+  .sub { color: var(--text-secondary); margin: 10px 0 22px; max-width: 640px; font-size: 14px; }
+  .sub a { color: var(--series-1); }
+
+  button, input[type=text] {
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--surface-1);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 7px 11px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--text-muted); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--series-1); color: #fff; border-color: transparent; }
+
+  #themeToggle { flex: none; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 18px 14px;
+    margin-bottom: 18px;
+  }
+
+  .controls-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .controls-row input[type=text] { flex: 1 1 220px; min-width: 160px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 4px 0 14px; min-height: 20px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .legend-swatch { width: 16px; height: 2px; border-radius: 1px; flex: none; }
+  .legend-item button { border: none; background: none; padding: 0 2px; color: var(--text-muted); font-size: 13px; }
+  .legend-item button:hover { color: var(--text-primary); }
+  .legend-empty { color: var(--text-muted); font-size: 13px; }
+
+  .chart-shell { position: relative; overflow: hidden; }
+  svg#chart { width: 100%; height: auto; display: block; overflow: visible; }
+  .gridline { stroke: var(--gridline); stroke-width: 1; }
+  .axisline { stroke: var(--baseline); stroke-width: 1; }
+  .tick-label { fill: var(--text-muted); font-size: 10.5px; font-family: inherit; }
+  .annot-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2,3; opacity: 0.6; }
+  .annot-label { fill: var(--text-muted); font-size: 10px; font-family: inherit; }
+  .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .series-dot { stroke: var(--surface-1); stroke-width: 2; }
+  .crosshair { stroke: var(--text-muted); stroke-width: 1; pointer-events: none; opacity: 0; }
+  .hit-layer { fill: transparent; cursor: crosshair; }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    opacity: 0;
+    transition: opacity 0.06s linear;
+    min-width: 130px;
+    z-index: 5;
+  }
+  .tooltip .t-date { color: var(--text-secondary); margin-bottom: 4px; font-size: 11px; }
+  .tooltip .t-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+  .tooltip .t-key { width: 12px; height: 2px; flex: none; }
+  .tooltip .t-val { font-weight: 700; }
+  .tooltip .t-name { color: var(--text-secondary); }
+
+  .chart-note { color: var(--text-muted); font-size: 12px; margin-top: 10px; }
+
+  .picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .picker-head h2 { font-size: 15px; margin: 0; }
+  .cap-note { color: var(--text-muted); font-size: 12px; }
+  .term-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 230px; overflow-y: auto; padding: 2px; }
+  .term-chip {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+    user-select: none; background: var(--surface-1);
+  }
+  .term-chip:hover { border-color: var(--text-muted); }
+  .term-chip.selected { border-color: var(--chip-color, var(--series-1)); color: var(--text-primary); }
+  .term-chip.selected .dot { background: var(--chip-color, var(--series-1)); }
+  .term-chip.meme { border-style: dashed; }
+  .term-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+  .term-chip input { display: none; }
+  .term-chip .cat { color: var(--text-muted); font-size: 10.5px; }
+
+  .custom-row { display: flex; gap: 8px; margin-top: 12px; }
+  .custom-row input { flex: 1; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+  table.data-table th, table.data-table td { border-bottom: 1px solid var(--gridline); padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
+  table.data-table th:first-child, table.data-table td:first-child { text-align: left; }
+  table.data-table th { color: var(--text-muted); font-weight: 600; }
+  .table-wrap { max-height: 320px; overflow: auto; display: none; margin-top: 10px; }
+  .table-wrap.open { display: block; }
+
+  .share-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .share-row a.button {
+    text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; padding: 7px 12px; border-radius: 7px;
+    background: var(--series-1); color: #fff;
+  }
+  .copy-status { color: var(--good-text); font-size: 12px; }
+
+  footer { color: var(--text-muted); font-size: 12px; margin-top: 26px; line-height: 1.7; }
+  footer a { color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>llm-grams</h1>
+      <div class="tag">search interest for the phrases LLMs won't stop using</div>
+    </div>
+    <button id="themeToggle" title="toggle theme">◐</button>
+  </header>
+
+  <p class="sub">Charted like Google Trends: relative interest, normalized to
+    whatever you've selected. <strong>Not real data</strong> — no Trends API key,
+    and no honest way to fake having one — every curve here is hand-tuned to the
+    shape of the real story (flat, then Nov 2022, then up). Add
+    <em>“wearing a trenchcoat”</em> and watch it eat the chart, exactly like the
+    screenshot this site is a joke about.</p>
+
+  <div class="card">
+    <div class="picker-head">
+      <h2>terms</h2>
+      <span class="cap-note" id="capNote">pick up to 4 — like a real comparison</span>
+    </div>
+    <div class="term-list" id="termList"></div>
+    <div class="custom-row">
+      <input type="text" id="customInput" placeholder="type any word or phrase to fake-chart it too…" maxlength="60">
+      <button id="customAdd">chart it</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="legend" id="legend"></div>
+    <div class="chart-shell">
+      <svg id="chart" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+    <div class="chart-note" id="chartNote"></div>
+  </div>
+
+  <div class="card">
+    <div class="share-row">
+      <button id="toggleTable">show table view</button>
+      <button id="copyLink">copy link to this chart</button>
+      <a class="button" id="shareBsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <span class="copy-status" id="copyStatus"></span>
+    </div>
+    <div class="table-wrap" id="tableWrap"></div>
+  </div>
+
+  <footer>
+    Methodology, such as it is: months run Jan 2022 → the current month.
+    The three dashed lines are real release dates. Every line's <em>shape</em> —
+    flat, then a takeoff, some a slow fade as people prompt the tic back out —
+    is a guess dressed up as a chart, not a Trends export. When you select more
+    than one term the chart normalizes to the loudest one in the set, same as
+    real Google Trends comparison mode — which is why “wearing a trenchcoat”
+    flattens everything else the moment you add it.
+    <br>
+    built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="#" id="authorLink" target="_blank" rel="noopener">a mutual</a>,
+    off a reply about a Google Trends screenshot captioned “wearing a trenchcoat.”
+    · <a href="https://bisks.net/">more atprotozoa</a>
+  </footer>
+
+</div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(function () {
+  var D = window.LLMGRAMS;
+  var TERM_DEFS = D.TERM_DEFS;
+  var TERM_BY_ID = {};
+  TERM_DEFS.forEach(function (t) { TERM_BY_ID[t.id] = t; });
+
+  var SLOT_VARS = ["--series-1", "--series-2", "--series-3", "--series-4"];
+  var MAX_SLOTS = 4;
+
+  // slot assignment: id -> slot index (0-3). Stable once assigned — freed
+  // slots are NOT reused by the survivors, only by the next new pick.
+  var slotOf = {};
+  var order = []; // selection order, ids
+
+  var customTerms = {}; // id -> term-def-like object for freeform entries
+
+  function freeSlot() {
+    var used = {};
+    order.forEach(function (id) { used[slotOf[id]] = true; });
+    for (var i = 0; i < MAX_SLOTS; i++) if (!used[i]) return i;
+    return -1;
+  }
+
+  function colorVar(id) {
+    return SLOT_VARS[slotOf[id]];
+  }
+
+  function termOf(id) {
+    return TERM_BY_ID[id] || customTerms[id];
+  }
+
+  function slugify(text) {
+    return "custom-" + text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  }
+
+  function genCustomSeries(text) {
+    var seed = D.hashStr(text);
+    var takeoff = 9 + (seed % 10);       // spread takeoffs across the early-LLM window
+    var ramp = 3 + ((seed >> 4) % 5);
+    var peak = 0.3 + ((seed >> 8) % 70) / 100;
+    var vals = [];
+    for (var i = 0; i < D.MONTH_COUNT; i++) {
+      var growth = 1 / (1 + Math.exp(-((i - takeoff) / ramp)));
+      var v = 0.04 + (peak - 0.04) * growth;
+      v += (Math.sin((seed % 89) * 0.31 + i * 1.6) * 0.5 + Math.sin((seed % 41) * 0.17 + i * 0.8) * 0.3) * peak * 0.04;
+      vals.push(Math.max(0.01, v));
+    }
+    return vals;
+  }
+
+  function select(id) {
+    if (order.indexOf(id) !== -1) return;
+    var slot = freeSlot();
+    if (slot === -1) return;
+    slotOf[id] = slot;
+    order.push(id);
+    render();
+  }
+  function deselect(id) {
+    var idx = order.indexOf(id);
+    if (idx === -1) return;
+    order.splice(idx, 1);
+    delete slotOf[id];
+    render();
+  }
+  function toggle(id) {
+    if (order.indexOf(id) !== -1) deselect(id); else select(id);
+  }
+
+  // ---------- picker ----------
+  var termListEl = document.getElementById("termList");
+  var capNote = document.getElementById("capNote");
+  var searchTerms = TERM_DEFS;
+
+  function renderPicker() {
+    termListEl.innerHTML = "";
+    searchTerms.forEach(function (t) {
+      var chip = document.createElement("div");
+      chip.className = "term-chip" + (t.meme ? " meme" : "") + (order.indexOf(t.id) !== -1 ? " selected" : "");
+      var atCap = order.length >= MAX_SLOTS && order.indexOf(t.id) === -1;
+      if (atCap) chip.style.opacity = "0.45";
+      if (order.indexOf(t.id) !== -1) chip.style.setProperty("--chip-color", "var(" + colorVar(t.id) + ")");
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      var label = document.createElement("span");
+      label.textContent = t.label;
+      chip.appendChild(dot);
+      chip.appendChild(label);
+      var cat = document.createElement("span");
+      cat.className = "cat";
+      cat.textContent = "· " + t.category;
+      chip.appendChild(cat);
+      chip.title = t.blurb;
+      chip.addEventListener("click", function () {
+        if (atCap) return;
+        toggle(t.id);
+      });
+      termListEl.appendChild(chip);
+    });
+    capNote.textContent = order.length >= MAX_SLOTS ? "4 selected — remove one to swap" : "pick up to 4 — like a real comparison (" + order.length + "/4)";
+  }
+
+  document.getElementById("customAdd").addEventListener("click", addCustom);
+  document.getElementById("customInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") addCustom();
+  });
+  function addCustom() {
+    var input = document.getElementById("customInput");
+    var text = input.value.trim();
+    if (!text) return;
+    if (order.length >= MAX_SLOTS) { input.value = ""; return; }
+    var id = slugify(text);
+    if (!customTerms[id] && !TERM_BY_ID[id]) {
+      customTerms[id] = { id: id, label: text, category: "made up on the spot", custom: true,
+        blurb: "not a real curated term — generated on the fly from what you typed. same rule as everything else: illustrative, not measured." };
+      D.SERIES[id] = genCustomSeries(text);
+    }
+    select(id);
+    input.value = "";
+  }
+
+  // ---------- legend ----------
+  var legendEl = document.getElementById("legend");
+  function renderLegend() {
+    legendEl.innerHTML = "";
+    if (order.length === 0) {
+      var empty = document.createElement("span");
+      empty.className = "legend-empty";
+      empty.textContent = "nothing selected — pick a term below, or add your own.";
+      legendEl.appendChild(empty);
+      return;
+    }
+    order.forEach(function (id) {
+      var t = termOf(id);
+      var item = document.createElement("div");
+      item.className = "legend-item";
+      var sw = document.createElement("span");
+      sw.className = "legend-swatch";
+      sw.style.background = "var(" + colorVar(id) + ")";
+      var name = document.createElement("span");
+      name.textContent = t.label;
+      var rm = document.createElement("button");
+      rm.textContent = "✕";
+      rm.title = "remove";
+      rm.addEventListener("click", function () { deselect(id); });
+      item.appendChild(sw);
+      item.appendChild(name);
+      item.appendChild(rm);
+      legendEl.appendChild(item);
+    });
+  }
+
+  // ---------- chart ----------
+  var svg = document.getElementById("chart");
+  var chartNote = document.getElementById("chartNote");
+  var PAD = { l: 34, r: 14, t: 14, b: 26 };
+  var W = 900, H = 340;
+  var plotW = W - PAD.l - PAD.r;
+  var plotH = H - PAD.t - PAD.b;
+
+  function xForIndex(i) {
+    return PAD.l + (i / (D.MONTH_COUNT - 1)) * plotW;
+  }
+  function yForVal(v) {
+    return PAD.t + plotH - (v / 100) * plotH;
+  }
+
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  function renderChart() {
+    svg.innerHTML = "";
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+
+    // gridlines + y ticks
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      var y = yForVal(v);
+      svg.appendChild(el("line", { class: "gridline", x1: PAD.l, x2: W - PAD.r, y1: y, y2: y }));
+      var t = el("text", { class: "tick-label", x: PAD.l - 8, y: y + 3, "text-anchor": "end" });
+      t.textContent = v;
+      svg.appendChild(t);
+    });
+    svg.appendChild(el("line", { class: "axisline", x1: PAD.l, x2: PAD.l, y1: PAD.t, y2: PAD.t + plotH }));
+    svg.appendChild(el("line", { class: "axisline", x1: PAD.l, x2: W - PAD.r, y1: PAD.t + plotH, y2: PAD.t + plotH }));
+
+    // x ticks every 6 months
+    D.MONTHS.forEach(function (m) {
+      if (m.i % 6 !== 0) return;
+      var x = xForIndex(m.i);
+      var t = el("text", { class: "tick-label", x: x, y: H - 6, "text-anchor": "middle" });
+      t.textContent = m.short;
+      svg.appendChild(t);
+    });
+
+    // annotations — staggered vertically so labels for release dates close
+    // together (ChatGPT / GPT-4, four months apart) don't overlap each other.
+    D.ANNOTATIONS.forEach(function (a, idx) {
+      var x = xForIndex(a.i);
+      svg.appendChild(el("line", { class: "annot-line", x1: x, x2: x, y1: PAD.t, y2: PAD.t + plotH }));
+      var t = el("text", { class: "annot-label", x: x + 4, y: PAD.t + 10 + (idx % 2) * 13 });
+      t.textContent = a.label;
+      svg.appendChild(t);
+    });
+
+    if (order.length === 0) {
+      chartNote.textContent = "";
+      updateTable();
+      return;
+    }
+
+    // normalize: comparative, like real Trends — scale to the loudest raw value
+    // among everything currently selected.
+    var maxAll = 0;
+    order.forEach(function (id) {
+      D.SERIES[id].forEach(function (v) { if (v > maxAll) maxAll = v; });
+    });
+
+    var normSeries = {};
+    order.forEach(function (id) {
+      normSeries[id] = D.SERIES[id].map(function (v) { return (v / maxAll) * 100; });
+    });
+
+    order.forEach(function (id) {
+      var norm = normSeries[id];
+      var d = norm.map(function (v, i) { return (i === 0 ? "M" : "L") + xForIndex(i).toFixed(1) + " " + yForVal(v).toFixed(1); }).join(" ");
+      var path = el("path", { class: "series-line", d: d, stroke: "var(" + colorVar(id) + ")" });
+      svg.appendChild(path);
+      // end dot + direct label at the last point
+      var lastI = norm.length - 1;
+      var lx = xForIndex(lastI), ly = yForVal(norm[lastI]);
+      svg.appendChild(el("circle", { class: "series-dot", cx: lx, cy: ly, r: 4, fill: "var(" + colorVar(id) + ")" }));
+    });
+
+    var memeSelected = order.indexOf("trenchcoat") !== -1;
+    if (memeSelected && order.length > 1) {
+      chartNote.textContent = "“wearing a trenchcoat” is on — the other lines are real, just flattened by comparison, exactly like the meme.";
+    } else {
+      chartNote.textContent = "";
+    }
+
+    // crosshair + tooltip
+    var cross = el("line", { class: "crosshair", x1: 0, x2: 0, y1: PAD.t, y2: PAD.t + plotH });
+    svg.appendChild(cross);
+    var hit = el("rect", { class: "hit-layer", x: PAD.l, y: PAD.t, width: plotW, height: plotH });
+    svg.appendChild(hit);
+
+    var tooltip = document.getElementById("tooltip");
+    function moveHandler(evt) {
+      var rect = svg.getBoundingClientRect();
+      var scaleX = W / rect.width;
+      var px = (evt.clientX - rect.left) * scaleX;
+      var frac = (px - PAD.l) / plotW;
+      var i = Math.round(frac * (D.MONTH_COUNT - 1));
+      i = Math.max(0, Math.min(D.MONTH_COUNT - 1, i));
+      var x = xForIndex(i);
+      cross.setAttribute("x1", x); cross.setAttribute("x2", x);
+      cross.style.opacity = 1;
+
+      var html = '<div class="t-date">' + D.MONTHS[i].full + "</div>";
+      order.forEach(function (id) {
+        var t = termOf(id);
+        var v = Math.round(normSeries[id][i]);
+        html += '<div class="t-row"><span class="t-key" style="background:var(' + colorVar(id) + ')"></span>' +
+          '<span class="t-val">' + v + "</span> <span class=\"t-name\"></span></div>";
+      });
+      tooltip.innerHTML = html;
+      var nameEls = tooltip.querySelectorAll(".t-name");
+      order.forEach(function (id, idx) { nameEls[idx].textContent = termOf(id).label; });
+
+      var scaleY = rect.width / W;
+      var leftPx = x * scaleY;
+      var shellRect = svg.parentElement.getBoundingClientRect();
+      var tw = tooltip.offsetWidth || 140;
+      var left = Math.min(leftPx + 12, shellRect.width - tw - 8);
+      tooltip.style.left = Math.max(4, left) + "px";
+      tooltip.style.top = "8px";
+      tooltip.style.opacity = 1;
+    }
+    hit.addEventListener("pointermove", moveHandler);
+    hit.addEventListener("pointerleave", function () {
+      cross.style.opacity = 0;
+      tooltip.style.opacity = 0;
+    });
+
+    updateTable(normSeries);
+  }
+
+  // ---------- table view ----------
+  var tableWrap = document.getElementById("tableWrap");
+  function updateTable(normSeries) {
+    if (!normSeries || order.length === 0) { tableWrap.innerHTML = "<p style='color:var(--text-muted);font-size:12px;'>select at least one term.</p>"; return; }
+    var html = "<table class='data-table'><thead><tr><th>month</th>";
+    order.forEach(function (id) { html += "<th></th>"; });
+    html += "</tr><tr><th></th>";
+    order.forEach(function (id) { html += "<th>" + escapeHtml(termOf(id).label) + "</th>"; });
+    html += "</tr></thead><tbody>";
+    for (var i = 0; i < D.MONTH_COUNT; i += 1) {
+      if (i % 2 !== 0 && D.MONTH_COUNT - i > 2) continue; // every other month keeps the table short, still see the shape
+      html += "<tr><td>" + D.MONTHS[i].full + "</td>";
+      order.forEach(function (id) { html += "<td>" + Math.round(normSeries[id][i]) + "</td>"; });
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    tableWrap.innerHTML = html;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  document.getElementById("toggleTable").addEventListener("click", function () {
+    var open = tableWrap.classList.toggle("open");
+    this.textContent = open ? "hide table view" : "show table view";
+  });
+
+  // ---------- share ----------
+  function currentShareUrl() {
+    var knownIds = order.filter(function (id) { return !!TERM_BY_ID[id]; });
+    if (knownIds.length === 0) return "https://llm-grams.bisks.net/";
+    return "https://llm-grams.bisks.net/s/" + knownIds.join(",");
+  }
+  function buildShareText() {
+    var url = currentShareUrl();
+    if (order.length === 0) {
+      return "llm-grams: charting the phrases LLMs won't stop using, like Google Trends. " + url;
+    }
+    var names = order.map(function (id) { return termOf(id).label; });
+    var lead = "llm-grams: " + names.join(" vs ");
+    var text = lead + " — " + url;
+    if (text.length > 295) text = lead.slice(0, 250) + "… " + url;
+    return text;
+  }
+  function refreshShare() {
+    var shareEl = document.getElementById("shareBsky");
+    shareEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+  }
+  document.getElementById("copyLink").addEventListener("click", function () {
+    var url = currentShareUrl();
+    navigator.clipboard.writeText(url).then(function () {
+      var s = document.getElementById("copyStatus");
+      s.textContent = "copied";
+      setTimeout(function () { s.textContent = ""; }, 1500);
+    });
+  });
+
+  // ---------- theme ----------
+  var themeBtn = document.getElementById("themeToggle");
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  }
+  themeBtn.addEventListener("click", function () {
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("llmgrams-theme", next); } catch (e) {}
+  });
+  try {
+    var saved = localStorage.getItem("llmgrams-theme");
+    if (saved) document.documentElement.setAttribute("data-theme", saved);
+  } catch (e) {}
+
+  // ---------- render orchestration ----------
+  function render() {
+    renderPicker();
+    renderLegend();
+    renderChart();
+    refreshShare();
+  }
+
+  // ---------- initial selection from URL ----------
+  function initFromUrl() {
+    var path = location.pathname;
+    var m = path.match(/^\/s\/([^/]+)\/?$/);
+    var ids = [];
+    if (m) {
+      ids = decodeURIComponent(m[1]).split(",");
+    } else {
+      var params = new URLSearchParams(location.search);
+      if (params.get("terms")) ids = params.get("terms").split(",");
+    }
+    ids = ids.filter(function (id) { return !!TERM_BY_ID[id]; }).slice(0, MAX_SLOTS);
+    if (ids.length) {
+      ids.forEach(select);
+    } else {
+      ["delve", "tapestry", "boasts"].forEach(select);
+    }
+  }
+
+  initFromUrl();
+  render();
+})();
+</script>
+</body>
+</html>
