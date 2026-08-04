@@ -226,7 +226,6 @@
     max-width: 220px;
   }
   .bouquet-preview .bq-flower .emoji { font-size: 1.4rem; margin-right: 0.3rem; }
-  .bouquet-preview .bq-flower .from { color: var(--dim); font-size: 0.72rem; display: block; margin-top: 0.15rem; }
   .share-row { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
   .share-row input { margin-bottom: 0; }
   .copied-tip { font-size: 0.8rem; color: var(--accent2); margin-left: 0.4rem; }
@@ -267,7 +266,6 @@
       <h2>plant something kind</h2>
       <div class="flower-picker" id="flowerPicker"></div>
       <textarea id="messageInput" maxlength="200" placeholder="thank you for..."></textarea>
-      <input id="forInput" type="text" maxlength="40" placeholder="who's this for? (optional)" />
       <button id="plantBtn">plant it 🌱</button>
     </section>
 
@@ -324,7 +322,6 @@
   var els = {
     flowerPicker: document.getElementById("flowerPicker"),
     messageInput: document.getElementById("messageInput"),
-    forInput: document.getElementById("forInput"),
     plantBtn: document.getElementById("plantBtn"),
     gardenGrid: document.getElementById("gardenGrid"),
     gardenEmpty: document.getElementById("gardenEmpty"),
@@ -383,9 +380,7 @@
   }
   function encodeBouquet(flowers) {
     return b64urlEncode(JSON.stringify(flowers.map(function (f) {
-      var o = { t: f.t, m: f.m };
-      if (f.f) o.f = f.f;
-      return o;
+      return { t: f.t, m: f.m };
     })));
   }
   function decodeBouquet(code) {
@@ -398,7 +393,6 @@
         out.push({
           t: (typeof item.t === "string" && FLOWER_MAP[item.t]) ? item.t : "b",
           m: item.m.slice(0, 200),
-          f: typeof item.f === "string" ? item.f.slice(0, 40) : "",
         });
       });
       return out.length ? out : null;
@@ -446,7 +440,7 @@
 
   function tileHTML(flower) {
     var f = FLOWER_MAP[flower.t] || FLOWERS[0];
-    var meta = (flower.f ? "for " + esc(flower.f) + " · " : "") + relTime(flower.ts || Date.now());
+    var meta = relTime(flower.ts || Date.now());
     return (
       '<span class="emoji">' + f.e + '</span>' +
       '<span class="snippet">' + esc(flower.m) + '</span>' +
@@ -522,13 +516,11 @@
       id: makeId(),
       t: selectedType,
       m: msg.slice(0, 200),
-      f: els.forInput.value.trim().slice(0, 40),
       ts: Date.now(),
     };
     garden.push(flower);
     saveGarden(garden);
     els.messageInput.value = "";
-    els.forInput.value = "";
     renderGarden();
     var tile = els.gardenGrid.querySelector('[data-id="' + flower.id + '"]');
     if (tile) tile.classList.add("just-planted");
@@ -556,8 +548,7 @@
       var d = document.createElement("div");
       d.className = "bq-flower";
       var fm = FLOWER_MAP[f.t];
-      d.innerHTML = '<span class="emoji">' + fm.e + '</span>' + esc(f.m) +
-        (f.f ? '<span class="from">for ' + esc(f.f) + '</span>' : "");
+      d.innerHTML = '<span class="emoji">' + fm.e + '</span>' + esc(f.m);
       els.bouquetPreview.appendChild(d);
     });
 
@@ -592,25 +583,23 @@
 
     els.mainApp.classList.add("hidden");
     els.bouquetView.classList.remove("hidden");
-    var from = flowers.filter(function (f) { return f.f; })[0];
     els.bouquetViewTitle.textContent = flowers.length > 1
-      ? "💐 someone grew you a bouquet" + (from ? " (from " + from.f + ")" : "")
-      : FLOWER_MAP[flowers[0].t].e + " someone grew you something" + (from ? " (from " + from.f + ")" : "");
+      ? "💐 someone grew you a bouquet"
+      : FLOWER_MAP[flowers[0].t].e + " someone grew you something";
 
     els.bouquetViewFlowers.innerHTML = "";
     flowers.forEach(function (f) {
       var d = document.createElement("div");
       d.className = "bq-flower";
       var fm = FLOWER_MAP[f.t];
-      d.innerHTML = '<span class="emoji">' + fm.e + '</span>' + esc(f.m) +
-        (f.f ? '<span class="from">for ' + esc(f.f) + '</span>' : "");
+      d.innerHTML = '<span class="emoji">' + fm.e + '</span>' + esc(f.m);
       els.bouquetViewFlowers.appendChild(d);
     });
 
     els.plantBouquetBtn.addEventListener("click", function () {
       var now = Date.now();
       flowers.forEach(function (f, i) {
-        garden.push({ id: makeId(), t: f.t, m: f.m, f: f.f, ts: now + i });
+        garden.push({ id: makeId(), t: f.t, m: f.m, ts: now + i });
       });
       saveGarden(garden);
       location.href = "/#plant";

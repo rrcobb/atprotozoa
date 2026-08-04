@@ -33,7 +33,6 @@ const FLOWERS: Record<string, string> = {
 interface BouquetFlower {
   t: string;
   m: string;
-  f?: string;
 }
 
 function b64urlDecode(str: string): string {
@@ -52,7 +51,6 @@ function decodeBouquet(code: string): BouquetFlower[] | null {
       out.push({
         t: typeof item.t === "string" && FLOWERS[item.t] ? item.t : "b",
         m: item.m.slice(0, 200),
-        f: typeof item.f === "string" ? item.f.slice(0, 40) : undefined,
       });
     }
     return out.length ? out : null;
@@ -94,8 +92,7 @@ async function renderBouquet(env: Env, request: Request, code: string): Promise<
   }
 
   const emojis = flowers.map((f) => FLOWERS[f.t] || "🌸").join("");
-  const from = flowers.find((f) => f.f)?.f;
-  const title = `${emojis} a bouquet grown for you${from ? ` by ${from}` : ""} — gratitude garden`;
+  const title = `${emojis} a bouquet grown for you — gratitude garden`;
   const desc = truncate(flowers.map((f) => f.m).join(" · "), 280);
   const ogUrl = `https://gratitude-garden.bisks.net/b/${encodeURIComponent(code)}`;
 
