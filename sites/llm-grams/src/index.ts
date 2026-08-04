@@ -11,36 +11,39 @@ export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
 
-// Kept as a local copy of the labels in public/data.js — same reasoning as
-// didscope's SIGNS duplication: server-side duplication within ONE site, not
-// a shared package across sites. Only what the OG text needs made the trip.
+// Kept as a local copy of the curated ids in public/data.js — same reasoning
+// as didscope's SIGNS duplication: server-side duplication within ONE site,
+// not a shared package across sites. Only what the OG text needs made the
+// trip. (The searchable long tail of ~400 real measured words lives only in
+// data.js — a custom pick just falls back to the generic card here.)
 const LABELS: Record<string, string> = {
   delve: "delve",
-  "delve-into": "delve into",
-  tapestry: "rich tapestry",
-  boasts: "boasts",
-  "testament-to": "a testament to",
-  moreover: "moreover",
-  furthermore: "furthermore",
-  navigating: "navigating",
-  landscape: "the landscape of",
-  unlock: "unlock",
-  elevate: "elevate",
-  "game-changer": "game-changer",
-  "not-x-its-y": "it's not just X, it's Y",
-  "fast-paced-world": "in today's fast-paced world",
-  robust: "robust",
-  seamless: "seamless",
-  leverage: "leverage",
+  delves: "delves",
+  showcasing: "showcasing",
+  underscores: "underscores",
+  meticulously: "meticulously",
+  leveraging: "leveraging",
+  garnered: "garnered",
+  pivotal: "pivotal",
   crucial: "crucial",
+  notably: "notably",
+  navigating: "navigating",
   multifaceted: "multifaceted",
-  "paradigm-shift": "paradigm shift",
+  tapestry: "tapestry",
+  boasts: "boasts",
+  landscape: "the landscape of",
+  comprehensive: "comprehensive",
+  realm: "realm",
+  intricate: "intricate",
+  moreover: "moreover",
+  paradigm: "paradigm",
+  robust: "robust",
   trenchcoat: "wearing a trenchcoat",
 };
 
-const GENERIC_TITLE = "llm-grams — search trends for the phrases LLMs won't stop using";
+const GENERIC_TITLE = "llm-grams — real word-frequency charts for the phrases LLMs won't stop using";
 const GENERIC_DESC =
-  "delve, tapestry, boasts, 'it's not just X, it's Y' — charted like Google Trends since ChatGPT launched. Add 'wearing a trenchcoat' and watch it eat every other line.";
+  "delve, tapestry, boasts, underscores — charted from real published research measuring how often these words appear in 14M+ PubMed abstracts, 2010-2024. Add 'wearing a trenchcoat,' the one line that's still fake.";
 const GENERIC_OG_URL = "https://llm-grams.bisks.net/";
 
 const esc = (s: string) =>
@@ -69,8 +72,8 @@ async function renderShare(env: Env, request: Request, rawIds: string): Promise<
   const hasTrenchcoat = ids.includes("trenchcoat");
   const desc = truncate(
     hasTrenchcoat
-      ? `${names.join(", ")} — charted since ChatGPT launched. 'wearing a trenchcoat' is in the mix, so everything else is about to get flattened.`
-      : `${names.join(", ")} — search interest charted like Google Trends since ChatGPT launched. Illustrative, not measured.`,
+      ? `${names.join(", ")} — real PubMed word-frequency data, 2010-2024. 'wearing a trenchcoat' is in the mix, so everything else is about to get flattened.`
+      : `${names.join(", ")} — how often each word actually appears in PubMed abstracts, 2010-2024. Real data, not vibes.`,
     300,
   );
   const ogUrl = `https://llm-grams.bisks.net/s/${ids.map(encodeURIComponent).join(",")}`;

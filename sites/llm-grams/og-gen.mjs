@@ -83,13 +83,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
   <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">llm-grams</text>
-  <text x="64" y="188" font-family="JetBrains Mono" font-size="20" fill="${DIM}">search interest for the phrases</text>
-  <text x="64" y="216" font-family="JetBrains Mono" font-size="20" fill="${DIM}">LLMs won't stop using</text>
+  <text x="64" y="188" font-family="JetBrains Mono" font-size="20" fill="${DIM}">real word-frequency data for</text>
+  <text x="64" y="216" font-family="JetBrains Mono" font-size="20" fill="${DIM}">the phrases LLMs won't stop using</text>
 
   <text x="64" y="280" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">delve. tapestry. boasts.</text>
-  <text x="64" y="306" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">"it's not just X, it's Y."</text>
-  <text x="64" y="332" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">charted like Google Trends</text>
-  <text x="64" y="358" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">since ChatGPT launched.</text>
+  <text x="64" y="306" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">underscores. intricate.</text>
+  <text x="64" y="332" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">measured in 14M+ PubMed</text>
+  <text x="64" y="358" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">abstracts, 2010-2024.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${AQUA}">llm-grams.bisks.net</text>
 
@@ -101,7 +101,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <path d="${toPath(trenchPts)}" fill="none" stroke="${AQUA}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
 
   <circle cx="${trenchPts[11][0]}" cy="${trenchPts[11][1]}" r="6" fill="${AQUA}" stroke="${CARD}" stroke-width="2"/>
-  <text x="${trenchPts[11][0] - 210}" y="${trenchPts[11][1] - 14}" font-family="JetBrains Mono" font-weight="700" font-size="15" fill="${AQUA}">up ~5000% this month</text>
+  <text x="${trenchPts[11][0] - 260}" y="${trenchPts[11][1] - 14}" font-family="JetBrains Mono" font-weight="700" font-size="15" fill="${AQUA}">only this line is fake</text>
 
   ${legend}
 </svg>`;
