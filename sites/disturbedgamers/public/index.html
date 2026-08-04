@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>disturbedgamers — rank the most disturbed horror gamers</title>
+<meta name="description" content="Paste public Steam profiles. Each player is scored by summing log2(1+hours) across every horror game they've logged, then ranked pairwise by their shared horror games using the lower player's playtime." />
+<meta property="og:title" content="disturbedgamers — rank the most disturbed horror gamers" />
+<meta property="og:description" content="Paste public Steam profiles. Each player is scored by summing log2(1+hours) across every horror game they've logged, then ranked pairwise by their shared horror games using the lower player's playtime." />
+<meta property="og:url" content="https://disturbedgamers.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://disturbedgamers.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="disturbedgamers: a leaderboard of horror-gamer disturbance scores and a pairs table of who's most disturbingly compatible." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="disturbedgamers — rank the most disturbed horror gamers" />
+<meta name="twitter:description" content="Paste public Steam profiles. Each player is scored by summing log2(1+hours) across every horror game they've logged, then ranked pairwise by their shared horror games using the lower player's playtime." />
+<meta name="twitter:image" content="https://disturbedgamers.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0708;
+    --bg2: #17100f;
+    --fg: #f2e9e4;
+    --dim: #97817e;
+    --accent: #ff4d3d;
+    --accent2: #7a1f1f;
+    --good: #ff8a5c;
+    --card: #150e0d;
+    --border: #3a201d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a0e0e 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #1e0a12 0%, transparent 45%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 680px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--good));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.4rem; line-height: 1.55; }
+  .formula {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.85rem 1rem; font-size: 0.78rem; color: var(--dim); line-height: 1.6; margin-bottom: 1.6rem;
+  }
+  .formula code { color: var(--good); }
+
+  textarea {
+    width: 100%;
+    min-height: 132px;
+    resize: vertical;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .actions { display: flex; gap: 0.5rem; margin: 0.7rem 0 0.4rem; flex-wrap: wrap; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #b5321f);
+    color: #180404;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  button.ghost {
+    background: var(--card); color: var(--dim); border: 1px solid var(--border); font-weight: 500; font-size: 0.8rem;
+  }
+  button.ghost:hover { color: var(--fg); border-color: var(--accent); }
+
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0.5rem 0 1.6rem; line-height: 1.5; }
+
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--accent); }
+
+  .results { display: none; }
+  .results.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .section-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin: 2rem 0 0.7rem; }
+  .section-title .n { color: var(--accent); }
+  .note { color: var(--dim); font-size: 0.78rem; margin: -0.3rem 0 0.9rem; line-height: 1.5; }
+
+  .board { display: flex; flex-direction: column; gap: 0.55rem; }
+  .row {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.9rem 1rem;
+  }
+  .row.rank1 { border-color: var(--accent); box-shadow: 0 0 40px -18px var(--accent); }
+
+  .rowhead { display: flex; align-items: center; gap: 0.75rem; }
+  .rowhead .rank { font-size: 0.85rem; color: var(--dim); width: 1.6em; flex: none; text-align: right; }
+  .rowhead img { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); flex: none; }
+  .rowhead .who { flex: 1; min-width: 0; }
+  .rowhead .name { font-weight: 700; font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rowhead .name a { color: inherit; text-decoration: none; }
+  .rowhead .name a:hover { text-decoration: underline; }
+  .rowhead .sub { color: var(--dim); font-size: 0.74rem; margin-top: 0.1rem; }
+  .rowhead .score { font-size: 1.15rem; font-weight: 800; color: var(--good); flex: none; text-align: right; }
+  .rowhead .score .l { display: block; font-size: 0.62rem; font-weight: 500; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .glist { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .g { display: flex; align-items: center; gap: 0.55rem; font-size: 0.78rem; }
+  .g img { width: 22px; height: 22px; border-radius: 4px; flex: none; background: var(--border); }
+  .g .gn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+  .g .gh { color: var(--dim); flex: none; }
+  .g .gp { color: var(--good); flex: none; width: 3.4em; text-align: right; }
+
+  .pairhead { display: flex; align-items: center; gap: 0.5rem; }
+  .pairhead .avatars { display: flex; flex: none; }
+  .pairhead .avatars img { width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--card); background: var(--bg2); }
+  .pairhead .avatars img:last-child { margin-left: -12px; }
+  .pairhead .names { flex: 1; min-width: 0; font-weight: 700; font-size: 0.92rem; }
+  .pairhead .plus { color: var(--dim); font-weight: 400; }
+  .pairhead .score { font-size: 1.1rem; font-weight: 800; color: var(--good); flex: none; text-align: right; }
+  .pairhead .score .l { display: block; font-size: 0.6rem; font-weight: 500; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .empty { color: var(--dim); font-size: 0.85rem; font-style: italic; padding: 0.4rem 0; }
+  .errline { color: var(--dim); font-size: 0.78rem; padding: 0.3rem 0; }
+  .errline .name { color: var(--fg); }
+
+  .share-row { display: flex; gap: 0.6rem; margin-top: 1.8rem; flex-wrap: wrap; }
+  .share-row a, .share-row button {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--bg2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.55rem 0.85rem; font: inherit; font-size: 0.82rem;
+    text-decoration: none; cursor: pointer;
+  }
+  .share-row a:hover, .share-row button:hover { border-color: var(--accent); }
+
+  footer { color: var(--dim); font-size: 0.75rem; margin-top: 3rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>disturbedgamers</h1>
+  <p class="tag">Paste a handful of public Steam profiles. It ranks the most disturbed horror gamers, then ranks pairs by how disturbingly compatible their horror libraries are.</p>
+  <div class="formula">
+    <div><strong>disturbance score</strong> = Σ <code>log2(1 + hours played)</code> across every horror game a player has logged — rewards breadth and serious playtime without one 3,000-hour game running away with it.</div>
+    <div style="margin-top:0.5rem"><strong>compatibility</strong> (pairs) = Σ <code>log2(1 + min(hoursA, hoursB))</code> over every horror game two players both have logged — scored on whoever's played it less.</div>
+  </div>
+
+  <form id="f" autocomplete="off">
+    <textarea id="profiles" placeholder="one Steam vanity name, SteamID64, or profile URL per line&#10;e.g.&#10;gaben&#10;steamcommunity.com/id/someone&#10;76561198000000000"></textarea>
+    <div class="actions">
+      <button id="go" type="submit">analyze</button>
+      <button class="ghost" type="button" id="exampleBtn">try an example</button>
+    </div>
+  </form>
+  <p class="hint">Up to 10 profiles per run. Only works on profiles that are public and have logged playtime recently — Steam's key-free public feed exposes a player's ~10 most-played games (with lifetime hours), not their whole library, so this is a leaderboard of recent disturbance, not a complete one.</p>
+
+  <div id="status" class="status"></div>
+
+  <div id="results" class="results">
+    <div id="leaderboard"></div>
+    <div id="pairs"></div>
+    <div id="shareRow" class="share-row"></div>
+  </div>
+
+  <footer>
+    <p>reads <code>steamcommunity.com/&lt;id|profiles&gt;/&lt;x&gt;/?xml=1</code> for logged playtime and SteamSpy's public tag API for horror classification — both key-free, both server-side. built for @fromthewestmeadow.com by <a href="https://bisks.net" target="_blank" rel="noopener">buildthis</a>.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var els = {
+    f: document.getElementById("f"),
+    profiles: document.getElementById("profiles"),
+    go: document.getElementById("go"),
+    exampleBtn: document.getElementById("exampleBtn"),
+    status: document.getElementById("status"),
+    results: document.getElementById("results"),
+    leaderboard: document.getElementById("leaderboard"),
+    pairs: document.getElementById("pairs"),
+    shareRow: document.getElementById("shareRow"),
+  };
+
+  var EXAMPLE = [
+    "76561198106726440",
+    "76561198168174816",
+    "76561198032048387",
+    "76561198065532584",
+  ];
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function fmtHours(h) {
+    if (h == null) return "";
+    if (h < 1) return Math.round(h * 60) + "m";
+    return (Math.round(h * 10) / 10).toLocaleString() + "h";
+  }
+
+  function fmtScore(n) {
+    return (Math.round(n * 10) / 10).toString();
+  }
+
+  function displayName(p) {
+    return p.personaName || p.input;
+  }
+
+  function gameRow(g) {
+    return (
+      '<div class="g">' +
+      (g.icon ? '<img src="' + esc(g.icon) + '" alt="" loading="lazy" />' : '<div style="width:22px;height:22px;border-radius:4px;background:var(--border)"></div>') +
+      '<div class="gn">' + esc(g.name) + "</div>" +
+      '<div class="gh">' + esc(fmtHours(g.hoursOnRecord)) + "</div>" +
+      '<div class="gp">+' + fmtScore(g.points) + "</div>" +
+      "</div>"
+    );
+  }
+
+  function sharedRow(g) {
+    return (
+      '<div class="g">' +
+      (g.icon ? '<img src="' + esc(g.icon) + '" alt="" loading="lazy" />' : '<div style="width:22px;height:22px;border-radius:4px;background:var(--border)"></div>') +
+      '<div class="gn">' + esc(g.name) + "</div>" +
+      '<div class="gh">' + esc(fmtHours(g.hoursA)) + " / " + esc(fmtHours(g.hoursB)) + "</div>" +
+      '<div class="gp">+' + fmtScore(g.points) + "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderLeaderboard(players) {
+    var ok = players.filter(function (p) { return p.ok; });
+    var failed = players.filter(function (p) { return !p.ok; });
+
+    var html = '<div class="section-title">most disturbed horror gamers <span class="n">(' + ok.length + ')</span></div>';
+
+    if (!ok.length) {
+      html += '<div class="empty">no public profiles with logged playtime found in that list.</div>';
+    } else {
+      html += '<div class="board">' + ok.map(function (p, i) {
+        var top = p.horrorGames.slice(0, 5);
+        return (
+          '<div class="row' + (i === 0 && p.score > 0 ? " rank1" : "") + '">' +
+          '<div class="rowhead">' +
+          '<div class="rank">#' + (i + 1) + '</div>' +
+          (p.avatar ? '<img src="' + esc(p.avatar) + '" alt="" />' : '<div style="width:40px;height:40px;border-radius:8px;background:var(--bg2)"></div>') +
+          '<div class="who"><div class="name"><a href="' + esc(p.profileUrl) + '" target="_blank" rel="noopener">' + esc(displayName(p)) + '</a></div>' +
+          '<div class="sub">' + (p.horrorGames.length ? p.horrorGames.length + " horror game" + (p.horrorGames.length === 1 ? "" : "s") + " logged" : (p.error ? esc(p.error) : "no horror games found")) + '</div></div>' +
+          '<div class="score">' + fmtScore(p.score) + '<span class="l">disturbance</span></div>' +
+          "</div>" +
+          (top.length ? '<div class="glist">' + top.map(gameRow).join("") + "</div>" : "") +
+          "</div>"
+        );
+      }).join("") + "</div>";
+    }
+
+    if (failed.length) {
+      html += '<div class="section-title">couldn’t analyze</div>';
+      html += failed.map(function (p) {
+        return '<div class="errline"><span class="name">' + esc(p.input) + "</span> — " + esc(p.error || "unknown error") + "</div>";
+      }).join("");
+    }
+
+    els.leaderboard.innerHTML = html;
+  }
+
+  function renderPairs(pairs, players) {
+    var html = '<div class="section-title">most disturbingly compatible <span class="n">(' + pairs.length + ')</span></div>';
+    if (!pairs.length) {
+      html += '<div class="empty">no two players in that list share a horror game.</div>';
+    } else {
+      html += '<div class="board">' + pairs.map(function (pr) {
+        var A = players[pr.a], B = players[pr.b];
+        var top = pr.shared.slice(0, 5);
+        return (
+          '<div class="row">' +
+          '<div class="pairhead">' +
+          '<div class="avatars">' +
+          (A.avatar ? '<img src="' + esc(A.avatar) + '" alt="" />' : "") +
+          (B.avatar ? '<img src="' + esc(B.avatar) + '" alt="" />' : "") +
+          "</div>" +
+          '<div class="names">' + esc(displayName(A)) + '<span class="plus"> + </span>' + esc(displayName(B)) + "</div>" +
+          '<div class="score">' + fmtScore(pr.compat) + '<span class="l">compat</span></div>' +
+          "</div>" +
+          '<div class="glist">' + top.map(sharedRow).join("") + "</div>" +
+          "</div>"
+        );
+      }).join("") + "</div>";
+    }
+    els.pairs.innerHTML = html;
+  }
+
+  function render(result, inputList) {
+    renderLeaderboard(result.players);
+    renderPairs(result.pairs, result.players);
+
+    var shareUrl = "https://disturbedgamers.bisks.net/s/" + inputList.map(encodeURIComponent).join(",");
+    var top = result.players.find(function (p) { return p.ok && p.score > 0; });
+    var topPair = result.pairs[0];
+    var shareBits = [];
+    if (top) shareBits.push(displayName(top) + " leads at " + fmtScore(top.score) + " disturbance pts");
+    if (topPair) {
+      var A = result.players[topPair.a], B = result.players[topPair.b];
+      shareBits.push(displayName(A) + " + " + displayName(B) + " are the most disturbingly compatible (" + fmtScore(topPair.compat) + ")");
+    }
+    var shareText = "disturbedgamers: " + (shareBits.join(". ") || "ranked some horror gamers") + ". " + shareUrl;
+
+    els.shareRow.innerHTML =
+      '<a href="https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText) + '" target="_blank" rel="noopener">share to Bluesky</a>' +
+      '<a href="' + esc(shareUrl) + '" target="_blank" rel="noopener">permalink</a>';
+
+    els.results.className = "results show";
+  }
+
+  function parseTextarea() {
+    return els.profiles.value.split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  async function run(list) {
+    if (!list.length) return;
+    els.go.disabled = true;
+    els.status.textContent = "analyzing " + list.length + " profile" + (list.length === 1 ? "" : "s") + "…";
+    els.status.className = "status";
+    els.results.className = "results";
+    try {
+      var res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ profiles: list }),
+      });
+      var data = await res.json();
+      if (!res.ok) {
+        els.status.textContent = data.error || "couldn't analyze that list.";
+        els.status.className = "status err";
+        return;
+      }
+      els.status.textContent = data.truncated ? "list or lookups were trimmed to keep this fast." : "";
+      els.status.className = "status";
+      render(data, list);
+      var url = new URL(location.href);
+      url.searchParams.set("p", list.join(","));
+      history.replaceState(null, "", url);
+    } catch (e) {
+      els.status.textContent = "network error — try again.";
+      els.status.className = "status err";
+    } finally {
+      els.go.disabled = false;
+    }
+  }
+
+  els.f.addEventListener("submit", function (e) {
+    e.preventDefault();
+    run(parseTextarea());
+  });
+
+  els.exampleBtn.addEventListener("click", function () {
+    els.profiles.value = EXAMPLE.join("\n");
+    run(EXAMPLE);
+  });
+
+  var initial = new URL(location.href).searchParams.get("p");
+  if (initial) {
+    var list = initial.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    if (list.length) {
+      els.profiles.value = list.join("\n");
+      run(list);
+    }
+  }
+})();
+</script>
+</body>
+</html>
