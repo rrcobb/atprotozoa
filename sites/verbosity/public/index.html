@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>verbosity — how much of the 300-character limit do you actually use?</title>
+<meta name="description" content="Enter a Bluesky handle. See how many of your posts hit exactly 300 characters, a length histogram, and whether you tend to run long or short." />
+<meta property="og:title" content="verbosity — how much of the 300-character limit do you actually use?" />
+<meta property="og:description" content="Enter a Bluesky handle. See how many of your posts hit exactly 300 characters, a length histogram, and whether you tend to run long or short." />
+<meta property="og:url" content="https://verbosity.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://verbosity.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="verbosity: a length histogram of a Bluesky account's posts, with the count that hit exactly 300 characters called out." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="verbosity — how much of the 300-character limit do you actually use?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. See how many of your posts hit exactly 300 characters, a length histogram, and whether you tend to run long or short." />
+<meta name="twitter:image" content="https://verbosity.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070b14;
+    --bg2: #0d1626;
+    --fg: #eef3fb;
+    --dim: #93a3bd;
+    --muted: #5f6d85;
+    --accent: #3987e5;
+    --accent-dim: #1c5cab;
+    --highlight: #d95926;
+    --card: #101a2c;
+    --border: #22314c;
+    --grid: #1b2740;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #12264a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #2a1a3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "JetBrains Mono", monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 680px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2.25rem; line-height: 1.5; }
+  .tag code { color: var(--accent); }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #2a5fb0);
+    color: #06111f;
+    border: none; border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 2.6em; margin-bottom: 1rem; white-space: pre-line; }
+  .status.err { color: #ff8a8a; }
+
+  .card { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; box-shadow: 0 0 60px -24px var(--accent); }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .meta { color: var(--muted); font-size: 0.72rem; }
+
+  .verdict { text-align: center; margin-bottom: 1.6rem; }
+  .verdict .name {
+    font-size: 1.5rem; font-weight: 800; letter-spacing: 0.01em;
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-bottom: 0.35rem;
+  }
+  .verdict .blurb { color: var(--dim); font-size: 0.9rem; line-height: 1.5; max-width: 46ch; margin: 0 auto; }
+
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem; margin-bottom: 1.75rem;
+  }
+  .stat { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; }
+  .stat .val { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 1.5rem; font-weight: 700; color: var(--fg); line-height: 1.1; }
+  .stat .val.hl { color: var(--highlight); }
+  .stat .lbl { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.25rem; }
+
+  .section-title {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--dim); margin: 0 0 0.9rem; display: flex; justify-content: space-between; align-items: center;
+  }
+  .section-title button.linklike {
+    background: none; border: none; color: var(--muted); font: inherit; font-size: 0.68rem;
+    text-transform: none; letter-spacing: 0; cursor: pointer; padding: 0; text-decoration: underline;
+  }
+
+  .chart-wrap { border-top: 1px dashed var(--border); padding-top: 1.4rem; margin-bottom: 1.4rem; }
+  .legend { display: flex; gap: 1.2rem; font-size: 0.72rem; color: var(--dim); margin-bottom: 0.9rem; }
+  .legend .sw { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .legend .dot.accent { background: var(--accent); }
+  .legend .dot.highlight { background: var(--highlight); }
+
+  .chart {
+    position: relative;
+    display: flex; align-items: flex-end; gap: 6px;
+    height: 160px; padding-left: 2.2rem;
+  }
+  .chart .gridlines { position: absolute; left: 2.2rem; right: 0; top: 0; bottom: 22px; pointer-events: none; }
+  .chart .gridlines div { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid); }
+  .chart .gridlines span { position: absolute; left: -2.2rem; transform: translateY(-50%); font-size: 0.62rem; color: var(--muted); width: 2rem; text-align: right; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+  .bar {
+    width: 100%; max-width: 30px;
+    border-radius: 4px 4px 0 0;
+    background: var(--accent);
+    position: relative;
+    min-height: 2px;
+    transition: filter 0.15s;
+    cursor: default;
+  }
+  .bar.hl { background: var(--highlight); }
+  .bar:hover { filter: brightness(1.25); }
+  .bar-label {
+    position: absolute; top: -1.3em; left: 50%; transform: translateX(-50%);
+    font-size: 0.68rem; color: var(--dim); white-space: nowrap;
+  }
+  .bar-x { font-size: 0.62rem; color: var(--muted); margin-top: 0.5rem; white-space: nowrap; }
+  .tooltip {
+    position: fixed; z-index: 50; background: #0a1120; border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.4rem 0.6rem; font-size: 0.72rem; color: var(--fg);
+    pointer-events: none; display: none; white-space: nowrap;
+  }
+
+  table.data-table { display: none; width: 100%; border-collapse: collapse; font-size: 0.78rem; margin-top: 1rem; }
+  table.data-table.show { display: table; }
+  table.data-table th, table.data-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  table.data-table th { color: var(--muted); font-weight: 600; font-size: 0.68rem; text-transform: uppercase; }
+
+  .extremes { display: grid; grid-template-columns: 1fr; gap: 0.9rem; border-top: 1px dashed var(--border); padding-top: 1.4rem; margin-bottom: 1.4rem; }
+  .extreme-post { padding-left: 0.9rem; border-left: 3px solid var(--border); }
+  .extreme-post.long { border-left-color: var(--highlight); }
+  .extreme-post.short { border-left-color: var(--accent); }
+  .extreme-post .exlabel { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.3rem; }
+  .extreme-post .extext { font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; margin-bottom: 0.3rem; }
+  .extreme-post a { color: var(--dim); font-size: 0.72rem; }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--highlight)); color: #06111f; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--muted); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>verbosity</h1>
+    <p class="tag">
+      How much of the 300-character limit do you actually use? Enter a Bluesky
+      handle and get a length breakdown of their whole post history — measured
+      in <code>graphemes</code>, the same unit the composer counts against.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">measure</button>
+    </form>
+    <p class="hint">works on any handle, including custom PDSes. yours, a friend's, anyone's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="meta" id="metaOut"></div>
+        </div>
+      </div>
+
+      <div class="verdict">
+        <div class="name" id="verdictName"></div>
+        <div class="blurb" id="verdictBlurb"></div>
+      </div>
+
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <div class="chart-wrap">
+        <div class="section-title">
+          length distribution
+          <button type="button" class="linklike" id="toggleTable">show as table</button>
+        </div>
+        <div class="legend">
+          <span class="sw"><span class="dot accent"></span> post length</span>
+          <span class="sw"><span class="dot highlight"></span> hit the cap exactly (300)</span>
+        </div>
+        <div class="chart" id="chart"></div>
+        <table class="data-table" id="dataTable">
+          <thead><tr><th>chars</th><th>posts</th><th>%</th></tr></thead>
+          <tbody id="dataTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="extremes">
+        <div class="extreme-post long">
+          <div class="exlabel">longest post</div>
+          <div class="extext" id="longestText"></div>
+          <a id="longestLink" href="#" target="_blank" rel="noopener"></a>
+        </div>
+        <div class="extreme-post short">
+          <div class="exlabel">shortest post</div>
+          <div class="extext" id="shortestText"></div>
+          <a id="shortestLink" href="#" target="_blank" rel="noopener"></a>
+        </div>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your numbers</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tooltip" class="tooltip"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/stats.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function fmtPct(n) { return (Math.round(n * 10) / 10).toFixed(1) + "%"; }
+function fmtNum(n) { return Math.round(n).toLocaleString(); }
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  metaOut: document.getElementById("metaOut"),
+  verdictName: document.getElementById("verdictName"),
+  verdictBlurb: document.getElementById("verdictBlurb"),
+  statsGrid: document.getElementById("statsGrid"),
+  chart: document.getElementById("chart"),
+  dataTable: document.getElementById("dataTable"),
+  dataTableBody: document.getElementById("dataTableBody"),
+  toggleTable: document.getElementById("toggleTable"),
+  tooltip: document.getElementById("tooltip"),
+  longestText: document.getElementById("longestText"),
+  longestLink: document.getElementById("longestLink"),
+  shortestText: document.getElementById("shortestText"),
+  shortestLink: document.getElementById("shortestLink"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function postUrl(handle, rkey) {
+  return "https://bsky.app/profile/" + encodeURIComponent(handle) + "/post/" + rkey;
+}
+
+function renderStatsGrid(s) {
+  const items = [
+    { val: fmtNum(s.totalWithText), lbl: "posts analyzed" },
+    { val: fmtNum(s.exactCount), lbl: "hit exactly 300", hl: true },
+    { val: fmtPct(s.exactPct), lbl: "of posts maxed out", hl: true },
+    { val: fmtNum(s.nearCapCount), lbl: "within 10 chars of cap" },
+    { val: Math.round(s.avg), lbl: "average length" },
+    { val: Math.round(s.median), lbl: "median length" },
+    { val: fmtPct(s.shortPct), lbl: "posts ≤100 chars" },
+    { val: fmtPct(s.longPct), lbl: "posts ≥250 chars" },
+  ];
+  els.statsGrid.innerHTML = items
+    .map((it) => `<div class="stat"><div class="val${it.hl ? " hl" : ""}">${it.val}</div><div class="lbl">${it.lbl}</div></div>`)
+    .join("");
+}
+
+// Small HTML/CSS bar chart: thin bars, rounded tips, one recessive gridline
+// set, direct labels only on the mode bucket and the "hit the cap" bucket,
+// hover tooltip carries the rest — see notes on the dataviz house style.
+function renderChart(s) {
+  const buckets = s.histogram;
+  const total = s.totalWithText || 1;
+  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+  const modeIdx = buckets.reduce((best, b, i) => (b.count > buckets[best].count ? i : best), 0);
+
+  const gridSteps = [0, 0.5, 1].map((f) => Math.round(maxCount * f));
+  const gridHtml = gridSteps
+    .map((v) => {
+      const bottomPct = (v / maxCount) * 100;
+      return `<div style="bottom:${bottomPct}%"></div><span style="bottom:${bottomPct}%">${v}</span>`;
+    })
+    .join("");
+
+  const barsHtml = buckets
+    .map((b, i) => {
+      const hPct = Math.max(1, (b.count / maxCount) * 100);
+      const isHl = b.label === "300";
+      const showLabel = b.count > 0 && (i === modeIdx || isHl);
+      return `
+        <div class="bar-col">
+          <div class="bar${isHl ? " hl" : ""}" style="height:${hPct}%"
+               data-label="${b.label} chars" data-count="${b.count}" data-pct="${fmtPct((b.count / total) * 100)}">
+            ${showLabel ? `<div class="bar-label">${b.count}</div>` : ""}
+          </div>
+          <div class="bar-x">${b.label}</div>
+        </div>`;
+    })
+    .join("");
+
+  els.chart.innerHTML = `<div class="gridlines">${gridHtml}</div>${barsHtml}`;
+
+  els.chart.querySelectorAll(".bar").forEach((bar) => {
+    bar.addEventListener("mouseenter", () => {
+      const r = bar.getBoundingClientRect();
+      els.tooltip.textContent = `${bar.dataset.label}: ${bar.dataset.count} posts (${bar.dataset.pct})`;
+      els.tooltip.style.display = "block";
+      els.tooltip.style.left = r.left + r.width / 2 - els.tooltip.offsetWidth / 2 + "px";
+      els.tooltip.style.top = r.top - 34 + "px";
+    });
+    bar.addEventListener("mousemove", () => {
+      const r = bar.getBoundingClientRect();
+      els.tooltip.style.left = r.left + r.width / 2 - els.tooltip.offsetWidth / 2 + "px";
+    });
+    bar.addEventListener("mouseleave", () => { els.tooltip.style.display = "none"; });
+  });
+
+  els.dataTableBody.innerHTML = buckets
+    .map((b) => `<tr><td>${b.label}</td><td>${b.count}</td><td>${fmtPct((b.count / total) * 100)}</td></tr>`)
+    .join("");
+}
+
+els.toggleTable.addEventListener("click", () => {
+  const showing = els.dataTable.classList.toggle("show");
+  els.toggleTable.textContent = showing ? "hide table" : "show as table";
+});
+
+function truncateGraphemes(text, max) {
+  const len = VerbosityStats.graphemeLength(text);
+  if (len <= max) return text;
+  const seg = typeof Intl !== "undefined" && Intl.Segmenter ? [...new Intl.Segmenter().segment(text)].map((s) => s.segment) : Array.from(text);
+  return seg.slice(0, max).join("") + "…";
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines - 1) { line = line + "…"; break; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+// Draws a 1200x630 share card mirroring the histogram + headline stats.
+async function buildShareCard({ profile, s }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#070b14";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#12264a");
+  glow.addColorStop(1, "rgba(7,11,20,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3987e5";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("verbosity", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#eef3fb";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 162);
+
+  ctx.strokeStyle = "#22314c";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#101a2c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  // headline stats row
+  const stats = [
+    [fmtNum(s.exactCount), "hit exactly 300"],
+    [fmtPct(s.exactPct), "of posts maxed out"],
+    [Math.round(s.avg), "avg. length"],
+  ];
+  const colW = cardW / 3;
+  stats.forEach((st, i) => {
+    const cx = cardX + colW * i + colW / 2;
+    ctx.textAlign = "center";
+    ctx.fillStyle = i < 2 ? "#d95926" : "#3987e5";
+    ctx.font = `800 46px ${mono}`;
+    ctx.fillText(String(st[0]), cx, cardY + 78);
+    ctx.fillStyle = "#93a3bd";
+    ctx.font = `400 15px ${mono}`;
+    ctx.fillText(st[1], cx, cardY + 106);
+  });
+
+  // mini histogram
+  const chartX = cardX + 48, chartY = cardY + 320, chartW = cardW - 96, chartH = 100;
+  const buckets = s.histogram;
+  const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+  const gap = 10;
+  const barW = (chartW - gap * (buckets.length - 1)) / buckets.length;
+  ctx.textAlign = "center";
+  buckets.forEach((b, i) => {
+    const bx = chartX + i * (barW + gap);
+    const bh = Math.max(3, (b.count / maxCount) * chartH);
+    ctx.fillStyle = b.label === "300" ? "#d95926" : "#3987e5";
+    ctx.beginPath();
+    ctx.roundRect(bx, chartY + chartH - bh, barW, bh, [4, 4, 0, 0]);
+    ctx.fill();
+    ctx.fillStyle = "#5f6d85";
+    ctx.font = `400 12px ${mono}`;
+    ctx.fillText(b.label, bx + barW / 2, chartY + chartH + 20);
+  });
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#eef3fb";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText(s.verdict.label, cardX + 48, cardY + 230);
+  ctx.fillStyle = "#93a3bd";
+  ctx.font = `400 15px ${mono}`;
+  wrapCanvasText(ctx, s.verdict.blurb, cardX + 48, cardY + 258, cardW - 96, 22, 2);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3987e5";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("verbosity.bisks.net", 60, H - 40);
+}
+
+function shareUrlFor(handle) {
+  return "https://verbosity.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, s) {
+  return (
+    `@${profile.handle} hits exactly 300 characters on ${fmtPct(s.exactPct)} of their posts ` +
+    `(${s.exactCount} of ${fmtNum(s.totalWithText)} analyzed). Average length: ${Math.round(s.avg)} chars. ${s.verdict.label}.\n\n` +
+    `check your own → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+async function measure(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const posts = await VerbosityStats.fetchPosts(did, {
+      onStep: (msg) => setStatus(msg),
+    });
+    if (!posts.length) throw new Error("no posts found for this account");
+
+    const s = VerbosityStats.analyze(posts);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.metaOut.textContent = `${fmtNum(s.total)} posts fetched · ${fmtNum(s.totalWithText)} with text`;
+
+    els.verdictName.textContent = s.verdict.label;
+    els.verdictBlurb.textContent = s.verdict.blurb;
+
+    renderStatsGrid(s);
+    renderChart(s);
+
+    if (s.longest) {
+      els.longestText.textContent = truncateGraphemes(s.longest.text, 280) + `  (${s.longest.length} chars)`;
+      els.longestLink.href = postUrl(profile.handle, s.longest.rkey);
+      els.longestLink.textContent = "view post →";
+    }
+    if (s.shortest) {
+      els.shortestText.textContent = (s.shortest.text || "(no text)") + `  (${s.shortest.length} chars)`;
+      els.shortestLink.href = postUrl(profile.handle, s.shortest.rkey);
+      els.shortestLink.textContent = "view post →";
+    }
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    lastShareText = shareText(profile, s);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    buildShareCard({ profile, s });
+  } catch (err) {
+    setStatus("couldn't measure that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  measure(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "verbosity-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "verbosity-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "verbosity" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or ?h=<handle> both auto-measure on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  measure(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
