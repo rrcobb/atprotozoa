@@ -136,7 +136,12 @@ export async function getModLists(actorDid) {
 // One list's metadata + every member. Each item carries `uri` — the AT URI
 // of the app.bsky.graph.listitem record itself — which is exactly what a
 // list owner needs to delete a member later (rkey = last uri segment).
-export async function getListFull(listUri, capPages = 20) {
+//
+// capPages is a runaway-loop backstop, not a real limit — 20 pages (2000
+// members) used to double as both, which silently truncated any list past
+// that size (reported 2026-08-04: a member past #2000 read as "not on the
+// list"). 2000 pages (200k members) is far past any real mod list.
+export async function getListFull(listUri, capPages = 2000) {
   let list = null;
   const items = [];
   let cursor;
