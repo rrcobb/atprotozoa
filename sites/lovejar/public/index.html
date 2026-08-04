@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>love jar — write it down, draw it out</title>
+<meta name="description" content="Drop little notes of appreciation into a jar — for yourself or for someone else — then draw a random one out whenever you need to hear it." />
+<meta property="og:title" content="love jar — write it down, draw it out" />
+<meta property="og:description" content="Drop little notes of appreciation into a jar — for yourself or for someone else — then draw a random one out whenever you need to hear it." />
+<meta property="og:url" content="https://lovejar.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://lovejar.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="love jar: a glass jar full of little folded notes, one drawn out and glowing." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="love jar — write it down, draw it out" />
+<meta name="twitter:description" content="Drop little notes of appreciation into a jar — for yourself or for someone else — then draw a random one out whenever you need to hear it." />
+<meta name="twitter:image" content="https://lovejar.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #2b1220;
+    --bg2: #3a1a2c;
+    --fg: #fff3ee;
+    --dim: #d9b3c2;
+    --accent: #ff6f91;
+    --accent2: #ffd97a;
+    --card: #3d1a2c;
+    --card2: #4a2035;
+    --border: #6b3350;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 20% -10%, #ff6f9130 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #ffd97a22 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  header { text-align: center; margin-bottom: 2rem; }
+  h1 { font-size: 2.1rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
+  .tag { color: var(--dim); font-size: 0.98rem; line-height: 1.5; margin: 0 auto; max-width: 480px; }
+  .nav-link { display: inline-block; margin-top: 0.7rem; color: var(--accent2); font-weight: 700; text-decoration: none; }
+  h2 { font-size: 1.15rem; margin: 0 0 0.75rem; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem 1.3rem;
+    margin-bottom: 1.75rem;
+    box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.5);
+  }
+
+  .who-picker { display: flex; gap: 0.5rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+  .who-btn {
+    font: inherit; font-size: 0.88rem; font-weight: 700;
+    background: var(--card2); color: var(--dim);
+    border: 2px solid transparent; border-radius: 999px;
+    padding: 0.45rem 0.9rem; cursor: pointer;
+  }
+  .who-btn.selected { border-color: var(--accent); color: var(--fg); background: rgba(255,111,145,0.18); }
+
+  textarea, input[type="text"] {
+    width: 100%; background: #2a1220; border: 1px solid var(--border); color: var(--fg);
+    border-radius: 10px; padding: 0.7rem 0.85rem; font: inherit; font-size: 0.95rem;
+    margin-bottom: 0.6rem; resize: vertical;
+  }
+  textarea:focus, input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { min-height: 4.2rem; }
+  input.name-input { display: none; margin-bottom: 0.6rem; }
+  input.name-input.shown { display: block; }
+
+  button, .bsky-btn {
+    font: inherit; font-size: 0.95rem; font-weight: 700; cursor: pointer;
+    border: none; border-radius: 10px; padding: 0.65rem 1.1rem;
+    background: var(--accent); color: #2b1220;
+    transition: transform 0.1s ease, opacity 0.15s ease;
+  }
+  button:hover, .bsky-btn:hover { transform: translateY(-1px); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  button.secondary { background: var(--accent2); }
+  button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--border); font-weight: 600; }
+  .bsky-btn { display: inline-block; background: #1183fe; color: #fff; text-decoration: none; text-align: center; }
+
+  /* --- jar --- */
+  .jar-wrap { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .jar-svg { width: 200px; height: auto; margin: 0.2rem 0 0.8rem; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.4)); }
+  .jar-count { color: var(--dim); font-size: 0.9rem; margin-bottom: 1rem; }
+  .draw-btn { font-size: 1.05rem; padding: 0.8rem 1.6rem; }
+
+  .drawn-note {
+    margin-top: 1.2rem; width: 100%;
+    background: linear-gradient(160deg, #fff6ea, #ffe9d1);
+    color: #4a2c1a; border-radius: 12px; padding: 1.2rem 1.3rem;
+    box-shadow: 0 10px 26px -14px rgba(0,0,0,0.55);
+    font-size: 1.02rem; line-height: 1.5; text-align: left;
+    transform-origin: top center;
+    animation: unfold 0.5s cubic-bezier(.2,.9,.3,1.15);
+  }
+  @keyframes unfold {
+    0% { transform: scaleY(0.15) rotate(-4deg); opacity: 0; }
+    60% { transform: scaleY(1.06) rotate(1deg); opacity: 1; }
+    100% { transform: scaleY(1) rotate(0deg); opacity: 1; }
+  }
+  .drawn-note .who { display: block; font-size: 0.78rem; color: #8a6142; margin-bottom: 0.4rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+  .drawn-note .msg { white-space: pre-wrap; }
+  .drawn-actions { display: flex; gap: 0.55rem; margin-top: 1rem; flex-wrap: wrap; }
+
+  .empty { color: var(--dim); font-size: 0.92rem; text-align: center; padding: 1.5rem 0.5rem; border: 1px dashed var(--border); border-radius: 14px; }
+
+  .list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .note-row {
+    background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.6rem 0.8rem; font-size: 0.85rem; position: relative; padding-right: 2.2rem;
+  }
+  .note-row .who { display: block; font-size: 0.68rem; color: var(--accent2); font-weight: 700; text-transform: uppercase; margin-bottom: 0.15rem; }
+  .note-row .msg { color: var(--fg); line-height: 1.35; }
+  .note-row .del {
+    position: absolute; top: 0.4rem; right: 0.5rem; font-size: 0.7rem; color: var(--dim);
+    background: none; border: none; padding: 2px 5px; font-weight: 400;
+  }
+  .note-row .del:hover { color: var(--accent); transform: none; }
+
+  .hidden { display: none !important; }
+
+  footer { text-align: center; color: var(--dim); font-size: 0.78rem; margin-top: 1rem; line-height: 1.5; }
+  footer a { color: var(--accent2); }
+  #compose { scroll-margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>💌 love jar</h1>
+    <p class="tag">Drop a little note of appreciation into the jar — for yourself, or for someone else. Draw one out whenever you need to hear it.</p>
+    <a class="nav-link" href="/letters">💘 write a cute love letter →</a>
+  </header>
+
+  <section id="noteView" class="card hidden">
+    <h2 id="noteViewTitle">💌 someone left you a note</h2>
+    <div id="noteViewCard" class="drawn-note" style="animation:none;"></div>
+    <div class="drawn-actions">
+      <button id="keepNoteBtn">keep it in my jar 🫙</button>
+      <button id="writeBackBtn" class="secondary">write one of my own</button>
+    </div>
+  </section>
+
+  <div id="mainApp">
+    <section id="compose" class="card">
+      <h2>write something kind</h2>
+      <div class="who-picker" id="whoPicker">
+        <button type="button" class="who-btn selected" data-who="me">for me</button>
+        <button type="button" class="who-btn" data-who="someone">for someone</button>
+      </div>
+      <input type="text" id="nameInput" class="name-input" maxlength="40" placeholder="their name (optional)" />
+      <textarea id="messageInput" maxlength="240" placeholder="you handled that so much better than you think you did..."></textarea>
+      <button id="dropBtn">drop it in the jar 🫙</button>
+    </section>
+
+    <section id="jarSection" class="card jar-wrap">
+      <h2>your jar</h2>
+      <svg class="jar-svg" viewBox="0 0 160 190" id="jarSvg">
+        <path d="M45 30 L45 15 Q45 8 52 8 L108 8 Q115 8 115 15 L115 30" fill="none" stroke="#ffd97a" stroke-width="5" stroke-linecap="round"/>
+        <path d="M40 30 L120 30 L128 60 L128 168 Q128 182 114 182 L46 182 Q32 182 32 168 L32 60 Z"
+              fill="rgba(255,111,145,0.10)" stroke="#ff6f91" stroke-width="3.5" stroke-linejoin="round"/>
+        <g id="jarNotes"></g>
+      </svg>
+      <div class="jar-count" id="jarCount">the jar is empty — write the first note above</div>
+      <button id="drawBtn" class="draw-btn secondary" disabled>draw a note 🎀</button>
+      <div id="drawnNote" class="drawn-note hidden" style="width:100%;"></div>
+      <div class="drawn-actions hidden" id="drawnActions">
+        <button id="drawAgainBtn" class="ghost">draw another</button>
+        <a id="shareDrawnBtn" class="bsky-btn" target="_blank" rel="noopener">share this one</a>
+      </div>
+    </section>
+
+    <section id="listSection">
+      <h2>everything in the jar <span id="listCount" class="tag" style="display:inline"></span></h2>
+      <div id="listEmpty" class="empty">Nothing yet — the first note you write will land here too.</div>
+      <div id="listGrid" class="list"></div>
+    </section>
+  </div>
+
+  <footer>
+    <p>a small toy for <a href="https://buildthis.bisks.net">@buildthis</a>'s theme box (today's theme: something that makes people feel loved). notes live only in your browser's storage — shared notes carry their own text along with the link, so anyone can open one without an account.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "lovejar.notes";
+  var MAX_JAR_ICONS = 14;
+
+  var els = {
+    whoPicker: document.getElementById("whoPicker"),
+    nameInput: document.getElementById("nameInput"),
+    messageInput: document.getElementById("messageInput"),
+    dropBtn: document.getElementById("dropBtn"),
+    jarNotes: document.getElementById("jarNotes"),
+    jarCount: document.getElementById("jarCount"),
+    drawBtn: document.getElementById("drawBtn"),
+    drawnNote: document.getElementById("drawnNote"),
+    drawnActions: document.getElementById("drawnActions"),
+    drawAgainBtn: document.getElementById("drawAgainBtn"),
+    shareDrawnBtn: document.getElementById("shareDrawnBtn"),
+    listGrid: document.getElementById("listGrid"),
+    listEmpty: document.getElementById("listEmpty"),
+    listCount: document.getElementById("listCount"),
+    noteView: document.getElementById("noteView"),
+    noteViewTitle: document.getElementById("noteViewTitle"),
+    noteViewCard: document.getElementById("noteViewCard"),
+    keepNoteBtn: document.getElementById("keepNoteBtn"),
+    writeBackBtn: document.getElementById("writeBackBtn"),
+    mainApp: document.getElementById("mainApp"),
+  };
+
+  var selectedWho = "me";
+
+  function loadNotes() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      return Array.isArray(raw) ? raw : [];
+    } catch (_) { return []; }
+  }
+  function saveNotes(list) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch (_) {}
+  }
+  var notes = loadNotes();
+
+  function makeId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function whoLabel(note) {
+    if (note.who === "someone") return note.name ? "for " + note.name : "for someone";
+    return note.kind === "letter" ? "a love letter" : "for me";
+  }
+
+  // ---------- base64url (shared shape with /letters) ----------
+  function b64urlEncode(str) {
+    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecode(str) {
+    var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    return decodeURIComponent(escape(atob(b64)));
+  }
+  function encodeNote(n) {
+    return b64urlEncode(JSON.stringify({ w: n.who, n: n.name || "", m: n.m }));
+  }
+  function decodeNote(code) {
+    try {
+      var o = JSON.parse(b64urlDecode(code));
+      if (!o || typeof o.m !== "string" || !o.m.trim()) return null;
+      return {
+        who: o.w === "someone" ? "someone" : "me",
+        name: (typeof o.n === "string" ? o.n : "").slice(0, 40),
+        m: o.m.slice(0, 240),
+      };
+    } catch (_) { return null; }
+  }
+
+  // ---------- who picker ----------
+  Array.prototype.forEach.call(els.whoPicker.children, function (btn) {
+    btn.addEventListener("click", function () {
+      selectedWho = btn.getAttribute("data-who");
+      Array.prototype.forEach.call(els.whoPicker.children, function (c) {
+        c.classList.toggle("selected", c === btn);
+      });
+      els.nameInput.classList.toggle("shown", selectedWho === "someone");
+    });
+  });
+
+  // ---------- jar rendering ----------
+  var JAR_POS = [
+    [56,150],[76,158],[96,150],[64,132],[86,134],[106,140],[48,118],
+    [70,112],[92,110],[112,120],[58,96],[80,90],[100,94],[70,70]
+  ];
+  function renderJar() {
+    els.jarNotes.innerHTML = "";
+    var n = Math.min(notes.length, MAX_JAR_ICONS);
+    for (var i = 0; i < n; i++) {
+      var p = JAR_POS[i];
+      var rot = (i * 37) % 40 - 20;
+      var rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("x", p[0] - 8);
+      rect.setAttribute("y", p[1] - 6);
+      rect.setAttribute("width", 16);
+      rect.setAttribute("height", 12);
+      rect.setAttribute("rx", 2);
+      rect.setAttribute("fill", i % 2 ? "#ffd97a" : "#fff3ee");
+      rect.setAttribute("transform", "rotate(" + rot + " " + p[0] + " " + p[1] + ")");
+      els.jarNotes.appendChild(rect);
+    }
+    els.jarCount.textContent = notes.length
+      ? notes.length + (notes.length === 1 ? " note" : " notes") + " in the jar"
+      : "the jar is empty — write the first note above";
+    els.drawBtn.disabled = notes.length === 0;
+  }
+
+  function renderList() {
+    els.listGrid.innerHTML = "";
+    els.listEmpty.classList.toggle("hidden", notes.length > 0);
+    els.listCount.textContent = notes.length ? "(" + notes.length + ")" : "";
+    notes.slice().reverse().forEach(function (note) {
+      var row = document.createElement("div");
+      row.className = "note-row";
+      row.innerHTML =
+        '<span class="who">' + esc(whoLabel(note)) + '</span>' +
+        '<span class="msg">' + esc(note.m) + '</span>';
+      var del = document.createElement("button");
+      del.className = "del";
+      del.type = "button";
+      del.textContent = "✕";
+      del.title = "remove";
+      del.addEventListener("click", function () {
+        notes = notes.filter(function (x) { return x.id !== note.id; });
+        saveNotes(notes);
+        renderJar();
+        renderList();
+      });
+      row.appendChild(del);
+      els.listGrid.appendChild(row);
+    });
+  }
+
+  // ---------- composing ----------
+  els.dropBtn.addEventListener("click", function () {
+    var msg = els.messageInput.value.trim();
+    if (!msg) { els.messageInput.focus(); return; }
+    var note = {
+      id: makeId(),
+      who: selectedWho,
+      name: selectedWho === "someone" ? els.nameInput.value.trim().slice(0, 40) : "",
+      m: msg.slice(0, 240),
+      ts: Date.now(),
+      kind: "note",
+    };
+    notes.push(note);
+    saveNotes(notes);
+    els.messageInput.value = "";
+    els.nameInput.value = "";
+    renderJar();
+    renderList();
+  });
+
+  // ---------- drawing ----------
+  function buildShareText(url, note) {
+    var lead = note.who === "someone"
+      ? "drew a note " + (note.name ? "for " + note.name : "for someone") + " out of the jar: "
+      : "drew a note out of the jar for myself: ";
+    var text = lead + '"' + note.m + '" — ' + url;
+    return text.length <= 300 ? text : ("a note from the love jar 💌 " + url);
+  }
+
+  function showDrawn(note) {
+    els.drawnNote.innerHTML =
+      '<span class="who">' + esc(whoLabel(note)) + '</span>' +
+      '<span class="msg">' + esc(note.m) + '</span>';
+    els.drawnNote.classList.remove("hidden");
+    els.drawnActions.classList.remove("hidden");
+    var url = location.origin + "/n/" + encodeNote(note);
+    els.shareDrawnBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(url, note));
+  }
+
+  els.drawBtn.addEventListener("click", function () {
+    if (!notes.length) return;
+    var note = notes[Math.floor(Math.random() * notes.length)];
+    showDrawn(note);
+  });
+  els.drawAgainBtn.addEventListener("click", function () {
+    if (!notes.length) return;
+    var note = notes[Math.floor(Math.random() * notes.length)];
+    showDrawn(note);
+  });
+
+  // ---------- viewing a shared note: /n/<code> ----------
+  function initNoteView(code) {
+    var note = decodeNote(code);
+    if (!note) return false;
+    els.mainApp.classList.add("hidden");
+    els.noteView.classList.remove("hidden");
+    els.noteViewTitle.textContent = note.who === "someone"
+      ? "💌 someone left a note" + (note.name ? " for " + note.name : "")
+      : "💌 someone drew this for you";
+    els.noteViewCard.innerHTML =
+      '<span class="who">' + esc(whoLabel(note)) + '</span>' +
+      '<span class="msg">' + esc(note.m) + '</span>';
+    els.keepNoteBtn.addEventListener("click", function () {
+      notes.push({ id: makeId(), who: note.who, name: note.name, m: note.m, ts: Date.now(), kind: "note" });
+      saveNotes(notes);
+      location.href = "/#compose";
+    });
+    els.writeBackBtn.addEventListener("click", function () {
+      location.href = "/#compose";
+    });
+    return true;
+  }
+
+  // ---------- boot ----------
+  var m = location.pathname.match(/^\/n\/([^/]+)\/?$/);
+  var shown = m && initNoteView(decodeURIComponent(m[1]));
+  if (!shown) {
+    renderJar();
+    renderList();
+    if (location.hash === "#compose") {
+      setTimeout(function () {
+        document.getElementById("compose").scrollIntoView({ behavior: "smooth" });
+        els.messageInput.focus();
+      }, 50);
+    }
+  }
+})();
+</script>
+</body>
+</html>
