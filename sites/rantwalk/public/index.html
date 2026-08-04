@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rantwalk — the wiki game, but it's all @norvid-studies.bsky.social rants</title>
+<meta name="description" content="A Wikipedia-speedrun-style game played entirely on @norvid-studies.bsky.social's own posts: reach a target rant from a starting rant by clicking forward through a topologically sorted, weighted graph of everything he's posted." />
+<meta property="og:title" content="rantwalk — maneuver between two norvid posts" />
+<meta property="og:description" content="The wiki game, but every article is a @norvid-studies.bsky.social rant. Click forward through a topologically sorted, weighted graph of his posts to reach the target — in as few clicks as you can." />
+<meta property="og:url" content="https://rantwalk.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://rantwalk.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="rantwalk: the Wikipedia speedrun game played on norvid_studies's own posts." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="rantwalk — maneuver between two norvid posts" />
+<meta name="twitter:description" content="The wiki game, but every article is a @norvid-studies.bsky.social rant." />
+<meta name="twitter:image" content="https://rantwalk.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #f6f5f0;
+    --paper: #ffffff;
+    --border: #c8c2ae;
+    --ink: #202122;
+    --dim: #54595d;
+    --dim2: #72777d;
+    --link: #0645ad;
+    --link-visited: #6b3fa0;
+    --good: #14866d;
+    --accent: #b3312c;
+    --serif: Georgia, "Times New Roman", Cambria, serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 760px; }
+
+  header.site { display: flex; align-items: baseline; justify-content: space-between; border-bottom: 3px solid var(--ink); padding-bottom: 0.6rem; margin-bottom: 0.4rem; }
+  h1 { font-size: 2.1rem; margin: 0; letter-spacing: -0.01em; }
+  h1 .accent { color: var(--accent); }
+  header.site .byline { font-family: var(--mono); font-size: 0.72rem; color: var(--dim2); text-align: right; }
+  header.site .byline a { color: var(--dim2); }
+
+  .subhead { font-family: var(--mono); font-size: 0.82rem; color: var(--dim); margin: 0.6rem 0 1.6rem; line-height: 1.6; }
+  .subhead b { color: var(--ink); }
+
+  #loading { font-family: var(--mono); color: var(--dim); padding: 2rem 0; }
+
+  /* --- intro / difficulty select --- */
+  #intro { display: none; }
+  .rules {
+    background: var(--paper); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; line-height: 1.65; font-size: 0.98rem;
+  }
+  .rules h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
+  .rules ol { margin: 0.4rem 0 0; padding-left: 1.3rem; }
+  .diff-row { display: flex; align-items: center; gap: 0.6rem; margin: 1.2rem 0; font-family: var(--mono); font-size: 0.85rem; flex-wrap: wrap; }
+  #diffButtons { display: flex; gap: 0.4rem; }
+  #diffButtons button {
+    font-family: var(--mono); font-size: 0.82rem; padding: 0.45rem 0.85rem; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--paper); color: var(--dim); cursor: pointer;
+  }
+  #diffButtons button.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  #dealBtn {
+    font-family: var(--mono); font-weight: 700; font-size: 0.95rem; padding: 0.75rem 1.4rem;
+    border-radius: 6px; border: none; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  #dealBtn:hover { filter: brightness(1.08); }
+
+  /* --- game --- */
+  #game { display: none; }
+  .hud { display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; align-items: center; font-family: var(--mono); font-size: 0.8rem; color: var(--dim); margin-bottom: 0.7rem; }
+  .hud .stat b { color: var(--ink); font-size: 0.95rem; }
+  .hud .spacer { flex: 1; }
+  .hud button { font-family: var(--mono); font-size: 0.75rem; padding: 0.35rem 0.7rem; border-radius: 5px; border: 1px solid var(--border); background: var(--paper); cursor: pointer; color: var(--dim); }
+  .hud button:hover { border-color: var(--ink); color: var(--ink); }
+
+  #breadcrumb { font-family: var(--mono); font-size: 0.72rem; color: var(--dim2); margin-bottom: 1rem; line-height: 1.9; word-break: break-word; }
+  .crumb { padding: 0.1rem 0.4rem; border-radius: 3px; background: var(--paper); border: 1px solid var(--border); }
+  .crumb.current { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .crumb-sep { margin: 0 0.25rem; color: var(--dim2); }
+
+  .target-box {
+    border: 1px dashed var(--accent); border-radius: 4px; padding: 0.7rem 1rem; margin-bottom: 1rem; background: #fff8f6;
+  }
+  .target-box .tb-label { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 0.35rem; }
+
+  .post-card {
+    background: var(--paper); border: 1px solid var(--border); border-radius: 4px; padding: 1.1rem 1.3rem; margin-bottom: 1.1rem;
+  }
+  .pc-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.7rem; }
+  .pc-avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); object-fit: cover; background: #eee; }
+  .pc-name { font-family: var(--mono); font-weight: 700; font-size: 0.85rem; }
+  .pc-meta { font-family: var(--mono); font-size: 0.72rem; color: var(--dim2); }
+  .pc-text { font-size: 1.18rem; line-height: 1.6; white-space: pre-wrap; }
+  .pc-text a.lk { color: var(--link); text-decoration: underline; font-weight: 600; cursor: pointer; }
+  .pc-text a.lk:hover { background: #eef2fb; }
+  .pc-text a.lk.hinted { animation: pulse 0.55s ease-in-out 3; }
+  .pc-link { display: inline-block; margin-top: 0.7rem; font-family: var(--mono); font-size: 0.72rem; color: var(--dim2); text-decoration: none; }
+  .pc-link:hover { color: var(--ink); }
+
+  @keyframes pulse { 0%, 100% { background: transparent; } 50% { background: #ffe9a8; } }
+
+  .related-label { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim2); margin: 1.3rem 0 0.6rem; }
+  #relatedList { display: flex; flex-direction: column; gap: 0.5rem; }
+  .related-card {
+    text-align: left; font-family: var(--serif); background: var(--paper); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.65rem 0.85rem; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 0.8rem;
+  }
+  .related-card:hover { border-color: var(--link); background: #f5f8ff; }
+  .related-card.has-inline { border-left: 3px solid var(--link); }
+  .related-card.hinted { animation: pulse 0.55s ease-in-out 3; }
+  .rc-snip { color: var(--ink); font-size: 0.94rem; }
+  .rc-kw { font-family: var(--mono); font-size: 0.68rem; color: var(--dim2); white-space: nowrap; }
+  .dead-end { font-family: var(--mono); color: var(--accent); font-size: 0.85rem; }
+
+  /* --- win --- */
+  #win { display: none; }
+  .win-box { background: var(--paper); border: 2px solid var(--good); border-radius: 6px; padding: 1.4rem 1.5rem; text-align: center; margin-bottom: 1.2rem; }
+  .win-big { font-family: var(--mono); font-weight: 800; font-size: 2.6rem; color: var(--good); }
+  .win-sub { font-family: var(--mono); font-size: 0.85rem; color: var(--dim); margin-top: 0.3rem; }
+  #winPath { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.3rem; }
+  .path-step { font-family: var(--mono); font-size: 0.78rem; color: var(--dim); text-decoration: none; border-bottom: 1px dashed transparent; }
+  .path-step:hover { color: var(--link); border-color: var(--link); }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.1rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 0.7rem; }
+  .share-actions { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 130px; text-align: center; border-radius: 6px; padding: 0.6rem 0.9rem;
+    font: inherit; font-family: var(--mono); font-size: 0.82rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: var(--link); color: #fff; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--ink); }
+  #playAgainBtn { width: 100%; margin-top: 0.8rem; font-family: var(--mono); font-weight: 700; padding: 0.7rem; border-radius: 6px; border: none; background: var(--ink); color: #fff; cursor: pointer; }
+
+  footer.site { margin-top: 2.5rem; color: var(--dim2); font-size: 0.75rem; text-align: center; line-height: 1.7; font-family: var(--mono); }
+  footer.site a { color: var(--dim); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <h1>rant<span class="accent">walk</span></h1>
+      <div class="byline">
+        <img id="avatarImg" alt="" style="width:22px;height:22px;border-radius:50%;vertical-align:middle;border:1px solid var(--border);" />
+        @norvid-studies.bsky.social
+      </div>
+    </header>
+    <p class="subhead">the wiki speedrun game, played entirely on one person's Bluesky posts. every "article" is a real rant; every "link" is shared vocabulary between two rants. the graph only ever points <b>forward in time</b> — a topologically sorted, weighted choose-your-own-adventure of the whole timeline.</p>
+
+    <div id="loading">loading the rant graph…</div>
+
+    <section id="intro">
+      <div class="rules">
+        <h2>how to play</h2>
+        <ol>
+          <li>you'll get a <b>start rant</b> and a <b>target rant</b>, further along in the timeline.</li>
+          <li>click the underlined words in the current rant, or the related-rant cards below it, to jump forward.</li>
+          <li>links only ever go <b>forward</b> — you can't loop back. reach the target in as few clicks as possible.</li>
+        </ol>
+      </div>
+      <div class="diff-row">
+        difficulty:
+        <div id="diffButtons">
+          <button type="button" data-diff="easy">easy</button>
+          <button type="button" data-diff="normal" class="active">normal</button>
+          <button type="button" data-diff="hard">hard</button>
+        </div>
+      </div>
+      <button id="dealBtn" type="button">deal me a walk →</button>
+    </section>
+
+    <section id="game">
+      <div class="target-box" id="targetCard">
+        <div class="tb-label">🎯 get here</div>
+        <div id="targetPreview"></div>
+      </div>
+
+      <div class="hud">
+        <span class="stat">clicks: <b id="moves">0</b></span>
+        <span class="stat">par: <b id="par">0</b></span>
+        <span class="stat">time: <b id="timer">0:00</b></span>
+        <span class="spacer"></span>
+        <button id="hintBtn" type="button">hint</button>
+        <button id="giveUpBtn" type="button">give up</button>
+        <button id="newGameBtn" type="button">new walk</button>
+      </div>
+      <div id="breadcrumb"></div>
+
+      <div class="post-card" id="currentCard"></div>
+
+      <div class="related-label">related rants →</div>
+      <div id="relatedList"></div>
+    </section>
+
+    <section id="win">
+      <div class="win-box" id="winStats"></div>
+      <div id="winPath"></div>
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 post result</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+        <button id="playAgainBtn" type="button">deal another walk →</button>
+      </div>
+    </section>
+
+    <footer class="site">
+      graph built from @norvid-studies.bsky.social's own post history · idea from @garrison.corporate.fm's reply to
+      norvid's "topological sorted weighted choose your own adventure graph of my rants" bit · part of
+      <a href="https://bisks.net">atprotozoa</a> · built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
