@@ -82,6 +82,24 @@ paced to at most one every `MOBIUS_INTERVAL_MINUTES` (default 20) rather than
 draining back-to-back. A **lone** queued job always ships on the next poll —
 this throttles backlogs only. Set to `"0"` to disable. Status page at `/mobius`.
 
+### The theme box (self-dispatched builds)
+
+`/theme` lets anyone type a theme (no auth — same trust posture as a tag's
+text, see below). While a theme is active, a **second cron trigger**
+(`0 */3 * * *`, distinguished from the 2-min watcher by `event.cron` in the
+same `scheduled()` handler) fires every 3 hours: Workers AI (`[ai]` binding,
+no API key — billed to the account, same pattern as `sites/thread-heirloom`)
+invents one small buildable idea on the theme, the bot posts a top-level
+announcement of it from its own account, and that post becomes the
+`replyRootUri`/`replyParentUri` for a normal `enqueueJob()` call — the exact
+same `BuildPayload` shape and queue a real Bluesky tag produces. Downstream
+(the box, `INSTRUCTIONS.md`, the reply, `/logs.json`) can't tell a theme-box
+build from a tagged one; that's deliberate, it means no separate sandbox or
+review path had to be built. The box reopens for a new theme 24h after one is
+set (`THEME_DURATION_MS`), independent of how many ticks fired in between.
+State lives in the same `STATE` KV under `theme:current`. `/theme.json` is
+the public read.
+
 ## House rules: the brief is third-party text
 
 The build prompt is a Bluesky post written by someone else, fed to an autonomous

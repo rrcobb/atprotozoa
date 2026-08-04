@@ -16,10 +16,13 @@ assets = { directory = "./public", binding = "ASSETS" }
 # (Same gotcha called out in apex/wrangler.toml.)
 routes = [{ pattern = "buildthis.bisks.net/*", zone_name = "bisks.net" }]
 
-# Poll for new mentions. Every 2 minutes keeps latency low without hammering the
-# AppView; the cron only reads notifications + does cheap graph checks.
+# Two triggers land in the same scheduled() handler, distinguished by
+# event.cron (see src/index.ts):
+#  - "*/2 * * * *"  the mention watcher — polls notifications, low latency.
+#  - "0 */3 * * *"  the theme box's tick — invents + builds one idea on the
+#    active theme (see /theme), only while a theme is set.
 [triggers]
-crons = ["*/2 * * * *"]
+crons = ["*/2 * * * *", "0 */3 * * *"]
 
 # Durable, queryable logs (console.log/error + invocation status) retained by
 # Cloudflare, so we can see e.g. an overnight cron failure without live-tailing.
@@ -32,6 +35,11 @@ enabled = true
 [[kv_namespaces]]
 binding = "STATE"
 id = "8eb7f22cd5184d4483b49b14c52f627a"
+
+# Workers AI does the theme box's idea generation (POST-free, no API key —
+# billed to the account, same pattern as sites/thread-heirloom).
+[ai]
+binding = "AI"
 
 [vars]
 # The bot's own DID (currently @buildthis.bsky.social; will become
