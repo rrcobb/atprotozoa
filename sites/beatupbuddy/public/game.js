@@ -308,6 +308,13 @@
     offY = (rect.height - ARENA_H * cssScale) / 2;
   }
   window.addEventListener("resize", fitCanvas);
+  // mobile browsers don't reliably fire plain "resize" when the address bar
+  // hides/shows on scroll — visualViewport does, and without this the
+  // canvas keeps the stale letterboxed size from the moment the page loaded
+  // (chrome visible) so taps land offset from where the ragdoll is drawn.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", fitCanvas);
+  }
   fitCanvas();
 
   function clientToArena(clientX, clientY) {
