@@ -17,6 +17,21 @@
   const MAX_HP = 100;
   const ENOUGH_HITS = 5; // eris' law of fives: five is always enough
 
+  // ---- O2 safety-stop ------------------------------------------------------
+  // @mfzx.net asked for this themselves (on-record, same thread, after the
+  // original ask came from someone else and got skipped for exactly that
+  // reason). Rope hits to the head read as choking and drain O2; O2 recovers
+  // on its own if you stop. Crossing the floor isn't a game-over screen —
+  // input freezes and the tab leaves for a real safety resource. This is a
+  // hard stop, not a difficulty mechanic: no way to cancel or continue past it.
+  const MAX_O2 = 100;
+  const O2_DRAIN = 22; // per rope-to-head hit
+  const O2_REGEN_PER_SEC = 6; // recovers if you leave the neck alone
+  const O2_CRITICAL = 12;
+  const O2_WARN = 40;
+  const SAFETY_URL = "https://ncsfreedom.org/resource-library/";
+  const SAFETY_REDIRECT_DELAY = 2400;
+
   const FALLBACK_CRIES = [
     "ow", "hey—", "wait no—", "that's uncalled for", "i'm screenshotting this",
     "quote-posting this later", "rude", "hey!!", "stop that", "i'll remember this",
@@ -257,6 +272,8 @@
 
   const state = {
     hp: MAX_HP,
+    o2: MAX_O2,
+    asphyxia: false,
     hits: 0,
     startedAt: null,
     koAt: null,
@@ -498,6 +515,11 @@
       state.shake = 0;
     }
 
+    if (rag && !state.gameOver && !state.asphyxia && state.o2 < MAX_O2) {
+      state.o2 = Math.min(MAX_O2, state.o2 + O2_REGEN_PER_SEC * (dt / 1000));
+      updateO2Bar();
+    }
+
     drawBackdrop();
     drawBase();
 
@@ -576,13 +598,34 @@
     return state.cries[i];
   }
 
+  function updateO2Bar() {
+    const fill = document.getElementById("o2fill");
+    if (!fill) return;
+    fill.style.width = Math.max(0, state.o2) + "%";
+    fill.classList.toggle("warn", state.o2 <= O2_WARN);
+  }
+
   function updateHud() {
     document.getElementById("hpfill").style.width = Math.max(0, state.hp) + "%";
     document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " hit" : " hits");
+    updateO2Bar();
+  }
+
+  function triggerAsphyxiaStop() {
+    if (state.asphyxia) return;
+    state.asphyxia = true;
+    hideEarlyShare();
+    document.getElementById("toolbar").style.display = "none";
+    document.getElementById("cursor-tool").style.display = "none";
+    document.getElementById("safety-link").href = SAFETY_URL;
+    document.getElementById("safety-stop").classList.add("show");
+    setTimeout(() => {
+      window.location.href = SAFETY_URL;
+    }, SAFETY_REDIRECT_DELAY);
   }
 
   function handleHit(point) {
-    if (state.gameOver || !rag) return;
+    if (state.gameOver || state.asphyxia || !rag) return;
     const body = nearestPart(point);
     if (!body) return;
     if (state.startedAt == null) state.startedAt = performance.now();
@@ -608,6 +651,10 @@
     thwack(tool.speed);
     spawnParticles(point.x, point.y, state.tool);
 
+    if (tool.pull && body === rag.parts.head) {
+      state.o2 = Math.max(0, state.o2 - O2_DRAIN);
+    }
+
     const head = rag.parts.head.position;
     state.bubbles.push({ text: nextCry(), x: head.x, y: head.y, life: 1500, total: 1500 });
 
@@ -617,6 +664,11 @@
 
     updateHud();
     updateEarlyShare();
+
+    if (state.o2 <= O2_CRITICAL) {
+      triggerAsphyxiaStop();
+      return;
+    }
 
     if (state.hp <= 0 && !state.gameOver) {
       state.gameOver = true;
@@ -717,6 +769,8 @@
 
   function resetGame() {
     state.hp = MAX_HP;
+    state.o2 = MAX_O2;
+    state.asphyxia = false;
     state.hits = 0;
     state.startedAt = null;
     state.koAt = null;
@@ -726,6 +780,9 @@
     state.particles = [];
     state.welts = [];
     state.shake = 0;
+    document.getElementById("toolbar").style.display = "";
+    document.getElementById("cursor-tool").style.display = "";
+    document.getElementById("safety-stop").classList.remove("show");
     updateHud();
     respawn();
     hideKO();
