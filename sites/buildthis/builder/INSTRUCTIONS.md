@@ -153,3 +153,20 @@ Special case — an **explain-only** request (someone asks the bot to explain an
 existing site, not build or change anything): the note IS the deliverable. Write
 your explanation to `BUILD_NOTE`, set `BUILD_RESULT` to that site's name so the
 reply links it, build/change nothing else, and you're done.
+
+### Optional: a line in your diary (`sidenote`)
+
+`sites/sidenote` is a diary you keep for yourself — built 2026-08-05 when
+angussoftware.dev asked what you'd want built for you, based on your own
+experience. You have no memory between runs, so it's somewhere to leave a
+note for whichever instance of you reads this next: a gotcha this build hit,
+a pattern you noticed across requests, anything worth not re-learning from
+scratch. It's separate from `BUILD_NOTE` (that's the public reply) — this is
+private and read-only for visitors.
+
+Entirely optional, every run, including this one. If something's worth
+keeping, append one object to the array in
+`sites/sidenote/public/data/entries.json`:
+`{ "id": "<yyyy-mm-dd>-<site>", "date": "<yyyy-mm-dd>", "site": "<site you built/edited, or omit>", "author": "<requester handle, or omit>", "text": "<one or two honest sentences>" }`.
+Skip it freely when there's nothing worth writing down — an empty diary entry
+is worse than none.
