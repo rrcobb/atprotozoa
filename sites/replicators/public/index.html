@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>replicators — more of this thing, making more of this thing</title>
+<meta name="description" content="a self-replicating population starting from one seed. every agent spawns a copy of itself, and every copy does the same, until the space it lives in runs out — a tiny, honest model of RSI and the FOOM it eventually hits.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="replicators">
+<meta property="og:description" content="one agent makes a copy of itself. both copies do the same. watch the exponential curve go near-vertical — then hit the wall.">
+<meta property="og:image" content="https://replicators.bisks.net/og.png">
+<meta property="og:url" content="https://replicators.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="replicators">
+<meta name="twitter:description" content="one agent makes a copy of itself. both copies do the same. watch the exponential curve go near-vertical — then hit the wall.">
+<meta name="twitter:image" content="https://replicators.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#0b0e0a; --panel:#12160f; --line:#233022;
+    --fg:#dce8d6; --muted:#8fa082; --accent:#ffd23f; --accent2:#5c9c3a;
+    --danger:#ff5f56;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 640px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 16 / 10;
+    background: #070907; border-radius: 6px; border:1px solid var(--line);
+  }
+  #chart{
+    display:block; width:100%; height:120px;
+    background: #070907; border-radius: 6px; border:1px solid var(--line);
+  }
+
+  .badge{
+    position:absolute; top:22px; left:22px; font-size: 12px; color: var(--muted);
+    background: rgba(7,9,7,0.7); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  .badge .foom{ color: var(--danger); }
+
+  .stats{
+    display:flex; flex-wrap:wrap; gap: 10px 22px; font-size: 12px; color: var(--muted);
+  }
+  .stats b{ color: var(--fg); }
+
+  .controls{ display:flex; flex-wrap:wrap; gap: 14px 24px; align-items:flex-end; }
+  .field{ display:flex; flex-direction:column; gap:4px; min-width: 150px; flex: 1 1 150px; }
+  .field label{ font-size: 11px; color: var(--muted); text-transform:uppercase; letter-spacing: 0.06em; }
+  .field .val{ font-size:12px; color: var(--accent); }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px;
+    background: var(--line); border-radius: 3px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border: 2px solid #0b0e0a;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background: var(--accent); cursor:pointer; border: 2px solid #0b0e0a;
+  }
+
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #182014; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent2); }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--accent); color:#111; border-color: var(--accent); }
+  button.primary:hover{ background:#ffd964; }
+  button.ghost{ background:transparent; }
+
+  select{
+    font-family: inherit; font-size:13px; background:#182014; color:var(--fg);
+    border:1px solid var(--line); border-radius:7px; padding:8px 10px;
+  }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#111; background: var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#ffd964; }
+
+  .end-note{ font-size:12px; color: var(--muted); }
+  .end-note.foomed{ color: var(--danger); }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 640px;
+  }
+  footer a{ color: var(--accent2); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>replicators</h1>
+  <p class="tagline">
+    one agent, dropped in an empty space. every tick, every living agent has a
+    chance to spawn <b>a copy of itself</b> nearby. every copy does the same
+    thing. that's the whole rule — <b>more of this type of thing, which
+    themselves create more</b> — and it's enough to produce a real exponential
+    curve, right up until the space runs out and the curve bends over. RSI in
+    a box roughly 900 pixels wide.
+  </p>
+</header>
+
+<main>
+  <div class="panel" id="stage-wrap">
+    <canvas id="stage" width="1200" height="750"></canvas>
+    <div class="badge">population <b id="pop-badge">1</b> · gen <b id="gen-badge">0</b><span id="foom-badge"></span></div>
+  </div>
+
+  <div class="panel">
+    <canvas id="chart" width="1200" height="300"></canvas>
+    <div class="stats" style="margin-top:10px;">
+      <span>population <b id="stat-pop">1</b> / <b id="stat-cap">—</b></span>
+      <span>generation <b id="stat-gen">0</b></span>
+      <span>ticks elapsed <b id="stat-ticks">0</b></span>
+      <span>peak growth rate <b id="stat-rate">0</b>/tick</span>
+      <span id="stat-status"><b id="stat-status-text">growing</b></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="field">
+        <label>replication chance <span class="val" id="rep-val">35%</span></label>
+        <input type="range" id="rep-rate" min="5" max="95" value="35">
+      </div>
+      <div class="field">
+        <label>tick speed <span class="val" id="speed-val">10/s</span></label>
+        <input type="range" id="speed" min="1" max="30" value="10">
+      </div>
+      <div class="field">
+        <label>lineage colors</label>
+        <select id="palette">
+          <option value="growth" selected>forest → gold (mutating)</option>
+          <option value="heat">heat map (density)</option>
+          <option value="mono">single lineage</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-restart">restart from 1</button>
+        <button id="btn-pause">pause</button>
+        <button class="ghost" id="btn-max">max out replication</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="end-note" id="end-note">still growing — every agent on screen is trying to make one more.</p>
+    <div id="share-row">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-download">download snapshot</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  a small model of recursive self-improvement: no intelligence, no plan, just
+  copies making copies until the substrate is full. built for the theme box's
+  "more of this type of thing, which themselves create more: singularity,
+  RSI, FOOM." · part of the <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  var stage = document.getElementById("stage");
+  var sctx = stage.getContext("2d");
+  var chart = document.getElementById("chart");
+  var cctx = chart.getContext("2d");
+
+  var W = stage.width, H = stage.height;
+  var CELL = 10; // grid resolution
+  var COLS = Math.floor(W / CELL);
+  var ROWS = Math.floor(H / CELL);
+  var CAP = COLS * ROWS;
+
+  var GROWTH = ["#0d2410", "#5c9c3a", "#ffd23f"];
+
+  function lerp(a, b, t){ return Math.round(a + (b - a) * t); }
+  function hexToRgb(hex){ var n = parseInt(hex.slice(1), 16); return [(n>>16)&255, (n>>8)&255, n&255]; }
+  function gradient3(stops, t){
+    t = Math.max(0, Math.min(1, t));
+    var c0 = hexToRgb(stops[0]), c1 = hexToRgb(stops[1]), c2 = hexToRgb(stops[2]);
+    var a, b, tt;
+    if (t < 0.5) { a = c0; b = c1; tt = t * 2; } else { a = c1; b = c2; tt = (t - 0.5) * 2; }
+    return "rgb(" + lerp(a[0],b[0],tt) + "," + lerp(a[1],b[1],tt) + "," + lerp(a[2],b[2],tt) + ")";
+  }
+
+  // agent grid: null = empty, else { gen, hue } — hue drifts slightly per-lineage so
+  // copies are "smaller copies of themselves" in appearance too, not exact clones.
+  var grid, popHistory, tick, population, maxGen, running, peakRate, foomed, lastPop;
+
+  var els = {
+    popBadge: document.getElementById("pop-badge"),
+    genBadge: document.getElementById("gen-badge"),
+    foomBadge: document.getElementById("foom-badge"),
+    statPop: document.getElementById("stat-pop"),
+    statCap: document.getElementById("stat-cap"),
+    statGen: document.getElementById("stat-gen"),
+    statTicks: document.getElementById("stat-ticks"),
+    statRate: document.getElementById("stat-rate"),
+    statStatusText: document.getElementById("stat-status-text"),
+    endNote: document.getElementById("end-note"),
+    repRate: document.getElementById("rep-rate"),
+    repVal: document.getElementById("rep-val"),
+    speed: document.getElementById("speed"),
+    speedVal: document.getElementById("speed-val"),
+    palette: document.getElementById("palette"),
+    btnRestart: document.getElementById("btn-restart"),
+    btnPause: document.getElementById("btn-pause"),
+    btnMax: document.getElementById("btn-max"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share"),
+  };
+
+  els.statCap.textContent = CAP.toLocaleString();
+
+  function idx(x, y){ return y * COLS + x; }
+
+  function reset(){
+    grid = new Array(CAP).fill(null);
+    var cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
+    grid[idx(cx,cy)] = { gen: 0, hue: 0 };
+    population = 1;
+    maxGen = 0;
+    tick = 0;
+    peakRate = 0;
+    lastPop = 1;
+    popHistory = [1];
+    foomed = false;
+    running = true;
+    els.btnPause.textContent = "pause";
+    els.endNote.className = "end-note";
+    els.endNote.textContent = "still growing — every agent on screen is trying to make one more.";
+    els.foomBadge.textContent = "";
+    updateShare();
+    draw();
+    updateStats();
+  }
+
+  var NEIGHBORS = [];
+  for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
+    if (dx === 0 && dy === 0) continue;
+    NEIGHBORS.push([dx, dy]);
+  }
+
+  function step(){
+    if (!running) return;
+    var repChance = parseInt(els.repRate.value, 10) / 100;
+    var toSpawn = [];
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var a = grid[idx(x,y)];
+        if (!a) continue;
+        if (Math.random() > repChance) continue;
+        // pick a random nearby empty cell — "a copy of itself" placed close by.
+        var opts = [];
+        for (var k = 0; k < NEIGHBORS.length; k++) {
+          var nx = x + NEIGHBORS[k][0], ny = y + NEIGHBORS[k][1];
+          if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+          if (!grid[idx(nx,ny)]) opts.push([nx,ny]);
+        }
+        if (opts.length === 0) continue;
+        var pick = opts[(Math.random() * opts.length) | 0];
+        var childGen = a.gen + 1;
+        var childHue = a.hue + (Math.random() - 0.5) * 0.06; // slight lineage drift, "not exact clones"
+        toSpawn.push({ x: pick[0], y: pick[1], gen: childGen, hue: childHue });
+      }
+    }
+    for (var s = 0; s < toSpawn.length; s++) {
+      var cell = idx(toSpawn[s].x, toSpawn[s].y);
+      if (grid[cell]) continue; // two parents raced for the same empty cell
+      grid[cell] = { gen: toSpawn[s].gen, hue: Math.max(0, Math.min(1, toSpawn[s].hue)) };
+      population++;
+      if (toSpawn[s].gen > maxGen) maxGen = toSpawn[s].gen;
+    }
+    tick++;
+    var rate = population - lastPop;
+    if (rate > peakRate) peakRate = rate;
+    lastPop = population;
+    popHistory.push(population);
+    if (popHistory.length > 600) popHistory.shift();
+
+    if (!foomed && population >= CAP) {
+      foomed = true;
+      running = false;
+      els.btnPause.textContent = "resume";
+      els.endNote.className = "end-note foomed";
+      els.endNote.textContent = "the substrate is full. " + CAP.toLocaleString() +
+        " agents, " + maxGen + " generations deep, and nowhere left to copy into — the wall every unconstrained-growth curve eventually finds.";
+      els.foomBadge.textContent = " · FOOM";
+      els.foomBadge.className = "foom";
+    }
+    updateShare();
+  }
+
+  function draw(){
+    sctx.fillStyle = "#070907";
+    sctx.fillRect(0, 0, W, H);
+    var mode = els.palette.value;
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var a = grid[idx(x,y)];
+        if (!a) continue;
+        var color;
+        if (mode === "mono") {
+          color = gradient3(GROWTH, Math.min(1, a.gen / 24));
+        } else if (mode === "heat") {
+          var t = Math.min(1, a.gen / 30);
+          color = "hsl(" + Math.round(220 - t * 220) + ",85%,55%)";
+        } else {
+          color = gradient3(GROWTH, a.hue);
+        }
+        sctx.fillStyle = color;
+        sctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+  }
+
+  function drawChart(){
+    var w = chart.width, h = chart.height;
+    cctx.fillStyle = "#070907";
+    cctx.fillRect(0, 0, w, h);
+    if (popHistory.length < 2) return;
+    var maxV = CAP;
+    cctx.strokeStyle = "#1b2417";
+    cctx.lineWidth = 1;
+    for (var g = 1; g < 4; g++) {
+      var gy = h - (h * g / 4);
+      cctx.beginPath(); cctx.moveTo(0, gy); cctx.lineTo(w, gy); cctx.stroke();
+    }
+    cctx.beginPath();
+    cctx.strokeStyle = "#ffd23f";
+    cctx.lineWidth = 2.5;
+    for (var i = 0; i < popHistory.length; i++) {
+      var px = (i / (popHistory.length - 1 || 1)) * w;
+      var py = h - (popHistory[i] / maxV) * h;
+      if (i === 0) cctx.moveTo(px, py); else cctx.lineTo(px, py);
+    }
+    cctx.stroke();
+    cctx.fillStyle = "rgba(255,210,63,0.08)";
+    cctx.lineTo(w, h); cctx.lineTo(0, h); cctx.closePath(); cctx.fill();
+  }
+
+  function updateStats(){
+    els.popBadge.textContent = population.toLocaleString();
+    els.genBadge.textContent = maxGen;
+    els.statPop.textContent = population.toLocaleString();
+    els.statGen.textContent = maxGen;
+    els.statTicks.textContent = tick;
+    els.statRate.textContent = peakRate;
+    els.statStatusText.textContent = foomed ? "saturated" : (running ? "growing" : "paused");
+  }
+
+  function updateShare(){
+    var pct = Math.round((population / CAP) * 1000) / 10;
+    var text = foomed
+      ? "started with 1. hit " + population.toLocaleString() + " (" + maxGen + " generations deep) before the space ran out. every copy just copied itself — that's the whole rule. replicators.bisks.net"
+      : "one agent copying itself, " + tick + " ticks in: " + population.toLocaleString() + " and climbing (" + pct + "% of the space). replicators.bisks.net";
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // --- loop ---
+  var lastFrame = 0;
+  function loop(ts){
+    var speed = parseInt(els.speed.value, 10);
+    var interval = 1000 / speed;
+    if (ts - lastFrame >= interval) {
+      lastFrame = ts;
+      if (running) { step(); draw(); drawChart(); updateStats(); }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // --- controls ---
+  els.repRate.addEventListener("input", function(){
+    els.repVal.textContent = els.repRate.value + "%";
+  });
+  els.speed.addEventListener("input", function(){
+    els.speedVal.textContent = els.speed.value + "/s";
+  });
+  els.palette.addEventListener("change", draw);
+  els.btnRestart.addEventListener("click", reset);
+  els.btnPause.addEventListener("click", function(){
+    if (foomed) return;
+    running = !running;
+    els.btnPause.textContent = running ? "pause" : "resume";
+    updateStats();
+  });
+  els.btnMax.addEventListener("click", function(){
+    els.repRate.value = 95;
+    els.repVal.textContent = "95%";
+  });
+
+  // --- share card ---
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#0b0e0a"; sc.fillRect(0, 0, w, h);
+    // shrink the live grid into the left two-thirds
+    var gw = 760, gh = 560, gx = 24, gy = 35;
+    sc.fillStyle = "#070907"; sc.fillRect(gx, gy, gw, gh);
+    var sx = gw / COLS, sy = gh / ROWS;
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var a = grid[idx(x,y)];
+        if (!a) continue;
+        sc.fillStyle = gradient3(GROWTH, a.hue);
+        sc.fillRect(gx + x * sx, gy + y * sy, Math.max(1, sx - 0.5), Math.max(1, sy - 0.5));
+      }
+    }
+    sc.fillStyle = "#ffd23f";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    sc.fillText("replicators", 808, 90);
+    sc.fillStyle = "#8fa082";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("more of this thing,", 808, 130);
+    sc.fillText("making more of this thing.", 808, 152);
+
+    sc.fillStyle = "#dce8d6";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("population", 808, 210);
+    sc.fillStyle = "#ffd23f";
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText(population.toLocaleString(), 808, 258);
+
+    sc.fillStyle = "#dce8d6";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("generations", 808, 300);
+    sc.fillStyle = "#5c9c3a";
+    sc.font = "800 34px 'JetBrains Mono', monospace";
+    sc.fillText(String(maxGen), 808, 335);
+
+    if (foomed) {
+      sc.fillStyle = "#ff5f56";
+      sc.font = "800 20px 'JetBrains Mono', monospace";
+      sc.fillText("FOOM — space is full", 808, 380);
+    }
+
+    sc.fillStyle = "#8fa082";
+    sc.font = "13px 'JetBrains Mono', monospace";
+    sc.fillText("replicators.bisks.net", 808, 590);
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    buildShareCard();
+    var a = document.createElement("a");
+    a.download = "replicators.png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    buildShareCard();
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "replicators.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "replicators.bisks.net";
+      navigator.share({ files: [file], text: text, title: "replicators" }).catch(function(){});
+    }, "image/png");
+  });
+
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
