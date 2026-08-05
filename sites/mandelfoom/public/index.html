@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>mandelfoom — bisks.net</title>
+    <meta
+      name="description"
+      content="A live Mandelbrot / Julia set explorer. Zoom in anywhere on the boundary and you'll eventually fall through a perfect miniature copy of the whole set — more of the thing, making more of the thing, forever."
+    />
+    <meta property="og:title" content="mandelfoom — mandelbrots all the way down" />
+    <meta
+      property="og:description"
+      content="Zoom, pan, and dive into the Mandelbrot set — its boundary hides infinite tiny copies of itself. Pick a point to spin off its own Julia set. Auto-dive finds the boundary and falls in on its own."
+    />
+    <meta property="og:url" content="https://mandelfoom.bisks.net/" />
+    <meta property="og:image" content="https://mandelfoom.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A deep-zoom Mandelbrot set render in violet and teal, spiral tendrils curling around a tiny copy of the whole set." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #08060f;
+        --panel: #0d0a18;
+        --ink: #ece8f7;
+        --muted: #8a80a8;
+        --faint: #211a35;
+        --accent: #c77dff;
+        --accent2: #52e0c4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+      }
+      body { display: flex; flex-direction: column; }
+
+      header {
+        padding: 0.85rem 1rem 0.6rem; border-bottom: 1px solid var(--faint);
+        flex: none; background: var(--panel);
+      }
+      header .top {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      }
+      h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      header p.tag {
+        margin: 0.3rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 64ch;
+      }
+      .backlink { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .backlink:hover { text-decoration: underline; }
+
+      .toolbar {
+        display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+        padding: 0.55rem 1rem; border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem; color: var(--muted); flex: none; background: var(--panel);
+      }
+      .toolbar .group { display: flex; align-items: center; gap: 0.4rem; }
+      select {
+        font-family: inherit; font-size: 0.78rem; padding: 0.3rem 0.4rem;
+        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        border-radius: 4px;
+      }
+      input[type="range"] { width: 6.5rem; vertical-align: middle; accent-color: var(--accent); }
+      label { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+      label .val { color: var(--ink); min-width: 2.4em; display: inline-block; text-align: right; }
+      button {
+        font-family: inherit; font-size: 0.78rem; padding: 0.35rem 0.65rem;
+        border: 1px solid var(--ink); background: var(--bg); color: var(--ink);
+        border-radius: 4px; cursor: pointer;
+      }
+      button:hover { background: #17102a; }
+      button.solid { background: var(--accent); color: #1c0630; border-color: var(--accent); font-weight: 600; }
+      button.solid:hover { background: #d69bff; }
+      button.solid.active { background: var(--accent2); border-color: var(--accent2); color: #04241c; }
+      button.accent { border-color: var(--accent); color: var(--accent); }
+      button.accent:hover { background: #1c1030; }
+      button.accent.armed { background: var(--accent); color: #1c0630; }
+      .spacer { flex: 1 1 auto; }
+
+      main {
+        flex: 1 1 auto; position: relative; min-height: 0;
+      }
+      #stage { position: absolute; inset: 0; }
+      canvas {
+        display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none;
+      }
+      canvas.panning { cursor: grabbing; }
+
+      .hint {
+        position: absolute; left: 0.8rem; top: 0.8rem; pointer-events: none;
+        color: var(--muted); font-size: 0.72rem; background: rgba(8, 6, 15, 0.65);
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.3rem 0.55rem;
+        transition: opacity 0.4s ease;
+      }
+
+      .stats {
+        position: absolute; left: 0; right: 0; bottom: 0.8rem; text-align: center;
+        pointer-events: none; color: var(--muted); font-size: 0.76rem;
+        transition: opacity 0.3s ease;
+      }
+      .stats strong { color: var(--accent); font-weight: 600; }
+      .stats .label { color: var(--accent2); }
+
+      footer {
+        flex: none; padding: 0.5rem 1rem; border-top: 1px solid var(--faint);
+        font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; flex-wrap: wrap;
+        background: var(--panel);
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 760px) {
+        .toolbar { font-size: 0.74rem; gap: 0.6rem; }
+        input[type="range"] { width: 4.6rem; }
+        .hint { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <h1><a href="https://bisks.net/">bisks.net</a><span class="slash">/</span><a href="https://mandelfoom.bisks.net/">mandelfoom</a></h1>
+        <a class="backlink" href="https://bisks.net/">← the zoo</a>
+      </div>
+      <p class="tag">
+        every mandelbrot set contains infinite tinier copies of itself, sunk along its
+        own boundary. zoom in far enough on the edge and you fall through one — more of
+        the thing, making more of the thing, forever. pick a point and it spins off its
+        own julia set too.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <div class="group">
+        <label>set
+          <select id="mode">
+            <option value="mandelbrot">mandelbrot</option>
+            <option value="julia">julia</option>
+          </select>
+        </label>
+      </div>
+      <div class="group">
+        <label>colors
+          <select id="scheme">
+            <option value="abyss">abyss</option>
+            <option value="ember">ember</option>
+            <option value="orchid">orchid</option>
+            <option value="toxic">toxic</option>
+            <option value="mono">mono</option>
+          </select>
+        </label>
+      </div>
+      <label>detail <input type="range" id="detail" min="60" max="380" value="170" /><span class="val" id="detailVal">170</span></label>
+      <div class="spacer"></div>
+      <button class="accent" id="pickJulia">🔀 pick a julia point</button>
+      <button id="homeBtn">⌂ home</button>
+      <button class="solid" id="diveBtn">🌀 auto-dive</button>
+      <button id="saveBtn">save image</button>
+      <button class="accent" id="shareBtn">share to bluesky</button>
+    </div>
+
+    <main>
+      <div id="stage">
+        <canvas id="c"></canvas>
+        <div class="hint" id="hint">scroll / pinch to zoom · drag to pan · click to zoom in</div>
+      </div>
+      <div class="stats" id="stats"></div>
+    </main>
+
+    <footer>
+      <span id="status"></span>
+      <div class="spacer"></div>
+      <a href="https://bisks.net/">more bisks.net experiments</a>
+    </footer>
+
+    <script>
+      (function () {
+        const canvas = document.getElementById("c");
+        const ctx = canvas.getContext("2d", { willReadFrequently: false });
+        const stage = document.getElementById("stage");
+        const statsEl = document.getElementById("stats");
+        const statusEl = document.getElementById("status");
+        const hintEl = document.getElementById("hint");
+
+        const els = {
+          mode: document.getElementById("mode"),
+          scheme: document.getElementById("scheme"),
+          detail: document.getElementById("detail"),
+          detailVal: document.getElementById("detailVal"),
+          pickJulia: document.getElementById("pickJulia"),
+          home: document.getElementById("homeBtn"),
+          dive: document.getElementById("diveBtn"),
+          save: document.getElementById("saveBtn"),
+          share: document.getElementById("shareBtn"),
+        };
+
+        // --- cosine palettes (a + b*cos(2π(c*t+d)), per iq's palette trick) ---
+        const SCHEMES = {
+          abyss: { a: [0.08, 0.22, 0.34], b: [0.32, 0.42, 0.5], c: [0.8, 0.9, 1.1], d: [0.0, 0.2, 0.5], freq: 0.05, interior: "#050a12" },
+          ember: { a: [0.25, 0.1, 0.05], b: [0.55, 0.32, 0.18], c: [1.0, 0.9, 0.6], d: [0.0, 0.1, 0.35], freq: 0.055, interior: "#140502" },
+          orchid: { a: [0.2, 0.06, 0.3], b: [0.45, 0.25, 0.5], c: [1.1, 0.8, 0.9], d: [0.1, 0.55, 0.75], freq: 0.05, interior: "#0f0714" },
+          toxic: { a: [0.1, 0.24, 0.08], b: [0.3, 0.5, 0.22], c: [0.9, 1.0, 0.7], d: [0.35, 0.1, 0.6], freq: 0.06, interior: "#040a03" },
+          mono: { a: [0.5, 0.5, 0.5], b: [0.42, 0.42, 0.42], c: [1, 1, 1], d: [0, 0, 0], freq: 0.05, interior: "#0a0a0a" },
+        };
+        function hexToRgb(hex) {
+          const n = parseInt(hex.slice(1), 16);
+          return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        }
+        function clampByte(v) { return v < 0 ? 0 : v > 255 ? 255 : v | 0; }
+        function paletteColor(t, s) {
+          const r = s.a[0] + s.b[0] * Math.cos(6.2831853 * (s.c[0] * t + s.d[0]));
+          const g = s.a[1] + s.b[1] * Math.cos(6.2831853 * (s.c[1] * t + s.d[1]));
+          const b = s.a[2] + s.b[2] * Math.cos(6.2831853 * (s.c[2] * t + s.d[2]));
+          return [clampByte(r * 255), clampByte(g * 255), clampByte(b * 255)];
+        }
+
+        // --- state ---
+        const HOME_M = { cx: -0.5, cy: 0, scale: 1.35 };
+        const HOME_J = { cx: 0, cy: 0, scale: 1.5 };
+        let mode = "mandelbrot";
+        let view = { ...HOME_M };
+        let lastMandel = { ...HOME_M };
+        let lastJulia = { ...HOME_J };
+        let juliaC = { re: -0.4, im: 0.6 };
+        let schemeKey = "abyss";
+        let samplingArmed = false;
+        let diveActive = false;
+        let dive = null;
+        let diveTargets = null;
+        let diveIndex = 0;
+
+        function detailBase() { return parseInt(els.detail.value, 10); }
+
+        // --- escape-time math ---
+        function mandelIter(cre, cim, cap) {
+          let zre = 0, zim = 0, zre2 = 0, zim2 = 0, n = 0;
+          while (n < cap && zre2 + zim2 <= 4) {
+            zim = 2 * zre * zim + cim;
+            zre = zre2 - zim2 + cre;
+            zre2 = zre * zre; zim2 = zim * zim;
+            n++;
+          }
+          return { n, zre, zim, escaped: zre2 + zim2 > 4 };
+        }
+        function juliaIter(zre0, zim0, cre, cim, cap) {
+          let zre = zre0, zim = zim0, zre2 = zre * zre, zim2 = zim * zim, n = 0;
+          while (n < cap && zre2 + zim2 <= 4) {
+            zim = 2 * zre * zim + cim;
+            zre = zre2 - zim2 + cre;
+            zre2 = zre * zre; zim2 = zim * zim;
+            n++;
+          }
+          return { n, zre, zim, escaped: zre2 + zim2 > 4 };
+        }
+        function smoothMu(res) {
+          if (!res.escaped) return null;
+          const zn2 = res.zre * res.zre + res.zim * res.zim;
+          const nu = Math.log(Math.log(zn2) / 2 / Math.LN2) / Math.LN2;
+          let mu = res.n + 1 - nu;
+          return isFinite(mu) ? mu : res.n;
+        }
+
+        // --- home scale used for the zoom-factor readout, per mode ---
+        function homeScale() { return mode === "mandelbrot" ? HOME_M.scale : HOME_J.scale; }
+        function fullIterCap(scale) {
+          const depth = Math.max(0, Math.log2(homeScale() / Math.max(scale, 1e-13)));
+          return Math.min(1500, Math.round(detailBase() + depth * 20));
+        }
+        function previewIterCap(scale) {
+          const depth = Math.max(0, Math.log2(homeScale() / Math.max(scale, 1e-13)));
+          return Math.min(420, Math.round(70 + depth * 10));
+        }
+
+        // --- rendering ---
+        let frameImg = null;
+        let fullJob = null;
+
+        function computeRows(y0, y1, block, cap, data, w, h) {
+          const aspect = w / h;
+          const halfH = view.scale, halfW = view.scale * aspect;
+          const scheme = SCHEMES[schemeKey];
+          const juliaMode = mode === "julia";
+          const jcRe = juliaC.re, jcIm = juliaC.im;
+          for (let py = y0; py < y1; py += block) {
+            const wy = view.cy + (0.5 - py / h) * 2 * halfH;
+            for (let px = 0; px < w; px += block) {
+              const wx = view.cx + (px / w - 0.5) * 2 * halfW;
+              const res = juliaMode ? juliaIter(wx, wy, jcRe, jcIm, cap) : mandelIter(wx, wy, cap);
+              const mu = smoothMu(res);
+              let r, g, b;
+              if (mu === null) {
+                const rgb = hexToRgb(scheme.interior);
+                r = rgb[0]; g = rgb[1]; b = rgb[2];
+              } else {
+                [r, g, b] = paletteColor(mu * scheme.freq, scheme);
+              }
+              const bx1 = Math.min(px + block, w), by1 = Math.min(py + block, h);
+              for (let by = py; by < by1; by++) {
+                let idx = (by * w + px) * 4;
+                for (let bx = px; bx < bx1; bx++) {
+                  data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 255;
+                  idx += 4;
+                }
+              }
+            }
+          }
+        }
+
+        function renderPreview() {
+          const w = canvas.width, h = canvas.height;
+          if (w === 0 || h === 0) return;
+          const img = ctx.createImageData(w, h);
+          computeRows(0, h, 5, previewIterCap(view.scale), img.data, w, h);
+          ctx.putImageData(img, 0, 0);
+          updateStats();
+        }
+
+        function cancelFullJob() { fullJob = null; }
+
+        function scheduleFullRender() {
+          cancelFullJob();
+          clearTimeout(scheduleFullRender._t);
+          scheduleFullRender._t = setTimeout(startFullRender, 200);
+        }
+
+        function startFullRender() {
+          cancelFullJob();
+          const w = canvas.width, h = canvas.height;
+          if (w === 0 || h === 0) return;
+          const cap = fullIterCap(view.scale);
+          const img = ctx.createImageData(w, h);
+          const rowsPerFrame = Math.max(4, Math.min(60, Math.round(35000000 / (w * cap))));
+          fullJob = { view: { ...view }, mode, juliaC: { ...juliaC }, cap, y: 0, w, h, img, rowsPerFrame };
+          statusEl.textContent = "rendering…";
+          requestAnimationFrame(stepFullRender);
+        }
+
+        function stepFullRender() {
+          if (!fullJob) return;
+          const job = fullJob;
+          const endY = Math.min(job.h, job.y + job.rowsPerFrame);
+          computeRows(job.y, endY, 1, job.cap, job.img.data, job.w, job.h);
+          job.y = endY;
+          ctx.putImageData(job.img, 0, 0);
+          if (job.y < job.h) {
+            requestAnimationFrame(stepFullRender);
+          } else {
+            fullJob = null;
+            statusEl.textContent = "";
+          }
+        }
+
+        function updateStats() {
+          const zoom = Math.max(1, homeScale() / Math.abs(view.scale));
+          const prec = zoom > 1e6 ? 9 : zoom > 1e3 ? 6 : 3;
+          const zoomStr = zoom < 1000 ? zoom.toFixed(1) + "×" : zoom.toLocaleString("en-US", { maximumFractionDigits: 0 }) + "×";
+          const label = mode === "julia" ? "julia" : "mandelbrot";
+          statsEl.innerHTML =
+            `<span class="label">${label}</span> · zoom <strong>${zoomStr}</strong> · ` +
+            `c ≈ ${view.cx.toFixed(prec)} ${view.cy >= 0 ? "+" : "-"} ${Math.abs(view.cy).toFixed(prec)}i` +
+            (diveActive ? ` · <strong>auto-diving…</strong>` : "");
+        }
+
+        // --- boundary search, used to seed auto-dive targets ---
+        function refineBoundary(seedRe, seedIm, radius0) {
+          let cx = seedRe, cy = seedIm, radius = radius0;
+          let found = { re: seedRe, im: seedIm };
+          const passes = [{ n: 260, cap: 400 }, { n: 220, cap: 1200 }, { n: 180, cap: 3200 }];
+          for (const pass of passes) {
+            let bestN = -1, bestPt = null;
+            for (let i = 0; i < pass.n; i++) {
+              const re = cx + (Math.random() * 2 - 1) * radius;
+              const im = cy + (Math.random() * 2 - 1) * radius;
+              const r = mandelIter(re, im, pass.cap);
+              if (r.escaped && r.n > bestN) { bestN = r.n; bestPt = { re, im }; }
+            }
+            if (bestPt) { cx = bestPt.re; cy = bestPt.im; found = bestPt; }
+            radius /= 9;
+          }
+          return found;
+        }
+        const DIVE_SEEDS = [
+          { re: -0.75, im: 0.1, r: 0.05, label: "seahorse reef" },
+          { re: -0.75, im: -0.1, r: 0.05, label: "mirror reef" },
+          { re: -1.75, im: 0.0, r: 0.02, label: "the antenna" },
+          { re: 0.25, im: 0.05, r: 0.03, label: "east cusp" },
+          { re: -0.1, im: 0.75, r: 0.04, label: "north spokes" },
+        ];
+        function ensureDiveTargets() {
+          if (diveTargets) return diveTargets;
+          diveTargets = DIVE_SEEDS.map((s) => {
+            const p = refineBoundary(s.re, s.im, s.r);
+            return { cx: p.re, cy: p.im, scale: 3.2e-5, label: s.label };
+          });
+          return diveTargets;
+        }
+
+        // --- auto-dive animation ---
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function expLerp(a, b, t) { return a * Math.pow(b / a, t); }
+        function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+        let lastDiveRender = 0;
+        function beginLeg(phase, from, to, duration) {
+          dive = { phase, from: { ...from }, to: { ...to }, start: performance.now(), duration };
+        }
+        function startDive() {
+          if (mode !== "mandelbrot") { lastJulia = { ...view }; mode = "mandelbrot"; els.mode.value = "mandelbrot"; view = { ...lastMandel }; }
+          ensureDiveTargets();
+          diveActive = true;
+          els.dive.classList.add("active");
+          els.dive.textContent = "⏹ stop diving";
+          hintEl.style.opacity = "0";
+          beginLeg("in", view, diveTargets[diveIndex], 5200);
+          requestAnimationFrame(diveTick);
+        }
+        function stopDive() {
+          if (!diveActive) return;
+          diveActive = false;
+          dive = null;
+          els.dive.classList.remove("active");
+          els.dive.textContent = "🌀 auto-dive";
+          updateStats();
+        }
+        function diveTick(ts) {
+          if (!diveActive || !dive) return;
+          if (dive.phase === "hold") {
+            if (ts - dive.start > dive.duration) {
+              diveIndex = (diveIndex + 1) % diveTargets.length;
+              beginLeg("out", view, HOME_M, 3000);
+            }
+          } else {
+            const t = Math.min(1, (ts - dive.start) / dive.duration);
+            const e = easeInOutCubic(t);
+            view.cx = lerp(dive.from.cx, dive.to.cx, e);
+            view.cy = lerp(dive.from.cy, dive.to.cy, e);
+            view.scale = expLerp(dive.from.scale, dive.to.scale, e);
+            if (t >= 1) {
+              if (dive.phase === "in") {
+                beginLeg("hold", view, view, 2600);
+                startFullRender();
+              } else {
+                beginLeg("in", HOME_M, diveTargets[diveIndex], 5200);
+              }
+            }
+          }
+          if (ts - lastDiveRender > 40) {
+            renderPreview();
+            lastDiveRender = ts;
+          }
+          if (diveActive) requestAnimationFrame(diveTick);
+        }
+
+        // --- resize ---
+        function resizeCanvas() {
+          const rect = stage.getBoundingClientRect();
+          let dpr = Math.min(window.devicePixelRatio || 1, 2);
+          let w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
+          const MAXPIX = 900000;
+          if (w * h > MAXPIX) {
+            const s = Math.sqrt(MAXPIX / (w * h));
+            w = Math.round(w * s); h = Math.round(h * s);
+          }
+          canvas.width = Math.max(1, w);
+          canvas.height = Math.max(1, h);
+        }
+
+        // --- pointer interaction: wheel zoom, drag pan, pinch, click zoom/sample ---
+        function canvasPoint(clientX, clientY) {
+          const rect = canvas.getBoundingClientRect();
+          const dpr = canvas.width / rect.width;
+          return { px: (clientX - rect.left) * dpr, py: (clientY - rect.top) * dpr };
+        }
+        function worldAt(px, py) {
+          const w = canvas.width, h = canvas.height, aspect = w / h;
+          const halfH = view.scale, halfW = view.scale * aspect;
+          return {
+            re: view.cx + (px / w - 0.5) * 2 * halfW,
+            im: view.cy + (0.5 - py / h) * 2 * halfH,
+          };
+        }
+        function zoomAt(px, py, factor) {
+          const w = canvas.width, h = canvas.height, aspect = w / h;
+          const before = worldAt(px, py);
+          const MIN_SCALE = 1e-13, MAX_SCALE = 4;
+          view.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+          const halfH = view.scale, halfW = view.scale * aspect;
+          view.cx = before.re - (px / w - 0.5) * 2 * halfW;
+          view.cy = before.im - (0.5 - py / h) * 2 * halfH;
+        }
+        function panBy(dxPx, dyPx) {
+          const w = canvas.width, h = canvas.height, aspect = w / h;
+          const halfH = view.scale, halfW = view.scale * aspect;
+          view.cx -= (dxPx / w) * 2 * halfW;
+          view.cy += (dyPx / h) * 2 * halfH;
+        }
+
+        const pointers = new Map();
+        let dragging = false, dragMoved = 0, pinchDist = 0, pinchMid = null;
+        let downPos = null;
+
+        function onInteractionStart() {
+          if (diveActive) stopDive();
+          hintEl.style.opacity = "0";
+        }
+
+        canvas.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          onInteractionStart();
+          const { px, py } = canvasPoint(e.clientX, e.clientY);
+          const factor = Math.exp(e.deltaY * 0.0016);
+          zoomAt(px, py, factor);
+          renderPreview();
+          scheduleFullRender();
+        }, { passive: false });
+
+        canvas.addEventListener("pointerdown", (e) => {
+          canvas.setPointerCapture(e.pointerId);
+          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (pointers.size === 1) {
+            dragging = false; dragMoved = 0;
+            downPos = { x: e.clientX, y: e.clientY, t: performance.now() };
+          } else if (pointers.size === 2) {
+            const pts = [...pointers.values()];
+            pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            pinchMid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+            dragging = true; // suppress click-on-release once pinch has happened
+          }
+        });
+
+        canvas.addEventListener("pointermove", (e) => {
+          if (!pointers.has(e.pointerId)) return;
+          const prev = pointers.get(e.pointerId);
+          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+          if (pointers.size === 2) {
+            onInteractionStart();
+            const pts = [...pointers.values()];
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+            const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+            if (pinchDist > 1) {
+              const { px, py } = canvasPoint(mid.x, mid.y);
+              zoomAt(px, py, pinchDist / dist);
+              renderPreview();
+            }
+            pinchDist = dist; pinchMid = mid;
+            return;
+          }
+
+          if (pointers.size !== 1) return;
+          const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
+          dragMoved += Math.abs(dx) + Math.abs(dy);
+          if (dragMoved > 5) {
+            if (!dragging) { onInteractionStart(); }
+            dragging = true;
+            canvas.classList.add("panning");
+            const dpr = canvas.width / canvas.getBoundingClientRect().width;
+            panBy(dx * dpr, dy * dpr);
+            renderPreview();
+          }
+        });
+
+        function endPointer(e) {
+          const wasSingle = pointers.size === 1;
+          pointers.delete(e.pointerId);
+          canvas.classList.remove("panning");
+          if (pointers.size === 1) {
+            // pinch ended with one finger remaining — rebase drag tracking
+            const remaining = [...pointers.entries()][0];
+            pointers.set(remaining[0], remaining[1]);
+            dragging = true; dragMoved = 999;
+            return;
+          }
+          if (pointers.size === 0) {
+            if (wasSingle && !dragging && downPos) {
+              const { px, py } = canvasPoint(downPos.x, downPos.y);
+              if (samplingArmed) {
+                const w = worldAt(px, py);
+                juliaC = { re: w.re, im: w.im };
+                lastMandel = { ...view };
+                mode = "julia"; els.mode.value = "julia";
+                view = { ...HOME_J };
+                samplingArmed = false;
+                els.pickJulia.classList.remove("armed");
+                els.pickJulia.textContent = "🔀 pick a julia point";
+                hintEl.style.opacity = "0";
+              } else {
+                onInteractionStart();
+                zoomAt(px, py, 0.45);
+              }
+              renderPreview();
+              scheduleFullRender();
+            } else if (dragging) {
+              scheduleFullRender();
+            }
+            dragging = false; dragMoved = 0; downPos = null; pinchDist = 0;
+          }
+        }
+        canvas.addEventListener("pointerup", endPointer);
+        canvas.addEventListener("pointercancel", endPointer);
+
+        window.addEventListener("keydown", (e) => {
+          if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+          const { px, py } = { px: canvas.width / 2, py: canvas.height / 2 };
+          if (e.key === "+" || e.key === "=") { onInteractionStart(); zoomAt(px, py, 0.7); renderPreview(); scheduleFullRender(); }
+          else if (e.key === "-" || e.key === "_") { onInteractionStart(); zoomAt(px, py, 1.4); renderPreview(); scheduleFullRender(); }
+          else if (e.key === "h" || e.key === "H") { els.home.click(); }
+          else if (e.key === "d" || e.key === "D") { els.dive.click(); }
+        });
+
+        // --- UI wiring ---
+        els.mode.addEventListener("change", () => {
+          stopDive();
+          if (mode === "mandelbrot") lastMandel = { ...view }; else lastJulia = { ...view };
+          mode = els.mode.value;
+          view = mode === "mandelbrot" ? { ...lastMandel } : { ...lastJulia };
+          renderPreview();
+          scheduleFullRender();
+        });
+        els.scheme.addEventListener("change", () => {
+          schemeKey = els.scheme.value;
+          renderPreview();
+          scheduleFullRender();
+        });
+        els.detail.addEventListener("input", () => {
+          els.detailVal.textContent = els.detail.value;
+        });
+        els.detail.addEventListener("change", () => {
+          scheduleFullRender();
+        });
+        els.pickJulia.addEventListener("click", () => {
+          stopDive();
+          samplingArmed = !samplingArmed;
+          if (samplingArmed) {
+            if (mode === "julia") { lastJulia = { ...view }; mode = "mandelbrot"; els.mode.value = "mandelbrot"; view = { ...lastMandel }; renderPreview(); scheduleFullRender(); }
+            els.pickJulia.classList.add("armed");
+            els.pickJulia.textContent = "🔀 click anywhere…";
+            hintEl.textContent = "click a point on the mandelbrot set to spin off its julia set";
+            hintEl.style.opacity = "1";
+          } else {
+            els.pickJulia.classList.remove("armed");
+            els.pickJulia.textContent = "🔀 pick a julia point";
+          }
+        });
+        els.home.addEventListener("click", () => {
+          stopDive();
+          view = mode === "mandelbrot" ? { ...HOME_M } : { ...HOME_J };
+          renderPreview();
+          scheduleFullRender();
+        });
+        els.dive.addEventListener("click", () => {
+          if (diveActive) stopDive(); else startDive();
+        });
+
+        // --- save / share ---
+        function buildShareText() {
+          const zoom = Math.max(1, Math.round(homeScale() / Math.abs(view.scale)));
+          const flavor = mode === "julia" ? "a julia set, spun off one point I found in it" : "the mandelbrot set";
+          return (
+            `${zoom.toLocaleString("en-US")}× deep into ${flavor} — still a perfect ` +
+            `little copy of the whole thing down here. https://mandelfoom.bisks.net/`
+          );
+        }
+        function canShareFiles() {
+          if (!navigator.share || !navigator.canShare) return false;
+          try {
+            const probe = new File([""], "probe.png", { type: "image/png" });
+            return navigator.canShare({ files: [probe] });
+          } catch (e) {
+            return false;
+          }
+        }
+        function downloadBlob(blob) {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "mandelfoom.png";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }
+        function withCrispCanvas(cb) {
+          if (fullJob || view.scale < homeScale()) {
+            statusEl.textContent = "rendering…";
+            const w = canvas.width, h = canvas.height;
+            const cap = fullIterCap(view.scale);
+            const img = ctx.createImageData(w, h);
+            computeRows(0, h, 1, cap, img.data, w, h);
+            ctx.putImageData(img, 0, 0);
+            statusEl.textContent = "";
+          }
+          cb();
+        }
+
+        els.save.addEventListener("click", () => {
+          withCrispCanvas(() => {
+            canvas.toBlob((blob) => { if (blob) downloadBlob(blob); }, "image/png");
+          });
+        });
+
+        els.share.addEventListener("click", () => {
+          withCrispCanvas(() => {
+            canvas.toBlob(async (blob) => {
+              if (!blob) return;
+              const text = buildShareText();
+              if (canShareFiles()) {
+                try {
+                  const file = new File([blob], "mandelfoom.png", { type: "image/png" });
+                  await navigator.share({ files: [file], text, title: "mandelfoom" });
+                  return;
+                } catch (e) {
+                  if (e && e.name === "AbortError") return;
+                }
+              }
+              downloadBlob(blob);
+              statusEl.textContent = "image downloaded — attach it in the composer that just opened";
+              window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+            }, "image/png");
+          });
+        });
+
+        // --- resize ---
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            resizeCanvas();
+            renderPreview();
+            scheduleFullRender();
+          }, 150);
+        });
+
+        resizeCanvas();
+        renderPreview();
+        startFullRender();
+        setTimeout(() => { if (hintEl) hintEl.style.opacity = "0"; }, 6000);
+      })();
+    </script>
+  </body>
+</html>
