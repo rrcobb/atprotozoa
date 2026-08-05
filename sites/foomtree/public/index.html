@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>foomtree — bisks.net</title>
+    <meta
+      name="description"
+      content="A recursive fractal generator: trees, H-trees, Sierpinski triangles, and Koch snowflakes that spawn smaller copies of themselves. Grow it level by level and watch the shape count double, triple, or quadruple each step."
+    />
+    <meta property="og:title" content="foomtree — a fractal that grows more of itself" />
+    <meta
+      property="og:description"
+      content="Grow a recursive fractal — tree, H-tree, Sierpinski triangle, or Koch snowflake — and watch the shape count explode level by level. Tune depth, angle, and five color schemes."
+    />
+    <meta property="og:url" content="https://foomtree.bisks.net/" />
+    <meta property="og:image" content="https://foomtree.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A branching fractal tree rendered in a gold-on-dark gradient, each level spawning two smaller copies of the last." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0b0e0a;
+        --panel: #12160f;
+        --ink: #e9f2e0;
+        --muted: #8fa082;
+        --faint: #263021;
+        --accent: #ffd23f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased; overscroll-behavior: none;
+      }
+      body { display: flex; flex-direction: column; }
+
+      header {
+        padding: 0.85rem 1rem 0.6rem; border-bottom: 1px solid var(--faint);
+        flex: none; background: var(--panel);
+      }
+      header .top {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      }
+      h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      header p.tag {
+        margin: 0.3rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 62ch;
+      }
+      .backlink { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .backlink:hover { text-decoration: underline; }
+
+      .toolbar {
+        display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+        padding: 0.55rem 1rem; border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem; color: var(--muted); flex: none; background: var(--panel);
+      }
+      .toolbar .group { display: flex; align-items: center; gap: 0.4rem; }
+      select {
+        font-family: inherit; font-size: 0.78rem; padding: 0.3rem 0.4rem;
+        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        border-radius: 4px;
+      }
+      input[type="range"] { width: 6.5rem; vertical-align: middle; accent-color: var(--accent); }
+      label { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+      label .val { color: var(--ink); min-width: 1.6em; display: inline-block; text-align: right; }
+      button {
+        font-family: inherit; font-size: 0.78rem; padding: 0.35rem 0.65rem;
+        border: 1px solid var(--ink); background: var(--bg); color: var(--ink);
+        border-radius: 4px; cursor: pointer;
+      }
+      button:hover { background: #1b2216; }
+      button.solid { background: var(--accent); color: #1a1400; border-color: var(--accent); font-weight: 600; }
+      button.solid:hover { background: #ffdb66; }
+      button.accent { border-color: var(--accent); color: var(--accent); }
+      button.accent:hover { background: #1c1806; }
+      .spacer { flex: 1 1 auto; }
+
+      main {
+        flex: 1 1 auto; position: relative; min-height: 0;
+      }
+      #stage { position: absolute; inset: 0; }
+      canvas {
+        display: block; width: 100%; height: 100%;
+      }
+
+      .stats {
+        position: absolute; left: 0; right: 0; bottom: 0.8rem; text-align: center;
+        pointer-events: none; color: var(--muted); font-size: 0.76rem;
+        transition: opacity 0.3s ease;
+      }
+      .stats strong { color: var(--accent); font-weight: 600; }
+
+      footer {
+        flex: none; padding: 0.5rem 1rem; border-top: 1px solid var(--faint);
+        font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; flex-wrap: wrap;
+        background: var(--panel);
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 760px) {
+        .toolbar { font-size: 0.74rem; gap: 0.6rem; }
+        input[type="range"] { width: 4.6rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <h1><a href="https://bisks.net/">bisks.net</a><span class="slash">/</span><a href="https://foomtree.bisks.net/">foomtree</a></h1>
+        <a class="backlink" href="https://bisks.net/">← the zoo</a>
+      </div>
+      <p class="tag">
+        more of this type of thing, which themselves create more. every shape below
+        spawns smaller copies of itself, and those spawn smaller copies again — pick
+        a fractal, grow it, watch the count double, triple, or quadruple each level.
+      </p>
+    </header>
+
+    <div class="toolbar">
+      <div class="group">
+        <label>shape
+          <select id="fractalType">
+            <option value="tree">tree</option>
+            <option value="htree">H-tree</option>
+            <option value="sierpinski">Sierpinski triangle</option>
+            <option value="koch">Koch snowflake</option>
+          </select>
+        </label>
+      </div>
+      <label>depth <input type="range" id="depth" min="1" max="13" value="9" /><span class="val" id="depthVal">9</span></label>
+      <label id="angleGroup">angle <input type="range" id="angle" min="8" max="50" value="25" /><span class="val" id="angleVal">25°</span></label>
+      <label id="ratioGroup">ratio <input type="range" id="ratio" min="55" max="85" value="72" /><span class="val" id="ratioVal">72%</span></label>
+      <div class="group">
+        <label>colors
+          <select id="colorScheme">
+            <option value="growth">growth</option>
+            <option value="singularity">singularity</option>
+            <option value="fire">fire</option>
+            <option value="ice">ice</option>
+            <option value="mono">mono</option>
+          </select>
+        </label>
+      </div>
+      <div class="spacer"></div>
+      <button class="solid" id="growBtn">🌱 grow it</button>
+      <button id="randomizeBtn">🎲 randomize</button>
+      <button id="saveBtn">save image</button>
+      <button class="accent" id="shareBtn">share to bluesky</button>
+    </div>
+
+    <main>
+      <div id="stage">
+        <canvas id="c"></canvas>
+      </div>
+      <div class="stats" id="stats"></div>
+    </main>
+
+    <footer>
+      <span id="status"></span>
+      <div class="spacer"></div>
+      <a href="https://bisks.net/">more bisks.net experiments</a>
+    </footer>
+
+    <script>
+      (function () {
+        const canvas = document.getElementById("c");
+        const ctx = canvas.getContext("2d");
+        const stage = document.getElementById("stage");
+        const statsEl = document.getElementById("stats");
+        const statusEl = document.getElementById("status");
+
+        const els = {
+          type: document.getElementById("fractalType"),
+          depth: document.getElementById("depth"),
+          depthVal: document.getElementById("depthVal"),
+          angle: document.getElementById("angle"),
+          angleVal: document.getElementById("angleVal"),
+          ratio: document.getElementById("ratio"),
+          ratioVal: document.getElementById("ratioVal"),
+          angleGroup: document.getElementById("angleGroup"),
+          ratioGroup: document.getElementById("ratioGroup"),
+          scheme: document.getElementById("colorScheme"),
+          grow: document.getElementById("growBtn"),
+          randomize: document.getElementById("randomizeBtn"),
+          save: document.getElementById("saveBtn"),
+          share: document.getElementById("shareBtn"),
+        };
+
+        // depth slider max + sane default per fractal type — branching factor
+        // differs (tree/H-tree double or quadruple per level, Sierpinski
+        // triples, Koch quadruples per edge), so shape counts blow up at very
+        // different rates.
+        const TYPE_INFO = {
+          tree: { maxDepth: 13, defaultDepth: 9, factor: 2, mode: "accumulate" },
+          htree: { maxDepth: 6, defaultDepth: 4, factor: 4, mode: "accumulate" },
+          sierpinski: { maxDepth: 8, defaultDepth: 6, factor: 3, mode: "accumulate" },
+          koch: { maxDepth: 6, defaultDepth: 4, factor: 4, mode: "leaves" },
+        };
+
+        // --- color schemes: 3-stop gradients over normalized depth t in [0,1] ---
+        function hexToRgb(hex) {
+          const n = parseInt(hex.slice(1), 16);
+          return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        }
+        function lerp(a, b, t) {
+          return Math.round(a + (b - a) * t);
+        }
+        function gradient3(stops, t) {
+          const [c0, c1, c2] = stops.map(hexToRgb);
+          let a, b, tt;
+          if (t < 0.5) {
+            a = c0; b = c1; tt = t * 2;
+          } else {
+            a = c1; b = c2; tt = (t - 0.5) * 2;
+          }
+          const r = lerp(a[0], b[0], tt), g = lerp(a[1], b[1], tt), bl = lerp(a[2], b[2], tt);
+          return `rgb(${r},${g},${bl})`;
+        }
+        const SCHEMES = {
+          growth: ["#0d2410", "#5c9c3a", "#ffd23f"],
+          singularity: ["#140a26", "#7b2ff7", "#ffffff"],
+          fire: ["#2b0000", "#d9491f", "#ffcf3f"],
+          ice: ["#00122e", "#1f7fbf", "#eaffff"],
+          mono: ["#141414", "#7d7d7d", "#e6e6e6"],
+        };
+        function colorForLevel(level, maxDepth) {
+          const t = maxDepth > 0 ? level / maxDepth : 0;
+          return gradient3(SCHEMES[els.scheme.value], t);
+        }
+
+        // --- generators: each returns { shapes, w, h } in a fixed design
+        // space; shapes carry a `level` tag used for both color and the
+        // level-by-level growth animation ---
+        function mid(p, q) {
+          return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+        }
+
+        function buildTree(maxDepth, angleDeg, ratio) {
+          const shapes = [];
+          function rec(x, y, len, angle, level) {
+            const rad = (angle * Math.PI) / 180;
+            const x2 = x + len * Math.sin(rad);
+            const y2 = y - len * Math.cos(rad);
+            shapes.push({ level, x1: x, y1: y, x2, y2 });
+            if (level >= maxDepth) return;
+            rec(x2, y2, len * ratio, angle - angleDeg, level + 1);
+            rec(x2, y2, len * ratio, angle + angleDeg, level + 1);
+          }
+          rec(500, 960, 250, 0, 0);
+          return { shapes, w: 1000, h: 1000 };
+        }
+
+        function buildHTree(maxDepth) {
+          const shapes = [];
+          function rec(x, y, size, level) {
+            shapes.push({ level, x1: x - size, y1: y, x2: x + size, y2: y });
+            shapes.push({ level, x1: x - size, y1: y - size / 2, x2: x - size, y2: y + size / 2 });
+            shapes.push({ level, x1: x + size, y1: y - size / 2, x2: x + size, y2: y + size / 2 });
+            if (level >= maxDepth) return;
+            const ns = size / 2;
+            rec(x - size, y - size / 2, ns, level + 1);
+            rec(x - size, y + size / 2, ns, level + 1);
+            rec(x + size, y - size / 2, ns, level + 1);
+            rec(x + size, y + size / 2, ns, level + 1);
+          }
+          rec(500, 500, 260, 0);
+          return { shapes, w: 1000, h: 1000 };
+        }
+
+        function buildSierpinski(maxDepth) {
+          const shapes = [];
+          const p1 = { x: 500, y: 190 };
+          const p2 = { x: 90, y: 900 };
+          const p3 = { x: 910, y: 900 };
+          function rec(a, b, c, level) {
+            shapes.push({ level, type: "tri", a, b, c });
+            if (level >= maxDepth) return;
+            const ab = mid(a, b), bc = mid(b, c), ac = mid(a, c);
+            rec(a, ab, ac, level + 1);
+            rec(ab, b, bc, level + 1);
+            rec(ac, bc, c, level + 1);
+          }
+          rec(p1, p2, p3, 0);
+          return { shapes, w: 1000, h: 1000 };
+        }
+
+        function kochSplit(p1, p2) {
+          const dx = (p2.x - p1.x) / 3, dy = (p2.y - p1.y) / 3;
+          const pA = { x: p1.x + dx, y: p1.y + dy };
+          const pB = { x: p1.x + 2 * dx, y: p1.y + 2 * dy };
+          const ang = -Math.PI / 3;
+          const rx = dx * Math.cos(ang) - dy * Math.sin(ang);
+          const ry = dx * Math.sin(ang) + dy * Math.cos(ang);
+          const pk = { x: pA.x + rx, y: pA.y + ry };
+          return [p1, pA, pk, pB, p2];
+        }
+        function buildKoch(maxDepth) {
+          // "leaves"-mode: only the final-level segments get drawn (see
+          // draw()) — earlier levels are intermediate iterations, not shapes
+          // to layer, since a Koch edge is *replaced* each pass, not
+          // accumulated like the other three fractals.
+          const shapes = [];
+          const side = 760;
+          const h = (side * Math.sqrt(3)) / 2;
+          const cx = 500, cy = 500 - h / 3;
+          const p1 = { x: cx, y: cy - (2 * h) / 3 };
+          const p2 = { x: cx - side / 2, y: cy + h / 3 };
+          const p3 = { x: cx + side / 2, y: cy + h / 3 };
+          function rec(a, b, level) {
+            if (level >= maxDepth) {
+              shapes.push({ level, x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+              return;
+            }
+            const pts = kochSplit(a, b);
+            for (let i = 0; i < 4; i++) rec(pts[i], pts[i + 1], level + 1);
+          }
+          rec(p1, p2, 0);
+          rec(p2, p3, 0);
+          rec(p3, p1, 0);
+          return { shapes, w: 1000, h: 1000 };
+        }
+
+        function generate() {
+          const type = els.type.value;
+          const info = TYPE_INFO[type];
+          const maxDepth = Math.min(+els.depth.value, info.maxDepth);
+          let built;
+          if (type === "tree") built = buildTree(maxDepth, +els.angle.value, +els.ratio.value / 100);
+          else if (type === "htree") built = buildHTree(maxDepth);
+          else if (type === "sierpinski") built = buildSierpinski(maxDepth);
+          else built = buildKoch(maxDepth);
+          built.shapes.sort((s1, s2) => s1.level - s2.level);
+          return { ...built, mode: info.mode, maxDepth, factor: info.factor, type };
+        }
+
+        // --- fit design space into canvas, draw ---
+        let cssW = 0, cssH = 0, dpr = 1;
+
+        function resizeCanvas() {
+          const rect = stage.getBoundingClientRect();
+          cssW = rect.width;
+          cssH = rect.height;
+          dpr = Math.min(window.devicePixelRatio || 1, 2);
+          canvas.width = Math.max(1, Math.round(cssW * dpr));
+          canvas.height = Math.max(1, Math.round(cssH * dpr));
+        }
+
+        function fitTransform(w, h) {
+          const pad = 40;
+          const scale = Math.min((cssW - pad * 2) / w, (cssH - pad * 2) / h);
+          const ox = (cssW - w * scale) / 2;
+          const oy = (cssH - h * scale) / 2;
+          return { scale, ox, oy };
+        }
+
+        function clear() {
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.fillStyle = "#0b0e0a";
+          ctx.fillRect(0, 0, cssW, cssH);
+        }
+
+        function applyFit(built) {
+          const { scale, ox, oy } = fitTransform(built.w, built.h);
+          ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+        }
+
+        function drawShape(s, maxDepth, typeName) {
+          const color = colorForLevel(s.level, maxDepth);
+          if (s.type === "tri") {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(s.a.x, s.a.y);
+            ctx.lineTo(s.b.x, s.b.y);
+            ctx.lineTo(s.c.x, s.c.y);
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            const widthMult = typeName === "tree" ? 1.1 : 0.6;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = Math.max(0.6, (maxDepth - s.level + 1.5) * widthMult * 0.35);
+            ctx.lineCap = "round";
+            ctx.beginPath();
+            ctx.moveTo(s.x1, s.y1);
+            ctx.lineTo(s.x2, s.y2);
+            ctx.stroke();
+          }
+        }
+
+        function levelCounts(built) {
+          const counts = new Map();
+          for (const s of built.shapes) counts.set(s.level, (counts.get(s.level) || 0) + 1);
+          return counts;
+        }
+
+        let current = null;
+        let animTimer = null;
+
+        function drawFull(built) {
+          clear();
+          applyFit(built);
+          const shapesToDraw =
+            built.mode === "leaves" ? built.shapes.filter((s) => s.level === built.maxDepth) : built.shapes;
+          for (const s of shapesToDraw) drawShape(s, built.maxDepth, built.type);
+          const total = shapesToDraw.length;
+          statsEl.innerHTML = `<strong>${built.type}</strong> · depth ${built.maxDepth} · <strong>${total.toLocaleString()}</strong> shapes on screen`;
+        }
+
+        function stopAnim() {
+          if (animTimer) {
+            clearTimeout(animTimer);
+            animTimer = null;
+          }
+        }
+
+        function animateGrow(built) {
+          stopAnim();
+          clear();
+          applyFit(built);
+          const totalLevels = built.maxDepth + 1;
+          const stepDelay = Math.max(60, Math.min(500, 2600 / totalLevels));
+          let level = 0;
+          let runningTotal = 0;
+          let prevCount = 0;
+
+          function step() {
+            if (built.mode === "leaves" && level > 0) {
+              // Koch: each iteration REPLACES the last, so redraw from scratch.
+              clear();
+              applyFit(built);
+            }
+            const levelShapes = built.shapes.filter((s) => s.level === level);
+            for (const s of levelShapes) drawShape(s, built.maxDepth, built.type);
+
+            const count = levelShapes.length;
+            runningTotal = built.mode === "leaves" ? count : runningTotal + count;
+            const mult = prevCount > 0 ? (count / prevCount).toFixed(2) : built.factor.toFixed(2);
+            statsEl.innerHTML =
+              `<strong>${built.type}</strong> · level <strong>${level}</strong> of ${built.maxDepth} · ` +
+              `+${count.toLocaleString()} shapes (×${mult}) · <strong>${runningTotal.toLocaleString()}</strong> total`;
+            prevCount = count;
+
+            level++;
+            if (level <= built.maxDepth) {
+              animTimer = setTimeout(step, stepDelay);
+            } else {
+              animTimer = null;
+              statusEl.textContent = "fully grown — foom.";
+              setTimeout(() => {
+                if (statusEl.textContent === "fully grown — foom.") statusEl.textContent = "";
+              }, 3000);
+            }
+          }
+          step();
+        }
+
+        function render(animated) {
+          stopAnim();
+          current = generate();
+          if (animated) animateGrow(current);
+          else drawFull(current);
+        }
+
+        // --- UI wiring ---
+        function syncDepthRange() {
+          const info = TYPE_INFO[els.type.value];
+          els.depth.max = info.maxDepth;
+          if (+els.depth.value > info.maxDepth) els.depth.value = info.defaultDepth;
+          els.depthVal.textContent = els.depth.value;
+          const isTree = els.type.value === "tree";
+          els.angleGroup.style.display = isTree ? "" : "none";
+          els.ratioGroup.style.display = isTree ? "" : "none";
+        }
+
+        els.type.addEventListener("change", () => {
+          syncDepthRange();
+          render(false);
+        });
+        els.depth.addEventListener("input", () => {
+          els.depthVal.textContent = els.depth.value;
+          render(false);
+        });
+        els.angle.addEventListener("input", () => {
+          els.angleVal.textContent = els.angle.value + "°";
+          render(false);
+        });
+        els.ratio.addEventListener("input", () => {
+          els.ratioVal.textContent = els.ratio.value + "%";
+          render(false);
+        });
+        els.scheme.addEventListener("change", () => render(false));
+        els.grow.addEventListener("click", () => render(true));
+        els.randomize.addEventListener("click", () => {
+          const types = Object.keys(TYPE_INFO);
+          els.type.value = types[Math.floor(Math.random() * types.length)];
+          syncDepthRange();
+          const info = TYPE_INFO[els.type.value];
+          els.depth.value = Math.max(2, Math.round(info.maxDepth * (0.5 + Math.random() * 0.5)));
+          els.depthVal.textContent = els.depth.value;
+          els.angle.value = 12 + Math.round(Math.random() * 34);
+          els.angleVal.textContent = els.angle.value + "°";
+          els.ratio.value = 60 + Math.round(Math.random() * 22);
+          els.ratioVal.textContent = els.ratio.value + "%";
+          const schemes = Object.keys(SCHEMES);
+          els.scheme.value = schemes[Math.floor(Math.random() * schemes.length)];
+          render(true);
+        });
+
+        // --- save / share ---
+        function buildShareText() {
+          const t = current || generate();
+          return (
+            `grew a ${t.type} ${t.maxDepth} levels deep with foomtree — ${t.shapes.length.toLocaleString()} ` +
+            `shapes, each spawning more of itself. more of this thing making more of this thing: foomtree.bisks.net`
+          );
+        }
+        function canShareFiles() {
+          if (!navigator.share || !navigator.canShare) return false;
+          try {
+            const probe = new File([""], "probe.png", { type: "image/png" });
+            return navigator.canShare({ files: [probe] });
+          } catch (e) {
+            return false;
+          }
+        }
+        function downloadBlob(blob) {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "foomtree.png";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }
+
+        els.save.addEventListener("click", () => {
+          canvas.toBlob((blob) => {
+            if (blob) downloadBlob(blob);
+          }, "image/png");
+        });
+
+        els.share.addEventListener("click", () => {
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const text = buildShareText();
+            if (canShareFiles()) {
+              try {
+                const file = new File([blob], "foomtree.png", { type: "image/png" });
+                await navigator.share({ files: [file], text, title: "foomtree" });
+                return;
+              } catch (e) {
+                if (e && e.name === "AbortError") return;
+              }
+            }
+            downloadBlob(blob);
+            statusEl.textContent = "image downloaded — attach it in the composer that just opened";
+            window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+          }, "image/png");
+        });
+
+        // --- resize ---
+        let resizeTimer = null;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            resizeCanvas();
+            if (current) drawFull(current);
+          }, 150);
+        });
+
+        syncDepthRange();
+        resizeCanvas();
+        render(true);
+      })();
+    </script>
+  </body>
+</html>
