@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>peakposting — find an account's biggest posts ever</title>
+<meta name="description" content="Scan an entire Bluesky account and find its all-time top posts by likes, reposts, and replies. Your personal bests join a global leaderboard everyone shares." />
+<meta property="og:title" content="peakposting — find an account's biggest posts ever" />
+<meta property="og:description" content="Scan an entire Bluesky account and find its all-time top posts by likes, reposts, and replies. Your personal bests join a global leaderboard everyone shares." />
+<meta property="og:url" content="https://peakposting.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://peakposting.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="peakposting: a gold trophy board reading out an account's most-liked, most-reposted, and most-replied posts." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="peakposting — find an account's biggest posts ever" />
+<meta name="twitter:description" content="Scan an entire Bluesky account and find its all-time top posts by likes, reposts, and replies. Your personal bests join a global leaderboard everyone shares." />
+<meta name="twitter:image" content="https://peakposting.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0a06;
+    --bg2: #171106;
+    --fg: #fbf3e2;
+    --dim: #b7a985;
+    --accent: #f5b942;
+    --accent2: #ff7a45;
+    --card: #1c1509;
+    --border: #3d2f13;
+    --likes: #ff6b8a;
+    --reposts: #57e0a6;
+    --replies: #6fb2ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #4a2f06 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #2a1a3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #180e00;
+    border: none; border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 1.75rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1.5rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.6rem; margin-bottom: 2rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.35rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); object-fit: cover; }
+  .who .name { font-weight: 700; }
+  .who .handle { color: var(--dim); font-size: 0.8rem; }
+  .scanmeta { color: var(--dim); font-size: 0.74rem; margin-left: auto; text-align: right; }
+
+  .trophy { border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.7rem; }
+  .trophy:last-child { margin-bottom: 0; }
+  .trophy .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 0.35rem; }
+  .trophy.likes .label { color: var(--likes); }
+  .trophy.reposts .label { color: var(--reposts); }
+  .trophy.replies .label { color: var(--replies); }
+  .trophy .count { font-size: 1.3rem; font-weight: 800; margin-right: 0.5rem; }
+  .trophy .text { color: var(--fg); font-size: 0.86rem; line-height: 1.45; margin: 0.35rem 0; white-space: pre-wrap; word-break: break-word; }
+  .trophy .empty { color: var(--dim); font-size: 0.82rem; font-style: italic; }
+  .trophy a.postlink { color: var(--dim); font-size: 0.74rem; text-decoration: none; }
+  .trophy a.postlink:hover { color: var(--accent); text-decoration: underline; }
+
+  .actions { display: flex; gap: 0.5rem; margin-top: 1.1rem; flex-wrap: wrap; }
+  .actions a, .actions button { font-size: 0.82rem; padding: 0.55rem 0.85rem; }
+  .actions a {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 8px; text-decoration: none; font-weight: 600;
+  }
+
+  h2 { font-size: 1.1rem; margin: 0 0 0.2rem; color: var(--fg); }
+  .boardhint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; }
+  .tabs { display: flex; gap: 0.4rem; margin-bottom: 0.9rem; }
+  .tab {
+    flex: 1; text-align: center; padding: 0.5rem 0.4rem; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); font-size: 0.78rem; font-weight: 700; color: var(--dim);
+  }
+  .tab.active.likes { color: var(--likes); border-color: var(--likes); }
+  .tab.active.reposts { color: var(--reposts); border-color: var(--reposts); }
+  .tab.active.replies { color: var(--replies); border-color: var(--replies); }
+  .board { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--fg); }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: #24190c; }
+  .rank { width: 1.6rem; text-align: right; color: var(--dim); font-size: 0.82rem; flex-shrink: 0; }
+  .rank.gold { color: var(--accent); font-weight: 800; }
+  .row img { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; object-fit: cover; background: var(--border); }
+  .row .rhandle { font-size: 0.82rem; font-weight: 600; flex-shrink: 0; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rtext { color: var(--dim); font-size: 0.76rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rcount { font-weight: 800; font-size: 0.85rem; flex-shrink: 0; }
+  .board.likes .rcount { color: var(--likes); }
+  .board.reposts .rcount { color: var(--reposts); }
+  .board.replies .rcount { color: var(--replies); }
+  .empty-board { color: var(--dim); font-size: 0.82rem; padding: 1rem; text-align: center; }
+  .scanners { color: var(--dim); font-size: 0.76rem; margin-top: 0.7rem; text-align: center; }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>peakposting</h1>
+  <p class="tag">Enter a Bluesky handle. We'll page through their <strong>entire</strong> post history against the public AppView and pull out the single most-liked, most-reposted, and most-replied post they've ever made. Your best-ever counts join the leaderboard below — for good, verified server-side.</p>
+
+  <form id="scanForm">
+    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button type="submit" id="scanBtn">scan</button>
+  </form>
+  <p class="hint">no login needed — reads public data only. large accounts may take a minute; we stop after ~15,000 posts either way.</p>
+  <p class="status" id="status"></p>
+
+  <div class="card" id="resultCard">
+    <div class="who">
+      <img id="rAvatar" src="" alt="" />
+      <div>
+        <div class="name" id="rName"></div>
+        <div class="handle" id="rHandle"></div>
+      </div>
+      <div class="scanmeta" id="rMeta"></div>
+    </div>
+
+    <div class="trophy likes">
+      <div class="label">🩷 most liked</div>
+      <div id="tLikes"></div>
+    </div>
+    <div class="trophy reposts">
+      <div class="label">🔁 most reposted</div>
+      <div id="tReposts"></div>
+    </div>
+    <div class="trophy replies">
+      <div class="label">💬 most replied</div>
+      <div id="tReplies"></div>
+    </div>
+
+    <div class="actions">
+      <a id="shareBluesky" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      <a id="shareCard" href="#" download="peakposting.png">download share card</a>
+      <button type="button" class="ghost" id="shareNative" style="display:none;">share</button>
+    </div>
+  </div>
+
+  <h2>the leaderboard</h2>
+  <p class="boardhint">every account that's ever been scanned, ranked by its best-ever post. counts are re-verified against the AppView before they're banked, so nobody can just make one up.</p>
+  <div class="tabs">
+    <div class="tab likes active" data-metric="likes">🩷 likes</div>
+    <div class="tab reposts" data-metric="reposts">🔁 reposts</div>
+    <div class="tab replies" data-metric="replies">💬 replies</div>
+  </div>
+  <div class="board likes" id="boardList"></div>
+  <p class="scanners" id="scannerCount"></p>
+
+  <footer>
+    built for <a href="https://bsky.app/profile/isolyth.dev" target="_blank" rel="noopener">@isolyth.dev</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) throw new Error(method + " " + res.status);
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function permalink(uri, actor) {
+  const m = uri.match(/^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/);
+  if (!m) return null;
+  return "https://bsky.app/profile/" + (actor || m[1]) + "/post/" + m[2];
+}
+
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+
+function considerBest(best, metric, count, post) {
+  count = Number(count || 0);
+  if (count <= 0) return;
+  if (!best[metric] || count > best[metric].count) {
+    best[metric] = { count: count, uri: post.uri, text: (post.record && post.record.text) || "", createdAt: (post.record && post.record.createdAt) || post.indexedAt || "" };
+  }
+}
+
+const MAX_PAGES = 150;
+const MAX_MS = 30000;
+
+async function scanAccount(handleRaw, onProgress) {
+  const handle = cleanHandle(handleRaw);
+  if (!handle) throw new Error("enter a handle");
+
+  let did = handle;
+  if (!handle.startsWith("did:")) {
+    const r = await xrpc("com.atproto.identity.resolveHandle", { handle: handle });
+    did = r.did;
+  }
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+
+  let cursor;
+  let pages = 0;
+  let scanned = 0;
+  let capped = false;
+  const best = { likes: null, reposts: null, replies: null };
+  const start = Date.now();
+
+  while (true) {
+    const params = { actor: did, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    const items = feed.feed || [];
+    for (const item of items) {
+      if (item.reason) continue;
+      const post = item.post;
+      if (!post || !post.author || post.author.did !== did) continue;
+      scanned++;
+      considerBest(best, "likes", post.likeCount, post);
+      considerBest(best, "reposts", post.repostCount, post);
+      considerBest(best, "replies", post.replyCount, post);
+    }
+    pages++;
+    if (typeof onProgress === "function") onProgress({ scanned: scanned, pages: pages });
+    cursor = feed.cursor;
+    if (!cursor || items.length === 0) break;
+    if (pages >= MAX_PAGES || Date.now() - start > MAX_MS) { capped = true; break; }
+  }
+
+  return {
+    did: did,
+    handle: profile.handle || handle,
+    displayName: profile.displayName || "",
+    avatar: profile.avatar || "",
+    best: best,
+    scanned: scanned,
+    pages: pages,
+    capped: capped,
+  };
+}
+
+// --- UI wiring ---
+
+const els = {
+  form: document.getElementById("scanForm"),
+  input: document.getElementById("handleInput"),
+  btn: document.getElementById("scanBtn"),
+  status: document.getElementById("status"),
+  card: document.getElementById("resultCard"),
+  avatar: document.getElementById("rAvatar"),
+  name: document.getElementById("rName"),
+  handle: document.getElementById("rHandle"),
+  meta: document.getElementById("rMeta"),
+  tLikes: document.getElementById("tLikes"),
+  tReposts: document.getElementById("tReposts"),
+  tReplies: document.getElementById("tReplies"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareCard: document.getElementById("shareCard"),
+  shareNative: document.getElementById("shareNative"),
+  boardList: document.getElementById("boardList"),
+  scannerCount: document.getElementById("scannerCount"),
+};
+
+function trophyHtml(entry, actor) {
+  if (!entry) return '<div class="empty">nothing found yet</div>';
+  const link = permalink(entry.uri, actor);
+  return (
+    '<span class="count">' + fmt(entry.count) + '</span>' +
+    '<div class="text">' + escapeHtml(entry.text || "(no text)") + '</div>' +
+    (link ? '<a class="postlink" href="' + link + '" target="_blank" rel="noopener">view post →</a>' : "")
+  );
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+let lastResult = null;
+
+function renderResult(result) {
+  lastResult = result;
+  els.avatar.src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
+  els.name.textContent = result.displayName || result.handle;
+  els.handle.textContent = "@" + result.handle;
+  els.meta.textContent = "scanned " + fmt(result.scanned) + " posts" + (result.capped ? " (stopped early — deep history)" : "");
+  els.tLikes.innerHTML = trophyHtml(result.best.likes, result.handle);
+  els.tReposts.innerHTML = trophyHtml(result.best.reposts, result.handle);
+  els.tReplies.innerHTML = trophyHtml(result.best.replies, result.handle);
+  els.card.classList.add("show");
+
+  const url = "https://peakposting.bisks.net/?h=" + encodeURIComponent(result.handle);
+  let bragBits = [];
+  if (result.best.likes) bragBits.push(fmt(result.best.likes.count) + " likes");
+  if (result.best.reposts) bragBits.push(fmt(result.best.reposts.count) + " reposts");
+  if (result.best.replies) bragBits.push(fmt(result.best.replies.count) + " replies");
+  const shareText = "@" + result.handle + "'s biggest post ever: " + (bragBits[0] || "a real one") + ". full leaderboard: " + url;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(result).then(function (blobUrl) {
+    els.shareCard.href = blobUrl;
+  });
+
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.onclick = async function () {
+      try {
+        const canvas = document.getElementById("cardCanvas");
+        const blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+        const file = new File([blob], "peakposting.png", { type: "image/png" });
+        await navigator.share({ files: [file], text: shareText, title: "peakposting" });
+      } catch (_) {}
+    };
+  }
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+  const words = String(text || "").split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+async function buildShareCard(result) {
+  const canvas = document.getElementById("cardCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#171106");
+  bg.addColorStop(1, "#0c0a06");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#f5b942";
+  ctx.font = "800 56px ui-monospace, monospace";
+  ctx.fillText("peakposting", 56, 96);
+
+  ctx.fillStyle = "#fbf3e2";
+  ctx.font = "700 34px ui-monospace, monospace";
+  ctx.fillText("@" + result.handle, 56, 160);
+
+  const rows = [
+    { label: "🩷 MOST LIKED", entry: result.best.likes, color: "#ff6b8a" },
+    { label: "🔁 MOST REPOSTED", entry: result.best.reposts, color: "#57e0a6" },
+    { label: "💬 MOST REPLIED", entry: result.best.replies, color: "#6fb2ff" },
+  ];
+
+  let y = 240;
+  for (const row of rows) {
+    ctx.fillStyle = row.color;
+    ctx.font = "800 22px ui-monospace, monospace";
+    ctx.fillText(row.label, 56, y);
+
+    ctx.fillStyle = "#fbf3e2";
+    ctx.font = "800 40px ui-monospace, monospace";
+    const countText = row.entry ? fmt(row.entry.count) : "—";
+    ctx.fillText(countText, 56, y + 46);
+
+    ctx.fillStyle = "#b7a985";
+    ctx.font = "20px ui-monospace, monospace";
+    const snippet = row.entry ? row.entry.text : "nothing found";
+    const lines = wrapCanvasText(ctx, snippet, 1080).slice(0, 1);
+    lines.forEach(function (line, i) {
+      ctx.fillText(line, 260, y + 34 + i * 26);
+    });
+
+    y += 110;
+  }
+
+  ctx.fillStyle = "#b7a985";
+  ctx.font = "600 22px ui-monospace, monospace";
+  ctx.fillText("peakposting.bisks.net", 56, H - 40);
+
+  return new Promise(function (resolve) {
+    canvas.toBlob(function (blob) {
+      resolve(URL.createObjectURL(blob));
+    }, "image/png");
+  });
+}
+
+async function submitToLeaderboard(result) {
+  const top = {};
+  if (result.best.likes) top.likes = result.best.likes.uri;
+  if (result.best.reposts) top.reposts = result.best.reposts.uri;
+  if (result.best.replies) top.replies = result.best.replies.uri;
+  if (!Object.keys(top).length) return;
+
+  try {
+    await fetch("/api/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        did: result.did,
+        handle: result.handle,
+        displayName: result.displayName,
+        avatar: result.avatar,
+        top: top,
+      }),
+    });
+  } catch (_) {
+    // leaderboard submission is best-effort; the personal result still shows.
+  }
+  loadLeaderboard();
+}
+
+async function runScan(handleRaw) {
+  els.btn.disabled = true;
+  els.status.classList.remove("err");
+  els.status.textContent = "resolving " + handleRaw + "…";
+  try {
+    const result = await scanAccount(handleRaw, function (p) {
+      els.status.textContent = "scanning… " + fmt(p.scanned) + " posts across " + p.pages + " page" + (p.pages === 1 ? "" : "s");
+    });
+    els.status.textContent = "done — scanned " + fmt(result.scanned) + " posts" + (result.capped ? " (hit the scan cap, showing the biggest found so far)" : "");
+    renderResult(result);
+    submitToLeaderboard(result);
+  } catch (err) {
+    els.status.classList.add("err");
+    els.status.textContent = "couldn't scan that — " + (err && err.message ? err.message : "check the handle and try again");
+  } finally {
+    els.btn.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", function (e) {
+  e.preventDefault();
+  const v = els.input.value.trim();
+  if (v) runScan(v);
+});
+
+// --- leaderboard ---
+
+let boardData = { likes: [], reposts: [], replies: [], scanners: 0 };
+let activeMetric = "likes";
+
+function renderBoard() {
+  const list = boardData[activeMetric] || [];
+  const boardEl = els.boardList;
+  boardEl.className = "board " + activeMetric;
+  if (!list.length) {
+    boardEl.innerHTML = '<div class="empty-board">nobody has claimed this one yet — be the first scan.</div>';
+    return;
+  }
+  boardEl.innerHTML = list
+    .map(function (entry, i) {
+      const link = permalink(entry.uri, entry.handle);
+      const rank = i + 1;
+      return (
+        '<a class="row" href="' + (link || "#") + '" target="_blank" rel="noopener">' +
+        '<span class="rank' + (rank <= 3 ? " gold" : "") + '">' + rank + "</span>" +
+        '<img src="' + (entry.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
+        '<span class="rhandle">@' + escapeHtml(entry.handle) + "</span>" +
+        '<span class="rtext">' + escapeHtml(entry.text || "") + "</span>" +
+        '<span class="rcount">' + fmt(entry.count) + "</span>" +
+        "</a>"
+      );
+    })
+    .join("");
+}
+
+async function loadLeaderboard() {
+  try {
+    const data = await (await fetch("/api/leaderboard")).json();
+    boardData = data;
+    els.scannerCount.textContent = fmt(data.scanners || 0) + " account" + (data.scanners === 1 ? "" : "s") + " scanned so far";
+    renderBoard();
+  } catch (_) {
+    els.scannerCount.textContent = "";
+  }
+}
+
+document.querySelectorAll(".tab").forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
+    tab.classList.add("active");
+    activeMetric = tab.dataset.metric;
+    renderBoard();
+  });
+});
+
+loadLeaderboard();
+
+// auto-run from a shared link: peakposting.bisks.net/?h=handle
+(function () {
+  const params = new URLSearchParams(location.search);
+  const h = params.get("h");
+  if (h) {
+    els.input.value = h;
+    runScan(h);
+  }
+})();
+</script>
+</body>
+</html>
