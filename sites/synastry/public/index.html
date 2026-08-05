@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>synastry — the geometry between two charts, in 3D</title>
+<meta name="description" content="Two birth charts as 3D wheels, strung together by every synastry aspect between them. See the actual geometry — and the temperament — between two people." />
+<meta property="og:title" content="synastry — the geometry between two charts, in 3D" />
+<meta property="og:description" content="Two birth charts as 3D wheels, strung together by every synastry aspect between them. See the actual geometry between two people." />
+<meta property="og:url" content="https://synastry.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://synastry.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="synastry: two glowing chart wheels facing each other in 3D space, connected by colored lines for every aspect between them." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="synastry — the geometry between two charts, in 3D" />
+<meta name="twitter:description" content="Two birth charts as 3D wheels, strung together by every synastry aspect between them." />
+<meta name="twitter:image" content="https://synastry.bisks.net/og.png" />
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --bg: #0a0714;
+    --bg2: #150c22;
+    --panel: #17102a;
+    --border: #362a4d;
+    --fg: #f2ecff;
+    --dim: #a993d6;
+    --muted: #7a6e96;
+    --a: #6ef2c9;
+    --b: #ff9f5f;
+    --harmonious: #5b9bf0;
+    --tense: #ef7d7d;
+    --neutral: #e0a933;
+    --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(ellipse at 15% -10%, #2a1a45 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #123244 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    min-height: 100vh;
+  }
+  a { color: var(--a); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  header { text-align: center; margin-bottom: 28px; }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(28px, 5vw, 44px);
+    margin: 0 0 8px;
+    background: linear-gradient(90deg, var(--a), var(--b));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.02em;
+  }
+  header p { color: var(--dim); margin: 0; font-size: 15px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .people { grid-template-columns: 1fr; } }
+
+  .person h2 { margin: 0 0 12px; font-size: 15px; font-family: var(--mono); }
+  .person.a h2 { color: var(--a); }
+  .person.b h2 { color: var(--b); }
+
+  label { display: block; font-size: 12.5px; color: var(--dim); margin: 10px 0 4px; }
+  input[type="text"], input[type="date"], input[type="time"], input[type="number"], select {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--fg);
+    padding: 9px 10px;
+    font-family: var(--font);
+    font-size: 14px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--a); }
+
+  .place-row { display: flex; gap: 6px; }
+  .place-row input { flex: 1; }
+  button {
+    font-family: var(--mono);
+    font-size: 13px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--fg);
+    padding: 9px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--a); }
+  .geostatus { font-size: 12px; margin-top: 6px; min-height: 16px; color: var(--muted); }
+  .geostatus.ok { color: var(--a); }
+  .geostatus.err { color: var(--tense); }
+  .geo-results { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .geo-results button { text-align: left; font-size: 12px; }
+
+  .main-actions { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 18px 0; flex-wrap: wrap; }
+  .main-actions button.primary {
+    background: linear-gradient(90deg, var(--a), var(--b));
+    color: #0a0714;
+    font-weight: 700;
+    border: none;
+    padding: 12px 22px;
+    font-size: 14px;
+  }
+  .toggle-row { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
+
+  #canvas-wrap { position: relative; width: 100%; height: min(70vh, 640px); border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: #0a0714; }
+  #canvas-wrap canvas { display: block; }
+  .scene-controls { position: absolute; top: 10px; right: 10px; display: flex; gap: 8px; z-index: 2; }
+  .scene-controls button { font-size: 11px; padding: 6px 9px; background: rgba(10,7,20,0.7); backdrop-filter: blur(4px); }
+  .hint { position: absolute; bottom: 8px; left: 12px; font-size: 11px; color: var(--muted); z-index: 2; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-top: 12px; justify-content: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  @media (max-width: 820px) { .readouts { grid-template-columns: 1fr; } }
+
+  .placements-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .placements-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .placements-table td.glyph { color: var(--dim); width: 28px; }
+
+  .temper-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 8px 0; border: 1px solid var(--border); }
+  .temper-bar div { height: 100%; }
+  .temper-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+  .temper-blurb { font-size: 13px; color: var(--dim); margin-top: 6px; }
+  .temper-blurb b { color: var(--fg); }
+
+  .aspect-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  .aspect-list li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .aspect-list li:last-child { border-bottom: none; }
+  .aspect-list .tag {
+    display: inline-block; font-size: 10px; font-family: var(--mono); padding: 1px 6px;
+    border-radius: 8px; margin-right: 6px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .tag.harmonious { background: rgba(91,155,240,0.18); color: var(--harmonious); }
+  .tag.tense { background: rgba(239,125,125,0.18); color: var(--tense); }
+  .tag.neutral { background: rgba(224,169,51,0.18); color: var(--neutral); }
+
+  .share-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 18px; }
+  .share-row a, .share-row button { text-decoration: none; }
+
+  footer { text-align: center; margin-top: 36px; color: var(--muted); font-size: 12.5px; }
+  footer a { color: var(--dim); }
+
+  .empty-note { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 10px; }
+  .disclaimer { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 10px; max-width: 640px; margin-left: auto; margin-right: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>synastry</h1>
+    <p>two birth charts, one 3D shape. see the actual geometry between two people.</p>
+  </header>
+
+  <div class="panel">
+    <div class="people">
+      <div class="person a">
+        <h2>person A</h2>
+        <label for="a-name">name</label>
+        <input type="text" id="a-name" placeholder="Person A" maxlength="40" />
+        <label for="a-date">birth date</label>
+        <input type="date" id="a-date" />
+        <label for="a-time">birth time <span style="color:var(--muted)">(unknown? leave noon)</span></label>
+        <input type="time" id="a-time" value="12:00" />
+        <label for="a-offset">UTC offset at birth</label>
+        <select id="a-offset"></select>
+        <label for="a-place">birth place</label>
+        <div class="place-row">
+          <input type="text" id="a-place" placeholder="City, Country" />
+          <button type="button" id="a-geo-btn">find</button>
+        </div>
+        <div class="geostatus" id="a-geo-status"></div>
+        <div class="geo-results" id="a-geo-results"></div>
+      </div>
+      <div class="person b">
+        <h2>person B</h2>
+        <label for="b-name">name</label>
+        <input type="text" id="b-name" placeholder="Person B" maxlength="40" />
+        <label for="b-date">birth date</label>
+        <input type="date" id="b-date" />
+        <label for="b-time">birth time <span style="color:var(--muted)">(unknown? leave noon)</span></label>
+        <input type="time" id="b-time" value="12:00" />
+        <label for="b-offset">UTC offset at birth</label>
+        <select id="b-offset"></select>
+        <label for="b-place">birth place</label>
+        <div class="place-row">
+          <input type="text" id="b-place" placeholder="City, Country" />
+          <button type="button" id="b-geo-btn">find</button>
+        </div>
+        <div class="geostatus" id="b-geo-status"></div>
+        <div class="geo-results" id="b-geo-results"></div>
+      </div>
+    </div>
+
+    <div class="main-actions">
+      <button type="button" class="primary" id="chart-btn">chart it</button>
+      <label class="toggle-row"><input type="checkbox" id="natal-toggle" /> show each person's own internal aspects too</label>
+      <label class="toggle-row"><input type="checkbox" id="rotate-toggle" checked /> auto-rotate</label>
+    </div>
+    <p class="disclaimer">
+      Positions come from a compact orbital-mechanics approximation, not a full ephemeris —
+      expect sign placements to be right and degrees to be close, generally within a
+      fraction of a degree for the Sun and within about a degree elsewhere. Houses use the
+      whole-sign system and need a birth place; skip it and you still get full planet-to-planet synastry.
+    </p>
+  </div>
+
+  <div id="canvas-wrap">
+    <div class="scene-controls">
+      <button type="button" id="capture-btn">save image</button>
+    </div>
+    <div class="hint">drag to orbit · scroll to zoom</div>
+    <div class="empty-note" id="empty-note">Fill in two birth dates and hit "chart it" to raise the wheels.</div>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--harmonious)"></span> harmonious (sextile / trine)</span>
+    <span><span class="swatch" style="background:var(--tense)"></span> tense (square / opposition / quincunx)</span>
+    <span><span class="swatch" style="background:var(--neutral)"></span> conjunction</span>
+    <span><span class="swatch" style="background:var(--a)"></span> person A's sky</span>
+    <span><span class="swatch" style="background:var(--b)"></span> person B's sky</span>
+  </div>
+
+  <div class="readouts" id="readouts" style="display:none">
+    <div class="panel">
+      <h2 style="margin-top:0;font-family:var(--mono);font-size:15px">placements</h2>
+      <div id="placements-a"></div>
+      <div id="placements-b" style="margin-top:14px"></div>
+    </div>
+    <div class="panel">
+      <h2 style="margin-top:0;font-family:var(--mono);font-size:15px">temperament</h2>
+      <div id="temperament-a"></div>
+      <div id="temperament-b" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="aspects-panel" style="display:none">
+    <h2 style="margin-top:0;font-family:var(--mono);font-size:15px">the tightest aspects between you</h2>
+    <ul class="aspect-list" id="aspect-list"></ul>
+  </div>
+
+  <div class="share-row" id="share-row" style="display:none">
+    <a id="share-bluesky" target="_blank" rel="noopener"><button type="button">share on bluesky</button></a>
+    <button type="button" id="share-link">copy link</button>
+    <button type="button" id="share-image">share image</button>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
