@@ -112,8 +112,11 @@
     pan: { emoji: "\u{1F373}", label: "pan", damage: 10, speed: 18 },
     boot: { emoji: "\u{1F97E}", label: "boot", damage: 9, speed: 19 },
     chicken: { emoji: "\u{1F414}", label: "chicken", damage: 3, speed: 27 },
+    // rope: a lasso-yank instead of a shove — pulls the part toward the
+    // torso rather than away, so it reads as a tug-of-war rather than a hit.
+    rope: { emoji: "\u{1FA79}", label: "rope", damage: 7, speed: 21, pull: true },
   };
-  const TOOL_ORDER = ["fist", "bat", "hammer", "pan", "boot", "chicken"];
+  const TOOL_ORDER = ["fist", "bat", "hammer", "pan", "boot", "chicken", "rope"];
 
   // ---- arena / physics setup ---------------------------------------------
 
@@ -589,6 +592,7 @@
     let dir = Matter.Vector.sub(point, torso);
     const mag = Matter.Vector.magnitude(dir);
     dir = mag > 2 ? Matter.Vector.normalise(dir) : { x: Math.random() - 0.5, y: -1 };
+    if (tool.pull) dir = { x: -dir.x, y: -dir.y };
 
     const kick = {
       x: body.velocity.x + dir.x * tool.speed,
