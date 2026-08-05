@@ -142,9 +142,22 @@ export function initScene(container) {
   }
 
   function addWheelContent(group, positions, ascLon, colorHex, aspectList) {
+    if (typeof ascLon === "number") {
+      // Whole-sign house numbers: house 1 is the sign holding the Ascendant,
+      // house 2 the next sign, and so on — so cusps land exactly on the
+      // existing zodiac-sign boundaries, just relabeled starting from Asc.
+      const ascSignIdx = Math.floor(((ascLon % 360) + 360) % 360 / 30);
+      for (let house = 1; house <= 12; house++) {
+        const signIdx = (ascSignIdx + house - 1) % 12;
+        const [hx, hy] = lonToXY(signIdx * 30 + 15, RADIUS - 2.15);
+        const label = makeLabelSprite(String(house), "#5c4f7a", 30, 0.4);
+        label.position.set(hx, hy, 0.01);
+        group.add(label);
+      }
+    }
     for (const body of Object.keys(positions)) {
       const meta = BODY_META[body];
-      if (!meta) continue;
+      if (!meta || body === "asc") continue; // Asc gets its own horizon line + label below.
       const [x, y] = lonToXY(positions[body].lon, RADIUS - 1.0);
       const marker = planetMarker(colorHex);
       marker.position.set(x, y, 0.05);

@@ -2,7 +2,7 @@
 // actually reads: sign placements, elemental "temperament," and the cross-chart
 // aspect list that drives the 3D geometry between the two wheels.
 
-import { ZODIAC, signOf } from "./astro.js";
+import { ZODIAC, signOf, wholeSignHouse } from "./astro.js";
 
 export const BODIES = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune", "pluto"];
 
@@ -260,6 +260,61 @@ export function synastryBlurb(entry, nameA, nameB) {
   const lead = `${nameA}'s ${metaA.name} ${aspect.glyph} ${nameB}'s ${metaB.name}`;
   if (theme) return `${lead} — ${theme[aspect.quality]}.`;
   return `${lead} — ${metaA.domain} runs into ${metaB.domain}, and it ${TONE_VERB[aspect.quality]}.`;
+}
+
+// Whole-sign house themes — the domain of life each house governs. Paired
+// with wholeSignHouse() below for the "house overlay": which house of your
+// chart a partner's planet falls into. Synastry readers generally treat this
+// as more concrete than an aspect — a house is a room of your life, not just
+// an angle — and it's the piece of "the effects that people have on each
+// other" that aspects alone don't capture.
+export const HOUSE_MEANING = {
+  1: "self and first impressions",
+  2: "money, possessions and self-worth",
+  3: "communication and everyday connection",
+  4: "home, family and emotional roots",
+  5: "romance, pleasure and creativity",
+  6: "daily routine, service and health",
+  7: "partnership and one-on-one bonds",
+  8: "intimacy, shared resources and transformation",
+  9: "beliefs, travel and big-picture meaning",
+  10: "career, ambition and public role",
+  11: "friendship, community and shared hopes",
+  12: "privacy, the subconscious and endings",
+};
+
+// Which house of `ascLonInto`'s chart every body in `positionsFrom` falls
+// into. Only meaningful once the target person's Ascendant is known (i.e.
+// they entered a birth place) — returns null otherwise so callers can skip
+// the panel cleanly rather than showing a chart's worth of nonsense houses.
+export function houseOverlay(positionsFrom, ascLonInto) {
+  if (ascLonInto == null) return null;
+  const out = {};
+  for (const body of Object.keys(positionsFrom)) {
+    if (!BODY_META[body]) continue;
+    out[body] = wholeSignHouse(positionsFrom[body].lon, ascLonInto);
+  }
+  return out;
+}
+
+// Overlay entries as a list, heaviest bodies first, Ascendant dropped (it's
+// trivially always "house 1" and says nothing new).
+export function houseOverlayEntries(overlay) {
+  if (!overlay) return [];
+  return Object.keys(overlay)
+    .filter((b) => BODY_META[b] && b !== "asc")
+    .map((b) => ({ body: b, house: overlay[b] }))
+    .sort((x, y) => BODY_META[y.body].weight - BODY_META[x.body].weight);
+}
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+export function houseOverlayBlurb(nameFrom, nameInto, body, house) {
+  const meta = BODY_META[body];
+  return `${nameFrom}'s ${meta.name} falls in ${nameInto}'s ${ordinal(house)} house — ${HOUSE_MEANING[house]}.`;
 }
 
 export const ZODIAC_GLYPH = {

@@ -1,6 +1,7 @@
-import { planetPositions, angles } from "./lib/astro.js";
+import { planetPositions, angles, signOf } from "./lib/astro.js";
 import {
   BODIES, BODY_META, placements, temperament, synastryAspects, natalAspects, synastryBlurb,
+  houseOverlay, houseOverlayEntries, houseOverlayBlurb,
 } from "./lib/synastry.js";
 import { initScene } from "./lib/scene.js";
 
@@ -125,7 +126,45 @@ function renderPlacements(containerId, chart, color) {
     const p = chart.place[b];
     return `<tr><td class="glyph" style="color:${color}">${BODY_META[b].glyph}</td><td>${BODY_META[b].name}</td><td>${p.sign} ${p.degreeInSign.toFixed(1)}°</td></tr>`;
   }).join("");
+  if (chart.ascLon != null) {
+    const asc = signOf(chart.ascLon);
+    rows += `<tr><td class="glyph" style="color:${color}">ASC</td><td>Ascendant</td><td>${asc.sign} ${asc.degreeInSign.toFixed(1)}°</td></tr>`;
+  }
+  if (chart.mcLon != null) {
+    const mc = signOf(chart.mcLon);
+    rows += `<tr><td class="glyph" style="color:${color}">MC</td><td>Midheaven</td><td>${mc.sign} ${mc.degreeInSign.toFixed(1)}°</td></tr>`;
+  }
   el.innerHTML = `<table class="placements-table"><tbody>${rows}</tbody></table>`;
+}
+
+// House overlay: each person's planets land somewhere in the other's chart —
+// a whole-sign house per body — once that other person's Ascendant is known
+// (i.e. they entered a birth place). Either direction can be missing; render
+// whichever side(s) are available and hide the panel only if neither is.
+function renderHouseOverlays(posA, posB, ascA, ascB, nameA, nameB) {
+  const panel = $("house-panel");
+  const overlayAinB = houseOverlay(posA, ascB);
+  const overlayBinA = houseOverlay(posB, ascA);
+  const entriesAinB = houseOverlayEntries(overlayAinB).slice(0, 6);
+  const entriesBinA = houseOverlayEntries(overlayBinA).slice(0, 6);
+
+  if (!entriesAinB.length && !entriesBinA.length) {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "block";
+
+  function list(entries, from, into) {
+    if (!entries.length) {
+      return `<p class="empty-note" style="padding:8px 0">enter a birth place for ${escapeHtml(into)} to see where ${escapeHtml(from)}'s planets land.</p>`;
+    }
+    return `<ul class="aspect-list">${entries.map((e) =>
+      `<li>${escapeHtml(houseOverlayBlurb(from, into, e.body, e.house))}</li>`
+    ).join("")}</ul>`;
+  }
+
+  $("house-a-in-b").innerHTML = `<h3>${escapeHtml(nameA)}'s planets, in ${escapeHtml(nameB)}'s houses</h3>${list(entriesAinB, nameA, nameB)}`;
+  $("house-b-in-a").innerHTML = `<h3>${escapeHtml(nameB)}'s planets, in ${escapeHtml(nameA)}'s houses</h3>${list(entriesBinA, nameB, nameA)}`;
 }
 
 function renderTemperament(containerId, name, temper) {
@@ -146,9 +185,11 @@ function escapeHtml(s) {
   return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-function withAsc(pos, ascLon) {
-  if (ascLon == null) return pos;
-  return { ...pos, asc: { lon: ascLon } };
+function withAngles(pos, ascLon, mcLon) {
+  const extra = {};
+  if (ascLon != null) extra.asc = { lon: ascLon };
+  if (mcLon != null) extra.mc = { lon: mcLon };
+  return Object.keys(extra).length ? { ...pos, ...extra } : pos;
 }
 
 function runChart(pushUrl) {
@@ -159,16 +200,16 @@ function runChart(pushUrl) {
   const chartA = buildChart(a);
   const chartB = buildChart(b);
 
-  const posAWithAsc = withAsc(chartA.pos, chartA.ascLon);
-  const posBWithAsc = withAsc(chartB.pos, chartB.ascLon);
-  const synastry = synastryAspects(posAWithAsc, posBWithAsc);
+  const posAWithAngles = withAngles(chartA.pos, chartA.ascLon, chartA.mcLon);
+  const posBWithAngles = withAngles(chartB.pos, chartB.ascLon, chartB.mcLon);
+  const synastry = synastryAspects(posAWithAngles, posBWithAngles);
   const natalA = natalAspects(chartA.pos);
   const natalB = natalAspects(chartB.pos);
   const showNatal = $("natal-toggle").checked;
 
   scene.update({
     nameA: a.name, nameB: b.name,
-    posA: posAWithAsc, posB: posBWithAsc,
+    posA: posAWithAngles, posB: posBWithAngles,
     ascA: chartA.ascLon, ascB: chartB.ascLon,
     synastry, natalA, natalB, showNatal,
     maxSynastry: 40,
@@ -187,6 +228,8 @@ function runChart(pushUrl) {
     const blurb = synastryBlurb(entry, a.name, b.name);
     return `<li><span class="tag ${entry.aspect.quality}">${entry.aspect.name}</span>${escapeHtml(blurb)}</li>`;
   }).join("") || "<li>No aspects landed within orb — a genuinely quiet chart pair.</li>";
+
+  renderHouseOverlays(posAWithAngles, posBWithAngles, chartA.ascLon, chartB.ascLon, a.name, b.name);
 
   $("share-row").style.display = "flex";
   lastResult = { a, b, synastry, chartA, chartB };
