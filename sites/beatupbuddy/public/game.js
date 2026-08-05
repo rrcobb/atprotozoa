@@ -37,6 +37,15 @@
   const SAFETY_URL = "https://ncsfreedom.org/resource-library/";
   const SAFETY_REDIRECT_DELAY = 2400;
 
+  // ---- HP regen slider -------------------------------------------------
+  // riziles' actual ask: "a health regen slider where if I max it out, they
+  // regenerate faster than I could possibly click." It landed on hypebuddy's
+  // auto-hype instead of here the first time around — this is that mechanic,
+  // for real, on the game it was meant for. Quadratic ramp so most of the
+  // slider is a gentle trickle, but max clears the best manual DPS (hammer,
+  // 17 dmg/hit, and nobody's landing 10 clean swings/sec) with room to spare.
+  const HP_REGEN_MAX_PER_SEC = 220;
+
   const FALLBACK_CRIES = [
     "ow", "hey—", "wait no—", "that's uncalled for", "i'm screenshotting this",
     "quote-posting this later", "rude", "hey!!", "stop that", "i'll remember this",
@@ -294,7 +303,13 @@
     particles: [],
     welts: [],
     shake: 0,
+    regenRate: 0, // 0-100, hp regen slider — passive healing, no clicking involved
   };
+
+  function hpRegenPerMs() {
+    if (state.regenRate <= 0) return 0;
+    return (state.regenRate / 100) ** 2 * (HP_REGEN_MAX_PER_SEC / 1000);
+  }
 
   // ---- canvas / camera -----------------------------------------------------
 
@@ -532,6 +547,11 @@
       updateO2Bar();
     }
 
+    if (rag && !state.gameOver && state.regenRate > 0 && state.hp < MAX_HP) {
+      state.hp = Math.min(MAX_HP, state.hp + hpRegenPerMs() * dt);
+      updateHpBar();
+    }
+
     drawBackdrop();
     drawBase();
 
@@ -619,9 +639,13 @@
     document.getElementById("o2pct").textContent = pct + "%";
   }
 
-  function updateHud() {
+  function updateHpBar() {
     document.getElementById("hpfill").style.width = Math.max(0, state.hp) + "%";
     document.getElementById("hppct").textContent = Math.round(Math.max(0, state.hp)) + "%";
+  }
+
+  function updateHud() {
+    updateHpBar();
     document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " hit" : " hits");
     updateO2Bar();
   }
@@ -696,6 +720,13 @@
       setTimeout(showKO, 1000);
     }
   }
+
+  const regenSlider = document.getElementById("regenSlider");
+  const regenPct = document.getElementById("regenpct");
+  regenSlider.addEventListener("input", () => {
+    state.regenRate = Number(regenSlider.value);
+    regenPct.textContent = state.regenRate === 0 ? "off" : state.regenRate + "%";
+  });
 
   canvas.addEventListener("pointerdown", (e) => {
     handleHit(clientToArena(e.clientX, e.clientY));
@@ -795,6 +826,8 @@
     state.particles = [];
     state.welts = [];
     state.shake = 0;
+    // regenRate itself carries over — if you maxed the slider, "beat them up
+    // again" keeps it maxed instead of silently resetting your setting.
     document.getElementById("toolbar").style.display = "";
     document.getElementById("cursor-tool").style.display = "";
     document.getElementById("safety-stop").classList.remove("show");
