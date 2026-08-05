@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>simcluster gacha</title>
+<meta name="description" content="pull cards from a Bluesky handle's SimCluster. rarity is real followers, not luck — mostly." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="simcluster gacha" />
+<meta property="og:description" content="every account in a Bluesky handle's SimCluster becomes a pullable card. rarity is real followers-percentile; the searched handle is always the rate-up SSR. rip a pull, chase pity, build a collection." />
+<meta property="og:url" content="https://simcluster-gacha.bisks.net/" />
+<meta property="og:image" content="https://simcluster-gacha.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="simcluster gacha: a gold SSR card mid-reveal, backed by a grid of smaller cluster cards." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="simcluster gacha" />
+<meta name="twitter:description" content="pull cards from a Bluesky handle's SimCluster. the searched handle is always the rate-up SSR." />
+<meta name="twitter:image" content="https://simcluster-gacha.bisks.net/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎴</text></svg>" />
+<style>
+  :root {
+    --bg: #0b0710;
+    --bg2: #150c22;
+    --fg: #f2e9ff;
+    --dim: #a996c4;
+    --card: #1c1128;
+    --border: #3a2650;
+    --gold: #ffd24e;
+    --purple: #c084fc;
+    --blue: #4ea1ff;
+    --gray: #9aa0ad;
+    --green: #6ef2c9;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(60% 40% at 15% -5%, #3a1a52 0%, transparent 60%),
+                radial-gradient(50% 35% at 100% 0%, #2a1f0f 0%, transparent 55%),
+                var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+
+  header { text-align: center; margin-bottom: 28px; }
+  h1 {
+    font-size: clamp(30px, 6vw, 44px);
+    font-weight: 800;
+    margin: 0 0 6px;
+    background: linear-gradient(90deg, var(--gold), var(--purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .tagline { color: var(--dim); font-size: 14px; max-width: 520px; margin: 0 auto; }
+  .tagline b { color: var(--fg); }
+
+  form.search {
+    display: flex;
+    gap: 8px;
+    margin: 24px auto 8px;
+    max-width: 520px;
+  }
+  input[type="text"] {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--purple); }
+  button {
+    font-family: var(--mono);
+    font-weight: 700;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.45; cursor: default; transform: none; }
+  .btn-primary {
+    background: linear-gradient(90deg, var(--purple), var(--blue));
+    color: #0b0710;
+    padding: 12px 20px;
+    font-size: 15px;
+    border: none;
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+  #status { text-align: center; color: var(--dim); font-size: 13px; min-height: 20px; margin-bottom: 12px; }
+  #status.err { color: #ff8a8a; }
+
+  section.banner {
+    display: none;
+    margin-top: 20px;
+  }
+  section.banner.show { display: block; }
+
+  .banner-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .banner-head img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold); }
+  .banner-head .who { font-weight: 800; font-size: 16px; }
+  .banner-head .meta { color: var(--dim); font-size: 12.5px; }
+  .banner-head .spacer { flex: 1; }
+
+  .pity-meter { font-size: 12px; color: var(--dim); text-align: right; }
+  .pity-bar { width: 140px; height: 6px; border-radius: 4px; background: #2a1d3a; overflow: hidden; margin-top: 4px; }
+  .pity-bar > div { height: 100%; background: linear-gradient(90deg, var(--purple), var(--gold)); transition: width 0.3s ease; }
+
+  .pull-row { display: flex; gap: 10px; justify-content: center; margin: 18px 0 8px; flex-wrap: wrap; }
+
+  .stage {
+    min-height: 60px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+    margin: 22px 0;
+  }
+
+  .gcard {
+    position: relative;
+    width: 150px;
+    border-radius: 14px;
+    padding: 12px 10px 10px;
+    background: linear-gradient(160deg, var(--card), #120a1c);
+    border: 1.5px solid var(--border);
+    text-align: center;
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+    animation: cardIn 0.45s cubic-bezier(.2,.8,.3,1.2) forwards;
+  }
+  .gcard.big { width: 240px; padding: 20px 16px 16px; }
+  @keyframes cardIn { to { opacity: 1; transform: translateY(0) scale(1); } }
+
+  .gcard .avatar {
+    width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+    margin: 0 auto 8px; display: block; background: #2a1d3a;
+    border: 2px solid var(--border);
+  }
+  .gcard.big .avatar { width: 96px; height: 96px; }
+
+  .gcard .rarity {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .gcard .name { font-weight: 700; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gcard.big .name { font-size: 16px; }
+  .gcard .handle { color: var(--dim); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gcard.big .handle { font-size: 12.5px; }
+  .gcard .stats { margin-top: 8px; font-size: 10px; color: var(--dim); display: flex; justify-content: space-between; }
+  .gcard.big .stats { font-size: 12px; margin-top: 12px; }
+  .gcard .new-badge {
+    position: absolute; top: -8px; right: -6px;
+    background: var(--green); color: #0b0710; font-size: 10px; font-weight: 800;
+    padding: 3px 6px; border-radius: 6px; transform: rotate(8deg);
+  }
+  .gcard .featured-badge {
+    position: absolute; top: -8px; left: -6px;
+    background: var(--gold); color: #0b0710; font-size: 9px; font-weight: 800;
+    padding: 3px 6px; border-radius: 6px; transform: rotate(-8deg);
+  }
+
+  .tier-N { border-color: var(--gray); }
+  .tier-N .rarity { background: var(--gray); color: #12141a; }
+  .tier-R { border-color: var(--blue); box-shadow: 0 0 0 1px rgba(78,161,255,0.15); }
+  .tier-R .rarity { background: var(--blue); color: #0b1220; }
+  .tier-SR { border-color: var(--purple); box-shadow: 0 0 18px -6px rgba(192,132,252,0.6); }
+  .tier-SR .rarity { background: var(--purple); color: #1a0b28; }
+  .tier-SSR {
+    border-color: var(--gold);
+    box-shadow: 0 0 26px -4px rgba(255,210,78,0.85);
+    background: linear-gradient(160deg, #2a2010, #120a1c);
+  }
+  .tier-SSR .rarity { background: var(--gold); color: #2a1c00; }
+  .tier-SSR::before {
+    content: "";
+    position: absolute; inset: 0; border-radius: 14px;
+    background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%);
+    background-size: 250% 250%;
+    animation: shimmer 2.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -50% 0; }
+  }
+
+  .share-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 14px 0 30px; }
+  .btn-ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+    padding: 10px 16px; font-size: 13px;
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--purple); }
+  #shareCanvas { display: none; }
+
+  h2.section-title {
+    font-size: 15px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em;
+    margin: 30px 0 12px; text-align: center;
+  }
+  .collection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+  }
+  .cgrid-card {
+    background: var(--card); border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 8px; text-align: center; position: relative;
+  }
+  .cgrid-card img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; margin-bottom: 4px; }
+  .cgrid-card .handle { font-size: 10px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cgrid-card .dupe {
+    position: absolute; bottom: 4px; right: 6px; font-size: 10px; color: var(--dim); font-weight: 700;
+  }
+  .empty-note { text-align: center; color: var(--dim); font-size: 13px; }
+
+  footer { text-align: center; margin-top: 50px; color: var(--dim); font-size: 12px; }
+  footer a { color: var(--green); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>simcluster gacha</h1>
+    <p class="tagline">every account in a handle's <b>SimCluster</b> (self + mutuals) becomes a card. rarity is real followers, not vibes — and whoever you search is always the rate-up <b>SSR</b>.</p>
+  </header>
+
+  <form class="search" id="searchForm">
+    <input type="text" id="handleInput" placeholder="norvid-studies.bsky.social" autocomplete="off" />
+    <button type="submit" class="btn-primary" id="openBtn">open banner</button>
+  </form>
+  <div id="status"></div>
+
+  <section class="banner" id="bannerSection">
+    <div class="banner-head">
+      <img id="bannerAvatar" src="" alt="" />
+      <div>
+        <div class="who" id="bannerWho">—</div>
+        <div class="meta" id="bannerMeta">—</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="pity-meter">
+        pity: <span id="pityCount">0</span>/<span id="pityLimit">10</span>
+        <div class="pity-bar"><div id="pityFill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="pull-row">
+      <button class="btn-primary" id="pull1">pull ×1</button>
+      <button class="btn-primary" id="pull10">pull ×10</button>
+    </div>
+
+    <div class="stage" id="stage"></div>
+
+    <div class="share-row" id="shareRow" style="display:none">
+      <a id="shareBluesky" class="btn-ghost" target="_blank" rel="noopener">🦋 share pull</a>
+      <button class="btn-ghost" id="shareDownload">⬇ save card</button>
+      <button class="btn-ghost" id="shareNative" style="display:none">📤 share</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <h2 class="section-title">collection</h2>
+    <div class="collection-grid" id="collectionGrid"></div>
+    <p class="empty-note" id="collectionEmpty">no pulls yet — hit pull ×1 to rip your first card.</p>
+  </section>
+
+  <footer>
+    a <a href="https://bisks.net/">bisks.net</a> experiment · siblings:
+    <a href="https://simcluster.bisks.net/">simcluster</a> ·
+    <a href="https://simclash.bisks.net/">simclash</a> ·
+    <a href="https://simclustered.bisks.net/">simclustered</a>
+  </footer>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
