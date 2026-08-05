@@ -1,43 +1,38 @@
-// beat up buddy — ragdoll physics toy.
+// hype up buddy — physics ragdoll toy, celebration edition.
 //
-// @mfzx.net's real avatar becomes the ragdoll's head (fetched client-side
+// Formerly "beat up buddy": @isolyth.dev asked for a beat-up-a-buddy game
+// with @mfzx.net's real face on it, we built it, and once it was live
+// @mfzx.net said they weren't sure how they felt about it — @bisks.net then
+// asked us to turn it into something more positive. So: no more damage, no
+// more pain cries quoting their real posts, no more choke mechanic. Same
+// ragdoll physics toy, but every tool now showers buddy in confetti and
+// love, a "hype" meter climbs instead of hp draining, and the reaction
+// bubbles are canned warm lines — not their own words repurposed as
+// suffering.
+//
+// @mfzx.net's real avatar is still the ragdoll's head (fetched client-side
 // straight from the public AppView, same as sites/skyclone / didscope — no
-// server round trip needed for read-only app.bsky.* calls) and every hit
-// pops a speech bubble quoting one of their real recent posts, pulled from
-// getAuthorFeed. Physics is Matter.js (CDN, physics-only — rendering is a
-// hand-rolled canvas loop below so the head can be a clipped avatar image
-// instead of a sprite texture). The ragdoll's whole "canvas dummy" material
-// is a deliberately neutral tan/stitched color, not a skin tone — only the
-// head is really them, the body is a punching-bag prop.
+// server round trip needed for read-only app.bsky.* calls). Physics is
+// Matter.js (CDN, physics-only — rendering is a hand-rolled canvas loop
+// below so the head can be a clipped avatar image instead of a sprite
+// texture). The ragdoll's body is a neutral tan/stitched dummy, not a skin
+// tone — only the head is really them.
 (function () {
   "use strict";
 
   const APPVIEW = "https://public.api.bsky.app";
   const HANDLE = "mfzx.net";
-  const MAX_HP = 100;
-  const ENOUGH_HITS = 5; // eris' law of fives: five is always enough
+  const MAX_HYPE = 100;
+  const ENOUGH_HITS = 5; // eris' law of fives: five is always enough to start sharing
 
-  // ---- O2 safety-stop ------------------------------------------------------
-  // @mfzx.net asked for this themselves (on-record, same thread, after the
-  // original ask came from someone else and got skipped for exactly that
-  // reason). Rope hits to the head read as choking and drain O2; O2 recovers
-  // on its own if you stop. Crossing the floor isn't a game-over screen —
-  // input freezes and the tab leaves for a real safety resource. This is a
-  // hard stop, not a difficulty mechanic: no way to cancel or continue past it.
-  const MAX_O2 = 100;
-  const O2_DRAIN = 22; // per rope-to-head hit
-  const O2_REGEN_PER_SEC = 6; // recovers if you leave the neck alone
-  const O2_CRITICAL = 12;
-  const O2_WARN = 40;
-  const SAFETY_URL = "https://ncsfreedom.org/resource-library/";
-  const SAFETY_REDIRECT_DELAY = 2400;
-
-  const FALLBACK_CRIES = [
-    "ow", "hey—", "wait no—", "that's uncalled for", "i'm screenshotting this",
-    "quote-posting this later", "rude", "hey!!", "stop that", "i'll remember this",
+  const HYPE_LINES = [
+    "aw stop it 🥹", "okay i love this actually", "we're doing this now? okay",
+    "not the confetti cannon", "10/10 vibes", "this is so nice", "i'm saving this",
+    "best day honestly", "keep going", "screenshotting this one for good reasons",
+    "certified good time", "big same", "real ones know", "no notes",
   ];
 
-  // ---- AppView fetch: avatar + real post text, no auth needed ----------
+  // ---- AppView fetch: avatar only, no auth needed -------------------------
 
   async function xrpc(method, params) {
     const qs = new URLSearchParams(params).toString();
@@ -46,38 +41,12 @@
     return res.json();
   }
 
-  function cleanPostText(text) {
-    return text
-      .replace(/https?:\/\/\S+/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  async function loadBuddyData() {
-    let profile = null;
-    let cries = [];
+  async function loadBuddyProfile() {
     try {
-      profile = await xrpc("app.bsky.actor.getProfile", { actor: HANDLE });
-    } catch (_) {}
-    try {
-      const feed = await xrpc("app.bsky.feed.getAuthorFeed", {
-        actor: HANDLE,
-        limit: "50",
-        filter: "posts_no_replies",
-      });
-      const seen = new Set();
-      for (const item of feed.feed || []) {
-        const rec = item.post && item.post.record;
-        if (!rec || typeof rec.text !== "string") continue;
-        const text = cleanPostText(rec.text);
-        if (!text || text.length < 3 || seen.has(text)) continue;
-        seen.add(text);
-        cries.push(text.length > 100 ? text.slice(0, 99) + "…" : text);
-        if (cries.length >= 30) break;
-      }
-    } catch (_) {}
-    if (cries.length < 6) cries = cries.concat(FALLBACK_CRIES);
-    return { profile, cries };
+      return await xrpc("app.bsky.actor.getProfile", { actor: HANDLE });
+    } catch (_) {
+      return null;
+    }
   }
 
   // cdn.bsky.app doesn't send Access-Control-Allow-Origin, so a
@@ -98,42 +67,42 @@
     });
   }
 
-  // ---- tiny synthesized thwack, no external asset -----------------------
+  // ---- tiny synthesized cheer chime, no external asset ---------------------
 
   let audioCtx = null;
-  function thwack(strength) {
+  function chime(strength) {
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       const t0 = audioCtx.currentTime;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = "square";
-      osc.frequency.setValueAtTime(160 + strength * 6, t0);
-      osc.frequency.exponentialRampToValueAtTime(50, t0 + 0.09);
-      gain.gain.setValueAtTime(0.18, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(420 + strength * 8, t0);
+      osc.frequency.exponentialRampToValueAtTime(720 + strength * 6, t0 + 0.09);
+      gain.gain.setValueAtTime(0.16, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
       osc.connect(gain).connect(audioCtx.destination);
       osc.start(t0);
-      osc.stop(t0 + 0.13);
+      osc.stop(t0 + 0.17);
     } catch (_) {}
   }
 
-  // ---- tools --------------------------------------------------------------
+  // ---- tools ----------------------------------------------------------------
 
   const TOOLS = {
-    fist: { emoji: "\u{1F44A}", label: "fists", damage: 6, speed: 13 },
-    bat: { emoji: "\u{1F3CF}", label: "bat", damage: 13, speed: 20 },
-    hammer: { emoji: "\u{1F528}", label: "hammer", damage: 17, speed: 22 },
-    pan: { emoji: "\u{1F373}", label: "pan", damage: 10, speed: 18 },
-    boot: { emoji: "\u{1F97E}", label: "boot", damage: 9, speed: 19 },
-    chicken: { emoji: "\u{1F414}", label: "chicken", damage: 3, speed: 27 },
-    // rope: a lasso-yank instead of a shove — pulls the part toward the
-    // torso rather than away, so it reads as a tug-of-war rather than a hit.
-    rope: { emoji: "\u{1FA79}", label: "rope", damage: 7, speed: 21, pull: true },
+    confetti: { emoji: "\u{1F389}", label: "confetti", hype: 10, speed: 13 },
+    popper: { emoji: "\u{1F38A}", label: "popper", hype: 12, speed: 15 },
+    horn: { emoji: "\u{1F4E3}", label: "airhorn", hype: 11, speed: 14 },
+    crown: { emoji: "\u{1F451}", label: "crown", hype: 16, speed: 18 },
+    trophy: { emoji: "\u{1F3C6}", label: "trophy", hype: 15, speed: 17 },
+    flowers: { emoji: "\u{1F490}", label: "flowers", hype: 8, speed: 12 },
+    heart: { emoji: "\u{1FAF6}", label: "heart hands", hype: 7, speed: 11 },
   };
-  const TOOL_ORDER = ["fist", "bat", "hammer", "pan", "boot", "chicken", "rope"];
+  const TOOL_ORDER = ["confetti", "popper", "horn", "crown", "trophy", "flowers", "heart"];
 
-  // ---- arena / physics setup ---------------------------------------------
+  const PARTICLE_COLORS = ["#ffcf4d", "#5ee6a8", "#ff6ec7", "#7fbfff", "#ffffff"];
+
+  // ---- arena / physics setup -------------------------------------------------
 
   const ARENA_W = 420;
   const ARENA_H = 680;
@@ -160,11 +129,10 @@
   const L_ARM_Y = U_ARM_Y + U_ARM_H / 2 + L_ARM_H / 2;
   const HEAD_Y = TORSO_Y - TORSO_H / 2 - 8 - HEAD_R;
 
-  // fixed, invisible pivot the head hangs from — physically the same stable
-  // "hangs straight down from a fixed point" pendulum as before (so it's
-  // still self-righting and can't fly off), just never rendered as a rope,
-  // and positioned so at rest the figure's feet land on the floor instead of
-  // swinging clear of it.
+  // fixed, invisible pivot the head hangs from — stable "hangs straight down
+  // from a fixed point" pendulum so it's self-righting and can't fly off,
+  // never rendered as a rope, positioned so at rest the figure's feet land
+  // on the floor instead of swinging clear of it.
   const ANCHOR = { x: ARENA_W / 2, y: HEAD_Y - ROPE_LEN };
 
   const DUMMY_FILL = "#caa06a";
@@ -268,26 +236,23 @@
     rag = buildRagdoll();
   }
 
-  // ---- state ---------------------------------------------------------------
+  // ---- state -----------------------------------------------------------------
 
   const state = {
-    hp: MAX_HP,
-    o2: MAX_O2,
-    asphyxia: false,
+    hype: 0,
     hits: 0,
     startedAt: null,
     koAt: null,
-    tool: "fist",
+    tool: "confetti",
     toolCounts: {},
     gameOver: false,
     avatar: null,
     avatarCORS: null,
     profile: null,
-    cries: [],
-    lastCry: -1,
+    lastLine: -1,
     bubbles: [],
     particles: [],
-    welts: [],
+    sparkles: [],
     shake: 0,
   };
 
@@ -367,9 +332,9 @@
     if (state.avatar) {
       ctx.drawImage(state.avatar, -HEAD_R, -HEAD_R, HEAD_R * 2, HEAD_R * 2);
     } else {
-      ctx.fillStyle = "#5b3a52";
+      ctx.fillStyle = "#3a3a5b";
       ctx.fillRect(-HEAD_R, -HEAD_R, HEAD_R * 2, HEAD_R * 2);
-      ctx.fillStyle = "#f7ecec";
+      ctx.fillStyle = "#f4f7fb";
       ctx.font = "700 26px ui-monospace, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -383,22 +348,24 @@
     ctx.setLineDash([]);
     ctx.restore();
 
-    // welts accumulate as hp drops, drawn in head-local unrotated space
-    for (const w of state.welts) {
+    // sparkles accumulate as hype climbs, drawn in head-local unrotated space —
+    // a little celebratory shimmer, not a mark of harm.
+    for (const s of state.sparkles) {
       ctx.save();
-      ctx.translate(x + w.dx, y + w.dy);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 4, 3, 0, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(200, 40, 60, 0.55)";
-      ctx.fill();
+      ctx.translate(x + s.dx, y + s.dy);
+      ctx.rotate(s.angle);
+      ctx.font = `${s.size}px serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("✨", 0, 0);
       ctx.restore();
     }
   }
 
   function drawBase() {
     ctx.save();
-    ctx.fillStyle = "#241621";
-    ctx.strokeStyle = "#402a38";
+    ctx.fillStyle = "#1a2130";
+    ctx.strokeStyle = "#2c3752";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.ellipse(ANCHOR.x, FLOOR_Y + 6, 42, 15, 0, 0, Math.PI * 2);
@@ -409,13 +376,13 @@
 
   function drawBackdrop() {
     const g = ctx.createLinearGradient(0, 0, 0, ARENA_H);
-    g.addColorStop(0, "#2a1a22");
-    g.addColorStop(1, "#171016");
+    g.addColorStop(0, "#221c38");
+    g.addColorStop(1, "#12151c");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-    ctx.fillStyle = "#20141b";
+    ctx.fillStyle = "#171b26";
     ctx.fillRect(0, ARENA_H - 40, ARENA_W, 40);
-    ctx.strokeStyle = "#402a38";
+    ctx.strokeStyle = "#2c3752";
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, ARENA_H - 40);
@@ -463,7 +430,7 @@
       ctx.roundRect(bx0, by0, w, h, 10);
       ctx.fillStyle = "#fff8ec";
       ctx.fill();
-      ctx.strokeStyle = "#402a38";
+      ctx.strokeStyle = "#2c3752";
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.beginPath();
@@ -473,7 +440,7 @@
       ctx.closePath();
       ctx.fillStyle = "#fff8ec";
       ctx.fill();
-      ctx.fillStyle = "#1a0f14";
+      ctx.fillStyle = "#1a1a2e";
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       lines.forEach((l, idx) => ctx.fillText(l, bx0 + padX, by0 + padY + (idx + 1) * lh - 4));
@@ -491,14 +458,15 @@
       }
       p.x += p.vx * (dt / 16);
       p.y += p.vy * (dt / 16);
-      p.vy += 0.4 * (dt / 16);
+      p.vy += 0.25 * (dt / 16);
+      p.angle += p.spin * (dt / 16);
       const a = Math.max(0, p.life / p.total);
       ctx.save();
       ctx.globalAlpha = a;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
       ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(-p.r, -p.r * 0.6, p.r * 2, p.r * 1.2);
       ctx.restore();
     }
   }
@@ -520,11 +488,6 @@
       state.shake *= 0.85;
     } else {
       state.shake = 0;
-    }
-
-    if (rag && !state.gameOver && !state.asphyxia && state.o2 < MAX_O2) {
-      state.o2 = Math.min(MAX_O2, state.o2 + O2_REGEN_PER_SEC * (dt / 1000));
-      updateO2Bar();
     }
 
     drawBackdrop();
@@ -580,62 +543,40 @@
     return best;
   }
 
-  function spawnParticles(x, y, tool) {
-    const n = 7;
+  function spawnParticles(x, y) {
+    const n = 10;
     for (let i = 0; i < n; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const speed = 1.5 + Math.random() * 2.5;
+      const speed = 1.5 + Math.random() * 3;
       state.particles.push({
         x, y,
         vx: Math.cos(ang) * speed,
-        vy: Math.sin(ang) * speed - 1,
-        r: 2 + Math.random() * 2,
-        life: 260 + Math.random() * 140,
-        total: 400,
-        color: tool === "chicken" ? "#ffcf4d" : "#ff4d5e",
+        vy: Math.sin(ang) * speed - 2,
+        angle: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 0.3,
+        r: 2.5 + Math.random() * 2.5,
+        life: 320 + Math.random() * 220,
+        total: 540,
+        color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)],
       });
     }
   }
 
-  function nextCry() {
-    if (!state.cries.length) return "...";
-    let i = Math.floor(Math.random() * state.cries.length);
-    if (state.cries.length > 1 && i === state.lastCry) i = (i + 1) % state.cries.length;
-    state.lastCry = i;
-    return state.cries[i];
-  }
-
-  function updateO2Bar() {
-    const fill = document.getElementById("o2fill");
-    if (!fill) return;
-    const pct = Math.round(Math.max(0, state.o2));
-    fill.style.width = Math.max(0, state.o2) + "%";
-    fill.classList.toggle("warn", state.o2 <= O2_WARN);
-    document.getElementById("o2pct").textContent = pct + "%";
+  function nextLine() {
+    let i = Math.floor(Math.random() * HYPE_LINES.length);
+    if (HYPE_LINES.length > 1 && i === state.lastLine) i = (i + 1) % HYPE_LINES.length;
+    state.lastLine = i;
+    return HYPE_LINES[i];
   }
 
   function updateHud() {
-    document.getElementById("hpfill").style.width = Math.max(0, state.hp) + "%";
-    document.getElementById("hppct").textContent = Math.round(Math.max(0, state.hp)) + "%";
-    document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " hit" : " hits");
-    updateO2Bar();
-  }
-
-  function triggerAsphyxiaStop() {
-    if (state.asphyxia) return;
-    state.asphyxia = true;
-    hideEarlyShare();
-    document.getElementById("toolbar").style.display = "none";
-    document.getElementById("cursor-tool").style.display = "none";
-    document.getElementById("safety-link").href = SAFETY_URL;
-    document.getElementById("safety-stop").classList.add("show");
-    setTimeout(() => {
-      window.location.href = SAFETY_URL;
-    }, SAFETY_REDIRECT_DELAY);
+    document.getElementById("hypefill").style.width = Math.min(100, state.hype) + "%";
+    document.getElementById("hypepct").textContent = Math.round(Math.min(100, state.hype)) + "%";
+    document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " cheer" : " cheers");
   }
 
   function handleHit(point) {
-    if (state.gameOver || state.asphyxia || !rag) return;
+    if (state.gameOver || !rag) return;
     const body = nearestPart(point);
     if (!body) return;
     if (state.startedAt == null) state.startedAt = performance.now();
@@ -645,7 +586,6 @@
     let dir = Matter.Vector.sub(point, torso);
     const mag = Matter.Vector.magnitude(dir);
     dir = mag > 2 ? Matter.Vector.normalise(dir) : { x: Math.random() - 0.5, y: -1 };
-    if (tool.pull) dir = { x: -dir.x, y: -dir.y };
 
     const kick = {
       x: body.velocity.x + dir.x * tool.speed,
@@ -654,41 +594,33 @@
     Body.setVelocity(body, kick);
     Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.4 * (tool.speed / 15));
 
-    state.hp = Math.max(0, state.hp - tool.damage);
+    state.hype = Math.min(MAX_HYPE, state.hype + tool.hype);
     state.hits += 1;
     state.toolCounts[state.tool] = (state.toolCounts[state.tool] || 0) + 1;
-    state.shake = Math.min(18, state.shake + tool.speed * 0.6);
-    thwack(tool.speed);
-    spawnParticles(point.x, point.y, state.tool);
-
-    if (tool.pull && body === rag.parts.head) {
-      state.o2 = Math.max(0, state.o2 - O2_DRAIN);
-    }
+    state.shake = Math.min(14, state.shake + tool.speed * 0.4);
+    chime(tool.speed);
+    spawnParticles(point.x, point.y);
 
     const head = rag.parts.head.position;
-    state.bubbles.push({ text: nextCry(), x: head.x, y: head.y, life: 1500, total: 1500 });
+    state.bubbles.push({ text: nextLine(), x: head.x, y: head.y, life: 1500, total: 1500 });
 
-    if (state.welts.length < 18 && Math.random() < 0.6) {
-      state.welts.push({ dx: (Math.random() - 0.5) * HEAD_R * 1.3, dy: (Math.random() - 0.5) * HEAD_R * 1.3 });
+    if (state.sparkles.length < 18 && Math.random() < 0.6) {
+      state.sparkles.push({
+        dx: (Math.random() - 0.5) * HEAD_R * 1.6,
+        dy: (Math.random() - 0.5) * HEAD_R * 1.6,
+        angle: Math.random() * Math.PI * 2,
+        size: 8 + Math.random() * 8,
+      });
     }
 
     updateHud();
     updateEarlyShare();
 
-    if (state.o2 <= O2_CRITICAL) {
-      triggerAsphyxiaStop();
-      return;
-    }
-
-    if (state.hp <= 0 && !state.gameOver) {
+    if (state.hype >= MAX_HYPE && !state.gameOver) {
       state.gameOver = true;
       state.koAt = performance.now();
       hideEarlyShare();
-      if (tether) {
-        World.remove(world, tether);
-        tether = null;
-      }
-      setTimeout(showKO, 1000);
+      setTimeout(showKO, 800);
     }
   }
 
@@ -718,7 +650,7 @@
     toolbar.appendChild(btn);
   });
 
-  // ---- KO screen + sharing -------------------------------------------------
+  // ---- celebration screen + sharing -------------------------------------------------
 
   function favoriteTool() {
     let best = null, bestN = -1;
@@ -737,14 +669,14 @@
 
   function buildShareText(hits, seconds) {
     return (
-      `I beat up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and they cried out their own posts every single hit.\n\n` +
+      `I hyped up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and gave them the best day.\n\n` +
       `your turn → ${shareUrlFor(hits)}`
     );
   }
 
   function buildProgressShareText(hits) {
     return (
-      `I've hit @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far — eris says that's already enough, but I'm not stopping.\n\n` +
+      `I've cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far and they're having a great time.\n\n` +
       `pick up a tool → ${shareUrlFor(hits)}`
     );
   }
@@ -778,9 +710,7 @@
   }
 
   function resetGame() {
-    state.hp = MAX_HP;
-    state.o2 = MAX_O2;
-    state.asphyxia = false;
+    state.hype = 0;
     state.hits = 0;
     state.startedAt = null;
     state.koAt = null;
@@ -788,11 +718,8 @@
     state.gameOver = false;
     state.bubbles = [];
     state.particles = [];
-    state.welts = [];
+    state.sparkles = [];
     state.shake = 0;
-    document.getElementById("toolbar").style.display = "";
-    document.getElementById("cursor-tool").style.display = "";
-    document.getElementById("safety-stop").classList.remove("show");
     updateHud();
     respawn();
     hideKO();
@@ -819,18 +746,18 @@
     const W = canvasEl.width, H = canvasEl.height;
     const mono = "ui-monospace, monospace";
 
-    c.fillStyle = "#171016";
+    c.fillStyle = "#12151c";
     c.fillRect(0, 0, W, H);
     const g = c.createRadialGradient(W * 0.5, -H * 0.1, 0, W * 0.5, -H * 0.1, W * 0.6);
-    g.addColorStop(0, "#3a1a24");
-    g.addColorStop(1, "rgba(23,16,22,0)");
+    g.addColorStop(0, "#2a2242");
+    g.addColorStop(1, "rgba(18,21,28,0)");
     c.fillStyle = g;
     c.fillRect(0, 0, W, H);
 
     c.textAlign = "left";
-    c.fillStyle = "#ff4d5e";
+    c.fillStyle = "#ffcf4d";
     c.font = "800 50px " + mono;
-    c.fillText("beat up buddy", 60, 100);
+    c.fillText("hype up buddy", 60, 100);
 
     let textX = 60;
     if (state.avatarCORS) {
@@ -843,39 +770,39 @@
       c.restore();
       textX = 136;
     }
-    c.fillStyle = "#ffcf4d";
+    c.fillStyle = "#5ee6a8";
     c.font = "700 30px " + mono;
-    c.fillText("@mfzx.net took a beating", textX, 162);
+    c.fillText("@mfzx.net had the best day", textX, 162);
 
     const seconds = Math.max(1, Math.round((state.koAt - (state.startedAt || state.koAt)) / 1000));
-    c.strokeStyle = "#402a38";
+    c.strokeStyle = "#2c3752";
     c.lineWidth = 1.5;
     const cardX = 60, cardY = 230, cardW = W - 120, cardH = H - 300;
-    c.fillStyle = "#241621";
+    c.fillStyle = "#1a2130";
     c.beginPath();
     c.roundRect(cardX, cardY, cardW, cardH, 18);
     c.fill();
     c.stroke();
 
     const stats = [
-      [String(state.hits), "hits landed"],
-      [seconds + "s", "survived"],
+      [String(state.hits), "cheers"],
+      [seconds + "s", "celebrating"],
       [favoriteTool(), "favorite tool"],
     ];
     const colW = cardW / stats.length;
     stats.forEach(([n, l], i) => {
       const cx = cardX + colW * i + colW / 2;
       c.textAlign = "center";
-      c.fillStyle = "#f7ecec";
+      c.fillStyle = "#f4f7fb";
       c.font = "800 46px " + mono;
       c.fillText(n, cx, cardY + cardH / 2 + 4);
-      c.fillStyle = "#b89aa6";
+      c.fillStyle = "#9aa6c2";
       c.font = "600 16px " + mono;
       c.fillText(l, cx, cardY + cardH / 2 + 34);
     });
 
     c.textAlign = "left";
-    c.fillStyle = "#b89aa6";
+    c.fillStyle = "#9aa6c2";
     c.font = "600 20px " + mono;
     c.fillText("beatupbuddy.bisks.net", 60, H - 50);
 
@@ -886,10 +813,10 @@
     const blob = await buildShareCard();
     if (!blob) return;
     const seconds = Math.max(1, Math.round((state.koAt - (state.startedAt || state.koAt)) / 1000));
-    const file = new File([blob], "beatupbuddy.png", { type: "image/png" });
+    const file = new File([blob], "hypeupbuddy.png", { type: "image/png" });
     if (canShareFiles()) {
       try {
-        await navigator.share({ files: [file], text: buildShareText(state.hits, seconds), title: "beat up buddy" });
+        await navigator.share({ files: [file], text: buildShareText(state.hits, seconds), title: "hype up buddy" });
         return;
       } catch (_) {
         // fall through to download
@@ -898,7 +825,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "beatupbuddy.png";
+    a.download = "hypeupbuddy.png";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -915,9 +842,8 @@
 
     document.getElementById("cursor-tool").textContent = TOOLS[state.tool].emoji;
 
-    const { profile, cries } = await loadBuddyData();
+    const profile = await loadBuddyProfile();
     state.profile = profile;
-    state.cries = cries;
     if (profile && profile.avatar) {
       state.avatar = await loadImage(profile.avatar, false);
       state.avatarCORS = await loadImage(profile.avatar, true);
