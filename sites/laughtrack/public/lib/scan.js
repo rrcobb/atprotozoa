@@ -13,8 +13,13 @@
 (function (global) {
   const PUB = "https://public.api.bsky.app/xrpc";
 
-  const MAX_POSTS = 50; // most recent posts scanned — bounds the getPostThread fan-out
-  const FEED_PAGES = 2; // ~200 feed items considered before taking the newest MAX_POSTS
+  // "every post" per @cee.wtf (2026-08-05: the first cut only looked at the
+  // newest 50 and got called out for it). fetchOwnPosts now pages the whole
+  // feed until the cursor runs dry. MAX_POSTS is a safety valve, not a
+  // "recent only" cutoff — it exists so an account with tens of thousands of
+  // posts can't hang a browser tab or hammer public.api.bsky.app forever.
+  const MAX_POSTS = 2000;
+  const FEED_PAGES = 40; // hard ceiling on getAuthorFeed pages, paired with MAX_POSTS above
   const THREAD_CONCURRENCY = 6;
   const THREAD_DEPTH = 8;
   const TOP_N = 20; // leaderboard length
@@ -107,7 +112,7 @@
         out.push({ uri: post.uri, cid: post.cid, text, createdAt: post.record.createdAt || post.indexedAt });
       }
       cursor = feed.cursor;
-      if (!cursor || !(feed.feed || []).length) break;
+      if (!cursor || !(feed.feed || []).length || out.length >= MAX_POSTS) break;
     }
     return out.slice(0, MAX_POSTS);
   }

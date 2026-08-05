@@ -49,8 +49,9 @@ function countLaughs(text: string | undefined): number {
   return total;
 }
 
-// Fewer posts than the client's full MAX_POSTS=50 — this only needs to be
-// fast enough for a preview fetch, not exhaustive.
+// Far fewer posts than the client's full scan (which now walks every post
+// the account has) — this only needs to be fast enough for a preview fetch,
+// not exhaustive.
 const OG_MAX_POSTS = 15;
 
 async function fetchOwnPosts(did: string): Promise<{ uri: string; text: string; createdAt: string }[]> {
@@ -105,7 +106,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "laughtrack — find someone's funniest post, by the replies";
 const GENERIC_DESC =
-  "Enter a Bluesky handle. laughtrack reads every reply to their recent posts and counts lol/haha/omg/lmao/rofl-family exclamations to find whichever post actually made people laugh — ranked by that, not by likes.";
+  "Enter a Bluesky handle. laughtrack reads every reply to every post they've ever made and counts lol/haha/omg/lmao/rofl-family exclamations to find whichever post actually made people laugh — ranked by that, not by likes.";
 const GENERIC_OG_URL = "https://laughtrack.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
