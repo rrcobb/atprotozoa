@@ -7,13 +7,16 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us createRecord under our own custom net.bisks.hyperobject.cast
-// collection. Casting writes one of those records to the *caster's own* PDS;
-// the Worker never trusts a client-supplied identity, it reads the record
-// back off the claimed author's own PDS to confirm it's real (same pattern
-// as sites/velvetrope's verifyOwnRecord).
+// The client_id is the URL of our static client-metadata.json. Scope is
+// `atproto repo:net.bisks.hyperobject.cast?action=create` — `atproto` alone
+// just confirms there's a real signed-in account (that's all a bare login
+// needs); the `repo:` grant is narrowed to create-only access on our one
+// custom collection, not the old `transition:generic` app-password-equivalent
+// scope, which would hand us read/write over the caster's *entire* repo.
+// Casting writes one of those records to the *caster's own* PDS; the Worker
+// never trusts a client-supplied identity, it reads the record back off the
+// claimed author's own PDS to confirm it's real (same pattern as
+// sites/velvetrope's verifyOwnRecord).
 
 import {
   generateDPoPKeyPair,
@@ -30,7 +33,7 @@ const ORIGIN = location.origin; // https://hyperobject.bisks.net (or localhost i
 export const MOUNT = ""; // canonical host is hyperobject.bisks.net — no path mount
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:net.bisks.hyperobject.cast?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
