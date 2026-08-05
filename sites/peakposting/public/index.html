@@ -104,6 +104,12 @@
 
   h2 { font-size: 1.1rem; margin: 0 0 0.2rem; color: var(--fg); }
   .boardhint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; }
+  .mootsToggle { display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.9rem; font-size: 0.8rem; }
+  .mootsToggle label { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; color: var(--dim); user-select: none; }
+  .mootsToggle input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .mootsToggle label:has(input:checked) { color: var(--fg); }
+  .mootsToggle strong { color: var(--accent); font-weight: 700; }
+  .mootsToggle .mootsStatus { color: var(--dim); font-size: 0.74rem; }
   .tabs { display: flex; gap: 0.4rem; margin-bottom: 0.9rem; }
   .tab {
     flex: 1; text-align: center; padding: 0.5rem 0.4rem; border-radius: 8px; cursor: pointer;
@@ -176,6 +182,13 @@
 
   <h2>the leaderboard</h2>
   <p class="boardhint">every account that's ever been scanned, ranked by its best-ever post. counts are re-verified against the AppView before they're banked, so nobody can just make one up.</p>
+  <div class="mootsToggle" id="mootsToggleWrap" style="display:none;">
+    <label>
+      <input type="checkbox" id="mootsToggle" />
+      <span>🤝 moots of <strong id="mootsHandle"></strong> only</span>
+    </label>
+    <span class="mootsStatus" id="mootsStatus"></span>
+  </div>
   <div class="tabs">
     <div class="tab likes active" data-metric="likes">🩷 likes</div>
     <div class="tab reposts" data-metric="reposts">🔁 reposts</div>
@@ -300,6 +313,10 @@ const els = {
   shareNative: document.getElementById("shareNative"),
   boardList: document.getElementById("boardList"),
   scannerCount: document.getElementById("scannerCount"),
+  mootsToggleWrap: document.getElementById("mootsToggleWrap"),
+  mootsToggle: document.getElementById("mootsToggle"),
+  mootsHandle: document.getElementById("mootsHandle"),
+  mootsStatus: document.getElementById("mootsStatus"),
 };
 
 function trophyHtml(entry, actor) {
@@ -317,9 +334,21 @@ function escapeHtml(s) {
 }
 
 let lastResult = null;
+let currentMootsDid = null;
 
 function renderResult(result) {
   lastResult = result;
+
+  if (result.did !== currentMootsDid) {
+    currentMootsDid = result.did;
+    mootsActive = false;
+    mootsSet = null;
+    els.mootsToggle.checked = false;
+    els.mootsStatus.textContent = "";
+  }
+  els.mootsHandle.textContent = "@" + result.handle;
+  els.mootsToggleWrap.style.display = "flex";
+
   els.avatar.src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
   els.name.textContent = result.displayName || result.handle;
   els.handle.textContent = "@" + result.handle;
@@ -493,13 +522,52 @@ els.form.addEventListener("submit", function (e) {
 
 let boardData = { likes: [], reposts: [], replies: [], scanners: 0 };
 let activeMetric = "likes";
+let mootsActive = false;
+let mootsSet = null;
+const mootsCache = new Map();
+
+// A "moot" is a mutual: someone the account follows who also follows them
+// back. Paginates both directions against the public AppView, same cap as
+// the post scan, then intersects the two DID sets.
+async function fetchFollowDids(actor, method, field) {
+  const dids = [];
+  let cursor;
+  let pages = 0;
+  const start = Date.now();
+  while (true) {
+    const params = { actor: actor, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const r = await xrpc(method, params);
+    const list = r[field] || [];
+    for (const u of list) dids.push(u.did);
+    pages++;
+    cursor = r.cursor;
+    if (!cursor || list.length === 0) break;
+    if (pages >= MAX_PAGES || Date.now() - start > MAX_MS) break;
+  }
+  return dids;
+}
+
+async function fetchMoots(did) {
+  const results = await Promise.all([
+    fetchFollowDids(did, "app.bsky.graph.getFollows", "follows"),
+    fetchFollowDids(did, "app.bsky.graph.getFollowers", "followers"),
+  ]);
+  const followerSet = new Set(results[1]);
+  return new Set(results[0].filter(function (d) { return followerSet.has(d); }));
+}
 
 function renderBoard() {
-  const list = boardData[activeMetric] || [];
+  let list = boardData[activeMetric] || [];
+  if (mootsActive && mootsSet) {
+    list = list.filter(function (entry) { return mootsSet.has(entry.did); });
+  }
   const boardEl = els.boardList;
   boardEl.className = "board " + activeMetric;
   if (!list.length) {
-    boardEl.innerHTML = '<div class="empty-board">nobody has claimed this one yet — be the first scan.</div>';
+    boardEl.innerHTML = mootsActive && mootsSet
+      ? '<div class="empty-board">no moots of ' + escapeHtml(els.mootsHandle.textContent) + ' on the board yet.</div>'
+      : '<div class="empty-board">nobody has claimed this one yet — be the first scan.</div>';
     return;
   }
   boardEl.innerHTML = list
@@ -537,6 +605,43 @@ document.querySelectorAll(".tab").forEach(function (tab) {
     activeMetric = tab.dataset.metric;
     renderBoard();
   });
+});
+
+els.mootsToggle.addEventListener("change", async function () {
+  const checked = els.mootsToggle.checked;
+  if (!checked) {
+    mootsActive = false;
+    els.mootsStatus.textContent = "";
+    renderBoard();
+    return;
+  }
+  const did = currentMootsDid;
+  if (!did) {
+    els.mootsToggle.checked = false;
+    return;
+  }
+  if (mootsCache.has(did)) {
+    mootsSet = mootsCache.get(did);
+    mootsActive = true;
+    els.mootsStatus.textContent = fmt(mootsSet.size) + " moot" + (mootsSet.size === 1 ? "" : "s");
+    renderBoard();
+    return;
+  }
+  els.mootsToggle.disabled = true;
+  els.mootsStatus.textContent = "finding moots…";
+  try {
+    const set = await fetchMoots(did);
+    mootsCache.set(did, set);
+    mootsSet = set;
+    mootsActive = true;
+    els.mootsStatus.textContent = fmt(set.size) + " moot" + (set.size === 1 ? "" : "s");
+  } catch (_) {
+    els.mootsToggle.checked = false;
+    els.mootsStatus.textContent = "couldn't load moots — try again";
+  } finally {
+    els.mootsToggle.disabled = false;
+    renderBoard();
+  }
 });
 
 loadLeaderboard();
