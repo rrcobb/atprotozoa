@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lurkhelper — find the followers who never say anything</title>
+    <meta name="description" content="Enter a Bluesky handle: lurkhelper finds the followers who never liked, reposted, or replied to its posts — the lurkers — and gives you a one-tap way to say hi to each one." />
+    <meta property="og:title" content="lurkhelper — find the followers who never say anything" />
+    <meta property="og:description" content="Enter a handle. lurkhelper finds the silent followers and gives you a one-tap way to say hi to each one." />
+    <meta property="og:image" content="https://lurkhelper.bisks.net/og.png" />
+    <meta property="og:url" content="https://lurkhelper.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="lurkhelper — find the followers who never say anything" />
+    <meta name="twitter:description" content="Enter a handle. lurkhelper finds the silent followers and gives you a one-tap way to say hi to each one." />
+    <meta name="twitter:image" content="https://lurkhelper.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#0a1614; --panel:#0f211f; --panel2:#153029; --ink:#eafff4;
+        --muted:#7fae9e; --faint:#1c3a35; --accent:#5eead4; --accent2:#fbbf24;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #123a35, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:760px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        display:flex; align-items:baseline; gap:0.5rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.6rem; max-width:60ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#3f6a60; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#062421; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:#ff6b6b; }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.4rem; }
+      .examples a { cursor:pointer; }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .profile { display:none; align-items:center; gap:0.75rem; margin:0.4rem 0 1.4rem;
+        padding-bottom:1.2rem; border-bottom:1px solid var(--faint); }
+      .profile.show { display:flex; }
+      .profile img { width:52px; height:52px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .profile .pname { font-weight:800; font-size:1.02rem; line-height:1.25; }
+      .profile .phandle { color:var(--muted); font-size:0.85rem; }
+      .profile .pcount { margin-left:auto; text-align:right; color:var(--muted);
+        font-size:0.76rem; font-family:var(--mono); line-height:1.4; }
+
+      .resultWrap { display:none; }
+      .resultWrap.show { display:block; }
+
+      .wallhead { display:flex; align-items:baseline; justify-content:space-between;
+        margin:0 0 0.7rem; }
+      .wallhead h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;
+        color:var(--muted); margin:0; font-weight:700; }
+      .wallhead .cap { color:var(--muted); font-size:0.74rem; font-family:var(--mono); }
+
+      .wall { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));
+        gap:0.65rem; margin-bottom:1.6rem; }
+      .fcard { background:var(--panel); border:1px solid var(--faint); border-radius:14px;
+        padding:0.75rem; display:flex; flex-direction:column; align-items:center; text-align:center;
+        gap:0.4rem; min-width:0; }
+      .fcard:hover { border-color:var(--accent); }
+      .fcard a.pic { text-decoration:none; }
+      .fcard img { width:48px; height:48px; border-radius:50%; background:var(--faint);
+        object-fit:cover; }
+      .fcard .fname { font-weight:700; font-size:0.82rem; color:var(--ink); width:100%;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fcard .fhandle { font-size:0.72rem; color:var(--muted); width:100%;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .fcard .sayhi { margin-top:0.15rem; font-family:var(--mono); font-size:0.72rem;
+        font-weight:700; color:#241a03; background:var(--accent2); border:0; border-radius:8px;
+        padding:0.35rem 0.6rem; cursor:pointer; text-decoration:none; }
+      .fcard .sayhi:hover { text-decoration:none; filter:brightness(1.08); }
+
+      .empty { color:var(--muted); font-size:0.9rem; background:var(--panel);
+        border:1px solid var(--faint); border-radius:14px; padding:1.4rem; text-align:center;
+        margin-bottom:1.6rem; }
+
+      .share { display:none; margin:1.4rem 0 1rem; flex-wrap:wrap; gap:0.55rem; }
+      .share.show { display:flex; }
+      .share button, .share a.btn { font-family:var(--mono); font-size:0.8rem; color:var(--muted);
+        background:none; border:1px solid var(--faint); border-radius:9px; padding:0.5rem 0.85rem;
+        cursor:pointer; text-decoration:none; }
+      .share button:hover, .share a.btn:hover { color:var(--ink); border-color:var(--accent); text-decoration:none; }
+      .share a.compose { color:#062421; background:var(--accent); border-color:var(--accent); font-weight:700; }
+      .share a.compose:hover { color:#062421; }
+
+      .note { margin-top:2.5rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>👀 lurkhelper</h1>
+      <p class="sub">
+        Some of the people who follow this account have never liked, reposted,
+        or replied to a single one of its posts — they're just <b>lurking</b>.
+        Enter a handle and we'll find them off Bluesky's public AppView, then
+        give you a one-tap way to say hi to each one.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. buildthis.bisks.net" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">find the lurkers</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="buildthis.bisks.net">buildthis.bisks.net</a> ·
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+        <div class="pcount" id="pcount"></div>
+      </div>
+
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="resultWrap" id="resultWrap">
+        <div class="wallhead">
+          <h3>the lurkers</h3>
+          <span class="cap" id="wallcap"></span>
+        </div>
+        <div class="wall" id="wall"></div>
+
+        <div class="share" id="share">
+          <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
+          <button id="shareDownload">⬇ download card</button>
+          <button id="shareNative" style="display:none">📤 share</button>
+          <button id="copyLink">🔗 copy link</button>
+        </div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+      <p class="note">
+        Reads only public data (Bluesky's anonymous AppView —
+        <code>getFollowers</code>, <code>getAuthorFeed</code>,
+        <code>getLikes</code>, <code>getRepostedBy</code>,
+        <code>getPostThread</code>). Everything runs in your browser. A
+        "lurker" is a follower who hasn't liked, reposted, or directly
+        replied to any of the account's last 10 posts — checked against up
+        to 2,000 followers (20 pages), so a huge account gets a sample, not
+        an exhaustive count. The "say hi" button just opens Bluesky's own
+        compose window with a friendly nudge pre-filled — nothing is posted
+        automatically, and nothing here is written back to anyone's account.
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/thegodfungi.bsky.social">@thegodfungi.bsky.social</a></p>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveDid, fetchProfile, fetchFollowers, fetchRecentPosts, fetchEngagedDids } from "./lib/followers.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const profile = document.getElementById("profile");
+      const progwrap = document.getElementById("progwrap");
+      const progbarfill = document.getElementById("progbarfill");
+      const proglabel = document.getElementById("proglabel");
+      const resultWrap = document.getElementById("resultWrap");
+      const wall = document.getElementById("wall");
+      const wallcap = document.getElementById("wallcap");
+      const share = document.getElementById("share");
+      const shareCanvas = document.getElementById("shareCanvas");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function renderProfile(prof) {
+        document.getElementById("pavatar").src = prof.avatar || "";
+        document.getElementById("pname").textContent = prof.displayName || prof.handle || "";
+        document.getElementById("phandle").textContent = "@" + (prof.handle || "");
+        document.getElementById("pcount").innerHTML =
+          `${prof.followersCount.toLocaleString()} followers<br>${prof.followingCount.toLocaleString()} following`;
+        profile.classList.add("show");
+      }
+
+      function sayHiText(f) {
+        return `hey @${f.handle}, noticed you've been lurking around — come say hi! 👋`;
+      }
+
+      function fcardHTML(f) {
+        const composeUrl = "https://bsky.app/intent/compose?text=" + encodeURIComponent(sayHiText(f));
+        return `
+          <div class="fcard">
+            <a class="pic" href="https://bsky.app/profile/${esc(f.handle)}" target="_blank" rel="noopener">
+              <img src="${esc(f.avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy" />
+              <div class="fname">${esc(f.displayName)}</div>
+              <div class="fhandle">@${esc(f.handle)}</div>
+            </a>
+            <a class="sayhi" href="${composeUrl}" target="_blank" rel="noopener">👋 say hi</a>
+          </div>`;
+      }
+
+      async function loadImg(url) {
+        if (!url) return null;
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(prof, lurkers) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        const avatar = await loadImg(prof.avatar);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#0a1614";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, -H * 0.15, 0, W * 0.5, -H * 0.15, W * 0.6);
+        glow.addColorStop(0, "#123a35");
+        glow.addColorStop(1, "rgba(10,22,20,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#5eead4";
+        ctx.font = `800 44px ${mono}`;
+        ctx.fillText("👀 lurkhelper", 60, 96);
+
+        ctx.fillStyle = "#7fae9e";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(`who's lurking @${prof.handle || ""}`, 60, 132);
+
+        const cardX = 60, cardY = 168, cardW = W - 120, cardH = H - 320;
+        ctx.fillStyle = "#0f211f";
+        ctx.strokeStyle = "#1c3a35";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        let textX = cardX + 40;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cardX + 70, cardY + 62, 30, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, cardX + 40, cardY + 32, 60, 60);
+          ctx.restore();
+          textX = cardX + 114;
+        }
+        ctx.fillStyle = "#eafff4";
+        ctx.font = `800 26px ${mono}`;
+        ctx.fillText(prof.displayName || prof.handle || "", textX, cardY + 54);
+        ctx.fillStyle = "#7fae9e";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText("@" + (prof.handle || ""), textX, cardY + 82);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = `800 40px ${mono}`;
+        ctx.fillText(`${lurkers.length.toLocaleString()} lurkers found`, cardX + 40, cardY + 150);
+
+        // avatar mosaic of the first ~30 lurkers on the wall
+        const grid = lurkers.slice(0, 30);
+        const cols = 10, size = 56, gap = 10;
+        const gridX = cardX + 40, gridY = cardY + 190;
+        for (let i = 0; i < grid.length; i++) {
+          const cx = gridX + (i % cols) * (size + gap);
+          const cy = gridY + Math.floor(i / cols) * (size + gap);
+          ctx.fillStyle = "#1c3a35";
+          ctx.beginPath();
+          ctx.arc(cx + size / 2, cy + size / 2, size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#5eead4";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("lurkhelper.bisks.net", 60, H - 40);
+
+        // draw real avatars over the mosaic placeholders, then finish
+        for (let i = 0; i < grid.length; i++) {
+          const img = await loadImg(grid[i].avatar);
+          if (!img) continue;
+          const cx = gridX + (i % cols) * (size + gap);
+          const cy = gridY + Math.floor(i / cols) * (size + gap);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx + size / 2, cy + size / 2, size / 2, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(img, cx, cy, size, size);
+          ctx.restore();
+        }
+      }
+
+      function buildShareText(prof, lurkers) {
+        const url = "https://lurkhelper.bisks.net/?handle=" + encodeURIComponent(prof.handle);
+        return `👀 lurkhelper found ${lurkers.length.toLocaleString()} people lurking @${prof.handle} — followers who never like, repost, or reply\n\n${url}`;
+      }
+
+      let lastShareText = "";
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        profile.classList.remove("show");
+        progwrap.classList.remove("show");
+        resultWrap.classList.remove("show");
+        share.classList.remove("show");
+        wall.innerHTML = "";
+
+        try {
+          statusEl.textContent = "resolving handle…";
+          const did = await resolveDid(rawHandle);
+          const prof = await fetchProfile(did);
+          renderProfile(prof);
+
+          if (prof.followersCount === 0) {
+            statusEl.textContent = `@${prof.handle} has no followers yet.`;
+            busy = false;
+            go.disabled = false;
+            return;
+          }
+
+          progwrap.classList.add("show");
+          const followers = await fetchFollowers(did, {
+            onStep: (msg) => {
+              statusEl.textContent = msg;
+              proglabel.textContent = msg;
+            },
+          });
+
+          statusEl.textContent = "reading recent posts…";
+          proglabel.textContent = "reading recent posts…";
+          const posts = await fetchRecentPosts(did);
+
+          if (posts.length === 0) {
+            progwrap.classList.remove("show");
+            statusEl.textContent = `@${prof.handle} hasn't posted anything public recently, so there's no way to tell who's engaged — here's the full follower wall instead.`;
+            wall.innerHTML = followers.map(fcardHTML).join("");
+            wallcap.textContent = `all ${followers.length.toLocaleString()} followers (no posts to check)`;
+            resultWrap.classList.add("show");
+            share.classList.add("show");
+            lastShareText = buildShareText(prof, followers);
+            document.getElementById("shareBluesky").href =
+              "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+            buildShareCard(prof, followers);
+            busy = false;
+            go.disabled = false;
+            return;
+          }
+
+          const engaged = await fetchEngagedDids(posts, {
+            onStep: (msg) => {
+              statusEl.textContent = msg;
+              proglabel.textContent = msg;
+            },
+          });
+          progwrap.classList.remove("show");
+          statusEl.textContent = "";
+
+          const lurkers = followers.filter((f) => f.did !== did && !engaged.has(f.did));
+
+          if (lurkers.length === 0) {
+            wall.innerHTML = "";
+            resultWrap.classList.add("show");
+            wallcap.textContent = `0 of ${followers.length.toLocaleString()} checked`;
+            wall.innerHTML = `<div class="empty">nobody's lurking — every follower we checked has liked, reposted, or replied to a recent post. 🎉</div>`;
+            share.classList.remove("show");
+            busy = false;
+            go.disabled = false;
+            return;
+          }
+
+          wall.innerHTML = lurkers.map(fcardHTML).join("");
+          wallcap.textContent = followers.length < prof.followersCount
+            ? `${lurkers.length.toLocaleString()} of ${followers.length.toLocaleString()} checked followers (of ${prof.followersCount.toLocaleString()} total), from the last ${posts.length} posts`
+            : `${lurkers.length.toLocaleString()} of ${followers.length.toLocaleString()} followers, from the last ${posts.length} posts`;
+          resultWrap.classList.add("show");
+          share.classList.add("show");
+
+          lastShareText = buildShareText(prof, lurkers);
+          document.getElementById("shareBluesky").href =
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(prof, lurkers);
+
+          const url = new URL(location.href);
+          url.searchParams.set("handle", prof.handle);
+          history.replaceState(null, "", url);
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't load that: " + e.message;
+          progwrap.classList.remove("show");
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+
+      document.getElementById("shareDownload").addEventListener("click", () => {
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "lurkhelper.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) { return false; }
+      }
+      if (canShareFiles()) {
+        document.getElementById("shareNative").style.display = "";
+        document.getElementById("shareNative").addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "lurkhelper.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "lurkhelper" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+  </body>
+</html>
