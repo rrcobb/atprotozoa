@@ -106,6 +106,7 @@
         border: 1px solid var(--card-border);
       }
       .stage svg { display: block; width: 100%; height: auto; }
+      #swirlCanvas { display: none; width: 100%; height: auto; }
       .figA, .figB { transform-box: fill-box; transform-origin: 50% 90%; }
       .heart { transform-box: fill-box; transform-origin: 50% 50%; }
       .stage.hugging .figA { animation: squeezeA 2.4s ease-in-out infinite; }
@@ -161,7 +162,7 @@
     <div class="wrap">
       <header>
         <h1>warmhug</h1>
-        <p class="tag">wrap up a hug for someone — a cozy message, a little glowing animation, soft ambient sound. send it as a surprise link, post it, or keep it for yourself.</p>
+        <p class="tag">wrap up a hug for someone — a cozy message, a little glowing animation (or a swirling one, your call), soft ambient sound. send it as a surprise link, post it, or keep it for yourself.</p>
       </header>
 
       <div class="card" id="giftCard" style="display:none;">
@@ -196,6 +197,7 @@
 
       <div class="card result" id="result">
         <div class="stage" id="stage">
+          <canvas id="swirlCanvas" width="300" height="210" aria-hidden="true"></canvas>
           <svg viewBox="0 0 300 210" aria-hidden="true">
             <defs>
               <radialGradient id="glow" cx="50%" cy="55%" r="60%">
@@ -235,6 +237,7 @@
 
         <div class="resultBtns">
           <button type="button" class="ghost" id="soundBtn">🔈 cozy sounds: off</button>
+          <button type="button" class="ghost" id="viewToggle">🌀 swirl view</button>
           <button type="button" class="ghost" id="againBtn">wrap another hug</button>
         </div>
 
@@ -315,6 +318,9 @@
         wrapBtn: document.getElementById("wrapBtn"),
         result: document.getElementById("result"),
         stage: document.getElementById("stage"),
+        swirlCanvas: document.getElementById("swirlCanvas"),
+        stageSvg: document.querySelector("#stage svg"),
+        viewToggle: document.getElementById("viewToggle"),
         messageText: document.getElementById("messageText"),
         fromTo: document.getElementById("fromTo"),
         soundBtn: document.getElementById("soundBtn"),
@@ -366,6 +372,81 @@
         if (floatTimer) clearInterval(floatTimer);
         floatTimer = null;
       }
+
+      // ---------------------------------------------------------------
+      // swirl view — an alternate stage: warm color ribbons spinning
+      // around the recipient's name instead of the hug-figures svg
+      // ---------------------------------------------------------------
+      var viewMode = "hug";
+      var swirlRaf = null, swirlAngle = 0, swirlName = "you";
+      var SWIRL_COLORS = ["#ff8a65", "#ffd97a", "#b39ddb", "#ff8fab"];
+      function swirlFrame() {
+        var c = els.swirlCanvas.getContext("2d");
+        var W = els.swirlCanvas.width, H = els.swirlCanvas.height;
+        var cx = W / 2, cy = H / 2;
+
+        c.fillStyle = "rgba(21,11,34,0.14)";
+        c.fillRect(0, 0, W, H);
+
+        for (var ring = 0; ring < 3; ring++) {
+          var arms = 5;
+          for (var a = 0; a < arms; a++) {
+            var ang = swirlAngle * (1 + ring * 0.16) + ((Math.PI * 2) / arms) * a;
+            var r = 20 + ring * 24 + Math.sin(swirlAngle * 1.3 + a) * 6;
+            var x = cx + Math.cos(ang) * r * (1.35 + ring * 0.55);
+            var y = cy + Math.sin(ang) * r * (0.85 + ring * 0.45);
+            var rad = 7 - ring * 1.3;
+            var glow = c.createRadialGradient(x, y, 0, x, y, rad * 3);
+            glow.addColorStop(0, SWIRL_COLORS[(a + ring) % SWIRL_COLORS.length]);
+            glow.addColorStop(1, "rgba(21,11,34,0)");
+            c.fillStyle = glow;
+            c.beginPath();
+            c.arc(x, y, rad * 3, 0, Math.PI * 2);
+            c.fill();
+          }
+        }
+        swirlAngle += 0.02;
+
+        c.textAlign = "center";
+        c.shadowColor = "rgba(255,217,122,0.85)";
+        c.shadowBlur = 16;
+        c.fillStyle = "#fff6ee";
+        c.font = "800 24px ui-rounded, Nunito, sans-serif";
+        c.fillText(truncate(swirlName, 16), cx, cy + 8);
+        c.shadowBlur = 0;
+
+        swirlRaf = requestAnimationFrame(swirlFrame);
+      }
+      function startSwirl(name) {
+        stopSwirl();
+        swirlName = name || "you";
+        swirlAngle = 0;
+        var c = els.swirlCanvas.getContext("2d");
+        c.fillStyle = "#150b22";
+        c.fillRect(0, 0, els.swirlCanvas.width, els.swirlCanvas.height);
+        swirlFrame();
+      }
+      function stopSwirl() {
+        if (swirlRaf) cancelAnimationFrame(swirlRaf);
+        swirlRaf = null;
+      }
+      function setView(mode) {
+        viewMode = mode;
+        if (mode === "swirl") {
+          els.stageSvg.style.display = "none";
+          els.swirlCanvas.style.display = "";
+          els.viewToggle.textContent = "🤗 hug view";
+          startSwirl(lastTo);
+        } else {
+          els.swirlCanvas.style.display = "none";
+          els.stageSvg.style.display = "";
+          els.viewToggle.textContent = "🌀 swirl view";
+          stopSwirl();
+        }
+      }
+      els.viewToggle.addEventListener("click", function () {
+        setView(viewMode === "hug" ? "swirl" : "hug");
+      });
 
       // ---------------------------------------------------------------
       // tiny WebAudio ambience — warm pad + soft chimes + hearth noise,
@@ -500,6 +581,7 @@
         void els.stage.offsetWidth;
         els.stage.classList.add("hugging");
         startFloaties();
+        if (viewMode === "swirl") startSwirl(to);
 
         if (!soundOn) setSound(true);
         else if (master) playChime();
