@@ -283,6 +283,83 @@
   }
   .entry .badge .n { color: var(--gold); font-weight: 700; }
 
+  /* ---------- the checkpoint (review queue) ---------- */
+  .queuebox {
+    background: var(--pitcard);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem 1.4rem;
+    margin-bottom: 1rem;
+  }
+  .queuebox h2 { margin: 0 0 0.3rem; font-size: 1rem; color: var(--fg); }
+  .queuebox .sub { color: var(--dim); font-size: 0.82rem; margin: 0 0 1rem; line-height: 1.5; }
+  .queue-empty { color: var(--dim); font-size: 0.88rem; padding: 1rem 0; text-align: center; }
+
+  .dossier {
+    position: relative;
+    background: var(--void);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 1.1rem 1.1rem 0.9rem;
+    text-align: center;
+    overflow: hidden;
+  }
+  .dossier-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #3a3145;
+    border: 1px solid var(--border);
+    margin-bottom: 0.5rem;
+  }
+  .dossier-name { font-weight: 800; font-size: 1rem; color: var(--fg); }
+  .dossier-handle { color: var(--dim); font-size: 0.78rem; margin-top: 0.1rem; }
+  .dossier-note { color: var(--gold2); font-size: 0.82rem; font-style: italic; margin-top: 0.6rem; }
+  .dossier-suggested { color: var(--dim); font-size: 0.72rem; margin-top: 0.5rem; }
+  .dossier-actions { display: flex; gap: 0.6rem; margin-top: 1rem; }
+  .dossier-actions button {
+    flex: 1;
+    border-radius: 8px;
+    padding: 0.65rem 0.8rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.86rem;
+    cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .dossier-actions button.approve { background: linear-gradient(90deg, #7ee0a3, #4fc47f); color: #0a2313; border: none; }
+  .dossier-actions button.deny { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .dossier-actions button:disabled { opacity: 0.5; cursor: wait; }
+  .dossier-count { color: var(--dim); font-size: 0.7rem; margin-top: 0.7rem; }
+
+  .dossier-stamp {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-18deg) scale(1.6);
+    font-size: 1.9rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    padding: 0.3rem 0.9rem;
+    border: 5px solid currentColor;
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 2;
+    background: var(--void);
+  }
+  .dossier-stamp.show {
+    animation: stamp-down 0.4s cubic-bezier(.2,1.4,.5,1) forwards;
+  }
+  .dossier-stamp.approve { color: #7ee0a3; }
+  .dossier-stamp.deny { color: var(--danger); }
+  @keyframes stamp-down {
+    0% { opacity: 0; transform: translate(-50%, -50%) rotate(-18deg) scale(2.4); }
+    60% { opacity: 1; transform: translate(-50%, -50%) rotate(-14deg) scale(0.92); }
+    100% { opacity: 1; transform: translate(-50%, -50%) rotate(-14deg) scale(1); }
+  }
+
   /* ---------- share ---------- */
   .share {
     margin-top: 1.75rem;
@@ -337,8 +414,8 @@
     <div class="beam"></div>
 
     <div class="castbox">
-      <h2>cast someone into the pit</h2>
-      <p class="sub">Sign in with Bluesky, then enter a handle. They fall, permanently, beneath isolyth.dev — for everyone who visits, not just you. Anyone can cast; every fall is marked with who actually did it.</p>
+      <h2 id="castboxTitle">cast someone into the pit</h2>
+      <p class="sub" id="castboxSub">Sign in with Bluesky. Only isolyth.dev can cast directly — everyone else can suggest a soul for isolyth to review.</p>
       <div id="signinBar" class="signin"></div>
       <form id="f">
         <div class="row">
@@ -348,6 +425,26 @@
         <input id="note" type="text" maxlength="140" placeholder="why (optional) — e.g. \"mogged me on peakposting\"" autocomplete="off" />
       </form>
       <p id="status" class="status"></p>
+    </div>
+
+    <div class="queuebox" id="queuebox" hidden>
+      <h2>the checkpoint</h2>
+      <p class="sub">Only you can cast — everyone else can only nominate. Work the queue: stamp each dossier down.</p>
+      <div id="queueEmpty" class="queue-empty" hidden>the queue is clear. nobody's waiting judgement.</div>
+      <div id="dossier" class="dossier" hidden>
+        <div id="dossierStamp" class="dossier-stamp"></div>
+        <img id="dossierAvatar" class="dossier-avatar" alt="" />
+        <div class="dossier-name" id="dossierName"></div>
+        <div class="dossier-handle" id="dossierHandle"></div>
+        <div class="dossier-note" id="dossierNote"></div>
+        <div class="dossier-suggested" id="dossierSuggested"></div>
+        <div class="dossier-actions">
+          <button id="denyBtn" class="deny" type="button">❌ deny</button>
+          <button id="approveBtn" class="approve" type="button">✅ approve</button>
+        </div>
+        <div class="dossier-count" id="dossierCount"></div>
+      </div>
+      <p id="queueStatus" class="status"></p>
     </div>
 
     <div class="pithead">
@@ -377,6 +474,8 @@ if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getEleme
 const API = "https://public.api.bsky.app/xrpc/";
 const HYPEROBJECT_HANDLE = "isolyth.dev";
 const CAST_COLLECTION = "net.bisks.hyperobject.cast";
+const SUGGEST_COLLECTION = "net.bisks.hyperobject.suggestion";
+const REVIEW_COLLECTION = "net.bisks.hyperobject.review";
 
 async function xrpc(method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -426,11 +525,29 @@ const els = {
   shareBluesky: document.getElementById("shareBluesky"),
   shareCopy: document.getElementById("shareCopy"),
   signinBar: document.getElementById("signinBar"),
+  castboxTitle: document.getElementById("castboxTitle"),
+  castboxSub: document.getElementById("castboxSub"),
+  queuebox: document.getElementById("queuebox"),
+  queueEmpty: document.getElementById("queueEmpty"),
+  dossier: document.getElementById("dossier"),
+  dossierStamp: document.getElementById("dossierStamp"),
+  dossierAvatar: document.getElementById("dossierAvatar"),
+  dossierName: document.getElementById("dossierName"),
+  dossierHandle: document.getElementById("dossierHandle"),
+  dossierNote: document.getElementById("dossierNote"),
+  dossierSuggested: document.getElementById("dossierSuggested"),
+  dossierCount: document.getElementById("dossierCount"),
+  approveBtn: document.getElementById("approveBtn"),
+  denyBtn: document.getElementById("denyBtn"),
+  queueStatus: document.getElementById("queueStatus"),
 };
 
-// --- sign in (required to cast — see src/index.ts's verifyOwnCastRecord) ---
+// --- sign in (required to cast/suggest/review — see src/index.ts's verifyOwnRecord) ---
 
 let session = null;
+function isHyperobject() {
+  return !!session && session.handle.toLowerCase() === HYPEROBJECT_HANDLE;
+}
 
 function renderSignin() {
   if (session) {
@@ -442,6 +559,7 @@ function renderSignin() {
       await clearSession();
       session = null;
       renderSignin();
+      renderCastMode();
     });
     return;
   }
@@ -464,9 +582,37 @@ function renderSignin() {
   });
 }
 
+// Only isolyth.dev can cast directly (Worker-enforced — see src/index.ts's
+// /api/cast gate). Everyone else's form writes a suggestion instead, and
+// isolyth.dev alone sees the checkpoint below to work the queue.
+function renderCastMode() {
+  if (isHyperobject()) {
+    els.castboxTitle.textContent = "cast someone into the pit";
+    els.castboxSub.textContent = "You're isolyth.dev — casting here is instant and permanent, no review needed.";
+    els.go.textContent = "cast down";
+    els.queuebox.hidden = false;
+    loadQueue();
+  } else if (session) {
+    els.castboxTitle.textContent = "suggest a soul for the pit";
+    els.castboxSub.textContent = "Only isolyth.dev can cast directly. Type a handle and it goes to them for review — approved souls fall permanently.";
+    els.go.textContent = "submit for review";
+    els.queuebox.hidden = true;
+  } else {
+    els.castboxTitle.textContent = "cast someone into the pit";
+    els.castboxSub.textContent = "Sign in with Bluesky. Only isolyth.dev can cast directly — everyone else can suggest a soul for isolyth to review.";
+    els.go.textContent = "cast down";
+    els.queuebox.hidden = true;
+  }
+}
+
 function setStatus(msg, kind) {
   els.status.textContent = msg || "";
   els.status.className = "status" + (kind ? " " + kind : "");
+}
+
+function setQueueStatus(msg, kind) {
+  els.queueStatus.textContent = msg || "";
+  els.queueStatus.className = "status" + (kind ? " " + kind : "");
 }
 
 function shareUrlFor(handle) {
@@ -505,6 +651,7 @@ async function initSession() {
     setStatus("sign-in failed: " + e.message, "err");
   }
   renderSignin();
+  renderCastMode();
 }
 initSession();
 
@@ -513,7 +660,12 @@ function renderEntry(entry, isFresh) {
   div.className = "entry" + (isFresh ? " fresh" : "");
   div.dataset.did = entry.did;
   const name = entry.displayName || entry.handle;
-  const castByLine = entry.lastCastBy
+  // suggestedBy credit takes priority once the checkpoint exists — "cast by"
+  // alone would just say isolyth.dev on every single approved entry now.
+  // Older entries cast directly (pre-checkpoint, by whoever) fall back to it.
+  const castByLine = entry.suggestedBy
+    ? `suggested by @${esc(entry.suggestedBy.handle)}, cast by @${esc((entry.lastCastBy || {}).handle || HYPEROBJECT_HANDLE)}`
+    : entry.lastCastBy
     ? `cast by @${esc(entry.lastCastBy.handle)}` +
       (entry.castBy && entry.castBy.length > 1 ? ` +${entry.castBy.length - 1} more` : "")
     : "";
@@ -563,9 +715,13 @@ async function castInto(rawHandle, note) {
     return;
   }
   if (!session) {
-    setStatus("sign in above first — casting is keyed to your account.", "err");
+    setStatus("sign in above first.", "err");
     return;
   }
+
+  const direct = isHyperobject();
+  const collection = direct ? CAST_COLLECTION : SUGGEST_COLLECTION;
+  const endpoint = direct ? "/api/cast" : "/api/suggest";
 
   els.go.disabled = true;
   setStatus("resolving " + handle + " ...");
@@ -579,13 +735,13 @@ async function castInto(rawHandle, note) {
       did = r.did;
     }
 
-    // Casting writes a record naming the target to *your own* PDS first —
-    // that's the proof of who really did the casting. The Worker never takes
-    // a client's word for it; it reads this record back off your own PDS
-    // before applying it (src/index.ts's verifyOwnCastRecord).
-    setStatus("writing the cast to your PDS...");
+    // Casting (and suggesting) writes a record naming the target to *your
+    // own* PDS first — that's the proof of who really did it. The Worker
+    // never takes a client's word for it; it reads this record back off your
+    // own PDS before applying it (src/index.ts's verifyOwnRecord).
+    setStatus(direct ? "writing the cast to your PDS..." : "writing the suggestion to your PDS...");
     const record = {
-      $type: CAST_COLLECTION,
+      $type: collection,
       target: did,
       ...(note ? { note } : {}),
       createdAt: new Date().toISOString(),
@@ -593,27 +749,31 @@ async function castInto(rawHandle, note) {
     const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo: session.did, collection: CAST_COLLECTION, record }),
+      body: JSON.stringify({ repo: session.did, collection, record }),
     });
     const written = await writeRes.json().catch(() => ({}));
-    if (!writeRes.ok) throw new Error(written.message || "couldn't write the cast to your PDS");
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write that to your PDS");
 
-    setStatus("casting " + handle + " down...");
-    const res = await fetch("/api/cast", {
+    setStatus(direct ? "casting " + handle + " down..." : "sending " + handle + " to isolyth.dev...");
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ uri: written.uri }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't cast that one down");
+    if (!res.ok) throw new Error(data.error || "couldn't submit that one");
 
-    setStatus(`@${data.entry.handle} has fallen — cast by @${session.handle}.`, "ok");
-    setShare(data.entry.handle);
-    await loadPit(data.entry.did);
+    if (direct) {
+      setStatus(`@${data.entry.handle} has fallen — cast by @${session.handle}.`, "ok");
+      setShare(data.entry.handle);
+      await loadPit(data.entry.did);
+    } else {
+      setStatus(`@${data.suggestion.handle} sent to isolyth.dev for review.`, "ok");
+    }
     els.input.value = "";
     els.note.value = "";
   } catch (err) {
-    setStatus("couldn't cast that one: " + err.message, "err");
+    setStatus("couldn't submit that one: " + err.message, "err");
   } finally {
     els.go.disabled = false;
   }
@@ -623,6 +783,103 @@ els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   castInto(els.input.value, els.note.value);
 });
+
+// --- the checkpoint (isolyth.dev only): Papers-Please-style review queue ---
+
+let queue = [];
+
+async function loadQueue() {
+  if (!isHyperobject()) return;
+  try {
+    const res = await fetch("/api/queue");
+    if (!res.ok) throw new Error("queue fetch failed");
+    const data = await res.json();
+    queue = data.queue || [];
+    renderDossier();
+  } catch (_) {
+    setQueueStatus("couldn't reach the queue. try again in a moment.", "err");
+  }
+}
+
+function renderDossier() {
+  els.dossierStamp.className = "dossier-stamp";
+  els.dossierStamp.textContent = "";
+  if (!queue.length) {
+    els.dossier.hidden = true;
+    els.queueEmpty.hidden = false;
+    return;
+  }
+  els.queueEmpty.hidden = true;
+  els.dossier.hidden = false;
+  const item = queue[0];
+  const name = item.displayName || item.handle;
+  els.dossierAvatar.src = item.avatar || "";
+  els.dossierName.textContent = name;
+  els.dossierHandle.textContent = "@" + item.handle;
+  els.dossierNote.textContent = item.note ? `"${item.note}"` : "";
+  els.dossierNote.style.display = item.note ? "" : "none";
+  els.dossierSuggested.textContent = "suggested by @" + item.suggestedBy.handle;
+  els.dossierCount.textContent = queue.length > 1 ? `${queue.length - 1} more waiting after this` : "last one in the queue";
+  els.approveBtn.disabled = false;
+  els.denyBtn.disabled = false;
+}
+
+async function reviewCurrent(decision) {
+  if (!session || !queue.length) return;
+  const item = queue[0];
+  els.approveBtn.disabled = true;
+  els.denyBtn.disabled = true;
+  setQueueStatus("stamping...");
+
+  try {
+    // Same trick a third time: the decision is a record written to
+    // isolyth's own PDS, and the Worker reads it back to prove it's really
+    // them before it takes effect (src/index.ts's /api/review).
+    const record = {
+      $type: REVIEW_COLLECTION,
+      suggestionUri: item.uri,
+      decision,
+      createdAt: new Date().toISOString(),
+    };
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: REVIEW_COLLECTION, record }),
+    });
+    const written = await writeRes.json().catch(() => ({}));
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write that stamp to your PDS");
+
+    const res = await fetch("/api/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uri: written.uri }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "couldn't apply that stamp");
+
+    els.dossierStamp.textContent = decision === "approve" ? "APPROVED" : "DENIED";
+    els.dossierStamp.className = "dossier-stamp show " + decision;
+    setQueueStatus(
+      decision === "approve" ? `@${item.handle} cast down.` : `@${item.handle} let go.`,
+      "ok"
+    );
+    if (decision === "approve" && data.entry) {
+      setShare(data.entry.handle);
+      await loadPit(data.entry.did);
+    }
+    setTimeout(() => {
+      queue.shift();
+      renderDossier();
+    }, 650);
+  } catch (err) {
+    setQueueStatus("couldn't stamp that one: " + err.message, "err");
+    els.approveBtn.disabled = false;
+    els.denyBtn.disabled = false;
+  }
+}
+
+els.approveBtn.addEventListener("click", () => reviewCurrent("approve"));
+els.denyBtn.addEventListener("click", () => reviewCurrent("deny"));
 
 // /s/<handle> — jump straight to whoever this share link is about, if they're
 // already in the pit. It never casts on load; casting only ever happens from

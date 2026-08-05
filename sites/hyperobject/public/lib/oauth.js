@@ -8,15 +8,16 @@
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
 // The client_id is the URL of our static client-metadata.json. Scope is
-// `atproto repo:net.bisks.hyperobject.cast?action=create` — `atproto` alone
-// just confirms there's a real signed-in account (that's all a bare login
-// needs); the `repo:` grant is narrowed to create-only access on our one
-// custom collection, not the old `transition:generic` app-password-equivalent
-// scope, which would hand us read/write over the caster's *entire* repo.
-// Casting writes one of those records to the *caster's own* PDS; the Worker
+// three narrow create-only `repo:` grants, one per custom collection — cast,
+// suggestion, review — not the old `transition:generic` app-password-equivalent
+// scope, which would hand us read/write over the signer's *entire* repo.
+// `atproto` alone just confirms there's a real signed-in account (that's all
+// a bare login needs). Every action (casting, suggesting, reviewing) writes
+// one of those three record types to the *acting user's own* PDS; the Worker
 // never trusts a client-supplied identity, it reads the record back off the
 // claimed author's own PDS to confirm it's real (same pattern as
-// sites/velvetrope's verifyOwnRecord).
+// sites/velvetrope's verifyOwnRecord) — and only isolyth.dev's own DID is
+// ever allowed to write a cast or a review that the Worker will accept.
 
 import {
   generateDPoPKeyPair,
@@ -33,7 +34,8 @@ const ORIGIN = location.origin; // https://hyperobject.bisks.net (or localhost i
 export const MOUNT = ""; // canonical host is hyperobject.bisks.net — no path mount
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:net.bisks.hyperobject.cast?action=create";
+const SCOPE =
+  "atproto repo:net.bisks.hyperobject.cast?action=create repo:net.bisks.hyperobject.suggestion?action=create repo:net.bisks.hyperobject.review?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
