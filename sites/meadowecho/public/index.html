@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>meadowecho — a live echo of @fromthewestmeadow.com's last 100 posts</title>
+    <meta
+      name="description"
+      content="Watches the open Bluesky firehose for posts that read as semantically close to @fromthewestmeadow.com's last 100 posts, right now — real sentence embeddings and cosine similarity, not keyword matching."
+    />
+    <meta property="og:title" content="meadowecho" />
+    <meta
+      property="og:description"
+      content="Real sentence embeddings, cosine similarity against the centroid of @fromthewestmeadow.com's last 100 posts — a live leaderboard of whatever on the open firehose reads closest to them right now."
+    />
+    <meta property="og:image" content="https://meadowecho.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="meadowecho: a field of faint dots (the firehose) with one lit up and connected to a small cluster (the target's last 100 posts)."
+    />
+    <meta property="og:url" content="https://meadowecho.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="meadowecho — a live echo of @fromthewestmeadow.com's posts" />
+    <meta
+      name="twitter:description"
+      content="Real embeddings + cosine similarity, live over the firehose: whatever currently reads closest to @fromthewestmeadow.com's last 100 posts."
+    />
+    <meta name="twitter:image" content="https://meadowecho.bisks.net/og.png" />
+    <!-- bisks.net house style, dark variant. -->
+    <style>
+      :root {
+        --bg: #08090d;
+        --panel: #10121b;
+        --ink: #e8ecf3;
+        --muted: #808daa;
+        --faint: rgba(232, 236, 243, 0.12);
+        --accent: #6ee7c8;
+        --echo: #ffd166;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.25rem; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+      header h1 span.e { color: var(--accent); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; transition: background 0.3s; }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 66ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .statsbar {
+        display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem;
+        border: 1px solid var(--faint); border-radius: 8px; background: var(--panel);
+        padding: 0.75rem 1rem; margin: 0 0 1.75rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .statsbar b { color: var(--ink); }
+      .statsbar .target { color: var(--accent); }
+
+      section { margin: 0 0 1.75rem; }
+      .sectitle {
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 0 0 0.75rem;
+      }
+
+      main#feed { border-top: 1px solid var(--faint); min-height: 6rem; }
+      .empty {
+        padding: 2rem 0; color: var(--muted); font-size: 0.85rem; text-align: center;
+      }
+      .card {
+        padding: 0.95rem 0; border-bottom: 1px solid var(--faint);
+        animation: fade 0.3s ease both;
+      }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .cardhead { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 0.8rem; }
+      .avatar {
+        width: 20px; height: 20px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat; border: 1px solid var(--faint);
+      }
+      .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .handle:hover { color: var(--accent); text-decoration: underline; }
+      .score {
+        font-size: 0.72rem; color: var(--bg); background: var(--echo); font-weight: 700;
+        border-radius: 999px; padding: 0.08rem 0.55rem; margin-left: auto; white-space: nowrap;
+      }
+      .body { margin: 0 0 0.55rem; color: var(--ink); line-height: 1.6; word-break: break-word; font-size: 0.92rem; white-space: pre-wrap; }
+      .closest {
+        font-size: 0.78rem; color: var(--muted); border-left: 2px solid var(--faint);
+        padding: 0.1rem 0 0.1rem 0.6rem; margin: 0 0 0.55rem;
+      }
+      .closest a { color: var(--muted); }
+      .cardfoot { display: flex; gap: 1rem; font-size: 0.78rem; }
+      .cardfoot a { color: var(--accent); text-decoration: none; }
+      .cardfoot a:hover { text-decoration: underline; }
+      .ago { color: var(--muted); }
+
+      .about {
+        color: var(--muted); font-size: 0.82rem; line-height: 1.7; margin: 2rem 0 0;
+        border-top: 1px solid var(--faint); padding-top: 1.5rem;
+      }
+      .about b { color: var(--ink); }
+
+      .share {
+        display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+        margin: 1.5rem 0 0; font-size: 0.8rem;
+      }
+      #shareLink {
+        color: var(--bg); background: var(--accent); text-decoration: none;
+        font-weight: 600; border-radius: 6px; padding: 0.45rem 0.9rem;
+      }
+      #shareLink:hover { opacity: 0.85; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>meadow<span class="e">echo</span></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        Inspired by <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>'s
+        PCA-on-embeddings visualization of their own posts and their mutuals'
+        — this is an independent, live implementation of the same underlying
+        idea, minus the 3D picture: a small server watches the open Bluesky
+        firehose, computes a real sentence embedding for a filtered trickle
+        of posts, and ranks them by <b>cosine similarity</b> against the
+        centroid of that account's last 100 posts (also real embeddings, not
+        a bag-of-words trick). No login, nothing stored beyond the ranked
+        list below — every post here was already public on the open firehose.
+      </p>
+
+      <div class="statsbar" id="statsbar">gathering the target's last 100 posts…</div>
+
+      <section>
+        <p class="sectitle">closest right now</p>
+        <main id="feed"><div class="empty">listening…</div></main>
+      </section>
+
+      <div class="share">
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share the current top match on bluesky</a>
+      </div>
+
+      <p class="about">
+        <b>How the scoring actually works:</b> the target's last ~100 posts
+        (via the public AppView, no login) are each embedded with Cloudflare
+        Workers AI (<code>bge-base-en-v1.5</code>) and averaged into one
+        centroid vector, refreshed every 20 minutes. The live firehose is
+        filtered down — English, long enough to carry meaning, not obvious
+        spam, one candidate per author per 45 seconds — because the full
+        firehose is far more volume than any embeddings budget survives; that
+        filtered trickle is embedded in small batches on a timer and scored
+        against the centroid. The leaderboard keeps the highest-scoring posts
+        seen in roughly the last 6 hours, so it drifts as the firehose does —
+        this is a sample of the firehose, not exhaustive coverage of it.
+      </p>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">jetstream</a>
+        · embeddings via <a href="https://developers.cloudflare.com/workers-ai/" target="_blank" rel="noopener">workers ai</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment, built for @fromthewestmeadow.com
+      </footer>
+    </div>
+
+    <script>
+      const feed = document.getElementById("feed");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const statsbar = document.getElementById("statsbar");
+      const shareLink = document.getElementById("shareLink");
+
+      const POLL_MS = 6000;
+      let pollTimer = null;
+
+      function esc(s) {
+        return String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+
+      function timeAgo(ms) {
+        const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+        if (s < 60) return s + "s ago";
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + "m ago";
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + "h ago";
+        return Math.floor(h / 24) + "d ago";
+      }
+
+      function renderStats(data) {
+        const t = data.target;
+        if (!t) {
+          statsbar.innerHTML = "gathering the target's last 100 posts…";
+          return;
+        }
+        statsbar.innerHTML =
+          `target <span class="target">@${esc(t.handle)}</span> (${t.postCount} posts, refreshed ${timeAgo(t.refreshedAt)}) · ` +
+          `<b>${data.stats.seen.toLocaleString()}</b> posts seen on the firehose · ` +
+          `<b>${data.stats.embedded.toLocaleString()}</b> embedded and scored · ` +
+          `<b>${data.matches.length}</b> in the current leaderboard`;
+      }
+
+      function buildShareText(top) {
+        let text;
+        if (top) {
+          const pct = Math.round(top.score * 100);
+          const snippet = top.text.length > 90 ? top.text.slice(0, 89).trimEnd() + "…" : top.text;
+          text =
+            `right now the post on the open firehose that reads closest to @fromthewestmeadow.com's last 100 posts (${pct}% cosine similarity):\n\n"${snippet}"\n\nlive leaderboard: `;
+        } else {
+          text = "watching the open Bluesky firehose for whatever reads closest to @fromthewestmeadow.com's last 100 posts, live: ";
+        }
+        const url = "https://meadowecho.bisks.net/";
+        const budget = 300 - url.length;
+        if (text.length > budget) text = text.slice(0, budget - 1).trimEnd() + "…";
+        return text + url;
+      }
+
+      function renderFeed(matches) {
+        if (!matches.length) {
+          feed.innerHTML = '<div class="empty">no echo above the floor yet — the leaderboard fills in as the firehose is sampled. check back in a minute.</div>';
+          return;
+        }
+        feed.innerHTML = "";
+        for (const m of matches) {
+          const card = document.createElement("article");
+          card.className = "card";
+          const pct = Math.round(m.score * 100);
+          const closestHtml = m.closest
+            ? `<div class="closest">closest to: “${esc(
+                m.closest.text.length > 140 ? m.closest.text.slice(0, 139).trimEnd() + "…" : m.closest.text,
+              )}” — <a href="${esc(m.closest.url)}" target="_blank" rel="noopener">view</a></div>`
+            : "";
+          card.innerHTML =
+            `<div class="cardhead">` +
+            `<span class="avatar" style="${m.avatar ? `background-image:url('${esc(m.avatar)}')` : ""}"></span>` +
+            `<a class="handle" href="https://bsky.app/profile/${esc(m.handle)}" target="_blank" rel="noopener">@${esc(m.handle)}</a>` +
+            `<span class="score">${pct}%</span>` +
+            `</div>` +
+            `<p class="body">${esc(m.text)}</p>` +
+            closestHtml +
+            `<div class="cardfoot"><a href="${esc(m.url)}" target="_blank" rel="noopener">view on bluesky →</a><span class="ago">${timeAgo(m.matchedAt)}</span></div>`;
+          feed.appendChild(card);
+        }
+      }
+
+      async function poll() {
+        try {
+          const r = await fetch("/api/matches", { cache: "no-store" });
+          if (!r.ok) throw new Error("bad response");
+          const data = await r.json();
+          dot.classList.add("live");
+          statusText.textContent = "live";
+          renderStats(data);
+          renderFeed(data.matches);
+          shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data.matches[0] || null));
+        } catch {
+          dot.classList.remove("live");
+          statusText.textContent = "reconnecting…";
+        }
+      }
+
+      poll();
+      pollTimer = setInterval(poll, POLL_MS);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          clearInterval(pollTimer);
+        } else {
+          poll();
+          pollTimer = setInterval(poll, POLL_MS);
+        }
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
