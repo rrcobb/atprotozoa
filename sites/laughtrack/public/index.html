@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>laughtrack — find someone's funniest post, by the replies</title>
+<meta name="description" content="Enter a Bluesky handle. laughtrack reads every reply to their recent posts and counts lol/haha/omg/lmao/rofl-family exclamations to find whichever post actually made people laugh — ranked by that, not by likes." />
+<meta property="og:title" content="laughtrack — find someone's funniest post, by the replies" />
+<meta property="og:description" content="Enter a Bluesky handle. laughtrack reads every reply to their recent posts and counts lol/haha/omg/lmao/rofl-family exclamations to find whichever post actually made people laugh — ranked by that, not by likes." />
+<meta property="og:url" content="https://laughtrack.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://laughtrack.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="laughtrack: a scoreboard card reading 'laugh score' next to a ranked list of someone's posts." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="laughtrack — find someone's funniest post, by the replies" />
+<meta name="twitter:description" content="Enter a Bluesky handle. laughtrack reads every reply to their recent posts and counts lol/haha/omg/lmao/rofl-family exclamations to find whichever post actually made people laugh — ranked by that, not by likes." />
+<meta name="twitter:image" content="https://laughtrack.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0d0a06;
+    --bg2: #1a140a;
+    --fg: #fff3dc;
+    --dim: #b8a685;
+    --accent: #ffcc33;
+    --accent2: #ff8a3d;
+    --good: #6ee7a8;
+    --card: #1a140b;
+    --border: #38291a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a2a08 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #3a1a08 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b, .tag code { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #241503; border: none; border-radius: 8px; padding: 0.75rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  #results { display: none; flex-direction: column; gap: 1.4rem; }
+  #results.show { display: flex; }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
+  .who img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .who .handle { font-weight: 700; }
+  .who .handle a { color: var(--fg); text-decoration: none; }
+  .stats { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.2rem; }
+  .stat { flex: 1; min-width: 110px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; text-align: center; }
+  .stat .n { font-size: 1.15rem; font-weight: 800; color: var(--accent); }
+  .stat .l { font-size: 0.66rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .hero-label { text-align: center; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 0.5rem; }
+  .hero-score { text-align: center; font-size: 3.2rem; font-weight: 800; color: var(--accent); line-height: 1; }
+  .hero-score-label { text-align: center; font-size: 0.75rem; color: var(--dim); margin-bottom: 1rem; }
+  .hero-text {
+    font-size: 1.05rem; line-height: 1.5; margin: 0 0 0.9rem; padding-left: 0.9rem;
+    border-left: 3px solid var(--accent); white-space: pre-wrap;
+  }
+  .hero-link { display: inline-block; margin-bottom: 1rem; color: var(--accent2); font-size: 0.82rem; text-decoration: none; }
+  .hero-link:hover { text-decoration: underline; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.1rem; }
+  .chip {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.28rem 0.7rem; font-size: 0.78rem; color: var(--fg);
+  }
+  .chip b { color: var(--accent); }
+
+  .samples { display: flex; flex-direction: column; gap: 0.7rem; }
+  .sample { border-left: 2px dashed var(--border); padding-left: 0.8rem; font-size: 0.85rem; line-height: 1.5; }
+  .sample .who-line { color: var(--dim); font-size: 0.75rem; margin-bottom: 0.15rem; }
+  .sample .who-line a { color: var(--dim); text-decoration: none; }
+  .sample .who-line a:hover { color: var(--accent2); }
+  .sample mark { background: transparent; color: var(--accent); font-weight: 700; }
+  .no-samples { color: var(--dim); font-size: 0.85rem; }
+
+  .mini-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .mini-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; display: flex; align-items: center; gap: 0.8rem; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .mini-card:hover { border-color: var(--accent); }
+  .mini-card.active { border-color: var(--accent); background: #251a0c; }
+  .mini-rank { font-size: 0.75rem; color: var(--dim); width: 1.4rem; text-align: center; flex-shrink: 0; }
+  .mini-score { font-size: 1.3rem; font-weight: 800; color: var(--accent); width: 3rem; text-align: center; flex-shrink: 0; }
+  .mini-body { flex: 1; min-width: 0; }
+  .mini-text { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .empty { text-align: center; color: var(--dim); font-size: 0.9rem; padding: 1rem 0; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #241503; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>laughtrack</h1>
+    <p class="tag">
+      Enter a Bluesky handle. laughtrack pulls their recent posts, reads every
+      reply to each one, and counts <b>lol</b>, <b>haha</b>, <b>omg</b>,
+      <b>lmao</b>, <b>rofl</b> and their close variants. Whichever post drew
+      the most laugh markers in its replies wins — ranked by that count, not
+      by likes.
+    </p>
+    <p class="credit">
+      built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>.
+      <em>reads up to 50 of their most recent posts and every reply thread, public data only.</em>
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">find it</button>
+    </form>
+    <p class="hint">works on anyone with public replies. scans their recent posts and own replies — bigger accounts take a little longer.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="results"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/scan.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function highlightLaughs(text) {
+  let html = esc(text || "");
+  for (const fam of window.LaughtrackScan.MARKER_FAMILIES) {
+    html = html.replace(fam.re, (m) => `<mark>${m}</mark>`);
+  }
+  return html;
+}
+
+function truncate(s, max) {
+  if (!s) return "";
+  return s.length <= max ? s : s.slice(0, max - 1).trimEnd() + "…";
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function familyLabel(key) {
+  const fam = window.LaughtrackScan.MARKER_FAMILIES.find((f) => f.key === key);
+  return fam ? fam.label : key;
+}
+
+function renderChips(byFamily) {
+  const keys = Object.keys(byFamily).sort((a, b) => byFamily[b] - byFamily[a]);
+  if (!keys.length) return "";
+  return `<div class="chips">${keys.map((k) => `<span class="chip">${esc(familyLabel(k))} <b>${byFamily[k]}</b></span>`).join("")}</div>`;
+}
+
+function renderSamples(samples) {
+  if (!samples.length) return `<div class="no-samples">no individual reply stood out — the laughs were spread thin.</div>`;
+  return `<div class="samples">${samples
+    .map(
+      (s) => `<div class="sample">
+        <div class="who-line"><a href="${esc(s.url)}" target="_blank" rel="noopener">@${esc(s.author.handle)}</a></div>
+        <div>${highlightLaughs(s.text)}</div>
+      </div>`
+    )
+    .join("")}</div>`;
+}
+
+function renderHero(scan, result) {
+  const chips = renderChips(result.byFamily);
+  return `
+    <div class="hero-label">funniest post, by reply reaction</div>
+    <div class="hero-score">${result.laughTotal}</div>
+    <div class="hero-score-label">laugh markers across ${result.laughingReplies} repl${result.laughingReplies === 1 ? "y" : "ies"}</div>
+    <div class="hero-text">${esc(result.text)}</div>
+    <a class="hero-link" href="${esc(result.url)}" target="_blank" rel="noopener">view the post →</a>
+    ${chips}
+    ${renderSamples(result.samples)}
+  `;
+}
+
+function renderMini(result, rank) {
+  return `
+    <div class="mini-rank">#${rank}</div>
+    <div class="mini-score">${result.laughTotal}</div>
+    <div class="mini-body"><div class="mini-text">${esc(truncate(result.text, 90))}</div></div>
+  `;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "", cy = y, lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w; cy += lineHeight; lines++;
+      if (maxLines && lines >= maxLines) { ctx.fillText("…", x, cy); return cy; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(canvas, scan, result) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(scan.profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0d0a06";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#3a2a08");
+  glow.addColorStop(1, "rgba(13,10,6,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffcc33";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("laughtrack", 56, 90);
+
+  let textX = 56;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(84, 138, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 56, 110, 56, 56);
+    ctx.restore();
+    textX = 128;
+  }
+  ctx.fillStyle = "#fff3dc";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText("@" + scan.handle, textX, 148);
+
+  ctx.strokeStyle = "#38291a";
+  ctx.lineWidth = 1.5;
+  const cardX = 56, cardY = 210, cardW = W - 112, cardH = H - 270;
+  ctx.fillStyle = "#1a140b";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#b8a685";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("LAUGH SCORE", W / 2, cardY + 50);
+
+  ctx.fillStyle = "#ffcc33";
+  ctx.font = `800 88px ${mono}`;
+  ctx.fillText(String(result.laughTotal), W / 2, cardY + 150);
+
+  ctx.fillStyle = "#ff8a3d";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText(`across ${result.laughingReplies} repl${result.laughingReplies === 1 ? "y" : "ies"}`, W / 2, cardY + 182);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff3dc";
+  ctx.font = `400 21px ${mono}`;
+  wrapCanvasText(ctx, result.text, cardX + 44, cardY + 232, cardW - 88, 30, 4);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff8a3d";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("laughtrack.bisks.net", 56, H - 40);
+}
+
+function shareUrlFor(handle) {
+  return "https://laughtrack.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(scan, result) {
+  const url = shareUrlFor(scan.handle);
+  const headline = `@${scan.handle}'s funniest post scored ${result.laughTotal} laugh markers in the replies: "${truncate(result.text, 80)}"`;
+  let text = `${headline}\n\n${url}`;
+  if (text.length > 300) text = `${headline.slice(0, 200)}…\n${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) { return false; }
+}
+
+function renderResults(scan) {
+  els.results.innerHTML = "";
+  const avatarHtml = scan.profile.avatar
+    ? `<img src="${esc(scan.profile.avatar)}" alt="" />`
+    : `<img src="" alt="" style="visibility:hidden;" />`;
+
+  const top = document.createElement("div");
+  top.innerHTML = `
+    <div class="who">
+      ${avatarHtml}
+      <div class="handle"><a href="https://bsky.app/profile/${esc(scan.handle)}" target="_blank" rel="noopener">@${esc(scan.handle)}</a></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n">${scan.scannedPosts}</div><div class="l">posts scanned</div></div>
+      <div class="stat"><div class="n">${scan.scannedReplies}</div><div class="l">replies read</div></div>
+      <div class="stat"><div class="n">${scan.results.length}</div><div class="l">posts that got laughs</div></div>
+    </div>
+  `;
+  els.results.appendChild(top);
+
+  if (!scan.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "card empty";
+    empty.textContent = "no lol/haha/omg/lmao/rofl-family replies found in their recent posts. try a chattier handle.";
+    els.results.appendChild(empty);
+    els.results.classList.add("show");
+    return;
+  }
+
+  const heroCard = document.createElement("div");
+  heroCard.className = "card";
+
+  let list = null;
+  if (scan.results.length > 1) {
+    const listCard = document.createElement("div");
+    listCard.className = "card";
+    const label = document.createElement("div");
+    label.className = "hero-label";
+    label.style.marginBottom = "0.9rem";
+    label.textContent = `${scan.results.length} posts ranked by laugh markers — tap one`;
+    listCard.appendChild(label);
+    list = document.createElement("div");
+    list.className = "mini-list";
+    listCard.appendChild(list);
+    els.results.appendChild(listCard);
+  }
+
+  els.results.appendChild(heroCard);
+
+  function selectResult(idx) {
+    if (list) {
+      [...list.children].forEach((el, i) => el.classList.toggle("active", i === idx));
+    }
+    const result = scan.results[idx];
+    heroCard.innerHTML = renderHero(scan, result) + `
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share this</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    `;
+
+    const canvas = heroCard.querySelector("#shareCanvas");
+    const shareBluesky = heroCard.querySelector("#shareBluesky");
+    const shareDownload = heroCard.querySelector("#shareDownload");
+    const shareNative = heroCard.querySelector("#shareNative");
+    const shareText = buildShareText(scan, result);
+    shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    buildShareCard(canvas, scan, result);
+
+    shareDownload.addEventListener("click", () => {
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `laughtrack-${scan.handle}.png`.replace(/[^a-z0-9.-]/gi, "_");
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, "image/png");
+    });
+
+    if (canShareFiles()) {
+      shareNative.style.display = "";
+      shareNative.addEventListener("click", () => {
+        canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const file = new File([blob], "laughtrack.png", { type: "image/png" });
+          try { await navigator.share({ files: [file], text: shareText, title: "laughtrack" }); } catch (_) {}
+        }, "image/png");
+      });
+    }
+  }
+
+  if (list) {
+    scan.results.forEach((result, i) => {
+      const mini = document.createElement("div");
+      mini.className = "mini-card";
+      mini.innerHTML = renderMini(result, i + 1);
+      mini.addEventListener("click", () => selectResult(i));
+      list.appendChild(mini);
+    });
+  }
+
+  selectResult(0);
+  els.results.classList.add("show");
+}
+
+async function run(rawHandle) {
+  if (!rawHandle || !rawHandle.trim()) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.results.classList.remove("show");
+  els.results.innerHTML = "";
+  setStatus("resolving handle...");
+
+  try {
+    const scan = await window.LaughtrackScan.scanFunniest(rawHandle, {
+      onProgress: (done, total) => setStatus(`reading reply threads... ${done}/${total} posts`),
+    });
+    renderResults(scan);
+    setStatus(scan.results.length ? "" : "");
+  } catch (err) {
+    setStatus("couldn't run that scan: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run(els.input.value);
+});
+
+// /s/<handle> (share links) or the older ?h=<handle> both auto-run on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  run(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
