@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>intrigue — how interesting is this Bluesky account?</title>
+<meta name="description" content="Enter a Bluesky handle and get an interestingness score out of 100, built from real signals: custom feeds and lists you've made, alt text usage, language and emoji range, thread-building, and more. Joins a shared leaderboard, verified server-side." />
+<meta property="og:title" content="intrigue — how interesting is this Bluesky account?" />
+<meta property="og:description" content="Enter a Bluesky handle and get an interestingness score out of 100, built from real signals: custom feeds and lists you've made, alt text usage, language and emoji range, thread-building, and more. Joins a shared leaderboard, verified server-side." />
+<meta property="og:url" content="https://intrigue.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://intrigue.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="intrigue: a magnifying glass over a Bluesky handle with an interestingness score out of 100." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="intrigue — how interesting is this Bluesky account?" />
+<meta name="twitter:description" content="Enter a Bluesky handle and get an interestingness score out of 100, built from real signals: custom feeds and lists you've made, alt text usage, language and emoji range, thread-building, and more. Joins a shared leaderboard, verified server-side." />
+<meta name="twitter:image" content="https://intrigue.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0a12;
+    --fg: #ece9f7;
+    --dim: #9a93b8;
+    --accent: #4fd1c5;
+    --accent2: #c084fc;
+    --card: #14111f;
+    --border: #2b2540;
+    --pos: #4fd1c5;
+    --neg: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #2a1250 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 0%, #0d3b3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #0a0a12;
+    border: none; border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 1.75rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1.5rem; }
+  .status.err { color: var(--neg); }
+
+  .card {
+    display: none; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.6rem; margin-bottom: 2rem;
+    box-shadow: 0 0 60px -25px var(--accent2);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); object-fit: cover; }
+  .who .name { font-weight: 700; }
+  .who .handle { color: var(--dim); font-size: 0.8rem; }
+
+  .scoreRow { display: flex; align-items: baseline; gap: 0.9rem; margin-bottom: 0.4rem; }
+  .scoreNum {
+    font-size: 3.2rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .scoreOf { color: var(--dim); font-size: 1rem; }
+  .tier { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.15rem; }
+  .tierBlurb { color: var(--dim); font-size: 0.85rem; margin-bottom: 1rem; }
+  .gauge { height: 8px; border-radius: 5px; background: #201a35; overflow: hidden; margin-bottom: 1.35rem; }
+  .gaugeFill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.5s ease; }
+
+  .signal { display: flex; align-items: baseline; gap: 0.6rem; border-top: 1px solid var(--border); padding: 0.55rem 0; }
+  .signal:first-of-type { border-top: none; }
+  .signal .pts { font-weight: 800; font-size: 0.82rem; flex-shrink: 0; width: 2.6rem; text-align: right; }
+  .signal .pts.pos { color: var(--pos); }
+  .signal .pts.neg { color: var(--neg); }
+  .signal .body { min-width: 0; }
+  .signal .label { font-size: 0.86rem; font-weight: 600; }
+  .signal .detail { color: var(--dim); font-size: 0.76rem; margin-top: 0.1rem; }
+  .noSignals { color: var(--dim); font-size: 0.82rem; font-style: italic; padding: 0.4rem 0; }
+
+  .actions { display: flex; gap: 0.5rem; margin-top: 1.3rem; flex-wrap: wrap; }
+  .actions a, .actions button { font-size: 0.82rem; padding: 0.55rem 0.85rem; }
+  .actions a {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 8px; text-decoration: none; font-weight: 600;
+  }
+
+  h2 { font-size: 1.1rem; margin: 0 0 0.2rem; color: var(--fg); }
+  .boardhint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; }
+  .board { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; max-height: 480px; overflow-y: auto; }
+  .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--fg); }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: #1c1730; }
+  .rank { width: 1.8rem; text-align: right; color: var(--dim); font-size: 0.82rem; flex-shrink: 0; }
+  .rank.gold { color: var(--accent2); font-weight: 800; }
+  .row img { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; object-fit: cover; background: var(--border); }
+  .row .rhandle { font-size: 0.82rem; font-weight: 600; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rtier { color: var(--dim); font-size: 0.74rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rscore { font-weight: 800; font-size: 0.9rem; flex-shrink: 0; color: var(--accent); }
+  .empty-board { color: var(--dim); font-size: 0.82rem; padding: 1rem; text-align: center; }
+  .scanners { color: var(--dim); font-size: 0.76rem; margin-top: 0.7rem; text-align: center; }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 intrigue</h1>
+  <p class="tag">Enter a Bluesky handle. We'll pull their profile and a page of recent posts from the public AppView and score how interesting the account is out of 100 — custom feeds and lists they've made, alt text, language and emoji range, thread-building, and more. Your score joins the leaderboard below, recomputed server-side so nobody can just claim 100.</p>
+
+  <form id="scanForm">
+    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button type="submit" id="scanBtn">score it</button>
+  </form>
+  <p class="hint">no login needed — reads public data only.</p>
+  <p class="status" id="status"></p>
+
+  <div class="card" id="resultCard">
+    <div class="who">
+      <img id="rAvatar" src="" alt="" />
+      <div>
+        <div class="name" id="rName"></div>
+        <div class="handle" id="rHandle"></div>
+      </div>
+    </div>
+
+    <div class="scoreRow">
+      <span class="scoreNum" id="rScore">0</span>
+      <span class="scoreOf">/ 100</span>
+    </div>
+    <div class="tier" id="rTier"></div>
+    <div class="tierBlurb" id="rTierBlurb"></div>
+    <div class="gauge"><div class="gaugeFill" id="rGauge" style="width:0%"></div></div>
+
+    <div id="rSignals"></div>
+
+    <div class="actions">
+      <a id="shareBluesky" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      <a id="shareCard" href="#" download="intrigue.png">download share card</a>
+      <button type="button" class="ghost" id="shareNative" style="display:none;">share</button>
+    </div>
+  </div>
+
+  <h2>the leaderboard</h2>
+  <p class="boardhint">everyone who's ever been scored, ranked by score. re-derived from the AppView server-side on every submit — nobody can fake a number.</p>
+  <div class="board" id="boardList"></div>
+  <p class="scanners" id="scannerCount"></p>
+
+  <footer>
+    built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) throw new Error(method + " " + res.status);
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// --- scoring rules — kept in lockstep with src/index.ts's copy. This runs
+// client-side for instant feedback; the leaderboard never trusts it, the
+// Worker recomputes the same thing itself from the handle alone. ---
+
+const GENERIC_SUFFIXES = [".bsky.social", ".bsky.brid.gy", ".bsky.team"];
+function isCustomDomain(handle) {
+  return !!handle && !GENERIC_SUFFIXES.some(function (s) { return handle.endsWith(s); });
+}
+
+function scoreProfile(profile) {
+  const signals = [];
+  let points = 0;
+  function add(label, pts, detail) {
+    if (!pts) return;
+    points += pts;
+    signals.push({ label: label, pts: pts, detail: detail || null });
+  }
+
+  const handle = profile.handle || "";
+  if (isCustomDomain(handle)) add("custom domain handle", 8, "@" + handle + " isn't a *.bsky.social freebie");
+
+  const bio = (profile.description || "").trim();
+  if (bio.length > 120) add("detailed bio", 8, bio.length + " characters of self-summary");
+  else if (bio.length > 20) add("has a bio", 4);
+  if (/https?:\/\//i.test(bio)) add("bio links out", 3, "points somewhere else on the internet");
+
+  if (profile.avatar) add("has an avatar", 2);
+  if (profile.banner) add("has a banner", 4, "bothered to set a banner image");
+  if (profile.pinnedPost) add("pinned post", 5, "curates their own profile");
+
+  const assoc = profile.associated || {};
+  const lists = Number(assoc.lists || 0);
+  const feedgens = Number(assoc.feedgens || 0);
+  const packs = Number(assoc.starterPacks || 0);
+  if (lists > 0) add("made " + lists + " list" + (lists === 1 ? "" : "s"), Math.min(lists * 3, 12));
+  if (feedgens > 0) add("runs " + feedgens + " custom feed" + (feedgens === 1 ? "" : "s"), Math.min(feedgens * 12, 36), "writes their own ranking algorithm");
+  if (packs > 0) add("built " + packs + " starter pack" + (packs === 1 ? "" : "s"), Math.min(packs * 6, 18));
+  if (assoc.labeler) add("runs a labeler", 15, "moderates part of the network");
+
+  const followers = Number(profile.followersCount || 0);
+  const follows = Number(profile.followsCount || 0);
+  if (followers >= 10000) add("real reach", 10, fmt(followers) + " followers");
+  else if (followers >= 1000) add("solid following", 5, fmt(followers) + " followers");
+  if (followers > 200 && followers / Math.max(follows, 1) >= 20) add("audience >> who they follow", 6, "broadcast energy");
+  if (follows > 500 && follows / Math.max(followers, 1) >= 10) add("follows way more than follow them", 3, "here to read, not to be read");
+
+  if (typeof profile.createdAt === "string") {
+    const ageDays = (Date.now() - Date.parse(profile.createdAt)) / 86400000;
+    if (isFinite(ageDays) && ageDays > 900) add("early adopter", 8, "on Bluesky since " + profile.createdAt.slice(0, 10));
+    else if (isFinite(ageDays) && ageDays > 365) add("been around a while", 3);
+  }
+
+  return { points: points, signals: signals };
+}
+
+function scorePosts(did, feedItems) {
+  const signals = [];
+  let points = 0;
+  function add(label, pts, detail) {
+    if (!pts) return;
+    points += pts;
+    signals.push({ label: label, pts: pts, detail: detail || null });
+  }
+
+  let own = 0;
+  let selfReplies = 0;
+  let quotes = 0;
+  let externalLinks = 0;
+  let totalImages = 0;
+  let altImages = 0;
+  const langs = new Set();
+  const emojis = new Set();
+  const textSample = [];
+  const seenText = new Map();
+  let dupes = 0;
+
+  for (const item of feedItems) {
+    if (item.reason) continue;
+    const post = item.post;
+    if (!post || !post.author || post.author.did !== did) continue;
+    own++;
+    const rec = post.record || {};
+    if (Array.isArray(rec.langs)) rec.langs.forEach(function (l) { langs.add(l); });
+
+    const text = typeof rec.text === "string" ? rec.text : "";
+    if (text) {
+      textSample.push(text);
+      const norm = text.trim().toLowerCase().replace(/\s+/g, " ");
+      if (norm.length > 8) {
+        const count = (seenText.get(norm) || 0) + 1;
+        seenText.set(norm, count);
+        if (count > 1) dupes++;
+      }
+      const found = text.match(/\p{Extended_Pictographic}/gu) || [];
+      found.forEach(function (e) { emojis.add(e); });
+    }
+
+    if (rec.reply) {
+      const parentDid = item.reply && item.reply.parent && item.reply.parent.author && item.reply.parent.author.did;
+      if (parentDid === did) selfReplies++;
+    }
+
+    const embed = post.embed;
+    if (embed) {
+      const t = embed.$type || "";
+      if (t.indexOf("recordWithMedia") >= 0 || t === "app.bsky.embed.record#view") quotes++;
+      if (t === "app.bsky.embed.external#view") externalLinks++;
+      if (t === "app.bsky.embed.images#view" && Array.isArray(embed.images)) {
+        totalImages += embed.images.length;
+        altImages += embed.images.filter(function (i) { return i.alt && i.alt.trim().length > 0; }).length;
+      }
+    }
+  }
+
+  if (own === 0) return { points: 0, signals: [], sampled: 0 };
+
+  if (langs.size >= 2) add("posts in " + langs.size + " languages", Math.min((langs.size - 1) * 4, 12), Array.from(langs).join(", "));
+
+  if (totalImages > 0) {
+    const altRate = altImages / totalImages;
+    if (altRate >= 0.8) add("writes alt text", 10, "images are accessible");
+    else if (altRate >= 0.3) add("sometimes writes alt text", 4);
+  }
+
+  if (quotes > 0) add("quote-posts", Math.min(quotes, 6), quotes + " in the sample");
+  if (externalLinks > 0) add("shares links", Math.min(externalLinks, 5));
+  if (selfReplies >= 3) add("builds threads", Math.min(selfReplies, 10), selfReplies + " self-replies in the sample");
+  if (emojis.size >= 5) add("emoji range", Math.min(emojis.size - 4, 8), Array.from(emojis).slice(0, 8).join(" "));
+
+  const dupeRate = dupes / own;
+  if (dupeRate >= 0.4 && own >= 10) add("repeats itself a lot", -15, Math.round(dupeRate * 100) + "% near-duplicate posts");
+
+  const lens = textSample.map(function (t) { return t.length; }).filter(function (n) { return n > 0; });
+  if (lens.length >= 5 && Math.max.apply(null, lens) - Math.min.apply(null, lens) > 200) add("range from one-liners to essays", 4);
+
+  return { points: points, signals: signals, sampled: own };
+}
+
+function scoreAccount(profile, feedItems) {
+  const p = scoreProfile(profile);
+  const q = scorePosts(profile.did, feedItems);
+  const raw = p.points + q.points;
+  const score = Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-Math.max(raw, 0) / 55)))));
+  const signals = p.signals.concat(q.signals).sort(function (a, b) { return b.pts - a.pts; });
+  return { score: score, signals: signals, sampled: q.sampled };
+}
+
+function tierFor(score) {
+  if (score >= 90) return { label: "certifiable main character", blurb: "the algorithm is speedrunning you into everyone's feed" };
+  if (score >= 75) return { label: "genuinely intriguing", blurb: "there is a whole bit going on here" };
+  if (score >= 55) return { label: "has layers", blurb: "worth a second scroll" };
+  if (score >= 35) return { label: "quietly fine", blurb: "a normal, functioning account" };
+  if (score >= 15) return { label: "lurking", blurb: "reading more than posting, probably" };
+  return { label: "certified NPC", blurb: "blank bio, blank timeline" };
+}
+
+async function analyzeAccount(handleRaw) {
+  const handle = cleanHandle(handleRaw);
+  if (!handle) throw new Error("enter a handle");
+
+  let did = handle;
+  if (!handle.startsWith("did:")) {
+    const r = await xrpc("com.atproto.identity.resolveHandle", { handle: handle });
+    did = r.did;
+  }
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "50" });
+  const scored = scoreAccount(profile, feed.feed || []);
+
+  return {
+    did: did,
+    handle: profile.handle || handle,
+    displayName: profile.displayName || "",
+    avatar: profile.avatar || "",
+    score: scored.score,
+    signals: scored.signals,
+    sampled: scored.sampled,
+  };
+}
+
+// --- UI wiring ---
+
+const els = {
+  form: document.getElementById("scanForm"),
+  input: document.getElementById("handleInput"),
+  btn: document.getElementById("scanBtn"),
+  status: document.getElementById("status"),
+  card: document.getElementById("resultCard"),
+  avatar: document.getElementById("rAvatar"),
+  name: document.getElementById("rName"),
+  handle: document.getElementById("rHandle"),
+  score: document.getElementById("rScore"),
+  tier: document.getElementById("rTier"),
+  tierBlurb: document.getElementById("rTierBlurb"),
+  gauge: document.getElementById("rGauge"),
+  signals: document.getElementById("rSignals"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareCard: document.getElementById("shareCard"),
+  shareNative: document.getElementById("shareNative"),
+  boardList: document.getElementById("boardList"),
+  scannerCount: document.getElementById("scannerCount"),
+};
+
+function signalsHtml(signals) {
+  if (!signals || !signals.length) return '<div class="noSignals">nothing stood out — a very average account.</div>';
+  return signals.map(function (s) {
+    const cls = s.pts >= 0 ? "pos" : "neg";
+    const sign = s.pts >= 0 ? "+" : "";
+    return (
+      '<div class="signal">' +
+      '<div class="pts ' + cls + '">' + sign + s.pts + '</div>' +
+      '<div class="body"><div class="label">' + escapeHtml(s.label) + '</div>' +
+      (s.detail ? '<div class="detail">' + escapeHtml(s.detail) + '</div>' : '') +
+      '</div></div>'
+    );
+  }).join("");
+}
+
+let lastResult = null;
+
+function renderResult(result) {
+  lastResult = result;
+  const tier = tierFor(result.score);
+
+  els.avatar.src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
+  els.name.textContent = result.displayName || result.handle;
+  els.handle.textContent = "@" + result.handle;
+  els.score.textContent = result.score;
+  els.tier.textContent = tier.label;
+  els.tierBlurb.textContent = tier.blurb;
+  els.gauge.style.width = result.score + "%";
+  els.signals.innerHTML = signalsHtml(result.signals);
+  els.card.classList.add("show");
+
+  const url = "https://intrigue.bisks.net/?h=" + encodeURIComponent(result.handle);
+  const shareText = "@" + result.handle + " scores " + result.score + "/100 on the interesting-o-meter (" + tier.label + "). " + url;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(result, tier).then(function (blobUrl) {
+    els.shareCard.href = blobUrl;
+  });
+
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.onclick = async function () {
+      try {
+        const canvas = document.getElementById("cardCanvas");
+        const blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+        const file = new File([blob], "intrigue.png", { type: "image/png" });
+        await navigator.share({ files: [file], text: shareText, title: "intrigue" });
+      } catch (_) {}
+    };
+  }
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+
+async function buildShareCard(result, tier) {
+  const canvas = document.getElementById("cardCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#1a1030");
+  bg.addColorStop(1, "#0a0a12");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#4fd1c5";
+  ctx.font = "800 52px ui-monospace, monospace";
+  ctx.fillText("🔍 intrigue", 56, 96);
+
+  ctx.fillStyle = "#ece9f7";
+  ctx.font = "700 34px ui-monospace, monospace";
+  ctx.fillText("@" + result.handle, 56, 160);
+
+  ctx.fillStyle = "#c084fc";
+  ctx.font = "800 200px ui-monospace, monospace";
+  ctx.fillText(String(result.score), 56, 400);
+
+  ctx.fillStyle = "#9a93b8";
+  ctx.font = "600 34px ui-monospace, monospace";
+  ctx.fillText("/ 100", 470, 400);
+
+  ctx.fillStyle = "#ece9f7";
+  ctx.font = "800 32px ui-monospace, monospace";
+  ctx.fillText(tier.label, 56, 460);
+
+  ctx.fillStyle = "#9a93b8";
+  ctx.font = "600 22px ui-monospace, monospace";
+  ctx.fillText("intrigue.bisks.net", 56, H - 40);
+
+  return new Promise(function (resolve) {
+    canvas.toBlob(function (blob) {
+      resolve(URL.createObjectURL(blob));
+    }, "image/png");
+  });
+}
+
+async function submitToLeaderboard(result) {
+  try {
+    await fetch("/api/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: result.did }),
+    });
+  } catch (_) {
+    // leaderboard submission is best-effort; the personal result still shows.
+  }
+  loadLeaderboard();
+}
+
+async function runScan(handleRaw) {
+  els.btn.disabled = true;
+  els.status.classList.remove("err");
+  els.status.textContent = "resolving " + handleRaw + "…";
+  try {
+    const result = await analyzeAccount(handleRaw);
+    els.status.textContent = "scored from " + fmt(result.sampled) + " recent post" + (result.sampled === 1 ? "" : "s") + " and their profile";
+    renderResult(result);
+    submitToLeaderboard(result);
+  } catch (err) {
+    els.status.classList.add("err");
+    els.status.textContent = "couldn't score that — " + (err && err.message ? err.message : "check the handle and try again");
+  } finally {
+    els.btn.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", function (e) {
+  e.preventDefault();
+  const v = els.input.value.trim();
+  if (v) runScan(v);
+});
+
+// --- leaderboard ---
+
+function renderBoard(data) {
+  const list = data.board || [];
+  if (!list.length) {
+    els.boardList.innerHTML = '<div class="empty-board">nobody has been scored yet — be the first.</div>';
+    return;
+  }
+  els.boardList.innerHTML = list.map(function (entry, i) {
+    const rank = i + 1;
+    const tier = tierFor(entry.score);
+    return (
+      '<a class="row" href="https://bsky.app/profile/' + encodeURIComponent(entry.handle) + '" target="_blank" rel="noopener">' +
+      '<span class="rank' + (rank <= 3 ? " gold" : "") + '">' + rank + '</span>' +
+      '<img src="' + (entry.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
+      '<span class="rhandle">@' + escapeHtml(entry.handle) + '</span>' +
+      '<span class="rtier">' + escapeHtml(tier.label) + '</span>' +
+      '<span class="rscore">' + entry.score + '</span>' +
+      '</a>'
+    );
+  }).join("");
+}
+
+async function loadLeaderboard() {
+  try {
+    const data = await (await fetch("/api/leaderboard")).json();
+    els.scannerCount.textContent = fmt(data.scored || 0) + " account" + (data.scored === 1 ? "" : "s") + " scored so far";
+    renderBoard(data);
+  } catch (_) {
+    els.scannerCount.textContent = "";
+  }
+}
+
+loadLeaderboard();
+
+// auto-run from a shared link: intrigue.bisks.net/?h=handle
+(function () {
+  const params = new URLSearchParams(location.search);
+  const h = params.get("h");
+  if (h) {
+    els.input.value = h;
+    runScan(h);
+  }
+})();
+</script>
+</body>
+</html>
