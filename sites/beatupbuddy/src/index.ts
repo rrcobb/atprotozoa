@@ -1,10 +1,11 @@
 // beatupbuddy Worker — beatupbuddy.bisks.net
 //
 // Static physics toy: a ragdoll wearing @mfzx.net's real avatar as its head,
-// hanging from a rope, that flails and cries out one of their real posts
-// every time you land a hit. All the game logic and the AppView fetches
-// (avatar + recent posts) happen client-side in public/game.js — this
-// Worker's only job is the personalized share unfurl at /s/<hits>, same
+// standing on a weighted bop-bag base, that wobbles, dances, and cries out
+// one of their real posts every time you land a hit. All the game logic and
+// the AppView fetches (avatar + recent posts) happen client-side in
+// public/game.js — this Worker's only job is the personalized share unfurl
+// at /s/<hits>, same
 // trick as sites/didscope and sites/hyperobject: a static page serves one
 // cached generic embed forever, so a real per-result URL with a
 // server-stamped og:title/description is needed for a shared "I beat up
@@ -23,9 +24,9 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const GENERIC_TITLE = "beat up buddy — @mfzx.net has a rope around their neck and it's your fault";
+const GENERIC_TITLE = "beat up buddy — @mfzx.net is standing there and it's your fault";
 const GENERIC_DESC =
-  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, swing, listen to them cry out their own posts.";
+  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, swing, watch them wobble and cry out their own posts.";
 const GENERIC_OG_URL = "https://beatupbuddy.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHits: string): Promise<Response> {

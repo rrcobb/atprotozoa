@@ -119,8 +119,9 @@
 
   const ARENA_W = 420;
   const ARENA_H = 680;
-  const ANCHOR = { x: ARENA_W / 2, y: 40 };
-  const ROPE_LEN = 90;
+  const FLOOR_Y = ARENA_H - 40; // matches the floor strip drawn in drawBackdrop
+  const ROPE_LEN = 70; // invisible — never drawn. A short pivot keeps hits a tight
+                        // in-place wobble/dance, instead of a big pendulum swing.
 
   const HEAD_R = 32;
   const TORSO_W = 46, TORSO_H = 86;
@@ -128,6 +129,25 @@
   const L_ARM_W = 14, L_ARM_H = 42;
   const U_LEG_W = 20, U_LEG_H = 52;
   const L_LEG_W = 17, L_LEG_H = 48;
+
+  // standing layout, built up from the floor so feet land near the floor line
+  // rather than dangling mid-air the way a rope-hung figure would.
+  const FEET_Y = FLOOR_Y - 6;
+  const L_LEG_Y = FEET_Y - L_LEG_H / 2;
+  const U_LEG_Y = L_LEG_Y - L_LEG_H / 2 - U_LEG_H / 2;
+  const HIP_Y = U_LEG_Y - U_LEG_H / 2;
+  const TORSO_Y = HIP_Y - TORSO_H / 2 + 6;
+  const SHOULDER_Y = TORSO_Y - TORSO_H / 2 + 6;
+  const U_ARM_Y = SHOULDER_Y + U_ARM_H / 2;
+  const L_ARM_Y = U_ARM_Y + U_ARM_H / 2 + L_ARM_H / 2;
+  const HEAD_Y = TORSO_Y - TORSO_H / 2 - 8 - HEAD_R;
+
+  // fixed, invisible pivot the head hangs from — physically the same stable
+  // "hangs straight down from a fixed point" pendulum as before (so it's
+  // still self-righting and can't fly off), just never rendered as a rope,
+  // and positioned so at rest the figure's feet land on the floor instead of
+  // swinging clear of it.
+  const ANCHOR = { x: ARENA_W / 2, y: HEAD_Y - ROPE_LEN };
 
   const DUMMY_FILL = "#caa06a";
   const DUMMY_STROKE = "#8a6a42";
@@ -167,32 +187,24 @@
   World.add(world, makeBounds());
 
   let rag = null;
-  let rope = null;
+  let tether = null;
 
   function buildRagdoll() {
     const cx = ANCHOR.x;
-    const headY = ANCHOR.y + ROPE_LEN;
-    const torsoY = headY + HEAD_R + 8 + TORSO_H / 2;
-    const shoulderY = torsoY - TORSO_H / 2 + 6;
-    const hipY = torsoY + TORSO_H / 2 - 6;
-    const uArmY = shoulderY + U_ARM_H / 2;
-    const lArmY = uArmY + U_ARM_H / 2 + L_ARM_H / 2;
-    const uLegY = hipY + U_LEG_H / 2;
-    const lLegY = uLegY + U_LEG_H / 2 + L_LEG_H / 2;
     const armX = TORSO_W / 2 + U_ARM_W / 2 - 2;
     const legX = TORSO_W / 4;
 
     const parts = {
-      head: circlePart(cx, headY, HEAD_R, { density: 0.007 }),
-      torso: rectPart(cx, torsoY, TORSO_W, TORSO_H, { density: 0.009 }),
-      upperArmL: rectPart(cx - armX, uArmY, U_ARM_W, U_ARM_H, { density: 0.006 }),
-      lowerArmL: rectPart(cx - armX, lArmY, L_ARM_W, L_ARM_H, { density: 0.006 }),
-      upperArmR: rectPart(cx + armX, uArmY, U_ARM_W, U_ARM_H, { density: 0.006 }),
-      lowerArmR: rectPart(cx + armX, lArmY, L_ARM_W, L_ARM_H, { density: 0.006 }),
-      upperLegL: rectPart(cx - legX, uLegY, U_LEG_W, U_LEG_H, { density: 0.007 }),
-      lowerLegL: rectPart(cx - legX, lLegY, L_LEG_W, L_LEG_H, { density: 0.007 }),
-      upperLegR: rectPart(cx + legX, uLegY, U_LEG_W, U_LEG_H, { density: 0.007 }),
-      lowerLegR: rectPart(cx + legX, lLegY, L_LEG_W, L_LEG_H, { density: 0.007 }),
+      head: circlePart(cx, HEAD_Y, HEAD_R, { density: 0.007 }),
+      torso: rectPart(cx, TORSO_Y, TORSO_W, TORSO_H, { density: 0.009 }),
+      upperArmL: rectPart(cx - armX, U_ARM_Y, U_ARM_W, U_ARM_H, { density: 0.006 }),
+      lowerArmL: rectPart(cx - armX, L_ARM_Y, L_ARM_W, L_ARM_H, { density: 0.006 }),
+      upperArmR: rectPart(cx + armX, U_ARM_Y, U_ARM_W, U_ARM_H, { density: 0.006 }),
+      lowerArmR: rectPart(cx + armX, L_ARM_Y, L_ARM_W, L_ARM_H, { density: 0.006 }),
+      upperLegL: rectPart(cx - legX, U_LEG_Y, U_LEG_W, U_LEG_H, { density: 0.007 }),
+      lowerLegL: rectPart(cx - legX, L_LEG_Y, L_LEG_W, L_LEG_H, { density: 0.007 }),
+      upperLegR: rectPart(cx + legX, U_LEG_Y, U_LEG_W, U_LEG_H, { density: 0.007 }),
+      lowerLegR: rectPart(cx + legX, L_LEG_Y, L_LEG_W, L_LEG_H, { density: 0.007 }),
     };
 
     function j(bodyA, bodyB, pointA, pointB, stiffness) {
@@ -211,7 +223,7 @@
       j(parts.upperLegR, parts.lowerLegR, { x: 0, y: U_LEG_H / 2 }, { x: 0, y: -L_LEG_H / 2 }, 0.6),
     ];
 
-    rope = Constraint.create({
+    tether = Constraint.create({
       pointA: ANCHOR,
       bodyB: parts.head,
       pointB: { x: 0, y: -HEAD_R * 0.75 },
@@ -220,7 +232,7 @@
       length: ROPE_LEN - HEAD_R * 0.75,
     });
 
-    World.add(world, [...Object.values(parts), ...constraints, rope]);
+    World.add(world, [...Object.values(parts), ...constraints, tether]);
     return { parts, constraints };
   }
 
@@ -228,9 +240,9 @@
     if (!rag) return;
     World.remove(world, Object.values(rag.parts));
     World.remove(world, rag.constraints);
-    if (rope) World.remove(world, rope);
+    if (tether) World.remove(world, tether);
     rag = null;
-    rope = null;
+    tether = null;
   }
 
   function respawn() {
@@ -356,15 +368,14 @@
     }
   }
 
-  function drawRope() {
-    if (!rope || !rag) return;
-    const head = rag.parts.head;
+  function drawBase() {
     ctx.save();
-    ctx.strokeStyle = "#7a5a34";
-    ctx.lineWidth = 4;
+    ctx.fillStyle = "#241621";
+    ctx.strokeStyle = "#402a38";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(ANCHOR.x, ANCHOR.y);
-    ctx.lineTo(head.position.x, head.position.y - HEAD_R * 0.7);
+    ctx.ellipse(ANCHOR.x, FLOOR_Y + 6, 42, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
     ctx.restore();
   }
@@ -485,7 +496,7 @@
     }
 
     drawBackdrop();
-    drawRope();
+    drawBase();
 
     if (rag) {
       const p = rag.parts;
@@ -508,13 +519,17 @@
     requestAnimationFrame(draw);
   }
 
-  // ---- idle sway so it's not a dead-still corpse before you start -------
+  // ---- idle dance: gentle alternating nudges so it sways in place instead
+  // of hanging dead-still before you start hitting it -----------------------
 
+  let danceDir = 1;
   setInterval(() => {
     if (!rag || state.gameOver) return;
-    const f = (Math.random() - 0.5) * 0.0025;
-    Body.applyForce(rag.parts.torso, rag.parts.torso.position, { x: f, y: 0 });
-  }, 2600);
+    danceDir *= -1;
+    Body.applyForce(rag.parts.torso, rag.parts.torso.position, { x: danceDir * 0.0018, y: -0.0008 });
+    const leg = danceDir > 0 ? rag.parts.upperLegL : rag.parts.upperLegR;
+    Body.applyForce(leg, leg.position, { x: -danceDir * 0.0006, y: 0 });
+  }, 1400);
 
   // ---- hit detection + resolution ---------------------------------------
 
@@ -603,9 +618,9 @@
       state.gameOver = true;
       state.koAt = performance.now();
       hideEarlyShare();
-      if (rope) {
-        World.remove(world, rope);
-        rope = null;
+      if (tether) {
+        World.remove(world, tether);
+        tether = null;
       }
       setTimeout(showKO, 1000);
     }

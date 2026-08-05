@@ -1,9 +1,10 @@
 // Generates public/og.png — the Open Graph preview card for beat up buddy.
 //
-// Hand-drawn SVG "screenshot": a ragdoll dummy strung up by a rope, a
-// speech bubble crying an actual @mfzx.net line, and a row of tool-initial
-// badges along the bottom (no emoji — resvg has no emoji font loaded, only
-// the bundled JetBrains Mono, so emoji glyphs rasterize as tofu boxes).
+// Hand-drawn SVG "screenshot": a ragdoll dummy standing on a weighted
+// bop-bag base, a speech bubble crying an actual @mfzx.net line, and a row
+// of tool-initial badges along the bottom (no emoji — resvg has no emoji
+// font loaded, only the bundled JetBrains Mono, so emoji glyphs rasterize
+// as tofu boxes).
 // Rasterised with @resvg/resvg-js (pure native module, no system
 // Chromium/fontconfig needed — font bundled in ./fonts).
 //
@@ -21,11 +22,17 @@ const W = 1200, H = 630;
 const INK = "#f7ecec", MUTED = "#b89aa6", GOLD = "#ffcf4d", RED = "#ff4d5e";
 const DUMMY = "#caa06a", DUMMY_STROKE = "#8a6a42", STITCH = "#5c4326";
 
-const anchorX = 190, anchorY = 46;
-const headR = 40, headY = anchorY + 84;
-const torsoW = 58, torsoH = 104, torsoY = headY + headR + 56;
-const armW = 22, armH = 58;
+// dummy stands on the right side of the card, clear of both the headline
+// text (left) and the tool-badge footer strip (bottom) — a static reference
+// to the same standing bop-bag pose as the live game, not a literal replay
+// of its floor math.
+const anchorX = 970;
+const cardFloorY = 500;
 const legW = 26, legH = 66;
+const legY = cardFloorY - 10 - legH / 2;
+const torsoW = 58, torsoH = 104, torsoY = legY - legH / 2 - torsoH / 2 + 4;
+const armW = 22, armH = 58;
+const headR = 40, headY = torsoY - headR - 56;
 
 function limb(x, y, w, h, angle) {
   return `<g transform="translate(${x} ${y}) rotate(${angle})">
@@ -35,9 +42,9 @@ function limb(x, y, w, h, angle) {
 }
 
 const dummy = `
-  <line x1="${anchorX}" y1="${anchorY}" x2="${anchorX + 5}" y2="${headY - headR * 0.6}" stroke="#7a5a34" stroke-width="5"/>
-  ${limb(anchorX - 40, torsoY + torsoH / 2 + legH / 2 - 4, legW, legH, -6)}
-  ${limb(anchorX + 36, torsoY + torsoH / 2 + legH / 2 - 4, legW, legH, 8)}
+  <ellipse cx="${anchorX}" cy="${cardFloorY - 4}" rx="58" ry="17" fill="#241621" stroke="#402a38" stroke-width="3"/>
+  ${limb(anchorX - 20, legY, legW, legH, -6)}
+  ${limb(anchorX + 18, legY, legW, legH, 8)}
   <g transform="translate(${anchorX} ${torsoY})">
     <rect x="${-torsoW / 2}" y="${-torsoH / 2}" width="${torsoW}" height="${torsoH}" rx="18" fill="#9b7a4a" stroke="#6a4e2c" stroke-width="3"/>
     <line x1="0" y1="${-torsoH / 2 + 8}" x2="0" y2="${torsoH / 2 - 8}" stroke="${STITCH}" stroke-width="2" stroke-dasharray="5 5"/>
@@ -50,11 +57,11 @@ const dummy = `
     <text x="0" y="8" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="30" fill="${INK}">M</text>
   </g>`;
 
-const bubbleX = anchorX + 190, bubbleY = headY - 46;
+const bubbleX = anchorX - 190, bubbleY = headY - 46;
 const bubble = `
   <g>
     <rect x="${bubbleX - 140}" y="${bubbleY - 54}" width="280" height="74" rx="14" fill="#fff8ec" stroke="#402a38" stroke-width="2.5"/>
-    <path d="M ${bubbleX - 90} ${bubbleY + 20} L ${bubbleX - 70} ${bubbleY + 20} L ${bubbleX - 94} ${bubbleY + 44} Z" fill="#fff8ec" stroke="#402a38" stroke-width="2.5"/>
+    <path d="M ${bubbleX + 90} ${bubbleY + 20} L ${bubbleX + 70} ${bubbleY + 20} L ${bubbleX + 94} ${bubbleY + 44} Z" fill="#fff8ec" stroke="#402a38" stroke-width="2.5"/>
     <text x="${bubbleX}" y="${bubbleY - 20}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="18" fill="#1a0f14">"i'm screenshotting</text>
     <text x="${bubbleX}" y="${bubbleY + 4}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="18" fill="#1a0f14">this later"</text>
   </g>`;
