@@ -131,7 +131,7 @@
 <body>
 <div class="wrap">
   <h1>🔍 intrigue</h1>
-  <p class="tag">Enter a Bluesky handle. We'll pull their profile and a page of recent posts from the public AppView and score how interesting the account is out of 100 — custom feeds and lists they've made, alt text, language and emoji range, thread-building, and more. Your score joins the leaderboard below, recomputed server-side so nobody can just claim 100.</p>
+  <p class="tag">Enter a Bluesky handle. We'll pull their profile and download their <em>entire</em> repo — every post they've ever made, straight off their own PDS, not just a recent page — and score how interesting the account is out of 100: custom feeds and lists they've made, alt text, language and emoji range, thread-building, and more. Your score joins the leaderboard below, recomputed server-side so nobody can just claim 100.</p>
 
   <form id="scanForm">
     <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -180,7 +180,10 @@
 
 <canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
 
-<script>
+<script type="module">
+import { fetchRepoRecords } from "./lib/car.js";
+import { resolvePds, authorFromUri } from "./lib/identity.js";
+
 const API = "https://public.api.bsky.app/xrpc/";
 async function xrpc(method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -257,7 +260,59 @@ function scoreProfile(profile) {
   return { points: points, signals: signals };
 }
 
-function scorePosts(did, feedItems) {
+// Both post sources (a full repo CAR, or the getAuthorFeed fallback) get
+// squashed into this same flat shape before scoring, so scorePosts below
+// doesn't need to know which one it got. A CAR gives raw
+// app.bsky.feed.post records straight from the repo — already just this
+// account's own posts, no reposts mixed in, and the reply-parent's author
+// is embedded right in the at:// URI. A feed item is the hydrated AppView
+// view shape instead, so it needs the reason/author checks the old
+// 50-post sample used.
+function normalizeFromRecord(rec, did) {
+  const embed = rec.embed || {};
+  const t = embed.$type || "";
+  let images = [];
+  if (t === "app.bsky.embed.images") images = embed.images || [];
+  else if (t === "app.bsky.embed.recordWithMedia" && embed.media && embed.media.$type === "app.bsky.embed.images") images = embed.media.images || [];
+  const parentDid = rec.reply && rec.reply.parent ? authorFromUri(rec.reply.parent.uri) : null;
+  return {
+    text: typeof rec.text === "string" ? rec.text : "",
+    langs: Array.isArray(rec.langs) ? rec.langs : [],
+    isReply: !!rec.reply,
+    replyIsSelf: !!rec.reply && parentDid === did,
+    isQuote: t === "app.bsky.embed.record" || t === "app.bsky.embed.recordWithMedia",
+    isExternal: t === "app.bsky.embed.external",
+    totalImages: images.length,
+    altImages: images.filter(function (i) { return i.alt && i.alt.trim().length > 0; }).length,
+  };
+}
+
+function normalizeFromFeedItem(item, did) {
+  if (item.reason) return null; // a repost of someone else's post, not theirs
+  const post = item.post;
+  if (!post || !post.author || post.author.did !== did) return null;
+  const rec = post.record || {};
+  const embed = post.embed || {};
+  const t = embed.$type || "";
+  let totalImages = 0, altImages = 0;
+  if (t === "app.bsky.embed.images#view" && Array.isArray(embed.images)) {
+    totalImages = embed.images.length;
+    altImages = embed.images.filter(function (i) { return i.alt && i.alt.trim().length > 0; }).length;
+  }
+  const parentDid = item.reply && item.reply.parent && item.reply.parent.author && item.reply.parent.author.did;
+  return {
+    text: typeof rec.text === "string" ? rec.text : "",
+    langs: Array.isArray(rec.langs) ? rec.langs : [],
+    isReply: !!rec.reply,
+    replyIsSelf: !!rec.reply && parentDid === did,
+    isQuote: t.indexOf("recordWithMedia") >= 0 || t === "app.bsky.embed.record#view",
+    isExternal: t === "app.bsky.embed.external#view",
+    totalImages: totalImages,
+    altImages: altImages,
+  };
+}
+
+function scorePosts(posts) {
   const signals = [];
   let points = 0;
   function add(label, pts, detail) {
@@ -266,7 +321,7 @@ function scorePosts(did, feedItems) {
     signals.push({ label: label, pts: pts, detail: detail || null });
   }
 
-  let own = 0;
+  const own = posts.length;
   let selfReplies = 0;
   let quotes = 0;
   let externalLinks = 0;
@@ -278,15 +333,10 @@ function scorePosts(did, feedItems) {
   const seenText = new Map();
   let dupes = 0;
 
-  for (const item of feedItems) {
-    if (item.reason) continue;
-    const post = item.post;
-    if (!post || !post.author || post.author.did !== did) continue;
-    own++;
-    const rec = post.record || {};
-    if (Array.isArray(rec.langs)) rec.langs.forEach(function (l) { langs.add(l); });
+  for (const post of posts) {
+    post.langs.forEach(function (l) { langs.add(l); });
 
-    const text = typeof rec.text === "string" ? rec.text : "";
+    const text = post.text;
     if (text) {
       textSample.push(text);
       const norm = text.trim().toLowerCase().replace(/\s+/g, " ");
@@ -299,21 +349,11 @@ function scorePosts(did, feedItems) {
       found.forEach(function (e) { emojis.add(e); });
     }
 
-    if (rec.reply) {
-      const parentDid = item.reply && item.reply.parent && item.reply.parent.author && item.reply.parent.author.did;
-      if (parentDid === did) selfReplies++;
-    }
-
-    const embed = post.embed;
-    if (embed) {
-      const t = embed.$type || "";
-      if (t.indexOf("recordWithMedia") >= 0 || t === "app.bsky.embed.record#view") quotes++;
-      if (t === "app.bsky.embed.external#view") externalLinks++;
-      if (t === "app.bsky.embed.images#view" && Array.isArray(embed.images)) {
-        totalImages += embed.images.length;
-        altImages += embed.images.filter(function (i) { return i.alt && i.alt.trim().length > 0; }).length;
-      }
-    }
+    if (post.replyIsSelf) selfReplies++;
+    if (post.isQuote) quotes++;
+    if (post.isExternal) externalLinks++;
+    totalImages += post.totalImages;
+    altImages += post.altImages;
   }
 
   if (own === 0) return { points: 0, signals: [], sampled: 0 };
@@ -340,9 +380,9 @@ function scorePosts(did, feedItems) {
   return { points: points, signals: signals, sampled: own };
 }
 
-function scoreAccount(profile, feedItems) {
+function scoreAccount(profile, posts) {
   const p = scoreProfile(profile);
-  const q = scorePosts(profile.did, feedItems);
+  const q = scorePosts(posts);
   const raw = p.points + q.points;
   const score = Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-Math.max(raw, 0) / 55)))));
   const signals = p.signals.concat(q.signals).sort(function (a, b) { return b.pts - a.pts; });
@@ -358,7 +398,31 @@ function tierFor(score) {
   return { label: "certified NPC", blurb: "blank bio, blank timeline" };
 }
 
-async function analyzeAccount(handleRaw) {
+// Prefers the full repo: one com.atproto.sync.getRepo CAR download off the
+// account's own PDS gets every app.bsky.feed.post record they've ever
+// written, no 50-post cap. Falls back to a single page of
+// app.bsky.feed.getAuthorFeed only if the PDS can't be resolved or the CAR
+// fetch/parse fails (private-relay weirdness, an oversized repo, a PDS
+// that's down) — same as the old behavior, just not the default anymore.
+async function fetchAllPosts(did, onProgress) {
+  const pds = await resolvePds(did);
+  if (pds) {
+    try {
+      const { records } = await fetchRepoRecords(pds, did, "app.bsky.feed.post", onProgress);
+      return { posts: records.map(function (r) { return normalizeFromRecord(r, did); }), full: true };
+    } catch (_) {
+      // fall through to the AppView sample below
+    }
+  }
+  if (onProgress) onProgress("falling back to a recent-posts sample…");
+  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "50" });
+  const posts = (feed.feed || [])
+    .map(function (item) { return normalizeFromFeedItem(item, did); })
+    .filter(Boolean);
+  return { posts: posts, full: false };
+}
+
+async function analyzeAccount(handleRaw, onProgress) {
   const handle = cleanHandle(handleRaw);
   if (!handle) throw new Error("enter a handle");
 
@@ -368,8 +432,8 @@ async function analyzeAccount(handleRaw) {
     did = r.did;
   }
   const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "50" });
-  const scored = scoreAccount(profile, feed.feed || []);
+  const { posts, full } = await fetchAllPosts(did, onProgress);
+  const scored = scoreAccount(profile, posts);
 
   return {
     did: did,
@@ -379,6 +443,7 @@ async function analyzeAccount(handleRaw) {
     score: scored.score,
     signals: scored.signals,
     sampled: scored.sampled,
+    full: full,
   };
 }
 
@@ -527,8 +592,10 @@ async function runScan(handleRaw) {
   els.status.classList.remove("err");
   els.status.textContent = "resolving " + handleRaw + "…";
   try {
-    const result = await analyzeAccount(handleRaw);
-    els.status.textContent = "scored from " + fmt(result.sampled) + " recent post" + (result.sampled === 1 ? "" : "s") + " and their profile";
+    const result = await analyzeAccount(handleRaw, function (msg) { els.status.textContent = msg; });
+    els.status.textContent = result.full
+      ? "scored from all " + fmt(result.sampled) + " post" + (result.sampled === 1 ? "" : "s") + " in their repo, plus their profile"
+      : "scored from " + fmt(result.sampled) + " recent post" + (result.sampled === 1 ? "" : "s") + " and their profile (couldn't reach their PDS for the full history)";
     renderResult(result);
     submitToLeaderboard(result);
   } catch (err) {
