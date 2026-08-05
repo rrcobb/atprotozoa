@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>adbanisher — the ad-defender banishment button</title>
+<meta name="description" content="Someone in your replies is defending online ads again. Press the button and banish them straight back to the ycombinator barnacle forums." />
+<meta property="og:title" content="adbanisher — the ad-defender banishment button" />
+<meta property="og:description" content="Someone in your replies is defending online ads again. Press the button and banish them straight back to the ycombinator barnacle forums." />
+<meta property="og:url" content="https://adbanisher.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://adbanisher.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="adbanisher: a stamped certificate of banishment, exiling an ad-defender to news.ycombinator.com." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="adbanisher — the ad-defender banishment button" />
+<meta name="twitter:description" content="Someone in your replies is defending online ads again. Press the button and banish them straight back to the ycombinator barnacle forums." />
+<meta name="twitter:image" content="https://adbanisher.bisks.net/og.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #171008;
+    --bg2: #241608;
+    --fg: #fbeed9;
+    --dim: #b89a76;
+    --accent: #ff6a1a;
+    --accent2: #ffb100;
+    --card: #221607;
+    --border: #4a3418;
+    --stamp: #d8281c;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #4a2408 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a1508 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 580px; }
+
+  h1 {
+    font-size: 1.75rem; line-height: 1.25; margin: 0 0 0.4rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tagline { color: var(--dim); font-size: 0.92rem; margin: 0 0 2.25rem; line-height: 1.55; }
+  .tagline b { color: var(--fg); }
+  .tagline a { color: var(--accent2); }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.5rem; margin-bottom: 1.25rem;
+  }
+  label { display: block; font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.4rem; }
+  label:not(:first-child) { margin-top: 1.1rem; }
+  input[type="text"], select, textarea {
+    width: 100%; background: #17100a; border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.7rem 0.85rem; font: inherit; font-size: 0.9rem;
+  }
+  input[type="text"]:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { resize: vertical; min-height: 4.2rem; margin-top: 0.6rem; }
+  select { appearance: none; cursor: pointer; }
+
+  .banish-btn {
+    width: 100%; margin-top: 1.4rem; font-family: var(--mono); font-weight: 800;
+    font-size: 1.05rem; letter-spacing: 0.03em; text-transform: uppercase;
+    border-radius: 10px; border: none; padding: 1rem; cursor: pointer;
+    background: linear-gradient(90deg, var(--stamp), #a3160c); color: #fff;
+    box-shadow: 0 0 0 3px rgba(216,40,28,0.2), 0 8px 20px rgba(216,40,28,0.25);
+    transition: transform 0.08s ease;
+  }
+  .banish-btn:active { transform: scale(0.98); }
+  .banish-btn:disabled { opacity: 0.6; cursor: default; }
+
+  .stage {
+    position: relative; min-height: 220px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; overflow: hidden;
+  }
+  .stage.hidden { display: none; }
+
+  .accusation { font-size: 0.95rem; color: var(--fg); line-height: 1.6; max-width: 440px; position: relative; }
+  .accusation .strike {
+    position: absolute; left: -4%; right: -4%; top: 50%; height: 4px;
+    background: var(--stamp); transform: scaleX(0); transform-origin: left;
+    animation: strike 0.5s ease forwards 0.15s;
+  }
+  @keyframes strike { to { transform: scaleX(1); } }
+
+  .stamp {
+    font-size: 2.6rem; font-weight: 800; color: var(--stamp); border: 6px solid var(--stamp);
+    border-radius: 10px; padding: 0.3rem 1.1rem; letter-spacing: 0.04em; transform: rotate(-8deg) scale(2.2);
+    opacity: 0; margin-top: 1.4rem;
+    animation: slam 0.4s cubic-bezier(.2,1.4,.6,1) forwards 0.55s;
+  }
+  @keyframes slam { to { transform: rotate(-8deg) scale(1); opacity: 1; } }
+
+  .cert {
+    background: #120a03; border: 2px solid var(--accent2); border-radius: 12px;
+    padding: 1.75rem 1.5rem; position: relative; width: 100%;
+  }
+  .cert::before {
+    content: "◆ ◆ ◆"; display: block; text-align: center; color: var(--accent2);
+    font-size: 0.7rem; letter-spacing: 0.4em; margin-bottom: 0.9rem; opacity: 0.7;
+  }
+  .cert h2 {
+    margin: 0 0 0.9rem; text-align: center; font-size: 1rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--accent2);
+  }
+  .cert .who { text-align: center; font-size: 1.3rem; font-weight: 800; margin: 0 0 0.6rem; }
+  .cert .quote {
+    text-align: center; font-size: 0.85rem; color: var(--dim); font-style: italic;
+    text-decoration: line-through; text-decoration-color: var(--stamp); margin: 0 0 1rem;
+    line-height: 1.5;
+  }
+  .cert .body { text-align: center; font-size: 0.88rem; color: var(--fg); line-height: 1.7; margin: 0 0 1rem; }
+  .cert .body b { color: var(--accent2); }
+  .cert .meta { text-align: center; font-size: 0.72rem; color: var(--dim); letter-spacing: 0.04em; }
+
+  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; margin-top: 1.4rem; }
+  .actions a, .actions button {
+    text-decoration: none; font-size: 0.85rem; padding: 0.65rem 1.05rem; border-radius: 8px;
+    font-family: var(--mono); font-weight: 700; cursor: pointer; border: 1px solid var(--border);
+  }
+  .a-exile { background: var(--accent); color: #1a0e00; border-color: transparent; }
+  .a-exile:hover { background: var(--accent2); }
+  .a-bsky { background: #1a5fd0; color: #fff; border-color: transparent; }
+  .a-ghost { background: transparent; color: var(--dim); }
+  .a-ghost:hover { color: var(--fg); }
+
+  canvas#cert-canvas { display: none; }
+
+  footer { margin-top: 2.5rem; color: var(--dim); font-size: 0.78rem; text-align: center; max-width: 480px; }
+  footer a { color: #ffb968; text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>the ad-defender banishment button</h1>
+    <p class="tagline">
+      <b>@7778777.online</b> wanted a button to banish anyone defending online ads
+      back to the ycombinator barnacle forums. this is that button. someone in your
+      replies just said ads are fine, actually — name them, pick (or write) their
+      crime, and send them home to <b>news.ycombinator.com</b>.
+    </p>
+
+    <div class="panel" id="form-panel">
+      <label for="who">who's defending ads?</label>
+      <input type="text" id="who" placeholder="@handle or a name (optional)" maxlength="60" />
+
+      <label for="excuse">their defense, for the record</label>
+      <select id="excuse">
+        <option value="ads pay for the free internet, actually">"ads pay for the free internet, actually"</option>
+        <option value="adblock is basically theft">"adblock is basically theft"</option>
+        <option value="content doesn't make itself, you know">"content doesn't make itself, you know"</option>
+        <option value="you're free to just not use the website">"you're free to just not use the website"</option>
+        <option value="I don't even notice them anymore">"I don't even notice them anymore, tbh"</option>
+        <option value="without ads we'd have to pay for everything">"without ads we'd have to pay for everything"</option>
+        <option value="other">something else...</option>
+      </select>
+      <textarea id="custom-excuse" placeholder="what did they actually say?" style="display:none"></textarea>
+
+      <button class="banish-btn" id="banish-btn">banish them</button>
+    </div>
+
+    <div class="panel stage hidden" id="stage"></div>
+  </div>
+
+  <canvas id="cert-canvas" width="1200" height="630"></canvas>
+
+  <footer id="footer" hidden>
+    built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/7778777.online">@7778777.online</a> ·
+    <a href="https://bisks.net">more of these</a>
+  </footer>
+
+  <script>
+    const els = {
+      formPanel: document.getElementById("form-panel"),
+      stage: document.getElementById("stage"),
+      who: document.getElementById("who"),
+      excuse: document.getElementById("excuse"),
+      customExcuse: document.getElementById("custom-excuse"),
+      btn: document.getElementById("banish-btn"),
+      canvas: document.getElementById("cert-canvas"),
+      footer: document.getElementById("footer"),
+    };
+    const SITE_URL = "https://adbanisher.bisks.net/";
+
+    els.excuse.addEventListener("change", () => {
+      els.customExcuse.style.display = els.excuse.value === "other" ? "block" : "none";
+    });
+
+    function currentExcuse() {
+      if (els.excuse.value === "other") {
+        return els.customExcuse.value.trim() || "ads are fine actually, you're overreacting";
+      }
+      return els.excuse.value;
+    }
+
+    function currentWho() {
+      const raw = els.who.value.trim();
+      if (!raw) return "the accused";
+      return raw.startsWith("@") ? raw : "@" + raw;
+    }
+
+    let lastShareText = "";
+
+    els.btn.addEventListener("click", () => {
+      const who = currentWho();
+      const excuse = currentExcuse();
+      els.btn.disabled = true;
+      els.formPanel.style.display = "none";
+      runSequence(who, excuse);
+    });
+
+    function runSequence(who, excuse) {
+      els.stage.classList.remove("hidden");
+      els.stage.innerHTML = `
+        <div class="accusation">
+          <b>${escapeHtml(who)}</b> was heard saying:<br/>
+          “${escapeHtml(excuse)}”
+          <span class="strike"></span>
+        </div>
+        <div class="stamp">BANISHED</div>
+      `;
+      setTimeout(() => renderCertificate(who, excuse), 1500);
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    function formatDate() {
+      const d = new Date();
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+    }
+
+    function renderCertificate(who, excuse) {
+      const date = formatDate();
+      els.stage.innerHTML = `
+        <div class="cert">
+          <h2>certificate of banishment</h2>
+          <div class="who">${escapeHtml(who)}</div>
+          <div class="quote">“${escapeHtml(excuse)}”</div>
+          <div class="body">
+            is hereby exiled, effective ${escapeHtml(date)}, to permanent residence in the
+            <b>ycombinator barnacle forums</b> for crimes against the ad-free experience.
+            let them defend impression-tracking pixels among their own kind.
+          </div>
+          <div class="meta">adbanisher.bisks.net &middot; issued on request of @7778777.online</div>
+        </div>
+        <div class="actions">
+          <a class="a-exile" id="send-off" href="https://news.ycombinator.com" target="_blank" rel="noopener noreferrer">open their new home ↗</a>
+          <a class="a-bsky" id="share-bsky" target="_blank" rel="noopener">share the banishment</a>
+          <button class="a-ghost" id="dl-cert">download certificate</button>
+          <button class="a-ghost" id="again">banish another</button>
+        </div>
+      `;
+
+      lastShareText =
+        `${who} just got banished to the ycombinator barnacle forums for defending online ads (“${excuse}”). ` +
+        `banish yours → ${SITE_URL}`;
+      document.getElementById("share-bsky").href =
+        "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+      drawCertCanvas(who, excuse, date);
+
+      document.getElementById("dl-cert").addEventListener("click", () => {
+        els.canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          const safe = who.replace(/[^a-z0-9.@_-]/gi, "_");
+          a.download = "banishment-" + safe + ".png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      document.getElementById("again").addEventListener("click", () => {
+        els.stage.classList.add("hidden");
+        els.stage.innerHTML = "";
+        els.formPanel.style.display = "";
+        els.btn.disabled = false;
+      });
+
+      els.footer.hidden = false;
+    }
+
+    function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, align) {
+      const words = text.split(" ");
+      let line = "";
+      let cy = y;
+      ctx.textAlign = align || "left";
+      for (const w of words) {
+        const test = line ? line + " " + w : w;
+        if (line && ctx.measureText(test).width > maxWidth) {
+          ctx.fillText(line, x, cy);
+          line = w;
+          cy += lineHeight;
+        } else {
+          line = test;
+        }
+      }
+      if (line) ctx.fillText(line, x, cy);
+      return cy;
+    }
+
+    function drawCertCanvas(who, excuse, date) {
+      const canvas = els.canvas;
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width, H = canvas.height;
+      const mono = "ui-monospace, monospace";
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = "#171008";
+      ctx.fillRect(0, 0, W, H);
+      const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+      glow.addColorStop(0, "#4a2408");
+      glow.addColorStop(1, "rgba(23,16,8,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.strokeStyle = "#ffb100";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(40, 40, W - 80, H - 80);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffb100";
+      ctx.font = `800 26px ${mono}`;
+      ctx.fillText("CERTIFICATE OF BANISHMENT", W / 2, 130);
+
+      ctx.fillStyle = "#fbeed9";
+      ctx.font = `800 48px ${mono}`;
+      ctx.fillText(who, W / 2, 220);
+
+      ctx.fillStyle = "#b89a76";
+      ctx.font = `italic 22px ${mono}`;
+      const qy = wrapCanvasText(ctx, "“" + excuse + "”", W / 2, 270, 900, 30, "center");
+      ctx.strokeStyle = "#d8281c";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 260, qy - 9);
+      ctx.lineTo(W / 2 + 260, qy - 9);
+      ctx.stroke();
+
+      ctx.fillStyle = "#fbeed9";
+      ctx.font = `400 22px ${mono}`;
+      wrapCanvasText(
+        ctx,
+        "is hereby exiled, effective " + date + ", to permanent residence in the",
+        W / 2, qy + 60, 900, 30, "center"
+      );
+      ctx.fillStyle = "#ffb100";
+      ctx.font = `800 26px ${mono}`;
+      ctx.fillText("YCOMBINATOR BARNACLE FORUMS", W / 2, qy + 100);
+
+      ctx.fillStyle = "#b89a76";
+      ctx.font = `400 16px ${mono}`;
+      ctx.fillText("for crimes against the ad-free experience", W / 2, qy + 130);
+
+      ctx.fillStyle = "#ff6a1a";
+      ctx.font = `700 20px ${mono}`;
+      ctx.fillText("adbanisher.bisks.net", W / 2, H - 60);
+    }
+  </script>
+</body>
+</html>
