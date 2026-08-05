@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>firstlikes — how many posts to your first 10, 100, 1000 likes? — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle. firstlikes walks every post you've ever made, oldest to newest, and finds exactly which post number first crossed 10 likes, 100 likes, and 1000 likes."
+    />
+    <meta property="og:title" content="firstlikes — how many posts to your first hit?" />
+    <meta
+      property="og:description"
+      content="Trace anyone's whole post history, oldest first, and find which post number first crossed 10, 100, and 1000 likes."
+    />
+    <meta property="og:url" content="https://firstlikes.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://firstlikes.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="firstlikes — a milestone ladder showing which post number first crossed 10, 100, and 1000 likes." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="firstlikes — how many posts to your first hit?" />
+    <meta
+      name="twitter:description"
+      content="Trace anyone's whole post history, oldest first, and find which post number first crossed 10, 100, and 1000 likes."
+    />
+    <meta name="twitter:image" content="https://firstlikes.bisks.net/og.png" />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex. Gold marks a reached milestone. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --gold: #b8860b;
+        --good: #0d7a3f;
+        --bad: #b3261e;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.55rem; margin: 0 0 0.4rem; font-weight: 700; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 62ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1.1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+        font-size: 0.85rem; padding: 0.6rem 1rem; border-radius: 4px; cursor: pointer;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: var(--bad); }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.4rem; }
+      section#result.on { display: block; }
+
+      .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.6rem; }
+      .who img { width: 44px; height: 44px; border-radius: 50%; background: var(--faint); flex: none; }
+      .who .dn { font-weight: 700; font-size: 1.05rem; }
+      .who .hd { color: var(--muted); font-size: 0.82rem; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.6rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+
+      .ladder { border: 1px solid var(--faint); border-radius: 8px; overflow: hidden; margin-bottom: 1.6rem; }
+      .rung {
+        display: flex; align-items: flex-start; gap: 0.9rem;
+        padding: 1rem 1.1rem; border-bottom: 1px solid var(--faint);
+      }
+      .rung:last-child { border-bottom: none; }
+      .rung.hit { background: #fffdf6; }
+      .rungIcon {
+        width: 2.4rem; height: 2.4rem; border-radius: 50%; flex: none;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 0.95rem;
+        border: 2px solid var(--faint); color: var(--muted);
+      }
+      .rung.hit .rungIcon { border-color: var(--gold); color: var(--gold); }
+      .rungBody { min-width: 0; flex: 1; }
+      .rungHead { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.15rem; }
+      .rungHead .n { color: var(--gold); }
+      .rungSub { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.4rem; }
+      .rungPost {
+        font-size: 0.86rem; color: var(--ink); background: #f7f7f7;
+        border-left: 3px solid var(--faint); padding: 0.5rem 0.7rem; border-radius: 0 4px 4px 0;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .rung.hit .rungPost { border-left-color: var(--gold); }
+      .rungPost a { color: var(--accent); text-decoration: none; font-size: 0.78rem; }
+      .rungPost a:hover { text-decoration: underline; }
+      .rungMeta { color: var(--muted); font-size: 0.76rem; margin-top: 0.3rem; }
+
+      .stats { display: flex; gap: 1.5rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); margin-bottom: 1.6rem; }
+      .stats b { color: var(--ink); font-size: 1rem; display: block; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0 0 0.5rem; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>firstlikes <span class="slash">· how many posts to your first hit?</span></h1>
+      <p class="intro">
+        Enter a <b>Bluesky handle</b>. firstlikes reads every post that
+        account has ever made — starting from the very first one — and finds
+        exactly which post number first crossed <b>10 likes</b>,
+        <b>100 likes</b>, and <b>1000 likes</b>. Replies count as posts, same
+        as the account's own <code>app.bsky.feed.post</code> collection does.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. yourhandle.bsky.social"
+            spellcheck="false"
+            autocapitalize="off"
+          />
+          <button id="go" type="submit">climb</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView + the account's own PDS, right in your browser — no login. large accounts can take a minute or two, we're reading everything.
+      </p>
+
+      <section id="result">
+        <div class="who" id="who"></div>
+        <div class="summary" id="summary"></div>
+
+        <div class="ladder" id="ladder"></div>
+
+        <div class="stats" id="stats"></div>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this climb →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          firstlikes resolves the handle to a DID, finds its PDS from the DID
+          document, then pages through
+          <code>com.atproto.repo.listRecords</code> on
+          <code>app.bsky.feed.post</code> with <code>reverse=true</code> —
+          that walks the collection <b>oldest first</b> (rkeys are
+          timestamp-ordered TIDs, so ascending order is chronological order),
+          and every record already carries its real <code>at://</code> uri, no
+          extra lookup needed. Once it has the full, ordered post list, it
+          batch-resolves like counts 25 at a time via
+          <code>app.bsky.feed.getPosts</code> and walks the list in order to
+          find the first post at or above each threshold. Everything runs in
+          your browser against Bluesky's public AppView and the account's own
+          PDS — no login, nothing written anywhere.
+        </div>
+      </details>
+
+      <footer>
+        walks a whole post history oldest-first via <code>listRecords(reverse:
+        true)</code>, then batch-checks like counts via
+        <code>getPosts</code>. built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>
+        by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveDid, resolvePds, fetchAllPosts, fetchLikeCounts, findMilestones } from "./lib/climb.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("q"));
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), whoEl = $("who"), summaryEl = $("summary"), ladderEl = $("ladder"), statsEl = $("stats");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const THRESHOLDS = [10, 100, 1000];
+      const APPVIEW = "https://public.api.bsky.app/xrpc";
+
+      let lastShareText = "";
+
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function fmt(n) {
+        return Number(n || 0).toLocaleString();
+      }
+
+      function short(h) {
+        return "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      }
+
+      function postUrl(handle, uri) {
+        const rkey = String(uri || "").split("/").pop();
+        return `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${rkey}`;
+      }
+
+      function truncate(s, max) {
+        s = String(s || "").trim();
+        if (!s) return "(no text)";
+        return s.length <= max ? s : s.slice(0, max - 1).trimEnd() + "…";
+      }
+
+      function fmtDate(iso) {
+        const d = new Date(iso);
+        if (isNaN(d)) return "";
+        return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      }
+
+      async function jget(url) {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      }
+
+      function renderLadder(milestones, handle, total) {
+        ladderEl.innerHTML = "";
+        milestones.forEach((m) => {
+          const rung = document.createElement("div");
+          rung.className = "rung" + (m.index ? " hit" : "");
+          if (m.index) {
+            const p = m.post;
+            const text = truncate(p.value && p.value.text, 220);
+            const isReply = !!(p.value && p.value.reply);
+            rung.innerHTML =
+              `<div class="rungIcon">${fmt(m.threshold)}</div>` +
+              `<div class="rungBody">` +
+                `<div class="rungHead">took <span class="n">${fmt(m.index)}</span> post${m.index === 1 ? "" : "s"} to hit ${fmt(m.threshold)} likes</div>` +
+                `<div class="rungSub">post #${fmt(m.index)} of ${fmt(total)} ${isReply ? "(a reply)" : ""} — ${fmtHeadline(p)} likes</div>` +
+                `<div class="rungPost">${escapeHtml(text)}<br/><a href="${postUrl(handle, p.uri)}" target="_blank" rel="noopener">view post →</a></div>` +
+                `<div class="rungMeta">${fmtDate(p.value && p.value.createdAt)}</div>` +
+              `</div>`;
+          } else {
+            rung.innerHTML =
+              `<div class="rungIcon">${fmt(m.threshold)}</div>` +
+              `<div class="rungBody">` +
+                `<div class="rungHead">hasn't hit ${fmt(m.threshold)} likes yet</div>` +
+                `<div class="rungSub">${fmt(total)} posts in, still climbing</div>` +
+              `</div>`;
+          }
+          ladderEl.appendChild(rung);
+        });
+      }
+
+      function fmtHeadline(p) {
+        return fmt(p.likeCount);
+      }
+
+      function renderStats(posts, profile) {
+        const total = posts.length;
+        const totalLikes = posts.reduce((s, p) => s + p.likeCount, 0);
+        let best = posts[0] || null;
+        for (const p of posts) if (best === null || p.likeCount > best.likeCount) best = p;
+        const first = posts[0];
+        statsEl.innerHTML =
+          `<div><b>${fmt(total)}</b>posts read</div>` +
+          `<div><b>${fmt(totalLikes)}</b>total likes across all of them</div>` +
+          (best ? `<div><b>${fmt(best.likeCount)}</b>likes on their best post</div>` : "") +
+          (first ? `<div><b>${fmtDate(first.value && first.value.createdAt)}</b>first post ever</div>` : "");
+      }
+
+      function buildShareText(handle, milestones, total) {
+        const bits = milestones.map((m) =>
+          m.index ? `${fmt(m.threshold)}-like post: #${fmt(m.index)}` : `${fmt(m.threshold)}-like post: not yet`,
+        );
+        return `it took ${short(handle)} ${bits.join(", ")} (out of ${fmt(total)} posts read). trace anyone's climb → https://firstlikes.bisks.net/`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(profile, milestones, total) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("firstlikes", 60, 90);
+
+        const avatar = await loadImg(profile.avatar);
+        let textX = 60;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(88, 150, 28, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, 60, 122, 56, 56);
+          ctx.restore();
+          textX = 134;
+        }
+        ctx.fillStyle = "#111111";
+        ctx.font = `700 30px ${mono}`;
+        ctx.fillText(short(profile.handle), textX, 160);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText(`${fmt(total)} posts read`, textX, 188);
+
+        const rowH = 118;
+        const startY = 250;
+        milestones.forEach((m, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y - 34, W - 120, 1);
+
+          ctx.fillStyle = m.index ? "#b8860b" : "#6b6b6b";
+          ctx.font = `800 30px ${mono}`;
+          ctx.textAlign = "left";
+          ctx.fillText(`${fmt(m.threshold)} likes`, 60, y);
+
+          ctx.fillStyle = "#111111";
+          ctx.font = `700 26px ${mono}`;
+          ctx.textAlign = "right";
+          ctx.fillText(m.index ? `post #${fmt(m.index)}` : "not yet", W - 60, y);
+          ctx.textAlign = "left";
+
+          if (m.index) {
+            ctx.fillStyle = "#6b6b6b";
+            ctx.font = `400 16px ${mono}`;
+            const text = truncate((m.post.value && m.post.value.text) || "", 78);
+            ctx.fillText("“" + text + "”", 60, y + 30);
+          }
+        });
+
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("firstlikes.bisks.net", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "firstlikes.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "firstlikes" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "firstlikes.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        setStatus(`resolving ${q}…`);
+        try {
+          const did = await resolveDid(q);
+          const profile = await jget(`${APPVIEW}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`);
+
+          setStatus(`finding ${short(profile.handle)}'s PDS…`);
+          const pds = await resolvePds(did);
+
+          setStatus(`reading posts: 0…`);
+          const records = await fetchAllPosts(pds, did, (n) => setStatus(`reading posts: ${fmt(n)}…`));
+          if (!records.length) {
+            setStatus(`${short(profile.handle)} hasn't posted anything yet.`, "err");
+            goBtn.disabled = false;
+            return;
+          }
+
+          setStatus(`found ${fmt(records.length)} posts. reading like counts: 0/${fmt(records.length)}…`);
+          const uris = records.map((r) => r.uri);
+          const counts = await fetchLikeCounts(uris, (done, tot) =>
+            setStatus(`found ${fmt(records.length)} posts. reading like counts: ${fmt(done)}/${fmt(tot)}…`),
+          );
+
+          const posts = records.map((r) => ({ ...r, likeCount: counts.get(r.uri) || 0 }));
+          const milestones = findMilestones(posts, THRESHOLDS);
+
+          whoEl.innerHTML =
+            `<a href="https://bsky.app/profile/${encodeURIComponent(profile.handle)}" target="_blank" rel="noopener">` +
+              (profile.avatar ? `<img src="${profile.avatar}" alt="" />` : `<img alt="" />`) +
+            `</a>` +
+            `<div><div class="dn"><a href="https://bsky.app/profile/${encodeURIComponent(profile.handle)}" target="_blank" rel="noopener">${escapeHtml(profile.displayName || profile.handle)}</a></div>` +
+            `<div class="hd">${short(profile.handle)}</div></div>`;
+
+          const reachedCount = milestones.filter((m) => m.index).length;
+          summaryEl.innerHTML =
+            `read <b>${fmt(posts.length)}</b> posts, oldest to newest, and reached <b>${reachedCount}</b> of ${THRESHOLDS.length} like milestones.`;
+
+          renderLadder(milestones, profile.handle, posts.length);
+          renderStats(posts, profile);
+
+          lastShareText = buildShareText(profile.handle, milestones, posts.length);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(profile, milestones, posts.length);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
