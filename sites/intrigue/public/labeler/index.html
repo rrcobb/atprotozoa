@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>intrigue → labeler? — a preview</title>
+<meta name="description" content="Could intrigue's interestingness score be a Bluesky labeler? Here's the honest answer: the label mapping and query endpoint are real and live — the network subscription isn't, because that needs a dedicated signing identity nobody has provisioned yet." />
+<meta property="og:title" content="intrigue → labeler? — a preview" />
+<meta property="og:description" content="Could intrigue's interestingness score be a Bluesky labeler? Here's the honest answer: the label mapping and query endpoint are real and live — the network subscription isn't, because that needs a dedicated signing identity nobody has provisioned yet." />
+<meta property="og:url" content="https://intrigue.bisks.net/labeler/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://intrigue.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="intrigue → labeler? — a preview" />
+<meta name="twitter:description" content="Could intrigue's interestingness score be a Bluesky labeler? Here's the honest answer: the label mapping and query endpoint are real and live — the network subscription isn't yet." />
+<meta name="twitter:image" content="https://intrigue.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0a12;
+    --fg: #ece9f7;
+    --dim: #9a93b8;
+    --accent: #4fd1c5;
+    --accent2: #c084fc;
+    --card: #14111f;
+    --border: #2b2540;
+    --pos: #4fd1c5;
+    --neg: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #2a1250 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 0%, #0d3b3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  a { color: var(--accent); }
+  h1 {
+    font-size: 1.7rem; line-height: 1.25; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.75rem; line-height: 1.55; }
+  h2 { font-size: 1.05rem; margin: 2rem 0 0.5rem; }
+  p { line-height: 1.6; font-size: 0.9rem; color: var(--fg); }
+  p.dim { color: var(--dim); font-size: 0.84rem; }
+
+  .verdict {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.2rem 1.4rem; margin: 1rem 0 1.5rem;
+  }
+  .verdict .yn { font-weight: 800; font-size: 1.02rem; margin-bottom: 0.4rem; }
+  .verdict .yn .yes { color: var(--pos); }
+  .verdict .yn .not-yet { color: var(--accent2); }
+
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.5rem; font-size: 0.84rem; }
+  th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.val { color: var(--accent); font-weight: 700; }
+  td.range { color: var(--dim); white-space: nowrap; }
+
+  form { display: flex; gap: 0.5rem; margin: 0.75rem 0 0.4rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.85rem; font: inherit; font-size: 0.92rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #0a0a12;
+    border: none; border-radius: 8px; padding: 0.7rem 1.05rem; font: inherit;
+    font-weight: 700; font-size: 0.88rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.3em; margin-bottom: 1rem; }
+  .status.err { color: var(--neg); }
+
+  .preview {
+    display: none; background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+  }
+  .preview.show { display: block; }
+  .preview .who { font-weight: 700; margin-bottom: 0.5rem; }
+  .preview .label {
+    display: inline-block; font-size: 0.8rem; font-weight: 800; color: #0a0a12;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 999px; padding: 0.25rem 0.7rem; margin-bottom: 0.6rem;
+  }
+  pre {
+    background: #0d0b16; border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.8rem 0.9rem; font-size: 0.76rem; overflow-x: auto; color: var(--dim);
+    margin: 0;
+  }
+  pre .k { color: var(--accent2); }
+  pre .v { color: var(--fg); }
+
+  code {
+    background: #0d0b16; border: 1px solid var(--border); border-radius: 4px;
+    padding: 0.1rem 0.35rem; font-size: 0.85em;
+  }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏷️ could intrigue be a labeler?</h1>
+  <p class="tag"><a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> asked. Short answer below, then the actual working piece of it.</p>
+
+  <div class="verdict">
+    <div class="yn"><span class="not-yet">not yet subscribable</span> — but the label mapping and query endpoint are real, live, and one identity away from it.</div>
+    <p class="dim" style="margin:0;">A Bluesky labeler is an account that publishes signed <code>(subject, label)</code> pairs the app trusts because they're cryptographically signed by that account's own key. Building the <em>logic</em> — mapping intrigue's score into a label — is a file edit, which is exactly what this build is. But making it a <em>real, subscribable</em> labeler needs a dedicated identity with its own signing key, declared in a DID document — that's an identity-provisioning step, not a code change, and it isn't something an automated build can do on its own (the same way it can't touch deploy credentials). So: no fake "subscribe" button here — that would just be a link that does nothing. What follows is the honest, working preview.</p>
+  </div>
+
+  <h2>the mapping</h2>
+  <p>Every tier intrigue already shows on a score card becomes a label value:</p>
+  <table>
+    <thead><tr><th>score</th><th>label value</th><th>tier</th></tr></thead>
+    <tbody>
+      <tr><td class="range">90–100</td><td class="val">main-character</td><td>certifiable main character</td></tr>
+      <tr><td class="range">75–89</td><td class="val">intriguing</td><td>genuinely intriguing</td></tr>
+      <tr><td class="range">55–74</td><td class="val">has-layers</td><td>has layers</td></tr>
+      <tr><td class="range">35–54</td><td class="val">quietly-fine</td><td>quietly fine</td></tr>
+      <tr><td class="range">15–34</td><td class="val">lurking</td><td>lurking</td></tr>
+      <tr><td class="range">0–14</td><td class="val">npc</td><td>certified NPC</td></tr>
+    </tbody>
+  </table>
+
+  <h2>try the live endpoint</h2>
+  <p class="dim">This scores a handle (or reuses its cached score) and asks intrigue's own <code>com.atproto.label.queryLabels</code> implementation what label it would carry. Real endpoint, real data — <a href="/xrpc/com.atproto.label.queryLabels?uriPatterns=did:plc:z72i7hdynmk6r22z27h6tvur" target="_blank" rel="noopener">try it raw</a> against any DID.</p>
+
+  <form id="previewForm">
+    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button type="submit" id="previewBtn">preview label</button>
+  </form>
+  <p class="status" id="status"></p>
+
+  <div class="preview" id="previewCard">
+    <div class="who" id="pWho"></div>
+    <div class="label" id="pLabel"></div>
+    <pre id="pJson"></pre>
+  </div>
+
+  <h2>what "done" looks like</h2>
+  <p class="dim">Once a labeler DID exists — Rob's call, since it means provisioning a new signed identity — the remaining work is small: publish an <code>app.bsky.labeler.service</code> record declaring this label set, point the DID document's <code>#atproto_labeler</code> service at this Worker, and sign what <code>queryLabels</code> already returns. At that point a real "subscribe to labeler" link (<code>bsky.app/profile/&lt;did&gt;</code>) becomes honest, and it'll go right here.</p>
+
+  <footer>
+    part of <a href="/">intrigue</a>, built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<script type="module">
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Kept in lockstep with src/index.ts's labelValFor — this only formats a
+// score the API already computed, never re-derives one.
+function labelValFor(score) {
+  if (score >= 90) return "main-character";
+  if (score >= 75) return "intriguing";
+  if (score >= 55) return "has-layers";
+  if (score >= 35) return "quietly-fine";
+  if (score >= 15) return "lurking";
+  return "npc";
+}
+
+function jsonHtml(obj) {
+  const lines = Object.entries(obj).map(function ([k, v]) {
+    const vs = typeof v === "string" ? '"' + escapeHtml(v) + '"' : escapeHtml(String(v));
+    return '  <span class="k">"' + k + '"</span>: <span class="v">' + vs + '</span>';
+  });
+  return "{\n" + lines.join(",\n") + "\n}";
+}
+
+const els = {
+  form: document.getElementById("previewForm"),
+  input: document.getElementById("handleInput"),
+  btn: document.getElementById("previewBtn"),
+  status: document.getElementById("status"),
+  card: document.getElementById("previewCard"),
+  who: document.getElementById("pWho"),
+  label: document.getElementById("pLabel"),
+  json: document.getElementById("pJson"),
+};
+
+els.form.addEventListener("submit", async function (e) {
+  e.preventDefault();
+  const raw = els.input.value.trim();
+  const handle = cleanHandle(raw);
+  if (!handle) return;
+
+  els.btn.disabled = true;
+  els.status.classList.remove("err");
+  els.status.textContent = "scoring " + handle + "… (reuses intrigue's own scorer)";
+  els.card.classList.remove("show");
+
+  try {
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: handle }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "couldn't score that");
+
+    const val = labelValFor(data.score);
+    els.who.textContent = "@" + data.handle + " — " + data.score + "/100";
+    els.label.textContent = val;
+    els.json.innerHTML = jsonHtml({
+      src: "did:example:intrigue-preview",
+      uri: data.did,
+      val: val,
+      cts: new Date().toISOString(),
+    });
+    els.card.classList.add("show");
+    els.status.textContent = "this is what com.atproto.label.queryLabels returns for this DID right now.";
+  } catch (err) {
+    els.status.classList.add("err");
+    els.status.textContent = "couldn't preview that — " + (err && err.message ? err.message : "check the handle and try again");
+  } finally {
+    els.btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

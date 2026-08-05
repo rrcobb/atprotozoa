@@ -28,6 +28,14 @@
 // DAG-CBOR parser and PDS resolver below are the same code as
 // public/lib/car.js and public/lib/identity.js, ported to TypeScript rather
 // than imported — a Worker can't import a browser ES module.
+//
+// @fromthewestmeadow.com later asked whether the score could be a Bluesky
+// labeler. It can't be a *live, subscribable* one from here — that needs a
+// dedicated DID with a signing key, an identity-provisioning step outside
+// what a repo edit can do (see builder/INSTRUCTIONS.md's secrets rule) — but
+// the label mapping and a real com.atproto.label.queryLabels implementation
+// are both live (labelValFor, PREVIEW_LABELER_DID, and the queryLabels
+// handling in Board.fetch below). See public/labeler/ for the writeup.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -68,6 +76,17 @@ export default {
     // sites/didscope/src/index.ts (renderShare), which this is ported from.
     const m = url.pathname.match(/^\/s\/([^/]+)\/?$/);
     if (m) return renderShare(env, request, m[1]);
+    // com.atproto.label.queryLabels — a real, queryable preview of what
+    // intrigue's tiers would look like as labels. Not a live network
+    // labeler: that needs its own DID with a signing key (a one-time
+    // identity-provisioning step, not a file edit) so the app can trust
+    // signed labels from it. See public/labeler/ for the writeup and the
+    // "why isn't there a subscribe button" answer.
+    if (url.pathname === "/xrpc/com.atproto.label.queryLabels") {
+      const id = env.BOARD.idFromName("global");
+      const stub = env.BOARD.get(id);
+      return stub.fetch(request);
+    }
     return env.ASSETS.fetch(request);
   },
 };
@@ -486,6 +505,27 @@ function tierFor(score: number): { label: string; blurb: string } {
   return { label: "certified NPC", blurb: "blank bio, blank timeline" };
 }
 
+// Same six tiers as tierFor, expressed as short label-value slugs (lowercase,
+// hyphenated — what com.atproto.label.queryLabels below hands back as `val`).
+// Kept as a separate function rather than folded into tierFor because a label
+// value is a protocol-facing identifier, not UI copy — the two are allowed to
+// drift independently even though they map 1:1 today.
+function labelValFor(score: number): string {
+  if (score >= 90) return "main-character";
+  if (score >= 75) return "intriguing";
+  if (score >= 55) return "has-layers";
+  if (score >= 35) return "quietly-fine";
+  if (score >= 15) return "lurking";
+  return "npc";
+}
+
+// did:example is the DID method IANA/W3C reserve specifically for
+// non-resolvable illustrative DIDs — the honest placeholder for "this is
+// what the src field would hold," not a real identity. queryLabels below
+// is a real, working endpoint; it just isn't discoverable by the app yet,
+// because nothing points a labeler service record's DID document at it.
+const PREVIEW_LABELER_DID = "did:example:intrigue-preview";
+
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1).trimEnd() + "…";
@@ -599,6 +639,33 @@ export class Board {
           topSignals: r.topSignals,
         }));
       return json({ board, scored: all.length });
+    }
+
+    // Preview implementation of com.atproto.label.queryLabels — real shape,
+    // real data (every score already on the leaderboard), but src is the
+    // did:example placeholder above rather than a signed labeler identity.
+    // Only exact DID subjects are supported (no wildcard patterns): every
+    // subject this site could ever label is an account DID, never a post.
+    if (url.pathname === "/xrpc/com.atproto.label.queryLabels" && request.method === "GET") {
+      const patterns = url.searchParams.getAll("uriPatterns");
+      if (!patterns.length) {
+        return json({ error: "InvalidRequest", message: "uriPatterns is required" }, 400);
+      }
+      const labels: any[] = [];
+      for (const pattern of patterns) {
+        const subject = pattern.replace(/\*+$/, "");
+        if (!subject.startsWith("did:")) continue;
+        const rec = await this.state.storage.get<UserRecord>(`user:${subject}`);
+        if (!rec) continue;
+        labels.push({
+          ver: 1,
+          src: PREVIEW_LABELER_DID,
+          uri: rec.did,
+          val: labelValFor(rec.score),
+          cts: new Date(rec.updatedAt).toISOString(),
+        });
+      }
+      return json({ labels });
     }
 
     if (url.pathname === "/api/submit" && request.method === "POST") {
