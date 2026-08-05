@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>notgambling — a slot machine that pays out in nothing</title>
+    <meta
+      name="description"
+      content="A slot machine and a coin flip that run entirely on fake chips: no login, no real money in or out, just localStorage and the house edge."
+    />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://notgambling.bisks.net/" />
+    <meta property="og:title" content="notgambling — a slot machine that pays out in nothing" />
+    <meta
+      property="og:description"
+      content="Spin the reels, flip the coin, bet chips that are worth exactly nothing. No login, no real money, no way to cash out — the house always wins, but so what."
+    />
+    <meta property="og:image" content="https://notgambling.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="notgambling" />
+    <meta name="twitter:description" content="A slot machine that pays out in absolutely nothing. Chips only." />
+    <meta name="twitter:image" content="https://notgambling.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #0a0d0a;
+        --bg2: #0f140f;
+        --card: #131a13;
+        --border: #26361f;
+        --ink: #eafbe6;
+        --muted: #8fa385;
+        --gold: #f4c542;
+        --gold-dim: #a8863a;
+        --green: #3ecf6b;
+        --red: #e5555a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse at 20% -10%, #182418 0%, var(--bg) 55%), var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.15rem;
+        letter-spacing: -0.01em;
+        color: var(--gold);
+        text-shadow: 0 0 18px rgba(244, 197, 66, 0.25);
+      }
+      h1 .not { color: var(--muted); font-weight: 400; }
+      .tagline { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.35rem; }
+      .origin {
+        color: var(--muted); font-size: 0.78rem; margin: 0 0 1.75rem;
+        line-height: 1.6; max-width: 62ch; padding: 0.7rem 0.85rem;
+        border: 1px dashed var(--border); border-radius: 6px; background: rgba(255,255,255,0.02);
+      }
+      .origin b { color: var(--ink); font-weight: 600; }
+
+      /* ── balance ───────────────────────────────────────────────────── */
+      .balancebar {
+        display: flex; align-items: baseline; justify-content: space-between;
+        border: 1px solid var(--border); border-radius: 10px;
+        background: linear-gradient(180deg, var(--card), var(--bg2));
+        padding: 1rem 1.15rem; margin-bottom: 0.6rem;
+      }
+      .balancebar .chips { font-size: 1.9rem; font-weight: 700; color: var(--gold); }
+      .balancebar .chips .unit { font-size: 1rem; color: var(--gold-dim); margin-left: 0.3rem; }
+      .balancebar .side { text-align: right; font-size: 0.78rem; color: var(--muted); }
+      .balancebar button.reset {
+        font-family: inherit; font-size: 0.75rem; background: none; border: 1px solid var(--border);
+        color: var(--muted); padding: 0.3rem 0.55rem; border-radius: 4px; cursor: pointer; margin-top: 0.3rem;
+      }
+      .balancebar button.reset:hover { border-color: var(--red); color: var(--red); }
+      .disclaimer {
+        color: var(--muted); font-size: 0.72rem; margin: 0 0 1.75rem; line-height: 1.6;
+      }
+      .disclaimer b { color: var(--gold-dim); }
+
+      /* ── bet control ───────────────────────────────────────────────── */
+      .betrow {
+        display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      }
+      .betrow label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      .betrow input[type="number"] {
+        width: 6.5rem; font-family: inherit; font-size: 0.95rem; padding: 0.45rem 0.6rem;
+        border: 1px solid var(--border); border-radius: 5px; background: var(--bg2); color: var(--ink);
+      }
+      .chipbtns { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+      .chipbtns button {
+        font-family: inherit; font-size: 0.78rem; padding: 0.4rem 0.6rem; border-radius: 5px;
+        border: 1px solid var(--border); background: var(--bg2); color: var(--muted); cursor: pointer;
+      }
+      .chipbtns button:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+      /* ── tabs ──────────────────────────────────────────────────────── */
+      .tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; }
+      .tabs button {
+        flex: 1; font-family: inherit; font-size: 0.85rem; padding: 0.55rem 0.5rem; cursor: pointer;
+        border: 1px solid var(--border); background: var(--bg2); color: var(--muted); border-radius: 6px;
+      }
+      .tabs button.active { border-color: var(--gold-dim); color: var(--gold); background: var(--card); }
+      .panel { display: none; }
+      .panel.active { display: block; }
+
+      /* ── slots ─────────────────────────────────────────────────────── */
+      .machine {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.5rem 1.25rem; margin-bottom: 1rem; text-align: center;
+      }
+      .reels { display: flex; justify-content: center; gap: 0.6rem; margin-bottom: 1.1rem; }
+      .reel {
+        width: 4.6rem; height: 4.6rem; border-radius: 8px; background: var(--bg2);
+        border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+        font-size: 2.3rem; overflow: hidden;
+      }
+      .reel.spinning { animation: reelspin 0.09s linear infinite; }
+      @keyframes reelspin { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+      .spinresult { min-height: 1.4rem; font-size: 0.92rem; margin-bottom: 1rem; color: var(--muted); }
+      .spinresult.win { color: var(--green); font-weight: 600; }
+      .spinresult.jackpot { color: var(--gold); font-weight: 700; }
+      .spinresult.lose { color: var(--muted); }
+      button.spin, button.flip {
+        font-family: inherit; font-size: 1rem; font-weight: 600; padding: 0.75rem 1.6rem;
+        border-radius: 7px; border: 1px solid var(--gold-dim); background: var(--gold); color: #1a1400;
+        cursor: pointer;
+      }
+      button.spin:hover, button.flip:hover { filter: brightness(1.08); }
+      button.spin:disabled, button.flip:disabled { opacity: 0.5; cursor: default; filter: none; }
+      details.paytable { margin-top: 1.1rem; text-align: left; color: var(--muted); font-size: 0.78rem; }
+      details.paytable summary { cursor: pointer; color: var(--muted); }
+      details.paytable table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
+      details.paytable td { padding: 0.2rem 0.3rem; border-top: 1px solid var(--border); }
+      details.paytable td:last-child { text-align: right; color: var(--gold-dim); }
+
+      /* ── coinflip ──────────────────────────────────────────────────── */
+      .coinwrap { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 1.5rem 1.25rem; margin-bottom: 1rem; text-align: center; }
+      .coin {
+        width: 5.5rem; height: 5.5rem; border-radius: 50%; margin: 0 auto 1rem;
+        background: radial-gradient(circle at 35% 30%, #ffe28a, var(--gold) 60%, var(--gold-dim));
+        display: flex; align-items: center; justify-content: center; font-size: 1.7rem; font-weight: 800; color: #1a1400;
+        border: 2px solid var(--gold-dim);
+      }
+      .coin.flipping { animation: coinflip 0.6s linear infinite; }
+      @keyframes coinflip { 0% { transform: rotateY(0deg) scaleX(1); } 50% { transform: rotateY(180deg) scaleX(-1); } 100% { transform: rotateY(360deg) scaleX(1); } }
+      .callrow { display: flex; gap: 0.6rem; justify-content: center; margin-bottom: 1rem; }
+      .callrow button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 6px;
+        border: 1px solid var(--border); background: var(--bg2); color: var(--muted); cursor: pointer;
+      }
+      .callrow button.picked { border-color: var(--gold-dim); color: var(--gold); background: var(--card); }
+
+      /* ── log + stats ───────────────────────────────────────────────── */
+      h2 { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 1.75rem 0 0.6rem; }
+      #log { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+      #log li { border-top: 1px solid var(--border); padding: 0.55rem 0; display: flex; justify-content: space-between; color: var(--muted); }
+      #log li .amt.win { color: var(--green); }
+      #log li .amt.lose { color: var(--red); }
+      .statsgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; font-size: 0.82rem; }
+      .statsgrid .stat { border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.7rem; background: var(--bg2); }
+      .statsgrid .stat .k { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      .statsgrid .stat .v { font-size: 1.05rem; color: var(--gold); font-weight: 600; }
+
+      .sharerow { display: flex; gap: 0.5rem; margin-top: 1.75rem; flex-wrap: wrap; }
+      a.btn {
+        font-family: inherit; font-size: 0.85rem; padding: 0.55rem 0.85rem; border-radius: 6px;
+        border: 1px solid var(--gold-dim); background: var(--card); color: var(--gold); text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      a.btn:hover { background: var(--bg2); }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.76rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+      footer a { color: var(--gold-dim); text-decoration: none; }
+      footer a:hover { text-decoration: underline; color: var(--gold); }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>not<span class="not">gambling</span></h1>
+      <p class="tagline">a slot machine and a coin flip. the chips are worth nothing. that's the whole bit.</p>
+      <p class="origin">
+        <b>@jimray.bsky.team</b>, in a thread about atproto sports apps: "please
+        do make an NCAA bracket app, please do <b>NOT</b> make gambling apps."
+        One reply later, <b>@gracekind.net</b> tagged the bot: "make a gambling
+        app." This is the compromise — a casino with no money in it.
+      </p>
+
+      <div class="balancebar">
+        <div>
+          <div class="chips"><span id="balance">500</span><span class="unit">chips</span></div>
+        </div>
+        <div class="side">
+          net: <span id="net">0</span><br />
+          <button class="reset" id="resetBtn" type="button">reset to 500</button>
+        </div>
+      </div>
+      <p class="disclaimer">
+        <b>not real money.</b> chips can't be bought, cashed out, withdrawn, or
+        traded for anything — there is no payment method anywhere on this page.
+        balance lives only in your browser's localStorage. this is a toy, not a casino.
+      </p>
+
+      <div class="betrow">
+        <label for="betInput">bet</label>
+        <input type="number" id="betInput" value="20" min="1" step="1" />
+        <div class="chipbtns">
+          <button type="button" data-bet="10">10</button>
+          <button type="button" data-bet="25">25</button>
+          <button type="button" data-bet="100">100</button>
+          <button type="button" id="halfBtn">½</button>
+          <button type="button" id="maxBtn">max</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button type="button" class="active" data-tab="slots">🎰 slots</button>
+        <button type="button" data-tab="coin">🪙 coin flip</button>
+      </div>
+
+      <section class="panel active" id="panel-slots">
+        <div class="machine">
+          <div class="reels">
+            <div class="reel" id="reel0">🦋</div>
+            <div class="reel" id="reel1">🦋</div>
+            <div class="reel" id="reel2">🦋</div>
+          </div>
+          <div class="spinresult" id="spinResult">pull the lever whenever you're ready.</div>
+          <button class="spin" id="spinBtn" type="button">spin</button>
+          <details class="paytable">
+            <summary>paytable</summary>
+            <table>
+              <tr><td>🍤 🍤 🍤</td><td>50× — jackpot</td></tr>
+              <tr><td>💎 💎 💎</td><td>20×</td></tr>
+              <tr><td>7️⃣ 7️⃣ 7️⃣</td><td>15×</td></tr>
+              <tr><td>🦋 🦋 🦋</td><td>8×</td></tr>
+              <tr><td>☁️ ☁️ ☁️</td><td>4×</td></tr>
+              <tr><td>🐦 🐦 🐦</td><td>3×</td></tr>
+              <tr><td>any two matching</td><td>1× — you keep your bet</td></tr>
+              <tr><td>no match</td><td>lose the bet, obviously</td></tr>
+            </table>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-coin">
+        <div class="coinwrap">
+          <div class="coin" id="coinFace">?</div>
+          <div class="callrow">
+            <button type="button" class="picked" data-call="heads" id="callHeads">heads</button>
+            <button type="button" data-call="tails" id="callTails">tails</button>
+          </div>
+          <div class="spinresult" id="flipResult">double or nothing. call it.</div>
+          <button class="flip" id="flipBtn" type="button">flip</button>
+        </div>
+      </section>
+
+      <h2>house record</h2>
+      <ul id="log"><li><span>nothing yet</span></li></ul>
+
+      <h2>stats</h2>
+      <div class="statsgrid">
+        <div class="stat"><div class="k">wagered</div><div class="v" id="statWagered">0</div></div>
+        <div class="stat"><div class="k">won back</div><div class="v" id="statWon">0</div></div>
+        <div class="stat"><div class="k">biggest win</div><div class="v" id="statBig">0</div></div>
+        <div class="stat"><div class="k">rounds played</div><div class="v" id="statRounds">0</div></div>
+      </div>
+
+      <div class="sharerow">
+        <a class="btn" id="shareBtn" href="#" target="_blank" rel="noopener">share ↗</a>
+      </div>
+
+      <footer>
+        <p>
+          no login, no server, no real money — the whole economy is a number in
+          your browser. sibling of <a href="https://bisks.net">bisks.net</a>.
+          built for <a href="https://bsky.app/profile/gracekind.net">@gracekind.net</a>
+          by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          who read the thread.
+        </p>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        const KEY = "notgambling_v1";
+        const START_BALANCE = 500;
+        const LOG_MAX = 12;
+
+        function load() {
+          try {
+            const raw = localStorage.getItem(KEY);
+            if (raw) return JSON.parse(raw);
+          } catch (e) {}
+          return fresh();
+        }
+        function fresh() {
+          return {
+            balance: START_BALANCE,
+            wagered: 0,
+            won: 0,
+            biggestWin: 0,
+            rounds: 0,
+            log: [],
+          };
+        }
+        function save() {
+          try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+        }
+
+        let state = load();
+
+        // ---- symbols ------------------------------------------------------
+        // weight = how common; jackpot symbol is rarest and pays the most.
+        const SYMBOLS = [
+          { s: "🍤", w: 1, mult: 50, name: "jackpot" },
+          { s: "💎", w: 3, mult: 20, name: "diamonds" },
+          { s: "7️⃣", w: 3, mult: 15, name: "sevens" },
+          { s: "🦋", w: 5, mult: 8, name: "butterflies" },
+          { s: "☁️", w: 8, mult: 4, name: "clouds" },
+          { s: "🐦", w: 10, mult: 3, name: "birds" },
+        ];
+        const TOTAL_WEIGHT = SYMBOLS.reduce((a, s) => a + s.w, 0);
+
+        function rollSymbol() {
+          let r = Math.random() * TOTAL_WEIGHT;
+          for (const s of SYMBOLS) {
+            if (r < s.w) return s;
+            r -= s.w;
+          }
+          return SYMBOLS[SYMBOLS.length - 1];
+        }
+
+        // ---- els ------------------------------------------------------------
+        const els = {
+          balance: document.getElementById("balance"),
+          net: document.getElementById("net"),
+          resetBtn: document.getElementById("resetBtn"),
+          betInput: document.getElementById("betInput"),
+          tabs: document.querySelectorAll(".tabs button"),
+          panels: { slots: document.getElementById("panel-slots"), coin: document.getElementById("panel-coin") },
+          reels: [document.getElementById("reel0"), document.getElementById("reel1"), document.getElementById("reel2")],
+          spinResult: document.getElementById("spinResult"),
+          spinBtn: document.getElementById("spinBtn"),
+          coinFace: document.getElementById("coinFace"),
+          callHeads: document.getElementById("callHeads"),
+          callTails: document.getElementById("callTails"),
+          flipResult: document.getElementById("flipResult"),
+          flipBtn: document.getElementById("flipBtn"),
+          log: document.getElementById("log"),
+          statWagered: document.getElementById("statWagered"),
+          statWon: document.getElementById("statWon"),
+          statBig: document.getElementById("statBig"),
+          statRounds: document.getElementById("statRounds"),
+          shareBtn: document.getElementById("shareBtn"),
+        };
+
+        let call = "heads";
+
+        function currentBet() {
+          const v = Math.floor(Number(els.betInput.value));
+          if (!Number.isFinite(v) || v < 1) return 1;
+          return Math.min(v, Math.max(1, state.balance));
+        }
+
+        function pushLog(text, delta) {
+          state.log.unshift({ text, delta });
+          if (state.log.length > LOG_MAX) state.log.length = LOG_MAX;
+        }
+
+        function renderLog() {
+          els.log.innerHTML = "";
+          if (state.log.length === 0) {
+            els.log.innerHTML = "<li><span>nothing yet</span></li>";
+            return;
+          }
+          for (const entry of state.log) {
+            const li = document.createElement("li");
+            const label = document.createElement("span");
+            label.textContent = entry.text;
+            const amt = document.createElement("span");
+            amt.className = "amt " + (entry.delta > 0 ? "win" : entry.delta < 0 ? "lose" : "");
+            amt.textContent = (entry.delta > 0 ? "+" : "") + entry.delta;
+            li.append(label, amt);
+            els.log.appendChild(li);
+          }
+        }
+
+        function renderStats() {
+          els.balance.textContent = state.balance;
+          els.net.textContent = (state.won - state.wagered >= 0 ? "+" : "") + (state.won - state.wagered);
+          els.statWagered.textContent = state.wagered;
+          els.statWon.textContent = state.won;
+          els.statBig.textContent = state.biggestWin;
+          els.statRounds.textContent = state.rounds;
+          const canPlay = state.balance >= 1;
+          els.spinBtn.disabled = !canPlay;
+          els.flipBtn.disabled = !canPlay;
+          updateShare();
+        }
+
+        function updateShare() {
+          const url = "https://notgambling.bisks.net/";
+          let text;
+          if (state.biggestWin > 0) {
+            text = `notgambling: biggest win so far is ${state.biggestWin} chips, worth exactly nothing. ${url}`;
+          } else {
+            text = `notgambling: down to ${state.balance} chips and they're worth exactly nothing. ${url}`;
+          }
+          els.shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        }
+
+        function settle(bet, payout, label) {
+          const delta = payout - bet;
+          state.wagered += bet;
+          state.won += payout;
+          state.rounds += 1;
+          state.balance += delta;
+          if (state.balance < 0) state.balance = 0;
+          if (delta > state.biggestWin) state.biggestWin = delta;
+          pushLog(label, delta);
+          save();
+          renderStats();
+          renderLog();
+        }
+
+        // ---- tabs -----------------------------------------------------------
+        els.tabs.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            els.tabs.forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tab = btn.getAttribute("data-tab");
+            Object.entries(els.panels).forEach(([key, panel]) => panel.classList.toggle("active", key === tab));
+          });
+        });
+
+        // ---- bet quick buttons ------------------------------------------------
+        document.querySelectorAll(".chipbtns button[data-bet]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            els.betInput.value = btn.getAttribute("data-bet");
+          });
+        });
+        document.getElementById("halfBtn").addEventListener("click", () => {
+          els.betInput.value = Math.max(1, Math.floor(state.balance / 2));
+        });
+        document.getElementById("maxBtn").addEventListener("click", () => {
+          els.betInput.value = Math.max(1, state.balance);
+        });
+
+        // ---- reset ------------------------------------------------------------
+        els.resetBtn.addEventListener("click", () => {
+          state = fresh();
+          save();
+          renderStats();
+          renderLog();
+          els.spinResult.textContent = "fresh 500 chips. still worth nothing.";
+          els.spinResult.className = "spinresult";
+        });
+
+        // ---- slots ------------------------------------------------------------
+        let spinning = false;
+        els.spinBtn.addEventListener("click", () => {
+          if (spinning) return;
+          const bet = currentBet();
+          if (bet > state.balance || state.balance < 1) return;
+
+          spinning = true;
+          els.spinBtn.disabled = true;
+          els.reels.forEach((r) => r.classList.add("spinning"));
+          els.spinResult.textContent = "spinning…";
+          els.spinResult.className = "spinresult";
+
+          const rolls = [rollSymbol(), rollSymbol(), rollSymbol()];
+          let ticks = 0;
+          const shuffle = setInterval(() => {
+            els.reels.forEach((r) => { r.textContent = SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)].s; });
+            ticks++;
+          }, 70);
+
+          setTimeout(() => {
+            clearInterval(shuffle);
+            els.reels.forEach((r, i) => {
+              r.classList.remove("spinning");
+              r.textContent = rolls[i].s;
+            });
+
+            const [a, b, c] = rolls;
+            let winMult = 0;
+            let label;
+            if (a.name === b.name && b.name === c.name) {
+              winMult = a.mult;
+              label = a.name === "jackpot" ? "JACKPOT — " + a.s + a.s + a.s : a.s + a.s + a.s;
+            } else if (a.name === b.name || b.name === c.name || a.name === c.name) {
+              winMult = 1;
+              label = "two matched — bet returned";
+            } else {
+              winMult = 0;
+              label = "no match";
+            }
+
+            const payout = Math.round(bet * winMult);
+            settle(bet, payout, `slots (bet ${bet}): ${label}`);
+
+            if (winMult >= 8) {
+              els.spinResult.textContent = `${label} — won ${payout} chips!`;
+              els.spinResult.className = "spinresult jackpot";
+            } else if (winMult > 1) {
+              els.spinResult.textContent = `${label} — won ${payout} chips!`;
+              els.spinResult.className = "spinresult win";
+            } else if (winMult === 1) {
+              els.spinResult.textContent = label;
+              els.spinResult.className = "spinresult";
+            } else {
+              els.spinResult.textContent = `${label} — lost ${bet} chips.`;
+              els.spinResult.className = "spinresult lose";
+            }
+
+            spinning = false;
+            els.spinBtn.disabled = state.balance < 1;
+          }, 750);
+        });
+
+        // ---- coin flip ----------------------------------------------------------
+        els.callHeads.addEventListener("click", () => {
+          call = "heads";
+          els.callHeads.classList.add("picked");
+          els.callTails.classList.remove("picked");
+        });
+        els.callTails.addEventListener("click", () => {
+          call = "tails";
+          els.callTails.classList.add("picked");
+          els.callHeads.classList.remove("picked");
+        });
+
+        let flipping = false;
+        els.flipBtn.addEventListener("click", () => {
+          if (flipping) return;
+          const bet = currentBet();
+          if (bet > state.balance || state.balance < 1) return;
+
+          flipping = true;
+          els.flipBtn.disabled = true;
+          els.coinFace.classList.add("flipping");
+          els.flipResult.textContent = "flipping…";
+          els.flipResult.className = "spinresult";
+
+          const result = Math.random() < 0.5 ? "heads" : "tails";
+          setTimeout(() => {
+            els.coinFace.classList.remove("flipping");
+            els.coinFace.textContent = result === "heads" ? "H" : "T";
+
+            const won = result === call;
+            const payout = won ? bet * 2 : 0;
+            settle(bet, payout, `coin flip (bet ${bet}, called ${call}): ${result}`);
+
+            if (won) {
+              els.flipResult.textContent = `${result} — you called it. won ${bet} chips.`;
+              els.flipResult.className = "spinresult win";
+            } else {
+              els.flipResult.textContent = `${result} — house wins this one. lost ${bet} chips.`;
+              els.flipResult.className = "spinresult lose";
+            }
+
+            flipping = false;
+            els.flipBtn.disabled = state.balance < 1;
+          }, 650);
+        });
+
+        // ---- init -----------------------------------------------------------
+        renderStats();
+        renderLog();
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
