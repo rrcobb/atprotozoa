@@ -1,11 +1,12 @@
 // Generates public/og.png — the Open Graph preview card for beat up buddy.
 //
 // Hand-drawn SVG "screenshot": a ragdoll dummy standing on a weighted
-// bop-bag base, a speech bubble with a canned complaint line, and a row
+// bop-bag base, a speech bubble crying an actual @mfzx.net line, and a row
 // of tool-initial badges along the bottom (no emoji — resvg has no emoji
 // font loaded, only the bundled JetBrains Mono, so emoji glyphs rasterize
-// as tofu boxes). The dummy's face is a plain marker-drawn X X, not any
-// real person's likeness — see notes in public/game.js for why.
+// as tofu boxes). This static card never fetches the real avatar (no
+// network at build time) — the head is a placeholder "M" initial; the
+// live page fetches @mfzx.net's actual avatar client-side.
 // Rasterised with @resvg/resvg-js (pure native module, no system
 // Chromium/fontconfig needed — font bundled in ./fonts).
 //
@@ -55,11 +56,7 @@ const dummy = `
   <g transform="translate(${anchorX} ${headY})">
     <circle r="${headR}" fill="#5b3a52"/>
     <circle r="${headR}" fill="none" stroke="${STITCH}" stroke-width="4" stroke-dasharray="6 6"/>
-    <line x1="-16" y1="-9" x2="-6" y2="1" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
-    <line x1="-6" y1="-9" x2="-16" y2="1" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
-    <line x1="6" y1="-9" x2="16" y2="1" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
-    <line x1="16" y1="-9" x2="6" y2="1" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
-    <path d="M -13 20 Q 0 30 13 20" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+    <text x="0" y="8" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="30" fill="${INK}">M</text>
   </g>`;
 
 const bubbleX = anchorX - 190, bubbleY = headY - 46;
@@ -105,8 +102,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   ${bubble}
 
   <text x="60" y="450" font-family="JetBrains Mono" font-weight="800" font-size="58" fill="${INK}">BEAT UP <tspan fill="${RED}">BUDDY</tspan></text>
-  <text x="60" y="494" font-family="JetBrains Mono" font-size="24" fill="${GOLD}">a ragdoll punching bag and a toolbox</text>
-  <text x="60" y="524" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">no real person on the other end — just a dummy that complains.</text>
+  <text x="60" y="494" font-family="JetBrains Mono" font-size="24" fill="${GOLD}">@mfzx.net, but it's a ragdoll and you have a hammer</text>
+  <text x="60" y="524" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">real face, real posts — cried out on every single hit.</text>
 
   ${toolRow}
   <text x="${W - 60}" y="${H - 42}" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${RED}">beatupbuddy.bisks.net</text>

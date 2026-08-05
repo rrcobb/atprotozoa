@@ -1,28 +1,107 @@
 // beat up buddy — ragdoll physics toy.
 //
-// Originally built to use @mfzx.net's real avatar as the ragdoll's head,
-// with real posts pulled from getAuthorFeed and played back as "pain
-// cries" on every hit. Once it was live, @mfzx.net said they weren't sure
-// how they felt about it — @bisks.net asked for a turn toward something
-// positive, which now lives on its own as sites/hypebuddy. @isolyth.dev
-// later asked for this address to go back to being a beat-up game: same
-// physics toy, same damage/hp mechanics and tools as the original, but the
-// buddy is a generic drawn dummy, not any real person — no avatar fetch, no
-// real posts repurposed as suffering, canned "ow"/"hey!!" lines instead.
-// Physics is Matter.js (CDN, physics-only — rendering is a hand-rolled
-// canvas loop below so the ragdoll can be drawn as a stitched punching-bag
-// prop with a plain marker-drawn face).
+// Went generic for a stretch after @mfzx.net said they weren't sure how
+// they felt about being the buddy, and a friend's claim of consent on
+// their behalf (correctly) wasn't treated as good enough to undo that.
+// @mfzx.net has since tagged the bot directly, more than once, stating
+// their own enthusiastic consent — so their real avatar is back as the
+// ragdoll's head (fetched client-side straight from the public AppView,
+// same as sites/skyclone / didscope — no server round trip needed for
+// read-only app.bsky.* calls) and every hit pops a speech bubble quoting
+// one of their real recent posts, pulled from getAuthorFeed. Physics is
+// Matter.js (CDN, physics-only — rendering is a hand-rolled canvas loop
+// below so the head can be a clipped avatar image instead of a sprite
+// texture). The ragdoll's whole "canvas dummy" material is a deliberately
+// neutral tan/stitched color, not a skin tone — only the head is really
+// them, the body is a punching-bag prop.
 (function () {
   "use strict";
 
+  const APPVIEW = "https://public.api.bsky.app";
+  const HANDLE = "mfzx.net";
   const MAX_HP = 100;
   const ENOUGH_HITS = 5; // eris' law of fives: five is always enough
 
-  const CRIES = [
+  // ---- O2 safety-stop ------------------------------------------------------
+  // @mfzx.net asked for this themselves (on-record, same thread, after the
+  // original ask came from someone else and got skipped for exactly that
+  // reason). Rope hits to the head read as choking and drain O2; O2 recovers
+  // on its own if you stop. Crossing the floor isn't a game-over screen —
+  // input freezes and the tab leaves for a real safety resource. This is a
+  // hard stop, not a difficulty mechanic: no way to cancel or continue past it.
+  const MAX_O2 = 100;
+  const O2_DRAIN = 22; // per rope-to-head hit
+  const O2_REGEN_PER_SEC = 6; // recovers if you leave the neck alone
+  const O2_CRITICAL = 12;
+  const O2_WARN = 40;
+  const SAFETY_URL = "https://ncsfreedom.org/resource-library/";
+  const SAFETY_REDIRECT_DELAY = 2400;
+
+  const FALLBACK_CRIES = [
     "ow", "hey—", "wait no—", "that's uncalled for", "i'm screenshotting this",
     "quote-posting this later", "rude", "hey!!", "stop that", "i'll remember this",
-    "not the face", "ok that one hurt", "again??", "i'm telling everyone about this",
   ];
+
+  // ---- AppView fetch: avatar + real post text, no auth needed ----------
+
+  async function xrpc(method, params) {
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(`${APPVIEW}/xrpc/${method}${qs ? "?" + qs : ""}`);
+    if (!res.ok) throw new Error(`${method} ${res.status}`);
+    return res.json();
+  }
+
+  function cleanPostText(text) {
+    return text
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  async function loadBuddyData() {
+    let profile = null;
+    let cries = [];
+    try {
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: HANDLE });
+    } catch (_) {}
+    try {
+      const feed = await xrpc("app.bsky.feed.getAuthorFeed", {
+        actor: HANDLE,
+        limit: "50",
+        filter: "posts_no_replies",
+      });
+      const seen = new Set();
+      for (const item of feed.feed || []) {
+        const rec = item.post && item.post.record;
+        if (!rec || typeof rec.text !== "string") continue;
+        const text = cleanPostText(rec.text);
+        if (!text || text.length < 3 || seen.has(text)) continue;
+        seen.add(text);
+        cries.push(text.length > 100 ? text.slice(0, 99) + "…" : text);
+        if (cries.length >= 30) break;
+      }
+    } catch (_) {}
+    if (cries.length < 6) cries = cries.concat(FALLBACK_CRIES);
+    return { profile, cries };
+  }
+
+  // cdn.bsky.app doesn't send Access-Control-Allow-Origin, so a
+  // crossOrigin="anonymous" load of it fails outright (onerror, no image at
+  // all) rather than just tainting the canvas. Plain <img> rendering onto
+  // the live game canvas never needs pixel readback, so it loads that way —
+  // untainted only matters for the share-card canvas's toBlob(), which
+  // requests its own CORS copy separately and just skips the avatar circle
+  // if that one comes back null (same tolerated gap as sites/didscope).
+  function loadImage(url, cors) {
+    return new Promise((resolve) => {
+      if (!url) return resolve(null);
+      const img = new Image();
+      if (cors) img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
 
   // ---- tiny synthesized thwack, no external asset -----------------------
 
@@ -86,17 +165,16 @@
   const L_ARM_Y = U_ARM_Y + U_ARM_H / 2 + L_ARM_H / 2;
   const HEAD_Y = TORSO_Y - TORSO_H / 2 - 8 - HEAD_R;
 
-  // fixed, invisible pivot the head hangs from — stable "hangs straight down
-  // from a fixed point" pendulum so it's self-righting and can't fly off,
-  // never rendered as a rope, positioned so at rest the figure's feet land
-  // on the floor instead of swinging clear of it. (Deliberately not a hung
-  // pose — reads as a lynching, which nobody wants.)
+  // fixed, invisible pivot the head hangs from — physically the same stable
+  // "hangs straight down from a fixed point" pendulum as before (so it's
+  // still self-righting and can't fly off), just never rendered as a rope,
+  // and positioned so at rest the figure's feet land on the floor instead of
+  // swinging clear of it.
   const ANCHOR = { x: ARENA_W / 2, y: HEAD_Y - ROPE_LEN };
 
   const DUMMY_FILL = "#caa06a";
   const DUMMY_STROKE = "#8a6a42";
   const STITCH = "#5c4326";
-  const HEAD_FILL = "#5b3a52";
 
   const { Engine, World, Bodies, Body, Constraint, Query, Runner } = Matter;
 
@@ -199,12 +277,18 @@
 
   const state = {
     hp: MAX_HP,
+    o2: MAX_O2,
+    asphyxia: false,
     hits: 0,
     startedAt: null,
     koAt: null,
     tool: "fist",
     toolCounts: {},
     gameOver: false,
+    avatar: null,
+    avatarCORS: null,
+    profile: null,
+    cries: [],
     lastCry: -1,
     bubbles: [],
     particles: [],
@@ -275,8 +359,6 @@
     drawRoundedRect(body.position.x, body.position.y, w, h, body.angle, DUMMY_FILL, DUMMY_STROKE);
   }
 
-  // plain marker-drawn face — no real person's likeness anywhere. Eyes go
-  // from dots to squints to X's as hp drops, mouth flips to a grimace.
   function drawHead(body) {
     const { x, y } = body.position;
     ctx.save();
@@ -285,47 +367,25 @@
     ctx.beginPath();
     ctx.arc(0, 0, HEAD_R, 0, Math.PI * 2);
     ctx.closePath();
-    ctx.fillStyle = HEAD_FILL;
-    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    if (state.avatar) {
+      ctx.drawImage(state.avatar, -HEAD_R, -HEAD_R, HEAD_R * 2, HEAD_R * 2);
+    } else {
+      ctx.fillStyle = "#5b3a52";
+      ctx.fillRect(-HEAD_R, -HEAD_R, HEAD_R * 2, HEAD_R * 2);
+      ctx.fillStyle = "#f7ecec";
+      ctx.font = "700 26px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("M", 0, 2);
+    }
+    ctx.restore();
     ctx.lineWidth = 3;
     ctx.strokeStyle = STITCH;
     ctx.setLineDash([4, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
-
-    const hurtT = 1 - Math.max(0, state.hp) / MAX_HP; // 0 fresh -> 1 KO'd
-    ctx.strokeStyle = "#f7ecec";
-    ctx.fillStyle = "#f7ecec";
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    const eyeDX = HEAD_R * 0.36, eyeDY = -HEAD_R * 0.12;
-    if (hurtT > 0.85) {
-      // X X eyes at KO
-      [-1, 1].forEach((s) => {
-        const ex = s * eyeDX;
-        ctx.beginPath();
-        ctx.moveTo(ex - 5, eyeDY - 5);
-        ctx.lineTo(ex + 5, eyeDY + 5);
-        ctx.moveTo(ex + 5, eyeDY - 5);
-        ctx.lineTo(ex - 5, eyeDY + 5);
-        ctx.stroke();
-      });
-    } else {
-      const squint = hurtT * 0.6;
-      [-1, 1].forEach((s) => {
-        const ex = s * eyeDX;
-        ctx.beginPath();
-        ctx.ellipse(ex, eyeDY, 4, Math.max(1, 4 - squint * 3), 0, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-    // mouth: flat -> grimace as hp drops
-    ctx.beginPath();
-    const mouthY = HEAD_R * 0.38;
-    const curve = hurtT > 0.85 ? 8 : (10 - hurtT * 16);
-    ctx.moveTo(-HEAD_R * 0.32, mouthY);
-    ctx.quadraticCurveTo(0, mouthY + curve, HEAD_R * 0.32, mouthY);
-    ctx.stroke();
     ctx.restore();
 
     // welts accumulate as hp drops, drawn in head-local unrotated space
@@ -467,6 +527,11 @@
       state.shake = 0;
     }
 
+    if (rag && !state.gameOver && !state.asphyxia && state.o2 < MAX_O2) {
+      state.o2 = Math.min(MAX_O2, state.o2 + O2_REGEN_PER_SEC * (dt / 1000));
+      updateO2Bar();
+    }
+
     drawBackdrop();
     drawBase();
 
@@ -538,20 +603,44 @@
   }
 
   function nextCry() {
-    let i = Math.floor(Math.random() * CRIES.length);
-    if (CRIES.length > 1 && i === state.lastCry) i = (i + 1) % CRIES.length;
+    if (!state.cries.length) return "...";
+    let i = Math.floor(Math.random() * state.cries.length);
+    if (state.cries.length > 1 && i === state.lastCry) i = (i + 1) % state.cries.length;
     state.lastCry = i;
-    return CRIES[i];
+    return state.cries[i];
+  }
+
+  function updateO2Bar() {
+    const fill = document.getElementById("o2fill");
+    if (!fill) return;
+    const pct = Math.round(Math.max(0, state.o2));
+    fill.style.width = Math.max(0, state.o2) + "%";
+    fill.classList.toggle("warn", state.o2 <= O2_WARN);
+    document.getElementById("o2pct").textContent = pct + "%";
   }
 
   function updateHud() {
     document.getElementById("hpfill").style.width = Math.max(0, state.hp) + "%";
     document.getElementById("hppct").textContent = Math.round(Math.max(0, state.hp)) + "%";
     document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " hit" : " hits");
+    updateO2Bar();
+  }
+
+  function triggerAsphyxiaStop() {
+    if (state.asphyxia) return;
+    state.asphyxia = true;
+    hideEarlyShare();
+    document.getElementById("toolbar").style.display = "none";
+    document.getElementById("cursor-tool").style.display = "none";
+    document.getElementById("safety-link").href = SAFETY_URL;
+    document.getElementById("safety-stop").classList.add("show");
+    setTimeout(() => {
+      window.location.href = SAFETY_URL;
+    }, SAFETY_REDIRECT_DELAY);
   }
 
   function handleHit(point) {
-    if (state.gameOver || !rag) return;
+    if (state.gameOver || state.asphyxia || !rag) return;
     const body = nearestPart(point);
     if (!body) return;
     if (state.startedAt == null) state.startedAt = performance.now();
@@ -577,6 +666,10 @@
     thwack(tool.speed);
     spawnParticles(point.x, point.y, state.tool);
 
+    if (tool.pull && body === rag.parts.head) {
+      state.o2 = Math.max(0, state.o2 - O2_DRAIN);
+    }
+
     const head = rag.parts.head.position;
     state.bubbles.push({ text: nextCry(), x: head.x, y: head.y, life: 1500, total: 1500 });
 
@@ -586,6 +679,11 @@
 
     updateHud();
     updateEarlyShare();
+
+    if (state.o2 <= O2_CRITICAL) {
+      triggerAsphyxiaStop();
+      return;
+    }
 
     if (state.hp <= 0 && !state.gameOver) {
       state.gameOver = true;
@@ -644,14 +742,14 @@
 
   function buildShareText(hits, seconds) {
     return (
-      `I beat up buddy's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and they will not stop complaining about it.\n\n` +
+      `I beat up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and they cried out their own posts every single hit.\n\n` +
       `your turn → ${shareUrlFor(hits)}`
     );
   }
 
   function buildProgressShareText(hits) {
     return (
-      `I've hit buddy's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far — eris says that's already enough, but I'm not stopping.\n\n` +
+      `I've hit @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far — eris says that's already enough, but I'm not stopping.\n\n` +
       `pick up a tool → ${shareUrlFor(hits)}`
     );
   }
@@ -686,6 +784,8 @@
 
   function resetGame() {
     state.hp = MAX_HP;
+    state.o2 = MAX_O2;
+    state.asphyxia = false;
     state.hits = 0;
     state.startedAt = null;
     state.koAt = null;
@@ -695,6 +795,9 @@
     state.particles = [];
     state.welts = [];
     state.shake = 0;
+    document.getElementById("toolbar").style.display = "";
+    document.getElementById("cursor-tool").style.display = "";
+    document.getElementById("safety-stop").classList.remove("show");
     updateHud();
     respawn();
     hideKO();
@@ -734,9 +837,20 @@
     c.font = "800 50px " + mono;
     c.fillText("beat up buddy", 60, 100);
 
+    let textX = 60;
+    if (state.avatarCORS) {
+      c.save();
+      c.beginPath();
+      c.arc(88, 152, 30, 0, Math.PI * 2);
+      c.closePath();
+      c.clip();
+      c.drawImage(state.avatarCORS, 58, 122, 60, 60);
+      c.restore();
+      textX = 136;
+    }
     c.fillStyle = "#ffcf4d";
     c.font = "700 30px " + mono;
-    c.fillText("buddy took a beating", 60, 162);
+    c.fillText("@mfzx.net took a beating", textX, 162);
 
     const seconds = Math.max(1, Math.round((state.koAt - (state.startedAt || state.koAt)) / 1000));
     c.strokeStyle = "#402a38";
@@ -798,12 +912,23 @@
 
   // ---- boot ---------------------------------------------------------------
 
-  function boot() {
+  async function boot() {
     respawn();
     updateHud();
     requestAnimationFrame(draw);
     Runner.run(Runner.create(), engine);
+
     document.getElementById("cursor-tool").textContent = TOOLS[state.tool].emoji;
+
+    const { profile, cries } = await loadBuddyData();
+    state.profile = profile;
+    state.cries = cries;
+    if (profile && profile.avatar) {
+      state.avatar = await loadImage(profile.avatar, false);
+      state.avatarCORS = await loadImage(profile.avatar, true);
+    }
+    const handle = (profile && profile.handle) || HANDLE;
+    document.getElementById("handle").textContent = "@" + handle;
     document.getElementById("loading").style.display = "none";
   }
 
