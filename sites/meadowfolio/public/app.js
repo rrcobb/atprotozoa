@@ -5,7 +5,7 @@
 // ./data.js.
 
 import { getProfile, createPortfolioPager, MAX_FEED_PAGES } from "./lib/feed.js";
-import { HANDLE, DID, PICKS } from "./data.js";
+import { HANDLE, DID, PICKS, DREAMNET_OVERRIDES } from "./data.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -172,6 +172,14 @@ function linkHost(uri) {
   }
 }
 
+function dreamId(uri) {
+  try {
+    return new URL(uri).searchParams.get("dream") || "";
+  } catch {
+    return "";
+  }
+}
+
 async function fetchLandingReleases() {
   try {
     const res = await fetch("/api/releases");
@@ -187,9 +195,11 @@ async function scanDomainAndDreamnet() {
   const releaseByHost = new Map();
   const dreamnetSeen = new Set();
   const dreamnetCards = [];
+  let incomplete = false;
   const pager = createPortfolioPager(DID, HANDLE, { filter: "posts_with_replies" });
   for (let i = 0; i < MAX_FEED_PAGES; i++) {
-    const { posts, done } = await pager.next();
+    const { posts, done, error } = await pager.next();
+    if (error) incomplete = true;
     for (const post of posts) {
       let host = null;
       let cardTitle = null;
@@ -236,7 +246,17 @@ async function scanDomainAndDreamnet() {
       if (post.kind === "link" && post.link && linkHost(post.link.uri) === DREAMNET_HOST) {
         if (!dreamnetSeen.has(post.link.uri)) {
           dreamnetSeen.add(post.link.uri);
-          dreamnetCards.push({ ...post.link, postUrl: post.url, date: post.createdAt });
+          const card = { ...post.link, postUrl: post.url, date: post.createdAt };
+          // dreamnet.fromthewestmeadow.com sets its real per-dream title/description
+          // client-side, which Bluesky's unfurler never sees — patch in a manually
+          // recovered card for the specific dreams that got stuck with the
+          // generic site-wide one (see DREAMNET_OVERRIDES in data.js).
+          const override = DREAMNET_OVERRIDES[dreamId(post.link.uri)];
+          if (override) {
+            card.title = override.title;
+            card.description = override.description;
+          }
+          dreamnetCards.push(card);
         }
       }
     }
@@ -244,7 +264,7 @@ async function scanDomainAndDreamnet() {
   }
   const found = [...releaseByHost.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
   dreamnetCards.sort((a, b) => (a.date < b.date ? 1 : -1));
-  return { found, dreamnetCards };
+  return { found, dreamnetCards, incomplete };
 }
 
 async function renderDomainSections() {
@@ -258,13 +278,18 @@ async function renderDomainSections() {
   let landing = [];
   let found = [];
   let dreamnetCards = [];
+  let incomplete = false;
   try {
-    [landing, { found, dreamnetCards }] = await Promise.all([fetchLandingReleases(), scanDomainAndDreamnet()]);
+    [landing, { found, dreamnetCards, incomplete }] = await Promise.all([fetchLandingReleases(), scanDomainAndDreamnet()]);
   } catch {
     if (releasesStatus) releasesStatus.textContent = "couldn't load the releases list right now — the AppView might be having a moment.";
     if (dreamnetStatus) dreamnetStatus.textContent = "couldn't load DreamNet links right now — the AppView might be having a moment.";
     return;
   }
+  // A page-scan error mid-history (the AppView hiccuping, not the account
+  // actually running out of posts) stops the scan early — flag it so a
+  // short list reads as "might be incomplete" rather than "that's everything".
+  const incompleteNote = incomplete ? " — the AppView had a hiccup partway through, this list may be incomplete" : "";
 
   const landingHosts = new Set(landing.map((r) => r.host));
   const extra = found.filter((r) => !landingHosts.has(r.host));
@@ -273,9 +298,9 @@ async function renderDomainSections() {
     ...[...landing].reverse(),
   ];
 
-  if (releasesCount) releasesCount.textContent = `(${releases.length} shipped on fromthewestmeadow.com)`;
+  if (releasesCount) releasesCount.textContent = `(${releases.length} shipped on fromthewestmeadow.com${incompleteNote})`;
   if (!releases.length) {
-    if (releasesStatus) releasesStatus.textContent = "no fromthewestmeadow.com releases found (yet).";
+    if (releasesStatus) releasesStatus.textContent = `no fromthewestmeadow.com releases found (yet).${incompleteNote}`;
   } else {
     if (releasesStatus) releasesStatus.remove();
     releasesEl.innerHTML = releases
@@ -291,11 +316,11 @@ async function renderDomainSections() {
   }
 
   if (!dreamnetCards.length) {
-    if (dreamnetStatus) dreamnetStatus.textContent = "no DreamNet links found (yet).";
+    if (dreamnetStatus) dreamnetStatus.textContent = `no DreamNet links found (yet).${incompleteNote}`;
     return;
   }
   if (dreamnetStatus) dreamnetStatus.remove();
-  if (dreamnetCount) dreamnetCount.textContent = `(${dreamnetCards.length})`;
+  if (dreamnetCount) dreamnetCount.textContent = `(${dreamnetCards.length}${incompleteNote})`;
   dreamnetEl.innerHTML = dreamnetCards
     .map(
       (c) => `
@@ -339,6 +364,7 @@ let galleryLoading = false;
 let galleryDone = false;
 let galleryPostCount = 0;
 let galleryImageCount = 0;
+let galleryError = false;
 
 function appendImages(posts) {
   const grid = $("#gallery");
@@ -365,7 +391,14 @@ function updateGalleryStatus() {
     ? `${galleryImageCount} images, from ${galleryPostCount} posts read`
     : "";
   if (!status) return;
-  if (galleryDone && galleryImageCount) {
+  if (galleryDone && galleryError) {
+    // Stopped early because the AppView kept failing, not because the
+    // account's history actually ran out — say so instead of implying
+    // "that's every image" (see loadMoreGallery / createPortfolioPager).
+    status.textContent = galleryImageCount
+      ? `${galleryImageCount} images — stopped early after the AppView kept failing, there may be more.`
+      : "couldn't load the gallery right now — the AppView kept failing.";
+  } else if (galleryDone && galleryImageCount) {
     status.remove();
   } else if (galleryDone) {
     status.textContent = "no images found in the post history.";
@@ -381,9 +414,10 @@ function updateGalleryStatus() {
 async function loadMoreGallery() {
   if (galleryDone || galleryLoading || !galleryPager) return galleryDone;
   galleryLoading = true;
-  const { posts, done } = await galleryPager.next();
+  const { posts, done, error } = await galleryPager.next();
   appendImages(posts);
   galleryDone = done;
+  if (error) galleryError = true;
   updateGalleryStatus();
   galleryLoading = false;
   return galleryDone;

@@ -23,6 +23,37 @@
 export const HANDLE = "fromthewestmeadow.com";
 export const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
 
+// DREAMNET_OVERRIDES: dreamnet.fromthewestmeadow.com computes its per-dream
+// title/description client-side (it fetches dream-excerpts.json and rewrites
+// the OG meta tags with JS after load). Bluesky's link-card unfurler doesn't
+// run JS, so it only ever saw the page's static default card — "DreamNet" /
+// "Remote desktops for computers that never existed." — for whichever dreams
+// got posted before the site started shipping this right some other way.
+// @fromthewestmeadow.com flagged three still stuck with the generic card
+// 2026-08-05 ("its misleading that its going to take it to dreamnet root
+// when its a link to an article"). Keyed by the `dream` query param, values
+// copied by hand from dreamnet.fromthewestmeadow.com/dream-excerpts.json
+// (description) and reconstructed using the site's own title template
+// (`Dream: <slug words> — <machine name> — DreamNet`, read out of its page
+// source) since dream-excerpts.json only carries excerpts, not titles.
+export const DREAMNET_OVERRIDES = {
+  "001-i-keep-destroying-the-evidence": {
+    title: "Dream: i keep destroying the evidence — CDE-LAB — DreamNet",
+    description:
+      "Every few weeks I build a project and quietly make it responsible for something no software can do.",
+  },
+  "002-we-never-finished-the-video": {
+    title: "Dream: we never finished the video — INLAND-98 — DreamNet",
+    description:
+      "I keep building projects that are supposed to prove something no software can prove.",
+  },
+  "003-the-silent-bada-bing": {
+    title: "Dream: the silent bada bing — INLAND-98 — DreamNet",
+    description:
+      "The dimly lit room is filled with the ambient chatter of the club outside, but inside, the mood is tense and focused.",
+  },
+};
+
 export const PICKS = [
   {
     rkey: "3ms5zjgkvt22q",

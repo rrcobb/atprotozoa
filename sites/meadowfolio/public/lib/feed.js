@@ -93,16 +93,34 @@ function toPost(it, handle) {
 
 // A resumable pager over an account's post history (getAuthorFeed,
 // anonymous — skips reposts, newest page first). Each call to next() fetches
-// one page (up to 100 posts) and returns { posts, done }. Lets a caller
-// render a fast first batch, then keep paging on demand — e.g. as a gallery
-// is scrolled toward its older end — instead of blocking on the whole
-// history up front.
+// one page (up to 100 posts) and returns { posts, done, error? }. Lets a
+// caller render a fast first batch, then keep paging on demand — e.g. as a
+// gallery is scrolled toward its older end — instead of blocking on the
+// whole history up front.
 //
 // Defaults to skipping replies too (posts_no_replies), which is what the
 // gallery/dreamnet callers want. Pass filter: "posts_with_replies" to
 // include them — some domain-release announcements turned out to be posted
 // as replies (e.g. compass.fromthewestmeadow.com, 2025-09-10), which the
 // no-replies feed silently drops.
+//
+// A single page fetch is retried a few times with backoff before giving up —
+// the AppView occasionally hiccups mid-scan, and treating that as instant,
+// silent success (the original behavior: catch the error, mark `done`, return
+// same as reaching the real end of history) made a transient network blip
+// indistinguishable from "that's everything", which surfaced as domain
+// releases mysteriously going missing (reported by @fromthewestmeadow.com
+// 2026-08-05). If every retry still fails, `done` is still set (so callers
+// stop paging) but `error: true` comes back too, so a caller can tell "ran
+// out of retries" apart from "ran out of history" and say so instead of
+// quietly showing a truncated list as complete.
+const PAGE_FETCH_RETRIES = 3;
+const PAGE_FETCH_RETRY_DELAY_MS = 400;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function createPortfolioPager(did, handle, { filter = "posts_no_replies" } = {}) {
   let cursor = "";
   let page = 0;
@@ -117,11 +135,20 @@ export function createPortfolioPager(did, handle, { filter = "posts_no_replies" 
       u.searchParams.set("filter", filter);
       if (cursor) u.searchParams.set("cursor", cursor);
       let d;
-      try {
-        d = await jget(u.toString());
-      } catch {
+      let lastErr;
+      for (let attempt = 0; attempt < PAGE_FETCH_RETRIES; attempt++) {
+        if (attempt > 0) await sleep(PAGE_FETCH_RETRY_DELAY_MS * attempt);
+        try {
+          d = await jget(u.toString());
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (lastErr) {
         done = true;
-        return { posts: [], done: true };
+        return { posts: [], done: true, error: true };
       }
       const posts = (d.feed || []).map((it) => toPost(it, handle)).filter(Boolean);
       cursor = d.cursor;
