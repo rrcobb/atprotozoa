@@ -1,19 +1,20 @@
 // beatupbuddy Worker — beatupbuddy.bisks.net
 //
-// Static physics toy: a ragdoll wearing @mfzx.net's real avatar as its head,
-// standing on a weighted base, that wobbles, dances, and lights up with
-// confetti every time you land a hit. Was originally a "beat up a buddy"
-// game; @mfzx.net said they weren't thrilled once it was built, so
-// @bisks.net asked for a turn toward something positive — same ragdoll toy,
-// but tools are now celebratory and a "hype" meter climbs instead of an hp
-// bar draining. All the game logic and the AppView avatar fetch happen
-// client-side in public/game.js — this Worker's only job is the
-// personalized share unfurl at /s/<hits>, same trick as sites/didscope and
-// sites/hyperobject: a static page serves one cached generic embed forever,
-// so a real per-result URL with a server-stamped og:title/description is
-// needed for a shared "I hyped up @mfzx.net N times" link to actually show
-// N in the unfurl instead of the generic card. Falls through to ASSETS for
-// everything else.
+// Static physics toy: a ragdoll punching bag, standing on a weighted base,
+// that wobbles, dances, and complains every time you land a hit. Was
+// originally built with a real person's (@mfzx.net) avatar and real posts
+// (used as pain-cry text) — @mfzx.net said they weren't thrilled once it
+// was built, so @bisks.net asked for a turn toward something positive,
+// which now lives at sites/hypebuddy. @isolyth.dev later asked for this
+// address to go back to being a beat-up game; it does, but generically — a
+// drawn dummy, no real avatar fetch, no real posts, canned complaint lines.
+// All the game logic runs client-side in public/game.js — this Worker's
+// only job is the personalized share unfurl at /s/<hits>, same trick as
+// sites/didscope and sites/hyperobject: a static page serves one cached
+// generic embed forever, so a real per-result URL with a server-stamped
+// og:title/description is needed for a shared "I beat up buddy N times"
+// link to actually show N in the unfurl instead of the generic card. Falls
+// through to ASSETS for everything else.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -27,9 +28,9 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const GENERIC_TITLE = "hype up buddy — @mfzx.net is standing there and today's a good day";
+const GENERIC_TITLE = "beat up buddy — pick a tool, take it out on buddy";
 const GENERIC_DESC =
-  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, shower them in confetti and love, watch them light up and dance.";
+  "a physics ragdoll punching bag. pick a tool, swing, watch it wobble and complain.";
 const GENERIC_OG_URL = "https://beatupbuddy.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHits: string): Promise<Response> {
@@ -39,8 +40,8 @@ async function renderShare(env: Env, request: Request, rawHits: string): Promise
   const hits = Math.max(0, Math.min(99999, parseInt(rawHits, 10) || 0));
   if (!hits) return new Response(html, { headers: base.headers });
 
-  const title = `hype up buddy: @mfzx.net got ${hits} cheer${hits === 1 ? "" : "s"} today`;
-  const desc = `I cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} and gave them a great day. your turn.`;
+  const title = `beat up buddy: buddy took ${hits} hit${hits === 1 ? "" : "s"} today`;
+  const desc = `I hit buddy's ragdoll ${hits} time${hits === 1 ? "" : "s"} and it will not stop complaining. your turn.`;
   const ogUrl = `https://beatupbuddy.bisks.net/s/${hits}`;
 
   html = html
