@@ -61,6 +61,13 @@ export default {
       const stub = env.BOARD.get(id);
       return stub.fetch(request);
     }
+    // /s/<handle> — a distinct, shareable, per-person URL. A plain static
+    // page would serve the same og:title/description/url for every score,
+    // so Bluesky's link-unfurl cache would show one generic card forever no
+    // matter who's shared. See notes/45-sharing-and-virality.md and
+    // sites/didscope/src/index.ts (renderShare), which this is ported from.
+    const m = url.pathname.match(/^\/s\/([^/]+)\/?$/);
+    if (m) return renderShare(env, request, m[1]);
     return env.ASSETS.fetch(request);
   },
 };
@@ -466,6 +473,86 @@ async function computeScore(did: string): Promise<{ profile: any; score: number;
   const { posts } = await fetchAllPosts(did);
   const { score, signals, sampled } = scoreAccount(profile, posts);
   return { profile, score, signals, sampled };
+}
+
+// Kept in lockstep with public/index.html's copy — only used here to word
+// the personalized og:description below, the client owns the on-page tier.
+function tierFor(score: number): { label: string; blurb: string } {
+  if (score >= 90) return { label: "certifiable main character", blurb: "the algorithm is speedrunning you into everyone's feed" };
+  if (score >= 75) return { label: "genuinely intriguing", blurb: "there is a whole bit going on here" };
+  if (score >= 55) return { label: "has layers", blurb: "worth a second scroll" };
+  if (score >= 35) return { label: "quietly fine", blurb: "a normal, functioning account" };
+  if (score >= 15) return { label: "lurking", blurb: "reading more than posting, probably" };
+  return { label: "certified NPC", blurb: "blank bio, blank timeline" };
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function cleanHandleOrDid(raw: string): string {
+  let h = decodeURIComponent(raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+// The static page's title/description/url are each one identical string
+// repeated across <title>/og:*/twitter:* — a plain split-join replace-all
+// per field is enough to personalize the whole head, no HTML parser needed.
+const GENERIC_TITLE = "intrigue — how interesting is this Bluesky account?";
+const GENERIC_DESC =
+  "Enter a Bluesky handle and get an interestingness score out of 100, built from real signals: custom feeds and lists you've made, alt text usage, language and emoji range, thread-building, and more. Joins a shared leaderboard, verified server-side.";
+const GENERIC_OG_URL = "https://intrigue.bisks.net/";
+
+async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
+  const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
+  let html = await base.text();
+
+  const handle = cleanHandleOrDid(rawHandle);
+  if (!handle) return new Response(html, { headers: base.headers });
+
+  try {
+    const did = handle.startsWith("did:") ? handle : (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+    if (typeof did !== "string" || !did.startsWith("did:")) throw new Error("bad did");
+
+    const { profile, score, signals } = await computeScore(did);
+    const tier = tierFor(score);
+    const top = signals[0];
+
+    const who = "@" + (profile.handle || handle);
+    const title = `intrigue: ${who} scores ${score}/100 — ${tier.label}`;
+    const topBit = top ? ` Top signal: ${top.label} (${top.pts >= 0 ? "+" : ""}${top.pts}).` : "";
+    const desc = truncate(`${tier.blurb}.${topBit} Score your own at intrigue.bisks.net.`, 300);
+    const ogUrl = `https://intrigue.bisks.net/s/${encodeURIComponent(handle)}`;
+
+    html = html
+      .split(GENERIC_TITLE).join(esc(title))
+      .split(GENERIC_DESC).join(esc(desc))
+      .split(GENERIC_OG_URL).join(ogUrl);
+
+    return new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
+    });
+  } catch {
+    // Couldn't resolve/score the handle server-side (typo, deleted account,
+    // PDS down, CAR too big) — still serve the live page so the link isn't
+    // dead; the client script re-runs the scan itself and surfaces its own
+    // error if the handle really is bad.
+    return new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
 }
 
 interface UserRecord {

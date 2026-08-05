@@ -501,7 +501,7 @@ function renderResult(result) {
   els.signals.innerHTML = signalsHtml(result.signals);
   els.card.classList.add("show");
 
-  const url = "https://intrigue.bisks.net/?h=" + encodeURIComponent(result.handle);
+  const url = "https://intrigue.bisks.net/s/" + encodeURIComponent(result.handle);
   const shareText = "@" + result.handle + " scores " + result.score + "/100 on the interesting-o-meter (" + tier.label + "). " + url;
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
@@ -647,10 +647,16 @@ async function loadLeaderboard() {
 
 loadLeaderboard();
 
-// auto-run from a shared link: intrigue.bisks.net/?h=handle
+// auto-run from a shared link: intrigue.bisks.net/s/handle (the Worker's
+// per-result unfurl route, see src/index.ts renderShare) or the older
+// intrigue.bisks.net/?h=handle query-string form.
 (function () {
   const params = new URLSearchParams(location.search);
-  const h = params.get("h");
+  let h = params.get("h");
+  if (!h) {
+    const m = location.pathname.match(/^\/s\/([^/]+)\/?$/);
+    if (m) h = decodeURIComponent(m[1]);
+  }
   if (h) {
     els.input.value = h;
     runScan(h);
