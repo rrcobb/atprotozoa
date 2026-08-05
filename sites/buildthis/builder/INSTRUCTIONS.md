@@ -51,6 +51,13 @@ there's genuinely nothing to make.
 - **Copy, don't abstract.** Need an OAuth helper, a card component, an AppView
   fetch that another site already has? Copy the file in and edit it. No shared
   packages across sites; near-duplicate files are fine and expected.
+- **OAuth scope: minimal necessary, always.** When a site needs OAuth, scope
+  it to exactly what it does — never default to the broad `atproto
+  transition:generic` (full account access) out of habit or as a shortcut.
+  See `notes/50-oauth-scopes.md` for the exact syntax (`repo:`/`rpc:`/`blob:`
+  grants) and the one gotcha that breaks login if missed: scope is declared
+  in *two* files (`client-metadata.json` and `oauth.js`'s `SCOPE` constant)
+  and they must match exactly, or the PDS rejects the login.
 - **New site = one directory = one Worker = one subdomain.** A new site gets its
   own `<newname>.bisks.net` hostname. A wildcard `*.bisks.net` DNS record plus a
   wildcard cert mean a plain hostname *route* resolves without being registered

@@ -7,10 +7,10 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us createRecord under site.standard.publication /
-// site.standard.document, not just app.bsky.*.
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to create-only on site.standard.publication / .document plus
+// image blob uploads — no account-wide access. Must stay in lockstep with
+// client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -30,7 +30,8 @@ const ORIGIN = location.origin; // https://commonplace.bisks.net (or localhost i
 export const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE =
+  "atproto repo:site.standard.publication?action=create repo:site.standard.document?action=create blob:image/*";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

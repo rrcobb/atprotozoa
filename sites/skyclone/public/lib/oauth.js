@@ -14,13 +14,21 @@
 // against the deployed bisks.net/skyclone/ URL (the PDS auth server redirects
 // back to a fixed, pre-registered redirect_uri).
 //
-// Scope `atproto transition:generic` is the generic full-repo-access scope.
-// skyclone mostly reads (getTimeline proxied through the PDS to the AppView),
-// plus real repo writes on the user's own PDS: app.bsky.feed.like (catching a
-// post in your web), app.bsky.feed.repost, and app.bsky.feed.post (replies).
-// atproto's fine-grained scopes still aren't reliably supported server-side,
-// so this mirrors drivethru's proven-working scope rather than guessing at a
-// narrower one that might get rejected.
+// Scope is narrowed to exactly what skyclone touches: create-only on
+// app.bsky.feed.post (posts/replies), create+delete on app.bsky.feed.like,
+// app.bsky.feed.repost, and app.bsky.graph.block, plus rpc grants for the
+// four calls proxied through the user's own PDS to the AppView (personal
+// timeline, notifications list/seen/unread-count). Everything else skyclone
+// reads (profiles, threads, search, other people's feeds) goes through the
+// public unauthenticated AppView and needs no scope at all.
+//
+// This replaces an earlier `atproto transition:generic` here, written when
+// fine-grained scopes were untested against this PDS; hyperobject's
+// repo:<collection>?action=create narrowing (2026-08) shipped and works, so
+// the same pattern is used here. If narrow rpc:/repo: scopes ever get
+// rejected by a user's PDS as invalid_scope, the safe fallback is reverting
+// this SCOPE and client-metadata.json's scope back to
+// `atproto transition:generic` for this one site — see notes/50-oauth-scopes.md.
 
 import {
   generateDPoPKeyPair,
@@ -37,7 +45,8 @@ const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
 const MOUNT = ""; // canonical host is skyclone.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE =
+  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create&action=delete repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.graph.block?action=create&action=delete rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.listNotifications?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.updateSeen?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.getUnreadCount?aud=did:web:api.bsky.app%23bsky_appview";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

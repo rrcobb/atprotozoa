@@ -14,9 +14,9 @@
 // against the deployed bisks.net/drivethru/ URL (the PDS auth server redirects
 // back to a fixed, pre-registered redirect_uri).
 //
-// Scope `atproto transition:generic` is the generic full-repo-access scope —
-// it's what lets us createRecord under app.bsky.feed.post (a normal post, from
-// the user's own account, same as tapping "post" in the Bluesky app).
+// Scope is narrowed to create-only on app.bsky.feed.post (a normal post, from
+// the user's own account, same as tapping "post" in the Bluesky app) — no
+// account-wide access. Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -33,7 +33,7 @@ const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
 const MOUNT = ""; // canonical host is drivethru.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:app.bsky.feed.post?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

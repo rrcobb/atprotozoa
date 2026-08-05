@@ -6,10 +6,10 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us createRecord under our own custom net.bisks.verdict.*
-// collection, not just app.bsky.*.
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to our own net.bisks.verdict.judgment collection plus an rpc
+// grant for reading the signed-in user's timeline through their PDS — no
+// account-wide access. Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -29,7 +29,8 @@ const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
 const MOUNT = ""; // canonical host is verdict.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE =
+  "atproto repo:net.bisks.verdict.judgment?action=create&action=update rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

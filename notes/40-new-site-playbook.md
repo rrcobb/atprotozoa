@@ -24,7 +24,9 @@ named `atprotozoa-<name>`, served at `<name>.bisks.net`.
 3. **Build the idea.** Edit `public/` and `src/`. Copy atproto helpers from
    sibling sites as needed — copy, don't import across sites. Any absolute URL
    the site writes about itself (OG tags, share links, OAuth redirect URIs) is
-   `https://<newname>.bisks.net/...` with no path prefix.
+   `https://<newname>.bisks.net/...` with no path prefix. If the site needs
+   OAuth, scope it to exactly what it does — see `notes/50-oauth-scopes.md`,
+   not a blanket `atproto transition:generic`.
 
 4. **Run it locally.** `cd sites/<newname> && pnpm dlx wrangler dev`, then open
    `localhost:8787`.
@@ -126,7 +128,8 @@ sites/<name>/
 ```
 
 See `sites/windmill` for a personalized `/r/<code>` share route and
-`sites/padmoot` for OAuth.
+`sites/padmoot` for OAuth. For what scope to request, see
+`notes/50-oauth-scopes.md`.
 
 ## Older sites: legacy path routes
 

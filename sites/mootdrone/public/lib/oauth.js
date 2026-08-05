@@ -20,7 +20,8 @@ import {
 const ORIGIN = location.origin; // https://mootdrone.bisks.net (or localhost in dev)
 export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE =
+  "atproto repo:app.bsky.feed.post?action=create rpc:app.bsky.video.uploadVideo?aud=*";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

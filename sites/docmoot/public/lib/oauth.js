@@ -6,10 +6,10 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us createRecord under our own custom net.bisks.docmoot.*
-// collection, not just app.bsky.*. Only used for the "save snapshot to my
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to create-only on net.bisks.docmoot.snapshot — no account-wide
+// access. Must stay in lockstep with client-metadata.json. Only used for the
+// "save snapshot to my
 // PDS" button — editing a doc itself needs no login.
 
 import {
@@ -30,7 +30,7 @@ const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
 export const MOUNT = ""; // canonical host is docmoot.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:net.bisks.docmoot.snapshot?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

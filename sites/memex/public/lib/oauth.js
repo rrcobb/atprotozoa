@@ -6,10 +6,10 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us createRecord/deleteRecord under our own custom
-// net.bisks.memex.phrase collection, not just app.bsky.*. Browsing and
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to create+delete on our own net.bisks.memex.phrase collection
+// only — no account-wide access. Must stay in lockstep with
+// client-metadata.json. Browsing and
 // copying phrases needs no login; signing in just moves your phrasebook off
 // this one browser and into your own PDS.
 
@@ -29,7 +29,7 @@ const ORIGIN = location.origin; // https://memex.bisks.net (or localhost in dev)
 export const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:net.bisks.memex.phrase?action=create&action=delete";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

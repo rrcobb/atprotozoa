@@ -7,10 +7,9 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is the generic full-repo-access scope — it's
-// what lets us read/write our own custom net.bisks.war.* collections, not
-// just app.bsky.*.
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to our own net.bisks.war.* collections only — no account-wide
+// access. Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -26,7 +25,8 @@ import {
 const ORIGIN = location.origin; // https://paintmoot.bisks.net (or localhost in dev)
 export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE =
+  "atproto repo:net.bisks.war.state?action=create&action=update repo:net.bisks.war.ruleset";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

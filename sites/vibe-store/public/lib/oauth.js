@@ -7,9 +7,9 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is what lets us createRecord an
-// app.bsky.feed.post straight to the signed-in shopper's own PDS.
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to create-only on app.bsky.feed.post — no account-wide access.
+// Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -29,7 +29,7 @@ const ORIGIN = location.origin; // https://bisks.net (or localhost in dev)
 export const MOUNT = ""; // canonical host is vibe-store.bisks.net — see audit/migrate-oauth-hosts.mjs
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:app.bsky.feed.post?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

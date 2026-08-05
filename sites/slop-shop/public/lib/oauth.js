@@ -7,8 +7,9 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope
-// `atproto transition:generic` is what allows writing app.bsky.feed.post (replies).
+// The client_id is the URL of our static client-metadata.json. Scope is
+// narrowed to create-only on app.bsky.feed.post plus image blob uploads — no
+// account-wide access. Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -24,7 +25,7 @@ import {
 const ORIGIN = location.origin; // https://slop-shop.bisks.net (or localhost in dev)
 export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}/launcher/`; // must be listed in client-metadata.json
-const SCOPE = "atproto transition:generic";
+const SCOPE = "atproto repo:app.bsky.feed.post?action=create blob:image/*";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
