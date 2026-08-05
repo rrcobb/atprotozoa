@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>also in this thread — every "buh" and "interesting" you've ever posted</title>
+<meta name="description" content="Enter a Bluesky handle and get every thread you've ever said 'buh' in, and every post where you called something 'interesting' — read off your entire post history, not just a recent sample." />
+<meta property="og:title" content="also in this thread" />
+<meta property="og:description" content="every thread you've ever said 'buh' in, and every time you called something 'interesting' — pulled from your whole post history." />
+<meta property="og:url" content="https://alsointhisthread.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://alsointhisthread.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="also in this thread — a doctor-coated little guy raising a hand next to a speech bubble that says I too am in this thread." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="also in this thread" />
+<meta name="twitter:description" content="every thread you've ever said 'buh' in, and every time you called something 'interesting' — pulled from your whole post history." />
+<meta name="twitter:image" content="https://alsointhisthread.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0a12;
+    --fg: #ece9f7;
+    --dim: #9a93b8;
+    --accent: #4fd1c5;
+    --accent2: #f3a35c;
+    --card: #14111f;
+    --border: #2b2540;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #2a1250 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 0%, #3a2408 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 700px; }
+  h1 {
+    font-size: 1.85rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; position: relative; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #0a0a12;
+    border: none; border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--border); font-weight: 600;
+  }
+  button.tiny { padding: 0.4rem 0.6rem; font-size: 0.72rem; }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 1.75rem; }
+  .status { color: var(--dim); font-size: 0.86rem; min-height: 1.4em; margin-bottom: 1.5rem; white-space: pre-line; }
+  .status.err { color: #f87171; }
+
+  .summary {
+    display: none; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.5rem; margin-bottom: 1.6rem;
+  }
+  .summary.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); object-fit: cover; }
+  .who .name { font-weight: 700; }
+  .who .handle { color: var(--dim); font-size: 0.8rem; }
+  .counts { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .countBlock .num {
+    font-size: 2.4rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .countBlock .lbl { color: var(--dim); font-size: 0.78rem; margin-top: 0.2rem; }
+  .fullnote { color: var(--dim); font-size: 0.74rem; margin-top: 1rem; }
+
+  .reaction {
+    display: none; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.4rem; margin-bottom: 2rem; gap: 1.1rem;
+    align-items: center;
+  }
+  .reaction.show { display: flex; animation: rise 0.4s ease; }
+  .reaction svg { flex-shrink: 0; }
+  .reaction .rtext { min-width: 0; }
+  .reaction .rtext p { margin: 0 0 0.6rem; font-size: 0.84rem; color: var(--dim); line-height: 1.5; }
+  .reaction .ractions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+  h2 { font-size: 1.05rem; margin: 2rem 0 0.15rem; display: none; }
+  h2.show { display: block; }
+  .sectionHint { color: var(--dim); font-size: 0.76rem; margin: 0 0 0.9rem; display: none; }
+  .sectionHint.show { display: block; }
+  .list { display: none; flex-direction: column; gap: 0.7rem; }
+  .list.show { display: flex; }
+  .entry { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.9rem 1rem; }
+  .entry .when { color: var(--dim); font-size: 0.72rem; margin-bottom: 0.35rem; }
+  .entry .text { font-size: 0.92rem; margin: 0 0 0.5rem; white-space: pre-wrap; word-break: break-word; }
+  .entry .ctx { color: var(--dim); font-size: 0.78rem; border-top: 1px dashed var(--border); padding-top: 0.5rem; margin-bottom: 0.5rem; }
+  .entry .ctx b { color: var(--fg); font-weight: 600; }
+  .entry .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .entry a.open {
+    color: var(--accent); text-decoration: none; font-size: 0.78rem; font-weight: 700;
+    border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.6rem;
+  }
+  .entry a.open:hover { background: #1c1730; }
+  .empty { color: var(--dim); font-size: 0.85rem; font-style: italic; padding: 0.4rem 0; }
+  .gone { color: var(--dim); font-size: 0.72rem; font-style: italic; }
+
+  .actions { display: flex; gap: 0.5rem; margin-top: 1.3rem; flex-wrap: wrap; }
+  .actions a {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.82rem; padding: 0.55rem 0.85rem;
+  }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>also in this thread</h1>
+  <p class="tag">Enter a Bluesky handle. We download your <em>entire</em> post history straight off your own PDS — not a recent sample — and pull out every thread you've ever said <b>"buh"</b> in, and every post where you called something <b>"interesting."</b> Nothing gets posted on your behalf — you get a list of threads and a reaction card to bring with you.</p>
+
+  <form id="scanForm">
+    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button type="submit" id="scanBtn">dig it up</button>
+  </form>
+  <p class="hint">no login needed — public repo reads only. nothing gets posted anywhere.</p>
+  <p class="status" id="status"></p>
+
+  <div class="summary" id="summary">
+    <div class="who">
+      <img id="rAvatar" src="" alt="" />
+      <div>
+        <div class="name" id="rName"></div>
+        <div class="handle" id="rHandle"></div>
+      </div>
+    </div>
+    <div class="counts">
+      <div class="countBlock"><div class="num" id="buhCount">0</div><div class="lbl">threads with "buh"</div></div>
+      <div class="countBlock"><div class="num" id="interestingCount">0</div><div class="lbl">times called "interesting"</div></div>
+    </div>
+    <p class="fullnote" id="fullNote"></p>
+    <div class="actions">
+      <a id="shareBluesky" href="#" target="_blank" rel="noopener">share the tally on bluesky</a>
+      <a id="downloadCard" href="#" download="also-in-this-thread.png">download the reaction card</a>
+    </div>
+  </div>
+
+  <div class="reaction" id="reaction">
+    <svg width="86" height="86" viewBox="0 0 86 86" aria-hidden="true">
+      <circle cx="43" cy="43" r="41" fill="#1c1730" stroke="#2b2540" stroke-width="1.5"/>
+      <path d="M22 78c1-16 8-24 21-24s20 8 21 24" fill="#ece9f7"/>
+      <path d="M31 55l6 6-6 4-4-8z" fill="#ffffff"/>
+      <path d="M55 55l-6 6 6 4 4-8z" fill="#ffffff"/>
+      <circle cx="43" cy="38" r="15" fill="#f3c9a1"/>
+      <circle cx="38" cy="37" r="1.6" fill="#241c33"/>
+      <circle cx="48" cy="37" r="1.6" fill="#241c33"/>
+      <path d="M38 44c2 2 8 2 10 0" stroke="#241c33" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+      <path d="M33 58c3 8 17 8 20 0" stroke="#c9c2e8" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <circle cx="30" cy="64" r="3" fill="#c9c2e8"/>
+      <path d="M60 30a29 29 0 000 26" stroke="#4fd1c5" stroke-width="2" fill="none" opacity="0.5"/>
+    </svg>
+    <div class="rtext">
+      <p><b>the reaction card</b> — for when you want to show up in an old thread without actually necroposting one. Reply yourself, by hand, on the real post, and attach this if you like — this tool never posts anything for you.</p>
+      <div class="ractions">
+        <button type="button" class="ghost tiny" id="copyReplyText">copy "I too am in this thread"</button>
+      </div>
+    </div>
+  </div>
+
+  <h2 id="buhHeading">🫥 buh threads</h2>
+  <p class="sectionHint" id="buhHint"></p>
+  <div class="list" id="buhList"></div>
+
+  <h2 id="interestingHeading">🔍 "interesting" comments</h2>
+  <p class="sectionHint" id="interestingHint"></p>
+  <div class="list" id="interestingList"></div>
+
+  <footer>
+    built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
+
+<script src="./lib/handle-typeahead.js"></script>
+<script type="module">
+import { resolveDid, resolvePds, getProfile, listAllPosts, getPosts, postUrl } from "./lib/atproto.js";
+
+const BUH_RE = /\bbuh\b/i;
+const INTERESTING_RE = /\binteresting\b/i;
+
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function truncate(s, max) {
+  s = String(s || "");
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+function formatDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function findHits(posts, re) {
+  const hits = [];
+  for (const p of posts) {
+    const rec = p.value || {};
+    const text = typeof rec.text === "string" ? rec.text : "";
+    if (!text || !re.test(text)) continue;
+    hits.push({
+      uri: p.uri,
+      text,
+      createdAt: rec.createdAt || "",
+      isReply: !!rec.reply,
+      rootUri: rec.reply && rec.reply.root ? rec.reply.root.uri : null,
+    });
+  }
+  hits.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  return hits;
+}
+
+async function scan(handleRaw, onProgress) {
+  const handle = cleanHandle(handleRaw);
+  if (!handle) throw new Error("enter a handle");
+
+  onProgress("resolving " + handle + "…");
+  const did = await resolveDid(handle);
+  const profile = await getProfile(did);
+
+  onProgress("finding " + (profile.handle || handle) + "'s PDS…");
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("couldn't find a PDS for that account");
+
+  const { posts, full } = await listAllPosts(pds, did, onProgress);
+  if (!posts.length) throw new Error("no posts found on that account's repo");
+
+  const buhHits = findHits(posts, BUH_RE);
+  const interestingHits = findHits(posts, INTERESTING_RE);
+
+  onProgress("checking " + fmt(buhHits.length + interestingHits.length) + " matches against the live timeline…");
+  const allUris = new Set();
+  for (const h of [...buhHits, ...interestingHits]) {
+    allUris.add(h.uri);
+    if (h.rootUri) allUris.add(h.rootUri);
+  }
+  const hydrated = allUris.size ? await getPosts([...allUris]) : new Map();
+
+  function enrich(hit) {
+    const own = hydrated.get(hit.uri);
+    const root = hit.rootUri && hit.rootUri !== hit.uri ? hydrated.get(hit.rootUri) : null;
+    return {
+      ...hit,
+      handle: profile.handle || handle,
+      stillUp: !!own,
+      rootHandle: root && root.author ? root.author.handle : null,
+      rootText: root && root.record ? root.record.text : null,
+    };
+  }
+
+  return {
+    did,
+    handle: profile.handle || handle,
+    displayName: profile.displayName || profile.handle || handle,
+    avatar: profile.avatar || "",
+    totalPosts: posts.length,
+    full,
+    buhHits: buhHits.map(enrich),
+    interestingHits: interestingHits.map(enrich),
+  };
+}
+
+// --- rendering ---
+
+function entryHtml(hit) {
+  const url = postUrl(hit.uri, hit.handle);
+  const ctx =
+    hit.isReply && hit.rootHandle && hit.rootText
+      ? `<div class="ctx">in a thread by <b>@${escapeHtml(hit.rootHandle)}</b>: "${escapeHtml(truncate(hit.rootText, 140))}"</div>`
+      : hit.isReply
+        ? `<div class="ctx">a reply in a thread</div>`
+        : `<div class="ctx">a thread you started</div>`;
+  return (
+    `<div class="entry">` +
+    `<div class="when">${formatDate(hit.createdAt)}${hit.stillUp ? "" : ' <span class="gone">(no longer up)</span>'}</div>` +
+    `<p class="text">${escapeHtml(truncate(hit.text, 300))}</p>` +
+    ctx +
+    `<div class="row"><a class="open" href="${url}" target="_blank" rel="noopener">open thread ↗</a></div>` +
+    `</div>`
+  );
+}
+
+function renderList(id, hintId, headingId, hits, emptyLabel) {
+  document.getElementById(headingId).classList.add("show");
+  const hintEl = document.getElementById(hintId);
+  hintEl.textContent = hits.length
+    ? `${fmt(hits.length)} found, newest first.`
+    : `none found — a clean record.`;
+  hintEl.classList.add("show");
+  const listEl = document.getElementById(id);
+  listEl.classList.add("show");
+  listEl.innerHTML = hits.length
+    ? hits.map(entryHtml).join("")
+    : `<div class="empty">${emptyLabel}</div>`;
+}
+
+function renderResult(result) {
+  document.getElementById("rAvatar").src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
+  document.getElementById("rName").textContent = result.displayName;
+  document.getElementById("rHandle").textContent = "@" + result.handle;
+  document.getElementById("buhCount").textContent = fmt(result.buhHits.length);
+  document.getElementById("interestingCount").textContent = fmt(result.interestingHits.length);
+  document.getElementById("fullNote").textContent = result.full
+    ? `read from all ${fmt(result.totalPosts)} posts in the repo.`
+    : `read from ${fmt(result.totalPosts)} posts (fell back to a paginated read — the full repo download didn't go through).`;
+  document.getElementById("summary").classList.add("show");
+  document.getElementById("reaction").classList.add("show");
+
+  renderList("buhList", "buhHint", "buhHeading", result.buhHits, "no \"buh\" on record.");
+  renderList("interestingList", "interestingHint", "interestingHeading", result.interestingHits, "nothing officially deemed \"interesting.\"");
+
+  const url = "https://alsointhisthread.bisks.net/";
+  const shareText =
+    `@${result.handle} has said "buh" in ${fmt(result.buhHits.length)} thread${result.buhHits.length === 1 ? "" : "s"} ` +
+    `and called something "interesting" ${fmt(result.interestingHits.length)} time${result.interestingHits.length === 1 ? "" : "s"}. ` +
+    `${url}`;
+  document.getElementById("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildCard(result).then((blobUrl) => {
+    document.getElementById("downloadCard").href = blobUrl;
+  });
+
+  document.getElementById("copyReplyText").onclick = async () => {
+    const btn = document.getElementById("copyReplyText");
+    try {
+      await navigator.clipboard.writeText("I too am in this thread 🩺");
+      const old = btn.textContent;
+      btn.textContent = "copied!";
+      setTimeout(() => (btn.textContent = old), 1400);
+    } catch {
+      btn.textContent = "couldn't copy — select the text yourself";
+    }
+  };
+}
+
+// --- share card (canvas) ---
+
+function drawDoctor(ctx, x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  ctx.fillStyle = "#1c1730";
+  ctx.strokeStyle = "#2b2540";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(43, 43, 41, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#ece9f7";
+  ctx.beginPath();
+  ctx.moveTo(22, 78);
+  ctx.quadraticCurveTo(23, 54, 43, 54);
+  ctx.quadraticCurveTo(63, 54, 64, 78);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#f3c9a1";
+  ctx.beginPath();
+  ctx.arc(43, 38, 15, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#241c33";
+  ctx.beginPath();
+  ctx.arc(38, 37, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(48, 37, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#241c33";
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(38, 44);
+  ctx.quadraticCurveTo(43, 46, 48, 44);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#c9c2e8";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(33, 58);
+  ctx.quadraticCurveTo(43, 66, 53, 58);
+  ctx.stroke();
+  ctx.fillStyle = "#c9c2e8";
+  ctx.beginPath();
+  ctx.arc(30, 64, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+async function buildCard(result) {
+  const canvas = document.getElementById("cardCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#1a1030");
+  bg.addColorStop(1, "#0a0a12");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#4fd1c5";
+  ctx.font = "800 46px ui-monospace, monospace";
+  ctx.fillText("also in this thread", 56, 90);
+
+  drawDoctor(ctx, 90, 180, 2.6);
+
+  ctx.fillStyle = "#ece9f7";
+  ctx.font = "800 44px ui-monospace, monospace";
+  ctx.fillText("“I too am in this thread”", 340, 220);
+
+  ctx.fillStyle = "#c084fc";
+  ctx.font = "800 26px ui-monospace, monospace";
+  ctx.fillText("@" + result.handle, 56, 470);
+
+  ctx.fillStyle = "#f3a35c";
+  ctx.font = "800 32px ui-monospace, monospace";
+  ctx.fillText(fmt(result.buhHits.length) + ' "buh" threads', 56, 520);
+  ctx.fillText(fmt(result.interestingHits.length) + ' "interesting" posts', 56, 562);
+
+  ctx.fillStyle = "#9a93b8";
+  ctx.font = "600 22px ui-monospace, monospace";
+  ctx.fillText("alsointhisthread.bisks.net", 56, H - 40);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(URL.createObjectURL(blob)), "image/png");
+  });
+}
+
+// --- UI wiring ---
+
+const form = document.getElementById("scanForm");
+const input = document.getElementById("handleInput");
+const btn = document.getElementById("scanBtn");
+const status = document.getElementById("status");
+
+attachHandleTypeahead(input);
+
+async function runScan(handleRaw) {
+  btn.disabled = true;
+  status.classList.remove("err");
+  status.textContent = "resolving " + handleRaw + "…";
+  try {
+    const result = await scan(handleRaw, (msg) => (status.textContent = msg));
+    status.textContent = "done — " + fmt(result.totalPosts) + " posts read.";
+    renderResult(result);
+  } catch (err) {
+    status.classList.add("err");
+    status.textContent = "couldn't dig that up — " + (err && err.message ? err.message : "check the handle and try again");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = input.value.trim();
+  if (v) runScan(v);
+});
+
+// Auto-run for whoever this was built for, and for anyone arriving via
+// ?h=handle, so a shared link goes straight to a result.
+(function () {
+  const params = new URLSearchParams(location.search);
+  const h = params.get("h") || "fromthewestmeadow.com";
+  input.value = h;
+  runScan(h);
+})();
+</script>
+</body>
+</html>
