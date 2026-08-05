@@ -15,6 +15,7 @@
   const APPVIEW = "https://public.api.bsky.app";
   const HANDLE = "mfzx.net";
   const MAX_HP = 100;
+  const ENOUGH_HITS = 5; // eris' law of fives: five is always enough
 
   const FALLBACK_CRIES = [
     "ow", "hey—", "wait no—", "that's uncalled for", "i'm screenshotting this",
@@ -596,10 +597,12 @@
     }
 
     updateHud();
+    updateEarlyShare();
 
     if (state.hp <= 0 && !state.gameOver) {
       state.gameOver = true;
       state.koAt = performance.now();
+      hideEarlyShare();
       if (rope) {
         World.remove(world, rope);
         rope = null;
@@ -658,6 +661,24 @@
     );
   }
 
+  function buildProgressShareText(hits) {
+    return (
+      `I've hit @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far — eris says that's already enough, but I'm not stopping.\n\n` +
+      `pick up a tool → ${shareUrlFor(hits)}`
+    );
+  }
+
+  function updateEarlyShare() {
+    if (state.gameOver || state.hits < ENOUGH_HITS) return;
+    document.getElementById("share-bsky-early").href =
+      "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildProgressShareText(state.hits));
+    document.getElementById("early-share").classList.add("show");
+  }
+
+  function hideEarlyShare() {
+    document.getElementById("early-share").classList.remove("show");
+  }
+
   function showKO() {
     const seconds = Math.max(1, Math.round((state.koAt - (state.startedAt || state.koAt)) / 1000));
     document.getElementById("stat-hits").textContent = state.hits;
@@ -689,6 +710,7 @@
     updateHud();
     respawn();
     hideKO();
+    hideEarlyShare();
   }
 
   document.getElementById("again-btn").addEventListener("click", resetGame);
