@@ -127,6 +127,7 @@
         <label>shape
           <select id="fractalType">
             <option value="tree">tree</option>
+            <option value="organic">organic tree</option>
             <option value="htree">H-tree</option>
             <option value="sierpinski">Sierpinski triangle</option>
             <option value="koch">Koch snowflake</option>
@@ -136,6 +137,7 @@
       <label>depth <input type="range" id="depth" min="1" max="13" value="9" /><span class="val" id="depthVal">9</span></label>
       <label id="angleGroup">angle <input type="range" id="angle" min="8" max="50" value="25" /><span class="val" id="angleVal">25°</span></label>
       <label id="ratioGroup">ratio <input type="range" id="ratio" min="55" max="85" value="72" /><span class="val" id="ratioVal">72%</span></label>
+      <label id="wildnessGroup">wild <input type="range" id="wildness" min="0" max="40" value="14" /><span class="val" id="wildnessVal">14°</span></label>
       <div class="group">
         <label>colors
           <select id="colorScheme">
@@ -185,6 +187,9 @@
           ratioVal: document.getElementById("ratioVal"),
           angleGroup: document.getElementById("angleGroup"),
           ratioGroup: document.getElementById("ratioGroup"),
+          wildness: document.getElementById("wildness"),
+          wildnessVal: document.getElementById("wildnessVal"),
+          wildnessGroup: document.getElementById("wildnessGroup"),
           scheme: document.getElementById("colorScheme"),
           grow: document.getElementById("growBtn"),
           randomize: document.getElementById("randomizeBtn"),
@@ -198,6 +203,7 @@
         // different rates.
         const TYPE_INFO = {
           tree: { maxDepth: 13, defaultDepth: 9, factor: 2, mode: "accumulate" },
+          organic: { maxDepth: 10, defaultDepth: 8, factor: 2.2, mode: "accumulate" },
           htree: { maxDepth: 6, defaultDepth: 4, factor: 4, mode: "accumulate" },
           sierpinski: { maxDepth: 8, defaultDepth: 6, factor: 3, mode: "accumulate" },
           koch: { maxDepth: 6, defaultDepth: 4, factor: 4, mode: "leaves" },
@@ -230,7 +236,10 @@
           mono: ["#141414", "#7d7d7d", "#e6e6e6"],
         };
         function colorForLevel(level, maxDepth) {
-          const t = maxDepth > 0 ? level / maxDepth : 0;
+          // Clamped: leaf tips carry a fractional level (maxDepth + 0.5) so
+          // they land past the last branch level, which would otherwise push
+          // t past 1 and extrapolate the gradient beyond its last stop.
+          const t = maxDepth > 0 ? Math.min(1, level / maxDepth) : 0;
           return gradient3(SCHEMES[els.scheme.value], t);
         }
 
@@ -251,6 +260,51 @@
             if (level >= maxDepth) return;
             rec(x2, y2, len * ratio, angle - angleDeg, level + 1);
             rec(x2, y2, len * ratio, angle + angleDeg, level + 1);
+          }
+          rec(500, 960, 250, 0, 0);
+          return { shapes, w: 1000, h: 1000 };
+        }
+
+        // Seeded so dragging angle/ratio/wildness sliders re-renders the
+        // *same* random tree with different parameters, instead of a fresh
+        // random shape on every input event; grow/randomize/switching-to-organic
+        // pick a new seed since those are meant to feel like a fresh planting.
+        let organicSeed = Math.floor(Math.random() * 1e9);
+        function mulberry32(a) {
+          return function () {
+            a |= 0; a = (a + 0x6d2b79f5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+        }
+
+        function buildOrganic(maxDepth, angleDeg, ratio, wildness) {
+          const rnd = mulberry32(organicSeed);
+          const shapes = [];
+          function rec(x, y, len, angle, level) {
+            const jitter = (rnd() * 2 - 1) * wildness;
+            const rad = ((angle + jitter) * Math.PI) / 180;
+            const x2 = x + len * Math.sin(rad);
+            const y2 = y - len * Math.cos(rad);
+            shapes.push({ level, x1: x, y1: y, x2, y2 });
+            if (level >= maxDepth) {
+              // Fractional level so the leaf renders in the same growth step
+              // as the branch that grew it (see animateGrow's Math.floor).
+              shapes.push({ level: level + 0.5, type: "leaf", x: x2, y: y2 });
+              return;
+            }
+            const lenJitter = 0.85 + rnd() * 0.3;
+            const nextLen = len * ratio * lenJitter;
+            if (rnd() < 0.22 + wildness / 200) {
+              // occasionally a branch splits into a whole smaller trio, not just a fork
+              rec(x2, y2, nextLen, angle - angleDeg * 1.3, level + 1);
+              rec(x2, y2, nextLen * 0.9, angle, level + 1);
+              rec(x2, y2, nextLen, angle + angleDeg * 1.3, level + 1);
+            } else {
+              rec(x2, y2, nextLen, angle - angleDeg - jitter * 0.4, level + 1);
+              rec(x2, y2, nextLen, angle + angleDeg + jitter * 0.4, level + 1);
+            }
           }
           rec(500, 960, 250, 0, 0);
           return { shapes, w: 1000, h: 1000 };
@@ -332,6 +386,8 @@
           const maxDepth = Math.min(+els.depth.value, info.maxDepth);
           let built;
           if (type === "tree") built = buildTree(maxDepth, +els.angle.value, +els.ratio.value / 100);
+          else if (type === "organic")
+            built = buildOrganic(maxDepth, +els.angle.value, +els.ratio.value / 100, +els.wildness.value);
           else if (type === "htree") built = buildHTree(maxDepth);
           else if (type === "sierpinski") built = buildSierpinski(maxDepth);
           else built = buildKoch(maxDepth);
@@ -379,6 +435,11 @@
             ctx.lineTo(s.b.x, s.b.y);
             ctx.lineTo(s.c.x, s.c.y);
             ctx.closePath();
+            ctx.fill();
+          } else if (s.type === "leaf") {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
             ctx.fill();
           } else {
             const widthMult = typeName === "tree" ? 1.1 : 0.6;
@@ -434,7 +495,9 @@
               clear();
               applyFit(built);
             }
-            const levelShapes = built.shapes.filter((s) => s.level === level);
+            // Math.floor so a leaf's fractional level (maxDepth + 0.5) grows
+            // in on the same step as the branch that produced it.
+            const levelShapes = built.shapes.filter((s) => Math.floor(s.level) === level);
             for (const s of levelShapes) drawShape(s, built.maxDepth, built.type);
 
             const count = levelShapes.length;
@@ -472,12 +535,14 @@
           els.depth.max = info.maxDepth;
           if (+els.depth.value > info.maxDepth) els.depth.value = info.defaultDepth;
           els.depthVal.textContent = els.depth.value;
-          const isTree = els.type.value === "tree";
+          const isTree = els.type.value === "tree" || els.type.value === "organic";
           els.angleGroup.style.display = isTree ? "" : "none";
           els.ratioGroup.style.display = isTree ? "" : "none";
+          els.wildnessGroup.style.display = els.type.value === "organic" ? "" : "none";
         }
 
         els.type.addEventListener("change", () => {
+          if (els.type.value === "organic") organicSeed = Math.floor(Math.random() * 1e9);
           syncDepthRange();
           render(false);
         });
@@ -493,11 +558,19 @@
           els.ratioVal.textContent = els.ratio.value + "%";
           render(false);
         });
+        els.wildness.addEventListener("input", () => {
+          els.wildnessVal.textContent = els.wildness.value + "°";
+          render(false);
+        });
         els.scheme.addEventListener("change", () => render(false));
-        els.grow.addEventListener("click", () => render(true));
+        els.grow.addEventListener("click", () => {
+          if (els.type.value === "organic") organicSeed = Math.floor(Math.random() * 1e9);
+          render(true);
+        });
         els.randomize.addEventListener("click", () => {
           const types = Object.keys(TYPE_INFO);
           els.type.value = types[Math.floor(Math.random() * types.length)];
+          organicSeed = Math.floor(Math.random() * 1e9);
           syncDepthRange();
           const info = TYPE_INFO[els.type.value];
           els.depth.value = Math.max(2, Math.round(info.maxDepth * (0.5 + Math.random() * 0.5)));
@@ -506,6 +579,8 @@
           els.angleVal.textContent = els.angle.value + "°";
           els.ratio.value = 60 + Math.round(Math.random() * 22);
           els.ratioVal.textContent = els.ratio.value + "%";
+          els.wildness.value = Math.round(Math.random() * 40);
+          els.wildnessVal.textContent = els.wildness.value + "°";
           const schemes = Object.keys(SCHEMES);
           els.scheme.value = schemes[Math.floor(Math.random() * schemes.length)];
           render(true);
