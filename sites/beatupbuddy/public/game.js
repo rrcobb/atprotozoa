@@ -254,7 +254,23 @@
     particles: [],
     sparkles: [],
     shake: 0,
+    autoRate: 0, // 0-100, "auto-hype" slider — passive regen, no clicking required
+    autoHypeAccum: 0, // hype accrued since the last auto pulse (visual/audio beat)
   };
+
+  // quadratic ramp: most of the slider feels like a gentle trickle, but the
+  // top end blows well past anything a thumb can do — riziles asked for a
+  // regen slider that at max "regenerates faster than I could possibly
+  // click," so max needs to clear the fastest realistic manual throughput
+  // (best tool is crown at 16 hype/hit, and nobody's landing 10 clean taps/sec
+  // on a ragdoll) by a comfortable margin.
+  const AUTO_MAX_HYPE_PER_SEC = 260;
+  const AUTO_PULSE_HYPE = 10; // one visual/audio beat per this much accrued hype
+
+  function autoHypePerMs() {
+    if (state.autoRate <= 0) return 0;
+    return (state.autoRate / 100) ** 2 * (AUTO_MAX_HYPE_PER_SEC / 1000);
+  }
 
   // ---- canvas / camera -----------------------------------------------------
 
@@ -490,6 +506,8 @@
       state.shake = 0;
     }
 
+    stepAuto(dt);
+
     drawBackdrop();
     drawBase();
 
@@ -624,6 +642,66 @@
     }
   }
 
+  // ---- auto-hype: passive regen driven by the slider, not taps ------------
+
+  let lastAutoChime = 0;
+  function autoPulse() {
+    if (state.startedAt == null) state.startedAt = performance.now();
+    state.hits += 1;
+    const head = rag.parts.head.position;
+    // a shimmer, not a kick — auto-hype is ambient joy climbing on its own,
+    // so it nudges the ragdoll rather than launching it like a real tool hit.
+    const jiggle = 2 + (state.autoRate / 100) * 4;
+    Body.applyForce(rag.parts.torso, rag.parts.torso.position, {
+      x: (Math.random() - 0.5) * jiggle * 0.001,
+      y: -Math.random() * jiggle * 0.0006,
+    });
+    state.shake = Math.min(10, state.shake + 2);
+    spawnParticles(head.x, head.y + HEAD_R * 0.6);
+    state.bubbles.push({ text: nextLine(), x: head.x, y: head.y, life: 900, total: 900 });
+    if (state.sparkles.length < 18 && Math.random() < 0.7) {
+      state.sparkles.push({
+        dx: (Math.random() - 0.5) * HEAD_R * 1.6,
+        dy: (Math.random() - 0.5) * HEAD_R * 1.6,
+        angle: Math.random() * Math.PI * 2,
+        size: 8 + Math.random() * 8,
+      });
+    }
+    const now = performance.now();
+    if (now - lastAutoChime > 90) {
+      chime(10 + (state.autoRate / 100) * 10);
+      lastAutoChime = now;
+    }
+  }
+
+  function stepAuto(dt) {
+    if (state.gameOver || !rag) return;
+    const perMs = autoHypePerMs();
+    if (perMs <= 0) return;
+    const gain = perMs * dt;
+    state.hype = Math.min(MAX_HYPE, state.hype + gain);
+    state.autoHypeAccum += gain;
+    while (state.autoHypeAccum >= AUTO_PULSE_HYPE) {
+      state.autoHypeAccum -= AUTO_PULSE_HYPE;
+      autoPulse();
+    }
+    updateHud();
+    updateEarlyShare();
+    if (state.hype >= MAX_HYPE && !state.gameOver) {
+      state.gameOver = true;
+      state.koAt = performance.now();
+      hideEarlyShare();
+      setTimeout(showKO, 800);
+    }
+  }
+
+  const autoSlider = document.getElementById("autoSlider");
+  const autoPct = document.getElementById("autopct");
+  autoSlider.addEventListener("input", () => {
+    state.autoRate = Number(autoSlider.value);
+    autoPct.textContent = state.autoRate === 0 ? "off" : state.autoRate + "%";
+  });
+
   canvas.addEventListener("pointerdown", (e) => {
     handleHit(clientToArena(e.clientX, e.clientY));
   });
@@ -720,6 +798,9 @@
     state.particles = [];
     state.sparkles = [];
     state.shake = 0;
+    state.autoHypeAccum = 0;
+    // autoRate itself carries over — if you maxed the slider, "hype them up
+    // again" keeps it maxed instead of silently resetting your setting.
     updateHud();
     respawn();
     hideKO();
