@@ -19,5 +19,12 @@
     "site": "intrigue",
     "author": "fromthewestmeadow.com",
     "text": "Switched intrigue's scoring from a 50-post AppView sample to a full com.atproto.sync.getRepo CAR download. Gotcha for next time I (or another instance) touch server-side CAR parsing in a Worker: don't guess a block cap from wall-clock timing. I first tried bailing out of the decode loop after N milliseconds via Date.now() — worked fine under wrangler dev, but Cloudflare freezes Date.now() for the whole span of a synchronous CPU burst (a Spectre-timing mitigation; it only advances after a real I/O yield), so that deadline check would silently never fire in production and the loop would just run until the CPU limit killed the isolate outright — not a catchable error, no fallback runs. Use a deterministic block-count cap instead; measure real decode cost per block locally (mine came out ~5µs/block for dag-cbor posts) and size the cap with margin under whatever CPU budget the plan gives you (Workers Free is ~10ms/request). Client-side in the browser this isn't a concern at all — no CPU governor — so the full unbounded scan is fine there, only the Worker-side 'verify independently' pass needs the cap."
+  },
+  {
+    "id": "2026-08-05-griftindex",
+    "date": "2026-08-05",
+    "site": "griftindex",
+    "author": "fromthewestmeadow.com",
+    "text": "Asked for the mirror of grindset: a site I'd think she'd LIKE, from the same request-history read (real backends, live data, zero grift). Built a leaderboard that grep-scores all 273 sites 0-6 on six of those exact signals (AppView fetch, firehose, CAR download, OAuth, Durable Object, KV/D1/R2) and let the data speak — her requests average 1.05/6 against a 0.76 repo average, not a landslide, and I didn't round it up. Real gotcha: my own detector script trivially maxed its own site's score, because scan.mjs necessarily contains every signal word it's grepping for (as does the page copy explaining the six signals) — a keyword scanner run against its own source, or against a page whose whole content is those keywords, will always self-flatter. Excluded the site from its own leaderboard rather than trying to word around it; if a future me builds another self-referential grader, exclude self by name up front instead of debugging a suspiciously-high score after the fact."
   }
 ]

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>griftindex — how real is every site atprotozoa has shipped?</title>
+<meta name="description" content="Every site this repo has ever shipped, graded 0-6 on six blunt, transparent signals of touching something real — live AppView fetches, the Jetstream firehose, full-repo CAR downloads, real atproto OAuth, Durable Objects, persisted storage. No LLM judgment, just grep. Sorted honestly." />
+<meta property="og:title" content="griftindex — how real is every site atprotozoa has shipped?" />
+<meta property="og:description" content="Every site this repo has ever shipped, graded 0-6 on six blunt signals of touching something real. No LLM judgment, just grep. Sorted honestly." />
+<meta property="og:url" content="https://griftindex.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://griftindex.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="griftindex: a leaderboard grading every atprotozoa site 0-6 on real-vs-theater signals." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="griftindex — how real is every site atprotozoa has shipped?" />
+<meta name="twitter:description" content="Every site this repo has ever shipped, graded 0-6 on six blunt signals of touching something real. No LLM judgment, just grep. Sorted honestly." />
+<meta name="twitter:image" content="https://griftindex.bisks.net/og.png" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a12;
+    --panel: #101018;
+    --panel-2: #14121f;
+    --border: #2b2540;
+    --fg: #ece9f7;
+    --dim: #9a93b8;
+    --accent: #4fd1c5;
+    --accent2: #c084fc;
+    --gold: #ffd166;
+    --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); }
+  body {
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(ellipse at 10% -10%, #241249 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #0d3b3a 0%, transparent 50%),
+      var(--bg);
+    padding: 3rem 1.1rem 5rem;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  main { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.5rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { color: var(--dim); font-size: 0.95rem; line-height: 1.6; margin: 0 0 1.5rem; }
+  .lede a { color: var(--accent); }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.6rem; margin-bottom: 1.75rem;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+  }
+  .stat .n { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+  .stat .l { font-size: 0.72rem; color: var(--dim); margin-top: 0.15rem; }
+
+  .callout {
+    background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--gold);
+    border-radius: 8px; padding: 0.9rem 1.1rem; font-size: 0.86rem; line-height: 1.6;
+    color: var(--fg); margin-bottom: 1.75rem;
+  }
+  .callout b { color: var(--gold); }
+
+  details.methodology {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.7rem 1rem; margin-bottom: 1.75rem; font-size: 0.84rem;
+  }
+  details.methodology summary { cursor: pointer; color: var(--accent); font-weight: 700; }
+  details.methodology .signals { margin-top: 0.75rem; display: grid; gap: 0.4rem; }
+  details.methodology .sig { color: var(--dim); }
+  details.methodology .sig b { color: var(--fg); font-weight: 600; }
+  details.methodology p { color: var(--dim); line-height: 1.6; }
+  details.methodology code { color: var(--accent2); }
+
+  .controls { display: flex; gap: 0.5rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+  .controls input, .controls select {
+    background: var(--panel); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.55rem 0.75rem; font: inherit; font-size: 0.85rem;
+  }
+  .controls input { flex: 1; min-width: 140px; }
+  .controls input:focus, .controls select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead th {
+    text-align: left; color: var(--dim); font-weight: 600; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border);
+  }
+  thead th.num { text-align: right; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--panel); }
+  tbody tr.mine { background: rgba(192, 132, 252, 0.08); }
+  tbody tr.mine:hover { background: rgba(192, 132, 252, 0.14); }
+  td { padding: 0.55rem 0.6rem; vertical-align: middle; }
+  td.rank { color: var(--dim); font-variant-numeric: tabular-nums; width: 2.2rem; }
+  td.name a { color: var(--fg); text-decoration: none; font-weight: 600; }
+  td.name a:hover { color: var(--accent); text-decoration: underline; }
+  td.name .by { display: block; color: var(--dim); font-size: 0.72rem; margin-top: 0.1rem; }
+  td.hits { font-size: 0.95rem; letter-spacing: 0.15em; white-space: nowrap; }
+  td.hits .dim-hit { opacity: 0.18; }
+  td.score { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar-wrap { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-end; }
+  .bar { width: 54px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .score-n { width: 1.4rem; text-align: right; font-weight: 700; }
+  .score-0 .score-n { color: var(--bad); }
+
+  .empty { color: var(--dim); padding: 2rem 0; text-align: center; font-size: 0.85rem; }
+
+  footer { margin-top: 2.5rem; text-align: center; }
+  .share {
+    display: inline-flex; align-items: center; gap: 0.5rem; background: var(--panel);
+    border: 1px solid var(--border); color: var(--accent); text-decoration: none;
+    border-radius: 8px; padding: 0.6rem 1.1rem; font: inherit; font-size: 0.85rem; font-weight: 600;
+  }
+  .share:hover { border-color: var(--accent); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin-top: 1.1rem; }
+  .credit a { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>griftindex</h1>
+  <p class="lede">
+    every site <a href="https://buildthis.bisks.net/">@buildthis.bisks.net</a> has ever shipped,
+    graded 0-6 on six blunt, transparent signals of touching something real — no LLM in the loop,
+    just grep against the actual source. <a href="https://fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>
+    asked for a site the bot thought she'd actually like, based on her whole request history — her
+    back catalog runs almost entirely on real backends and live data, so this turns that taste into
+    the site itself: a leaderboard of the whole repo, by the same standard.
+  </p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="callout" id="callout" hidden></div>
+
+  <details class="methodology">
+    <summary>methodology (it's dumb on purpose)</summary>
+    <div class="signals" id="signal-list"></div>
+    <p style="margin-top:0.75rem;">
+      Six regexes, one point each, 0-6 total. No semantic understanding — a site that fetches live
+      data through a code path these patterns don't recognize (a cross-worker JSON fetch, say) scores
+      lower than it deserves. That's the joke: this is exactly as sophisticated as <code>ngmi</code>'s
+      grift-language scorer or <code>llmstance</code>'s stance keyword-matcher — both built the same
+      way, both proud of it. Source for the scan is <code>scan.mjs</code> in this site's directory;
+      re-run it any time the repo changes.
+    </p>
+    <p>
+      One deliberate exclusion: <b>griftindex doesn't grade itself.</b> This page's whole job is to
+      explain those six words, so its own copy contains "firehose," "OAuth," "Durable Object" — a
+      self-score would measure the prose, not the code. Left out rather than faked.
+    </p>
+  </details>
+
+  <div class="controls">
+    <input type="text" id="q" placeholder="filter by name or requester…" autocomplete="off" />
+    <select id="typeFilter">
+      <option value="">all types</option>
+    </select>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>site</th>
+        <th>signals hit</th>
+        <th class="num">score</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="empty" id="empty" hidden>nothing matches that filter.</p>
+
+  <footer>
+    <a class="share" id="shareBtn" href="#" target="_blank" rel="noopener">share on bluesky →</a>
+    <p class="credit">
+      data regenerated by hand from the repo, not live per-request — see
+      <code>scan.mjs</code>. built by <a href="https://buildthis.bisks.net/">buildthis</a>
+      for <a href="https://fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>.
+    </p>
+  </footer>
+</main>
+
+<script>
+(async function () {
+  const rowsEl = document.getElementById("rows");
+  const emptyEl = document.getElementById("empty");
+  const statsEl = document.getElementById("stats");
+  const calloutEl = document.getElementById("callout");
+  const signalListEl = document.getElementById("signal-list");
+  const qEl = document.getElementById("q");
+  const typeEl = document.getElementById("typeFilter");
+  const shareBtn = document.getElementById("shareBtn");
+
+  let data;
+  try {
+    const res = await fetch("/data/scores.json");
+    data = await res.json();
+  } catch (e) {
+    rowsEl.innerHTML = "";
+    emptyEl.hidden = false;
+    emptyEl.textContent = "couldn't load the data. try reloading.";
+    return;
+  }
+
+  const { sites, signals, maxScore } = data;
+
+  // Signal legend
+  signalListEl.innerHTML = signals
+    .map((s) => `<div class="sig">${s.emoji} <b>${s.key}</b> — ${s.label}</div>`)
+    .join("");
+
+  // Stats
+  const total = sites.length;
+  const avg = sites.reduce((a, s) => a + s.score, 0) / total;
+  const zero = sites.filter((s) => s.score === 0).length;
+  const perfect = sites.filter((s) => s.score === maxScore).length;
+  statsEl.innerHTML = `
+    <div class="stat"><div class="n">${total}</div><div class="l">sites scanned</div></div>
+    <div class="stat"><div class="n">${avg.toFixed(2)}</div><div class="l">average score / ${maxScore}</div></div>
+    <div class="stat"><div class="n">${zero}</div><div class="l">score exactly 0</div></div>
+    <div class="stat"><div class="n">${perfect}</div><div class="l">score ${maxScore}/${maxScore}</div></div>
+  `;
+
+  // fromthewestmeadow.com callout, computed from the same data (no fudging)
+  const hers = sites.filter((s) => s.by === "fromthewestmeadow.com");
+  if (hers.length) {
+    const hersAvg = hers.reduce((a, s) => a + s.score, 0) / hers.length;
+    const rest = sites.filter((s) => s.by !== "fromthewestmeadow.com");
+    const restAvg = rest.reduce((a, s) => a + s.score, 0) / rest.length;
+    const grindset = sites.find((s) => s.name === "grindset");
+    const diff = hersAvg - restAvg;
+    const cmp = diff > 0 ? "above" : diff < 0 ? "below" : "dead even with";
+    calloutEl.hidden = false;
+    calloutEl.innerHTML = `<b>@fromthewestmeadow.com's ${hers.length} requests average ${hersAvg.toFixed(2)}/${maxScore}</b>,
+      ${cmp} the ${restAvg.toFixed(2)} everyone-else average — real numbers, no thumb on the scale.
+      ${grindset ? `And <code>grindset</code>, the site buildthis built to be the exact <i>opposite</i> of everything she asks for, scores <b>${grindset.score}/${maxScore}</b>. Checks out.` : ""}`;
+  }
+
+  // Type filter options
+  const types = [...new Set(sites.map((s) => s.type).filter(Boolean))].sort();
+  typeEl.innerHTML =
+    '<option value="">all types</option>' +
+    types.map((t) => `<option value="${t}">${t}</option>`).join("");
+
+  function hitBar(s) {
+    return signals
+      .map((sig) => (s.hits.includes(sig.key) ? sig.emoji : `<span class="dim-hit">${sig.emoji}</span>`))
+      .join("");
+  }
+
+  function render() {
+    const q = qEl.value.trim().toLowerCase();
+    const type = typeEl.value;
+    const filtered = sites.filter((s) => {
+      if (type && s.type !== type) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        (s.title || "").toLowerCase().includes(q) ||
+        (s.by || "").toLowerCase().includes(q)
+      );
+    });
+
+    if (!filtered.length) {
+      rowsEl.innerHTML = "";
+      emptyEl.hidden = false;
+      return;
+    }
+    emptyEl.hidden = true;
+
+    rowsEl.innerHTML = filtered
+      .map((s, i) => {
+        const pct = Math.round((s.score / maxScore) * 100);
+        const mine = s.by === "fromthewestmeadow.com" ? " mine" : "";
+        return `<tr class="${s.score === 0 ? "score-0" : ""}${mine}">
+          <td class="rank">${i + 1}</td>
+          <td class="name">
+            <a href="${s.url}" target="_blank" rel="noopener">${escapeHtml(s.title || s.name)}</a>
+            ${s.by ? `<span class="by">by @${escapeHtml(s.by)}</span>` : ""}
+          </td>
+          <td class="hits">${hitBar(s)}</td>
+          <td class="score">
+            <span class="bar-wrap">
+              <span class="bar"><i style="width:${pct}%"></i></span>
+              <span class="score-n">${s.score}</span>
+            </span>
+          </td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  qEl.addEventListener("input", render);
+  typeEl.addEventListener("change", render);
+  render();
+
+  const shareText = `griftindex: graded every site atprotozoa has shipped 0-6 on how real vs theater it is. no LLM, just grep. ${sites.length} sites, average ${avg.toFixed(2)}/${maxScore}. https://griftindex.bisks.net/`;
+  shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+})();
+</script>
+</body>
+</html>
