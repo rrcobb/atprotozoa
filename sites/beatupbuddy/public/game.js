@@ -601,12 +601,15 @@
   function updateO2Bar() {
     const fill = document.getElementById("o2fill");
     if (!fill) return;
+    const pct = Math.round(Math.max(0, state.o2));
     fill.style.width = Math.max(0, state.o2) + "%";
     fill.classList.toggle("warn", state.o2 <= O2_WARN);
+    document.getElementById("o2pct").textContent = pct + "%";
   }
 
   function updateHud() {
     document.getElementById("hpfill").style.width = Math.max(0, state.hp) + "%";
+    document.getElementById("hppct").textContent = Math.round(Math.max(0, state.hp)) + "%";
     document.getElementById("hits").textContent = state.hits + (state.hits === 1 ? " hit" : " hits");
     updateO2Bar();
   }
