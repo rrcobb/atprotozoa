@@ -172,6 +172,19 @@
   .custom-row { display: flex; gap: 8px; margin-top: 12px; }
   .custom-row input { flex: 1; }
 
+  .movers-note { color: var(--text-muted); font-size: 12px; margin: 0 0 10px; }
+  .movers-wrap { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.movers-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.movers-table th, table.movers-table td { padding: 6px 10px; border-bottom: 1px solid var(--gridline); text-align: left; white-space: nowrap; }
+  table.movers-table th { position: sticky; top: 0; background: var(--surface-1); color: var(--text-muted); font-weight: 600; z-index: 1; }
+  table.movers-table th.num, table.movers-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.movers-table td.rank { color: var(--text-muted); }
+  table.movers-table tbody tr { cursor: pointer; }
+  table.movers-table tbody tr:hover td { background: var(--gridline); }
+  table.movers-table tr.mover-selected td { font-weight: 700; color: var(--series-1); }
+  table.movers-table tr.mover-cap { cursor: not-allowed; }
+  table.movers-table tr.mover-cap td { opacity: 0.4; }
+
   table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
   table.data-table th, table.data-table td { border-bottom: 1px solid var(--gridline); padding: 4px 8px; text-align: right; font-variant-numeric: tabular-nums; }
   table.data-table th:first-child, table.data-table td:first-child { text-align: left; }
@@ -219,10 +232,28 @@
     </div>
     <div class="term-list" id="termList"></div>
     <div class="custom-row">
-      <input type="text" id="customInput" placeholder="search real data for any of ~400 measured words…" maxlength="60">
+      <input type="text" id="customInput" list="wordList" placeholder="search real data for any of ~400 measured words…" maxlength="60">
       <button id="customAdd">look it up</button>
     </div>
+    <datalist id="wordList"></datalist>
     <div class="cap-note" id="customStatus" style="margin-top: 8px;"></div>
+  </div>
+
+  <div class="card">
+    <div class="picker-head">
+      <h2>biggest movers</h2>
+      <span class="cap-note">not just the picks above</span>
+    </div>
+    <p class="movers-note">Every measured word (~400 of them, same PubMed dataset),
+      ranked by how much its rate rose from 2022 to 2024 — the real answer to
+      "what are the top, current LLM n-grams," not a curated guess. Click a row
+      to chart it.</p>
+    <div class="movers-wrap">
+      <table class="movers-table">
+        <thead><tr><th>#</th><th>word</th><th class="num">×2022→24</th><th class="num">per 10k, 2024</th></tr></thead>
+        <tbody id="moversBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -360,6 +391,23 @@
   function setCustomStatus(msg) {
     document.getElementById("customStatus").textContent = msg || "";
   }
+
+  // shared by the search box and the movers leaderboard: register any measured
+  // word (not already curated) as a chartable custom term, with real stats in
+  // its blurb instead of a generic line.
+  function registerCustom(word) {
+    if (TERM_BY_ID[word] || customTerms[word]) return;
+    var c = D.COUNTS[word];
+    var rate2010 = (c[0] / D.TOTALS[0]) * 10000;
+    var rate2024 = (c[14] / D.TOTALS[14]) * 10000;
+    customTerms[word] = {
+      id: word, label: word, category: "measured, not curated",
+      blurb: "real PubMed frequency data (same source as everything else on this page): " +
+        rate2010.toFixed(2) + " per 10,000 abstracts in 2010, " + rate2024.toFixed(2) + " in 2024.",
+    };
+    D.SERIES[word] = D.rateSeries(word);
+  }
+
   function addCustom() {
     var input = document.getElementById("customInput");
     var text = input.value.trim();
@@ -376,14 +424,62 @@
       setCustomStatus("no measured data for “" + text + "” in this dataset (" + D.SEARCHABLE_WORDS.length + " real words, from Kobak et al.'s PubMed word list) — no fake fallback, sorry. try one of the picks above.");
       return;
     }
-    if (!customTerms[word]) {
-      customTerms[word] = { id: word, label: word, category: "measured, not curated",
-        blurb: "real PubMed frequency data (same source as everything else on this page), just not one of the picks above." };
-      D.SERIES[word] = D.rateSeries(word);
-    }
+    registerCustom(word);
     select(word);
     setCustomStatus("");
     input.value = "";
+  }
+
+  var wordListEl = document.getElementById("wordList");
+  D.SEARCHABLE_WORDS.forEach(function (w) {
+    var opt = document.createElement("option");
+    opt.value = w;
+    wordListEl.appendChild(opt);
+  });
+
+  // ---------- biggest movers leaderboard ----------
+  // Ranked across the full measured universe (~400 words), not just the 21
+  // curated picks — the actual "top current common n-grams" the original ask
+  // wanted, computed from real rate change 2022 (ChatGPT's launch year) to 2024.
+  var MOVERS = (function () {
+    var YEAR_2022 = D.YEARS.indexOf(2022), YEAR_2024 = D.YEARS.indexOf(2024);
+    var arr = [];
+    D.SEARCHABLE_WORDS.forEach(function (w) {
+      var c = D.COUNTS[w];
+      var c2022 = c[YEAR_2022], c2024 = c[YEAR_2024];
+      if (c2024 < 30) return; // filter out noise from tiny counts
+      var ratio = c2024 / Math.max(c2022, 1);
+      if (ratio < 1.5) return;
+      arr.push({ id: w, ratio: ratio, rate2024: (c2024 / D.TOTALS[YEAR_2024]) * 10000 });
+    });
+    arr.sort(function (a, b) { return b.ratio - a.ratio; });
+    return arr.slice(0, 30);
+  })();
+
+  var moversBody = document.getElementById("moversBody");
+  function renderMovers() {
+    moversBody.innerHTML = "";
+    MOVERS.forEach(function (m, idx) {
+      var selected = order.indexOf(m.id) !== -1;
+      var atCap = !selected && order.length >= MAX_SLOTS;
+      var tr = document.createElement("tr");
+      var cls = [];
+      if (selected) cls.push("mover-selected");
+      if (atCap) cls.push("mover-cap");
+      if (cls.length) tr.className = cls.join(" ");
+      var label = (TERM_BY_ID[m.id] && TERM_BY_ID[m.id].label) || m.id;
+      tr.innerHTML = '<td class="rank">' + (idx + 1) + '</td>' +
+        '<td>' + escapeHtml(label) + '</td>' +
+        '<td class="num">×' + m.ratio.toFixed(1) + '</td>' +
+        '<td class="num">' + m.rate2024.toFixed(1) + '</td>';
+      tr.title = selected ? "remove from chart" : (atCap ? "4 selected — remove one to swap" : "add to chart");
+      tr.addEventListener("click", function () {
+        if (atCap) return;
+        registerCustom(m.id);
+        toggle(m.id);
+      });
+      moversBody.appendChild(tr);
+    });
   }
 
   // ---------- legend ----------
@@ -631,6 +727,7 @@
   // ---------- render orchestration ----------
   function render() {
     renderPicker();
+    renderMovers();
     renderLegend();
     renderChart();
     refreshShare();
