@@ -3,11 +3,21 @@
 // @isolyth.dev is hardcoded as THE hyperobject — the one fixed point at the
 // top. Everyone else who gets typed into the form can be "cast into the pit,"
 // a real shared Durable Object list that every visitor sees (not a private
-// per-browser fiction): casting is a public, permanent act. A client submits
-// only a DID; the Worker re-resolves that DID's own profile itself
-// (app.bsky.actor.getProfile) before storing anything, so nobody can cast a
-// fake name/avatar in under someone else's identity, and isolyth.dev's own
-// DID (resolved once, cached in storage) can never be cast into their own pit.
+// per-browser fiction): casting is a public, permanent act. The Worker
+// re-resolves the target DID's own profile itself (app.bsky.actor.getProfile)
+// before storing anything, so nobody can cast a fake name/avatar in under
+// someone else's identity, and isolyth.dev's own DID (resolved once, cached
+// in storage) can never be cast into their own pit.
+//
+// Casting requires signing in with atproto OAuth (public/lib/oauth.js, copied
+// from sites/velvetrope) — anyone can cast, but every fall is attributed to
+// whoever actually did it, not silently folded into isolyth.dev. Same
+// identity check as velvetrope/clusterpedia: the browser writes a
+// net.bisks.hyperobject.cast record naming the target to the *caster's own*
+// PDS, then POSTs only that record's at:// uri; this Worker never trusts a
+// client-supplied caster identity, it reads the record back off the claimed
+// author's own PDS (verifyOwnRecord) and takes that as proof enough, since
+// nobody else can forge a record inside your repo.
 //
 // /s/<handle> personalizes the OG/share unfurl per cast target, same fix as
 // didscope: a static page serves one cached generic embed forever, so a real
@@ -57,6 +67,11 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+interface CastAttribution {
+  did: string;
+  handle: string;
+}
+
 interface PitEntry {
   did: string;
   handle: string;
@@ -66,6 +81,88 @@ interface PitEntry {
   count: number;
   firstCastAt: number;
   lastCastAt: number;
+  lastCastBy?: CastAttribution;
+  castBy?: CastAttribution[]; // distinct casters, most-recent-first, capped
+}
+
+// --- atproto identity + record verification -----------------------------
+// Same pattern as sites/velvetrope's verifyOwnRecord: never trust a client's
+// claim about who cast whom, read the record back off the claimed author's
+// own PDS. Nobody else can forge a record inside your repo, so that's proof
+// enough.
+
+const PLC_DIR = "https://plc.directory";
+const CAST_COLLECTION = "net.bisks.hyperobject.cast";
+const MAX_CAST_RECORD_AGE_MS = 15 * 60 * 1000;
+const MAX_CASTERS_TRACKED = 8;
+
+async function resolveDidDoc(did: string): Promise<any | null> {
+  try {
+    if (did.startsWith("did:plc:")) {
+      const r = await fetch(`${PLC_DIR}/${did}`);
+      if (!r.ok) return null;
+      return await r.json();
+    }
+    if (did.startsWith("did:web:")) {
+      const domain = did.replace("did:web:", "").split(":").join("/");
+      const r = await fetch(`https://${domain}/.well-known/did.json`);
+      if (!r.ok) return null;
+      return await r.json();
+    }
+  } catch {}
+  return null;
+}
+
+function pdsFromDoc(doc: any): string | null {
+  const svc = (doc?.service || []).find(
+    (s: any) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+  );
+  return svc?.serviceEndpoint || null;
+}
+
+function handleFromDoc(doc: any, fallback: string): string {
+  const aka = (doc?.alsoKnownAs || []).find((a: string) => a.startsWith("at://"));
+  return aka ? aka.slice("at://".length) : fallback;
+}
+
+async function getPdsRecord(pdsUrl: string, did: string, collection: string, rkey: string): Promise<any | null> {
+  try {
+    const u = `${pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`;
+    const r = await fetch(u);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+function parseAtUri(uri: string): { did: string; collection: string; rkey: string } | null {
+  const m = /^at:\/\/(did:[^/]+)\/([^/]+)\/([^/]+)$/.exec(String(uri || ""));
+  if (!m) return null;
+  return { did: m[1], collection: m[2], rkey: m[3] };
+}
+
+function freshAt(createdAtIso: string): number {
+  const ms = Date.parse(createdAtIso || "");
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
+// Verify that `uri` really is a net.bisks.hyperobject.cast record the
+// claimed author wrote to their own PDS. This is the only identity check
+// this Worker ever does — no session, no cookie, no bearer token touches it.
+async function verifyOwnCastRecord(
+  uri: string
+): Promise<{ did: string; handle: string; value: any } | { error: string; status: number }> {
+  const parsed = parseAtUri(uri);
+  if (!parsed) return { error: "not a valid at:// record uri", status: 400 };
+  if (parsed.collection !== CAST_COLLECTION) return { error: "wrong record type", status: 400 };
+  const doc = await resolveDidDoc(parsed.did);
+  if (!doc) return { error: "couldn't resolve that DID's identity", status: 400 };
+  const pds = pdsFromDoc(doc);
+  if (!pds) return { error: "couldn't resolve that DID's PDS", status: 400 };
+  const rec = await getPdsRecord(pds, parsed.did, parsed.collection, parsed.rkey);
+  if (!rec || !rec.value) return { error: "record not found on your own PDS", status: 404 };
+  return { did: parsed.did, handle: handleFromDoc(doc, parsed.did), value: rec.value };
 }
 
 // The one grievance that started this: @mfzx.net knocked isolyth.dev down to
@@ -99,8 +196,23 @@ export class Pit {
         return json({ error: "bad request body" }, 400);
       }
 
-      const did = typeof body?.did === "string" && body.did.startsWith("did:") ? body.did : null;
-      if (!did) return json({ error: "missing did" }, 400);
+      const uri = typeof body?.uri === "string" ? body.uri : null;
+      if (!uri) return json({ error: "sign in and cast — missing record uri" }, 400);
+      if (await this.state.storage.get(`seen:${uri}`)) {
+        return json({ error: "that cast was already applied" }, 409);
+      }
+
+      const verified = await verifyOwnCastRecord(uri);
+      if ("error" in verified) return json(verified, verified.status);
+      const { did: casterDid, handle: casterHandle, value: rec } = verified;
+
+      const did = typeof rec?.target === "string" && rec.target.startsWith("did:") ? rec.target : null;
+      if (!did) return json({ error: "cast record has no valid target did" }, 400);
+
+      const validAt = freshAt(rec.createdAt);
+      if (Date.now() - validAt > MAX_CAST_RECORD_AGE_MS) {
+        return json({ error: "that cast record is too old to apply — write a fresh one" }, 400);
+      }
 
       const hyperobjectDid = await this.getHyperobjectDid();
       if (did === hyperobjectDid) {
@@ -114,10 +226,14 @@ export class Pit {
         return json({ error: "couldn't verify that did against the appview" }, 502);
       }
 
-      const note = typeof body?.note === "string" ? body.note.trim().slice(0, 140) : "";
+      const note = typeof rec?.note === "string" ? rec.note.trim().slice(0, 140) : "";
       const key = `entry:${did}`;
       const existing = await this.state.storage.get<PitEntry>(key);
       const now = Date.now();
+
+      const caster: CastAttribution = { did: casterDid, handle: casterHandle };
+      const priorCasters = existing?.castBy || [];
+      const castBy = [caster, ...priorCasters.filter((c) => c.did !== casterDid)].slice(0, MAX_CASTERS_TRACKED);
 
       const entry: PitEntry = {
         did,
@@ -128,8 +244,10 @@ export class Pit {
         count: (existing?.count ?? 0) + 1,
         firstCastAt: existing?.firstCastAt ?? now,
         lastCastAt: now,
+        lastCastBy: caster,
+        castBy,
       };
-      await this.state.storage.put({ [key]: entry });
+      await this.state.storage.put({ [key]: entry, [`seen:${uri}`]: true });
 
       return json({ entry });
     }

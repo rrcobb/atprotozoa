@@ -162,6 +162,36 @@
     color: var(--fg);
   }
   .castbox .sub { color: var(--dim); font-size: 0.82rem; margin: 0 0 1rem; line-height: 1.5; }
+
+  .signin {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    background: var(--void);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+  }
+  .signin input[type="text"] { flex: 1; min-width: 140px; padding: 0.5rem 0.65rem; font-size: 0.85rem; }
+  .signin .who { color: var(--fg); flex: 1; }
+  .signin .who b { color: var(--gold2); }
+  .signin button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--gold);
+    border-radius: 7px;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .signin-err { color: var(--danger); font-size: 0.76rem; width: 100%; }
+
   form { display: flex; flex-direction: column; gap: 0.55rem; }
   input[type="text"] {
     background: var(--void);
@@ -243,6 +273,7 @@
   .entry .name { font-weight: 700; font-size: 0.9rem; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entry .handle { color: var(--dim); font-size: 0.74rem; }
   .entry .note { color: var(--dim); font-size: 0.78rem; font-style: italic; margin-top: 0.15rem; }
+  .entry .castby { color: var(--gold); opacity: 0.75; font-size: 0.68rem; margin-top: 0.2rem; }
   .entry .badge {
     flex: none;
     font-size: 0.68rem;
@@ -307,7 +338,8 @@
 
     <div class="castbox">
       <h2>cast someone into the pit</h2>
-      <p class="sub">Enter a Bluesky handle. They fall, permanently, beneath isolyth.dev — for everyone who visits, not just you.</p>
+      <p class="sub">Sign in with Bluesky, then enter a handle. They fall, permanently, beneath isolyth.dev — for everyone who visits, not just you. Anyone can cast; every fall is marked with who actually did it.</p>
+      <div id="signinBar" class="signin"></div>
       <form id="f">
         <div class="row">
           <input id="handle" type="text" placeholder="e.g. yourenemy.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -337,11 +369,14 @@
   </div>
 
 <script src="lib/handle-typeahead.js"></script>
-<script>
+<script type="module">
+import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 
 const API = "https://public.api.bsky.app/xrpc/";
 const HYPEROBJECT_HANDLE = "isolyth.dev";
+const CAST_COLLECTION = "net.bisks.hyperobject.cast";
 
 async function xrpc(method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -390,7 +425,44 @@ const els = {
   pitList: document.getElementById("pitList"),
   shareBluesky: document.getElementById("shareBluesky"),
   shareCopy: document.getElementById("shareCopy"),
+  signinBar: document.getElementById("signinBar"),
 };
+
+// --- sign in (required to cast — see src/index.ts's verifyOwnCastRecord) ---
+
+let session = null;
+
+function renderSignin() {
+  if (session) {
+    els.signinBar.innerHTML = `
+      <span class="who">signed in as <b>@${esc(session.handle)}</b></span>
+      <button id="signOut" type="button">sign out</button>
+    `;
+    document.getElementById("signOut").addEventListener("click", async () => {
+      await clearSession();
+      session = null;
+      renderSignin();
+    });
+    return;
+  }
+  els.signinBar.innerHTML = `
+    <input id="loginHandle" type="text" placeholder="your handle to sign in" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="signIn" type="button">sign in</button>
+    <span class="signin-err" id="signinErr"></span>
+  `;
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("loginHandle"));
+  document.getElementById("signIn").addEventListener("click", async () => {
+    const h = cleanHandle(document.getElementById("loginHandle").value);
+    const err = document.getElementById("signinErr");
+    if (!h) { err.textContent = "enter your handle first."; return; }
+    err.textContent = "";
+    try {
+      await login(h);
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  });
+}
 
 function setStatus(msg, kind) {
   els.status.textContent = msg || "";
@@ -426,17 +498,32 @@ async function loadZenith() {
 }
 loadZenith();
 
+async function initSession() {
+  try {
+    session = (await completeLoginIfCallback()) || (await getSession());
+  } catch (e) {
+    setStatus("sign-in failed: " + e.message, "err");
+  }
+  renderSignin();
+}
+initSession();
+
 function renderEntry(entry, isFresh) {
   const div = document.createElement("div");
   div.className = "entry" + (isFresh ? " fresh" : "");
   div.dataset.did = entry.did;
   const name = entry.displayName || entry.handle;
+  const castByLine = entry.lastCastBy
+    ? `cast by @${esc(entry.lastCastBy.handle)}` +
+      (entry.castBy && entry.castBy.length > 1 ? ` +${entry.castBy.length - 1} more` : "")
+    : "";
   div.innerHTML = `
     <img class="squish" ${entry.avatar ? `src="${esc(entry.avatar)}"` : ""} alt="" onerror="this.style.visibility='hidden'" />
     <div class="meta">
       <div class="name">${esc(name)}</div>
       <div class="handle">@${esc(entry.handle)}</div>
       ${entry.note ? `<div class="note">"${esc(entry.note)}"</div>` : ""}
+      ${castByLine ? `<div class="castby">${castByLine}</div>` : ""}
     </div>
     <div class="badge">${entry.count > 1 ? `<div class="n">cast ×${entry.count}</div>` : ""}<div>${timeAgo(entry.lastCastAt)}</div></div>
   `;
@@ -475,6 +562,10 @@ async function castInto(rawHandle, note) {
     setStatus("isolyth.dev is the hyperobject. they cannot be cast beneath themselves.", "err");
     return;
   }
+  if (!session) {
+    setStatus("sign in above first — casting is keyed to your account.", "err");
+    return;
+  }
 
   els.go.disabled = true;
   setStatus("resolving " + handle + " ...");
@@ -488,15 +579,35 @@ async function castInto(rawHandle, note) {
       did = r.did;
     }
 
+    // Casting writes a record naming the target to *your own* PDS first —
+    // that's the proof of who really did the casting. The Worker never takes
+    // a client's word for it; it reads this record back off your own PDS
+    // before applying it (src/index.ts's verifyOwnCastRecord).
+    setStatus("writing the cast to your PDS...");
+    const record = {
+      $type: CAST_COLLECTION,
+      target: did,
+      ...(note ? { note } : {}),
+      createdAt: new Date().toISOString(),
+    };
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: CAST_COLLECTION, record }),
+    });
+    const written = await writeRes.json().catch(() => ({}));
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write the cast to your PDS");
+
+    setStatus("casting " + handle + " down...");
     const res = await fetch("/api/cast", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ did, note }),
+      body: JSON.stringify({ uri: written.uri }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "couldn't cast that one down");
 
-    setStatus(`@${data.entry.handle} has fallen.`, "ok");
+    setStatus(`@${data.entry.handle} has fallen — cast by @${session.handle}.`, "ok");
     setShare(data.entry.handle);
     await loadPit(data.entry.did);
     els.input.value = "";
