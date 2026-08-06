@@ -92,6 +92,16 @@
 
       .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0 0 1.8rem; }
 
+      .boardTotal {
+        display: none; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.7rem 1rem;
+        margin: 0 0 1.6rem; background: #fafafa;
+      }
+      .boardTotal.on { display: flex; }
+      .boardTotal .label { font-size: 0.76rem; color: var(--muted); }
+      .boardTotal .amount { font-size: 1.35rem; font-weight: 800; color: var(--good); letter-spacing: -0.01em; }
+      .boardTotal .milestone { font-size: 0.78rem; color: var(--gold); font-weight: 700; }
+
       .grid {
         display: grid; gap: 1rem;
         grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -186,6 +196,12 @@
         <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">share this dashboard →</a>
       </div>
 
+      <div class="boardTotal" id="boardTotal">
+        <span class="label">combined valuation of every idea broken through so far</span>
+        <span class="amount" id="boardAmount">$0</span>
+        <span class="milestone" id="boardMilestone"></span>
+      </div>
+
       <div class="grid" id="grid"></div>
 
       <details class="how">
@@ -217,20 +233,48 @@
 
     <script type="module">
       import { resolveProfile, fetchRecentPosts, pickBusinessIdeas } from "./lib/idea-scan.js";
-      import { breakthrough } from "./lib/breakthrough.js";
+      import { breakthrough, fmtMoney } from "./lib/breakthrough.js";
 
       const $ = (id) => document.getElementById(id);
       const actorInput = $("actor"), goBtn = $("go"), statusEl = $("status");
       const whoEl = $("who"), summaryEl = $("summary"), gridEl = $("grid");
       const shareRow = $("shareRow"), shareBluesky = $("shareBluesky");
+      const boardTotal = $("boardTotal"), boardAmount = $("boardAmount"), boardMilestone = $("boardMilestone");
 
       const MAX_POSTS = 5000;
       const CARD_LIMIT = 30;
 
       // level[i] = how many times card i's button has been pressed.
       const levels = new Map();
+      // amounts[i] = card i's current valuation (dollar figure of its latest
+      // breakthrough), so the board total is a live sum, not a running tally
+      // of every press ever made.
+      const amounts = new Map();
       let ideas = [];
       let currentActor = "";
+
+      // Flavor lines for the combined-valuation ticker, richest first — the
+      // first one the current total clears wins.
+      const MILESTONES = [
+        [1000000000000, "the board has entered a simulation"],
+        [100000000000, "systemically important at this point"],
+        [10000000000, "unicorn stampede"],
+        [1000000000, "somebody ring the bell"],
+        [100000000, "line go up"],
+        [10000000, "modest, for now"],
+      ];
+
+      function updateBoardTotal() {
+        const total = [...amounts.values()].reduce((a, b) => a + b, 0);
+        if (!amounts.size) {
+          boardTotal.classList.remove("on");
+          return;
+        }
+        boardTotal.classList.add("on");
+        boardAmount.textContent = fmtMoney(total);
+        const hit = MILESTONES.find(([n]) => total >= n);
+        boardMilestone.textContent = hit ? hit[1] : "";
+      }
 
       function setStatus(text, cls) {
         statusEl.className = "status" + (cls ? " " + cls : "");
@@ -308,6 +352,9 @@
             const bangs = "!".repeat(Math.min(level, 5));
             $(`btn-${i}`).textContent = `DO A BREAKTHROUGH AGAIN${bangs}`;
 
+            amounts.set(i, result.amount || 0);
+            updateBoardTotal();
+
             const shareEl = $(`share-${i}`);
             const shareText = `${result.stage}\n\n${result.pitch}\n\ndo a breakthrough → https://dobreakthrough.bisks.net/`;
             shareEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
@@ -325,6 +372,8 @@
         summaryEl.textContent = "";
         gridEl.innerHTML = "";
         levels.clear();
+        amounts.clear();
+        updateBoardTotal();
         setStatus(`resolving ${actor}…`);
         try {
           const profile = await resolveProfile(actor);

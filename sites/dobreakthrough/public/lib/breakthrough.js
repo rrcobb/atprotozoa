@@ -104,5 +104,7 @@ export function breakthrough(postUri, originalText, level) {
   const stageLabel = `${stage.emoji} ${stage.label}` + (amount ? ` — ${fmtMoney(amount)} raised` : "");
   const pitch = template(String(originalText || "").trim(), mech, legal);
 
-  return { level, stage: stageLabel, pitch, lap };
+  return { level, stage: stageLabel, pitch, lap, amount };
 }
+
+export { fmtMoney };
