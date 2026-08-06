@@ -48,11 +48,28 @@
   }
   .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
   form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .inputWrap { position: relative; flex: 1; min-width: 0; }
   input[type="text"] {
-    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    width: 100%; background: var(--card); border: 1px solid var(--border);
     color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
   }
   input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .suggest {
+    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 0.35rem);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; z-index: 20; box-shadow: 0 12px 30px -12px #000;
+  }
+  .suggest.show { display: block; }
+  .suggest .opt {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.7rem;
+    cursor: pointer; border-bottom: 1px solid var(--border);
+  }
+  .suggest .opt:last-child { border-bottom: none; }
+  .suggest .opt:hover, .suggest .opt.active { background: #1c1730; }
+  .suggest .opt img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
+  .suggest .opt .osub { min-width: 0; }
+  .suggest .opt .oname { font-size: 0.84rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggest .opt .ohandle { color: var(--dim); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   button {
     background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #0a0a12;
     border: none; border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit;
@@ -112,8 +129,8 @@
   h2 { font-size: 1.1rem; margin: 0 0 0.2rem; color: var(--fg); }
   .boardhint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; }
   .board { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; max-height: 480px; overflow-y: auto; }
-  .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--fg); }
-  .row:last-child { border-bottom: none; }
+  .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); color: var(--fg); cursor: pointer; }
+  .rowWrap:last-child .row:not(.expanded) { border-bottom: none; }
   .row:hover { background: #1c1730; }
   .rank { width: 1.8rem; text-align: right; color: var(--dim); font-size: 0.82rem; flex-shrink: 0; }
   .rank.gold { color: var(--accent2); font-weight: 800; }
@@ -121,6 +138,18 @@
   .row .rhandle { font-size: 0.82rem; font-weight: 600; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .rtier { color: var(--dim); font-size: 0.74rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .rscore { font-weight: 800; font-size: 0.9rem; flex-shrink: 0; color: var(--accent); }
+  .row .rcaret { color: var(--dim); font-size: 0.7rem; flex-shrink: 0; transition: transform 0.15s ease; }
+  .row.expanded .rcaret { transform: rotate(90deg); }
+  .breakdown { padding: 0.3rem 0.85rem 0.85rem; border-bottom: 1px solid var(--border); background: #100d1c; }
+  .breakdown .bdSignal { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.35rem 0; border-top: 1px solid var(--border); }
+  .breakdown .bdSignal:first-child { border-top: none; }
+  .breakdown .bdSignal .pts { font-weight: 800; font-size: 0.78rem; flex-shrink: 0; width: 2.4rem; text-align: right; }
+  .breakdown .bdSignal .pts.pos { color: var(--pos); }
+  .breakdown .bdSignal .pts.neg { color: var(--neg); }
+  .breakdown .bdSignal .label { font-size: 0.8rem; font-weight: 600; }
+  .breakdown .bdSignal .detail { color: var(--dim); font-size: 0.72rem; margin-top: 0.1rem; }
+  .breakdown .bdLink { display: inline-block; margin-top: 0.5rem; color: var(--accent); font-size: 0.76rem; text-decoration: none; font-weight: 600; }
+  .breakdown .bdNote { color: var(--dim); font-size: 0.72rem; margin-top: 0.5rem; }
   .empty-board { color: var(--dim); font-size: 0.82rem; padding: 1rem; text-align: center; }
   .scanners { color: var(--dim); font-size: 0.76rem; margin-top: 0.7rem; text-align: center; }
 
@@ -134,7 +163,10 @@
   <p class="tag">Enter a Bluesky handle. We'll pull their profile and download their <em>entire</em> repo — every post they've ever made, straight off their own PDS, not just a recent page — and score how interesting the account is out of 100: custom feeds and lists they've made, alt text, language and emoji range, thread-building, and more. Your score joins the leaderboard below, recomputed server-side so nobody can just claim 100.</p>
 
   <form id="scanForm">
-    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <div class="inputWrap">
+      <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <div class="suggest" id="suggestList"></div>
+    </div>
     <button type="submit" id="scanBtn">score it</button>
   </form>
   <p class="hint">no login needed — reads public data only.</p>
@@ -453,6 +485,7 @@ async function analyzeAccount(handleRaw, onProgress) {
 const els = {
   form: document.getElementById("scanForm"),
   input: document.getElementById("handleInput"),
+  suggest: document.getElementById("suggestList"),
   btn: document.getElementById("scanBtn"),
   status: document.getElementById("status"),
   card: document.getElementById("resultCard"),
@@ -626,11 +659,129 @@ async function runScan(handleRaw) {
 
 els.form.addEventListener("submit", function (e) {
   e.preventDefault();
+  hideSuggest();
   const v = els.input.value.trim();
   if (v) runScan(v);
 });
 
+// --- typeahead: suggested accounts as you type, via the public AppView's
+// actor search-typeahead endpoint (no auth needed, same public.api host as
+// every other lookup on this page). Debounced so every keystroke doesn't
+// fire a request, and stale responses are dropped by request-id so a slow
+// early query can't clobber the dropdown after a faster later one lands. ---
+
+let suggestItems = [];
+let suggestActive = -1;
+let suggestDebounce = null;
+let suggestReqId = 0;
+
+function hideSuggest() {
+  els.suggest.classList.remove("show");
+  els.suggest.innerHTML = "";
+  suggestItems = [];
+  suggestActive = -1;
+}
+
+function renderSuggest() {
+  if (!suggestItems.length) { hideSuggest(); return; }
+  els.suggest.innerHTML = suggestItems.map(function (a, i) {
+    return (
+      '<div class="opt' + (i === suggestActive ? " active" : "") + '" data-i="' + i + '">' +
+      '<img src="' + (a.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
+      '<div class="osub"><div class="oname">' + escapeHtml(a.displayName || a.handle) + '</div>' +
+      '<div class="ohandle">@' + escapeHtml(a.handle) + '</div></div>' +
+      '</div>'
+    );
+  }).join("");
+  els.suggest.classList.add("show");
+}
+
+function pickSuggest(i) {
+  const a = suggestItems[i];
+  if (!a) return;
+  els.input.value = a.handle;
+  hideSuggest();
+  runScan(a.handle);
+}
+
+els.suggest.addEventListener("mousedown", function (e) {
+  const opt = e.target.closest(".opt");
+  if (!opt) return;
+  e.preventDefault();
+  pickSuggest(Number(opt.dataset.i));
+});
+
+els.input.addEventListener("input", function () {
+  const q = els.input.value.trim();
+  if (suggestDebounce) clearTimeout(suggestDebounce);
+  if (q.length < 2) { hideSuggest(); return; }
+  suggestDebounce = setTimeout(function () {
+    const reqId = ++suggestReqId;
+    xrpc("app.bsky.actor.searchActorsTypeahead", { q: q, limit: "6" })
+      .then(function (data) {
+        if (reqId !== suggestReqId) return; // a newer query already landed
+        suggestItems = data.actors || [];
+        suggestActive = -1;
+        renderSuggest();
+      })
+      .catch(function () {
+        if (reqId === suggestReqId) hideSuggest();
+      });
+  }, 200);
+});
+
+els.input.addEventListener("keydown", function (e) {
+  if (!els.suggest.classList.contains("show")) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    suggestActive = Math.min(suggestActive + 1, suggestItems.length - 1);
+    renderSuggest();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    suggestActive = Math.max(suggestActive - 1, -1);
+    renderSuggest();
+  } else if (e.key === "Enter" && suggestActive >= 0) {
+    e.preventDefault();
+    pickSuggest(suggestActive);
+  } else if (e.key === "Escape") {
+    hideSuggest();
+  }
+});
+
+els.input.addEventListener("blur", function () {
+  // deferred so a mousedown on an option fires before the dropdown vanishes
+  setTimeout(hideSuggest, 150);
+});
+
 // --- leaderboard ---
+
+// Row-click score breakdowns use topSignals straight from /api/leaderboard's
+// response — that field's already on every board entry (see Board.fetch in
+// src/index.ts), so expanding a row costs no extra request. topSignals is
+// capped at the top 6 by the server, so the breakdown is labeled "top
+// signals" rather than implying it's the complete list.
+function breakdownHtml(entry) {
+  const signals = entry.topSignals || [];
+  const body = signals.length
+    ? signals.map(function (s) {
+        const cls = s.pts >= 0 ? "pos" : "neg";
+        const sign = s.pts >= 0 ? "+" : "";
+        return (
+          '<div class="bdSignal">' +
+          '<div class="pts ' + cls + '">' + sign + s.pts + '</div>' +
+          '<div><div class="label">' + escapeHtml(s.label) + '</div>' +
+          (s.detail ? '<div class="detail">' + escapeHtml(s.detail) + '</div>' : '') +
+          '</div></div>'
+        );
+      }).join("")
+    : '<div class="bdNote">nothing stood out — a very average account.</div>';
+  return (
+    '<div class="breakdown">' + body +
+    '<div class="bdNote">top signals from their last score — re-run them above for a full, live breakdown.</div>' +
+    '<a class="bdLink" href="https://bsky.app/profile/' + encodeURIComponent(entry.handle) + '" target="_blank" rel="noopener">view @' + escapeHtml(entry.handle) + ' on bluesky ↗</a>' +
+    '</div>'
+  );
+}
 
 function renderBoard(data) {
   const list = data.board || [];
@@ -640,23 +791,54 @@ function renderBoard(data) {
   }
   let rank = 0;
   let prevScore = null;
-  els.boardList.innerHTML = list.map(function (entry) {
+  els.boardList.innerHTML = list.map(function (entry, i) {
     if (entry.score !== prevScore) {
       rank++;
       prevScore = entry.score;
     }
     const tier = tierFor(entry.score);
     return (
-      '<a class="row" href="https://bsky.app/profile/' + encodeURIComponent(entry.handle) + '" target="_blank" rel="noopener">' +
+      '<div class="rowWrap">' +
+      '<div class="row" data-i="' + i + '">' +
       '<span class="rank' + (rank <= 3 ? " gold" : "") + '">' + rank + '</span>' +
       '<img src="' + (entry.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
       '<span class="rhandle">@' + escapeHtml(entry.handle) + '</span>' +
       '<span class="rtier">' + escapeHtml(tier.label) + '</span>' +
       '<span class="rscore">' + entry.score + '</span>' +
-      '</a>'
+      '<span class="rcaret">▶</span>' +
+      '</div>' +
+      '</div>'
     );
   }).join("");
+  boardData = list;
+  boardExpanded = -1; // the redraw above already dropped any expanded breakdown DOM
 }
+
+let boardData = [];
+let boardExpanded = -1;
+
+els.boardList.addEventListener("click", function (e) {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  const i = Number(row.dataset.i);
+  const wrap = row.closest(".rowWrap");
+  if (boardExpanded === i) {
+    row.classList.remove("expanded");
+    const bd = wrap.querySelector(".breakdown");
+    if (bd) bd.remove();
+    boardExpanded = -1;
+    return;
+  }
+  const prevWrap = els.boardList.querySelector(".row.expanded");
+  if (prevWrap) {
+    prevWrap.classList.remove("expanded");
+    const prevBd = prevWrap.closest(".rowWrap").querySelector(".breakdown");
+    if (prevBd) prevBd.remove();
+  }
+  row.classList.add("expanded");
+  wrap.insertAdjacentHTML("beforeend", breakdownHtml(boardData[i]));
+  boardExpanded = i;
+});
 
 async function loadLeaderboard() {
   try {
