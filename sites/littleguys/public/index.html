@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>littleguys — drop a little guy and watch him wander the real streets</title>
+<meta name="description" content="drop up to 500 little guys anywhere in a real city and watch them wander the actual street network, each one turning randomly at every intersection." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://littleguys.bisks.net/" />
+<meta property="og:title" content="littleguys — drop a little guy and watch him wander the real streets" />
+<meta property="og:description" content="drop up to 500 little guys anywhere in a real city and watch them wander the actual street network, each one turning randomly at every intersection." />
+<meta property="og:image" content="https://littleguys.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="littleguys — drop a little guy and watch him wander the real streets" />
+<meta name="twitter:description" content="drop up to 500 little guys anywhere in a real city and watch them wander the actual street network, each one turning randomly at every intersection." />
+<meta name="twitter:image" content="https://littleguys.bisks.net/og.png" />
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f2f1ec;
+    --card: #ffffff;
+    --ink: #1c2321;
+    --muted: #63706b;
+    --accent: #e2572b;
+    --accent2: #2b6cb0;
+    --accent-ink: #ffffff;
+    --line: #e0ddd2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181a;
+      --card: #1c2226;
+      --ink: #eef1ee;
+      --muted: #93a19b;
+      --accent: #ff7a45;
+      --accent2: #5b9bd9;
+      --accent-ink: #14181a;
+      --line: #2b3338;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.45;
+  }
+  main {
+    max-width: 660px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+  h1 .dot { color: var(--accent); }
+  p.lede { color: var(--muted); margin: 0 0 1.5rem; }
+  form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1 1 240px;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.6rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-size: 1rem;
+  }
+  button {
+    padding: 0.7rem 1.1rem;
+    border-radius: 0.6rem;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .row { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+
+  fieldset.settings {
+    border: 1px solid var(--line);
+    border-radius: 0.8rem;
+    margin: 1.1rem 0 0;
+    padding: 0.9rem 1rem 1.1rem;
+  }
+  fieldset.settings legend { padding: 0 0.4rem; font-weight: 600; font-size: 0.9rem; color: var(--muted); }
+  .control { margin-top: 0.7rem; }
+  .control:first-child { margin-top: 0; }
+  .control label { display: flex; justify-content: space-between; font-size: 0.88rem; margin-bottom: 0.25rem; }
+  .control label .val { font-weight: 700; color: var(--accent); }
+  .control input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .control .hint { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+
+  #status { margin-top: 1rem; color: var(--muted); min-height: 1.2em; }
+
+  #step-caption {
+    margin-top: 0.5rem;
+    text-align: center;
+    max-width: 30rem;
+    margin-left: auto;
+    margin-right: auto;
+    color: var(--muted);
+    font-size: 0.9rem;
+    min-height: 1.2em;
+    display: none;
+  }
+  #step-caption.show { display: block; }
+  #step-caption b { color: var(--ink); }
+
+  #map-wrap { display: none; margin-top: 1.25rem; }
+  #map-wrap.show { display: block; }
+  #map {
+    width: 100%;
+    max-width: 600px;
+    height: 420px;
+    display: block;
+    margin: 0 auto;
+    border-radius: 0.8rem;
+    border: 1px solid var(--line);
+    background: var(--card);
+    overflow: hidden;
+  }
+
+  .littleguys-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
+
+  #path-summary { margin-top: 0.9rem; text-align: center; }
+  #path-summary .headline { font-size: 1.1rem; font-weight: 700; }
+  #path-summary .sub { color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+
+  #controls-row { display: none; justify-content: center; gap: 0.5rem; margin-top: 0.9rem; flex-wrap: wrap; }
+  #controls-row.show { display: flex; }
+
+  #share-row { display: none; margin-top: 1.5rem; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+  #share-row.show { display: flex; }
+  a.share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--accent2);
+    color: var(--accent-ink);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  footer { margin-top: 2.5rem; font-size: 0.8rem; color: var(--muted); }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>littleguys<span class="dot">.</span></h1>
+  <p class="lede">
+    drop a little guy anywhere in a real city and watch him wander: he walks the
+    actual street network from OpenStreetMap, and at every real intersection he
+    turns down a random direction, no plan, no destination. asked for by
+    <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a> —
+    bonus points meant dropping up to 500 of them at once, so that's the max here.
+  </p>
+
+  <form id="search-form">
+    <input type="text" id="address" name="address" placeholder="an address, city, or neighborhood" autocomplete="off" />
+    <button class="primary" type="submit">drop them</button>
+  </form>
+  <div class="row">
+    <button class="ghost" type="button" id="use-location">use my location instead</button>
+  </div>
+
+  <fieldset class="settings">
+    <legend>little guy settings</legend>
+    <div class="control">
+      <label for="count">how many <span class="val" id="count-val">1</span></label>
+      <input type="range" id="count" min="1" max="500" step="1" value="1" />
+      <div class="hint">one gets a face and a running commentary on which street he's on. more than a handful and it's dots — up to 500 of them.</div>
+    </div>
+    <div class="control">
+      <label for="distance">how far they wander <span class="val" id="distance-val">700 m</span></label>
+      <input type="range" id="distance" min="200" max="3000" step="50" value="700" />
+      <div class="hint">rough target distance before each one calls it a day — real ones vary a bit so they don't all stop in lockstep.</div>
+    </div>
+  </fieldset>
+
+  <div id="status" role="status"></div>
+  <div id="step-caption"></div>
+
+  <div id="map-wrap">
+    <div id="map" role="img" aria-label="map of the little guys wandering"></div>
+    <div id="path-summary"></div>
+  </div>
+
+  <div id="controls-row">
+    <button class="ghost" type="button" id="replay-btn">send them off again</button>
+  </div>
+
+  <div id="share-row">
+    <a class="share-btn" id="share-bluesky" target="_blank" rel="noopener">share on Bluesky</a>
+  </div>
+
+  <footer>
+    real street data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+    via the <a href="https://overpass-api.de/" target="_blank" rel="noopener">Overpass API</a>,
+    address lookup via <a href="https://nominatim.org/" target="_blank" rel="noopener">Nominatim</a>.
+    built by <a href="https://bisks.net/buildthis" target="_blank" rel="noopener">@buildthis.bisks.net</a>, asked for by
+    <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">cee.wtf</a>.
+    a typed address is sent to Nominatim to look up coordinates; nothing about a drop is stored anywhere.
+  </footer>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const form = document.getElementById("search-form");
+  const statusEl = document.getElementById("status");
+  const stepCaption = document.getElementById("step-caption");
+  const useLocationBtn = document.getElementById("use-location");
+  const mapWrap = document.getElementById("map-wrap");
+  const pathSummary = document.getElementById("path-summary");
+  const controlsRow = document.getElementById("controls-row");
+  const replayBtn = document.getElementById("replay-btn");
+  const shareRow = document.getElementById("share-row");
+  const shareBluesky = document.getElementById("share-bluesky");
+
+  const countInput = document.getElementById("count");
+  const countVal = document.getElementById("count-val");
+  const distanceInput = document.getElementById("distance");
+  const distanceVal = document.getElementById("distance-val");
+
+  countInput.addEventListener("input", () => { countVal.textContent = countInput.value; });
+  function fmtM(m) { return m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km"; }
+  distanceInput.addEventListener("input", () => { distanceVal.textContent = fmtM(parseFloat(distanceInput.value)); });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  const darkModeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  function tileUrlFor(isDark) {
+    return isDark
+      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  }
+  const TILE_ATTRIBUTION =
+    '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
+    '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+
+  let map = null;
+  let tileLayer = null;
+
+  // A plain canvas layer synced to the map's pixel origin, redrawn every
+  // animation frame. Hundreds of Leaflet DOM markers would choke the page;
+  // one canvas redrawn with plain 2D calls handles 500 without blinking.
+  const WalkersLayer = L.Layer.extend({
+    onAdd(map) {
+      this._map = map;
+      this._canvas = L.DomUtil.create("canvas", "littleguys-canvas");
+      const size = map.getSize();
+      this._canvas.width = size.x;
+      this._canvas.height = size.y;
+      map.getPanes().overlayPane.appendChild(this._canvas);
+      map.on("moveend zoomend resize viewreset", this._reset, this);
+      this._reset();
+    },
+    onRemove(map) {
+      map.getPanes().overlayPane.removeChild(this._canvas);
+      map.off("moveend zoomend resize viewreset", this._reset, this);
+    },
+    _reset() {
+      const topLeft = this._map.containerPointToLayerPoint([0, 0]);
+      L.DomUtil.setPosition(this._canvas, topLeft);
+      const size = this._map.getSize();
+      if (this._canvas.width !== size.x || this._canvas.height !== size.y) {
+        this._canvas.width = size.x;
+        this._canvas.height = size.y;
+      }
+      this.draw();
+    },
+    draw() {
+      if (!this._map) return;
+      const ctx = this._canvas.getContext("2d");
+      ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+      if (!walkers.length) return;
+      const single = walkers.length === 1;
+      const r = single ? 7 : walkers.length <= 25 ? 4.5 : walkers.length <= 100 ? 3 : 1.8;
+      for (const w of walkers) {
+        if (w.trail.length > 1) {
+          ctx.beginPath();
+          ctx.strokeStyle = w.color;
+          ctx.globalAlpha = 0.35;
+          ctx.lineWidth = Math.max(1, r * 0.6);
+          for (let i = 0; i < w.trail.length; i++) {
+            const pt = this._map.latLngToContainerPoint(w.trail[i]);
+            if (i === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+          }
+          ctx.stroke();
+        }
+        const head = this._map.latLngToContainerPoint([w.lat, w.lon]);
+        ctx.globalAlpha = w.alive ? 1 : 0.7;
+        ctx.beginPath();
+        ctx.fillStyle = w.color;
+        ctx.arc(head.x, head.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        if (single) {
+          ctx.font = "22px serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText("🚶", head.x, head.y - 8);
+        }
+      }
+      ctx.globalAlpha = 1;
+    },
+  });
+  let walkersLayer = null;
+
+  function ensureMap() {
+    if (map) return;
+    map = L.map("map", { attributionControl: true, zoomControl: true }).setView([0, 0], 2);
+    tileLayer = L.tileLayer(tileUrlFor(darkModeQuery.matches), { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+    L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+    walkersLayer = new WalkersLayer();
+    walkersLayer.addTo(map);
+  }
+
+  darkModeQuery.addEventListener("change", (e) => {
+    if (!map) return;
+    map.removeLayer(tileLayer);
+    tileLayer = L.tileLayer(tileUrlFor(e.matches), { maxZoom: 19, attribution: TILE_ATTRIBUTION }).addTo(map);
+  });
+
+  // --- graph + walk simulation ---
+
+  const SPEED_MPS = 22; // simulated pace — brisk enough that a full wander is watchable, not literal walking speed
+  const TRAIL_LEN = 22;
+  const WATCHDOG_MS = 3 * 60 * 1000;
+
+  let graph = null; // { origin, nodes, adjacency, startNode }
+  let walkers = [];
+  let animHandle = null;
+  let runStartedAt = 0;
+
+  function pickNext(edges, prevNode) {
+    if (!edges.length) return null;
+    let opts = prevNode == null ? edges : edges.filter((e) => e.to !== prevNode);
+    if (!opts.length) opts = edges; // dead end — the only way is back
+    return opts[Math.floor(Math.random() * opts.length)];
+  }
+
+  function makeWalker(idx, total, targetDistance) {
+    const hue = (idx * 137.508) % 360; // golden-angle spread so colors stay distinct at any count
+    const start = graph.nodes[graph.startNode];
+    return {
+      at: graph.startNode,
+      prev: null,
+      edge: null,
+      remaining: 0,
+      traveled: 0,
+      target: targetDistance * (0.8 + Math.random() * 0.4),
+      lat: start[0],
+      lon: start[1],
+      trail: [[start[0], start[1]]],
+      alive: true,
+      stuck: false,
+      color: total === 1 ? getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() : "hsl(" + hue + ", 70%, 50%)",
+      streets: new Set(),
+      currentStreet: null,
+    };
+  }
+
+  function stepWalker(w, dtSec) {
+    if (!w.alive) return;
+    if (!w.edge) {
+      const next = pickNext(graph.adjacency[w.at], w.prev);
+      if (!next) { w.alive = false; w.stuck = true; return; }
+      w.edge = next;
+      w.remaining = next.distanceM;
+      w.currentStreet = next.street;
+      if (next.street) w.streets.add(next.street);
+    }
+    let move = SPEED_MPS * dtSec;
+    let guard = 0;
+    while (move > 0 && w.edge && guard < 200) {
+      guard++;
+      if (move < w.remaining) {
+        w.remaining -= move;
+        move = 0;
+      } else {
+        move -= w.remaining;
+        w.traveled += w.edge.distanceM;
+        w.prev = w.at;
+        w.at = w.edge.to;
+        w.edge = null;
+        if (w.traveled >= w.target) { w.alive = false; break; }
+        const next = pickNext(graph.adjacency[w.at], w.prev);
+        if (!next) { w.alive = false; w.stuck = true; break; }
+        w.edge = next;
+        w.remaining = next.distanceM;
+        w.currentStreet = next.street;
+        if (next.street) w.streets.add(next.street);
+      }
+    }
+    if (w.edge) {
+      const t = 1 - w.remaining / w.edge.distanceM;
+      const a = graph.nodes[w.at];
+      const b = graph.nodes[w.edge.to];
+      w.lat = a[0] + (b[0] - a[0]) * t;
+      w.lon = a[1] + (b[1] - a[1]) * t;
+    } else {
+      const p = graph.nodes[w.at];
+      w.lat = p[0];
+      w.lon = p[1];
+    }
+    w.trail.push([w.lat, w.lon]);
+    if (w.trail.length > TRAIL_LEN) w.trail.shift();
+  }
+
+  function tick(now) {
+    const dt = Math.min(0.15, (now - (tick._last || now)) / 1000);
+    tick._last = now;
+    let anyAlive = false;
+    for (const w of walkers) {
+      if (w.alive) { stepWalker(w, dt); anyAlive = true; }
+    }
+    if (walkers.length === 1) updateCaption(walkers[0]);
+    if (walkersLayer) walkersLayer.draw();
+    if (anyAlive && now - runStartedAt < WATCHDOG_MS) {
+      animHandle = requestAnimationFrame(tick);
+    } else {
+      for (const w of walkers) w.alive = false;
+      if (walkersLayer) walkersLayer.draw();
+      finishWalk();
+    }
+  }
+
+  let lastCaptionStreet = undefined;
+  function updateCaption(w) {
+    if (w.currentStreet === lastCaptionStreet) return;
+    lastCaptionStreet = w.currentStreet;
+    const name = w.currentStreet ? "<b>" + escapeHtml(w.currentStreet) + "</b>" : "an unnamed path";
+    stepCaption.innerHTML = "now wandering down " + name + "...";
+  }
+
+  function startWalk() {
+    const count = parseInt(countInput.value, 10);
+    const targetDistance = parseFloat(distanceInput.value);
+    walkers = [];
+    for (let i = 0; i < count; i++) walkers.push(makeWalker(i, count, targetDistance));
+    lastCaptionStreet = undefined;
+    stepCaption.classList.toggle("show", count === 1);
+    stepCaption.innerHTML = "";
+    controlsRow.classList.remove("show");
+    shareRow.classList.remove("show");
+    pathSummary.innerHTML = "";
+    ensureMap();
+    requestAnimationFrame(() => map.invalidateSize());
+    map.setView([graph.origin.lat, graph.origin.lon], count === 1 ? 17 : 16);
+    if (animHandle) cancelAnimationFrame(animHandle);
+    runStartedAt = performance.now();
+    tick._last = runStartedAt;
+    animHandle = requestAnimationFrame(tick);
+  }
+
+  function finishWalk() {
+    const n = walkers.length;
+    const totalM = walkers.reduce((s, w) => s + w.traveled, 0);
+    const avgM = totalM / n;
+    const longest = walkers.reduce((m, w) => Math.max(m, w.traveled), 0);
+    const stuck = walkers.filter((w) => w.stuck).length;
+    const allStreets = new Set();
+    walkers.forEach((w) => w.streets.forEach((s) => allStreets.add(s)));
+
+    const headline = n === 1
+      ? "wandered " + fmtM(walkers[0].traveled) + " across " + walkers[0].streets.size + " street" + (walkers[0].streets.size === 1 ? "" : "s")
+      : n + " little guys wandered " + fmtM(totalM) + " combined";
+    const subParts = [];
+    if (n > 1) {
+      subParts.push("averaging " + fmtM(avgM) + " each");
+      subParts.push("longest wander " + fmtM(longest));
+      subParts.push(allStreets.size + " different street" + (allStreets.size === 1 ? "" : "s") + " crossed");
+      if (stuck > 0) subParts.push(stuck + " boxed into a dead end and turned back the whole way");
+    }
+    pathSummary.innerHTML =
+      '<div class="headline">' + headline + '</div>' +
+      (subParts.length ? '<div class="sub">' + subParts.join(" &middot; ") + '</div>' : '');
+
+    lastStats = { n, totalM, avgM, longest, allStreetsCount: allStreets.size };
+    controlsRow.classList.add("show");
+    shareRow.classList.add("show");
+    shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+  }
+
+  let lastStats = null;
+
+  function buildShareText() {
+    const url = "https://littleguys.bisks.net/";
+    const place = graph.origin.label;
+    let body;
+    if (lastStats.n === 1) {
+      body = "🚶 dropped a little guy near " + place + " and let him wander real streets — he covered " + fmtM(lastStats.totalM) + " before calling it a day.";
+    } else {
+      body = "🚶🚶🚶 dropped " + lastStats.n + " little guys near " + place +
+        " and watched them wander real streets — " + fmtM(lastStats.totalM) + " combined, " +
+        lastStats.allStreetsCount + " different streets crossed.";
+    }
+    const text = body + " " + url;
+    return text.length > 300 ? text.slice(0, 297) + "..." : text;
+  }
+
+  async function runDrop(params, queryLabel) {
+    if (animHandle) cancelAnimationFrame(animHandle);
+    walkers = [];
+    controlsRow.classList.remove("show");
+    shareRow.classList.remove("show");
+    stepCaption.classList.remove("show");
+    pathSummary.innerHTML = "";
+    graph = null;
+    statusEl.textContent = "surveying the streets around " + queryLabel + "...";
+
+    const targetDistance = parseFloat(distanceInput.value);
+    const radius = Math.max(300, Math.min(1200, targetDistance * 1.3 + 200));
+    params.set("radius", String(Math.round(radius)));
+
+    try {
+      const res = await fetch("/api/graph?" + params.toString());
+      const data = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = data.error || "something went wrong";
+        return;
+      }
+      graph = data;
+      statusEl.textContent = "dropped near " + data.origin.label + " (" + data.nodeCount.toLocaleString() + " street points nearby) — off they go...";
+      mapWrap.classList.add("show");
+      startWalk();
+    } catch (err) {
+      statusEl.textContent = "couldn't reach the street data, try again in a moment";
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const address = document.getElementById("address").value.trim();
+    if (!address) return;
+    runDrop(new URLSearchParams({ address }), address);
+  });
+
+  useLocationBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      statusEl.textContent = "your browser doesn't support geolocation";
+      return;
+    }
+    statusEl.textContent = "getting your location...";
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        runDrop(new URLSearchParams({ lat: String(pos.coords.latitude), lon: String(pos.coords.longitude) }), "you");
+      },
+      () => { statusEl.textContent = "couldn't get your location — try typing a place instead"; },
+    );
+  });
+
+  replayBtn.addEventListener("click", () => {
+    if (graph) {
+      statusEl.textContent = "dropped near " + graph.origin.label + " again — off they go...";
+      startWalk();
+    }
+  });
+</script>
+</body>
+</html>
