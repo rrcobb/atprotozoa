@@ -432,19 +432,170 @@
     addPulseTarget("brak", body, 0xff7fd8, 0xffffff);
   })();
 
-  // ---- cockpit camera: always-on immersive orbit ----
-  // `orient` is the camera's current yaw/pitch offset. Two things drive it,
-  // never both at once: idle ambient parallax (mouse position / device tilt
-  // gently pulls `orient` toward a target) and an active drag (pointer sets
-  // `orient` directly). `target` is kept in sync with `orient` while
+  // ---- POV cockpit rig: armrests + dash, rigidly attached to the camera ----
+  // Sells "you are sitting in the chair" — these never move relative to the
+  // view, so they read as your own hands/console edge in peripheral vision
+  // no matter which way the camera turns to follow the interview.
+  scene.add(camera);
+  (function buildCockpitRig() {
+    var rig = new THREE.Group();
+    camera.add(rig);
+
+    var bodyMat = new THREE.MeshBasicMaterial({ color: 0x140a24 });
+    var edgeMat = new THREE.LineBasicMaterial({ color: 0x3a2456, transparent: true, opacity: 0.7 });
+
+    function block(geo, x, y, z, rotZ) {
+      var mesh = new THREE.Mesh(geo, bodyMat);
+      mesh.position.set(x, y, z);
+      if (rotZ) mesh.rotation.z = rotZ;
+      rig.add(mesh);
+      var edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+      edges.position.copy(mesh.position);
+      edges.rotation.copy(mesh.rotation);
+      rig.add(edges);
+    }
+
+    block(new THREE.BoxGeometry(0.85, 0.3, 1.5), -1.1, -1.05, -1.55, 0.06);
+    block(new THREE.BoxGeometry(0.85, 0.3, 1.5), 1.1, -1.05, -1.55, -0.06);
+    block(new THREE.BoxGeometry(2.6, 0.14, 0.5), 0, -1.28, -1.3, 0);
+
+    var lightColors = [0xff2f92, 0x26f2c9, 0xffd23f];
+    for (var i = 0; i < 3; i++) {
+      var light = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 0.04, 8),
+        new THREE.MeshBasicMaterial({ color: lightColors[i] })
+      );
+      light.rotation.x = Math.PI / 2;
+      light.position.set(-0.5 + i * 0.5, -1.2, -1.05);
+      rig.add(light);
+    }
+  })();
+
+  // ---- floating caption: the current line, billboarded above whoever's
+  // speaking, so the interview reads even with the HTML dock ignored ----
+  var CAPTION_COLORS = { host: "#ff2f92", zorak: "#ffd23f", moltar: "#ff9a4d", brak: "#ff7fd8" };
+  var CAPTION_LABELS = { host: "SPACE GHOST", zorak: "ZORAK", moltar: "MOLTAR", brak: "BRAK" };
+  var captionCanvas = document.createElement("canvas");
+  captionCanvas.width = 640;
+  captionCanvas.height = 176;
+  var captionCtx = captionCanvas.getContext("2d");
+  var captionTexture = new THREE.CanvasTexture(captionCanvas);
+  var captionSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: captionTexture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  }));
+  captionSprite.scale.set(8, 2.2, 1);
+  captionSprite.visible = false;
+  captionSprite.renderOrder = 999;
+  scene.add(captionSprite);
+  var captionHideAt = 0;
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // Wraps by character count rather than ctx.measureText() — the caption
+  // font is monospace by design, so a fixed chars-per-line budget is exact
+  // enough, and unlike measureText() it can't come back 0 if a font hasn't
+  // finished loading (or isn't installed at all) and leave the line blank.
+  var CAPTION_MAX_CHARS = 34;
+  function wrapCanvasText(text, maxChars) {
+    var words = text.split(" ");
+    var lines = [];
+    var line = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (line && test.length > maxChars) {
+        lines.push(line);
+        line = words[i];
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function paintCaption(cls, text) {
+    var w = captionCanvas.width, h = captionCanvas.height;
+    var color = CAPTION_COLORS[cls] || "#f4eaff";
+    captionCtx.clearRect(0, 0, w, h);
+    captionCtx.fillStyle = "rgba(5,1,12,0.74)";
+    roundRect(captionCtx, 8, 8, w - 16, h - 16, 18);
+    captionCtx.fill();
+    captionCtx.strokeStyle = color;
+    captionCtx.lineWidth = 3;
+    roundRect(captionCtx, 8, 8, w - 16, h - 16, 18);
+    captionCtx.stroke();
+
+    captionCtx.fillStyle = color;
+    captionCtx.font = "700 22px 'JetBrains Mono', monospace";
+    captionCtx.fillText(CAPTION_LABELS[cls] || "", 30, 44);
+
+    captionCtx.fillStyle = "#f4eaff";
+    captionCtx.font = "400 24px 'JetBrains Mono', monospace";
+    var lines = wrapCanvasText(text, CAPTION_MAX_CHARS);
+    var y = 82;
+    lines.slice(0, 3).forEach(function (l) {
+      captionCtx.fillText(l, 30, y);
+      y += 30;
+    });
+    captionTexture.needsUpdate = true;
+  }
+
+  function showCaption(cls, text) {
+    var ch = characters[cls];
+    if (!ch || !text) {
+      captionSprite.visible = false;
+      return;
+    }
+    paintCaption(cls, text);
+    captionSprite.visible = true;
+    var pos = ch.group.position;
+    var above = cls === "moltar" ? 2.0 : (cls === "zorak" || cls === "brak") ? 2.1 : 3.6;
+    captionSprite.position.set(pos.x, pos.y + above, pos.z);
+    captionHideAt = drift + 4.2;
+  }
+
+  // ---- cockpit camera: always-on immersive orbit, with speaker cuts ----
+  // `orient` is the camera's current yaw/pitch offset. Three things can
+  // drive it, in priority order: an active drag (pointer sets `orient`
+  // directly, always wins), a speaker focus (whoever's line just landed
+  // pulls the camera to face them for a few seconds — this is what makes
+  // it read as an interview instead of a fixed orbit), and otherwise idle
+  // ambient parallax (mouse position / device tilt gently pulls `orient`
+  // toward `target`). `target` is kept in sync with `orient` while
   // dragging so releasing the drag never snaps back toward wherever the
   // mouse happens to be resting.
   var orient = { x: 0, y: 0 };
   var target = { x: 0, y: 0 };
   var baseTiltX = -0.16;
   var dragging = false, lastX = 0, lastY = 0;
+  var focusTarget = null, focusHold = 0;
+  var FOCUS_SECONDS = 2.6;
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function computeLookOrient(pos) {
+    var dx = pos.x - camera.position.x;
+    var dy = pos.y - camera.position.y;
+    var dz = pos.z - camera.position.z;
+    var yaw = Math.atan2(-dx, -dz);
+    var horiz = Math.sqrt(dx * dx + dz * dz);
+    var pitch = Math.atan2(dy, horiz);
+    return {
+      x: clamp(-yaw, -0.85, 0.85),
+      y: clamp(baseTiltX - pitch, -0.85, 0.85)
+    };
+  }
 
   function applyCameraOrient(sway) {
     camera.rotation.y = -orient.x + (sway ? Math.sin(drift * 0.05) * 0.015 : 0);
@@ -453,6 +604,7 @@
 
   canvas.addEventListener("pointerdown", function (e) {
     dragging = true;
+    focusHold = 0;
     lastX = e.clientX;
     lastY = e.clientY;
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
@@ -480,9 +632,22 @@
   canvas.addEventListener("pointerleave", endDrag);
 
   window.SpaceGhostScene = {
-    speak: function (cls) {
+    speak: function (cls, text) {
       var ch = characters[cls];
       if (ch) ch.pulse = 1;
+      if (ch && !dragging) {
+        focusTarget = computeLookOrient(ch.group.position);
+        focusHold = FOCUS_SECONDS;
+        // no rAF loop runs under reduced motion, so ease-toward-focus never
+        // happens on its own — snap straight there and force the one frame
+        // that will actually show it, same as the drag path above.
+        if (reduceMotion) { orient.x = focusTarget.x; orient.y = focusTarget.y; }
+      }
+      showCaption(cls, text);
+      if (reduceMotion) {
+        applyCameraOrient(false);
+        renderer.render(scene, camera);
+      }
     }
   };
 
@@ -562,11 +727,21 @@
       paintMoltarScreen(0.2 + moltarPulse);
     }
 
+    if (captionSprite.visible && drift > captionHideAt) captionSprite.visible = false;
+
     // during a drag, target === orient (kept in sync by the pointermove
     // handler above), so this lerp is a no-op and the drag's direct
-    // rotation stands; while idle it eases orient toward the ambient target.
-    orient.x += (target.x - orient.x) * 0.04;
-    orient.y += (target.y - orient.y) * 0.04;
+    // rotation stands. A live speaker focus (nobody dragging) pulls orient
+    // toward whoever just spoke; otherwise it eases toward the ambient
+    // parallax target.
+    if (focusHold > 0 && !dragging) {
+      focusHold -= dt;
+      orient.x += (focusTarget.x - orient.x) * 0.06;
+      orient.y += (focusTarget.y - orient.y) * 0.06;
+    } else {
+      orient.x += (target.x - orient.x) * 0.04;
+      orient.y += (target.y - orient.y) * 0.04;
+    }
     applyCameraOrient(true);
 
     renderer.render(scene, camera);
