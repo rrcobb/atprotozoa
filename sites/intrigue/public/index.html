@@ -575,13 +575,30 @@ async function buildShareCard(result, tier) {
   });
 }
 
+// The card above renders the client's own scan the instant it finishes, for
+// speed — but the leaderboard only ever shows the server's independently
+// re-derived number (see src/index.ts's header comment). Those two can
+// legitimately disagree: profile counters drift between the two fetches, and
+// a very large repo can trip the server's CAR_MAX_BLOCKS cap while the
+// client's browser-side scan has no such limit. Reported 2026-08-06 as a
+// live discrepancy ("83 up top, 81 on the board") — the leaderboard number
+// is the one that counts, so once the server answers, reconcile the card to
+// match it instead of leaving two different scores on screen at once.
 async function submitToLeaderboard(result) {
   try {
-    await fetch("/api/submit", {
+    const res = await fetch("/api/submit", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ handle: result.did }),
     });
+    const data = await res.json();
+    if (data && typeof data.score === "number" && lastResult && lastResult.did === result.did) {
+      const verified = Object.assign({}, result, { score: data.score, signals: data.signals || result.signals, sampled: data.sampled });
+      renderResult(verified);
+      if (data.score !== result.score) {
+        els.status.textContent = "server independently re-verified this at " + data.score + "/100 (this browser's own scan said " + result.score + ") — the leaderboard number is the one that counts.";
+      }
+    }
   } catch (_) {
     // leaderboard submission is best-effort; the personal result still shows.
   }
