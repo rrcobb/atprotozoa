@@ -43,6 +43,17 @@
 // back to text-selection when the Clipboard API is blocked instead of
 // silently doing nothing.
 //
+// @fromthewestmeadow.com again (2026-08-06), "still not loading for either
+// of us": the real bug was simpler and predates all of the above — every
+// /r/<id> page (the URL both players actually open) is renderShare() below
+// serving the *same* index.html bytes at a nested path, but that HTML
+// loaded its own scripts with relative paths ("lib/x.js", "./lib/x.js").
+// Relative to a document at /r/<id>, those resolve to /r/lib/x.js, which
+// 404s — so the module script threw on import and boot() never ran at all.
+// Nobody landing on a shared link (i.e. the opponent, or the creator on
+// reload) got a working page; index.html now loads /lib/... with a leading
+// slash so it resolves the same regardless of the serving path.
+//
 // Routes:
 //   GET  /r/<id>              -> personalized-OG unfurl shell (same SPA,
 //                                 index.html reads the id from the path)
