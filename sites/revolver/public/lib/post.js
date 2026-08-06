@@ -16,10 +16,10 @@ function pdsXrpc(session, method) {
 }
 
 // Same 300-grapheme-budget shape as the old compose-intent text, but now also
-// returns a real mention facet over "@winnerHandle" (byte offsets, not JS
-// string indices — a plain-text @mention in an API-created record isn't a
-// clickable link unless a facet says so; the Bluesky composer used to do that
-// detection for us, an API call doesn't).
+// returns real facets: a mention over "@winnerHandle" and a link over the
+// round URL (byte offsets, not JS string indices — a plain-text @mention or
+// URL in an API-created record isn't clickable unless a facet says so; the
+// Bluesky composer used to do that detection for us, an API call doesn't).
 export function buildDarePost(winnerHandle, winnerDid, dareText, roundUrl) {
   const mention = `@${winnerHandle}`;
   const prefix = `lost a round of revolver to ${mention} — as promised:\n\n"`;
@@ -28,15 +28,24 @@ export function buildDarePost(winnerHandle, winnerDid, dareText, roundUrl) {
   const body = dareText.length > budget ? dareText.slice(0, Math.max(0, budget - 1)) + "…" : dareText;
   const text = prefix + body + suffix;
 
+  const enc = new TextEncoder();
   const facets = [];
   const mentionIndex = prefix.indexOf(mention);
   if (winnerDid && mentionIndex !== -1) {
-    const enc = new TextEncoder();
     const byteStart = enc.encode(prefix.slice(0, mentionIndex)).length;
     const byteEnd = byteStart + enc.encode(mention).length;
     facets.push({
       index: { byteStart, byteEnd },
       features: [{ $type: "app.bsky.richtext.facet#mention", did: winnerDid }],
+    });
+  }
+  const urlIndexInSuffix = suffix.lastIndexOf(roundUrl);
+  if (urlIndexInSuffix !== -1) {
+    const byteStart = enc.encode(prefix + body + suffix.slice(0, urlIndexInSuffix)).length;
+    const byteEnd = byteStart + enc.encode(roundUrl).length;
+    facets.push({
+      index: { byteStart, byteEnd },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: roundUrl }],
     });
   }
   return { text, facets };
