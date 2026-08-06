@@ -26,13 +26,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="66" y="230" font-family="JetBrains Mono" font-weight="800" font-size="96" fill="${NAVY}">TOP CHICKEN</text>
   <rect x="70" y="252" width="620" height="6" fill="${GOLD}"/>
 
-  <text x="70" y="320" font-family="JetBrains Mono" font-size="24" font-style="italic" fill="${MUTED}">a 10-slide briefing on a phrase with zero</text>
-  <text x="70" y="352" font-family="JetBrains Mono" font-size="24" font-style="italic" fill="${MUTED}">pre-2026 attestations, and one live definition</text>
+  <text x="70" y="320" font-family="JetBrains Mono" font-size="24" font-style="italic" fill="${MUTED}">corrected edition — the phrase is older than</text>
+  <text x="70" y="352" font-family="JetBrains Mono" font-size="24" font-style="italic" fill="${MUTED}">we first said, and we show our work this time</text>
 
   <rect x="70" y="410" width="1060" height="1" fill="${LINE}"/>
 
-  <text x="70" y="460" font-family="JetBrains Mono" font-size="19" fill="${NAVY}">01 Executive summary  ·  04 The coop before us  ·  05 Founding incident</text>
-  <text x="70" y="490" font-family="JetBrains Mono" font-size="19" fill="${NAVY}">08 Competitive landscape  ·  09 Risk register  ·  10 Outlook</text>
+  <text x="70" y="460" font-family="JetBrains Mono" font-size="19" fill="${NAVY}">02 Correction notice  ·  05 The coop before us  ·  06 The tool, not the term</text>
+  <text x="70" y="490" font-family="JetBrains Mono" font-size="19" fill="${NAVY}">09 Positioning  ·  10 Risk register  ·  11 Outlook</text>
 
   <text x="70" y="580" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">chickencorp.bisks.net</text>
 </svg>`;
