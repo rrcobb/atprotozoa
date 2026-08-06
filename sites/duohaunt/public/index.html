@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>duohaunt — the irreversible anki bot that follows you around</title>
+<meta name="description" content="build a flashcard deck, review it, or don't — your overdue count and shame tier sit on a public wall that keeps climbing whether you show up or not." />
+<meta property="og:title" content="duohaunt — the irreversible anki bot that follows you around" />
+<meta property="og:description" content="build a flashcard deck, review it, or don't — your overdue count and shame tier sit on a public wall that keeps climbing whether you show up or not." />
+<meta property="og:url" content="https://duohaunt.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://duohaunt.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="duohaunt: a ghost over a flashcard, with the public shame-tier ladder climbing behind it." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="duohaunt — the irreversible anki bot that follows you around" />
+<meta name="twitter:description" content="build a flashcard deck, review it, or don't — your overdue count and shame tier sit on a public wall that keeps climbing whether you show up or not." />
+<meta name="twitter:image" content="https://duohaunt.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0e0a;
+    --void: #10160f;
+    --fg: #eef7ea;
+    --dim: #8a9a86;
+    --green: #58cc02;
+    --green2: #7fe33a;
+    --card: #161d15;
+    --card2: #1c251a;
+    --border: #2a3627;
+    --ghost: #b39ddb;
+    --danger: #ff8a8a;
+    --gold: #ffd76a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+
+  .hero { text-align: center; padding-bottom: 1.5rem; }
+  .hero .mascot { font-size: 3.2rem; line-height: 1; filter: drop-shadow(0 0 24px rgba(88, 204, 2, 0.35)); }
+  .hero h1 { margin: 0.5rem 0 0.3rem; font-size: 1.5rem; color: var(--green2); letter-spacing: -0.01em; }
+  .hero p { margin: 0; color: var(--dim); font-size: 0.86rem; max-width: 44ch; margin: 0 auto; line-height: 1.55; }
+  .hero p b { color: var(--fg); }
+
+  .box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem 1.4rem;
+    margin-top: 1.25rem;
+  }
+  .box h2 { margin: 0 0 0.3rem; font-size: 1rem; color: var(--fg); }
+  .box .sub { color: var(--dim); font-size: 0.82rem; margin: 0 0 1rem; line-height: 1.5; }
+
+  .signin {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    background: var(--void);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+  }
+  .signin input[type="text"] { flex: 1; min-width: 140px; padding: 0.5rem 0.65rem; font-size: 0.85rem; }
+  .signin .who { color: var(--fg); flex: 1; }
+  .signin .who b { color: var(--green2); }
+  .signin button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--green2);
+    border-radius: 7px;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .signin-err { color: var(--danger); font-size: 0.76rem; width: 100%; }
+
+  form { display: flex; flex-direction: column; gap: 0.55rem; }
+  input[type="text"], textarea {
+    background: var(--void);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+    font: inherit;
+    font-size: 0.9rem;
+    width: 100%;
+    resize: vertical;
+  }
+  input[type="text"]:focus, textarea:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+  .row { display: flex; gap: 0.5rem; }
+  .row input, .row textarea { flex: 1; min-width: 0; }
+  button {
+    background: linear-gradient(90deg, var(--green), var(--green2));
+    color: #0c1e02;
+    border: none;
+    border-radius: 8px;
+    padding: 0.72rem 1.1rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.86rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  button.warn { background: linear-gradient(90deg, #ffb347, #ff8a5c); color: #2a1204; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.3em; margin: 0.6rem 0 0; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--green2); }
+
+  /* ---------- deck ---------- */
+  .deckhead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.75rem; }
+  .deckhead .count { color: var(--fg); font-weight: 800; font-size: 0.95rem; }
+  .deckhead .count.due { color: var(--danger); }
+  .cardlist { display: flex; flex-direction: column; gap: 0.5rem; max-height: 320px; overflow-y: auto; }
+  .cardrow {
+    display: flex; align-items: center; gap: 0.7rem;
+    background: var(--void); border: 1px solid var(--border); border-radius: 9px;
+    padding: 0.55rem 0.8rem;
+  }
+  .cardrow .front { flex: 1; min-width: 0; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cardrow .due { flex: none; font-size: 0.68rem; color: var(--dim); text-align: right; }
+  .cardrow .due.overdue { color: var(--danger); font-weight: 700; }
+  .cardrow .del { flex: none; background: none; border: none; color: var(--dim); font-size: 0.9rem; padding: 0.1rem 0.4rem; cursor: pointer; }
+  .empty { color: var(--dim); font-size: 0.85rem; padding: 1rem 0; text-align: center; }
+
+  /* ---------- review ---------- */
+  .reviewbox { text-align: center; }
+  .rcard {
+    background: var(--void); border: 1px dashed var(--border); border-radius: 12px;
+    padding: 2rem 1.2rem; min-height: 120px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.05rem; line-height: 1.5;
+  }
+  .rcard .back { color: var(--green2); margin-top: 0.6rem; display: block; font-size: 0.92rem; }
+  .rprogress { color: var(--dim); font-size: 0.75rem; margin-top: 0.6rem; }
+  .rate { display: flex; gap: 0.4rem; margin-top: 0.9rem; }
+  .rate button { flex: 1; font-size: 0.78rem; padding: 0.6rem 0.4rem; }
+  .rate .again { background: linear-gradient(90deg, #ff8a8a, #ff6b6b); color: #2a0505; }
+  .rate .hard { background: linear-gradient(90deg, #ffd76a, #ffb347); color: #2a1a04; }
+  .rate .good { background: linear-gradient(90deg, var(--green), var(--green2)); color: #0c1e02; }
+  .rate .easy { background: linear-gradient(90deg, #7fe3d0, #58cca6); color: #032018; }
+
+  /* ---------- haunt status ---------- */
+  .tierbig { font-size: 2.4rem; text-align: center; }
+  .tierlabel { text-align: center; font-weight: 800; font-size: 1rem; color: var(--fg); }
+  .tiersub { text-align: center; color: var(--dim); font-size: 0.8rem; margin-top: 0.2rem; }
+  .hauntactions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+  .hauntactions button { flex: 1; min-width: 140px; }
+  .warning { background: var(--void); border: 1px solid var(--border); border-left: 3px solid var(--gold); border-radius: 8px; padding: 0.7rem 0.85rem; font-size: 0.78rem; color: var(--dim); line-height: 1.5; margin-top: 0.9rem; }
+  .warning b { color: var(--gold); }
+
+  /* ---------- the wall ---------- */
+  .wallhead { display: flex; align-items: baseline; justify-content: space-between; margin: 2rem 0 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--border); }
+  .wallhead h2 { margin: 0; font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
+  .wallhead .count { color: var(--fg); font-weight: 800; font-size: 0.95rem; }
+  .wallentry {
+    display: flex; align-items: center; gap: 0.8rem;
+    background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.65rem 0.9rem; margin-bottom: 0.55rem;
+  }
+  .wallentry .avatar { flex: none; width: 38px; height: 38px; border-radius: 50%; background: #263123; object-fit: cover; border: 1px solid var(--border); }
+  .wallentry .meta { min-width: 0; flex: 1; }
+  .wallentry .name { font-weight: 700; font-size: 0.88rem; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wallentry .sub { color: var(--dim); font-size: 0.72rem; }
+  .wallentry .tier { flex: none; text-align: right; font-size: 0.8rem; }
+  .wallentry .tier .emoji { font-size: 1.2rem; }
+
+  /* ---------- nag modal ---------- */
+  .nagback { position: fixed; inset: 0; background: rgba(5, 8, 5, 0.82); display: flex; align-items: center; justify-content: center; padding: 1.25rem; z-index: 50; }
+  .nagback[hidden] { display: none; }
+  .nagbox { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.6rem; max-width: 380px; text-align: center; }
+  .nagbox .mascot { font-size: 2.4rem; }
+  .nagbox h3 { margin: 0.5rem 0 0.4rem; color: var(--green2); font-size: 1.05rem; }
+  .nagbox p { color: var(--dim); font-size: 0.85rem; line-height: 1.5; }
+  .nagbox .row { margin-top: 1rem; }
+
+  .share {
+    margin-top: 1.75rem;
+    padding-top: 1.2rem;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share a, .share button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share a { background: linear-gradient(90deg, var(--green), var(--green2)); color: #0c1e02; }
+  .share button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--green2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="mascot">🦉👻</div>
+      <h1>duohaunt</h1>
+      <p>build a flashcard deck. review it here — <b>nothing leaves your browser unless you say so</b>. fall behind and your overdue count sits on a <b>public wall</b> that keeps climbing on its own timer, whether you ever come back or not.</p>
+    </div>
+
+    <div class="box">
+      <h2>your deck</h2>
+      <p class="sub">plain front/back flashcards, stored only in this browser. add a few, then review.</p>
+      <form id="addForm">
+        <div class="row">
+          <input id="front" type="text" placeholder="front (the prompt)" autocomplete="off" maxlength="200" />
+          <input id="back" type="text" placeholder="back (the answer)" autocomplete="off" maxlength="200" />
+        </div>
+        <button id="addBtn" type="submit">+ add card</button>
+      </form>
+      <p id="addStatus" class="status"></p>
+
+      <div class="deckhead" style="margin-top:1.1rem;">
+        <span>cards</span>
+        <span class="count" id="deckCount">0 total, <span id="dueCount">0</span> due</span>
+      </div>
+      <div id="cardList" class="cardlist"><div class="empty">no cards yet. add one above.</div></div>
+      <button id="reviewBtn" type="button" style="width:100%; margin-top:0.9rem;" disabled>review due cards</button>
+    </div>
+
+    <div class="box" id="reviewBox" hidden>
+      <h2>review</h2>
+      <div class="reviewbox">
+        <div class="rcard">
+          <div>
+            <div id="rFront"></div>
+            <span id="rBack" class="back" hidden></span>
+          </div>
+        </div>
+        <div class="rprogress" id="rProgress"></div>
+        <button id="showBtn" type="button" style="width:100%; margin-top:0.9rem;">show answer</button>
+        <div class="rate" id="rateRow" hidden>
+          <button class="again" data-r="again">again</button>
+          <button class="hard" data-r="hard">hard</button>
+          <button class="good" data-r="good">good</button>
+          <button class="easy" data-r="easy">easy</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2 id="hauntTitle">the haunting</h2>
+      <p class="sub" id="hauntSub">sign in with bluesky to see your public shame tier, or to opt in for the first time.</p>
+      <div id="signinBar" class="signin"></div>
+      <div id="hauntStatus"></div>
+      <p id="hauntStatusMsg" class="status"></p>
+    </div>
+
+    <div class="wallhead">
+      <h2>the wall</h2>
+      <span class="count"><span id="wallCount">0</span> haunted</span>
+    </div>
+    <div id="wallList"><div class="empty">nobody's opted in yet. be first.</div></div>
+
+    <div class="share">
+      <a id="shareBluesky" target="_blank" rel="noopener">🦋 share duohaunt</a>
+      <button id="shareCopy" type="button">🔗 copy link</button>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      requested by <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>
+    </footer>
+  </div>
+
+  <div class="nagback" id="nagback" hidden>
+    <div class="nagbox">
+      <div class="mascot">👻</div>
+      <h3 id="nagTitle">you have cards overdue</h3>
+      <p id="nagBody"></p>
+      <div class="row">
+        <button id="nagReview" type="button" style="width:100%;">review now</button>
+      </div>
+      <div class="row">
+        <button id="nagDismiss" class="ghost" type="button" style="width:100%; margin-top:0.5rem;">not now (it'll ask again)</button>
+      </div>
+    </div>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

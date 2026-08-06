@@ -1,0 +1,55 @@
+name = "atprotozoa-duohaunt"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @norvid-studies.bsky.social tagged the bot to build "this" — the last idea
+# in a thread riffing on croissanthology.com's "stick an anki deck into bsky
+# and have that bot harass me constantly": norvid's own reply called it an
+# "irreversible duolingo anki bot that follows you around harassing you in
+# public." A server that silently holds your Bluesky credentials and posts as
+# you, forever, unattended, is not a thing this build can responsibly ship —
+# so the "irreversible/public" part is honest instead of literal: the HAUNT
+# Durable Object keeps a real public wall (everyone's overdue count + shame
+# tier, visible to anyone with no login) that a scheduled() cron escalates on
+# its own timer regardless of whether you ever open the tab again. Posting to
+# Bluesky itself always stays a live, one-tap action from *your* signed-in
+# session (src/index.ts never sees or stores a token past the request) — see
+# notes/50-oauth-scopes.md's rule and sites/hyperobject's verifyOwnRecord
+# pattern, which this copies for the same reason: never trust a client's word
+# for what it wrote, read it back off the author's own PDS.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [
+  { pattern = "duohaunt.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/* (the HAUNT Durable Object) and /haunt/<handle>
+# (personalized share unfurls) are both dynamic, so the Worker must run
+# BEFORE the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "HAUNT"
+class_name = "Haunt"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Haunt"]
+
+# The haunting itself: every 30min, scheduled() in src/index.ts checks every
+# registered user's overdue count against how long it's been since their last
+# check-in and bumps their public shame tier if they've been ignoring it. Runs
+# whether or not anyone visits — that's the "follows you around" part made
+# honest: it can escalate your tier without you, it just can't post as you.
+[triggers]
+crons = ["*/30 * * * *"]
+
+[observability]
+enabled = true
