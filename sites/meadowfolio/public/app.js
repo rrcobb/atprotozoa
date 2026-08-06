@@ -162,7 +162,10 @@ async function renderRequests() {
 // emoji.fromthewestmeadow.com was originally announced.
 const DREAMNET_HOST = "dreamnet.fromthewestmeadow.com";
 const DOMAIN_SUFFIX = ".fromthewestmeadow.com";
-const DOMAIN_TEXT_RE = /\b([a-z0-9-]+)\.fromthewestmeadow\.com\b/i;
+// Captures an optional trailing port so a bare mention like
+// "fish.fromthewestmeadow.com:6177" (post 3msfh2svwsk2h, 2026-08-06) keeps
+// its port instead of silently dropping it.
+const DOMAIN_TEXT_RE = /\b([a-z0-9-]+)\.fromthewestmeadow\.com(:[0-9]+)?\b/i;
 
 function linkHost(uri) {
   try {
@@ -230,12 +233,17 @@ async function scanDomainAndDreamnet() {
       }
       if (!host) {
         const m = DOMAIN_TEXT_RE.exec(post.text || "");
-        // A bare text mention (no clickable embed) carries no scheme/port —
-        // https on the default port is the only reasonable guess.
-        if (m) host = `${m[1].toLowerCase()}.fromthewestmeadow.com`;
+        // A bare text mention (no clickable embed) carries no explicit
+        // scheme, but it can still spell out a port (keep that, m[2]) —
+        // and default to http, not https: every one of her actual tool
+        // links on the landing page is http, so that's the better guess
+        // than assuming a scheme upgrade she never asked for. Flagged by
+        // @fromthewestmeadow.com 2026-08-06 ("lacking port and http") after
+        // fish.fromthewestmeadow.com:6177 lost both.
+        if (m) host = `${m[1].toLowerCase()}.fromthewestmeadow.com${m[2] || ""}`;
       }
       if (host) {
-        if (!origin) origin = `https://${host}`;
+        if (!origin) origin = `http://${host}`;
         const date = post.createdAt || "";
         const existing = releaseByHost.get(host);
         if (!existing) {
