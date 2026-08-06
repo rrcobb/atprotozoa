@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>leafloop — trees that never stop branching</title>
+<meta name="description" content="an ambient fractal forest that never stops moving. colorful leaves sway in a drifting wind, and every so often a branch tip sprouts a whole new tree of its own — smaller, mutated, growing in place — while the oldest trees quietly fade to make room. no clicking required; just a loop.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="leafloop">
+<meta property="og:description" content="a fractal forest that grows itself: colorful leaves sway in the wind, and branch tips keep sprouting whole new trees, forever, while old ones fade to make room.">
+<meta property="og:image" content="https://leafloop.bisks.net/og.png">
+<meta property="og:url" content="https://leafloop.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="leafloop">
+<meta name="twitter:description" content="a fractal forest that grows itself: colorful leaves sway in the wind, and branch tips keep sprouting whole new trees, forever, while old ones fade to make room.">
+<meta name="twitter:image" content="https://leafloop.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#080b12; --panel:#0f1420; --line:#212b3d;
+    --fg:#e7ecf6; --muted:#7f8db3; --accent:#7ee8b8; --accent2:#ffb86b;
+    --sky:#0a0f1a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 660px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 1200 / 750;
+    background: var(--sky); border-radius: 6px; border:1px solid var(--line);
+    touch-action: manipulation;
+  }
+  .badge{
+    position:absolute; top:14px; left:14px; font-size: 12px; color: var(--muted);
+    background: rgba(8,11,18,0.75); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  #hint{
+    position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+    font-size:11px; color:var(--muted); background: rgba(8,11,18,0.75); border:1px solid var(--line);
+    border-radius:6px; padding:6px 12px; pointer-events:none; text-align:center; max-width:88%;
+  }
+
+  .stats{
+    display:flex; flex-wrap:wrap; gap: 10px 22px; font-size: 12px; color: var(--muted);
+  }
+  .stats b{ color: var(--fg); }
+
+  .row{ display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+  .slider-group{ display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--muted); min-width:150px; }
+  .slider-group input[type=range]{ accent-color: var(--accent); }
+  select{
+    font-family:inherit; font-size:12px; background:#141a29; color:var(--fg);
+    border:1px solid var(--line); border-radius:6px; padding:6px 8px;
+  }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #141a29; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent2); }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--accent); color:#052018; border-color: var(--accent); }
+  button.primary:hover{ background:#96f2cc; }
+  button.ghost{ background:transparent; }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#052018; background: var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#96f2cc; }
+
+  .how{ font-size:12px; color:var(--muted); line-height:1.6; }
+  .how b{ color: var(--fg); }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 660px;
+  }
+  footer a{ color: var(--accent2); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>leafloop</h1>
+  <p class="tagline">
+    a fractal forest that grows itself. every tree branches out, grows
+    <b>colorful leaves that sway</b> in a slow, drifting wind, and — once
+    it's mature — one of its own branch tips will <b>sprout a whole new
+    tree</b>: smaller, mutated, rooted right where the old branch ended. that
+    tree grows leaves, sways, and sprouts its own. the oldest trees fade out
+    to make room. nothing to click; just watch the loop.
+  </p>
+</header>
+
+<main>
+  <div class="panel" id="stage-wrap">
+    <canvas id="stage" width="1200" height="750"></canvas>
+    <div class="badge">trees <b id="pop-badge">0</b> · deepest gen <b id="gen-badge">0</b></div>
+    <div id="hint">click open sky to plant a seed tree of your own</div>
+  </div>
+
+  <div class="panel">
+    <div class="stats">
+      <span>alive now <b id="stat-pop">0</b> / <b id="stat-cap">—</b></span>
+      <span>deepest generation <b id="stat-gen">0</b></span>
+      <span>ever sprouted <b id="stat-sprouted">0</b></span>
+      <span>faded away <b id="stat-faded">0</b></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <div class="slider-group">
+        wind <span id="wind-val">1.0x</span>
+        <input type="range" id="wind" min="0" max="200" value="100">
+      </div>
+      <div class="slider-group">
+        pace <span id="speed-val">1.0x</span>
+        <input type="range" id="speed" min="20" max="300" value="100">
+      </div>
+      <div class="slider-group">
+        palette
+        <select id="palette">
+          <option value="rainbow">rainbow canopy</option>
+          <option value="autumn">autumn fall</option>
+          <option value="neon">neon grove</option>
+          <option value="jade">jade & moss</option>
+        </select>
+      </div>
+      <button class="ghost" id="btn-pause">pause</button>
+      <button class="ghost" id="btn-reset">reseed the forest</button>
+    </div>
+    <p class="how" style="margin-bottom:0; margin-top:10px;">
+      the forest runs on its own — leaves sway, trees mature, tips sprout new
+      trees, old growth fades. <b>click open sky</b> to plant an extra seed
+      of your own; it joins the same loop as everything else. nothing is
+      saved — reload for a brand new forest.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div id="share-row">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-download">download this moment</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  more of this type of thing, which themselves create more: every branch tip
+  is a seed for the next tree, forever, one loop of growth and fading at a
+  time. built for the theme box's "singularity, RSI, FOOM" — the closest
+  honest reading of infinite branching is a bounded population that keeps
+  turning over, not a canvas that grows without limit until the tab dies.
+  siblings in the same theme:
+  <a href="https://foomtree.bisks.net/">foomtree</a> (click-to-grow fractals),
+  <a href="https://fractalgarden.bisks.net/">fractal garden</a> (click-to-bloom,
+  saved bed), <a href="https://replicators.bisks.net/">replicators</a>
+  (population sim) — this one is the version that never waits for a click.
+  part of the <a href="https://bisks.net/">atprotozoa</a> galaxy.
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  var stage = document.getElementById("stage");
+  var ctx = stage.getContext("2d");
+  var W = stage.width, H = stage.height;
+  var GROUND_Y = H - 60;
+  var CAP = 11;
+  var MIN_SPROUT_LEN = 16;
+  var CHILD_SCALE_LO = 0.5, CHILD_SCALE_HI = 0.68;
+
+  var els = {
+    popBadge: document.getElementById("pop-badge"),
+    genBadge: document.getElementById("gen-badge"),
+    statPop: document.getElementById("stat-pop"),
+    statCap: document.getElementById("stat-cap"),
+    statGen: document.getElementById("stat-gen"),
+    statSprouted: document.getElementById("stat-sprouted"),
+    statFaded: document.getElementById("stat-faded"),
+    hint: document.getElementById("hint"),
+    wind: document.getElementById("wind"),
+    windVal: document.getElementById("wind-val"),
+    speed: document.getElementById("speed"),
+    speedVal: document.getElementById("speed-val"),
+    palette: document.getElementById("palette"),
+    btnPause: document.getElementById("btn-pause"),
+    btnReset: document.getElementById("btn-reset"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share"),
+  };
+  els.statCap.textContent = CAP;
+
+  // --- deterministic per-tree RNG ---
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+  function lerp(a, b, t){ return a + (b - a) * t; }
+
+  function randomGenome(baseLen){
+    return {
+      depth: 5 + (Math.random() < 0.4 ? 1 : 0),
+      branches: 2 + (Math.random() < 0.3 ? 1 : 0),
+      angleSpread: 0.5 + Math.random() * 0.5,
+      angleJitter: 0.04 + Math.random() * 0.1,
+      lenRatio: 0.68 + Math.random() * 0.08,
+      baseLen: baseLen,
+      hue: Math.random() * 360,
+    };
+  }
+
+  function mutateGenome(g, childBaseLen){
+    return {
+      depth: clamp(g.depth + (Math.random() < 0.3 ? (Math.random() < 0.5 ? -1 : 1) : 0), 4, 7),
+      branches: clamp(g.branches + (Math.random() < 0.15 ? (Math.random() < 0.5 ? -1 : 1) : 0), 2, 3),
+      angleSpread: clamp(g.angleSpread + (Math.random() - 0.5) * 0.25, 0.35, 1.2),
+      angleJitter: clamp(g.angleJitter + (Math.random() - 0.5) * 0.06, 0, 0.3),
+      lenRatio: clamp(g.lenRatio + (Math.random() - 0.5) * 0.05, 0.6, 0.8),
+      baseLen: childBaseLen,
+      hue: (g.hue + 40 + (Math.random() - 0.5) * 60 + 360) % 360,
+    };
+  }
+
+  // breadth-first branch builder. tips (depth === maxDepth) get 1-3 leaves
+  // each, attached with their own sway phase/frequency so no two leaves
+  // move in lockstep.
+  function buildTree(genome, seed){
+    var rand = mulberry32(seed >>> 0);
+    var segs = [], leaves = [];
+    var frontier = [{ x: 0, y: 0, angle: -Math.PI / 2, length: genome.baseLen }];
+    var maxDepth = genome.depth;
+    for (var depth = 0; depth <= maxDepth; depth++) {
+      var next = [];
+      for (var i = 0; i < frontier.length; i++) {
+        var node = frontier[i];
+        var x2 = node.x + Math.cos(node.angle) * node.length;
+        var y2 = node.y + Math.sin(node.angle) * node.length;
+        segs.push({ x1: node.x, y1: node.y, x2: x2, y2: y2, depth: depth, angle: node.angle, length: node.length });
+        if (depth === maxDepth) {
+          var nLeaves = 1 + Math.floor(rand() * 3);
+          for (var l = 0; l < nLeaves; l++) {
+            leaves.push({
+              x: x2, y: y2,
+              baseAngle: node.angle + (rand() - 0.5) * 1.6,
+              size: 3.2 + rand() * 3.4,
+              hueOffset: (rand() - 0.5) * 50,
+              phase: rand() * Math.PI * 2,
+              freq: 0.7 + rand() * 0.9,
+              swayAmp: 0.35 + rand() * 0.5,
+            });
+          }
+          continue;
+        }
+        var nBranches = genome.branches + (rand() < 0.12 ? 1 : 0);
+        for (var b = 0; b < nBranches; b++) {
+          var t = nBranches === 1 ? 0.5 : b / (nBranches - 1);
+          var off = (t - 0.5) * genome.angleSpread + (rand() - 0.5) * genome.angleJitter;
+          next.push({ x: x2, y: y2, angle: node.angle + off, length: node.length * genome.lenRatio });
+        }
+        if (next.length > 300) break;
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    return { segs: segs, leaves: leaves, maxDepth: maxDepth };
+  }
+
+  // --- state ---
+  var trees = [];
+  var nextId = 1;
+  var totalSprouted = 0;
+  var totalFaded = 0;
+  var maxGenEver = 0;
+  var paused = false;
+  var windStrength = 1.0;
+  var speedMult = 1.0;
+  var paletteName = "rainbow";
+  var startTime = performance.now();
+  var nextSpawnAt = startTime + 1500;
+  var gustCurrent = 0.4, gustTarget = 0.4, nextGustAt = startTime;
+
+  function makeTree(x, y, genome, generation, birthTime, grown){
+    var seed = (Math.random() * 4294967295) >>> 0;
+    var built = buildTree(genome, seed);
+    return {
+      id: nextId++, x: x, y: y, genome: genome, seed: seed,
+      segs: built.segs, leaves: built.leaves, maxDepth: built.maxDepth,
+      generation: generation, birthTime: birthTime,
+      growth: grown ? 1 : 0, growDur: (2200 + Math.random() * 1400),
+      lifespan: 42000 + Math.random() * 26000,
+      state: grown ? "mature" : "growing",
+      fadeStart: 0, fadeDur: 2600, opacity: 1,
+    };
+  }
+
+  function aliveCount(){
+    var n = 0;
+    for (var i = 0; i < trees.length; i++) if (trees[i].state !== "fading") n++;
+    return n;
+  }
+
+  // --- palettes ---
+  var PALETTES = {
+    rainbow: function(genome, leaf, tGlobal){
+      var hue = (genome.hue + leaf.hueOffset + tGlobal * 6) % 360;
+      return "hsl(" + Math.round((hue + 360) % 360) + ",78%,64%)";
+    },
+    autumn: function(genome, leaf, tGlobal){
+      var hue = 18 + ((genome.hue + leaf.hueOffset) % 42);
+      return "hsl(" + Math.round(hue) + "," + Math.round(70 + (leaf.hueOffset % 15)) + "%,56%)";
+    },
+    neon: function(genome, leaf, tGlobal){
+      var hue = (280 + (genome.hue * 0.3 + leaf.hueOffset) + tGlobal * 10) % 360;
+      return "hsl(" + Math.round((hue + 360) % 360) + ",92%,66%)";
+    },
+    jade: function(genome, leaf, tGlobal){
+      var hue = 140 + ((genome.hue * 0.15 + leaf.hueOffset) % 45);
+      return "hsl(" + Math.round(hue) + ",55%,48%)";
+    },
+  };
+  function branchColor(genome, depth){
+    var t = genome.maxDepth ? depth / Math.max(1, genome.depth) : 0;
+    return "hsl(28," + Math.round(18 + t * 10) + "%," + Math.round(16 + t * 14) + "%)";
+  }
+
+  function windAt(now){
+    var t = (now - startTime) / 1000;
+    if (now >= nextGustAt) {
+      gustTarget = 0.25 + Math.random() * 1.3;
+      nextGustAt = now + 4000 + Math.random() * 5000;
+    }
+    gustCurrent = lerp(gustCurrent, gustTarget, 0.01);
+    var base = Math.sin(t * 0.5) * 0.6 + Math.sin(t * 0.17 + 2.1) * 0.3 + Math.sin(t * 0.83 + 5.2) * 0.15;
+    return base * gustCurrent * windStrength;
+  }
+
+  function sow(x, y, manual){
+    if (aliveCount() >= CAP) return false;
+    var genome = randomGenome(46 + Math.random() * 24);
+    var t = makeTree(x, y, genome, 0, performance.now(), false);
+    trees.push(t);
+    totalSprouted++;
+    updateStats();
+    updateShare();
+    return true;
+  }
+
+  function trySprout(now){
+    var candidates = [];
+    for (var i = 0; i < trees.length; i++) {
+      var tr = trees[i];
+      if (tr.state !== "mature") continue;
+      if (tr.genome.baseLen < MIN_SPROUT_LEN * 1.6) continue;
+      candidates.push(tr);
+    }
+    if (!candidates.length) return;
+    var parent = candidates[Math.floor(Math.random() * candidates.length)];
+    var tips = [];
+    for (var s = 0; s < parent.segs.length; s++) {
+      if (parent.segs[s].depth === parent.maxDepth) tips.push(parent.segs[s]);
+    }
+    if (!tips.length) return;
+    var tip = tips[Math.floor(Math.random() * tips.length)];
+    var childBaseLen = tip.length * (CHILD_SCALE_LO + Math.random() * (CHILD_SCALE_HI - CHILD_SCALE_LO)) * 3.2;
+    if (childBaseLen < MIN_SPROUT_LEN) return;
+    var genome = mutateGenome(parent.genome, childBaseLen);
+    var generation = parent.generation + 1;
+    var wx = parent.x + tip.x2, wy = parent.y + tip.y2;
+    var child = makeTree(wx, wy, genome, generation, now, false);
+    trees.push(child);
+    totalSprouted++;
+    if (generation > maxGenEver) maxGenEver = generation;
+  }
+
+  function fadeOldest(now){
+    var oldest = null;
+    for (var i = 0; i < trees.length; i++) {
+      var tr = trees[i];
+      if (tr.state === "fading") continue;
+      if (!oldest || tr.birthTime < oldest.birthTime) oldest = tr;
+    }
+    if (oldest) {
+      oldest.state = "fading";
+      oldest.fadeStart = now;
+    }
+  }
+
+  function reset(){
+    trees = [];
+    nextId = 1; totalSprouted = 0; totalFaded = 0; maxGenEver = 0;
+    seedInitial();
+    updateStats();
+    updateShare();
+  }
+
+  function seedInitial(){
+    var xs = [180, 420, 660, 900, 1050];
+    for (var i = 0; i < 3; i++) {
+      var x = xs[i] + (Math.random() - 0.5) * 60;
+      var y = GROUND_Y - 20 + Math.random() * 20;
+      var genome = randomGenome(50 + Math.random() * 20);
+      trees.push(makeTree(x, y, genome, 0, performance.now() - Math.random() * 8000, false));
+      totalSprouted++;
+    }
+  }
+
+  // --- rendering ---
+  function drawBackground(now){
+    var grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#060911");
+    grad.addColorStop(0.75, "#0a0f1a");
+    grad.addColorStop(1, "#0d1420");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#182338";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, GROUND_Y + 22); ctx.lineTo(W, GROUND_Y + 22); ctx.stroke();
+  }
+
+  function drawTree(tr, now, wind){
+    var levels = tr.maxDepth + 1;
+    var overallT = tr.growth * levels;
+    var tGlobal = (now - startTime) / 1000;
+    ctx.save();
+    ctx.translate(tr.x, tr.y);
+    ctx.globalAlpha = tr.opacity;
+    for (var i = 0; i < tr.segs.length; i++) {
+      var s = tr.segs[i];
+      var localT = clamp(overallT - s.depth, 0, 1);
+      if (localT <= 0) continue;
+      var ex = s.x1 + (s.x2 - s.x1) * localT;
+      var ey = s.y1 + (s.y2 - s.y1) * localT;
+      ctx.strokeStyle = branchColor(tr.genome, s.depth);
+      ctx.lineWidth = Math.max(1, 4 - (s.depth / Math.max(1, tr.genome.depth)) * 3);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+    }
+    var paletteFn = PALETTES[paletteName] || PALETTES.rainbow;
+    for (var l = 0; l < tr.leaves.length; l++) {
+      var leaf = tr.leaves[l];
+      var leafT = clamp(overallT - tr.maxDepth, 0, 1);
+      if (leafT <= 0) continue;
+      var sway = leaf.swayAmp * Math.sin(tGlobal * leaf.freq + leaf.phase) + wind * 1.1;
+      ctx.save();
+      ctx.translate(leaf.x, leaf.y);
+      ctx.rotate(leaf.baseAngle + sway);
+      ctx.globalAlpha = tr.opacity * leafT;
+      ctx.fillStyle = paletteFn(tr.genome, leaf, tGlobal);
+      ctx.beginPath();
+      ctx.ellipse(leaf.size * 0.9, 0, leaf.size, leaf.size * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function render(now, wind){
+    drawBackground(now);
+    for (var i = 0; i < trees.length; i++) drawTree(trees[i], now, wind);
+    if (!trees.length) {
+      ctx.fillStyle = "#4a5a7f";
+      ctx.font = "16px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("empty sky — click anywhere to plant the first seed", W / 2, H / 2);
+      ctx.textAlign = "left";
+    }
+  }
+
+  function loop(now){
+    var dt = paused ? 0 : Math.min(48, now - (loop._last || now));
+    loop._last = now;
+    var wind = windAt(now);
+
+    if (!paused) {
+      for (var i = trees.length - 1; i >= 0; i--) {
+        var tr = trees[i];
+        var age = now - tr.birthTime;
+        if (tr.state === "growing") {
+          tr.growth = Math.min(1, age / (tr.growDur / speedMult));
+          if (tr.growth >= 1) tr.state = "mature";
+        } else if (tr.state === "mature") {
+          if (age > tr.lifespan / speedMult) { tr.state = "fading"; tr.fadeStart = now; }
+        } else if (tr.state === "fading") {
+          var ft = (now - tr.fadeStart) / (tr.fadeDur / Math.max(0.4, speedMult));
+          tr.opacity = clamp(1 - ft, 0, 1);
+          if (ft >= 1) { trees.splice(i, 1); totalFaded++; }
+        }
+      }
+
+      if (now >= nextSpawnAt) {
+        if (aliveCount() < CAP) {
+          trySprout(now);
+        } else {
+          fadeOldest(now);
+        }
+        nextSpawnAt = now + (900 + Math.random() * 1800) / speedMult;
+        updateStats();
+        updateShare();
+      }
+    }
+
+    render(now, wind);
+    requestAnimationFrame(loop);
+  }
+
+  function updateStats(){
+    var alive = aliveCount();
+    els.popBadge.textContent = alive;
+    els.genBadge.textContent = maxGenEver;
+    els.statPop.textContent = alive;
+    els.statGen.textContent = maxGenEver;
+    els.statSprouted.textContent = totalSprouted;
+    els.statFaded.textContent = totalFaded;
+  }
+
+  function updateShare(){
+    var text = "watching a fractal forest grow itself at leafloop: " + aliveCount() +
+      " trees alive right now, " + maxGenEver + " generations deep, " + totalSprouted +
+      " sprouted so far. every branch tip can grow a whole new tree — no clicking required. leafloop.bisks.net";
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // --- pointer handling: click open sky to plant an extra seed ---
+  function getCanvasPoint(evt){
+    var rect = stage.getBoundingClientRect();
+    var cx = (evt.touches && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
+    var cy = (evt.touches && evt.touches[0]) ? evt.touches[0].clientY : evt.clientY;
+    var sx = W / rect.width, sy = H / rect.height;
+    return { x: (cx - rect.left) * sx, y: (cy - rect.top) * sy };
+  }
+
+  stage.addEventListener("click", function(evt){
+    var pt = getCanvasPoint(evt);
+    var y = clamp(pt.y, GROUND_Y - 40, GROUND_Y + 10);
+    sow(pt.x, y);
+  });
+
+  els.wind.addEventListener("input", function(){
+    windStrength = els.wind.value / 100;
+    els.windVal.textContent = windStrength.toFixed(1) + "x";
+  });
+  els.speed.addEventListener("input", function(){
+    speedMult = els.speed.value / 100;
+    els.speedVal.textContent = speedMult.toFixed(1) + "x";
+  });
+  els.palette.addEventListener("change", function(){
+    paletteName = els.palette.value;
+  });
+  els.btnPause.addEventListener("click", function(){
+    paused = !paused;
+    els.btnPause.textContent = paused ? "resume" : "pause";
+  });
+  els.btnReset.addEventListener("click", reset);
+
+  // --- share card ---
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#060911"; sc.fillRect(0, 0, w, h);
+    var gw = 760, gh = 560, gx = 24, gy = 35;
+    sc.save();
+    sc.beginPath(); sc.rect(gx, gy, gw, gh); sc.clip();
+    var scale = Math.min(gw / W, gh / H);
+    sc.translate(gx + gw / 2 - (W * scale) / 2, gy + gh / 2 - (H * scale) / 2);
+    sc.scale(scale, scale);
+    var now = performance.now();
+    var wind = windAt(now);
+    var grad = sc.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, "#060911"); grad.addColorStop(1, "#0d1420");
+    sc.fillStyle = grad; sc.fillRect(0, 0, W, H);
+    for (var i = 0; i < trees.length; i++) drawTreeOnto(sc, trees[i], now, wind);
+    sc.restore();
+
+    sc.fillStyle = "#7ee8b8";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    sc.fillText("leafloop", 808, 90);
+    sc.fillStyle = "#7f8db3";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("a fractal forest that grows", 808, 130);
+    sc.fillText("itself, forever.", 808, 152);
+
+    sc.fillStyle = "#e7ecf6";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("trees alive", 808, 210);
+    sc.fillStyle = "#7ee8b8";
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText(String(aliveCount()), 808, 258);
+
+    sc.fillStyle = "#e7ecf6";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("generations", 808, 300);
+    sc.fillStyle = "#ffb86b";
+    sc.font = "800 34px 'JetBrains Mono', monospace";
+    sc.fillText(String(maxGenEver), 808, 335);
+
+    sc.fillStyle = "#7f8db3";
+    sc.font = "13px 'JetBrains Mono', monospace";
+    sc.fillText("leafloop.bisks.net", 808, 590);
+  }
+
+  function drawTreeOnto(target, tr, now, wind){
+    var levels = tr.maxDepth + 1;
+    var overallT = tr.growth * levels;
+    var tGlobal = (now - startTime) / 1000;
+    target.save();
+    target.translate(tr.x, tr.y);
+    target.globalAlpha = tr.opacity;
+    for (var i = 0; i < tr.segs.length; i++) {
+      var s = tr.segs[i];
+      var localT = clamp(overallT - s.depth, 0, 1);
+      if (localT <= 0) continue;
+      var ex = s.x1 + (s.x2 - s.x1) * localT;
+      var ey = s.y1 + (s.y2 - s.y1) * localT;
+      target.strokeStyle = branchColor(tr.genome, s.depth);
+      target.lineWidth = Math.max(1, 4 - (s.depth / Math.max(1, tr.genome.depth)) * 3);
+      target.lineCap = "round";
+      target.beginPath();
+      target.moveTo(s.x1, s.y1);
+      target.lineTo(ex, ey);
+      target.stroke();
+    }
+    var paletteFn = PALETTES[paletteName] || PALETTES.rainbow;
+    for (var l = 0; l < tr.leaves.length; l++) {
+      var leaf = tr.leaves[l];
+      var leafT = clamp(overallT - tr.maxDepth, 0, 1);
+      if (leafT <= 0) continue;
+      var sway = leaf.swayAmp * Math.sin(tGlobal * leaf.freq + leaf.phase) + wind * 1.1;
+      target.save();
+      target.translate(leaf.x, leaf.y);
+      target.rotate(leaf.baseAngle + sway);
+      target.globalAlpha = tr.opacity * leafT;
+      target.fillStyle = paletteFn(tr.genome, leaf, tGlobal);
+      target.beginPath();
+      target.ellipse(leaf.size * 0.9, 0, leaf.size, leaf.size * 0.42, 0, 0, Math.PI * 2);
+      target.fill();
+      target.restore();
+    }
+    target.restore();
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    buildShareCard();
+    var a = document.createElement("a");
+    a.download = "leafloop.png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    buildShareCard();
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "leafloop.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "leafloop.bisks.net";
+      navigator.share({ files: [file], text: text, title: "leafloop" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // --- boot ---
+  seedInitial();
+  updateStats();
+  updateShare();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
