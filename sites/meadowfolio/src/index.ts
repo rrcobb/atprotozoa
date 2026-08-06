@@ -19,18 +19,25 @@ const LANDING_PAGE = "https://fromthewestmeadow.com/";
 
 interface Release {
   host: string;
+  origin: string;
   title: string;
   blurb: string;
 }
 
 // The landing page's "Featured Tools" list is hand-maintained HTML, not a
 // feed — a lightweight regex pull is plenty rather than pulling in an HTML
-// parser for one list. Each entry: `<li><a href="http://<host>">Title</a>
+// parser for one list. Each entry: `<li><a href="http://<host>[:<port>]">Title</a>
 // &mdash; blurb (maybe with nested tags)</li>`. Order on the page is oldest
 // release first (matches every date we can independently verify against the
 // account's post history), which the caller relies on.
+//
+// Captures scheme and port explicitly (not just the bare host) — some
+// entries link to non-default ports (e.g. a local/self-hosted tool on
+// `:8080`), and the original regex's host-only character class didn't allow
+// a `:`, so any entry with a port failed to match at all and silently
+// vanished from the list. Flagged by @fromthewestmeadow.com 2026-08-06.
 const ENTRY_RE =
-  /<li>\s*<a\s+href="https?:\/\/([a-z0-9.-]+)"[^>]*>([^<]*)<\/a>\s*(?:&mdash;|—|-)\s*([\s\S]*?)<\/li>/gi;
+  /<li>\s*<a\s+href="(https?):\/\/([a-z0-9.-]+)(:[0-9]+)?"[^>]*>([^<]*)<\/a>\s*(?:&mdash;|—|-)\s*([\s\S]*?)<\/li>/gi;
 
 function stripTags(s: string): string {
   return s.replace(/<[^>]*>/g, "").trim();
@@ -39,10 +46,14 @@ function stripTags(s: string): string {
 function parseFeaturedTools(html: string): Release[] {
   const out: Release[] = [];
   for (const m of html.matchAll(ENTRY_RE)) {
-    const host = m[1].trim().toLowerCase();
-    const title = stripTags(m[2]);
-    const blurb = stripTags(m[3]);
-    if (host && title) out.push({ host, title, blurb });
+    const scheme = m[1].toLowerCase();
+    const hostname = m[2].trim().toLowerCase();
+    const port = m[3] || "";
+    const title = stripTags(m[4]);
+    const blurb = stripTags(m[5]);
+    if (hostname && title) {
+      out.push({ host: `${hostname}${port}`, origin: `${scheme}://${hostname}${port}`, title, blurb });
+    }
   }
   return out;
 }

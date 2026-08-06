@@ -166,7 +166,19 @@ const DOMAIN_TEXT_RE = /\b([a-z0-9-]+)\.fromthewestmeadow\.com\b/i;
 
 function linkHost(uri) {
   try {
-    return new URL(uri).host;
+    return new URL(uri).host; // includes the port, e.g. "foo.fromthewestmeadow.com:8080"
+  } catch {
+    return "";
+  }
+}
+
+// origin (scheme + host + port) of a link, so a release card can respect the
+// actual protocol/port it was posted with instead of assuming https on the
+// default port. Falls back to https on the bare host for the text-mention
+// case, where there's no embed URI to read a real scheme/port from.
+function linkOrigin(uri) {
+  try {
+    return new URL(uri).origin;
   } catch {
     return "";
   }
@@ -202,6 +214,7 @@ async function scanDomainAndDreamnet() {
     if (error) incomplete = true;
     for (const post of posts) {
       let host = null;
+      let origin = null;
       let cardTitle = null;
       let cardBlurb = null;
       let isCard = false;
@@ -209,6 +222,7 @@ async function scanDomainAndDreamnet() {
         const h = linkHost(post.link.uri);
         if (h.endsWith(DOMAIN_SUFFIX)) {
           host = h;
+          origin = linkOrigin(post.link.uri);
           cardTitle = post.link.title;
           cardBlurb = post.link.description;
           isCard = true;
@@ -216,14 +230,18 @@ async function scanDomainAndDreamnet() {
       }
       if (!host) {
         const m = DOMAIN_TEXT_RE.exec(post.text || "");
+        // A bare text mention (no clickable embed) carries no scheme/port —
+        // https on the default port is the only reasonable guess.
         if (m) host = `${m[1].toLowerCase()}.fromthewestmeadow.com`;
       }
       if (host) {
+        if (!origin) origin = `https://${host}`;
         const date = post.createdAt || "";
         const existing = releaseByHost.get(host);
         if (!existing) {
           releaseByHost.set(host, {
             host,
+            origin,
             date,
             cardDate: isCard ? date : null,
             title: isCard ? cardTitle || host : host,
@@ -239,6 +257,7 @@ async function scanDomainAndDreamnet() {
             existing.title = cardTitle || host;
             existing.blurb = cardBlurb || "";
             existing.cardDate = date;
+            existing.origin = origin;
           }
         }
       }
@@ -294,7 +313,7 @@ async function renderDomainSections() {
   const landingHosts = new Set(landing.map((r) => r.host));
   const extra = found.filter((r) => !landingHosts.has(r.host));
   const releases = [
-    ...extra.map((r) => ({ host: r.host, title: r.title, blurb: r.blurb })),
+    ...extra.map((r) => ({ host: r.host, origin: r.origin, title: r.title, blurb: r.blurb })),
     ...[...landing].reverse(),
   ];
 
@@ -306,7 +325,7 @@ async function renderDomainSections() {
     releasesEl.innerHTML = releases
       .map(
         (r) => `
-        <a class="release" href="https://${esc(r.host)}" target="_blank" rel="noopener">
+        <a class="release" href="${esc(r.origin || `https://${r.host}`)}" target="_blank" rel="noopener">
           <div class="release-title">${esc(r.title)}</div>
           <div class="release-host">${esc(r.host)}</div>
           ${r.blurb ? `<div class="release-blurb">${esc(r.blurb)}</div>` : ""}
