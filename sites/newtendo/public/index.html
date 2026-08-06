@@ -121,10 +121,13 @@
         transform-origin: bottom;
       }
       .cart-top {
-        height: 3.4rem;
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 800; font-size: 1.3rem; color: #fff;
-        text-shadow: 1px 1px 0 rgba(0,0,0,0.35);
+        height: 4.5rem;
+        overflow: hidden;
+        position: relative;
+      }
+      .cart-art {
+        display: block; width: 100%; height: 100%;
+        image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges;
       }
       .cart-notch {
         height: 0.5rem; background: var(--shell2);
@@ -155,10 +158,29 @@
         max-width: 420px; width: 100%; padding: 1.4rem;
         box-shadow: 0 10px 0 #00000050;
       }
-      .panel .loading {
-        font-size: 0.85rem; letter-spacing: 0.05em; color: var(--red-dark);
-        margin: 0 0 0.6rem; font-weight: 700;
+      .titlescreen {
+        position: relative; aspect-ratio: 8 / 5; border-radius: 4px;
+        overflow: hidden; margin: 0 0 1rem;
+        box-shadow: inset 0 0 0 1px #00000030;
       }
+      .titlescreen canvas {
+        display: block; width: 100%; height: 100%;
+        image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges;
+      }
+      .ts-scanlines {
+        position: absolute; inset: 0; pointer-events: none;
+        background: repeating-linear-gradient(
+          0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px,
+          transparent 1px, transparent 3px
+        );
+      }
+      .ts-loading {
+        position: absolute; left: 0; right: 0; bottom: 0.5rem;
+        text-align: center; margin: 0; font-size: 0.68rem;
+        letter-spacing: 0.1em; color: #fff; text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        animation: ts-blink 1s steps(2) infinite;
+      }
+      @keyframes ts-blink { 50% { opacity: 0; } }
       .panel h2 { margin: 0 0 0.5rem; font-size: 1.3rem; }
       .panel p.blurb { font-size: 0.82rem; line-height: 1.5; color: #3a382f; margin: 0 0 0.4rem; }
       .panel p.by { font-size: 0.72rem; color: var(--muted); margin: 0 0 1rem; }
@@ -241,6 +263,147 @@
           .join("");
       }
 
+      // ---- year-3000 box art + pixel title screens ----
+      // deterministic per-cartridge PRNG so each cart's art is stable across renders
+      function seededRng(seed) {
+        let t = seed >>> 0;
+        return function () {
+          t += 0x6d2b79f5;
+          let r = Math.imul(t ^ (t >>> 15), 1 | t);
+          r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+        };
+      }
+      function paletteFor(name) {
+        const seed = hashStr(name);
+        const hue = seed % 360;
+        return {
+          rng: seededRng(seed),
+          sky1: `hsl(${hue}, 55%, 13%)`,
+          sky2: `hsl(${(hue + 40) % 360}, 70%, 28%)`,
+          sun1: `hsl(${(hue + 20) % 360}, 95%, 72%)`,
+          sun2: `hsl(${(hue + 60) % 360}, 95%, 55%)`,
+          grid: `hsl(${(hue + 300) % 360}, 90%, 65%)`,
+          chrome: `hsl(${(hue + 180) % 360}, 55%, 85%)`,
+        };
+      }
+
+      function drawScene(ctx, W, H, p, { horizonRatio, sunRatio, starCount }) {
+        const rng = p.rng;
+        const sky = ctx.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, p.sky1);
+        sky.addColorStop(0.65, p.sky2);
+        sky.addColorStop(1, p.sky1);
+        ctx.fillStyle = sky;
+        ctx.fillRect(0, 0, W, H);
+
+        for (let i = 0; i < starCount; i++) {
+          const s = rng() > 0.85 ? 2 : 1;
+          ctx.fillStyle = `rgba(255,255,255,${0.25 + rng() * 0.55})`;
+          ctx.fillRect(Math.floor(rng() * W), Math.floor(rng() * H * 0.55), s, s);
+        }
+
+        const cx = W * (0.35 + rng() * 0.3);
+        const cy = H * sunRatio;
+        const r = H * (0.16 + rng() * 0.1);
+        const sunGrad = ctx.createLinearGradient(0, cy - r, 0, cy + r);
+        sunGrad.addColorStop(0, p.sun1);
+        sunGrad.addColorStop(1, p.sun2);
+        ctx.fillStyle = sunGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = p.sky1;
+        const bands = 4 + Math.floor(rng() * 3);
+        for (let i = 0; i < bands; i++) {
+          const by = cy - r + ((r * 2) / (bands + 1)) * (i + 0.6);
+          ctx.fillRect(cx - r, by, r * 2, Math.max(1, H * 0.012));
+        }
+
+        const horizon = H * horizonRatio;
+        ctx.strokeStyle = p.grid;
+        ctx.lineWidth = 1;
+        for (let i = -7; i <= 7; i++) {
+          ctx.beginPath();
+          ctx.moveTo(cx + i * (W * 0.02), horizon);
+          ctx.lineTo(cx + i * (W * 0.14), H);
+          ctx.stroke();
+        }
+        const rows = 6;
+        for (let j = 0; j < rows; j++) {
+          const y = horizon + (H - horizon) * Math.pow(j / rows, 1.6);
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "rgba(0,0,0,0.22)";
+        ctx.fillRect(0, horizon, W, H - horizon);
+
+        return { cx, cy: H * 0.34 };
+      }
+
+      function drawBoxArt(canvas, g) {
+        const W = 160, H = 74;
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        const p = paletteFor(g.name);
+        drawScene(ctx, W, H, p, { horizonRatio: 0.68, sunRatio: 0.42, starCount: 16 });
+
+        ctx.font = "800 11px ui-monospace, monospace";
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillText(initials(g.title), 5, 13);
+        ctx.fillStyle = p.chrome;
+        ctx.fillText(initials(g.title), 4, 12);
+
+        ctx.fillStyle = "rgba(0,0,0,0.12)";
+        for (let y = 0; y < H; y += 2) ctx.fillRect(0, y, W, 1);
+      }
+
+      function drawTitleScreen(canvas, g) {
+        const W = 320, H = 200;
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        const p = paletteFor(g.name);
+        const { cx, cy: ty } = drawScene(ctx, W, H, p, {
+          horizonRatio: 0.62,
+          sunRatio: 0.38,
+          starCount: 50,
+        });
+
+        ctx.font = "700 9px ui-monospace, monospace";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        ctx.fillText("NEWTENDO PRESENTS", cx, ty - 26);
+
+        const title = g.title.toUpperCase();
+        let size = 24;
+        ctx.font = `800 ${size}px ui-monospace, monospace`;
+        while (ctx.measureText(title).width > W - 24 && size > 10) {
+          size -= 2;
+          ctx.font = `800 ${size}px ui-monospace, monospace`;
+        }
+        const tw = ctx.measureText(title).width;
+        const grad = ctx.createLinearGradient(cx - tw / 2, ty - size, cx + tw / 2, ty + size * 0.3);
+        grad.addColorStop(0, "#ffffff");
+        grad.addColorStop(0.5, p.chrome);
+        grad.addColorStop(1, "#ffffff");
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillText(title, cx + 2, ty + 2);
+        ctx.fillStyle = grad;
+        ctx.fillText(title, cx, ty);
+        ctx.textAlign = "left";
+
+        ctx.font = "700 8px ui-monospace, monospace";
+        ctx.fillStyle = "rgba(255,255,255,0.55)";
+        ctx.fillText("(C) 3000 CART CORP", 6, H - 6);
+
+        ctx.fillStyle = "rgba(0,0,0,0.14)";
+        for (let y = 0; y < H; y += 2) ctx.fillRect(0, y, W, 1);
+      }
+
       let GAMES = [];
 
       async function load() {
@@ -254,7 +417,7 @@
         const g = new URLSearchParams(location.search).get("g");
         if (g) {
           const found = GAMES.find((x) => x.name === g);
-          if (found) showPanel(found);
+          if (found) showPanel(found, true);
         }
       }
 
@@ -265,10 +428,9 @@
       }
 
       function cartHTML(g) {
-        const color = colorFor(g.name);
         return `
           <a class="cart" href="${esc(g.url)}" data-name="${esc(g.name)}" target="_blank" rel="noopener">
-            <div class="cart-top" style="background:${color}">${esc(initials(g.title))}</div>
+            <div class="cart-top"><canvas class="cart-art"></canvas></div>
             <div class="cart-notch"></div>
             <div class="cart-label">
               <h3>${esc(g.title)}</h3>
@@ -283,10 +445,23 @@
         shelf.innerHTML = list.map(cartHTML).join("");
         document.getElementById("count").textContent = `${list.length} cartridge${list.length === 1 ? "" : "s"}`;
 
-        shelf.querySelectorAll(".cart").forEach((card) => {
+        shelf.querySelectorAll(".cart").forEach((card, i) => {
+          const g = list[i];
+          const art = card.querySelector(".cart-art");
+          if (art) drawBoxArt(art, g);
+
           card.addEventListener("click", (e) => {
             card.classList.add("inserting");
             setTimeout(() => card.classList.remove("inserting"), 200);
+
+            // let modifier-clicks / middle-clicks open the game normally in a new tab
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+
+            e.preventDefault();
+            const url = new URL(location.href);
+            url.searchParams.set("g", g.name);
+            history.replaceState(null, "", url);
+            showPanel(g, true);
           });
         });
       }
@@ -436,8 +611,19 @@
         const shareText = buildShareText(g);
         const shareHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
-        panel.innerHTML = animate ? `<p class="loading">NOW LOADING…</p>` : "";
+        panel.innerHTML = animate
+          ? `
+            <div class="titlescreen">
+              <canvas id="title-canvas"></canvas>
+              <div class="ts-scanlines"></div>
+              <p class="ts-loading">NOW LOADING…</p>
+            </div>`
+          : "";
         overlay.classList.add("show");
+        if (animate) {
+          const tc = document.getElementById("title-canvas");
+          if (tc) drawTitleScreen(tc, g);
+        }
 
         const reveal = () => {
           panel.innerHTML = `
@@ -472,7 +658,7 @@
           });
         };
 
-        if (animate) setTimeout(reveal, 500);
+        if (animate) setTimeout(reveal, 650);
         else reveal();
       }
 
