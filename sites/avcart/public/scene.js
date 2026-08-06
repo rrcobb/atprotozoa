@@ -162,8 +162,35 @@ export function initScene(canvas) {
   scene.add(deskGroup);
   const hitboxes = [];
   const seatMarkers = {};
+  const noteMarkers = {};
   const deskWoodMat = new THREE.MeshStandardMaterial({ color: "#caa06a", roughness: 0.7 });
   const chairMat = new THREE.MeshStandardMaterial({ color: "#3d4757", roughness: 0.6 });
+
+  // a scrap of folded notebook paper — the sprite shown on whichever desk
+  // currently holds the shared passed note
+  const noteTex = (function paperTexture() {
+    const c = document.createElement("canvas");
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#f4ecd8";
+    ctx.fillRect(14, 20, 100, 88);
+    ctx.strokeStyle = "#a68f63";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(14, 20, 100, 88);
+    ctx.strokeStyle = "#8fa0b5";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.moveTo(24, 40 + i * 15);
+      ctx.lineTo(104, 40 + i * 15);
+      ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  })();
+  const noteMat = new THREE.SpriteMaterial({ map: noteTex, depthTest: false });
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -208,6 +235,13 @@ export function initScene(canvas) {
       peg.add(head);
       peg.visible = false;
       group.add(peg);
+
+      const noteSprite = new THREE.Sprite(noteMat);
+      noteSprite.scale.set(0.3, 0.3, 0.3);
+      noteSprite.position.set(0.32, 0.86, 0.2);
+      noteSprite.visible = false;
+      group.add(noteSprite);
+      noteMarkers[seatId(r, c)] = noteSprite;
 
       deskGroup.add(group);
 
@@ -346,6 +380,12 @@ export function initScene(canvas) {
     }
   }
 
+  function setNote(holderSeat) {
+    for (const [id, sprite] of Object.entries(noteMarkers)) {
+      sprite.visible = id === holderSeat;
+    }
+  }
+
   let t0 = performance.now();
   function frame(now) {
     const t = (now - t0) / 1000;
@@ -389,6 +429,7 @@ export function initScene(canvas) {
     sitAt,
     standUp,
     setSeats,
+    setNote,
     screenCanvas,
     screenCtx,
     screenTex,

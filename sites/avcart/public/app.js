@@ -50,6 +50,8 @@ function main() {
 
   let mySeat = null;
   let lastVersion = -1;
+  let lastSeats = {};
+  let lastNote = null;
   let audioCtx = null;
   let corecore = null;
   let slideshow = null;
@@ -65,6 +67,8 @@ function main() {
     selectBtn: document.getElementById("selectBtn"),
     selectErr: document.getElementById("selectErr"),
     shareLink: document.getElementById("shareLink"),
+    noteBody: document.getElementById("noteBody"),
+    noteActions: document.getElementById("noteActions"),
   };
 
   window.attachHandleTypeahead && window.attachHandleTypeahead(els.handleInput);
@@ -118,6 +122,7 @@ function main() {
     els.hint.hidden = true;
     els.seatStatus.textContent = "seat " + seat.replace("-", " row / col ");
     els.standUp.hidden = false;
+    renderNote(lastNote, mySeat);
     ensureAudio();
   });
 
@@ -129,7 +134,84 @@ function main() {
     els.hint.hidden = false;
     els.seatStatus.textContent = "";
     els.standUp.hidden = true;
+    renderNote(lastNote, mySeat);
   });
+
+  // ---- the passed note ----------------------------------------------------
+  // One shared note, held by at most one seat at a time. Holding it is what
+  // gates writing on it — that's what makes it travel seat-to-seat instead
+  // of turning into a free-for-all shoutbox.
+  function renderNote(note, seat) {
+    lastNote = note;
+    if (!note) return;
+
+    if (!note.lines.length) {
+      els.noteBody.innerHTML = '<span class="empty">blank so far — pick it up and scribble something</span>';
+    } else {
+      els.noteBody.innerHTML = note.lines
+        .map((l) => `<div class="note-line"><b>${esc(l.seat)}</b> ${esc(l.text)}</div>`)
+        .join("");
+      els.noteBody.scrollTop = els.noteBody.scrollHeight;
+    }
+
+    if (!seat) {
+      els.noteActions.innerHTML = '<div class="muted">sit down to join the note</div>';
+      return;
+    }
+
+    if (!note.holderSeat) {
+      els.noteActions.innerHTML = '<button id="noteTakeBtn" class="note-wide-btn" type="button">pick up the note</button>';
+      document.getElementById("noteTakeBtn").addEventListener("click", async () => {
+        const { ok, data } = await api("/api/note/take", { sid: SID });
+        if (ok) applyState(data);
+      });
+      return;
+    }
+
+    if (note.holderSeat !== seat) {
+      els.noteActions.innerHTML = `<div class="muted">seat ${esc(note.holderSeat)} has it</div>`;
+      return;
+    }
+
+    els.noteActions.innerHTML =
+      '<form id="noteScribbleForm"><textarea id="noteText" rows="2" maxlength="200" placeholder="scribble something…"></textarea>' +
+      '<button class="note-wide-btn" type="submit">write it</button></form>' +
+      '<div class="note-pass-row" id="notePassRow"></div>';
+
+    document.getElementById("noteScribbleForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const ta = document.getElementById("noteText");
+      const text = ta.value.trim();
+      if (!text) return;
+      const { ok, data } = await api("/api/note/scribble", { sid: SID, text });
+      if (ok) applyState(data);
+    });
+
+    const [r, c] = seat.split("-").map(Number);
+    const dirs = [
+      ["↑ pass", r - 1, c],
+      ["↓ pass", r + 1, c],
+      ["← pass", r, c - 1],
+      ["→ pass", r, c + 1],
+    ];
+    const passRow = document.getElementById("notePassRow");
+    for (const [label, rr, cc] of dirs) {
+      if (rr < 0 || rr >= scene.ROWS || cc < 0 || cc >= scene.COLS) continue;
+      const toSeat = rr + "-" + cc;
+      const occupied = !!lastSeats[toSeat];
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ghost";
+      btn.textContent = label;
+      btn.disabled = !occupied;
+      btn.title = occupied ? "" : "nobody's sitting there";
+      btn.addEventListener("click", async () => {
+        const { ok, data } = await api("/api/note/pass", { sid: SID, toSeat });
+        if (ok) applyState(data);
+      });
+      passRow.appendChild(btn);
+    }
+  }
 
   // ---- look-around while seated (mouse / touch, no pointer lock) ---------
   function lookFromEvent(clientX, clientY) {
@@ -177,7 +259,10 @@ function main() {
   function applyState(data) {
     if (data.version === lastVersion) return;
     lastVersion = data.version;
+    lastSeats = data.seats;
     scene.setSeats(data.seats, mySeat);
+    scene.setNote(data.note && data.note.holderSeat);
+    renderNote(data.note, mySeat);
 
     if (data.current) {
       currentHandle = data.current.handle;

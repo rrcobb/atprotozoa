@@ -5,10 +5,14 @@
 // account's feed the room has picked, as a "refried" image slideshow with a
 // procedural corecore soundtrack. Anyone online can pick the account;
 // everyone online sees the same room and the same feed — that shared state
-// (who's sitting where, which account is on screen, its image list) lives in
-// ONE Durable Object instance (id "global"), the single-writer guarantee a
-// shared room needs. Clients poll /api/state every couple seconds, same
-// shape as sites/the-place.
+// (who's sitting where, which account is on screen, its image list, and one
+// passed note that circulates seat-to-seat) lives in ONE Durable Object
+// instance (id "global"), the single-writer guarantee a shared room needs.
+// Clients poll /api/state every couple seconds, same shape as
+// sites/the-place. The note: whoever holds it can scribble a line and pass
+// it to an occupied, 4-directionally-adjacent seat — nobody can write on it
+// without holding it first, which is what makes it *pass around* the room
+// instead of everyone shouting into the same box at once.
 //
 // This Worker has three jobs:
 //   1. Forward /api/* to the Classroom Durable Object.
@@ -104,6 +108,8 @@ const SEAT_TIMEOUT_MS = 45_000; // no heartbeat in this long -> seat frees up
 const SELECT_COOLDOWN_MS = 5_000; // per IP, so one person can't spam-flip the room
 const MAX_IMAGES = 16;
 const FEED_PAGES = 4; // up to 400 posts scanned looking for image embeds
+const NOTE_LINE_MAX_CHARS = 200;
+const MAX_NOTE_LINES = 30; // oldest scribbles fall off once the note fills up
 
 const PUB = "https://public.api.bsky.app/xrpc/";
 
@@ -118,6 +124,15 @@ async function xrpc(method: string, params: Record<string, string>): Promise<any
     throw e;
   }
   return res.json();
+}
+
+function adjacentSeats(a: string, b: string): boolean {
+  const ma = a.match(/^(\d+)-(\d+)$/);
+  const mb = b.match(/^(\d+)-(\d+)$/);
+  if (!ma || !mb) return false;
+  const dr = Math.abs(Number(ma[1]) - Number(mb[1]));
+  const dc = Math.abs(Number(ma[2]) - Number(mb[2]));
+  return dr + dc === 1; // 4-directional neighbor, not diagonal
 }
 
 function cleanHandle(raw: string): string {
@@ -191,6 +206,18 @@ function embedImages(embed: any): Array<{ thumb: string; alt: string }> {
   return [];
 }
 
+interface NoteLine {
+  seat: string;
+  text: string;
+  ts: number;
+}
+
+interface NoteState {
+  lines: NoteLine[];
+  holderSeat: string | null;
+  updatedAt: number;
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -211,19 +238,22 @@ export class Classroom {
     selectedAt: number;
   } | null = null;
   private lastSelectByIp = new Map<string, number>();
+  private note: NoteState = { lines: [], holderSeat: null, updatedAt: 0 };
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const [version, seats, current] = await Promise.all([
+      const [version, seats, current, note] = await Promise.all([
         this.state.storage.get<number>("version"),
         this.state.storage.get<Record<string, { sid: string; ts: number }>>("seats"),
         this.state.storage.get<Classroom["current"]>("current"),
+        this.state.storage.get<NoteState>("note"),
       ]);
       this.version = version ?? 0;
       this.seats = seats ?? {};
       this.current = current ?? null;
+      this.note = note ?? { lines: [], holderSeat: null, updatedAt: 0 };
     });
   }
 
@@ -232,7 +262,15 @@ export class Classroom {
       version: this.version,
       seats: this.seats,
       current: this.current,
+      note: this.note,
     });
+  }
+
+  private findSeatBySid(sid: string): string | null {
+    for (const [s, occ] of Object.entries(this.seats)) {
+      if (occ.sid === sid) return s;
+    }
+    return null;
   }
 
   private pruneSeats(): boolean {
@@ -243,6 +281,12 @@ export class Classroom {
         delete this.seats[seat];
         changed = true;
       }
+    }
+    // If the seat holding the passed note emptied out (timeout or leave),
+    // the note drops back to unclaimed rather than vanishing with the seat.
+    if (this.note.holderSeat && !this.seats[this.note.holderSeat]) {
+      this.note.holderSeat = null;
+      changed = true;
     }
     return changed;
   }
@@ -255,6 +299,7 @@ export class Classroom {
       seatTimeoutMs: SEAT_TIMEOUT_MS,
       seats: this.seats,
       current: this.current,
+      note: this.note,
     };
   }
 
@@ -280,6 +325,15 @@ export class Classroom {
     }
     if (url.pathname === "/api/select" && request.method === "POST") {
       return this.handleSelect(request);
+    }
+    if (url.pathname === "/api/note/take" && request.method === "POST") {
+      return this.handleNoteTake(request);
+    }
+    if (url.pathname === "/api/note/scribble" && request.method === "POST") {
+      return this.handleNoteScribble(request);
+    }
+    if (url.pathname === "/api/note/pass" && request.method === "POST") {
+      return this.handleNotePass(request);
     }
     return json({ error: "not found" }, 404);
   }
@@ -333,6 +387,10 @@ export class Classroom {
         delete this.seats[s];
         changed = true;
       }
+    }
+    if (this.note.holderSeat && !this.seats[this.note.holderSeat]) {
+      this.note.holderSeat = null;
+      changed = true;
     }
     if (changed) {
       this.version++;
@@ -394,6 +452,70 @@ export class Classroom {
       truncated,
       selectedAt: now,
     };
+    this.version++;
+    await this.persist();
+    return json(this.publicState());
+  }
+
+  private async handleNoteTake(request: Request): Promise<Response> {
+    let body: { sid?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "bad json" }, 400);
+    }
+    const seat = this.findSeatBySid(String(body.sid || ""));
+    if (!seat) return json({ error: "sit down first" }, 400);
+    if (this.note.holderSeat) return json({ error: "someone already has it" }, 409);
+
+    this.note.holderSeat = seat;
+    this.note.updatedAt = Date.now();
+    this.version++;
+    await this.persist();
+    return json(this.publicState());
+  }
+
+  private async handleNoteScribble(request: Request): Promise<Response> {
+    let body: { sid?: unknown; text?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "bad json" }, 400);
+    }
+    const seat = this.findSeatBySid(String(body.sid || ""));
+    if (!seat) return json({ error: "sit down first" }, 400);
+    if (this.note.holderSeat !== seat) return json({ error: "you don't have the note" }, 403);
+
+    const text = String(body.text || "").trim().slice(0, NOTE_LINE_MAX_CHARS);
+    if (!text) return json({ error: "empty" }, 400);
+
+    this.note.lines.push({ seat, text, ts: Date.now() });
+    if (this.note.lines.length > MAX_NOTE_LINES) {
+      this.note.lines.splice(0, this.note.lines.length - MAX_NOTE_LINES);
+    }
+    this.note.updatedAt = Date.now();
+    this.version++;
+    await this.persist();
+    return json(this.publicState());
+  }
+
+  private async handleNotePass(request: Request): Promise<Response> {
+    let body: { sid?: unknown; toSeat?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "bad json" }, 400);
+    }
+    const seat = this.findSeatBySid(String(body.sid || ""));
+    if (!seat) return json({ error: "sit down first" }, 400);
+    if (this.note.holderSeat !== seat) return json({ error: "you don't have the note" }, 403);
+    if (!this.validSeat(body.toSeat)) return json({ error: "bad seat" }, 400);
+    const toSeat = body.toSeat as string;
+    if (!adjacentSeats(seat, toSeat)) return json({ error: "not adjacent" }, 400);
+    if (!this.seats[toSeat]) return json({ error: "nobody's sitting there" }, 400);
+
+    this.note.holderSeat = toSeat;
+    this.note.updatedAt = Date.now();
     this.version++;
     await this.persist();
     return json(this.publicState());
