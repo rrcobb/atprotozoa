@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>shipname — the couple-nickname machine</title>
+    <meta name="description" content="Type two names (or pick two Bluesky handles) and get mashed into a pile of tabloid-style couple nicknames. Reroll for chaos, star the keepers." />
+    <meta property="og:title" content="shipname — the couple-nickname machine" />
+    <meta property="og:description" content="Two names in, an unreasonable number of couple nicknames out. Classic splices, a chaos-mode reroll, and a keepers list." />
+    <meta property="og:url" content="https://shipname.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://shipname.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="shipname: Alex + Rory mashed into Alory, Roex, and more." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="shipname — the couple-nickname machine" />
+    <meta name="twitter:description" content="Two names in, an unreasonable number of couple nicknames out." />
+    <meta name="twitter:image" content="https://shipname.bisks.net/og.png" />
+    <meta name="color-scheme" content="dark" />
+    <style>
+      :root {
+        --bg: #1b0f2e;
+        --bg2: #0f0820;
+        --ink: #fff0fa;
+        --dim: #c3a8dd;
+        --card: rgba(255,255,255,0.055);
+        --card-border: rgba(255,255,255,0.14);
+        --rounded: ui-rounded, "Nunito", "Segoe UI", system-ui, sans-serif;
+
+        --pink: #ff6fae;
+        --gold: #ffd166;
+        --mint: #6ff2c9;
+        --sky: #7fb8ff;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background:
+          radial-gradient(90% 60% at 10% -10%, rgba(255,111,174,0.22) 0%, transparent 55%),
+          radial-gradient(90% 60% at 95% 0%, rgba(111,242,201,0.14) 0%, transparent 55%),
+          radial-gradient(70% 50% at 50% 100%, rgba(255,209,102,0.10) 0%, transparent 60%),
+          linear-gradient(180deg, var(--bg), var(--bg2));
+        background-attachment: fixed;
+        color: var(--ink);
+        font-family: var(--rounded);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a { color: var(--mint); }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2rem 1.1rem 3rem; }
+
+      header { text-align: center; margin-bottom: 1.2rem; }
+      h1 {
+        margin: 0; font-size: 2.5rem; font-weight: 800; letter-spacing: -0.01em;
+        background: linear-gradient(90deg, var(--pink), var(--gold) 55%, var(--mint));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      header p.tag { color: var(--dim); margin: 0.5rem auto 0; font-size: 0.92rem; max-width: 48ch; }
+
+      .card {
+        background: var(--card); border: 1px solid var(--card-border);
+        border-radius: 20px; padding: 1.2rem; margin-top: 1.1rem;
+        backdrop-filter: blur(6px);
+      }
+
+      .names { display: flex; align-items: center; gap: 0.6rem; }
+      .namefield { flex: 1; min-width: 0; position: relative; }
+      label { display: block; font-size: 0.78rem; color: var(--dim); margin: 0 0 0.4rem; font-weight: 700; }
+      input[type="text"] {
+        width: 100%; font: inherit; font-size: 1rem; padding: 0.7rem 0.85rem;
+        border-radius: 14px; border: 1px solid var(--card-border);
+        background: rgba(0,0,0,0.22); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: rgba(255,240,250,0.35); }
+      input[type="text"]:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
+      .plus { font-size: 1.4rem; color: var(--dim); padding-top: 1.1rem; }
+
+      .chips { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.8rem; }
+      .chip {
+        font: inherit; font-size: 0.78rem; padding: 0.4rem 0.75rem; border-radius: 999px;
+        border: 1px solid var(--card-border); background: rgba(0,0,0,0.2); color: var(--dim);
+        cursor: pointer; text-align: left;
+      }
+      .chip:hover { color: var(--ink); border-color: var(--pink); }
+
+      button {
+        font-family: var(--rounded); font-size: 0.95rem; font-weight: 800;
+        color: #2a1015; background: linear-gradient(90deg, var(--pink), var(--gold));
+        border: none; border-radius: 14px; padding: 0.7rem 1.2rem; cursor: pointer;
+        box-shadow: 0 6px 18px rgba(255,111,174,0.22);
+      }
+      button:hover { filter: brightness(1.05); }
+      button:active { transform: translateY(1px); }
+      button.ghost {
+        background: transparent; color: var(--dim); border: 1px solid var(--card-border);
+        box-shadow: none; font-weight: 700;
+      }
+      .shipBtn { width: 100%; padding: 0.85rem; font-size: 1.05rem; margin-top: 1rem; }
+
+      .counter {
+        text-align: center; color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem;
+        display: none;
+      }
+      .counter.show { display: block; }
+      .counter b { color: var(--gold); }
+
+      .results { display: none; margin-top: 0.6rem; }
+      .results.show { display: block; }
+
+      .grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 0.8rem; margin-top: 0.8rem;
+      }
+      .ccard {
+        border-radius: 18px; padding: 1rem 1.05rem;
+        background: rgba(0,0,0,0.2); border: 1px solid var(--card-border);
+        border-left-width: 4px; border-left-color: var(--pink);
+        animation: pop 0.35s ease both;
+      }
+      @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+      .ccard .cname { font-size: 1.3rem; font-weight: 800; word-break: break-word; }
+      .ccard .ctag { color: var(--dim); font-size: 0.74rem; margin: 0.2rem 0 0.7rem; text-transform: lowercase; }
+      .ccard .cactions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+      .ccard .cactions button {
+        font-size: 0.72rem; padding: 0.35rem 0.6rem; border-radius: 10px;
+        background: transparent; border: 1px solid var(--card-border); color: var(--dim);
+        box-shadow: none; font-weight: 700;
+      }
+      .ccard .cactions button:hover { color: var(--ink); }
+      .ccard.kept { border-left-color: var(--mint); }
+      .ccard .kept-star.on { color: var(--gold); border-color: var(--gold); }
+
+      .rollRow { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+      .rollRow button { flex: 1; min-width: 160px; }
+
+      .keepers { display: none; margin-top: 1.6rem; }
+      .keepers.show { display: block; }
+      .keepers h2 { font-size: 1.05rem; margin: 0 0 0.3rem; }
+      .keepers p.sub { color: var(--dim); font-size: 0.8rem; margin: 0 0 0.7rem; }
+      .kpills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.9rem; }
+      .kpill {
+        font-size: 0.82rem; font-weight: 700; padding: 0.35rem 0.7rem; border-radius: 999px;
+        background: rgba(111,242,201,0.14); border: 1px solid var(--mint); color: var(--ink);
+      }
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .shareRow button, .shareRow a { flex: 1; min-width: 140px; text-align: center; text-decoration: none; }
+
+      #shareCanvas { display: none; }
+
+      footer { margin-top: 2.4rem; text-align: center; color: var(--dim); font-size: 0.74rem; line-height: 1.7; }
+      footer a { text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      .flash { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);
+        background: rgba(0,0,0,0.78); color: var(--ink); padding: 0.55rem 1rem; border-radius: 999px;
+        font-size: 0.8rem; font-weight: 700; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 10; }
+      .flash.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>shipname 💘</h1>
+        <p class="tag">type two names — or pick two Bluesky handles — and get mashed into a pile of tabloid-ready couple nicknames. keep rolling for more, star the ones worth shipping.</p>
+      </header>
+
+      <div class="card">
+        <div class="names">
+          <div class="namefield">
+            <label for="nameA">first name (or handle)</label>
+            <input id="nameA" type="text" placeholder="e.g. Alex" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          </div>
+          <div class="plus">+</div>
+          <div class="namefield">
+            <label for="nameB">second name (or handle)</label>
+            <input id="nameB" type="text" placeholder="e.g. Rory" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="chips" id="chips">
+          <button type="button" class="chip" data-a="Alex" data-b="Rory">Alex + Rory</button>
+          <button type="button" class="chip" data-a="Priya" data-b="Sam">Priya + Sam</button>
+          <button type="button" class="chip" data-a="Marcus" data-b="Bea">Marcus + Bea</button>
+          <button type="button" class="chip" data-a="Bluesky" data-b="Mastodon">Bluesky + Mastodon</button>
+        </div>
+
+        <button type="button" class="shipBtn" id="shipBtn">ship it 💘</button>
+      </div>
+
+      <p class="counter" id="counter"><b id="counterN">0</b> combos shipped so far</p>
+
+      <div class="results" id="results">
+        <div class="grid" id="grid"></div>
+        <div class="rollRow">
+          <button type="button" class="ghost" id="rollBtn">🎲 keep rolling</button>
+          <button type="button" class="ghost" id="resetBtn">↺ start over</button>
+        </div>
+      </div>
+
+      <div class="keepers" id="keepers">
+        <h2>⭐ your keepers</h2>
+        <p class="sub" id="keepersSub">the ones worth shipping.</p>
+        <div class="kpills" id="kpills"></div>
+        <div class="shareRow">
+          <button type="button" id="shareCardBtn">🖼️ make a card</button>
+          <button type="button" id="shareNative" style="display:none;">📤 share card</button>
+          <a id="shareBluesky" target="_blank" rel="noopener" style="background:linear-gradient(90deg,var(--pink),var(--gold));color:#2a1015;border-radius:14px;padding:0.7rem 1.2rem;font-weight:800;">🦋 post top keeper</a>
+        </div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="flash" id="flash"></div>
+
+      <footer>
+        this tick's theme-box idea, for "dating and connection" ·
+        built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+        part of <a href="https://bisks.net">atprotozoa</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+    "use strict";
+    (function () {
+      var SITE_URL = "https://shipname.bisks.net/";
+
+      // ---------------------------------------------------------------
+      // name cleanup — accepts a plain name or a handle typed/selected via
+      // the typeahead ("alice.bsky.social", "@bob") and reduces either to
+      // a bare word to mash. Handles resolve to their first label; plain
+      // names pass through trimmed.
+      // ---------------------------------------------------------------
+      function cleanName(raw) {
+        var s = (raw || "").trim();
+        if (!s) return "";
+        s = s.replace(/^@/, "");
+        if (s.indexOf(".") !== -1) s = s.split(".")[0];
+        return s;
+      }
+      function cap(s) {
+        return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+      }
+
+      // ---------------------------------------------------------------
+      // splicing — cut the head off one name and the tail off the other,
+      // then glue them. Two head/tail strategies (vowel-aligned so the
+      // seam lands on a syllable boundary, and raw ratio cuts for
+      // variety) are mixed across MOVES below — using only vowel-snap
+      // everywhere collapses short names (e.g. "rory" has one vowel) onto
+      // the same one or two cut points regardless of ratio, so most of
+      // the "distinct" moves came out identical. headIdx/tailIdx clamp to
+      // at least a 2-char (or whole-word, if shorter) head/tail so a
+      // aggressive ratio never slices down to a lone, ugly letter.
+      // ---------------------------------------------------------------
+      function headIdx(s, ratio) {
+        var len = s.length;
+        var min = len <= 1 ? len : Math.min(2, len - 1);
+        var i = Math.round(len * ratio);
+        return Math.max(min, Math.min(len - 1, i));
+      }
+      function tailIdx(s, ratio) {
+        var len = s.length;
+        var min = len <= 1 ? len : Math.min(2, len - 1);
+        var maxIdx = len - min;
+        var i = Math.round(len * ratio);
+        return Math.max(1, Math.min(maxIdx, i));
+      }
+      function vowelHead(s, ratio) {
+        var i = headIdx(s, ratio);
+        for (var d = 0; d <= 2; d++) {
+          if (i + d < s.length && /[aeiou]/.test(s[i + d])) return s.slice(0, i + d + 1);
+        }
+        return s.slice(0, i);
+      }
+      function vowelTail(s, ratio) {
+        var i = tailIdx(s, ratio);
+        for (var d = 0; d <= 2; d++) {
+          if (i - d > 0 && /[aeiou]/.test(s[i - d])) return s.slice(i - d);
+        }
+        return s.slice(i);
+      }
+      function rawHead(s, ratio) { return s.slice(0, headIdx(s, ratio)); }
+      function rawTail(s, ratio) { return s.slice(tailIdx(s, ratio)); }
+      function join(head, tail, a, b) {
+        if (!tail) tail = b.slice(Math.max(1, b.length - 2)) || b;
+        if (!head) head = a.slice(0, Math.max(1, Math.ceil(a.length / 2)));
+        return cap(head + tail);
+      }
+      function splice(a, b, ratioA, ratioB) {
+        return join(vowelHead(a, ratioA), vowelTail(b, ratioB), a, b);
+      }
+      function weave(a, b) {
+        var out = "";
+        var n = Math.max(a.length, b.length);
+        for (var i = 0; i < n && out.length < 13; i++) {
+          if (a[i]) out += a[i];
+          if (b[i] && out.length < 13) out += b[i];
+        }
+        return cap(out);
+      }
+
+      var MOVES = [
+        { tag: "the classic", make: function (a, b) { return join(vowelHead(a, 0.55), vowelTail(b, 0.5), a, b); } },
+        { tag: "the reverse classic", make: function (a, b) { return join(vowelHead(b, 0.55), vowelTail(a, 0.5), b, a); } },
+        { tag: "speedrun", make: function (a, b) { return join(rawHead(a, 0.3), vowelTail(b, 0.4), a, b); } },
+        { tag: "slow burn", make: function (a, b) { return join(vowelHead(a, 0.75), rawTail(b, 0.7), a, b); } },
+        { tag: "power couple", make: function (a, b) { return join(rawHead(b, 0.35), rawTail(a, 0.55), b, a); } },
+        { tag: "soft launch", make: function (a, b) { return join(vowelHead(a, 0.45), rawTail(b, 0.6), a, b); } },
+        { tag: "linguistically a crime", make: function (a, b) { return weave(a, b); } }
+      ];
+      var CHAOS_TAGS = ["chaos mode 🎲", "unhinged", "tabloid exclusive", "situationship arc", "main character energy", "red carpet debut"];
+
+      function chaosCombo(a, b) {
+        var ratioA = 0.2 + Math.random() * 0.6;
+        var ratioB = 0.2 + Math.random() * 0.6;
+        var swapped = Math.random() < 0.5;
+        var headFn = Math.random() < 0.5 ? vowelHead : rawHead;
+        var tailFn = Math.random() < 0.5 ? vowelTail : rawTail;
+        var first = swapped ? b : a, second = swapped ? a : b;
+        var name = join(headFn(first, ratioA), tailFn(second, ratioB), first, second);
+        var tag = CHAOS_TAGS[(Math.random() * CHAOS_TAGS.length) | 0];
+        return { name: name, tag: tag };
+      }
+
+      // ---------------------------------------------------------------
+      // state + elements
+      // ---------------------------------------------------------------
+      var els = {
+        nameA: document.getElementById("nameA"),
+        nameB: document.getElementById("nameB"),
+        chips: document.getElementById("chips"),
+        shipBtn: document.getElementById("shipBtn"),
+        counter: document.getElementById("counter"),
+        counterN: document.getElementById("counterN"),
+        results: document.getElementById("results"),
+        grid: document.getElementById("grid"),
+        rollBtn: document.getElementById("rollBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+        keepers: document.getElementById("keepers"),
+        kpills: document.getElementById("kpills"),
+        keepersSub: document.getElementById("keepersSub"),
+        shareCardBtn: document.getElementById("shareCardBtn"),
+        shareNative: document.getElementById("shareNative"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        canvas: document.getElementById("shareCanvas"),
+        flash: document.getElementById("flash")
+      };
+
+      if (window.attachHandleTypeahead) {
+        window.attachHandleTypeahead(els.nameA);
+        window.attachHandleTypeahead(els.nameB);
+      }
+
+      var curA = "", curB = "";
+      var shipped = 0;
+      var seen = {}; // lowercase combo name -> true, for this pairing
+      var kept = []; // [{name, tag}]
+
+      els.chips.addEventListener("click", function (e) {
+        var btn = e.target.closest(".chip");
+        if (!btn) return;
+        els.nameA.value = btn.dataset.a;
+        els.nameB.value = btn.dataset.b;
+        ship();
+      });
+
+      function flash(msg) {
+        els.flash.textContent = msg;
+        els.flash.classList.add("show");
+        setTimeout(function () { els.flash.classList.remove("show"); }, 1500);
+      }
+
+      function addCard(name, tag) {
+        var key = name.toLowerCase();
+        if (seen[key]) return false;
+        seen[key] = true;
+        shipped++;
+        els.counterN.textContent = String(shipped);
+
+        var card = document.createElement("div");
+        card.className = "ccard";
+        card.innerHTML =
+          '<div class="cname"></div>' +
+          '<div class="ctag"></div>' +
+          '<div class="cactions">' +
+          '<button type="button" class="kept-star" data-act="star">☆ keep</button>' +
+          '<button type="button" data-act="copy">📋 copy</button>' +
+          '<button type="button" data-act="post">🦋 post</button>' +
+          "</div>";
+        card.querySelector(".cname").textContent = name;
+        card.querySelector(".ctag").textContent = tag;
+
+        var starBtn = card.querySelector('[data-act="star"]');
+        starBtn.addEventListener("click", function () {
+          var already = kept.some(function (k) { return k.name === name; });
+          if (already) {
+            kept = kept.filter(function (k) { return k.name !== name; });
+            card.classList.remove("kept");
+            starBtn.classList.remove("on");
+            starBtn.textContent = "☆ keep";
+          } else {
+            kept.push({ name: name, tag: tag });
+            card.classList.add("kept");
+            starBtn.classList.add("on");
+            starBtn.textContent = "★ kept";
+          }
+          renderKeepers();
+        });
+
+        card.querySelector('[data-act="copy"]').addEventListener("click", function () {
+          copyText(name);
+        });
+        card.querySelector('[data-act="post"]').addEventListener("click", function () {
+          postCombo(name);
+        });
+
+        els.grid.appendChild(card);
+        return true;
+      }
+
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { flash("copied!"); })
+            .catch(function () { window.prompt("copy this:", text); });
+        } else {
+          window.prompt("copy this:", text);
+        }
+      }
+
+      function truncate(s, max) {
+        return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
+      }
+
+      function postCombo(name) {
+        var prefix = curA + " + " + curB + " = ";
+        var suffix = " — ship your own: " + SITE_URL;
+        var budget = 300 - prefix.length - suffix.length;
+        var body = truncate(name, Math.max(budget, 10));
+        var composed = prefix + body + suffix;
+        window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(composed), "_blank", "noopener");
+      }
+
+      function ship() {
+        curA = cleanName(els.nameA.value);
+        curB = cleanName(els.nameB.value);
+        if (!curA) { els.nameA.focus(); return; }
+        if (!curB) { els.nameB.focus(); return; }
+
+        els.grid.innerHTML = "";
+        seen = {};
+        kept = [];
+        renderKeepers();
+
+        var la = curA.toLowerCase(), lb = curB.toLowerCase();
+        MOVES.forEach(function (m) { addCard(m.make(la, lb), m.tag); });
+
+        els.counter.classList.add("show");
+        els.results.classList.add("show");
+        els.results.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      els.shipBtn.addEventListener("click", ship);
+      [els.nameA, els.nameB].forEach(function (inp) {
+        inp.addEventListener("keydown", function (e) { if (e.key === "Enter") ship(); });
+      });
+
+      els.rollBtn.addEventListener("click", function () {
+        if (!curA || !curB) return;
+        var la = curA.toLowerCase(), lb = curB.toLowerCase();
+        var added = 0, tries = 0;
+        while (added < 2 && tries < 12) {
+          var c = chaosCombo(la, lb);
+          if (addCard(c.name, c.tag)) added++;
+          tries++;
+        }
+        if (!added) {
+          var c2 = chaosCombo(la, lb);
+          addCard(c2.name + "!", c2.tag);
+        }
+      });
+
+      els.resetBtn.addEventListener("click", function () {
+        els.nameA.value = "";
+        els.nameB.value = "";
+        els.grid.innerHTML = "";
+        els.results.classList.remove("show");
+        els.counter.classList.remove("show");
+        els.keepers.classList.remove("show");
+        curA = ""; curB = ""; shipped = 0; seen = {}; kept = [];
+        els.counterN.textContent = "0";
+        els.nameA.focus();
+      });
+
+      // ---------------------------------------------------------------
+      // keepers
+      // ---------------------------------------------------------------
+      function renderKeepers() {
+        if (!kept.length) {
+          els.keepers.classList.remove("show");
+          return;
+        }
+        els.keepers.classList.add("show");
+        els.keepersSub.textContent = kept.length + " kept from " + curA + " + " + curB + ".";
+        els.kpills.innerHTML = "";
+        kept.forEach(function (k) {
+          var pill = document.createElement("span");
+          pill.className = "kpill";
+          pill.textContent = k.name;
+          els.kpills.appendChild(pill);
+        });
+        var top = kept[0].name;
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" +
+          encodeURIComponent(curA + " + " + curB + " = " + top + " (and " + Math.max(kept.length - 1, 0) + " more) — ship your own: " + SITE_URL);
+      }
+
+      // ---------------------------------------------------------------
+      // share card — canvas, downloadable / native-shareable.
+      // ---------------------------------------------------------------
+      function wrapCanvasText(c, text, x, y, maxWidth, lineHeight, maxLines) {
+        var words = text.split(" ");
+        var line = "", cy = y, lines = 0;
+        for (var i = 0; i < words.length; i++) {
+          var test = line ? line + " " + words[i] : words[i];
+          if (line && c.measureText(test).width > maxWidth) {
+            c.fillText(line, x, cy); line = words[i]; cy += lineHeight; lines++;
+            if (maxLines && lines >= maxLines - 1) {
+              var rest = words.slice(i).join(" ");
+              c.fillText(truncate(line + " " + rest, 60), x, cy);
+              return cy;
+            }
+          } else { line = test; }
+        }
+        if (line) c.fillText(line, x, cy);
+        return cy;
+      }
+
+      function buildShareCard() {
+        var top = kept.length ? kept[0] : null;
+        if (!top) return false;
+        var c = els.canvas.getContext("2d");
+        var W = els.canvas.width, H = els.canvas.height;
+
+        var grad = c.createLinearGradient(0, 0, W, H);
+        grad.addColorStop(0, "#1b0f2e");
+        grad.addColorStop(1, "#0f0820");
+        c.fillStyle = grad; c.fillRect(0, 0, W, H);
+
+        var glow = c.createRadialGradient(W * 0.5, H * 0.2, 0, W * 0.5, H * 0.2, W * 0.65);
+        glow.addColorStop(0, "#ff6fae33");
+        glow.addColorStop(1, "#ff6fae00");
+        c.fillStyle = glow; c.fillRect(0, 0, W, H);
+
+        c.textAlign = "center";
+        c.font = "800 30px ui-rounded, Nunito, sans-serif";
+        c.fillStyle = "#c3a8dd";
+        c.fillText((curA + " + " + curB).toUpperCase(), W / 2, 150);
+
+        c.strokeStyle = "#ffd166"; c.lineWidth = 3;
+        c.beginPath(); c.moveTo(W / 2 - 70, 180); c.lineTo(W / 2 + 70, 180); c.stroke();
+
+        var fontSize = top.name.length > 14 ? 70 : 100;
+        c.fillStyle = "#fff0fa";
+        c.font = "800 " + fontSize + "px ui-rounded, Nunito, sans-serif";
+        c.fillText(top.name, W / 2, 330);
+
+        c.fillStyle = "#6ff2c9";
+        c.font = "700 24px ui-rounded, Nunito, sans-serif";
+        c.fillText(top.tag, W / 2, 380);
+
+        if (kept.length > 1) {
+          var others = kept.slice(1, 5).map(function (k) { return k.name; }).join("   ·   ");
+          c.fillStyle = "#c3a8dd";
+          c.font = "600 22px ui-rounded, Nunito, sans-serif";
+          wrapCanvasText(c, "also considered: " + others, W / 2, 460, 980, 30, 2);
+        }
+
+        c.fillStyle = "#ffd166";
+        c.font = "700 22px ui-rounded, Nunito, sans-serif";
+        c.fillText("shipped on shipname.bisks.net", W / 2, H - 56);
+        return true;
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          var probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (e) { return false; }
+      }
+      if (canShareFiles()) els.shareNative.style.display = "";
+
+      els.shareCardBtn.addEventListener("click", function () {
+        if (!buildShareCard()) { flash("keep a combo first ⭐"); return; }
+        var link = document.createElement("a");
+        link.download = "shipname-" + (curA + "-" + curB).toLowerCase().replace(/[^a-z0-9-]/g, "") + ".png";
+        link.href = els.canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      els.shareNative.addEventListener("click", function () {
+        if (!buildShareCard()) { flash("keep a combo first ⭐"); return; }
+        els.canvas.toBlob(function (blob) {
+          if (!blob) return;
+          var file = new File([blob], "shipname.png", { type: "image/png" });
+          var top = kept[0].name;
+          navigator.share({
+            files: [file],
+            text: curA + " + " + curB + " = " + top + " — " + SITE_URL,
+            title: "shipname"
+          }).catch(function () {});
+        }, "image/png");
+      });
+    })();
+    </script>
+  </body>
+</html>
