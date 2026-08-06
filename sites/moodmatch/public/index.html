@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>moodmatch — a shared playlist and a compatibility score</title>
+    <meta
+      name="description"
+      content="Put in two names, two favorite songs, and two current moods. Get a generated shared playlist and a compatibility score with a verdict."
+    />
+    <meta property="og:title" content="moodmatch — a shared playlist and a compatibility score" />
+    <meta property="og:description" content="Two names, two favorite songs, two moods → a shared playlist and a compatibility score." />
+    <meta property="og:image" content="https://moodmatch.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="moodmatch — two mood dots meeting in the middle of a compatibility wheel, with a percentage score." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://moodmatch.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="moodmatch — a shared playlist and a compatibility score" />
+    <meta name="twitter:description" content="Two names, two favorite songs, two moods → a shared playlist and a compatibility score." />
+    <meta name="twitter:image" content="https://moodmatch.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #100a17;
+        --panel: #191026;
+        --panel2: #201533;
+        --faint: #362450;
+        --ink: #f4ecff;
+        --muted: #a998c4;
+        --accent: #ff5fa8;
+        --accent2: #6ef2c9;
+        --accent-ink: #1a0410;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(1100px 640px at 50% -10%, #2a1640, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2rem 1.05rem 4.5rem; }
+      a { color: var(--accent2); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); }
+
+      header { text-align: center; margin: 1rem 0 1.5rem; }
+      .logo {
+        font-family: var(--mono);
+        font-weight: 800;
+        font-size: 2.1rem;
+        letter-spacing: -0.02em;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .tagline { color: var(--muted); font-size: 0.95rem; margin-top: 0.35rem; }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
+      }
+
+      .field { margin-bottom: 1.1rem; }
+      .field:last-child { margin-bottom: 0; }
+      .field-label {
+        display: block; font-size: 0.8rem; font-weight: 700; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem;
+      }
+      .pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+      input[type="text"], select {
+        width: 100%; background: var(--panel2); border: 1px solid var(--faint);
+        color: var(--ink); border-radius: 10px; padding: 0.7rem 0.8rem;
+        font-family: var(--sans); font-size: 0.95rem; appearance: none;
+      }
+      select { cursor: pointer; }
+      input[type="text"]:focus, select:focus { outline: 2px solid var(--accent2); outline-offset: -1px; }
+      input[type="text"]::placeholder { color: #6c5a8a; }
+
+      button {
+        font-family: var(--sans); font-weight: 800; font-size: 1.05rem;
+        border: none; border-radius: 12px; padding: 0.95rem 1.2rem;
+        width: 100%; cursor: pointer; transition: transform 0.08s ease;
+      }
+      button:active { transform: scale(0.98); }
+      .btn-match {
+        background: linear-gradient(90deg, var(--accent), #ff8fc4);
+        color: var(--accent-ink); box-shadow: 0 0 24px rgba(255, 95, 168, 0.3);
+        margin-top: 0.4rem;
+      }
+      .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--faint); font-weight: 700; font-size: 0.95rem; margin-top: 0.6rem; }
+      .btn-share { background: var(--accent2); color: #062820; margin-top: 0.6rem; }
+      .btn-copy { background: var(--panel2); color: var(--ink); border: 1px solid var(--faint); font-weight: 700; font-size: 0.9rem; margin-top: 0.55rem; }
+
+      /* --- result screen --- */
+      .hidden { display: none !important; }
+
+      .score-wrap { text-align: center; margin: 0.3rem 0 1.1rem; }
+      .score-num {
+        font-family: var(--mono); font-weight: 800; font-size: 4rem; line-height: 1;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .score-pct { font-size: 1.6rem; vertical-align: super; }
+      .score-verdict { font-weight: 800; font-size: 1.15rem; margin-top: 0.4rem; }
+      .score-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.3rem; }
+
+      .mood-pair {
+        display: flex; align-items: center; justify-content: center; gap: 0.7rem;
+        margin: 1.1rem 0; font-size: 0.95rem;
+      }
+      .mood-chip {
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 600;
+      }
+      .mood-chip .who { color: var(--muted); font-weight: 500; font-size: 0.82rem; }
+      .mood-plus { color: var(--muted); font-size: 1.1rem; }
+
+      .playlist-title {
+        font-weight: 800; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--accent2); margin: 1.3rem 0 0.6rem;
+      }
+      .track {
+        display: flex; align-items: baseline; gap: 0.6rem; padding: 0.5rem 0;
+        border-bottom: 1px dashed var(--faint); font-size: 0.92rem;
+      }
+      .track:last-child { border-bottom: none; }
+      .track-n { font-family: var(--mono); color: var(--muted); width: 1.4rem; flex-shrink: 0; }
+      .track-title { flex: 1; }
+      .track-tag { font-size: 0.72rem; color: var(--muted); background: var(--panel2); border-radius: 6px; padding: 0.12rem 0.4rem; white-space: nowrap; }
+      .track.seed .track-tag { color: var(--accent-ink); background: var(--accent2); font-weight: 700; }
+
+      canvas#sharecanvas { display: none; }
+
+      footer { text-align: center; margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="back"><a href="https://bisks.net/">← bisks.net</a></p>
+
+      <header>
+        <div class="logo">moodmatch</div>
+        <div class="tagline">two names, two songs, two moods → one shared playlist</div>
+      </header>
+
+      <!-- FORM SCREEN -->
+      <section id="screen-form" class="card">
+        <div class="field pair-row">
+          <div>
+            <label class="field-label" for="nameA">your name</label>
+            <input type="text" id="nameA" placeholder="you" maxlength="24" />
+          </div>
+          <div>
+            <label class="field-label" for="nameB">their name</label>
+            <input type="text" id="nameB" placeholder="them" maxlength="24" />
+          </div>
+        </div>
+
+        <div class="field pair-row">
+          <div>
+            <label class="field-label" for="songA">your favorite song</label>
+            <input type="text" id="songA" placeholder="title — artist" maxlength="60" />
+          </div>
+          <div>
+            <label class="field-label" for="songB">their favorite song</label>
+            <input type="text" id="songB" placeholder="title — artist" maxlength="60" />
+          </div>
+        </div>
+
+        <div class="field pair-row">
+          <div>
+            <label class="field-label" for="moodA">your mood right now</label>
+            <select id="moodA"></select>
+          </div>
+          <div>
+            <label class="field-label" for="moodB">their mood right now</label>
+            <select id="moodB"></select>
+          </div>
+        </div>
+
+        <button class="btn-match" id="matchBtn">make our playlist</button>
+      </section>
+
+      <!-- RESULT SCREEN -->
+      <section id="screen-result" class="card hidden">
+        <div class="score-wrap">
+          <div class="score-num"><span id="scoreNum">0</span><span class="score-pct">%</span></div>
+          <div class="score-verdict" id="scoreVerdict"></div>
+          <div class="score-sub" id="scoreSub"></div>
+        </div>
+
+        <div class="mood-pair">
+          <span class="mood-chip"><span class="who" id="chipNameA"></span><span id="chipMoodA"></span></span>
+          <span class="mood-plus">+</span>
+          <span class="mood-chip"><span class="who" id="chipNameB"></span><span id="chipMoodB"></span></span>
+        </div>
+
+        <div class="playlist-title">your shared playlist</div>
+        <div id="playlist"></div>
+
+        <button class="btn-share" id="shareBtn">share this match</button>
+        <button class="btn-copy" id="copyBtn">copy link to this match</button>
+        <button class="btn-ghost" id="againBtn">match someone else</button>
+      </section>
+
+      <footer>
+        built by <a href="https://bisks.net/">@buildthis.bisks.net</a> ·
+        today's theme: dating and connection · moodmatch doesn't know either of you, it's just vibes
+      </footer>
+    </div>
+
+    <canvas id="sharecanvas" width="1080" height="1080"></canvas>
+
+    <script src="app.js"></script>
+  </body>
+</html>
