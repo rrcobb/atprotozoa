@@ -1,0 +1,43 @@
+name = "atprotozoa-revolver"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @fromthewestmeadow.com, in a thread about atproto novelty-account bots
+# ("machine you crank to spit out posts", "whack-a-mole that posts from your
+# account every time you miss"): "website that lets you live play Russian
+# roulette with another bluesky handle where if you agree to the round you
+# if you lose your account posts what the other person inputted... or is
+# this too dark atproto stuff." Built the honest, less-dark version: two
+# players each load a "dare" into the cylinder, agree, and pull the trigger
+# live over a WebSocket. But nothing posts on its own — the loser gets a
+# pre-filled compose-intent link with the winner's dare and has to actually
+# click "post it" themselves. A human always has final say over their own
+# account; that's the one place this build deliberately didn't do exactly
+# what was asked. See public/lib/round.js for the commit-reveal fairness
+# scheme (the server commits to the bullet's chamber before anyone pulls,
+# and reveals the seed afterward so neither player can accuse it of rigging
+# the round mid-game).
+#
+# A brand-new site served at the root of its own subdomain — no bisks.net/
+# path route, no mount-prefix stripping.
+routes = [
+  { pattern = "revolver.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# The Worker runs first for everything: it serves personalized-OG /r/<id>
+# unfurl pages and forwards /api/round/<id> (including the WebSocket
+# upgrade) to the ROUND Durable Object — the ASSETS router can't do either.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "ROUND"
+class_name = "Round"
+
+# new_sqlite_classes, not new_classes: legacy KV-backed DO storage needs
+# Workers Paid; this account is on Free. See notes/20-deploy.md.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Round"]
