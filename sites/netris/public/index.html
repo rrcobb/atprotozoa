@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>netris — battle tetris with your moots</title>
+<meta name="description" content="Type a Bluesky handle and drop into live competitive Tetris with your mutuals — clear lines to send garbage at a random opponent, last board standing wins." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="netris — battle tetris with your moots" />
+<meta property="og:description" content="Type a Bluesky handle and drop into live competitive Tetris with your mutuals — clear lines to send garbage at a random opponent, last board standing wins." />
+<meta property="og:url" content="https://netris.bisks.net/" />
+<meta property="og:image" content="https://netris.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="netris: a stack of falling tetrominoes over a row of small battling boards." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="netris — battle tetris with your moots" />
+<meta name="twitter:description" content="Type a Bluesky handle and drop into live competitive Tetris with your mutuals — clear lines to send garbage at a random opponent, last board standing wins." />
+<meta name="twitter:image" content="https://netris.bisks.net/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>🧱</text></svg>" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<div id="landing" class="screen">
+  <div class="sky"></div>
+  <main class="landing-card">
+    <h1><span class="brick-emoji">🧱</span> netris</h1>
+    <p class="tagline">battle tetris against your bluesky moots, live. clear 2+ lines and the garbage flies at a random opponent — last board standing wins.</p>
+
+    <form id="start-form" autocomplete="off">
+      <label for="handle-input">your bluesky handle</label>
+      <input id="handle-input" name="handle" placeholder="you.bsky.social" required />
+      <button type="submit" id="start-btn">open the room</button>
+    </form>
+    <p id="landing-status" class="status" role="status" aria-live="polite"></p>
+
+    <p class="explainer">
+      We pull your moots (mutual follows — widened to plain follows if you don't have enough)
+      straight off the public Bluesky graph, no login needed, and open a shared room. Anyone who
+      joins can hit start — everyone connected drops into the same match, dealt the same piece
+      sequence, so it's skill not luck. Send the link and battle live.
+    </p>
+  </main>
+  <footer class="credit">built for <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a> · part of <a href="https://bisks.net/">bisks.net</a></footer>
+</div>
+
+<div id="room" class="screen" hidden>
+  <div class="sky"></div>
+
+  <header class="room-header">
+    <a href="/" class="brand">🧱 netris</a>
+    <div class="room-title">
+      <strong id="room-owner-name">…</strong>'s room
+      <span id="room-kind" class="pill"></span>
+    </div>
+    <div class="identity">
+      playing as <strong id="me-name">a passerby</strong>
+      <button id="me-edit" type="button" title="change who you are">change</button>
+    </div>
+    <button id="copy-btn" type="button" class="copy-btn" title="copy the link to this room">copy link</button>
+    <button id="share-btn" type="button" class="share-btn">share ↗</button>
+  </header>
+
+  <p id="room-status" class="status" role="status" aria-live="polite"></p>
+
+  <section class="arena">
+    <div class="board-col">
+      <div class="hud-row">
+        <div class="hud-box">
+          <div class="hud-label">hold</div>
+          <canvas id="hold-canvas" width="88" height="88"></canvas>
+        </div>
+        <div class="hud-box stats-box">
+          <div class="stat"><span class="stat-label">score</span><span id="stat-score">0</span></div>
+          <div class="stat"><span class="stat-label">lines</span><span id="stat-lines">0</span></div>
+          <div class="stat"><span class="stat-label">sent</span><span id="stat-sent">0</span></div>
+        </div>
+        <div class="hud-box">
+          <div class="hud-label">next</div>
+          <canvas id="next-canvas" width="88" height="260"></canvas>
+        </div>
+      </div>
+
+      <div class="board-wrap">
+        <canvas id="board-canvas" width="300" height="600"></canvas>
+        <div id="garbage-meter" class="garbage-meter"></div>
+        <div id="countdown" class="countdown" hidden></div>
+        <div id="board-overlay" class="board-overlay" hidden></div>
+      </div>
+
+      <div class="controls-row">
+        <button id="start-match-btn" type="button" class="start-match-btn">🚦 start the match</button>
+        <div id="match-status-line" class="match-status-line"></div>
+      </div>
+      <p class="key-hint">← → move · ↓ soft drop · space hard drop · ↑/X rotate CW · Z rotate CCW · C/shift hold</p>
+    </div>
+
+    <aside class="side-col">
+      <div class="panel opponents-panel">
+        <h2>⚔️ opponents</h2>
+        <div id="opponents-list" class="opponents-list"></div>
+      </div>
+
+      <div class="panel record-panel">
+        <h2>🏆 room record</h2>
+        <p id="record-line" class="record-line">nobody's won a match yet</p>
+        <h3>recent matches</h3>
+        <ul id="history-list" class="history-list"></ul>
+      </div>
+
+      <div class="panel results-panel" id="results-panel" hidden>
+        <h2>🏁 results</h2>
+        <ol id="results-list" class="results-list"></ol>
+      </div>
+
+      <div class="panel roster-panel" id="roster-panel">
+        <h2>👥 who's here</h2>
+        <p class="roster-hint">tap start once enough of you have shown up — everyone connected joins the match.</p>
+        <ul id="roster-list" class="roster-list"></ul>
+      </div>
+    </aside>
+  </section>
+
+  <footer class="credit">built for <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a> · part of <a href="https://bisks.net/">bisks.net</a></footer>
+</div>
+
+<div id="cheer-fly-layer" aria-hidden="true"></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
