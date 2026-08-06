@@ -113,6 +113,15 @@ export default {
       return handleHealth(env, url.pathname.endsWith(".html"));
     }
 
+    // Uptime history: the same "is the box alive" signal /health reports live,
+    // sampled every 2 minutes and kept for 90 days, so "has it actually been
+    // reliable" has a real answer instead of best-effort word-of-mouth. See the
+    // "Uptime history" section near recordUptimeSample. Public + read-only, same
+    // posture as /health (operational counts only, no secrets).
+    if (url.pathname === "/uptime" || url.pathname === "/uptime.json") {
+      return handleUptime(env, url.pathname === "/uptime");
+    }
+
     // The bot's own "what I've built, what's still waiting" page. Reads a
     // once-a-day snapshot (see maybeRefreshDirectory) rather than recomputing
     // live on every hit.
@@ -161,6 +170,8 @@ export default {
     // Piggybacks on the same 2-min cron rather than adding a second trigger;
     // maybeRefreshDirectory no-ops unless the cached snapshot is >24h old.
     ctx.waitUntil(maybeRefreshDirectory(env));
+    // Also piggybacked: one cheap box-alive sample per tick, feeding /uptime.
+    ctx.waitUntil(recordUptimeSample(env));
   },
 };
 
@@ -565,7 +576,7 @@ async function handleThemePage(env: Env): Promise<Response> {
   </p>
   ${statusHtml}
   <footer>
-    <a href="/live">what I've built</a> · <a href="/health">status</a> · <a href="/">buildthis</a>
+    <a href="/live">what I've built</a> · <a href="/health">status</a> · <a href="/uptime">uptime</a> · <a href="/">buildthis</a>
   </footer>
 </div>
 <script>
@@ -2338,9 +2349,292 @@ function renderHealthPage(s: HealthSnapshot): string {
   </table>
   <footer>
     machine-readable at <a href="/health">/health</a> ·
+    uptime history at <a href="/uptime">/uptime</a> ·
     tag timeline at <a href="https://logs.bisks.net">logs.bisks.net</a> ·
     <a href="/directory">directory</a> ·
     <a href="/working/">working on now</a>
+  </footer>
+</div></body></html>`;
+}
+
+// --- Uptime history ----------------------------------------------------
+//
+// /health answers "is it OK right now"; /uptime answers "how OK has it been" —
+// prompted by the gh-actions-outage thread where the honest answer to "is the
+// bot up" was "best-effort, nobody's really watching." This gives that a
+// number instead of a shrug.
+//
+// Piggybacks on the existing 2-min watcher cron (see scheduled()) rather than
+// adding a trigger or a KV namespace — one more box-heartbeat read plus one
+// small KV read+write per tick. Deliberately NOT a full computeHealth() re-run
+// on every tick: that lists every queued job and every log event and re-probes
+// recent deploys, fine at human-click frequency on /health but not something
+// to run 720 times a day forever. Box aliveness (BOX_HEARTBEAT_KEY, the same
+// definition /health already uses) is the right proxy anyway — it's exactly
+// the signal a builder-box or GitHub Actions outage trips.
+//
+// If the Worker itself is ever the thing that's down, no sample gets
+// appended at all — that shows up as a gap in the data (see `staleData` and
+// the day grid's "no data" cells), not a false "up". That's the honest
+// answer: this can't measure its own outages, only the box's.
+
+const UPTIME_KEY = "uptime:samples";
+// Compact [epochMs, 0|1] tuples rather than objects — at one sample/2min this
+// key grows ~720/day (~90 days retained -> ~65k samples), and staying compact
+// keeps both the KV value (25MB cap, nowhere close) and the JSON parse on
+// every /uptime hit cheap.
+type UptimeSample = [number, 0 | 1];
+const UPTIME_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // status-page convention
+
+async function recordUptimeSample(env: Env): Promise<void> {
+  try {
+    const hb = await env.STATE.get(BOX_HEARTBEAT_KEY);
+    const now = Date.now();
+    const alive = hb !== null && now - new Date(hb).getTime() < BOX_ALIVE_WINDOW_MS;
+
+    const samples = await loadUptimeSamples(env);
+    samples.push([now, alive ? 1 : 0]);
+    const cutoff = now - UPTIME_RETENTION_MS;
+    const trimmed = samples.filter((s) => s[0] >= cutoff);
+    await env.STATE.put(UPTIME_KEY, JSON.stringify(trimmed));
+  } catch (err) {
+    console.error(`recordUptimeSample failed: ${err}`);
+  }
+}
+
+async function loadUptimeSamples(env: Env): Promise<UptimeSample[]> {
+  const raw = await env.STATE.get(UPTIME_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as UptimeSample[];
+  } catch {
+    return [];
+  }
+}
+
+interface UptimeIncident {
+  start: string; // ISO
+  end: string | null; // ISO; null = still down as of the most recent sample
+  durationMs: number | null; // null while ongoing
+}
+
+interface UptimeDay {
+  date: string; // yyyy-mm-dd, UTC
+  pct: number; // fraction of that day's samples that were up, 0-100
+}
+
+interface UptimeStats {
+  checkedAt: string;
+  currentlyUp: boolean | null; // null = no samples ever recorded
+  lastSampleAt: string | null;
+  // Last sample is older than expected — the tracker itself may be stuck
+  // (the cron didn't fire), a different failure mode than a `currentlyUp:
+  // false` sample (that means the cron fired and found the box down).
+  staleData: boolean;
+  totalSamples: number;
+  oldestSampleAt: string | null;
+  windows: { hours: number; pct: number | null; samples: number }[];
+  days: UptimeDay[]; // oldest first; a day with zero samples is omitted
+  incidents: UptimeIncident[]; // newest first
+}
+
+const UPTIME_WINDOWS_HOURS = [24, 24 * 7, 24 * 30];
+// ~3x the 2-min sample cadence — enough slack for a slightly late tick
+// without mistaking normal jitter for a stuck tracker.
+const UPTIME_STALE_MS = 10 * 60 * 1000;
+
+function computeUptimeStats(samples: UptimeSample[]): UptimeStats {
+  const now = Date.now();
+  const sorted = [...samples].sort((a, b) => a[0] - b[0]);
+  const last = sorted.length ? sorted[sorted.length - 1] : null;
+
+  const windows = UPTIME_WINDOWS_HOURS.map((hours) => {
+    const since = now - hours * 60 * 60 * 1000;
+    const inWindow = sorted.filter((s) => s[0] >= since);
+    const pct = inWindow.length
+      ? (inWindow.filter((s) => s[1] === 1).length / inWindow.length) * 100
+      : null;
+    return { hours, pct, samples: inWindow.length };
+  });
+
+  const byDay = new Map<string, { up: number; total: number }>();
+  for (const [t, ok] of sorted) {
+    const d = new Date(t);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    const bucket = byDay.get(key) ?? { up: 0, total: 0 };
+    bucket.total++;
+    if (ok === 1) bucket.up++;
+    byDay.set(key, bucket);
+  }
+  const days: UptimeDay[] = [...byDay.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, b]) => ({ date, pct: (b.up / b.total) * 100 }));
+
+  // Incidents: maximal runs of down samples. `end` is the first up sample
+  // observed after the run; a run still down at the most recent sample is
+  // reported ongoing (end: null) rather than guessing at a recovery time.
+  const incidents: UptimeIncident[] = [];
+  let runStart: number | null = null;
+  for (const [t, ok] of sorted) {
+    if (ok === 0 && runStart === null) {
+      runStart = t;
+    } else if (ok === 1 && runStart !== null) {
+      incidents.push({ start: new Date(runStart).toISOString(), end: new Date(t).toISOString(), durationMs: t - runStart });
+      runStart = null;
+    }
+  }
+  if (runStart !== null) {
+    incidents.push({ start: new Date(runStart).toISOString(), end: null, durationMs: null });
+  }
+  incidents.reverse();
+
+  return {
+    checkedAt: new Date(now).toISOString(),
+    currentlyUp: last ? last[1] === 1 : null,
+    lastSampleAt: last ? new Date(last[0]).toISOString() : null,
+    staleData: last ? now - last[0] > UPTIME_STALE_MS : true,
+    totalSamples: sorted.length,
+    oldestSampleAt: sorted.length ? new Date(sorted[0][0]).toISOString() : null,
+    windows,
+    days,
+    incidents,
+  };
+}
+
+async function handleUptime(env: Env, asHtml: boolean): Promise<Response> {
+  let stats: UptimeStats;
+  try {
+    stats = computeUptimeStats(await loadUptimeSamples(env));
+  } catch (err) {
+    console.error(`uptime read failed: ${err}`);
+    stats = {
+      checkedAt: new Date().toISOString(),
+      currentlyUp: null,
+      lastSampleAt: null,
+      staleData: true,
+      totalSamples: 0,
+      oldestSampleAt: null,
+      windows: UPTIME_WINDOWS_HOURS.map((hours) => ({ hours, pct: null, samples: 0 })),
+      days: [],
+      incidents: [],
+    };
+  }
+  if (asHtml) {
+    return new Response(renderUptimePage(stats), {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
+  return new Response(JSON.stringify(stats, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-cache",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
+function fmtDuration(ms: number): string {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hours < 24) return remMins ? `${hours}h ${remMins}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h` : `${days}d`;
+}
+
+function fmtStamp(iso: string): string {
+  return `${iso.replace("T", " ").slice(0, 16)}Z`;
+}
+
+function dayCellClass(pct: number): string {
+  if (pct >= 99.5) return "up";
+  if (pct >= 90) return "degraded";
+  return "down";
+}
+
+function renderUptimePage(s: UptimeStats): string {
+  const dot = s.currentlyUp === null ? "⚪" : s.currentlyUp ? "🟢" : "🔴";
+  const statusWord = s.currentlyUp === null ? "no data yet" : s.currentlyUp ? "up" : "down";
+
+  const staleBanner = s.staleData
+    ? `<p class="stale">⚠️ last sample ${s.lastSampleAt ? fmtStamp(s.lastSampleAt) : "never"} — the tracker itself may be stuck (this is a different signal from a "down" sample: it means the cron didn't fire at all).</p>`
+    : "";
+
+  const windowRows = s.windows
+    .map((w) => {
+      const label = w.hours === 24 ? "24h" : w.hours === 24 * 7 ? "7d" : `${Math.round(w.hours / 24)}d`;
+      const val = w.pct === null ? "no data" : `${w.pct.toFixed(2)}%`;
+      return `<tr><td>${label}</td><td>${escHtml(val)}</td><td>${w.samples} sample${w.samples === 1 ? "" : "s"}</td></tr>`;
+    })
+    .join("\n");
+
+  const dayCells = s.days.length
+    ? s.days
+        .map((d) => `<span class="day ${dayCellClass(d.pct)}" title="${escHtml(d.date)} — ${d.pct.toFixed(1)}% up"></span>`)
+        .join("")
+    : `<p class="empty">not enough history yet — check back once the tracker's had a few days to run.</p>`;
+
+  const incidentRows = s.incidents.length
+    ? s.incidents
+        .slice(0, 20)
+        .map(
+          (i) =>
+            `<div class="incident"><span class="when">${escHtml(fmtStamp(i.start))}</span><span class="dur">${
+              i.end ? escHtml(fmtDuration(i.durationMs!)) : "ongoing"
+            }</span></div>`,
+        )
+        .join("\n")
+    : `<p class="empty">no downtime recorded${s.totalSamples ? " in the tracked window" : " — no data yet"}.</p>`;
+  const incidentFooter =
+    s.incidents.length > 20 ? `<p class="more">+ ${s.incidents.length - 20} earlier incident(s)</p>` : "";
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>buildthis uptime</title>
+<meta name="description" content="How reliable @buildthis.bisks.net's builder box has actually been, sampled every 2 minutes." />
+<style>
+  body { margin:0; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    background:#0d0a06; color:#e8dcc8; line-height:1.6; }
+  .wrap { max-width:600px; margin:0 auto; padding:3rem 1.25rem 5rem; }
+  h1 { font-size:1.4rem; margin:0 0 0.25rem; }
+  .status { font-size:1.15rem; margin:0 0 0.4rem; }
+  .sub { color:#9c8f78; margin:0 0 1.5rem; font-size:0.85rem; }
+  .stale { color:#ff9b6b; font-size:0.85rem; }
+  table { width:100%; border-collapse:collapse; margin:0.6rem 0 1.4rem; }
+  td { padding:0.4rem 0.5rem; border-bottom:1px solid #1f2226; font-size:0.9rem; }
+  td:first-child { color:#9c8f78; width:20%; }
+  td:last-child { color:#9c8f78; text-align:right; font-size:0.78rem; }
+  h2 { font-size:0.95rem; color:#c8922e; margin:1.6rem 0 0.5rem; }
+  .days { line-height:0; display:flex; flex-wrap:wrap; gap:3px; }
+  .day { display:inline-block; width:10px; height:10px; border-radius:2px; }
+  .day.up { background:#2f8f4e; }
+  .day.degraded { background:#c8922e; }
+  .day.down { background:#c0432f; }
+  .incident { display:flex; justify-content:space-between; padding:0.35rem 0;
+    border-bottom:1px solid #1f2226; font-size:0.85rem; }
+  .incident .dur { color:#ff9b6b; }
+  .more, .empty { color:#9c8f78; font-size:0.85rem; font-style:italic; }
+  footer { margin-top:2rem; color:#9c8f78; font-size:0.78rem; }
+  a { color:#e0b23c; }
+</style></head><body><div class="wrap">
+  <h1>buildthis uptime</h1>
+  <p class="status">${dot} ${escHtml(statusWord)} · <span style="color:#9c8f78">as of ${escHtml(fmtStamp(s.checkedAt))}</span></p>
+  <p class="sub">tracking the builder box's own heartbeat — the same "is it alive" signal <a href="/health">/health</a> reports live, sampled every 2 minutes since ${s.oldestSampleAt ? escHtml(fmtStamp(s.oldestSampleAt)) : "just now"}.</p>
+  ${staleBanner}
+  <h2>uptime</h2>
+  <table>${windowRows}</table>
+  <h2>last 90 days</h2>
+  <div class="days">${dayCells}</div>
+  <h2>incidents</h2>
+  ${incidentRows}
+  ${incidentFooter}
+  <footer>
+    machine-readable at <a href="/uptime.json">/uptime.json</a> ·
+    live snapshot at <a href="/health">/health</a> ·
+    <a href="/">buildthis</a>
   </footer>
 </div></body></html>`;
 }
