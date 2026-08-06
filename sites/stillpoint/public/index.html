@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>stillpoint — a browser-only guided meditation room</title>
+    <meta name="description" content="Three guided meditation paths — breath anchor, body scan, loving-kindness — spoken by your browser's own voice over a generative ambient pad. No audio files, no account, no tracking." />
+    <meta property="og:title" content="stillpoint" />
+    <meta property="og:description" content="Three guided meditation paths, spoken by your browser's own voice over a generative ambient pad. Nothing to download, nothing to sign in to." />
+    <meta property="og:image" content="https://stillpoint.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="stillpoint — a soft glowing circle on a dark indigo background, with three path names beneath it." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://stillpoint.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="stillpoint" />
+    <meta name="twitter:description" content="Three guided meditation paths, spoken by your browser's own voice over a generative ambient pad." />
+    <meta name="twitter:image" content="https://stillpoint.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0b0e1a;
+        --bg2: #10142a;
+        --panel: rgba(255, 255, 255, 0.04);
+        --faint: rgba(255, 255, 255, 0.1);
+        --ink: #eef1f8;
+        --muted: #93a0bd;
+        --accent: #a9c6ff;
+        --accent2: #c9a7ff;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background: radial-gradient(120% 100% at 50% -10%, var(--bg2), var(--bg) 60%);
+        color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 1.6rem 1.05rem 4rem; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { text-decoration: underline; }
+
+      .hero { margin: 2.4rem 0 1.6rem; text-align: center; }
+      h1 { font-size: 2.1rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 0.5rem;
+        background: linear-gradient(100deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .sub { color: var(--muted); font-size: 0.95rem; margin: 0 auto; max-width: 46ch; line-height: 1.6; }
+
+      .note { margin: 1rem auto 0; padding: 0.7rem 0.9rem; border-radius: 10px; max-width: 46ch;
+        background: var(--panel); border: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem; line-height: 1.6; text-align: left; }
+      .note b { color: var(--ink); }
+
+      .cards { display: grid; gap: 0.9rem; margin: 1.8rem 0; }
+      .card { display: block; width: 100%; text-align: left; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 16px; padding: 1.1rem 1.2rem;
+        color: var(--ink); font-family: inherit; cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+      .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+      .card h2 { margin: 0 0 0.3rem; font-size: 1.15rem; font-weight: 700; }
+      .card .mins { color: var(--accent2); font-family: var(--mono); font-size: 0.72rem; font-weight: 700; }
+      .card p { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+
+      /* ── session view ─────────────────────────────────────────────── */
+      #session, #complete { display: none; }
+      #session.active, #complete.active { display: block; }
+      #menu.hidden { display: none; }
+
+      .stage { display: flex; flex-direction: column; align-items: center; margin: 1.6rem 0 1rem; }
+      .circle-wrap { width: 220px; height: 220px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.4rem; }
+      .circle {
+        width: 140px; height: 140px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, var(--accent2), var(--accent) 55%, transparent 80%);
+        opacity: 0.85; filter: blur(0.5px);
+        animation: breathe 10s ease-in-out infinite;
+      }
+      @keyframes breathe {
+        0%, 100% { transform: scale(0.82); opacity: 0.55; }
+        50% { transform: scale(1.12); opacity: 0.9; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .circle { animation: breathe-fade 10s ease-in-out infinite; transform: none; }
+        @keyframes breathe-fade { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+      }
+      .circle.paused { animation-play-state: paused; }
+
+      .path-name { font-size: 1.05rem; font-weight: 700; color: var(--ink); text-align: center; margin: 0 0 0.2rem; }
+      .caption { min-height: 4.4rem; margin: 0.4rem 0 1.2rem; padding: 1rem 1.2rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 14px;
+        text-align: center; font-size: 1.02rem; line-height: 1.6; color: var(--ink);
+        display: flex; align-items: center; justify-content: center; }
+      .caption.dim { color: var(--muted); font-style: italic; }
+
+      .progress-track { height: 5px; border-radius: 3px; background: var(--faint); overflow: hidden; margin-bottom: 0.4rem; }
+      .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.3s linear; }
+      .time-row { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-bottom: 1.2rem; }
+
+      .transport { display: flex; gap: 0.7rem; justify-content: center; margin-bottom: 1.4rem; }
+      .transport button { font-family: var(--mono); font-size: 0.85rem; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 0.6rem 1.1rem; cursor: pointer; }
+      .transport button.primary { background: linear-gradient(100deg, var(--accent), var(--accent2)); color: #10132a; border-color: transparent; font-weight: 700; }
+      .transport button:hover { border-color: var(--accent); }
+
+      details.controls { background: var(--panel); border: 1px solid var(--faint); border-radius: 14px; padding: 0.8rem 1rem; margin-bottom: 1rem; }
+      details.controls summary { cursor: pointer; font-size: 0.82rem; color: var(--muted); }
+      .ctl-grid { display: grid; gap: 0.8rem; margin-top: 0.8rem; }
+      .ctl { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.75rem; color: var(--muted); }
+      .ctl select, .ctl input[type="range"] { width: 100%; accent-color: var(--accent); }
+      .ctl select { background: rgba(255,255,255,0.06); color: var(--ink); border: 1px solid var(--faint); border-radius: 8px; padding: 0.4rem; font-family: inherit; }
+
+      /* ── completion view ──────────────────────────────────────────── */
+      #complete .stage { margin-top: 2.5rem; }
+      .complete-icon { font-size: 3rem; margin-bottom: 0.6rem; }
+      #complete .path-name { font-size: 1.3rem; }
+      #complete .sub { margin-top: 0.3rem; }
+
+      .share { display: flex; gap: 0.6rem; margin: 1.4rem 0; flex-wrap: wrap; justify-content: center; }
+      .share a, .share button { font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.55rem 0.9rem; cursor: pointer; text-decoration: none; }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); }
+
+      .credit { margin-top: 2.5rem; color: var(--muted); font-size: 0.76rem; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+
+      <div id="menu">
+        <div class="hero">
+          <h1>stillpoint</h1>
+          <p class="sub">
+            Three short guided meditations, narrated live by your browser and
+            set to a generative ambient pad. Nothing downloads, nothing is
+            recorded, nothing needs an account.
+          </p>
+          <div class="note">
+            <b>Before you start:</b> this works best with sound on, in a spot
+            where you can sit for a few minutes uninterrupted. Voice narration
+            uses your browser's built-in text-to-speech — quality and
+            available voices vary by browser, and captions are always shown
+            too. This is a small relaxation tool, not therapy or medical
+            advice — if you're in crisis, please reach out to a real person
+            or a crisis line instead.
+          </div>
+        </div>
+
+        <div class="cards" id="pathCards"></div>
+
+        <p class="credit">
+          a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> toy,
+          asked for by <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a> ·
+          <a href="https://bisks.net">bisks.net</a>
+        </p>
+      </div>
+
+      <div id="session">
+        <div class="stage">
+          <div class="circle-wrap"><div class="circle" id="circle"></div></div>
+          <div class="path-name" id="sessionTitle"></div>
+        </div>
+
+        <div class="caption" id="caption"></div>
+
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="time-row"><span id="timeElapsed">0:00</span><span id="timeTotal">0:00</span></div>
+
+        <div class="transport">
+          <button id="playPauseBtn" class="primary" type="button">Pause</button>
+          <button id="stopBtn" type="button">End session</button>
+        </div>
+
+        <details class="controls">
+          <summary>voice &amp; sound settings</summary>
+          <div class="ctl-grid">
+            <label class="ctl">voice
+              <select id="voiceSelect"></select>
+            </label>
+            <label class="ctl">speaking rate
+              <input type="range" id="rateRange" min="70" max="130" value="95" />
+            </label>
+            <label class="ctl">voice volume
+              <input type="range" id="voiceVolume" min="0" max="100" value="100" />
+            </label>
+            <label class="ctl">background pad volume
+              <input type="range" id="musicVolume" min="0" max="100" value="55" />
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <div id="complete">
+        <div class="stage">
+          <div class="complete-icon">🌙</div>
+          <div class="path-name" id="completeTitle"></div>
+          <p class="sub" id="completeSub"></p>
+        </div>
+
+        <div class="transport">
+          <button id="restartBtn" class="primary" type="button">Do it again</button>
+          <button id="backBtn" type="button">Back to paths</button>
+        </div>
+
+        <div class="share">
+          <a id="shareIntent" target="_blank" rel="noopener">🦋 share this</a>
+          <button id="copyLink">🔗 copy link</button>
+        </div>
+
+        <p class="credit">
+          a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> toy,
+          asked for by <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a> ·
+          <a href="https://bisks.net">bisks.net</a>
+        </p>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
