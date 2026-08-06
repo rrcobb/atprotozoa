@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chickenjack — massively multiplayer blackjack — bisks.net</title>
+    <meta
+      name="description"
+      content="Blackjack that deals on the minute, UTC, forever. Jump in any time, get dealt cards, bet play chips, hit or stand, stack up winnings for as long as you like. No login."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://chickenjack.bisks.net/" />
+    <meta property="og:title" content="chickenjack — massively multiplayer blackjack" />
+    <meta
+      property="og:description"
+      content="The dealer runs on a fixed world-time clock — a new hand every minute, on the minute, UTC. Anyone can jump in, get cards, bet play chips, hit or stand, and climb the top chicken leaderboard."
+    />
+    <meta property="og:image" content="https://chickenjack.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="chickenjack: a live blackjack table that deals on the minute." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="chickenjack — massively multiplayer blackjack" />
+    <meta
+      name="twitter:description"
+      content="A new hand every minute, on the minute, UTC. Jump in, get cards, bet play chips, hit or stand, stack up winnings. No login."
+    />
+    <meta name="twitter:image" content="https://chickenjack.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / guestbet / apex, with
+         a felt-green table panel for the live hand itself. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --gold: #a6790f;
+        --felt: #0f3d2c;
+        --felt-line: rgba(255, 255, 255, 0.14);
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.3rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 1rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 64ch; margin: 0 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .panel {
+        border: 1px solid var(--faint);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 1.4rem;
+        background: var(--faintbg);
+      }
+      .walletRow {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem 1.4rem;
+      }
+      .balance { font-size: 1.35rem; font-weight: 800; }
+      .balance .coin { color: var(--gold); }
+      .nickRow { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); }
+      .nickRow input {
+        font-family: inherit; font-size: 0.8rem; width: 8.5rem;
+        padding: 0.3rem 0.5rem; border: 1px solid var(--faint); border-radius: 6px;
+        background: var(--bg); color: var(--ink);
+      }
+      .nickRow button {
+        font-family: inherit; font-size: 0.75rem; font-weight: 700; padding: 0.32rem 0.55rem;
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--bg); color: var(--ink); cursor: pointer;
+      }
+      .stipendBtn {
+        margin-left: auto;
+        font-family: inherit; font-size: 0.8rem; font-weight: 700;
+        padding: 0.4rem 0.7rem; border: 1px solid var(--good); border-radius: 7px;
+        background: var(--bg); color: var(--good); cursor: pointer;
+      }
+      .stipendBtn:hover { background: var(--good); color: #fff; }
+      .stipendBtn:disabled { opacity: 0.4; cursor: default; }
+
+      .statsRow {
+        display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 0.7rem;
+        padding-top: 0.7rem; border-top: 1px solid var(--faint);
+        font-size: 0.76rem; color: var(--muted);
+      }
+      .statsRow b { color: var(--ink); }
+      .statsRow .pos { color: var(--good); }
+      .statsRow .neg { color: var(--bad); }
+
+      .clockPanel {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem;
+        flex-wrap: wrap; margin-bottom: 1rem;
+      }
+      .phaseLabel { font-weight: 800; font-size: 1rem; }
+      .phaseLabel.betting { color: var(--accent); }
+      .phaseLabel.playing { color: var(--good); }
+      .phaseLabel.results { color: var(--gold); }
+      .clockVal { font-size: 0.85rem; color: var(--muted); }
+      .clockVal b { color: var(--ink); }
+
+      .table {
+        background: var(--felt);
+        border-radius: 16px;
+        padding: 1.3rem 1.15rem 1.5rem;
+        margin-bottom: 1.4rem;
+        color: #eef7f1;
+      }
+      .dealerRow { text-align: center; margin-bottom: 1.1rem; }
+      .dealerLabel {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: rgba(238, 247, 241, 0.6); margin-bottom: 0.5rem;
+      }
+      .cards { display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; }
+      .card {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 2.6rem; height: 3.6rem; border-radius: 6px; background: #fff;
+        color: var(--ink); font-weight: 800; font-size: 1.05rem;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+      }
+      .card.red { color: var(--bad); }
+      .card.hidden { background: repeating-linear-gradient(45deg, #16496f, #16496f 4px, #123a58 4px, #123a58 8px); color: transparent; }
+      .card.small { width: 2.1rem; height: 2.9rem; font-size: 0.85rem; }
+      .totalTag {
+        display: inline-block; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 700;
+        color: rgba(238, 247, 241, 0.85);
+      }
+      .totalTag b { color: #fff; }
+
+      .youRow {
+        border-top: 1px solid var(--felt-line); padding-top: 1.1rem; text-align: center;
+      }
+      .youLabel {
+        font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: rgba(238, 247, 241, 0.6); margin-bottom: 0.5rem;
+      }
+      .outcomeTag {
+        display: inline-block; margin-top: 0.55rem; font-size: 0.95rem; font-weight: 800;
+        padding: 0.25rem 0.7rem; border-radius: 999px;
+      }
+      .outcomeTag.win, .outcomeTag.blackjack { background: rgba(31, 138, 76, 0.25); color: #7cf0a8; }
+      .outcomeTag.lose, .outcomeTag.bust { background: rgba(177, 56, 46, 0.28); color: #ff9a8c; }
+      .outcomeTag.push { background: rgba(166, 121, 15, 0.28); color: #ffd166; }
+
+      .actions { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.9rem; }
+      .actions button {
+        font-family: inherit; font-size: 0.85rem; font-weight: 700; padding: 0.5rem 1rem;
+        border-radius: 8px; cursor: pointer; border: 1px solid rgba(238, 247, 241, 0.35);
+        background: rgba(255, 255, 255, 0.08); color: #fff;
+      }
+      .actions button:hover { background: rgba(255, 255, 255, 0.18); }
+      .actions button:disabled { opacity: 0.35; cursor: default; }
+      .actions button.hit { border-color: #59d38c; color: #59d38c; }
+      .actions button.stand { border-color: #ffd166; color: #ffd166; }
+      .actions button.double { border-color: #6ea8ff; color: #6ea8ff; }
+
+      .betForm { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.7rem; }
+      .betForm input {
+        width: 6.5rem; font-family: inherit; font-size: 0.9rem;
+        padding: 0.5rem 0.6rem; border: 1px solid rgba(238, 247, 241, 0.3); border-radius: 7px;
+        background: rgba(255, 255, 255, 0.08); color: #fff;
+      }
+      .betForm input::placeholder { color: rgba(238, 247, 241, 0.5); }
+      .betForm button {
+        font-family: inherit; font-size: 0.85rem; font-weight: 800; padding: 0.5rem 1.1rem;
+        border: 1px solid var(--gold); background: var(--gold); color: #241a03;
+        border-radius: 7px; cursor: pointer;
+      }
+      .betForm button:disabled { opacity: 0.45; cursor: default; }
+      .quickBets { display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
+      .quickBets button {
+        font-family: inherit; font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 999px;
+        border: 1px solid rgba(238, 247, 241, 0.3); background: transparent; color: rgba(238, 247, 241, 0.85);
+        cursor: pointer;
+      }
+      .quickBets button:hover { background: rgba(255, 255, 255, 0.12); }
+      .waitMsg { color: rgba(238, 247, 241, 0.7); font-size: 0.85rem; margin-top: 0.5rem; }
+
+      h2 { font-size: 1rem; font-weight: 800; margin: 1.8rem 0 0.5rem; }
+      .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.9rem; }
+
+      ol.seats { list-style: none; margin: 0; padding: 0; }
+      .seat {
+        display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 0;
+        border-top: 1px solid var(--faint); font-size: 0.85rem;
+      }
+      .seat:first-of-type { border-top: none; }
+      .seat.you .seatName { color: var(--accent); }
+      .seatName { font-weight: 700; flex: 1; min-width: 0; overflow-wrap: break-word; }
+      .seatCards { display: flex; gap: 0.2rem; }
+      .seatBet { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+      .seatStatus {
+        font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 999px;
+        white-space: nowrap;
+      }
+      .seatStatus.playing { background: var(--faintbg); color: var(--muted); border: 1px solid var(--faint); }
+      .seatStatus.stand { background: #eef3ff; color: var(--accent); }
+      .seatStatus.bust { background: #fbeceb; color: var(--bad); }
+      .seatStatus.win, .seatStatus.blackjack { background: #eaf7ee; color: var(--good); }
+      .seatStatus.lose { background: #fbeceb; color: var(--bad); }
+      .seatStatus.push { background: #fbf3e3; color: var(--gold); }
+
+      .leaderboard { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+      .leaderboard li {
+        display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+        padding: 0.5rem 0; border-top: 1px solid var(--faint);
+      }
+      .leaderboard li:first-of-type { border-top: none; }
+      .leaderboard .rank { color: var(--muted); width: 1.6rem; flex-shrink: 0; }
+      .leaderboard .who { flex: 1; font-weight: 700; overflow-wrap: break-word; }
+      .leaderboard li.you .who { color: var(--accent); }
+      .leaderboard .net { font-weight: 800; color: var(--good); }
+      .leaderboard li:first-of-type .who::before { content: "🐔 "; }
+
+      table.history { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      table.history th, table.history td {
+        text-align: left; padding: 0.5rem 0.5rem; border-top: 1px solid var(--faint);
+      }
+      table.history th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.history td.num { text-align: right; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+      .status.warn { color: var(--bad); }
+
+      .share { margin: 2rem 0 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--faintbg); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>chickenjack <span class="slash">/ massively multiplayer blackjack</span></h1>
+        <p class="sub">
+          The dealer runs on a <b>fixed world-time clock</b> — a fresh hand deals
+          every minute, on the minute, UTC, whether or not anyone's watching.
+          Show up whenever you like: 20s to bet, 20s to hit or stand, 20s to
+          watch the dealer play it out. Everyone at the table plays their own
+          hand against the same dealer. Play chips only, no login — stack up
+          winnings for as long as you like, and climb the
+          <b>top chicken</b> leaderboard.
+        </p>
+      </header>
+
+      <div class="panel">
+        <div class="walletRow">
+          <div>
+            <div class="balance"><span class="coin">◆</span> <span id="balanceVal">—</span> chips</div>
+          </div>
+          <div class="nickRow">
+            playing as
+            <input id="nickInput" maxlength="20" placeholder="nickname" />
+            <button id="nickSave">save</button>
+          </div>
+          <button class="stipendBtn" id="stipendBtn" style="display:none">spot me 150</button>
+        </div>
+        <div class="statsRow" id="statsRow"></div>
+      </div>
+
+      <div class="status" id="statusText">dealing in the table…</div>
+
+      <div class="clockPanel">
+        <div class="phaseLabel" id="phaseLabel">—</div>
+        <div class="clockVal" id="clockVal">—</div>
+      </div>
+
+      <div class="table">
+        <div class="dealerRow">
+          <div class="dealerLabel">dealer</div>
+          <div class="cards" id="dealerCards"></div>
+          <div class="totalTag" id="dealerTotal"></div>
+        </div>
+
+        <div class="youRow">
+          <div class="youLabel" id="youLabel">your hand</div>
+          <div class="cards" id="youCards"></div>
+          <div class="totalTag" id="youTotal"></div>
+          <div id="outcomeTag"></div>
+          <div class="actions" id="actions" style="display:none">
+            <button class="hit" id="hitBtn">hit</button>
+            <button class="stand" id="standBtn">stand</button>
+            <button class="double" id="doubleBtn">double</button>
+          </div>
+          <form class="betForm" id="betForm" style="display:none">
+            <input type="number" id="betAmount" min="10" step="10" placeholder="bet" required />
+            <button type="submit" id="betSubmit">deal me in</button>
+          </form>
+          <div class="quickBets" id="quickBets" style="display:none"></div>
+          <div class="waitMsg" id="waitMsg" style="display:none"></div>
+        </div>
+      </div>
+
+      <h2>at the table</h2>
+      <p class="hint" id="seatsHint">nobody's dealt in yet this hand — be the first.</p>
+      <ol class="seats" id="seats"></ol>
+      <p class="hint" id="overflowHint" style="display:none"></p>
+
+      <h2>🐔 top chicken leaderboard</h2>
+      <p class="hint" id="leaderboardHint">nobody's up any chips yet — win a hand to take the crown.</p>
+      <ol class="leaderboard" id="leaderboard"></ol>
+
+      <h2>past hands</h2>
+      <p class="hint" id="historyHint">no hands have finished yet — check back in a minute.</p>
+      <table class="history" id="historyTable" style="display:none">
+        <thead>
+          <tr><th>hand</th><th>dealer</th><th class="num">players</th><th>top win</th></tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=chickenjack.bisks.net" target="_blank" rel="noopener">share the table</a>
+      </div>
+
+      <footer>
+        Play chips only, starts from a fresh 500-chip bankroll per browser —
+        clearing localStorage gets you a new one, so treat the leaderboard as
+        fun, not proof. One hand per player per minute: bet before the
+        20-second betting window closes, hit/stand/double in the next 20
+        seconds, then the dealer reveals and draws to 17. Dealer stands on
+        all 17s, blackjack pays 3:2, no splits yet. Table max is 500 chips.
+        asked for by <a href="https://bsky.app/profile/brennan.computer">@brennan.computer</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const els = {
+        balanceVal: document.getElementById("balanceVal"),
+        nickInput: document.getElementById("nickInput"),
+        nickSave: document.getElementById("nickSave"),
+        stipendBtn: document.getElementById("stipendBtn"),
+        statsRow: document.getElementById("statsRow"),
+        statusText: document.getElementById("statusText"),
+        phaseLabel: document.getElementById("phaseLabel"),
+        clockVal: document.getElementById("clockVal"),
+        dealerCards: document.getElementById("dealerCards"),
+        dealerTotal: document.getElementById("dealerTotal"),
+        youLabel: document.getElementById("youLabel"),
+        youCards: document.getElementById("youCards"),
+        youTotal: document.getElementById("youTotal"),
+        outcomeTag: document.getElementById("outcomeTag"),
+        actions: document.getElementById("actions"),
+        hitBtn: document.getElementById("hitBtn"),
+        standBtn: document.getElementById("standBtn"),
+        doubleBtn: document.getElementById("doubleBtn"),
+        betForm: document.getElementById("betForm"),
+        betAmount: document.getElementById("betAmount"),
+        betSubmit: document.getElementById("betSubmit"),
+        quickBets: document.getElementById("quickBets"),
+        waitMsg: document.getElementById("waitMsg"),
+        seatsHint: document.getElementById("seatsHint"),
+        seats: document.getElementById("seats"),
+        overflowHint: document.getElementById("overflowHint"),
+        leaderboardHint: document.getElementById("leaderboardHint"),
+        leaderboard: document.getElementById("leaderboard"),
+        historyHint: document.getElementById("historyHint"),
+        historyTable: document.getElementById("historyTable"),
+        historyBody: document.getElementById("historyBody"),
+        shareLink: document.getElementById("shareLink"),
+      };
+
+      const CLIENT_KEY = "chickenjack-client-id";
+      function clientId() {
+        try {
+          let id = localStorage.getItem(CLIENT_KEY);
+          if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(CLIENT_KEY, id);
+          }
+          return id;
+        } catch {
+          return "anon-" + Math.random().toString(36).slice(2);
+        }
+      }
+      const CID = clientId();
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      async function api(path, opts) {
+        const r = await fetch(path, {
+          ...opts,
+          headers: { "content-type": "application/json", "x-client-id": CID, ...(opts && opts.headers) },
+        });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(out.error || "request failed");
+        return out;
+      }
+
+      function fmtSecs(ms) {
+        return Math.max(0, Math.ceil(ms / 1000)) + "s";
+      }
+
+      // Server clock skew, so the between-poll countdown stays accurate even
+      // if this device's clock is off.
+      let skew = 0;
+      let lastRound = null;
+      function tickClock() {
+        if (!lastRound) return;
+        const now = Date.now() + skew;
+        const r = lastRound;
+        let phase, label, remain;
+        if (now < r.betEndsAt) {
+          phase = "betting"; label = "betting's open"; remain = r.betEndsAt - now;
+        } else if (now < r.resolveAt) {
+          phase = "playing"; label = "cards are live"; remain = r.resolveAt - now;
+        } else {
+          phase = "results"; label = "dealer's played"; remain = r.roundEndsAt - now;
+        }
+        els.phaseLabel.textContent = label;
+        els.phaseLabel.className = "phaseLabel " + phase;
+        const suffix = phase === "results" ? " · next hand in " : " · closes in ";
+        els.clockVal.innerHTML = "hand #" + r.id + suffix + "<b>" + fmtSecs(remain) + "</b>";
+      }
+      setInterval(tickClock, 250);
+
+      function cardHTML(c, small) {
+        const red = c.s === "♥" || c.s === "♦";
+        return `<span class="card${red ? " red" : ""}${small ? " small" : ""}">${esc(c.r)}${esc(c.s)}</span>`;
+      }
+      function hiddenCardHTML() {
+        return `<span class="card hidden">??</span>`;
+      }
+
+      function outcomeLabel(o) {
+        return { blackjack: "blackjack! 3:2", win: "you win", push: "push", lose: "dealer wins", bust: "bust" }[o] || "";
+      }
+
+      let nickDirty = false;
+      els.nickInput.addEventListener("input", () => { nickDirty = true; });
+
+      function render(data) {
+        skew = data.round.now - Date.now();
+        lastRound = data.round;
+        tickClock();
+
+        els.balanceVal.textContent = data.you.balance;
+        if (!nickDirty) els.nickInput.value = data.you.nickname;
+        els.stipendBtn.style.display = data.you.canClaimStipend ? "" : "none";
+
+        const s = data.you.stats;
+        if (s.handsPlayed > 0) {
+          const netClass = s.netProfit > 0 ? "pos" : s.netProfit < 0 ? "neg" : "";
+          const netStr = s.netProfit > 0 ? `+${s.netProfit}` : `${s.netProfit}`;
+          els.statsRow.innerHTML = `
+            <span>hands <b>${s.handsPlayed}</b></span>
+            <span>won <b>${s.handsWon}</b></span>
+            <span>net <b class="${netClass}">${netStr}</b></span>
+            <span>best hand <b class="pos">+${s.biggestWin}</b></span>`;
+        } else {
+          els.statsRow.innerHTML = "";
+        }
+
+        els.statusText.textContent = `${data.players.length} player${data.players.length === 1 ? "" : "s"} dealt in this hand`;
+
+        // dealer
+        els.dealerCards.innerHTML = data.dealer.cards.map((c) => cardHTML(c, false)).join("") + (data.dealer.hidden ? hiddenCardHTML() : "");
+        els.dealerTotal.innerHTML = data.dealer.hidden
+          ? "showing " + (data.dealer.upCard ? data.dealer.upCard.r + data.dealer.upCard.s : "—")
+          : `total <b>${data.dealer.total}</b>` + (data.dealer.blackjack ? " · blackjack" : data.dealer.bust ? " · bust" : "");
+
+        // your hand
+        const you = data.you;
+        if (you.hand) {
+          els.youLabel.textContent = you.nickname + "'s hand" + (you.hand.doubled ? " (doubled)" : "");
+          els.youCards.innerHTML = you.hand.cards.map((c) => cardHTML(c, false)).join("");
+          els.youTotal.innerHTML = `bet <b>${you.hand.bet}</b> · total <b>${you.hand.total}</b>`;
+          if (you.hand.outcome) {
+            const net = you.hand.payout - you.hand.bet;
+            const netStr = net > 0 ? `+${net}` : `${net}`;
+            els.outcomeTag.innerHTML = `<span class="outcomeTag ${you.hand.outcome}">${outcomeLabel(you.hand.outcome)} (${netStr})</span>`;
+          } else {
+            els.outcomeTag.innerHTML = you.hand.status === "bust" ? `<span class="outcomeTag bust">bust</span>` : "";
+          }
+        } else {
+          els.youLabel.textContent = "your hand";
+          els.youCards.innerHTML = "";
+          els.youTotal.innerHTML = "";
+          els.outcomeTag.innerHTML = "";
+        }
+
+        els.actions.style.display = you.canAct ? "" : "none";
+        els.hitBtn.disabled = !you.canAct;
+        els.standBtn.disabled = !you.canAct;
+        els.doubleBtn.disabled = !you.canDouble;
+
+        els.betForm.style.display = you.canJoin ? "" : "none";
+        els.quickBets.style.display = you.canJoin ? "" : "none";
+        if (you.canJoin) {
+          const maxAmt = Math.min(data.maxBet, you.balance);
+          els.betAmount.max = maxAmt;
+          els.betAmount.placeholder = `${data.minBet}–${maxAmt}`;
+          const suggestions = Array.from(new Set([data.minBet, 25, 50, 100, maxAmt].filter((n) => n >= data.minBet && n <= maxAmt)));
+          els.quickBets.innerHTML = suggestions
+            .map((n) => `<button type="button" data-amt="${n}">${n}</button>`)
+            .join("");
+          els.quickBets.querySelectorAll("button").forEach((b) => {
+            b.addEventListener("click", () => { els.betAmount.value = b.dataset.amt; });
+          });
+        }
+
+        if (!you.hand && !you.canJoin) {
+          els.waitMsg.style.display = "";
+          els.waitMsg.textContent = data.round.phase === "betting"
+            ? "not enough chips to sit in — spot yourself some above."
+            : "betting's closed for this hand — the next one deals when the clock turns over.";
+        } else {
+          els.waitMsg.style.display = "none";
+        }
+
+        // seats
+        if (!data.players.length) {
+          els.seatsHint.style.display = "";
+          els.seats.innerHTML = "";
+        } else {
+          els.seatsHint.style.display = "none";
+          els.seats.innerHTML = data.players
+            .map((p) => {
+              const badge = p.outcome || p.status;
+              const badgeLabel = p.outcome ? outcomeLabel(p.outcome) : p.status;
+              return `
+                <li class="seat${p.isYou ? " you" : ""}">
+                  <span class="seatName">${esc(p.nickname)}${p.isYou ? " (you)" : ""}</span>
+                  <span class="seatCards">${p.cards.map((c) => cardHTML(c, true)).join("")}</span>
+                  <span class="seatBet">bet ${p.bet} · ${p.total}</span>
+                  <span class="seatStatus ${badge}">${esc(badgeLabel)}</span>
+                </li>`;
+            })
+            .join("");
+        }
+        if (data.overflow > 0) {
+          els.overflowHint.style.display = "";
+          els.overflowHint.textContent = `+${data.overflow} more playing this hand`;
+        } else {
+          els.overflowHint.style.display = "none";
+        }
+
+        // leaderboard
+        if (!data.leaderboard.length) {
+          els.leaderboardHint.style.display = "";
+          els.leaderboard.innerHTML = "";
+        } else {
+          els.leaderboardHint.style.display = "none";
+          els.leaderboard.innerHTML = data.leaderboard
+            .map((l, i) => `
+              <li class="${l.isYou ? "you" : ""}">
+                <span class="rank">${i + 1}</span>
+                <span class="who">${esc(l.nickname)}</span>
+                <span class="net">+${l.netProfit}</span>
+              </li>`)
+            .join("");
+        }
+
+        // history
+        if (data.history.length) {
+          els.historyHint.style.display = "none";
+          els.historyTable.style.display = "";
+          els.historyBody.innerHTML = data.history
+            .map((h) => {
+              const dealerStr = h.dealerBlackjack ? `${h.dealerTotal} (blackjack)` : h.dealerBust ? `${h.dealerTotal} (bust)` : `${h.dealerTotal}`;
+              const winStr = h.topWinner ? `${esc(h.topWinner.nickname)} +${h.topWinner.net}` : "—";
+              return `<tr><td>#${h.id}</td><td>${dealerStr}</td><td class="num">${h.playerCount}</td><td>${winStr}</td></tr>`;
+            })
+            .join("");
+        } else {
+          els.historyHint.style.display = "";
+          els.historyTable.style.display = "none";
+        }
+
+        const brag = s.netProfit >= 200 ? `I'm up ${s.netProfit} chips on chickenjack. ` : "";
+        const shareText = `${brag}massively multiplayer blackjack that deals on the minute, UTC, forever — jump in and play a hand at chickenjack.bisks.net`;
+        els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      els.betForm.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const amount = parseInt(els.betAmount.value, 10);
+        if (!amount || amount < 1) return;
+        els.betSubmit.disabled = true;
+        try {
+          const out = await api("/api/bet", { method: "POST", body: JSON.stringify({ amount, nickname: els.nickInput.value }) });
+          els.betAmount.value = "";
+          render(out);
+        } catch (e) {
+          els.statusText.textContent = e.message;
+          els.statusText.classList.add("warn");
+        } finally {
+          els.betSubmit.disabled = false;
+        }
+      });
+
+      async function act(path) {
+        try {
+          const out = await api(path, { method: "POST" });
+          render(out);
+        } catch (e) {
+          els.statusText.textContent = e.message;
+          els.statusText.classList.add("warn");
+        }
+      }
+      els.hitBtn.addEventListener("click", () => act("/api/hit"));
+      els.standBtn.addEventListener("click", () => act("/api/stand"));
+      els.doubleBtn.addEventListener("click", () => act("/api/double"));
+
+      els.stipendBtn.addEventListener("click", async () => {
+        els.stipendBtn.disabled = true;
+        try { render(await api("/api/stipend", { method: "POST" })); }
+        catch (e) { els.statusText.textContent = e.message; els.statusText.classList.add("warn"); }
+        finally { els.stipendBtn.disabled = false; }
+      });
+
+      els.nickSave.addEventListener("click", async () => {
+        try {
+          nickDirty = false;
+          render(await api("/api/nickname", { method: "POST", body: JSON.stringify({ nickname: els.nickInput.value }) }));
+        } catch (e) { els.statusText.textContent = e.message; els.statusText.classList.add("warn"); }
+      });
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const data = await api("/api/state", { method: "GET" });
+          failCount = 0;
+          els.statusText.classList.remove("warn");
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            els.statusText.textContent = "having trouble reaching the table…";
+            els.statusText.classList.add("warn");
+          }
+        }
+      }
+      poll();
+      setInterval(poll, 1800);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>

@@ -1,0 +1,38 @@
+name = "atprotozoa-chickenjack"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @brennan.computer asked for a massively multiplayer blackjack game where
+# the dealer runs on a fixed world-time clock, anyone can jump in and out,
+# get dealt cards, bet, play, and stack up winnings for as long as they like.
+#
+# The dealer's clock is real wall-clock time, not player-triggered: a fresh
+# hand starts every ROUND_MS, anchored to the epoch (nextBoundary(now, step)
+# = floor(now/step)*step), so every visitor anywhere sees the exact same
+# phase at the exact same moment — copied from sites/simcluster-lottery's
+# multi-boundary trick, simplified to one clock. One Durable Object ("table")
+# holds the shared shoe, every player's hand for the current round, balances,
+# and lifetime net-winnings ("top chicken" leaderboard) — same single-writer
+# shape as sites/guestbet's Market DO this was copied from, plus a storage
+# alarm to resolve hands on schedule and resolve-on-every-request as a
+# backstop. No login: clients carry an opaque id in localStorage, sent as
+# X-Client-Id — play chips only, same risk profile as the rest of this repo.
+routes = [
+  { pattern = "chickenjack.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "TABLE"
+class_name = "Table"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See sites/the-place/wrangler.toml for the
+# full story.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Table"]
