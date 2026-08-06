@@ -67,9 +67,11 @@ function main() {
     selectBtn: document.getElementById("selectBtn"),
     selectErr: document.getElementById("selectErr"),
     shareLink: document.getElementById("shareLink"),
+    noteCanvas: document.getElementById("noteCanvas"),
     noteBody: document.getElementById("noteBody"),
     noteActions: document.getElementById("noteActions"),
   };
+  const noteCtx = els.noteCanvas.getContext("2d");
 
   window.attachHandleTypeahead && window.attachHandleTypeahead(els.handleInput);
 
@@ -139,27 +141,99 @@ function main() {
 
   // ---- the passed note ----------------------------------------------------
   // One shared note, held by at most one seat at a time. Holding it is what
-  // gates writing on it — that's what makes it travel seat-to-seat instead
-  // of turning into a free-for-all shoutbox.
+  // gates drawing on it — that's what makes it travel seat-to-seat instead
+  // of turning into a free-for-all canvas everyone paints over at once.
+  // It's a little MS-Paint-style pad: freehand strokes, not typed text.
+  const NOTE_COLORS = ["#171310", "#d1453b", "#2f6fd1", "#2f9e52", "#e0a52c"];
+  let noteColor = NOTE_COLORS[0];
+  let drawingNote = false;
+  let currentStroke = null; // { points: [x0, y0, x1, y1, ...] } — 0..1, canvas-local
+
+  function canDrawNote() {
+    return !!mySeat && !!lastNote && lastNote.holderSeat === mySeat;
+  }
+
+  function noteCanvasPoint(e) {
+    const rect = els.noteCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    return [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))];
+  }
+
+  function drawStroke(w, h, points, color) {
+    if (!points || points.length < 4) return;
+    noteCtx.strokeStyle = color;
+    noteCtx.lineWidth = 2.5;
+    noteCtx.lineCap = "round";
+    noteCtx.lineJoin = "round";
+    noteCtx.beginPath();
+    noteCtx.moveTo(points[0] * w, points[1] * h);
+    for (let i = 2; i < points.length; i += 2) noteCtx.lineTo(points[i] * w, points[i + 1] * h);
+    noteCtx.stroke();
+  }
+
+  function paintNoteCanvas() {
+    const w = els.noteCanvas.width, h = els.noteCanvas.height;
+    noteCtx.clearRect(0, 0, w, h);
+    noteCtx.fillStyle = "#fdf8e8";
+    noteCtx.fillRect(0, 0, w, h);
+    const strokes = (lastNote && lastNote.strokes) || [];
+    for (const s of strokes) drawStroke(w, h, s.points, s.color);
+    if (currentStroke) drawStroke(w, h, currentStroke.points, noteColor);
+    if (!strokes.length && !currentStroke) {
+      noteCtx.fillStyle = "#9a8f78";
+      noteCtx.font = "13px monospace";
+      noteCtx.fillText("blank so far — pick it up and scribble", 10, h / 2);
+    }
+  }
+
+  els.noteCanvas.addEventListener("pointerdown", (e) => {
+    if (!canDrawNote()) return;
+    drawingNote = true;
+    els.noteCanvas.setPointerCapture(e.pointerId);
+    currentStroke = { points: noteCanvasPoint(e) };
+    paintNoteCanvas();
+  });
+  els.noteCanvas.addEventListener("pointermove", (e) => {
+    if (!drawingNote || !currentStroke) return;
+    const [x, y] = noteCanvasPoint(e);
+    const pts = currentStroke.points;
+    const lx = pts[pts.length - 2], ly = pts[pts.length - 1];
+    if (Math.hypot(x - lx, y - ly) < 0.012) return; // skip near-duplicate points
+    if (pts.length >= 120) return; // 60 (x,y) pairs — matches server's MAX_STROKE_POINTS
+    pts.push(x, y);
+    paintNoteCanvas();
+  });
+  async function finishNoteStroke() {
+    if (!drawingNote || !currentStroke) return;
+    drawingNote = false;
+    const stroke = { color: noteColor, points: currentStroke.points };
+    currentStroke = null;
+    if (!canDrawNote()) {
+      paintNoteCanvas();
+      return;
+    }
+    const { ok, data } = await api("/api/note/scribble", { sid: SID, stroke });
+    if (ok) applyState(data);
+    else paintNoteCanvas();
+  }
+  els.noteCanvas.addEventListener("pointerup", finishNoteStroke);
+  els.noteCanvas.addEventListener("pointercancel", finishNoteStroke);
+
   function renderNote(note, seat) {
     lastNote = note;
+    els.noteCanvas.classList.toggle("readonly", !(seat && note && note.holderSeat === seat));
+    paintNoteCanvas();
     if (!note) return;
 
-    if (!note.lines.length) {
-      els.noteBody.innerHTML = '<span class="empty">blank so far — pick it up and scribble something</span>';
-    } else {
-      els.noteBody.innerHTML = note.lines
-        .map((l) => `<div class="note-line"><b>${esc(l.seat)}</b> ${esc(l.text)}</div>`)
-        .join("");
-      els.noteBody.scrollTop = els.noteBody.scrollHeight;
-    }
-
     if (!seat) {
-      els.noteActions.innerHTML = '<div class="muted">sit down to join the note</div>';
+      els.noteBody.textContent = "sit down to join the note";
+      els.noteActions.innerHTML = "";
       return;
     }
 
     if (!note.holderSeat) {
+      els.noteBody.textContent = "";
       els.noteActions.innerHTML = '<button id="noteTakeBtn" class="note-wide-btn" type="button">pick up the note</button>';
       document.getElementById("noteTakeBtn").addEventListener("click", async () => {
         const { ok, data } = await api("/api/note/take", { sid: SID });
@@ -169,24 +243,33 @@ function main() {
     }
 
     if (note.holderSeat !== seat) {
+      els.noteBody.textContent = "";
       els.noteActions.innerHTML = `<div class="muted">seat ${esc(note.holderSeat)} has it</div>`;
       return;
     }
 
-    els.noteActions.innerHTML =
-      '<form id="noteScribbleForm"><textarea id="noteText" rows="2" maxlength="200" placeholder="scribble something…"></textarea>' +
-      '<button class="note-wide-btn" type="submit">write it</button></form>' +
-      '<div class="note-pass-row" id="notePassRow"></div>';
+    els.noteBody.textContent = "it's yours — draw on it, then pass it on";
+    els.noteActions.innerHTML = "";
 
-    document.getElementById("noteScribbleForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const ta = document.getElementById("noteText");
-      const text = ta.value.trim();
-      if (!text) return;
-      const { ok, data } = await api("/api/note/scribble", { sid: SID, text });
-      if (ok) applyState(data);
-    });
+    const palette = document.createElement("div");
+    palette.className = "note-palette";
+    for (const c of NOTE_COLORS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "note-swatch" + (c === noteColor ? " active" : "");
+      b.style.background = c;
+      b.title = c;
+      b.addEventListener("click", () => {
+        noteColor = c;
+        palette.querySelectorAll(".note-swatch").forEach((el) => el.classList.remove("active"));
+        b.classList.add("active");
+      });
+      palette.appendChild(b);
+    }
+    els.noteActions.appendChild(palette);
 
+    const passRow = document.createElement("div");
+    passRow.className = "note-pass-row";
     const [r, c] = seat.split("-").map(Number);
     const dirs = [
       ["↑ pass", r - 1, c],
@@ -194,7 +277,6 @@ function main() {
       ["← pass", r, c - 1],
       ["→ pass", r, c + 1],
     ];
-    const passRow = document.getElementById("notePassRow");
     for (const [label, rr, cc] of dirs) {
       if (rr < 0 || rr >= scene.ROWS || cc < 0 || cc >= scene.COLS) continue;
       const toSeat = rr + "-" + cc;
@@ -211,6 +293,7 @@ function main() {
       });
       passRow.appendChild(btn);
     }
+    els.noteActions.appendChild(passRow);
   }
 
   // ---- look-around while seated (mouse / touch, no pointer lock) ---------

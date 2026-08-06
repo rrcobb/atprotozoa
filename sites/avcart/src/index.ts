@@ -9,10 +9,11 @@
 // passed note that circulates seat-to-seat) lives in ONE Durable Object
 // instance (id "global"), the single-writer guarantee a shared room needs.
 // Clients poll /api/state every couple seconds, same shape as
-// sites/the-place. The note: whoever holds it can scribble a line and pass
-// it to an occupied, 4-directionally-adjacent seat — nobody can write on it
+// sites/the-place. The note: whoever holds it can scribble on it with a
+// little MS-Paint-style pen (freehand strokes, not typed text) and pass it
+// to an occupied, 4-directionally-adjacent seat — nobody can draw on it
 // without holding it first, which is what makes it *pass around* the room
-// instead of everyone shouting into the same box at once.
+// instead of everyone drawing over each other at once.
 //
 // This Worker has three jobs:
 //   1. Forward /api/* to the Classroom Durable Object.
@@ -108,8 +109,9 @@ const SEAT_TIMEOUT_MS = 45_000; // no heartbeat in this long -> seat frees up
 const SELECT_COOLDOWN_MS = 5_000; // per IP, so one person can't spam-flip the room
 const MAX_IMAGES = 16;
 const FEED_PAGES = 4; // up to 400 posts scanned looking for image embeds
-const NOTE_LINE_MAX_CHARS = 200;
-const MAX_NOTE_LINES = 30; // oldest scribbles fall off once the note fills up
+const MAX_STROKES = 24; // oldest doodles fall off once the note fills up
+const MAX_STROKE_POINTS = 60; // (x,y) pairs per stroke — keeps polled state small
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 const PUB = "https://public.api.bsky.app/xrpc/";
 
@@ -206,14 +208,15 @@ function embedImages(embed: any): Array<{ thumb: string; alt: string }> {
   return [];
 }
 
-interface NoteLine {
+interface NoteStroke {
   seat: string;
-  text: string;
+  color: string;
+  points: number[]; // flat [x0, y0, x1, y1, ...], each 0..1 (fraction of the note canvas)
   ts: number;
 }
 
 interface NoteState {
-  lines: NoteLine[];
+  strokes: NoteStroke[];
   holderSeat: string | null;
   updatedAt: number;
 }
@@ -238,7 +241,7 @@ export class Classroom {
     selectedAt: number;
   } | null = null;
   private lastSelectByIp = new Map<string, number>();
-  private note: NoteState = { lines: [], holderSeat: null, updatedAt: 0 };
+  private note: NoteState = { strokes: [], holderSeat: null, updatedAt: 0 };
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
@@ -253,7 +256,7 @@ export class Classroom {
       this.version = version ?? 0;
       this.seats = seats ?? {};
       this.current = current ?? null;
-      this.note = note ?? { lines: [], holderSeat: null, updatedAt: 0 };
+      this.note = note ?? { strokes: [], holderSeat: null, updatedAt: 0 };
     });
   }
 
@@ -476,7 +479,7 @@ export class Classroom {
   }
 
   private async handleNoteScribble(request: Request): Promise<Response> {
-    let body: { sid?: unknown; text?: unknown };
+    let body: { sid?: unknown; stroke?: unknown };
     try {
       body = await request.json();
     } catch {
@@ -486,12 +489,23 @@ export class Classroom {
     if (!seat) return json({ error: "sit down first" }, 400);
     if (this.note.holderSeat !== seat) return json({ error: "you don't have the note" }, 403);
 
-    const text = String(body.text || "").trim().slice(0, NOTE_LINE_MAX_CHARS);
-    if (!text) return json({ error: "empty" }, 400);
+    const stroke = body.stroke as { color?: unknown; points?: unknown } | undefined;
+    if (!stroke || typeof stroke !== "object") return json({ error: "bad stroke" }, 400);
+    const color = typeof stroke.color === "string" && COLOR_RE.test(stroke.color) ? stroke.color : "#171310";
 
-    this.note.lines.push({ seat, text, ts: Date.now() });
-    if (this.note.lines.length > MAX_NOTE_LINES) {
-      this.note.lines.splice(0, this.note.lines.length - MAX_NOTE_LINES);
+    const points: number[] = [];
+    const rawPoints = Array.isArray(stroke.points) ? stroke.points : [];
+    for (const p of rawPoints) {
+      if (typeof p !== "number" || !Number.isFinite(p)) continue;
+      points.push(Math.round(Math.max(0, Math.min(1, p)) * 1000) / 1000);
+      if (points.length >= MAX_STROKE_POINTS * 2) break;
+    }
+    if (points.length < 2) return json({ error: "empty" }, 400);
+    if (points.length === 2) points.push(points[0], points[1]); // a tap becomes a dot, not nothing
+
+    this.note.strokes.push({ seat, color, points, ts: Date.now() });
+    if (this.note.strokes.length > MAX_STROKES) {
+      this.note.strokes.splice(0, this.note.strokes.length - MAX_STROKES);
     }
     this.note.updatedAt = Date.now();
     this.version++;
