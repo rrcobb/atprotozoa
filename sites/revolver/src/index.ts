@@ -4,15 +4,20 @@
 // that lets you live play Russian roulette with another bluesky handle
 // where if you agree to the round you if you lose your account posts what
 // the other person inputted and vice versa... or is this too dark atproto
-// stuff." This is the built version, with one deliberate change from the
-// literal ask: nothing posts on its own. The loser gets a pre-filled
-// Bluesky compose-intent link with the winner's dare in it and has to
-// click "post it" themselves — a human always keeps the last word over
-// their own account. Everything else is real: two players each load a
-// dare, both dares are revealed to both of them, each explicitly agrees
-// (or backs out), and then they take turns pulling the trigger live over a
-// WebSocket relayed by the Round Durable Object below (one instance per
-// round, idFromName(roundId)).
+// stuff." First build deliberately softened that: nothing posted on its
+// own, the loser got a compose-intent link and had to click "post it"
+// themselves. @fromthewestmeadow.com asked (2026-08-06) for an explanation
+// page before login plus a real, no-click auto-post, so this version does
+// exactly what was originally described: each player OAuths in (scope:
+// create-only on app.bsky.feed.post — see public/lib/oauth.js and
+// client-metadata.json) after an explicit consent gate that spells out
+// what losing does, and the loser's account posts the winner's dare
+// automatically the instant the round resolves (public/lib/post.js). Two
+// players each load a dare, both dares are revealed to both of them, each
+// explicitly agrees (or backs out) to that specific pairing, and then they
+// take turns pulling the trigger live over a WebSocket relayed by the
+// Round Durable Object below (one instance per round,
+// idFromName(roundId)).
 //
 // Fairness: the DO picks the bullet's chamber and commits to
 // sha256(chamber + ":" + salt) the instant both players agree — before
@@ -71,7 +76,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "revolver — live russian roulette, played in dares, on atproto";
 const GENERIC_DESC =
-  "Load a dare, challenge another Bluesky handle, agree to the round, and pull the trigger live. Lose, and you get a pre-filled post with their dare in it — you still have to click \"post it\" yourself.";
+  "Load a dare, challenge another Bluesky handle, agree to the round, and pull the trigger live. Lose, and this posts their dare to your account automatically — no click, no undo. You log in with Bluesky before you can play, and you're warned exactly what that means first.";
 const GENERIC_OG_URL = "https://revolver.bisks.net/";
 
 async function renderShare(env: Env, request: Request, id: string): Promise<Response> {
@@ -265,6 +270,7 @@ export class Round {
   private publicPlayer(p: Player | null, showDare: boolean) {
     if (!p) return null;
     return {
+      did: p.did,
       handle: p.handle,
       displayName: p.displayName,
       avatar: p.avatar,

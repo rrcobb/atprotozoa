@@ -56,7 +56,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="64" y="290" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Load a dare. Challenge a handle. Agree, then</text>
   <text x="64" y="316" font-family="JetBrains Mono" font-size="17" fill="${DIM}">pull the trigger live — one bullet, your choice</text>
-  <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">of chambers. Lose, and you choose to post it.</text>
+  <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">of chambers. Lose, and it really posts.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${BRASS}">revolver.bisks.net</text>
 
