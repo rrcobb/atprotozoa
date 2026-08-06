@@ -5,6 +5,13 @@
 // person's most euphoric-sounding real quote, so the rare hype moments of
 // the calm engineers get mistaken for CEO hype-speak and vice versa.
 //
+// Revision 2 (same requester, "try to pick ones that don't mention their
+// invention or company, those seem pretty easy, and add more quotes"):
+// swapped the three quotes that named the person's own project/company in
+// the visible text (Kelley/Zig, Musk/Tesla, Son/SoftBank) for other real
+// quotes from the same people that don't, and grew the bank from 20 to 29.
+// `context` (only shown after answering) still names the venue freely.
+//
 // Every quote below is real and attributed to the actual person or venue
 // named in `context` — pulled from talks, interviews, filings, and posts.
 // Wording is as close to verbatim as public sources give it; a few (marked)
@@ -37,6 +44,11 @@ export const QUOTES = [
     context: "Jay Graber, Bluesky CEO",
   },
   {
+    person: "bluesky",
+    text: "We are building an open network that puts users first.",
+    context: "Bluesky, in a public statement during a surge in signups (standalone line from a longer statement)",
+  },
+  {
     person: "robpike",
     text: "Less is exponentially more.",
     context: "Rob Pike, on why Go looks the way it does, 2012",
@@ -47,6 +59,16 @@ export const QUOTES = [
     context: "Rob Pike, on Go's design tradeoffs",
   },
   {
+    person: "robpike",
+    text: "Data dominates. If you've chosen the right data structures and organized things well, the algorithms will almost always be self-evident.",
+    context: "Rob Pike, on data structures vs. algorithms",
+  },
+  {
+    person: "robpike",
+    text: "Object-oriented design is the roman numerals of computing.",
+    context: "Rob Pike, on OOP",
+  },
+  {
     person: "richhickey",
     text: "Programmers know the benefits of everything and the tradeoffs of nothing.",
     context: "Rich Hickey",
@@ -54,6 +76,11 @@ export const QUOTES = [
   {
     person: "richhickey",
     text: "You have to think. You have to actually apply some simplicity work to the problem before you start.",
+    context: "Rich Hickey, “Simple Made Easy,” 2011",
+  },
+  {
+    person: "richhickey",
+    text: "Simplicity is a choice.",
     context: "Rich Hickey, “Simple Made Easy,” 2011",
   },
   {
@@ -67,6 +94,11 @@ export const QUOTES = [
     context: "Larry Wall, on Perl and the camel that became its mascot",
   },
   {
+    person: "larrywall",
+    text: "Easy things should be easy, and hard things should be possible.",
+    context: "Larry Wall, on language design philosophy",
+  },
+  {
     person: "zedshaw",
     text: "Programmers are like magicians who fool everyone into thinking they are perfect and never wrong, but it's all an act.",
     context: "Zed Shaw, Learn Code the Hard Way",
@@ -78,7 +110,7 @@ export const QUOTES = [
   },
   {
     person: "andrewkelley",
-    text: "My goal is to make Zig so useful and practical that people will find themselves using it without intending to.",
+    text: "Informal proof correctness of a simple system beats formal proof correctness of a very complex system.",
     context: "Andrew Kelley, creator of Zig",
   },
   {
@@ -93,8 +125,13 @@ export const QUOTES = [
   },
   {
     person: "elonmusk",
-    text: "Am considering taking Tesla private at $420. Funding secured.",
-    context: "Elon Musk, on Twitter/X, August 2018",
+    text: "The future of humanity is going to bifurcate in two directions: either it's going to become multiplanetary, or it's going to remain confined to one planet and eventually there's going to be an extinction event.",
+    context: "Elon Musk, in an interview on humanity's long-term future",
+  },
+  {
+    person: "elonmusk",
+    text: "I think it is possible for ordinary people to choose to be extraordinary.",
+    context: "Elon Musk",
   },
   {
     person: "samaltman",
@@ -107,6 +144,11 @@ export const QUOTES = [
     context: "Sam Altman, OpenAI CEO, 2025",
   },
   {
+    person: "samaltman",
+    text: "We are now, like, in the singularity.",
+    context: "Sam Altman, OpenAI CEO, on the Relentless podcast, 2026",
+  },
+  {
     person: "adamneumann",
     text: "Our mission is to elevate the world's consciousness.",
     context: "Adam Neumann, in WeWork's 2019 IPO prospectus",
@@ -117,13 +159,23 @@ export const QUOTES = [
     context: "WeWork's 2019 S-1 filing dedication, under CEO Adam Neumann",
   },
   {
+    person: "adamneumann",
+    text: "Much more based on our energy and spirituality than it is on a multiple of revenue.",
+    context: "Adam Neumann, on his company's valuation, 2017 (standalone line from a longer remark)",
+  },
+  {
     person: "masason",
     text: "Don't think, you feel it.",
     context: "Masayoshi Son, quoting Yoda on his investment philosophy",
   },
   {
     person: "masason",
-    text: "SoftBank aims to continue to grow as a corporate group for the next 300 years.",
-    context: "Masayoshi Son, on SoftBank's “300-year vision”",
+    text: "I truly believe it's coming, that's why I'm in a hurry — to aggregate the cash, to invest.",
+    context: "Masayoshi Son, on his conviction about the coming AI singularity",
+  },
+  {
+    person: "masason",
+    text: "I may seem crazy, but I believe I'm a smart crazy.",
+    context: "Masayoshi Son, after losing nearly $70 billion in the dot-com crash",
   },
 ];

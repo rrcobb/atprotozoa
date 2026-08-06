@@ -32,7 +32,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="326" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">Huang, Elon Musk, Sam Altman, Adam Neumann,</text>
   <text x="60" y="354" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">and Masayoshi Son. every quote is real.</text>
 
-  <text x="60" y="440" font-family="JetBrains Mono" font-weight="800" font-size="90" fill="${COOL}">?<tspan fill="${INK}"> / </tspan><tspan fill="${HOT}">20</tspan></text>
+  <text x="60" y="440" font-family="JetBrains Mono" font-weight="800" font-size="90" fill="${COOL}">?<tspan fill="${INK}"> / </tspan><tspan fill="${HOT}">29</tspan></text>
 
   <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${INK}">hypeorhickey.bisks.net</text>
 </svg>`;
