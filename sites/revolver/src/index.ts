@@ -26,6 +26,23 @@
 // claim the chamber was picked to favor one side, because the commit hash
 // published mid-round is checkable against the reveal.
 //
+// @fromthewestmeadow.com again (2026-08-06): reported the copy-link box
+// disappearing with nothing loading in its place, asked for the "opponent
+// just joined" side to stay gated behind login until they load a dare, and
+// asked the room to update live (loaded cylinder -> result) without a
+// manual refresh. The room->DO wiring here was already correct (verified
+// with a local wrangler dev run driving the DO directly over HTTP+WS —
+// state broadcasts on every action), so the fixes are client-side
+// robustness, in public/index.html and public/lib/oauth.js: actions
+// (agree/decline/pull) now render from their own POST response instead of
+// only waiting on the WebSocket echo, a 4s state-poll fills in if that
+// socket dies (common in in-app browsers/flaky networks), the join flow
+// reopens the socket with its now-real role/token, getSession() no longer
+// throws when IndexedDB is unavailable (was capable of wedging the whole
+// boot() on private/embedded browsers), and the copy-link button falls
+// back to text-selection when the Clipboard API is blocked instead of
+// silently doing nothing.
+//
 // Routes:
 //   GET  /r/<id>              -> personalized-OG unfurl shell (same SPA,
 //                                 index.html reads the id from the path)

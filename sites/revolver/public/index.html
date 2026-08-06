@@ -456,6 +456,8 @@
       let currentId = null;
       let currentSlot = null;
       let pending = false;
+      let lastStateJson = null;
+      let pollTimer = null;
       const postingInFlight = new Set();
 
       function connect(id) {
@@ -467,12 +469,36 @@
         socket.addEventListener("message", (evt) => {
           try {
             const msg = JSON.parse(evt.data);
-            if (msg.t === "state") render(id, msg.state);
+            if (msg.t === "state") renderIfChanged(id, msg.state);
           } catch {}
         });
         socket.addEventListener("close", () => {
           if (currentId === id) setTimeout(() => connect(id), 1500);
         });
+      }
+
+      // Belt-and-suspenders for "dynamic": some networks/in-app browsers
+      // don't hold WebSockets open reliably (proxies, backgrounded tabs,
+      // Bluesky's own embedded browser). Poll the plain state endpoint too,
+      // so the round still advances live — cylinder loading, turns, the
+      // final result — even if the socket silently died, no manual refresh
+      // required. renderIfChanged skips the no-op re-renders so this
+      // doesn't fight with someone mid-typing their dare.
+      function startPolling(id) {
+        stopPolling();
+        pollTimer = setInterval(async () => {
+          if (currentId !== id) return;
+          try {
+            const res = await fetch(`/api/round/${id}`);
+            if (!res.ok) return;
+            const state = await res.json();
+            renderIfChanged(id, state);
+          } catch {}
+        }, 4000);
+      }
+      function stopPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
       }
 
       async function act(id, path, extra) {
@@ -483,7 +509,12 @@
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ role: slot.role, token: slot.token, ...extra }),
         });
-        return res.json();
+        const data = await res.json();
+        // Update from our own response immediately rather than waiting on the
+        // WebSocket round-trip — the acting player's own screen shouldn't
+        // depend on a broadcast coming back to be "dynamic".
+        if (res.ok && data?.state) renderIfChanged(id, data.state);
+        return data;
       }
 
       async function render(id, state) {
@@ -494,6 +525,20 @@
         els.room.innerHTML = html;
         wireRoom(id, state, slot, session);
         maybeAutoPost(id, state, slot, session);
+        lastStateJson = JSON.stringify(state);
+        // Nothing left to wait for once a round's over — stop the poll
+        // fallback (the WS socket can stay; the DO won't push again either).
+        if (state.declined || state.resolved) stopPolling();
+      }
+
+      // Same as render(), but skips the DOM replace (and the wipe of any
+      // in-progress typing) when the incoming state is identical to what's
+      // already on screen — used for the WS push and poll fallback, both of
+      // which can fire with nothing actually new to show.
+      function renderIfChanged(id, state) {
+        const j = JSON.stringify(state);
+        if (j === lastStateJson) return;
+        render(id, state);
       }
 
       // Fire the loser's post the moment the round resolves in their favor
@@ -706,7 +751,22 @@
         const copyBtn = document.getElementById("copyBtn");
         if (copyBtn) {
           copyBtn.addEventListener("click", async () => {
-            try { await navigator.clipboard.writeText(roundUrl(id)); copyBtn.textContent = "copied"; } catch {}
+            try {
+              await navigator.clipboard.writeText(roundUrl(id));
+              copyBtn.textContent = "copied";
+            } catch {
+              // Clipboard API is commonly blocked in in-app/webview browsers.
+              // Fall back to selecting the link text so it can be copied by hand.
+              const codeEl = copyBtn.parentElement?.querySelector("code");
+              if (codeEl && window.getSelection) {
+                const range = document.createRange();
+                range.selectNodeContents(codeEl);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+              copyBtn.textContent = "couldn't copy — link selected, copy by hand";
+            }
           });
         }
 
@@ -747,6 +807,10 @@
               if (!res.ok) throw new Error(data.error || "couldn't join.");
               saveSlot(id, { token: data.token, role: "joiner", myDare: dare, myHandle: session.handle });
               render(id, data.state);
+              // Reopen the socket now that a slot exists, so it authenticates
+              // as this player instead of the anonymous spectator connection
+              // opened at page load.
+              connect(id);
             } catch (err) {
               joinMsg.className = "msg err";
               joinMsg.textContent = err.message || "something went wrong.";
@@ -811,6 +875,9 @@
         const match = location.pathname.match(/^\/r\/([A-Za-z0-9_-]{4,40})\/?$/);
         if (!match) {
           currentId = null;
+          lastStateJson = null;
+          stopPolling();
+          if (socket) { try { socket.close(); } catch {} socket = null; }
           els.room.classList.remove("on");
           els.room.innerHTML = "";
           els.create.classList.remove("hidden");
@@ -823,6 +890,7 @@
           return;
         }
         currentId = match[1];
+        lastStateJson = null;
         els.create.classList.add("hidden");
         els.create.innerHTML = "";
         els.room.classList.add("on");
@@ -837,9 +905,16 @@
             pendingLoginError = null;
           }
         } catch {
-          els.room.innerHTML = `<p class="msg err center">couldn't load this round.</p>`;
+          els.room.innerHTML = `<p class="msg err center">couldn't load this round. <button class="ghost" id="retryLoadBtn" type="button">try again</button></p>`;
+          const retryLoadBtn = document.getElementById("retryLoadBtn");
+          if (retryLoadBtn) retryLoadBtn.addEventListener("click", boot);
         }
+        // Live updates come from the WebSocket; polling is the fallback for
+        // networks/webviews where that socket doesn't stay open, so the
+        // round still advances — cylinder loading, whose turn it is, the
+        // final result — without anyone having to hit refresh.
         connect(currentId);
+        startPolling(currentId);
       }
 
       boot();

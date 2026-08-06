@@ -116,6 +116,10 @@ const STORE = "session";
 
 function idb() {
   return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("indexedDB unavailable"));
+      return;
+    }
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => req.result.createObjectStore(STORE);
     req.onsuccess = () => resolve(req.result);
@@ -147,8 +151,14 @@ async function idbDel(key) {
   });
 }
 
+// Never throws — a blocked/unavailable IndexedDB (private browsing, some
+// in-app webviews) should read as "not logged in", not freeze the caller.
 export async function getSession() {
-  return idbGet("current");
+  try {
+    return await idbGet("current");
+  } catch {
+    return null;
+  }
 }
 export async function clearSession() {
   return idbDel("current");
