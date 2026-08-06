@@ -78,12 +78,6 @@
         font-size: 0.85rem; line-height: 1.5; color: var(--ink);
       }
       .checkrow input[type="checkbox"] { margin-top: 0.2rem; width: 16px; height: 16px; flex: none; }
-      .loggedin {
-        display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
-        font-size: 0.8rem; color: var(--muted); margin-bottom: 1.2rem; flex-wrap: wrap;
-      }
-      .loggedin b { color: var(--ink); }
-
       label.lbl {
         display: block; font-size: 0.76rem; color: var(--muted);
         margin: 1rem 0 0.35rem; text-transform: uppercase; letter-spacing: 0.05em;
@@ -199,11 +193,24 @@
       }
       footer a { text-decoration: none; }
       footer a:hover { text-decoration: underline; }
+
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 0.6rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.4rem;
+        flex-wrap: wrap;
+      }
+      .topbar b { color: var(--ink); }
+      .topbar button.ghost {
+        padding: 0.15rem 0.5rem; font-size: 0.72rem;
+      }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <div style="text-align:right;font-size:0.78rem;"><a href="/leaderboard">leaderboard →</a></div>
+      <div class="topbar">
+        <span id="authbar"></span>
+        <a href="/leaderboard">leaderboard →</a>
+      </div>
       <h1>revolver <span class="slash">· live russian roulette, played in dares</span></h1>
       <p class="intro">
         Load a <b>dare</b>, challenge another Bluesky handle, and once you
@@ -319,10 +326,6 @@
 
       function renderCreateForm(session) {
         return `
-          <div class="loggedin">
-            <span>logged in as <b>@${escapeHtml(session.handle)}</b></span>
-            <button type="button" class="ghost" id="logoutBtn" style="padding:0.25rem 0.6rem;font-size:0.72rem;">not you? log out</button>
-          </div>
           <form id="createForm" autocomplete="off">
             <label class="lbl" for="oppHandle">who you're calling out</label>
             <input type="text" id="oppHandle" placeholder="e.g. them.bsky.social" spellcheck="false" />
@@ -352,12 +355,6 @@
       }
 
       function wireCreateForm(session) {
-        const logoutBtn = document.getElementById("logoutBtn");
-        if (logoutBtn) logoutBtn.addEventListener("click", async () => {
-          await clearSession();
-          renderCreateArea();
-        });
-
         const oppHandle = document.getElementById("oppHandle");
         if (oppHandle && window.attachHandleTypeahead) attachHandleTypeahead(oppHandle);
 
@@ -451,6 +448,32 @@
 
       function avatarStyle(url) {
         return url ? `background-image:url('${url}')` : "";
+      }
+
+      // Persistent top-of-page auth status, independent of whichever phase
+      // is currently rendered in #create/#room — a session found once stays
+      // reflected everywhere (no relogin prompt on a screen that already has
+      // a valid session) and there's always one obvious way to log out.
+      async function refreshAuthbar() {
+        const bar = document.getElementById("authbar");
+        if (!bar) return;
+        const session = await getSession();
+        if (!session) {
+          bar.innerHTML = "";
+          return;
+        }
+        bar.innerHTML = `logged in as <b>@${escapeHtml(session.handle)}</b> · <button type="button" class="ghost" id="authLogoutBtn">log out</button>`;
+        const btn = document.getElementById("authLogoutBtn");
+        if (btn) btn.addEventListener("click", async () => {
+          await clearSession();
+          await refreshAuthbar();
+          if (currentId) {
+            const state = lastStateJson ? JSON.parse(lastStateJson) : null;
+            if (state) render(currentId, state);
+          } else {
+            await renderCreateArea();
+          }
+        });
       }
 
       let socket = null;
@@ -795,6 +818,7 @@
         const joinLogoutBtn = document.getElementById("joinLogoutBtn");
         if (joinLogoutBtn) joinLogoutBtn.addEventListener("click", async () => {
           await clearSession();
+          await refreshAuthbar();
           render(id, state);
         });
         const joinBtn = document.getElementById("joinBtn");
@@ -883,6 +907,7 @@
         } catch (err) {
           pendingLoginError = err.message || "login failed.";
         }
+        refreshAuthbar();
 
         const match = location.pathname.match(/^\/r\/([A-Za-z0-9_-]{4,40})\/?$/);
         if (!match) {

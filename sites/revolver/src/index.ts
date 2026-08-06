@@ -67,6 +67,18 @@
 // fire-and-forget /record call from Round the instant a round resolves, and
 // /api/leaderboard + public/leaderboard.html read it back out.
 //
+// @fromthewestmeadow.com again (2026-08-06): asked for a logout button plus
+// no relogin prompt on a screen you're already logged in on, and for a
+// specific pre-leaderboard round (theirs, linked in the reply) to count.
+// The per-phase login affordances (create form, join form) were already
+// session-gated correctly, but there was no visible session status once a
+// round moved past those phases — index.html now has a persistent #authbar
+// at the top of the page, independent of whichever phase is rendered below
+// it, always showing "logged in as X · log out" when a session exists. The
+// leaderboard gap is BACKFILL_ROUND_IDS below: /api/leaderboard lazily
+// credits any round in that list straight from the Round DO's own resolved
+// state, guarded by Leaderboard.backfilled so it only ever applies once.
+//
 // Routes:
 //   GET  /r/<id>              -> personalized-OG unfurl shell (same SPA,
 //                                 index.html reads the id from the path)
@@ -167,6 +179,43 @@ async function renderShare(env: Env, request: Request, id: string): Promise<Resp
   }
 }
 
+// Rounds that resolved before the Leaderboard DO existed, so Round.pull()
+// never had anywhere to record the win — @fromthewestmeadow.com asked
+// (2026-08-06) for their round to count retroactively. Backfilled lazily on
+// every /api/leaderboard hit; Leaderboard./backfill tracks which round ids
+// it's already applied so this is a no-op after the first successful run.
+const BACKFILL_ROUND_IDS = ["0b21fb442fa736312b"];
+
+async function backfillLeaderboard(env: Env, request: Request): Promise<void> {
+  const lbStub = env.LEADERBOARD.get(env.LEADERBOARD.idFromName("global"));
+  for (const id of BACKFILL_ROUND_IDS) {
+    try {
+      const roundStub = env.ROUND.get(env.ROUND.idFromName(id));
+      const stateRes = await roundStub.fetch(new Request(new URL("/state", request.url)));
+      if (!stateRes.ok) continue;
+      const state = (await stateRes.json()) as any;
+      if (!state.resolved || !state.loser) continue;
+      const winnerRole = state.loser === "creator" ? "joiner" : "creator";
+      const winner = state[winnerRole];
+      if (!winner) continue;
+      await lbStub.fetch(
+        new Request("https://leaderboard/backfill", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            roundId: id,
+            did: winner.did,
+            handle: winner.handle,
+            displayName: winner.displayName,
+            avatar: winner.avatar,
+            chambers: state.chambers,
+          }),
+        }),
+      );
+    } catch {}
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -186,6 +235,7 @@ export default {
     }
 
     if (url.pathname === "/api/leaderboard" && request.method === "GET") {
+      await backfillLeaderboard(env, request);
       const stub = env.LEADERBOARD.get(env.LEADERBOARD.idFromName("global"));
       return stub.fetch(new Request(new URL("/state", request.url)));
     }
@@ -571,6 +621,7 @@ interface LeaderboardEntry {
 export class Leaderboard {
   private state: DurableObjectState;
   private entries: Record<string, LeaderboardEntry> = {};
+  private backfilled: string[] = [];
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
@@ -578,11 +629,26 @@ export class Leaderboard {
     this.ready = this.state.blockConcurrencyWhile(async () => {
       const saved = await this.state.storage.get<string>("data");
       if (saved) this.entries = JSON.parse(saved);
+      const backfilled = await this.state.storage.get<string>("backfilled");
+      if (backfilled) this.backfilled = JSON.parse(backfilled);
     });
   }
 
   private persist() {
     this.state.storage.put("data", JSON.stringify(this.entries)).catch(() => {});
+  }
+
+  private persistBackfilled() {
+    this.state.storage.put("backfilled", JSON.stringify(this.backfilled)).catch(() => {});
+  }
+
+  private credit(did: string, handle: string, displayName: string, avatar: string, chambers: string) {
+    const entry: LeaderboardEntry = this.entries[did] || { did, handle, displayName: handle, avatar: "", counts: {} };
+    entry.handle = handle;
+    entry.displayName = displayName || handle;
+    entry.avatar = avatar;
+    entry.counts[chambers] = (entry.counts[chambers] || 0) + 1;
+    this.entries[did] = entry;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -593,16 +659,26 @@ export class Leaderboard {
       const body = await safeJson(request);
       const did = cleanStr(body?.did, 200);
       const handle = cleanStr(body?.handle, 80);
-      const chambers = String(clampInt(body?.chambers, 2, 8, 6));
       if (!did || !handle) return json({ error: "bad record" }, 400);
-      const key = did;
-      const entry: LeaderboardEntry = this.entries[key] || { did, handle, displayName: handle, avatar: "", counts: {} };
-      entry.handle = handle;
-      entry.displayName = cleanStr(body?.displayName, 100) || handle;
-      entry.avatar = cleanStr(body?.avatar, 500);
-      entry.counts[chambers] = (entry.counts[chambers] || 0) + 1;
-      this.entries[key] = entry;
+      this.credit(did, handle, cleanStr(body?.displayName, 100), cleanStr(body?.avatar, 500), String(clampInt(body?.chambers, 2, 8, 6)));
       this.persist();
+      return json({ ok: true });
+    }
+
+    // One-off credit for a round that resolved before this DO existed —
+    // idempotent per roundId so replaying the same backfill list never
+    // double-counts. See BACKFILL_ROUND_IDS in src/index.ts.
+    if (url.pathname === "/backfill" && request.method === "POST") {
+      const body = await safeJson(request);
+      const roundId = cleanStr(body?.roundId, 60);
+      const did = cleanStr(body?.did, 200);
+      const handle = cleanStr(body?.handle, 80);
+      if (!roundId || !did || !handle) return json({ error: "bad backfill" }, 400);
+      if (this.backfilled.includes(roundId)) return json({ ok: true, skipped: true });
+      this.credit(did, handle, cleanStr(body?.displayName, 100), cleanStr(body?.avatar, 500), String(clampInt(body?.chambers, 2, 8, 6)));
+      this.backfilled.push(roundId);
+      this.persist();
+      this.persistBackfilled();
       return json({ ok: true });
     }
 
