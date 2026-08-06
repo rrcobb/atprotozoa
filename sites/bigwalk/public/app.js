@@ -3,6 +3,12 @@
 // Durable Object (see src/index.ts's Walk class) for live presence, the race
 // clock, and elimination. Everyone connected joins the next race when
 // someone hits start; alternate L/R (keys or on-screen buttons) to walk.
+//
+// Async multiplayer: race_start also ships up to 4 "ghosts" — sparse replay
+// traces of past finishers (see the DO's GhostRun/recordGhosts). The server
+// already counts them toward the elimination pace check; this client just
+// animates them locally each frame by interpolating ghostDistanceAt, so a
+// solo racer still has something to fall behind (or beat).
 
 import { resolveDid, moots, getProfiles } from "./lib/cluster.js";
 
@@ -26,6 +32,7 @@ const els = {
   startRaceBtn: document.getElementById("start-race-btn"),
   countdown: document.getElementById("countdown"),
   raceStatusLine: document.getElementById("race-status-line"),
+  ghostNote: document.getElementById("ghost-note"),
   footControls: document.getElementById("foot-controls"),
   footLeft: document.getElementById("foot-left"),
   footRight: document.getElementById("foot-right"),
@@ -47,15 +54,36 @@ const room = {
   bestBy: "",
   history: [],
   presence: [],
+  ghostCount: 0,
   myId: null,
   mySeat: null,
   ws: null,
-  race: { state: "lobby", startedAt: 0, walkers: [] },
+  race: { state: "lobby", startedAt: 0, walkers: [], ghosts: [] },
 };
 
-const walkerEls = new Map(); // seat -> DOM element
+const walkerEls = new Map(); // seat -> DOM element ("ghost:<seat>" for ghosts)
 let countdownTimer = null;
+let ghostTimer = null;
 let localLastFoot = "";
+
+// Mirrors src/index.ts's ghostDistanceAt — interpolates a ghost's distance
+// at an elapsed race time from its sparse recorded samples.
+function ghostDistanceAt(g, elapsedMs) {
+  if (elapsedMs <= 0) return 0;
+  if (elapsedMs >= g.finishMs) return room.trackMeters;
+  let prev = g.samples[0] || [0, 0];
+  for (const s of g.samples) {
+    if (s[0] <= elapsedMs) {
+      prev = s;
+    } else {
+      const [t0, d0] = prev;
+      const [t1, d1] = s;
+      const frac = t1 === t0 ? 0 : (elapsedMs - t0) / (t1 - t0);
+      return d0 + (d1 - d0) * frac;
+    }
+  }
+  return prev[1];
+}
 
 function cleanHandle(raw) {
   return (raw || "")
@@ -158,7 +186,8 @@ function applySnapshot(snap) {
   room.bestBy = snap.bestBy || "";
   room.history = snap.history || [];
   room.presence = snap.presence || [];
-  room.race = snap.race || { state: "lobby", startedAt: 0, walkers: [] };
+  room.ghostCount = snap.ghostCount || 0;
+  room.race = snap.race || { state: "lobby", startedAt: 0, walkers: [], ghosts: [] };
 }
 
 // ---- websocket ----
@@ -248,10 +277,13 @@ function handleMessage(msg) {
     return;
   }
   if (msg.t === "race_start") {
-    room.race = { state: "racing", startedAt: msg.startedAt, walkers: msg.walkers || [] };
+    room.race = { state: "racing", startedAt: msg.startedAt, walkers: msg.walkers || [], ghosts: msg.ghosts || [] };
     walkerEls.clear();
     els.resultsPanel.hidden = true;
     renderTrackFull(room.race.walkers);
+    renderGhosts(room.race.ghosts);
+    startGhostLoop(room.race.ghosts);
+    renderGhostNote();
     beginCountdown();
     return;
   }
@@ -264,10 +296,12 @@ function handleMessage(msg) {
     return;
   }
   if (msg.t === "race_over") {
-    room.race = { state: "lobby", startedAt: 0, walkers: room.race.walkers };
+    stopGhostLoop();
+    room.race = { state: "lobby", startedAt: 0, walkers: room.race.walkers, ghosts: [] };
     room.bestMs = msg.bestMs ?? room.bestMs;
     room.bestBy = msg.bestBy || room.bestBy;
     room.history = msg.history || room.history;
+    room.ghostCount = msg.ghostCount ?? room.ghostCount;
     renderRecord();
     renderHistory();
     renderResults(msg.results || []);
@@ -415,6 +449,82 @@ function markEliminated(seat) {
   if (el) el.classList.add("eliminated");
 }
 
+// ---- rendering: ghosts ----
+
+function makeGhostEl(g) {
+  const lane = document.createElement("div");
+  lane.className = "lane";
+
+  const el = document.createElement("div");
+  el.className = "walker ghost";
+  el.dataset.seat = "ghost:" + g.seat;
+  el.style.left = pctFor(0);
+
+  const figure = document.createElement("div");
+  figure.className = "figure";
+  if (g.avatar) {
+    const img = document.createElement("img");
+    img.src = g.avatar;
+    img.alt = "";
+    img.loading = "lazy";
+    figure.appendChild(img);
+  } else {
+    figure.textContent = "👻";
+  }
+  el.appendChild(figure);
+
+  const tag = document.createElement("div");
+  tag.className = "tag";
+  tag.textContent = "👻 " + (g.displayName || g.handle || "ghost");
+  el.appendChild(tag);
+
+  lane.appendChild(el);
+  walkerEls.set("ghost:" + g.seat, el);
+  return lane;
+}
+
+function renderGhosts(ghosts) {
+  for (const g of ghosts || []) {
+    els.walkers.appendChild(makeGhostEl(g));
+  }
+}
+
+function startGhostLoop(ghosts) {
+  stopGhostLoop();
+  if (!ghosts || !ghosts.length) return;
+  ghostTimer = setInterval(() => {
+    const elapsed = Date.now() - room.race.startedAt;
+    if (elapsed < 0) return;
+    for (const g of ghosts) {
+      const el = walkerEls.get("ghost:" + g.seat);
+      if (!el) continue;
+      el.style.left = pctFor(ghostDistanceAt(g, elapsed));
+      if (elapsed >= g.finishMs) el.classList.add("finished");
+    }
+  }, 80);
+}
+
+function stopGhostLoop() {
+  if (ghostTimer) {
+    clearInterval(ghostTimer);
+    ghostTimer = null;
+  }
+}
+
+function renderGhostNote() {
+  if (!els.ghostNote) return;
+  if (room.race.state === "racing") {
+    const n = room.race.ghosts.length;
+    els.ghostNote.textContent = n
+      ? `racing against ${n} ghost${n === 1 ? "" : "s"} of past runs 👻`
+      : "";
+    return;
+  }
+  els.ghostNote.textContent = room.ghostCount
+    ? `${room.ghostCount} ghost${room.ghostCount === 1 ? "" : "s"} of past runs are ready to race — hit start solo and you're still racing someone`
+    : "no ghosts recorded here yet — finish a walk and you'll leave one for the next racer";
+}
+
 // ---- rendering: race controls ----
 
 function renderRaceUI() {
@@ -422,14 +532,16 @@ function renderRaceUI() {
   els.startRaceBtn.hidden = racing;
   els.footControls.hidden = !racing;
   if (!racing) {
+    stopGhostLoop();
     renderTrackFull(room.race.walkers && room.race.walkers.some((w) => w.finished || w.eliminated) ? room.race.walkers : null);
     els.countdown.hidden = true;
     els.startRaceBtn.disabled = false;
     const passerby = !room.mySeat || room.mySeat.startsWith("passerby:");
     els.raceStatusLine.textContent = passerby
       ? "tap \"change\" above and enter your handle to join the race yourself"
-      : "hit start whenever — everyone connected joins";
+      : "hit start whenever — everyone connected joins, ghosts of past runs race too";
   }
+  renderGhostNote();
 }
 
 function beginCountdown() {

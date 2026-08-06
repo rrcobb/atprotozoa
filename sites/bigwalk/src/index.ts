@@ -14,6 +14,17 @@
 // blockConcurrencyWhile-loaded storage, a ticking DO alarm), swapped from
 // ambient traffic-jam creep to an actual race clock with a finish line.
 //
+// 2026-08-06, isolyth.dev's mutual (cee.wtf) asked for async multiplayer —
+// racing "the ghosts of other players' runs." Every finisher's step trace
+// (sparse [msSinceStart, distance] samples) is kept as a GhostRun, one per
+// seat, capped at MAX_GHOSTS. Each new race samples up to MAX_ACTIVE_GHOSTS
+// of them to pace against — the server counts a ghost's interpolated
+// position toward the elimination lead check, so falling behind a ghost can
+// get you picked off same as falling behind a live racer, and a room stays
+// racy solo. Replay math (ghostDistanceAt) is duplicated client-side so
+// ghosts animate smoothly between the server's sparse samples without
+// extra network chatter.
+//
 // Routes (mount is the whole subdomain, no prefix to strip):
 //   GET  /w/<handle>             -> personalized-OG unfurl shell, falls
 //                                   through to the same SPA index.html
@@ -192,8 +203,26 @@ interface RaceHistoryEntry {
   racers: number;
 }
 
+// A ghost is a past racer's finished run, replayed as a pace-setter in later
+// races — this is what makes the room playable async/solo: even with nobody
+// else online, you're racing whoever finished here before you. samples are
+// sparse [msSinceStart, distance] points recorded from that racer's actual
+// steps; finishMs anchors the tail (distance == TRACK_METERS at finishMs).
+interface GhostRun {
+  seat: string;
+  did: string;
+  handle: string;
+  displayName: string;
+  avatar: string;
+  finishMs: number;
+  samples: [number, number][];
+  recordedAt: number;
+}
+
 const MAX_POOL = 40;
 const MAX_TEXT = 256;
+const MAX_GHOSTS = 16; // one personal-best ghost per seat, capped total
+const MAX_ACTIVE_GHOSTS = 4; // how many pace a single race
 
 const PRESENCE_COLORS = [
   "#ff7a3d", "#4dd6c0", "#f2c94c", "#bb86fc", "#6fcf97", "#56ccf2", "#eb5757", "#f2994a",
@@ -212,6 +241,34 @@ const MAX_HISTORY = 12;
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function sample<T>(arr: T[], n: number): T[] {
+  const pool = [...arr];
+  const out: T[] = [];
+  while (pool.length && out.length < n) {
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+// Linear interpolation of a ghost's distance at a given elapsed race time —
+// used both for the elimination pace check and to seed the client's replay.
+function ghostDistanceAt(g: GhostRun, elapsedMs: number): number {
+  if (elapsedMs <= 0) return 0;
+  if (elapsedMs >= g.finishMs) return TRACK_METERS;
+  let prev: [number, number] = g.samples[0] ?? [0, 0];
+  for (const s of g.samples) {
+    if (s[0] <= elapsedMs) {
+      prev = s;
+    } else {
+      const [t0, d0] = prev;
+      const [t1, d1] = s;
+      const frac = t1 === t0 ? 0 : (elapsedMs - t0) / (t1 - t0);
+      return d0 + (d1 - d0) * frac;
+    }
+  }
+  return prev[1];
 }
 
 function json(obj: unknown, status = 200): Response {
@@ -254,6 +311,7 @@ export class Walk {
   private bestMs: number | null = null;
   private bestBy = "";
   private history: RaceHistoryEntry[] = [];
+  private ghosts: GhostRun[] = [];
   private sessions = new Map<WebSocket, Session>();
 
   // in-memory only — a live race doesn't need to survive a DO eviction, and
@@ -262,13 +320,15 @@ export class Walk {
   private startedAt = 0;
   private walkers = new Map<string, Walker>();
   private finishOrder = 0;
+  private traces = new Map<string, [number, number][]>();
+  private activeGhosts: GhostRun[] = [];
 
   private ready: Promise<void>;
 
   constructor(state: DurableObjectState) {
     this.state = state;
     this.ready = this.state.blockConcurrencyWhile(async () => {
-      const [owner, pool, kind, createdAt, bestMs, bestBy, history] = await Promise.all([
+      const [owner, pool, kind, createdAt, bestMs, bestBy, history, ghosts] = await Promise.all([
         this.state.storage.get<Rider>("owner"),
         this.state.storage.get<Rider[]>("pool"),
         this.state.storage.get<string>("kind"),
@@ -276,6 +336,7 @@ export class Walk {
         this.state.storage.get<number>("bestMs"),
         this.state.storage.get<string>("bestBy"),
         this.state.storage.get<RaceHistoryEntry[]>("history"),
+        this.state.storage.get<GhostRun[]>("ghosts"),
       ]);
       this.owner = owner ?? null;
       this.pool = pool ?? [];
@@ -284,6 +345,7 @@ export class Walk {
       this.bestMs = bestMs ?? null;
       this.bestBy = bestBy ?? "";
       this.history = history ?? [];
+      this.ghosts = ghosts ?? [];
     });
   }
 
@@ -302,6 +364,7 @@ export class Walk {
       bestMs: this.bestMs,
       bestBy: this.bestBy,
       history: this.history,
+      ghostCount: this.ghosts.length,
       presence: this.presenceList(),
       race: this.raceSnapshot(),
     };
@@ -312,6 +375,7 @@ export class Walk {
       state: this.raceState,
       startedAt: this.startedAt,
       walkers: [...this.walkers.values()],
+      ghosts: this.raceState === "racing" ? this.activeGhosts : [],
     };
   }
 
@@ -414,11 +478,23 @@ export class Walk {
   private checkEliminations() {
     if (Date.now() - this.startedAt < GRACE_MS) return;
     const active = this.activeWalkers();
-    if (active.length <= 1) {
+    if (active.length === 0) {
       this.maybeEndRace();
       return;
     }
-    const leadDistance = Math.max(...[...this.walkers.values()].filter((w) => !w.eliminated).map((w) => w.distance));
+    const elapsed = Date.now() - this.startedAt;
+    const ghostDistances = this.activeGhosts.map((g) => ghostDistanceAt(g, elapsed));
+    // With nobody left to fall behind — no other live walker, no ghost
+    // pacing this race — there's no pack to get picked off from.
+    if (active.length <= 1 && ghostDistances.length === 0) {
+      this.maybeEndRace();
+      return;
+    }
+    const leadDistance = Math.max(
+      ...[...this.walkers.values()].filter((w) => !w.eliminated).map((w) => w.distance),
+      ...ghostDistances,
+      0,
+    );
     for (const w of active) {
       if (leadDistance - w.distance >= ELIM_LAG_METERS) {
         w.eliminated = true;
@@ -457,10 +533,53 @@ export class Walk {
     }
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
 
+    this.recordGhosts();
+
     this.raceState = "lobby";
     this.walkers.clear();
-    this.persist({ bestMs: this.bestMs, bestBy: this.bestBy, history: this.history });
-    this.broadcast({ t: "race_over", results, bestMs: this.bestMs, bestBy: this.bestBy, history: this.history });
+    this.activeGhosts = [];
+    this.traces.clear();
+    this.persist({ bestMs: this.bestMs, bestBy: this.bestBy, history: this.history, ghosts: this.ghosts });
+    this.broadcast({
+      t: "race_over",
+      results,
+      bestMs: this.bestMs,
+      bestBy: this.bestBy,
+      history: this.history,
+      ghostCount: this.ghosts.length,
+    });
+  }
+
+  // Every walker who actually finished leaves behind a ghost — their step
+  // trace replayed as a pace-setter in future races. Keeps at most one
+  // (their fastest) ghost per seat, capped at MAX_GHOSTS total so the room's
+  // storage doesn't grow without bound.
+  private recordGhosts() {
+    for (const w of this.walkers.values()) {
+      if (!w.finished || w.finishMs == null) continue;
+      const trace = this.traces.get(w.seat);
+      if (!trace || !trace.length) continue;
+      const run: GhostRun = {
+        seat: w.seat,
+        did: w.did,
+        handle: w.handle,
+        displayName: w.displayName,
+        avatar: w.avatar,
+        finishMs: w.finishMs,
+        samples: trace,
+        recordedAt: Date.now(),
+      };
+      const existingIdx = this.ghosts.findIndex((g) => g.seat === w.seat);
+      if (existingIdx >= 0) {
+        if (run.finishMs < this.ghosts[existingIdx].finishMs) this.ghosts[existingIdx] = run;
+      } else {
+        this.ghosts.push(run);
+      }
+    }
+    if (this.ghosts.length > MAX_GHOSTS) {
+      this.ghosts.sort((a, b) => a.finishMs - b.finishMs);
+      this.ghosts.length = MAX_GHOSTS;
+    }
   }
 
   private broadcast(msg: unknown, exclude?: WebSocket) {
@@ -558,8 +677,19 @@ export class Walk {
       this.raceState = "racing";
       this.startedAt = Date.now() + COUNTDOWN_MS;
       this.finishOrder = 0;
+      this.traces.clear();
+      const liveSeats = new Set(this.walkers.keys());
+      this.activeGhosts = sample(
+        this.ghosts.filter((g) => !liveSeats.has(g.seat)),
+        MAX_ACTIVE_GHOSTS,
+      );
       this.state.storage.setAlarm(this.startedAt + GRACE_MS).catch(() => {});
-      this.broadcast({ t: "race_start", startedAt: this.startedAt, walkers: [...this.walkers.values()] });
+      this.broadcast({
+        t: "race_start",
+        startedAt: this.startedAt,
+        walkers: [...this.walkers.values()],
+        ghosts: this.activeGhosts,
+      });
       return;
     }
 
@@ -585,6 +715,9 @@ export class Walk {
         w.place = this.finishOrder;
         place = w.place;
       }
+      const trace = this.traces.get(w.seat);
+      if (trace) trace.push([now - this.startedAt, w.distance]);
+      else this.traces.set(w.seat, [[now - this.startedAt, w.distance]]);
       this.broadcast({ t: "pos", seat: w.seat, distance: w.distance, finished: w.finished, place });
       if (w.finished) this.maybeEndRace();
       return;
