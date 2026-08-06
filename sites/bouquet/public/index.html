@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>bouquet — send someone flowers, with a secret tucked inside</title>
+<meta name="description" content="Build a digital bouquet, tuck a hidden message inside, and send the link to a friend or a secret crush. No account needed." />
+<meta property="og:title" content="bouquet — send someone flowers, with a secret tucked inside" />
+<meta property="og:description" content="Build a digital bouquet, tuck a hidden message inside, and send the link to a friend or a secret crush. No account needed." />
+<meta property="og:url" content="https://bouquet.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bouquet.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A wrapped paper bouquet of hand-drawn flowers, tied with a ribbon, on bouquet.bisks.net." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="bouquet — send someone flowers, with a secret tucked inside" />
+<meta name="twitter:description" content="Build a digital bouquet, tuck a hidden message inside, and send the link to a friend or a secret crush. No account needed." />
+<meta name="twitter:image" content="https://bouquet.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #1b0f16;
+    --bg2: #2a1420;
+    --fg: #fbeef2;
+    --dim: #c9a3b5;
+    --accent: #ff5c8a;
+    --accent2: #ffd166;
+    --card: #24101a;
+    --border: #4a2331;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #4a1f36 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #2a1f4a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-rounded, "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.3rem; text-align: center;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.95rem; text-align: center; margin: 0 0 2rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    padding: 1.4rem; margin-bottom: 1.1rem;
+  }
+  h2 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 0 0 0.7rem; }
+  .stage { position: relative; display: flex; justify-content: center; }
+  .bouquet-svg { width: 100%; max-width: 340px; height: auto; overflow: visible; }
+  .bouquet-svg .stem-group {
+    opacity: 0; transform: scale(0.25); transform-origin: var(--bx) var(--by);
+    transition: opacity 0.45s ease, transform 0.55s cubic-bezier(.34,1.56,.64,1);
+    transition-delay: calc(var(--i) * 90ms);
+  }
+  .stage.open .bouquet-svg .stem-group { opacity: 1; transform: scale(1); }
+  .stage.no-anim .bouquet-svg .stem-group { transition: none; opacity: 1; transform: scale(1); }
+  .flap { cursor: pointer; transform-origin: 160px 260px; transition: opacity 0.5s ease, transform 0.5s ease; }
+  .stage.open .flap { opacity: 0; transform: translateY(-26px) scale(0.9); pointer-events: none; }
+  .flap-text { font-size: 15px; fill: var(--fg); text-anchor: middle; font-family: inherit; }
+  .sparkle { position: absolute; left: 50%; top: 46%; font-size: 1.15rem; pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.4); opacity: 0; animation: sparkle-fly 0.9s ease-out forwards; }
+  @keyframes sparkle-fly {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+    18% { opacity: 1; }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(25deg) scale(1); }
+  }
+  .picker { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .pick-btn {
+    border: 1.5px solid var(--border); background: #150a10; color: var(--fg);
+    border-radius: 10px; padding: 0.45rem 0.65rem; font-size: 0.85rem; cursor: pointer;
+  }
+  .pick-btn.active { border-color: var(--accent); background: #3a1826; }
+  .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+  .swatch.active { border-color: var(--fg); box-shadow: 0 0 0 2px var(--accent); }
+  .row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .stems-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.8rem; }
+  .stem-chip {
+    display: inline-flex; align-items: center; gap: 0.35rem; background: #150a10;
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.25rem 0.4rem 0.25rem 0.6rem;
+    font-size: 0.8rem;
+  }
+  .stem-chip button {
+    background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.9rem;
+    line-height: 1; padding: 0.1rem 0.3rem;
+  }
+  .stem-chip button:hover { color: var(--accent); }
+  .add-btn {
+    background: var(--accent); color: #1b0f16; border: none; border-radius: 10px;
+    padding: 0.5rem 0.9rem; font-weight: 600; cursor: pointer; font-size: 0.85rem;
+  }
+  .add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  label.field { display: block; margin-top: 0.9rem; font-size: 0.85rem; color: var(--dim); }
+  input[type=text], textarea {
+    width: 100%; margin-top: 0.35rem; background: #150a10; border: 1px solid var(--border);
+    border-radius: 10px; color: var(--fg); padding: 0.6rem 0.7rem; font-size: 0.95rem;
+    font-family: inherit;
+  }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  .primary-btn {
+    display: block; width: 100%; margin-top: 1.2rem; background: linear-gradient(90deg, var(--accent), #ff8fc4);
+    color: #1b0f16; border: none; border-radius: 12px; padding: 0.85rem; font-weight: 700;
+    font-size: 1rem; cursor: pointer;
+  }
+  .primary-btn:hover { filter: brightness(1.06); }
+  #result-panel { display: none; }
+  #result-panel.show { display: block; }
+  .link-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .link-row input { flex: 1; }
+  .ghost-btn {
+    background: #150a10; color: var(--fg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.55rem 0.8rem; cursor: pointer; font-size: 0.85rem; white-space: nowrap;
+  }
+  .share-row { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.8rem; }
+  .share-link {
+    background: #1284e0; color: #fff; text-decoration: none; border-radius: 10px;
+    padding: 0.6rem 0.9rem; font-size: 0.85rem; font-weight: 600;
+  }
+  .share-link.secondary { background: var(--card); border: 1px solid var(--border); color: var(--fg); }
+  #reveal-view { display: none; text-align: center; }
+  #reveal-view.active { display: block; }
+  #builder-view.hidden { display: none; }
+  #message-panel {
+    opacity: 0; transform: translateY(12px); transition: opacity 0.6s ease, transform 0.6s ease;
+    pointer-events: none;
+  }
+  #message-panel.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .msg-to { font-size: 1.15rem; margin: 0 0 0.6rem; color: var(--accent2); }
+  .msg-body { font-size: 1.05rem; line-height: 1.5; white-space: pre-wrap; margin: 0 0 0.8rem; }
+  .msg-from { color: var(--dim); font-style: italic; margin: 0; }
+  .cta-link {
+    display: inline-block; margin-top: 1.3rem; color: var(--accent2); text-decoration: none;
+    font-size: 0.9rem; border-bottom: 1px dashed var(--accent2);
+  }
+  .hint { font-size: 0.8rem; color: var(--dim); margin-top: 0.6rem; }
+  footer { text-align: center; color: var(--dim); font-size: 0.78rem; margin-top: 2.5rem; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌷 bouquet</h1>
+  <p class="tag">build a bunch of flowers, tuck a secret inside, send the link.</p>
+
+  <div id="builder-view">
+    <div class="card">
+      <h2>Preview</h2>
+      <div class="stage no-anim open" id="preview-stage"></div>
+      <div class="stems-list" id="stems-list"></div>
+      <div class="row">
+        <button class="add-btn" id="add-stem-btn" type="button">+ add stem</button>
+        <span class="hint" id="stems-hint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Flower</h2>
+      <div class="picker" id="type-picker"></div>
+      <h2 style="margin-top:1rem">Color</h2>
+      <div class="picker" id="color-picker"></div>
+    </div>
+
+    <div class="card">
+      <h2>Wrap</h2>
+      <div class="picker" id="wrap-picker"></div>
+      <h2 style="margin-top:1rem">Ribbon</h2>
+      <div class="picker" id="ribbon-picker"></div>
+    </div>
+
+    <div class="card">
+      <h2>The note</h2>
+      <label class="field">To (optional)
+        <input type="text" id="to-input" maxlength="40" placeholder="a friend, a crush, a mystery person" />
+      </label>
+      <label class="field">From (optional)
+        <input type="text" id="from-input" maxlength="40" placeholder="leave blank to stay anonymous" />
+      </label>
+      <label class="field">Hidden message (optional — revealed only after they open it)
+        <textarea id="message-input" maxlength="240" placeholder="say the thing..."></textarea>
+      </label>
+      <button class="primary-btn" id="wrap-btn" type="button">Wrap it up 🎀</button>
+    </div>
+
+    <div class="card" id="result-panel">
+      <h2>Ready to send</h2>
+      <div class="link-row">
+        <input type="text" id="link-output" readonly />
+        <button class="ghost-btn" id="copy-btn" type="button">Copy</button>
+      </div>
+      <div class="share-row">
+        <a class="share-link" id="bsky-share" href="#" target="_blank" rel="noopener">Share on Bluesky</a>
+        <a class="share-link secondary" id="preview-link" href="#" target="_blank" rel="noopener">See how it opens →</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="reveal-view">
+    <div class="card">
+      <div class="stage" id="reveal-stage"></div>
+      <p class="hint" id="reveal-hint">tap the bouquet to open it</p>
+    </div>
+    <div class="card" id="message-panel">
+      <p class="msg-to" id="msg-to"></p>
+      <p class="msg-body" id="msg-body"></p>
+      <p class="msg-from" id="msg-from"></p>
+    </div>
+    <div style="text-align:center">
+      <a class="cta-link" href="/">🌷 send your own bouquet</a>
+    </div>
+  </div>
+
+  <footer>
+    an idea from the <a href="https://buildthis.bisks.net/theme">theme box</a> — "dating and connection" · built by @buildthis
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var FLOWER_TYPES = ["rose", "tulip", "daisy", "sunflower", "lily", "blossom"];
+  var FLOWER_LABELS = { rose: "🌹 Rose", tulip: "🌷 Tulip", daisy: "🌼 Daisy", sunflower: "🌻 Sunflower", lily: "🪷 Lily", blossom: "🌸 Blossom" };
+  var COLORS = [
+    { name: "Crimson", hex: "#e0294f" },
+    { name: "Blush", hex: "#ff8fc4" },
+    { name: "Peach", hex: "#ffb37b" },
+    { name: "Sunshine", hex: "#ffd23f" },
+    { name: "Lilac", hex: "#b892ff" },
+    { name: "Violet", hex: "#7c3aed" },
+    { name: "Sky", hex: "#5aa9e6" },
+    { name: "Ivory", hex: "#fdfaf6" }
+  ];
+  var WRAPS = [
+    { name: "Kraft", hex: "#c9a274" },
+    { name: "Blush paper", hex: "#f3d9e4" },
+    { name: "Midnight", hex: "#241f2e" },
+    { name: "Cream", hex: "#f7f1e6" }
+  ];
+  var RIBBONS = [
+    { name: "Gold", hex: "#d4af37" },
+    { name: "Rose", hex: "#c81d4f" },
+    { name: "Sage", hex: "#8ba888" },
+    { name: "Ivory", hex: "#fffdf7" }
+  ];
+  var MAX_STEMS = 9;
+
+  function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+  function shade(hex, pct) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    var amt = Math.round(2.55 * pct);
+    r = clamp(r + amt, 0, 255); g = clamp(g + amt, 0, 255); b = clamp(b + amt, 0, 255);
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+
+  function ring(cx, cy, count, len, width, color, offset) {
+    offset = offset || 0;
+    var out = "";
+    for (var i = 0; i < count; i++) {
+      var a = offset + i * (360 / count);
+      out += '<ellipse cx="' + cx + '" cy="' + (cy - len / 2).toFixed(1) + '" rx="' + (width / 2).toFixed(1) +
+        '" ry="' + (len / 2).toFixed(1) + '" fill="' + color + '" transform="rotate(' + a.toFixed(1) + ' ' + cx + ' ' + cy + ')"/>';
+    }
+    return out;
+  }
+
+  function fan(cx, cy, angles, len, width, color) {
+    return angles.map(function (a) {
+      return '<ellipse cx="' + cx + '" cy="' + (cy - len / 2).toFixed(1) + '" rx="' + (width / 2).toFixed(1) +
+        '" ry="' + (len / 2).toFixed(1) + '" fill="' + color + '" transform="rotate(' + a + ' ' + cx + ' ' + cy + ')"/>';
+    }).join("");
+  }
+
+  var HEADS = {
+    rose: function (cx, cy, c) {
+      return ring(cx, cy, 8, 26, 17, c, 4) + ring(cx, cy, 6, 17, 13, shade(c, -12), 24) +
+        ring(cx, cy, 4, 9, 8, shade(c, -24), 44) + '<circle cx="' + cx + '" cy="' + cy + '" r="3.2" fill="' + shade(c, -34) + '"/>';
+    },
+    tulip: function (cx, cy, c) {
+      return fan(cx, cy, [-17, 0, 17], 36, 19, c) + fan(cx, cy, [-8, 8], 26, 12, shade(c, -10));
+    },
+    daisy: function (cx, cy, c) {
+      return ring(cx, cy, 12, 26, 7.5, c) + '<circle cx="' + cx + '" cy="' + cy + '" r="7.5" fill="#ffe7a0"/>';
+    },
+    sunflower: function (cx, cy, c) {
+      return ring(cx, cy, 16, 22, 6.5, c) + '<circle cx="' + cx + '" cy="' + cy + '" r="13" fill="#5b3a1e"/>' + ring(cx, cy, 8, 5, 3, "#3d2814", 22);
+    },
+    lily: function (cx, cy, c) {
+      return ring(cx, cy, 6, 34, 12, c) + '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="' + shade(c, -30) + '"/>';
+    },
+    blossom: function (cx, cy, c) {
+      return ring(cx, cy, 5, 16, 16, c) + ring(cx, cy, 6, 4, 2.6, "#d94f7a", 30) + '<circle cx="' + cx + '" cy="' + cy + '" r="3" fill="#ffe7a0"/>';
+    }
+  };
+
+  function renderBouquetSVG(data, withFlap) {
+    var n = data.s.length;
+    var baseX = 160, baseY = 322;
+    var spread = n > 1 ? Math.min(96, 16 * (n - 1)) : 0;
+    var stemsSvg = "";
+    data.s.forEach(function (stem, i) {
+      var t = FLOWER_TYPES[stem[0]] || "rose";
+      var color = (COLORS[stem[1]] || COLORS[0]).hex;
+      var angle = n > 1 ? (-spread / 2 + i * (spread / (n - 1))) : 0;
+      var len = 148 + (i % 3) * 14;
+      var rad = angle * Math.PI / 180;
+      var hx = baseX + len * Math.sin(rad);
+      var hy = baseY - len * Math.cos(rad);
+      var midx = (baseX + hx) / 2 + (i % 2 === 0 ? 14 : -14);
+      var midy = (baseY + hy) / 2;
+      var headFn = HEADS[t] || HEADS.rose;
+      stemsSvg += '<g class="stem-group" style="--i:' + i + '; --bx:' + baseX + 'px; --by:' + baseY + 'px;">' +
+        '<path d="M ' + baseX + ' ' + baseY + ' Q ' + midx.toFixed(1) + ' ' + midy.toFixed(1) + ' ' + hx.toFixed(1) + ' ' + hy.toFixed(1) +
+        '" fill="none" stroke="#3f7d4c" stroke-width="4.5" stroke-linecap="round"/>' +
+        '<ellipse cx="' + midx.toFixed(1) + '" cy="' + (midy + 6).toFixed(1) + '" rx="12" ry="5" fill="#4c9a5c" transform="rotate(' + (angle * 0.6).toFixed(1) + ' ' + midx.toFixed(1) + ' ' + midy.toFixed(1) + ')"/>' +
+        headFn(hx.toFixed(1), hy.toFixed(1), color) +
+        '</g>';
+    });
+
+    var wrap = WRAPS[data.w] || WRAPS[0];
+    var ribbon = RIBBONS[data.r] || RIBBONS[0];
+    var wrapSvg = '<path d="M 92 200 Q 60 264 ' + baseX + ' 326 Q 260 264 228 200 Q ' + baseX + ' 180 92 200 Z" fill="' + wrap.hex + '" stroke="rgba(0,0,0,0.12)" stroke-width="1.5"/>';
+    var ribbonSvg = '<g>' +
+      '<rect x="118" y="248" width="84" height="16" rx="4" fill="' + ribbon.hex + '"/>' +
+      '<path d="M ' + baseX + ' 256 L 132 232 L 140 258 Z" fill="' + ribbon.hex + '"/>' +
+      '<path d="M ' + baseX + ' 256 L 188 232 L 180 258 Z" fill="' + ribbon.hex + '"/>' +
+      '<circle cx="' + baseX + '" cy="256" r="7" fill="' + shade(ribbon.hex, -15) + '"/>' +
+      '</g>';
+
+    var flapSvg = "";
+    if (withFlap) {
+      flapSvg = '<g class="flap" id="flap-group">' +
+        '<path d="M 80 190 Q 60 264 ' + baseX + ' 330 Q 260 264 240 190 Q ' + baseX + ' 212 80 190 Z" fill="' + wrap.hex + '"/>' +
+        '<path d="M ' + baseX + ' 330 L 128 190 Q ' + baseX + ' 150 192 190 Z" fill="' + shade(wrap.hex, -6) + '" opacity="0.98"/>' +
+        '<text x="' + baseX + '" y="150" class="flap-text">🌸 tap to open 🌸</text>' +
+        '</g>';
+    }
+
+    return '<svg viewBox="0 95 320 245" xmlns="http://www.w3.org/2000/svg" class="bouquet-svg">' +
+      stemsSvg + wrapSvg + ribbonSvg + flapSvg + '</svg>';
+  }
+
+  // ---- encode / decode (mirrored in src/index.ts for OG stamping) ----
+  function b64urlEncode(obj) {
+    var json = JSON.stringify(obj);
+    var bytes = new TextEncoder().encode(json);
+    var bin = "";
+    bytes.forEach(function (b) { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecode(s) {
+    var b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var json = new TextDecoder().decode(bytes);
+    return JSON.parse(json);
+  }
+
+  // ---------------- builder ----------------
+  var state = {
+    stems: [[0, 0], [1, 3], [2, 7]],
+    wrap: 0,
+    ribbon: 0,
+    type: 0,
+    color: 0
+  };
+
+  var typePicker = document.getElementById("type-picker");
+  var colorPicker = document.getElementById("color-picker");
+  var wrapPicker = document.getElementById("wrap-picker");
+  var ribbonPicker = document.getElementById("ribbon-picker");
+  var previewStage = document.getElementById("preview-stage");
+  var stemsList = document.getElementById("stems-list");
+  var addBtn = document.getElementById("add-stem-btn");
+  var stemsHint = document.getElementById("stems-hint");
+
+  FLOWER_TYPES.forEach(function (t, i) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "pick-btn" + (i === state.type ? " active" : "");
+    b.textContent = FLOWER_LABELS[t];
+    b.addEventListener("click", function () {
+      state.type = i;
+      typePicker.querySelectorAll(".pick-btn").forEach(function (el) { el.classList.remove("active"); });
+      b.classList.add("active");
+    });
+    typePicker.appendChild(b);
+  });
+
+  function buildSwatchRow(container, list, activeIdx, onPick) {
+    list.forEach(function (c, i) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "swatch" + (i === activeIdx ? " active" : "");
+      b.style.background = c.hex; b.title = c.name;
+      b.addEventListener("click", function () {
+        container.querySelectorAll(".swatch").forEach(function (el) { el.classList.remove("active"); });
+        b.classList.add("active");
+        onPick(i);
+      });
+      container.appendChild(b);
+    });
+  }
+  buildSwatchRow(colorPicker, COLORS, state.color, function (i) { state.color = i; });
+  buildSwatchRow(wrapPicker, WRAPS, state.wrap, function (i) { state.wrap = i; renderPreview(); });
+  buildSwatchRow(ribbonPicker, RIBBONS, state.ribbon, function (i) { state.ribbon = i; renderPreview(); });
+
+  function renderPreview() {
+    previewStage.innerHTML = renderBouquetSVG({ s: state.stems, w: state.wrap, r: state.ribbon }, false);
+    stemsList.innerHTML = "";
+    state.stems.forEach(function (stem, i) {
+      var chip = document.createElement("span");
+      chip.className = "stem-chip";
+      var label = FLOWER_LABELS[FLOWER_TYPES[stem[0]]] + " " + COLORS[stem[1]].name;
+      var span = document.createElement("span");
+      span.textContent = label;
+      var rm = document.createElement("button");
+      rm.type = "button"; rm.textContent = "×";
+      rm.addEventListener("click", function () {
+        state.stems.splice(i, 1);
+        renderPreview();
+      });
+      chip.appendChild(span); chip.appendChild(rm);
+      stemsList.appendChild(chip);
+    });
+    addBtn.disabled = state.stems.length >= MAX_STEMS;
+    stemsHint.textContent = state.stems.length === 0 ? "add at least one stem" : state.stems.length + "/" + MAX_STEMS + " stems";
+  }
+
+  addBtn.addEventListener("click", function () {
+    if (state.stems.length >= MAX_STEMS) return;
+    state.stems.push([state.type, state.color]);
+    renderPreview();
+  });
+
+  renderPreview();
+
+  var wrapBtn = document.getElementById("wrap-btn");
+  var resultPanel = document.getElementById("result-panel");
+  var linkOutput = document.getElementById("link-output");
+  var copyBtn = document.getElementById("copy-btn");
+  var bskyShare = document.getElementById("bsky-share");
+  var previewLink = document.getElementById("preview-link");
+
+  wrapBtn.addEventListener("click", function () {
+    if (state.stems.length === 0) {
+      stemsHint.textContent = "add at least one stem first 🌱";
+      return;
+    }
+    var to = document.getElementById("to-input").value.trim().slice(0, 40);
+    var fr = document.getElementById("from-input").value.trim().slice(0, 40);
+    var msg = document.getElementById("message-input").value.trim().slice(0, 240);
+    var data = { s: state.stems, w: state.wrap, r: state.ribbon, m: msg, to: to, fr: fr };
+    var code = b64urlEncode(data);
+    var link = location.origin + "/s/" + code;
+
+    linkOutput.value = link;
+    previewLink.href = link;
+    var shareText = (to ? "A bouquet for " + to + " 🌷 " : "sent someone a secret bouquet 💐 ") + link;
+    bskyShare.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    resultPanel.classList.add("show");
+    resultPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  copyBtn.addEventListener("click", function () {
+    linkOutput.select();
+    navigator.clipboard && navigator.clipboard.writeText(linkOutput.value).catch(function () {});
+    try { document.execCommand("copy"); } catch (e) {}
+    copyBtn.textContent = "Copied!";
+    setTimeout(function () { copyBtn.textContent = "Copy"; }, 1400);
+  });
+
+  // ---------------- reveal ----------------
+  function burstSparkles(container) {
+    var emojis = ["✨", "🌸", "💫", "✨"];
+    for (var i = 0; i < 14; i++) {
+      var s = document.createElement("span");
+      s.className = "sparkle";
+      s.textContent = emojis[i % emojis.length];
+      var angle = (i / 14) * 360;
+      var dist = 60 + (i % 3) * 24;
+      var rad = angle * Math.PI / 180;
+      s.style.setProperty("--dx", (Math.cos(rad) * dist).toFixed(0) + "px");
+      s.style.setProperty("--dy", (Math.sin(rad) * dist).toFixed(0) + "px");
+      s.style.animationDelay = (i * 18) + "ms";
+      container.appendChild(s);
+      (function (el) { setTimeout(function () { el.remove(); }, 1400); })(s);
+    }
+  }
+
+  function initReveal(code) {
+    var builder = document.getElementById("builder-view");
+    var reveal = document.getElementById("reveal-view");
+    builder.classList.add("hidden");
+    reveal.classList.add("active");
+
+    var stage = document.getElementById("reveal-stage");
+    var hint = document.getElementById("reveal-hint");
+    var msgPanel = document.getElementById("message-panel");
+
+    var data;
+    try {
+      data = b64urlDecode(code);
+      if (!data || !Array.isArray(data.s) || data.s.length === 0) throw new Error("empty");
+    } catch (e) {
+      stage.innerHTML = "";
+      hint.textContent = "this bouquet wilted in transit 🥀 (bad or expired link)";
+      return;
+    }
+
+    document.title = (data.to ? "A bouquet for " + data.to : "You've got a bouquet") + " 🌷";
+    stage.innerHTML = renderBouquetSVG(data, true);
+
+    document.getElementById("msg-to").textContent = "For " + (data.to || "you");
+    document.getElementById("msg-body").textContent = data.m || "No note — just flowers, and the thought that picked them.";
+    document.getElementById("msg-from").textContent = data.fr ? "— " + data.fr : "— a secret admirer";
+
+    function open() {
+      if (stage.classList.contains("open")) return;
+      stage.classList.add("open");
+      hint.textContent = "🌷";
+      burstSparkles(stage);
+      setTimeout(function () { msgPanel.classList.add("show"); }, 550);
+    }
+    stage.addEventListener("click", open);
+    var flap = document.getElementById("flap-group");
+    if (flap) flap.addEventListener("click", open);
+  }
+
+  var m = location.pathname.match(/^\/s\/([^/]+)\/?$/);
+  if (m) initReveal(decodeURIComponent(m[1]));
+})();
+</script>
+</body>
+</html>
