@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>avcart — pick a seat, watch whoever's feed the room picked</title>
+<meta name="description" content="A shared 3D classroom. Pick a desk, the teacher wheels in the AV cart, and it plays whichever Bluesky account the room has picked — a refried, glitchy slideshow with a procedural corecore soundtrack. Anyone online can change the channel; everyone online sees the same room." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="avcart — movie day, forever" />
+<meta property="og:description" content="Pick a seat in a shared 3D classroom. The AV cart plays whoever's Bluesky feed the room picked, refried into a glitchy slideshow with a procedural corecore soundtrack. Everyone online is in the same room." />
+<meta property="og:image" content="https://avcart.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A CRT screen on a rolling AV cart in a classroom, glitching through a refried photo slideshow." />
+<meta property="og:url" content="https://avcart.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="avcart — movie day, forever" />
+<meta name="twitter:description" content="Pick a seat in a shared 3D classroom. The AV cart plays whoever's feed the room picked, refried into a glitchy slideshow with a procedural soundtrack." />
+<meta name="twitter:image" content="https://avcart.bisks.net/og.png" />
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --ink: #f3ecdd;
+    --dim: #b9ab8e;
+    --accent: #8fc7ff;
+    --accent2: #ffb15c;
+    --panel: rgba(18, 15, 10, 0.82);
+    --border: rgba(255, 255, 255, 0.14);
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; background: #0c0a07; color: var(--ink);
+    font-family: var(--mono); overflow: hidden;
+  }
+  #scene { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; cursor: pointer; }
+
+  .ui { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+  .ui > * { pointer-events: auto; }
+
+  header.bar {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem;
+    padding: 0.7rem 0.9rem; flex-wrap: wrap;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+  }
+  header.bar a.title { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 1rem; }
+  header.bar a.title span { color: var(--dim); font-weight: 400; }
+  header.bar .blurb { color: var(--dim); font-size: 0.72rem; max-width: 46ch; }
+  header.bar .credit { color: var(--dim); font-size: 0.68rem; }
+  header.bar .credit a { color: var(--accent); text-decoration: none; }
+
+  #hint {
+    position: absolute; top: 4.4rem; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.5rem 1rem; font-size: 0.8rem; color: var(--ink);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  .panel {
+    position: absolute; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.85rem; backdrop-filter: blur(6px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+  }
+  #nowPanel { left: 0.8rem; bottom: 0.8rem; width: min(340px, 88vw); }
+  #nowShowing { display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; min-height: 2.2rem; }
+  #nowShowing .avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); flex: none; }
+  #nowShowing .muted { color: var(--dim); font-size: 0.75rem; }
+
+  #handleForm { display: flex; gap: 0.4rem; margin-top: 0.7rem; }
+  #handleInput {
+    flex: 1; min-width: 0; font-family: inherit; font-size: 0.85rem; padding: 0.45rem 0.6rem;
+    border-radius: 6px; border: 1px solid var(--border); background: rgba(255,255,255,0.06); color: var(--ink);
+  }
+  #handleInput::placeholder { color: var(--dim); }
+  button {
+    font-family: inherit; font-size: 0.82rem; padding: 0.5rem 0.8rem; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--accent); color: #0c1620; font-weight: 700;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  button.ghost { background: transparent; color: var(--ink); }
+  #selectErr { color: #ff8f7d; font-size: 0.72rem; margin-top: 0.4rem; }
+
+  #sidePanel { right: 0.8rem; bottom: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end; text-align: right; }
+  #seatStatus { font-size: 0.76rem; color: var(--dim); }
+  #sidePanel .row { display: flex; gap: 0.4rem; }
+  #standUp[hidden] { display: none; }
+  #soundToggle.on { background: var(--accent2); }
+  a.button-link { text-decoration: none; }
+
+  footer.credit-line {
+    position: absolute; bottom: 0.4rem; left: 50%; transform: translateX(-50%);
+    color: var(--dim); font-size: 0.65rem; text-align: center; pointer-events: none;
+  }
+  footer.credit-line a { pointer-events: auto; color: var(--dim); }
+
+  @media (max-width: 640px) {
+    #nowPanel, #sidePanel { width: auto; max-width: 92vw; }
+    header.bar .blurb { display: none; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div class="ui">
+    <header class="bar">
+      <div>
+        <a class="title" href="https://bisks.net">avcart<span>.bisks.net</span></a>
+        <div class="blurb">a shared classroom — pick a seat, the AV cart plays whoever's Bluesky feed the room picked, refried into a corecore slideshow.</div>
+      </div>
+      <div class="credit">@antiali.as's idea · <a href="https://bisks.net">← bisks.net</a></div>
+    </header>
+
+    <div id="hint">click an empty desk to sit down</div>
+
+    <div id="nowPanel" class="panel">
+      <div id="nowShowing">loading the room…</div>
+      <form id="handleForm">
+        <input id="handleInput" type="text" placeholder="@handle.bsky.social" autocomplete="off" />
+        <button id="selectBtn" type="submit">put it on</button>
+      </form>
+      <div id="selectErr" hidden></div>
+    </div>
+
+    <div id="sidePanel" class="panel">
+      <div id="seatStatus"></div>
+      <div class="row">
+        <button id="standUp" class="ghost" type="button" hidden>get up</button>
+        <button id="soundToggle" class="ghost" type="button">🔈 sound off</button>
+        <a class="button-link" id="shareLink" href="#" target="_blank" rel="noopener">
+          <button type="button">share</button>
+        </a>
+      </div>
+    </div>
+
+    <footer class="credit-line">be excellent to each other · a tiny atproto experiment</footer>
+  </div>
+
+  <script src="/lib/handle-typeahead.js"></script>
+  <script type="module" src="/app.js"></script>
+
+  <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+  <style>
+    #cm-toggle {
+      position: fixed;
+      right: 0.85rem;
+      bottom: 0.85rem;
+      z-index: 2147483000;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.7rem;
+      line-height: 1;
+      background: rgba(20, 20, 20, 0.72);
+      color: #ddd;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      padding: 0.45rem 0.6rem;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+    #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+    #cm-coop {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2.2rem;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 2147483000;
+      display: none;
+    }
+    #cm-coop.on { display: block; }
+    .cm-chicken {
+      position: absolute;
+      bottom: 0.1rem;
+      font-size: 1.5rem;
+      transform: scaleX(-1);
+      animation-name: cm-strut;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+      filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+    }
+    @keyframes cm-strut {
+      0% { transform: translateX(-3rem) scaleX(-1); }
+      48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+      50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+      98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+      100% { transform: translateX(-3rem) scaleX(-1); }
+    }
+  </style>
+  <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+  <div id="cm-coop"></div>
+  <script>
+    (function () {
+      var coop = document.getElementById("cm-coop");
+      var toggle = document.getElementById("cm-toggle");
+      if (!coop || !toggle) return;
+      var KEY = "chicken-mode";
+      var spawner = null;
+
+      function spawn() {
+        var c = document.createElement("div");
+        c.className = "cm-chicken";
+        c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+        var duration = 14 + Math.random() * 10;
+        c.style.animationDuration = duration + "s";
+        c.style.animationDelay = -Math.random() * duration + "s";
+        c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+        coop.appendChild(c);
+      }
+      function start() {
+        if (spawner) return;
+        coop.innerHTML = "";
+        for (var i = 0; i < 5; i++) spawn();
+        spawner = setInterval(function () {
+          if (coop.children.length < 8) spawn();
+        }, 4000);
+      }
+      function stop() {
+        if (spawner) clearInterval(spawner);
+        spawner = null;
+        coop.innerHTML = "";
+      }
+      function setMode(on) {
+        coop.classList.toggle("on", on);
+        toggle.classList.toggle("on", on);
+        if (on) start(); else stop();
+        try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+      }
+      toggle.addEventListener("click", function () {
+        setMode(!coop.classList.contains("on"));
+      });
+      var startedOn = false;
+      try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+      if (startedOn) setMode(true);
+    })();
+  </script>
+  <!-- /chicken mode -->
+</body>
+</html>

@@ -1,0 +1,42 @@
+name = "atprotozoa-avcart"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @antiali.as's idea: 3rd-person POV school classroom in three.js. Pick your
+# seat, the teacher wheels in the AV cart, and it plays whichever Bluesky
+# account's feed the room has picked — a "refried" (deep-fried, glitchy)
+# image slideshow with a procedural corecore soundtrack. Anyone online can
+# pick the account; everyone online sees the same room and the same feed.
+#
+# All shared state (who's sitting where, which account is on screen, its
+# slideshow images) lives in ONE Durable Object instance (id "global") — the
+# single-writer guarantee a shared classroom needs. Clients poll it every
+# couple seconds, same shape as sites/the-place. See src/index.ts.
+#
+# A brand-new site claims its own subdomain with a plain route (not a Custom
+# Domain — see notes/40-new-site-playbook.md) and needs no mount-prefix
+# stripping, unlike the older path-mounted sites.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in sites/logs and sites/didscope).
+routes = [
+  { pattern = "avcart.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Classroom"
+
+# new_sqlite_classes, not new_classes: this account is on Workers Free, which
+# doesn't support the legacy KV-backed DO storage. Using new_classes passes
+# TOML validation and then fails silently at deploy time (see
+# notes/20-deploy.md) — the whole site's route never gets created.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Classroom"]
