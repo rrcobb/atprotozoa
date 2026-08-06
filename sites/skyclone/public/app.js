@@ -1464,21 +1464,185 @@ async function followListView(main, handle, tabKey, title, method, field) {
 }
 
 async function LikedByView(main, params, args) {
-  await postActorListView(main, args.handle, args.rkey, "Liked by", "app.bsky.feed.getLikes", "likes", (l) => l.actor);
+  await postActorListView(main, args.handle, args.rkey, "Liked by", "app.bsky.feed.getLikes", "likes", (l) => l.actor, true);
 }
 async function RepostedByView(main, params, args) {
-  await postActorListView(main, args.handle, args.rkey, "Reposted by", "app.bsky.feed.getRepostedBy", "repostedBy", (a) => a);
+  await postActorListView(main, args.handle, args.rkey, "Reposted by", "app.bsky.feed.getRepostedBy", "repostedBy", (a) => a, false);
 }
-async function postActorListView(main, handle, rkey, title, method, field, unwrap) {
+async function postActorListView(main, handle, rkey, title, method, field, unwrap, metaLikes) {
   main.innerHTML = headerHtml(title, "", true) + skeleton(6);
   try {
     const profile = await xrpc("app.bsky.actor.getProfile", { actor: handle });
     const uri = `at://${profile.did}/app.bsky.feed.post/${rkey}`;
     const data = await xrpc(method, { uri, limit: 40 });
     const actors = (data[field] || []).map(unwrap);
-    main.innerHTML = headerHtml(title, "", true) + (actors.length ? actors.map(actorRow).join("") : centerMsg("Nobody yet"));
+    main.innerHTML =
+      headerHtml(title, "", true) +
+      (actors.length ? actors.map((a) => (metaLikes ? likerRow(a, uri) : actorRow(a))).join("") : centerMsg("Nobody yet"));
   } catch (e) {
     main.innerHTML = headerHtml(title, "", true) + errorBox("Couldn't load this list (" + e.message + ")");
+  }
+}
+
+// ---------- meta-likes (liking a like — legal per lexicon, bsky.app just never exposes it) ----------
+//
+// A like record's subject is an ordinary strongRef {uri, cid} — nothing in
+// the lexicon restricts it to a post, so a like whose subject is *another*
+// like record is a perfectly valid app.bsky.feed.like write, and the AppView
+// happily aggregates a likeCount for it same as any other subject (see the
+// getLikes call on feed generators elsewhere in this file). bsky.app just
+// never builds a UI for it. app.bsky.feed.getLikes doesn't hand back the
+// liking actor's own like-record URI/CID though (only the actor + timestamps)
+// — so to like or count-likes-on a specific like, we resolve the liker's PDS
+// and walk their app.bsky.feed.like collection for the record whose subject
+// matches. Same trick as sites/cloutgraph's lib/likes.js.
+
+const metaPdsCache = new Map(); // did -> serviceEndpoint | null
+const META_LIKE_SCAN_PAGES = 5; // <=500 of a liker's most recent likes, newest first
+
+async function resolveMetaPds(did) {
+  if (metaPdsCache.has(did)) return metaPdsCache.get(did);
+  let endpoint = null;
+  try {
+    let doc;
+    if (did.startsWith("did:web:")) {
+      const host = decodeURIComponent(did.slice("did:web:".length)).replace(/:/g, "/");
+      doc = await (await fetch(`https://${host}/.well-known/did.json`)).json();
+    } else {
+      doc = await (await fetch(`https://plc.directory/${encodeURIComponent(did)}`)).json();
+    }
+    const svc = (doc.service || []).find((s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer");
+    endpoint = (svc && svc.serviceEndpoint) || null;
+  } catch {
+    endpoint = null;
+  }
+  metaPdsCache.set(did, endpoint);
+  return endpoint;
+}
+
+// Walks `did`'s own app.bsky.feed.like collection (newest first) looking for
+// the record whose subject.uri matches `subjectUri`. Returns
+// {uri, cid, createdAt}, or null if it isn't within the first
+// META_LIKE_SCAN_PAGES pages (a very prolific liker can outrun the scan —
+// still "legal per lexicon", just not findable without an index).
+async function findLikeRecord(did, subjectUri) {
+  const pds = await resolveMetaPds(did);
+  if (!pds) return null;
+  let cursor = "";
+  for (let p = 0; p < META_LIKE_SCAN_PAGES; p++) {
+    const u = new URL(`${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords`);
+    u.searchParams.set("repo", did);
+    u.searchParams.set("collection", "app.bsky.feed.like");
+    u.searchParams.set("limit", "100");
+    u.searchParams.set("reverse", "true");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let data;
+    try {
+      const res = await fetch(u.toString());
+      if (!res.ok) break;
+      data = await res.json();
+    } catch {
+      break;
+    }
+    for (const rec of data.records || []) {
+      if (rec.value?.subject?.uri === subjectUri) {
+        return { uri: rec.uri, cid: rec.cid, createdAt: rec.value.createdAt };
+      }
+    }
+    cursor = data.cursor;
+    if (!cursor) break;
+  }
+  return null;
+}
+
+function describeSubjectUri(uri) {
+  const m = /^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(uri || "");
+  if (!m) return { label: "something", href: null };
+  const [, did, collection, rkey] = m;
+  if (collection === "app.bsky.feed.post") {
+    return { label: "a post", href: `${MOUNT}/profile/${encodeURIComponent(did)}/post/${encodeURIComponent(rkey)}` };
+  }
+  if (collection === "app.bsky.feed.like") {
+    return { label: "a like — it's likes all the way down", href: null };
+  }
+  return { label: "something", href: null };
+}
+
+// Same act.like markup and the same toggleLike() write path as a normal post
+// like — toggleLike only ever reads data-uri/data-cid off the icon, so it
+// doesn't care that this uri belongs to a like record instead of a post.
+function metaLikeActionHtml(likeUri, likeCid, count) {
+  const liked = likedPosts.has(likeUri);
+  return `<span class="act like meta${liked ? " liked" : ""}">
+    <span class="like-icon" data-action="like" data-uri="${esc(likeUri)}" data-cid="${esc(likeCid || "")}" title="${liked ? "Caught in your web" : "Like the like — it's legal per lexicon"}">${liked ? "🕷️" : "🕸️"}</span>
+    <span class="like-count" data-count="${count || 0}">${fmtCount(count)}</span>
+  </span>`;
+}
+
+// Like actorRow, but with a spider badge that drills into who meta-liked
+// *this* liker's like of `subjectUri` — the same MetaLikesView, one level
+// deeper each click, since a like's own "liked by" list is exactly as
+// meta-likeable as anything else.
+function likerRow(a, subjectUri) {
+  return `<div class="card-row actor" data-href="${profileUrl(a.handle)}">
+    <img src="${esc(a.avatar || FALLBACK_AVATAR)}" alt="">
+    <div class="cr-body">
+      <div class="cr-title">${esc(a.displayName || a.handle)}${verifyBadge(a)}</div>
+      <div class="cr-sub">@${esc(a.handle)}</div>
+    </div>
+    <a class="meta-like-btn" data-link href="${MOUNT}/meta-likes?liker=${encodeURIComponent(a.did)}&subject=${encodeURIComponent(subjectUri)}" title="Like their like — meta-likes are legal per lexicon">🕸️</a>
+  </div>`;
+}
+
+async function MetaLikesView(main, params) {
+  const likerId = params.get("liker") || "";
+  const subject = params.get("subject") || "";
+  main.innerHTML = headerHtml("Meta-likes", "", true) + skeleton(4);
+  if (!likerId || !subject) {
+    main.innerHTML = headerHtml("Meta-likes", "", true) + errorBox("Missing liker or subject");
+    return;
+  }
+  try {
+    const likerProfile = await xrpc("app.bsky.actor.getProfile", { actor: likerId });
+    const found = await findLikeRecord(likerProfile.did, subject);
+    if (!found) {
+      main.innerHTML =
+        headerHtml("Meta-likes", "", true) +
+        centerMsg(
+          "Couldn't pin it down",
+          `@${esc(likerProfile.handle)} likes a lot of things — their exact like record wasn't in the ${META_LIKE_SCAN_PAGES * 100} most recent we scanned. Still legal per lexicon, just hard to find without an index.`
+        );
+      return;
+    }
+    let metaLikes = { likes: [] };
+    try {
+      metaLikes = await xrpc("app.bsky.feed.getLikes", { uri: found.uri, limit: 40 });
+    } catch {
+      // getLikes on a non-post subject can 400 on the public AppView in edge
+      // cases — the like-this-like action below still works even if the
+      // meta-like count/list can't load.
+    }
+    const subjectInfo = describeSubjectUri(subject);
+    const count = (metaLikes.likes || []).length;
+    const rows = (metaLikes.likes || []).map((l) => likerRow(l.actor, found.uri)).join("");
+    main.innerHTML =
+      headerHtml("Meta-likes", "", true) +
+      `<div class="meta-like-card">
+        <div class="card-row actor" data-href="${profileUrl(likerProfile.handle)}">
+          <img src="${esc(likerProfile.avatar || FALLBACK_AVATAR)}" alt="">
+          <div class="cr-body">
+            <div class="cr-title">${esc(likerProfile.displayName || likerProfile.handle)}${verifyBadge(likerProfile)}</div>
+            <div class="cr-sub">@${esc(likerProfile.handle)} caught ${
+        subjectInfo.href ? `<a class="rt-link" data-link href="${subjectInfo.href}">${subjectInfo.label}</a>` : subjectInfo.label
+      } in their web${found.createdAt ? " · " + relTime(found.createdAt) : ""}</div>
+          </div>
+        </div>
+        ${metaLikeActionHtml(found.uri, found.cid, count)}
+      </div>
+      <div class="section-label">${count ? "Who caught this like in their own web" : "Nobody's meta-liked this yet — be the first"}</div>
+      ${rows || centerMsg("Nobody yet", "Like it above to start the chain.")}`;
+  } catch (e) {
+    main.innerHTML = headerHtml("Meta-likes", "", true) + errorBox("Couldn't load meta-likes (" + e.message + ")");
   }
 }
 
@@ -1608,6 +1772,7 @@ function AboutView(main) {
       <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, search, and notifications, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
       <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🪰 is a genuine <code>app.bsky.feed.repost</code> (a fly, loosed back into the web), and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
       <p>Notifications (🔔) are real too — a genuine <code>app.bsky.notification.listNotifications</code> call through your own PDS. skyclone quietly polls for new ones in the background, and when one lands, a spider crawls across your screen. AHH!</p>
+      <p>Every "Liked by" list also has a 🕸️ next to each name — a like's subject can be any record per the lexicon, including someone else's like, so skyclone lets you like a like (a real write) and see who's meta-liked it. bsky.app never built this UI; it isn't hiding, it's just not exposed. Keep clicking through and it's meta-likes all the way down.</p>
       <p>For DMs or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
@@ -1626,6 +1791,7 @@ const ROUTES = [
   { pattern: "/notifications", view: NotificationsView },
   { pattern: "/trending", view: TrendingView },
   { pattern: "/about", view: AboutView },
+  { pattern: "/meta-likes", view: MetaLikesView },
   { pattern: "/profile/:handle/post/:rkey/liked-by", view: LikedByView },
   { pattern: "/profile/:handle/post/:rkey/reposted-by", view: RepostedByView },
   { pattern: "/profile/:handle/post/:rkey", view: ThreadView },
