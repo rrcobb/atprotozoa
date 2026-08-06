@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fractal garden — plant it, click it, watch it bloom into more of itself</title>
+<meta name="description" content="plant a seed and it grows into a small recursive fractal plant. click a grown plant and it blooms into new, slightly-mutated generations nearby — deeper, stranger, more intricate each time. the bed only holds so many; prune to keep growing.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="fractal garden">
+<meta property="og:description" content="plant a seed. click it to make it bloom into new, mutated generations nearby. more of this type of thing, which themselves create more — until the bed is full.">
+<meta property="og:image" content="https://fractalgarden.bisks.net/og.png">
+<meta property="og:url" content="https://fractalgarden.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="fractal garden">
+<meta name="twitter:description" content="plant a seed. click it to make it bloom into new, mutated generations nearby. more of this type of thing, which themselves create more — until the bed is full.">
+<meta name="twitter:image" content="https://fractalgarden.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#0d1108; --panel:#141a0f; --line:#26311e;
+    --fg:#e9edd9; --muted:#8fa082; --accent:#ff8fd1; --accent2:#c9a6ff;
+    --soil:#0a0d07; --danger:#ff5f56;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 660px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 1200 / 750;
+    background: var(--soil); border-radius: 6px; border:1px solid var(--line);
+    cursor: crosshair; touch-action: manipulation;
+  }
+  .badge{
+    position:absolute; top:14px; left:14px; font-size: 12px; color: var(--muted);
+    background: rgba(10,13,7,0.75); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  #toast{
+    position:absolute; bottom:14px; left:50%; transform:translate(-50%, 8px);
+    font-size:12px; color:var(--fg); background: rgba(10,13,7,0.9); border:1px solid var(--line);
+    border-radius:6px; padding:8px 14px; pointer-events:none; opacity:0; transition: opacity 0.2s ease, transform 0.2s ease;
+    max-width: 88%; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translate(-50%, 0); }
+
+  .stats{
+    display:flex; flex-wrap:wrap; gap: 10px 22px; font-size: 12px; color: var(--muted);
+  }
+  .stats b{ color: var(--fg); }
+
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #1a2113; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent2); }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--accent); color:#241221; border-color: var(--accent); }
+  button.primary:hover{ background:#ffa6dd; }
+  button.ghost{ background:transparent; }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#241221; background: var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#ffa6dd; }
+
+  .how{ font-size:12px; color:var(--muted); line-height:1.6; }
+  .how b{ color:var(--fg); }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 660px;
+  }
+  footer a{ color: var(--accent2); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>fractal garden</h1>
+  <p class="tagline">
+    click empty soil to plant a seed. it grows into a small recursive fractal
+    plant. click a <b>grown</b> plant and it blooms — spawning one or two
+    mutated copies of itself nearby, a generation deeper and a little stranger
+    than its parent. every copy can be clicked again, and so can its copies.
+    <b>more of this type of thing, which themselves create more.</b> the bed
+    only holds so many plants, though — right-click (or long-press) one to
+    prune it and make room.
+  </p>
+</header>
+
+<main>
+  <div class="panel" id="stage-wrap">
+    <canvas id="stage" width="1200" height="750"></canvas>
+    <div class="badge">population <b id="pop-badge">0</b> · gen <b id="gen-badge">0</b></div>
+    <div id="toast"></div>
+  </div>
+
+  <div class="panel">
+    <div class="stats">
+      <span>population <b id="stat-pop">0</b> / <b id="stat-cap">—</b></span>
+      <span>deepest generation <b id="stat-gen">0</b></span>
+      <span>ever sown <b id="stat-sown">0</b></span>
+      <span>pruned <b id="stat-pruned">0</b></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="primary" id="btn-sow">sow a random seed</button>
+      <button class="ghost" id="btn-reset">clear the bed</button>
+    </div>
+    <p class="how" style="margin-bottom:0; margin-top:10px;">
+      <b>click</b> open soil to plant · <b>click</b> a grown plant to make it
+      bloom into new generations · <b>right-click</b> (desktop) or
+      <b>long-press</b> (touch) a plant to prune it. your garden is saved in
+      this browser and regrows exactly the same way every time you come back.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div id="share-row">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-download">download snapshot</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  a small model of recursive self-improvement with a green thumb: no
+  intelligence, no plan, just fractal plants that make mutated copies of
+  themselves until the bed runs out of room. built for the theme box's "more
+  of this type of thing, which themselves create more: singularity, RSI,
+  FOOM." · part of the <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  var stage = document.getElementById("stage");
+  var ctx = stage.getContext("2d");
+  var W = stage.width, H = stage.height;
+  var MARGIN = 70;
+  var CAP = 46;
+  var HIT_RADIUS = 14;
+  var MIN_PLANT_GAP = 46;
+  var STORE_KEY = "fractalgarden.v1";
+
+  var els = {
+    popBadge: document.getElementById("pop-badge"),
+    genBadge: document.getElementById("gen-badge"),
+    statPop: document.getElementById("stat-pop"),
+    statCap: document.getElementById("stat-cap"),
+    statGen: document.getElementById("stat-gen"),
+    statSown: document.getElementById("stat-sown"),
+    statPruned: document.getElementById("stat-pruned"),
+    toast: document.getElementById("toast"),
+    btnSow: document.getElementById("btn-sow"),
+    btnReset: document.getElementById("btn-reset"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share"),
+  };
+  els.statCap.textContent = CAP;
+
+  // --- deterministic per-plant RNG, so a saved plant regrows pixel-identical ---
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  function randomGenome(){
+    return {
+      depth: 3,
+      branches: 2 + (Math.random() < 0.35 ? 1 : 0),
+      angleSpread: 0.6 + Math.random() * 0.55,
+      angleJitter: 0.05 + Math.random() * 0.12,
+      lenRatio: 0.62 + Math.random() * 0.1,
+      baseLen: 52 + Math.random() * 20,
+      leafChance: Math.random() * 0.6,
+      hue: Math.random() * 360,
+    };
+  }
+
+  function mutateGenome(g){
+    return {
+      depth: clamp(g.depth + (Math.random() < 0.4 ? 1 : 0), 3, 7),
+      branches: clamp(g.branches + (Math.random() < 0.18 ? (Math.random() < 0.5 ? -1 : 1) : 0), 2, 4),
+      angleSpread: clamp(g.angleSpread + (Math.random() - 0.5) * 0.3, 0.4, 1.8),
+      angleJitter: clamp(g.angleJitter + (Math.random() - 0.5) * 0.08, 0, 0.4),
+      lenRatio: clamp(g.lenRatio + (Math.random() - 0.5) * 0.05, 0.55, 0.8),
+      baseLen: clamp(g.baseLen + (Math.random() - 0.5) * 10, 36, 90),
+      leafChance: clamp(g.leafChance + (Math.random() - 0.5) * 0.25, 0, 1),
+      hue: (g.hue + (Math.random() - 0.5) * 46 + 360) % 360,
+    };
+  }
+
+  // breadth-first branch builder: segments come back ordered by depth level,
+  // so revealing them level-by-level during growth reads as radiating outward.
+  function buildSegments(genome, seed){
+    var rand = mulberry32(seed >>> 0);
+    var segs = [], buds = [];
+    var frontier = [{ x: 0, y: 0, angle: -Math.PI / 2, length: genome.baseLen }];
+    var maxDepth = genome.depth;
+    for (var depth = 0; depth <= maxDepth; depth++) {
+      var next = [];
+      for (var i = 0; i < frontier.length; i++) {
+        var node = frontier[i];
+        var x2 = node.x + Math.cos(node.angle) * node.length;
+        var y2 = node.y + Math.sin(node.angle) * node.length;
+        segs.push({ x1: node.x, y1: node.y, x2: x2, y2: y2, depth: depth });
+        if (depth === maxDepth) {
+          if (rand() < genome.leafChance) {
+            buds.push({ x: x2, y: y2, r: 2.5 + rand() * 3, depth: depth });
+          }
+          continue;
+        }
+        var nBranches = genome.branches + (rand() < 0.15 ? 1 : 0);
+        var spread = genome.angleSpread;
+        for (var b = 0; b < nBranches; b++) {
+          var t = nBranches === 1 ? 0.5 : b / (nBranches - 1);
+          var off = (t - 0.5) * spread + (rand() - 0.5) * genome.angleJitter;
+          next.push({ x: x2, y: y2, angle: node.angle + off, length: node.length * genome.lenRatio });
+        }
+        if (next.length > 400) break; // hard safety cap on branching cost
+      }
+      frontier = next;
+      if (!frontier.length) break;
+    }
+    return { segs: segs, buds: buds, levels: maxDepth + 1 };
+  }
+
+  function plantExtent(segs){
+    var maxR = 0;
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      maxR = Math.max(maxR, Math.hypot(s.x2, s.y2), Math.hypot(s.x1, s.y1));
+    }
+    return maxR;
+  }
+
+  // --- state ---
+  var plants = [];
+  var nextId = 1;
+  var totalSown = 0;
+  var totalPruned = 0;
+  var maxGenEver = 0;
+  var animating = false;
+
+  function makePlant(x, y, genome, generation, parentId, grown){
+    var seed = (Math.random() * 4294967295) >>> 0;
+    var built = buildSegments(genome, seed);
+    var p = {
+      id: nextId++, x: x, y: y, genome: genome, seed: seed,
+      segs: built.segs, buds: built.buds, levels: built.levels,
+      generation: generation, parentId: parentId, plantedAt: Date.now(),
+      growth: grown ? 1 : 0, growStart: performance.now(),
+      growDur: 850 + Math.random() * 500,
+      radius: plantExtent(built.segs), pulseUntil: 0,
+    };
+    return p;
+  }
+
+  function population(){ return plants.length; }
+
+  function save(){
+    try {
+      var data = {
+        v: 1, nextId: nextId, totalSown: totalSown, totalPruned: totalPruned, maxGenEver: maxGenEver,
+        plants: plants.map(function(p){
+          return { id: p.id, x: p.x, y: p.y, genome: p.genome, seed: p.seed,
+            generation: p.generation, parentId: p.parentId, plantedAt: p.plantedAt };
+        }),
+      };
+      localStorage.setItem(STORE_KEY, JSON.stringify(data));
+    } catch (e) { /* storage unavailable — garden just won't persist */ }
+  }
+
+  function load(){
+    var raw;
+    try { raw = localStorage.getItem(STORE_KEY); } catch (e) { raw = null; }
+    if (!raw) return false;
+    try {
+      var data = JSON.parse(raw);
+      if (!data || !Array.isArray(data.plants)) return false;
+      plants = data.plants.map(function(sp){
+        var built = buildSegments(sp.genome, sp.seed);
+        return {
+          id: sp.id, x: sp.x, y: sp.y, genome: sp.genome, seed: sp.seed,
+          segs: built.segs, buds: built.buds, levels: built.levels,
+          generation: sp.generation, parentId: sp.parentId, plantedAt: sp.plantedAt,
+          growth: 1, growStart: 0, growDur: 1, radius: plantExtent(built.segs), pulseUntil: 0,
+        };
+      });
+      nextId = data.nextId || (plants.length + 1);
+      totalSown = data.totalSown || plants.length;
+      totalPruned = data.totalPruned || 0;
+      maxGenEver = data.maxGenEver || 0;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function ensureAnimating(){
+    if (animating) return;
+    animating = true;
+    requestAnimationFrame(loop);
+  }
+
+  var toastTimer = null;
+  function showToast(msg){
+    els.toast.textContent = msg;
+    els.toast.className = "show";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ els.toast.className = ""; }, 2200);
+  }
+
+  function withinBounds(x, y){ return x >= MARGIN && x <= W - MARGIN && y >= MARGIN && y <= H - MARGIN; }
+
+  function nearestPlant(x, y){
+    var best = null, bestDist = Infinity;
+    for (var i = 0; i < plants.length; i++) {
+      var p = plants[i];
+      var lx = x - p.x, ly = y - p.y;
+      for (var s = 0; s < p.segs.length; s++) {
+        var seg = p.segs[s];
+        var d = distToSeg(lx, ly, seg.x1, seg.y1, seg.x2, seg.y2);
+        if (d < bestDist) { bestDist = d; best = p; }
+      }
+    }
+    return { plant: best, dist: bestDist };
+  }
+
+  function distToSeg(px, py, x1, y1, x2, y2){
+    var dx = x2 - x1, dy = y2 - y1;
+    var lenSq = dx * dx + dy * dy;
+    var t = lenSq ? ((px - x1) * dx + (py - y1) * dy) / lenSq : 0;
+    t = Math.max(0, Math.min(1, t));
+    var cx = x1 + t * dx, cy = y1 + t * dy;
+    return Math.hypot(px - cx, py - cy);
+  }
+
+  function sow(x, y){
+    if (population() >= CAP) { showToast("the bed's full — prune a plant first (right-click / long-press)"); return; }
+    var p = makePlant(x, y, randomGenome(), 0, null, false);
+    plants.push(p);
+    totalSown++;
+    save();
+    ensureAnimating();
+    render();
+    updateStats();
+    updateShare();
+  }
+
+  function bloom(parent){
+    if (population() >= CAP) { showToast("the bed's full — prune a plant first (right-click / long-press)"); return; }
+    var numChildren = 1 + (Math.random() < 0.32 && population() < CAP - 1 ? 1 : 0);
+    for (var i = 0; i < numChildren; i++) {
+      if (population() >= CAP) break;
+      var angle = Math.random() * Math.PI * 2;
+      var dist = 55 + Math.random() * 70;
+      var nx = clamp(parent.x + Math.cos(angle) * dist, MARGIN, W - MARGIN);
+      var ny = clamp(parent.y + Math.sin(angle) * dist, MARGIN, H - MARGIN);
+      var genome = mutateGenome(parent.genome);
+      var generation = parent.generation + 1;
+      var child = makePlant(nx, ny, genome, generation, parent.id, false);
+      plants.push(child);
+      totalSown++;
+      if (generation > maxGenEver) maxGenEver = generation;
+    }
+    parent.pulseUntil = performance.now() + 500;
+    save();
+    ensureAnimating();
+    render();
+    updateStats();
+    updateShare();
+  }
+
+  function prune(plant){
+    var idx = plants.indexOf(plant);
+    if (idx === -1) return;
+    plants.splice(idx, 1);
+    totalPruned++;
+    save();
+    render();
+    updateStats();
+    updateShare();
+  }
+
+  function reset(){
+    if (plants.length && !confirm("clear the whole bed? this can't be undone.")) return;
+    plants = [];
+    nextId = 1; totalSown = 0; totalPruned = 0; maxGenEver = 0;
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    render();
+    updateStats();
+    updateShare();
+  }
+
+  // --- rendering ---
+  function segColor(genome, depth, maxDepth){
+    var t = maxDepth ? depth / maxDepth : 0;
+    var hue = ((genome.hue - 100) * t + 100 + 360) % 360;
+    var sat = 30 + t * 45;
+    var light = 26 + t * 32;
+    return "hsl(" + Math.round(hue) + "," + Math.round(sat) + "%," + Math.round(light) + "%)";
+  }
+
+  function drawPlant(p, now){
+    var levels = p.levels;
+    var overallT = p.growth * levels;
+    ctx.save(); ctx.translate(p.x, p.y);
+    for (var i = 0; i < p.segs.length; i++) {
+      var s = p.segs[i];
+      var localT = clamp(overallT - s.depth, 0, 1);
+      if (localT <= 0) continue;
+      var ex = s.x1 + (s.x2 - s.x1) * localT;
+      var ey = s.y1 + (s.y2 - s.y1) * localT;
+      ctx.strokeStyle = segColor(p.genome, s.depth, p.genome.depth);
+      ctx.lineWidth = Math.max(1, 4.2 - (s.depth / Math.max(1, p.genome.depth)) * 3.2);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(s.x1, s.y1);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+    }
+    for (var b = 0; b < p.buds.length; b++) {
+      var bud = p.buds[b];
+      var budT = clamp(overallT - bud.depth, 0, 1);
+      if (budT < 1) continue;
+      ctx.fillStyle = "hsl(" + Math.round(p.genome.hue) + ",80%,68%)";
+      ctx.beginPath();
+      ctx.arc(bud.x, bud.y, bud.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (p.pulseUntil && now < p.pulseUntil) {
+      var pt = 1 - (p.pulseUntil - now) / 500;
+      ctx.strokeStyle = "rgba(255,143,209," + (0.5 * (1 - pt)) + ")";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14 + pt * 34, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function render(now){
+    now = now || performance.now();
+    ctx.fillStyle = "#0a0d07";
+    ctx.fillRect(0, 0, W, H);
+    // faint soil texture line at the base
+    ctx.strokeStyle = "#1a2113";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, H - 24); ctx.lineTo(W, H - 24); ctx.stroke();
+    for (var i = 0; i < plants.length; i++) drawPlant(plants[i], now);
+    if (!plants.length) {
+      ctx.fillStyle = "#4a5a3f";
+      ctx.font = "16px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("empty soil — click anywhere to plant the first seed", W / 2, H / 2);
+      ctx.textAlign = "left";
+    }
+  }
+
+  function loop(now){
+    var stillAnimating = false;
+    for (var i = 0; i < plants.length; i++) {
+      var p = plants[i];
+      if (p.growth < 1) {
+        p.growth = Math.min(1, (now - p.growStart) / p.growDur);
+        if (p.growth < 1) stillAnimating = true;
+      }
+      if (p.pulseUntil && now < p.pulseUntil) stillAnimating = true;
+    }
+    render(now);
+    if (stillAnimating) {
+      requestAnimationFrame(loop);
+    } else {
+      animating = false;
+    }
+  }
+
+  function updateStats(){
+    els.popBadge.textContent = population();
+    els.genBadge.textContent = maxGenEver;
+    els.statPop.textContent = population();
+    els.statGen.textContent = maxGenEver;
+    els.statSown.textContent = totalSown;
+    els.statPruned.textContent = totalPruned;
+  }
+
+  function updateShare(){
+    var text = plants.length
+      ? "grew a fractal garden: " + population() + " plants, " + maxGenEver + " generations deep, " + totalSown + " ever sown. click one to make it bloom into more of itself. fractalgarden.bisks.net"
+      : "planting a fractal garden — click a plant and it blooms into mutated copies of itself. fractalgarden.bisks.net";
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // --- pointer handling ---
+  function getCanvasPoint(evt){
+    var rect = stage.getBoundingClientRect();
+    var cx = (evt.touches && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
+    var cy = (evt.touches && evt.touches[0]) ? evt.touches[0].clientY : evt.clientY;
+    var sx = W / rect.width, sy = H / rect.height;
+    return { x: (cx - rect.left) * sx, y: (cy - rect.top) * sy };
+  }
+
+  var suppressClick = false;
+
+  stage.addEventListener("click", function(evt){
+    if (suppressClick) { suppressClick = false; return; }
+    var pt = getCanvasPoint(evt);
+    var hit = nearestPlant(pt.x, pt.y);
+    if (hit.plant && hit.dist <= HIT_RADIUS && hit.plant.growth >= 0.6) {
+      bloom(hit.plant);
+      return;
+    }
+    if (hit.plant && hit.dist < MIN_PLANT_GAP) {
+      showToast("too close to another plant — try open soil");
+      return;
+    }
+    if (!withinBounds(pt.x, pt.y)) {
+      showToast("plant a little further from the edge");
+      return;
+    }
+    sow(pt.x, pt.y);
+  });
+
+  stage.addEventListener("contextmenu", function(evt){
+    evt.preventDefault();
+    var pt = getCanvasPoint(evt);
+    var hit = nearestPlant(pt.x, pt.y);
+    if (hit.plant && hit.dist <= HIT_RADIUS) prune(hit.plant);
+  });
+
+  var longPressTimer = null, longPressStart = null;
+  stage.addEventListener("touchstart", function(evt){
+    var pt = getCanvasPoint(evt);
+    longPressStart = pt;
+    longPressTimer = setTimeout(function(){
+      var hit = nearestPlant(pt.x, pt.y);
+      if (hit.plant && hit.dist <= HIT_RADIUS) {
+        prune(hit.plant);
+        suppressClick = true;
+        if (navigator.vibrate) navigator.vibrate(20);
+      }
+    }, 550);
+  }, { passive: true });
+  stage.addEventListener("touchend", function(){
+    clearTimeout(longPressTimer);
+  }, { passive: true });
+  stage.addEventListener("touchmove", function(){
+    clearTimeout(longPressTimer);
+  }, { passive: true });
+
+  els.btnSow.addEventListener("click", function(){
+    if (population() >= CAP) { showToast("the bed's full — prune a plant first"); return; }
+    for (var tries = 0; tries < 24; tries++) {
+      var x = MARGIN + Math.random() * (W - MARGIN * 2);
+      var y = MARGIN + Math.random() * (H - MARGIN * 2);
+      var hit = nearestPlant(x, y);
+      if (!hit.plant || hit.dist >= MIN_PLANT_GAP) { sow(x, y); return; }
+    }
+    showToast("couldn't find open soil — try clicking a spot yourself");
+  });
+  els.btnReset.addEventListener("click", reset);
+
+  // --- share card ---
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#0a0d07"; sc.fillRect(0, 0, w, h);
+    var gw = 760, gh = 560, gx = 24, gy = 35;
+    sc.save();
+    sc.beginPath(); sc.rect(gx, gy, gw, gh); sc.clip();
+    sc.fillStyle = "#0a0d07"; sc.fillRect(gx, gy, gw, gh);
+    var scale = Math.min(gw / W, gh / H);
+    sc.translate(gx + gw / 2 - (W * scale) / 2, gy + gh / 2 - (H * scale) / 2);
+    sc.scale(scale, scale);
+    for (var i = 0; i < plants.length; i++) {
+      var p = plants[i];
+      sc.save();
+      sc.translate(p.x, p.y);
+      for (var s = 0; s < p.segs.length; s++) {
+        var seg = p.segs[s];
+        sc.strokeStyle = segColor(p.genome, seg.depth, p.genome.depth);
+        sc.lineWidth = Math.max(1, 4.2 - (seg.depth / Math.max(1, p.genome.depth)) * 3.2);
+        sc.lineCap = "round";
+        sc.beginPath(); sc.moveTo(seg.x1, seg.y1); sc.lineTo(seg.x2, seg.y2); sc.stroke();
+      }
+      for (var b = 0; b < p.buds.length; b++) {
+        var bud = p.buds[b];
+        sc.fillStyle = "hsl(" + Math.round(p.genome.hue) + ",80%,68%)";
+        sc.beginPath(); sc.arc(bud.x, bud.y, bud.r, 0, Math.PI * 2); sc.fill();
+      }
+      sc.restore();
+    }
+    sc.restore();
+
+    sc.fillStyle = "#ff8fd1";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    sc.fillText("fractal garden", 808, 90);
+    sc.fillStyle = "#8fa082";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("more of this type of thing,", 808, 130);
+    sc.fillText("which themselves create more.", 808, 152);
+
+    sc.fillStyle = "#e9edd9";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("population", 808, 210);
+    sc.fillStyle = "#ff8fd1";
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText(String(population()), 808, 258);
+
+    sc.fillStyle = "#e9edd9";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("generations", 808, 300);
+    sc.fillStyle = "#c9a6ff";
+    sc.font = "800 34px 'JetBrains Mono', monospace";
+    sc.fillText(String(maxGenEver), 808, 335);
+
+    sc.fillStyle = "#8fa082";
+    sc.font = "13px 'JetBrains Mono', monospace";
+    sc.fillText("fractalgarden.bisks.net", 808, 590);
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    buildShareCard();
+    var a = document.createElement("a");
+    a.download = "fractal-garden.png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    buildShareCard();
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "fractal-garden.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "fractalgarden.bisks.net";
+      navigator.share({ files: [file], text: text, title: "fractal garden" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // --- boot ---
+  var hadSaved = load();
+  if (!hadSaved) {
+    plants.push(makePlant(W / 2, H / 2, randomGenome(), 0, null, true));
+    totalSown = 1;
+    save();
+  }
+  render();
+  updateStats();
+  updateShare();
+})();
+</script>
+</body>
+</html>
