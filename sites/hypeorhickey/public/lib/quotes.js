@@ -12,6 +12,13 @@
 // quotes from the same people that don't, and grew the bank from 20 to 29.
 // `context` (only shown after answering) still names the venue freely.
 //
+// Revision 3 (same requester, "find some more! Go koans, public bsky
+// posts, there's a lot of sources! 29 quotes is super low variety"):
+// added Rob Pike's Go Proverbs (GopherFest 2015 — the "Go koans"), two
+// real public bsky.app posts from Bluesky's Jay Graber, and more real
+// quotes for the rest of the roster pulled fresh from talks, filings, and
+// interviews. Grew the bank from 29 to 49.
+//
 // Every quote below is real and attributed to the actual person or venue
 // named in `context` — pulled from talks, interviews, filings, and posts.
 // Wording is as close to verbatim as public sources give it; a few (marked)
@@ -49,6 +56,16 @@ export const QUOTES = [
     context: "Bluesky, in a public statement during a surge in signups (standalone line from a longer statement)",
   },
   {
+    person: "bluesky",
+    text: "we've achieved what a lot of people said was impossible",
+    context: "Jay Graber, Bluesky CEO, CNBC interview, 2025 (standalone line from a longer remark)",
+  },
+  {
+    person: "bluesky",
+    text: "I'm thrilled Toni is staying to lead us into this next chapter. He's spent the past four months proving it, leading with curiosity and courage.",
+    context: "Jay Graber, in a public post on Bluesky, July 2026",
+  },
+  {
     person: "robpike",
     text: "Less is exponentially more.",
     context: "Rob Pike, on why Go looks the way it does, 2012",
@@ -69,6 +86,31 @@ export const QUOTES = [
     context: "Rob Pike, on OOP",
   },
   {
+    person: "robpike",
+    text: "Don't communicate by sharing memory, share memory by communicating.",
+    context: "Rob Pike, \"Go Proverbs,\" GopherFest 2015",
+  },
+  {
+    person: "robpike",
+    text: "Concurrency is not parallelism.",
+    context: "Rob Pike, \"Go Proverbs,\" GopherFest 2015",
+  },
+  {
+    person: "robpike",
+    text: "Clear is better than clever.",
+    context: "Rob Pike, \"Go Proverbs,\" GopherFest 2015",
+  },
+  {
+    person: "robpike",
+    text: "Errors are values.",
+    context: "Rob Pike, \"Go Proverbs,\" GopherFest 2015",
+  },
+  {
+    person: "robpike",
+    text: "Gofmt's style is no one's favorite, yet gofmt is everyone's favorite.",
+    context: "Rob Pike, \"Go Proverbs,\" GopherFest 2015",
+  },
+  {
     person: "richhickey",
     text: "Programmers know the benefits of everything and the tradeoffs of nothing.",
     context: "Rich Hickey",
@@ -82,6 +124,16 @@ export const QUOTES = [
     person: "richhickey",
     text: "Simplicity is a choice.",
     context: "Rich Hickey, “Simple Made Easy,” 2011",
+  },
+  {
+    person: "richhickey",
+    text: "What matters for simplicity is that there's not interleaving.",
+    context: "Rich Hickey, “Simple Made Easy,” 2011",
+  },
+  {
+    person: "richhickey",
+    text: "Most of the biggest problems in software are problems of misconception.",
+    context: "Rich Hickey",
   },
   {
     person: "larrywall",
@@ -99,6 +151,16 @@ export const QUOTES = [
     context: "Larry Wall, on language design philosophy",
   },
   {
+    person: "larrywall",
+    text: "There's more than one way to do it.",
+    context: "Larry Wall, the original Perl motto",
+  },
+  {
+    person: "larrywall",
+    text: "All language designers are arrogant. Goes with the territory.",
+    context: "Larry Wall, on language design",
+  },
+  {
     person: "zedshaw",
     text: "Programmers are like magicians who fool everyone into thinking they are perfect and never wrong, but it's all an act.",
     context: "Zed Shaw, Learn Code the Hard Way",
@@ -107,6 +169,11 @@ export const QUOTES = [
     person: "zedshaw",
     text: "Just take it slow and do not hurt your brain.",
     context: "Zed Shaw, Learn Python the Hard Way",
+  },
+  {
+    person: "zedshaw",
+    text: "The result of your hard work is confidence in your skill and no impostor syndrome.",
+    context: "Zed Shaw, on why the exercises are tedious on purpose",
   },
   {
     person: "andrewkelley",
@@ -124,6 +191,16 @@ export const QUOTES = [
     context: "Jensen Huang, Nvidia CEO",
   },
   {
+    person: "jensenhuang",
+    text: "We're the engine of the largest industrial revolution in human history.",
+    context: "Jensen Huang, Nvidia CEO, on Nvidia's role in the AI buildout",
+  },
+  {
+    person: "jensenhuang",
+    text: "AI factories: industrial systems designed to convert electricity into tokens.",
+    context: "Jensen Huang, Nvidia CEO, on modern data centers, GTC keynote",
+  },
+  {
     person: "elonmusk",
     text: "The future of humanity is going to bifurcate in two directions: either it's going to become multiplanetary, or it's going to remain confined to one planet and eventually there's going to be an extinction event.",
     context: "Elon Musk, in an interview on humanity's long-term future",
@@ -132,6 +209,16 @@ export const QUOTES = [
     person: "elonmusk",
     text: "I think it is possible for ordinary people to choose to be extraordinary.",
     context: "Elon Musk",
+  },
+  {
+    person: "elonmusk",
+    text: "If civilization collapses before Mars becomes self-sustaining, then nothing else matters.",
+    context: "Elon Musk, in a post on X",
+  },
+  {
+    person: "elonmusk",
+    text: "Civilization secured.",
+    context: "Elon Musk, in a post on X, after estimating a self-sustaining Mars city within decades",
   },
   {
     person: "samaltman",
@@ -149,6 +236,11 @@ export const QUOTES = [
     context: "Sam Altman, OpenAI CEO, on the Relentless podcast, 2026",
   },
   {
+    person: "samaltman",
+    text: "We are past the event horizon; the takeoff has started.",
+    context: "Sam Altman, OpenAI CEO, \"The Gentle Singularity\" blog post, June 2025",
+  },
+  {
     person: "adamneumann",
     text: "Our mission is to elevate the world's consciousness.",
     context: "Adam Neumann, in WeWork's 2019 IPO prospectus",
@@ -164,6 +256,11 @@ export const QUOTES = [
     context: "Adam Neumann, on his company's valuation, 2017 (standalone line from a longer remark)",
   },
   {
+    person: "adamneumann",
+    text: "They're coming to us for energy, for culture.",
+    context: "Adam Neumann, on why members joined WeWork",
+  },
+  {
     person: "masason",
     text: "Don't think, you feel it.",
     context: "Masayoshi Son, quoting Yoda on his investment philosophy",
@@ -177,5 +274,15 @@ export const QUOTES = [
     person: "masason",
     text: "I may seem crazy, but I believe I'm a smart crazy.",
     context: "Masayoshi Son, after losing nearly $70 billion in the dot-com crash",
+  },
+  {
+    person: "masason",
+    text: "I have only one belief — Singularity.",
+    context: "Masayoshi Son, SoftBank CEO, on his conviction driving SoftBank's AI bets",
+  },
+  {
+    person: "masason",
+    text: "In 300 years' time, we would like to become that company that makes the most contribution to human evolution.",
+    context: "Masayoshi Son, SoftBank CEO, on SoftBank's 300-year vision",
   },
 ];
