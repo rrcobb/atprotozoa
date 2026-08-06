@@ -203,6 +203,7 @@
   </head>
   <body>
     <div class="wrap">
+      <div style="text-align:right;font-size:0.78rem;"><a href="/leaderboard">leaderboard →</a></div>
       <h1>revolver <span class="slash">· live russian roulette, played in dares</span></h1>
       <p class="intro">
         Load a <b>dare</b>, challenge another Bluesky handle, and once you
@@ -460,11 +461,12 @@
       let pollTimer = null;
       const postingInFlight = new Set();
 
-      function connect(id) {
+      async function connect(id) {
         if (socket) { try { socket.close(); } catch {} }
         const slot = loadSlot(id);
+        const session = await getSession();
         const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-        const params = new URLSearchParams({ role: slot?.role || "", token: slot?.token || "" });
+        const params = new URLSearchParams({ role: slot?.role || "", token: slot?.token || "", viewerDid: session?.did || "" });
         socket = new WebSocket(`${scheme}//${location.host}/api/round/${id}/ws?${params}`);
         socket.addEventListener("message", (evt) => {
           try {
@@ -489,7 +491,9 @@
         pollTimer = setInterval(async () => {
           if (currentId !== id) return;
           try {
-            const res = await fetch(`/api/round/${id}`);
+            const session = await getSession();
+            const qs = session?.did ? `?viewerDid=${encodeURIComponent(session.did)}` : "";
+            const res = await fetch(`/api/round/${id}${qs}`);
             if (!res.ok) return;
             const state = await res.json();
             renderIfChanged(id, state);
@@ -583,13 +587,14 @@
         const showDare = p.dare != null;
         const cls = ["pcard"];
         if (opts.outcomeRole === role) cls.push(opts.outcomeCls);
+        const hiddenText = opts.hiddenText || "dare hidden — only the two players can see it before the round ends";
         return `
           <div class="${cls.join(" ")}">
             <div class="who">
               <div class="ava" style="${avatarStyle(p.avatar)}"></div>
               <div><div class="name">${escapeHtml(p.displayName)}</div><div class="hn">@${escapeHtml(p.handle)}</div></div>
             </div>
-            <div class="dare ${showDare ? "" : "hidden-dare"}">${showDare ? escapeHtml(p.dare) : "dare loaded — hidden until both sides are in"}</div>
+            <div class="dare ${showDare ? "" : "hidden-dare"}">${showDare ? escapeHtml(p.dare) : hiddenText}</div>
             ${opts.showAgree ? `<span class="tag ${p.agreed ? "agreed" : "waiting"}">${p.agreed ? "agreed" : "hasn't agreed yet"}</span>` : ""}
           </div>`;
       }
@@ -727,12 +732,19 @@
                        <a class="btn ghost" href="${composeLink(buildWinText(loser.handle, id))}" target="_blank" rel="noopener">share your win</a>
                      </div>`;
           } else {
-            loserBlock = `<p class="msg">@${escapeHtml(loser.handle)}'s account posts @${escapeHtml(winner.handle)}'s dare automatically.</p>`;
+            loserBlock = dareToPost
+              ? `<p class="msg">@${escapeHtml(loser.handle)}'s account posted @${escapeHtml(winner.handle)}'s dare automatically: "${escapeHtml(dareToPost)}"</p>`
+              : `<p class="msg">@${escapeHtml(loser.handle)}'s account posts @${escapeHtml(winner.handle)}'s dare automatically.</p>`;
           }
+          // The loser's own dare never gets posted (it was written for the
+          // winner, who didn't lose), so it stays hidden from anyone who
+          // wasn't one of these two players — only the dare that actually
+          // went out (the winner's, above) is public.
+          const loserHiddenText = "this dare never got posted — only the two players could see it";
           return `
             <div class="players">
-              ${playerCard("creator", state.creator, { showAgree: false, outcomeRole: loserRole === "creator" ? "creator" : null, outcomeCls: "loser" })}
-              ${playerCard("joiner", state.joiner, { showAgree: false, outcomeRole: loserRole === "joiner" ? "joiner" : null, outcomeCls: "loser" })}
+              ${playerCard("creator", state.creator, { showAgree: false, outcomeRole: loserRole === "creator" ? "creator" : null, outcomeCls: "loser", hiddenText: loserRole === "creator" ? loserHiddenText : undefined })}
+              ${playerCard("joiner", state.joiner, { showAgree: false, outcomeRole: loserRole === "joiner" ? "joiner" : null, outcomeCls: "loser", hiddenText: loserRole === "joiner" ? loserHiddenText : undefined })}
             </div>
             <div class="cylinder">${chambers.join("")}</div>
             <div class="outcome">
@@ -896,7 +908,9 @@
         els.room.classList.add("on");
         els.room.innerHTML = `<p class="msg center">loading the round…</p>`;
         try {
-          const res = await fetch(`/api/round/${currentId}`);
+          const viewerSession = await getSession();
+          const qs = viewerSession?.did ? `?viewerDid=${encodeURIComponent(viewerSession.did)}` : "";
+          const res = await fetch(`/api/round/${currentId}${qs}`);
           const state = await res.json();
           await render(currentId, state);
           if (pendingLoginError) {

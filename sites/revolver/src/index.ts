@@ -54,6 +54,19 @@
 // reload) got a working page; index.html now loads /lib/... with a leading
 // slash so it resolves the same regardless of the serving path.
 //
+// @fromthewestmeadow.com again (2026-08-06): asked that visiting a round
+// link only show the final result dare, not both players' dares, unless
+// you're logged in as one of the two accounts in the round — plus a
+// leaderboard of survived rounds by chamber count. Round.publicState() now
+// takes a viewerDid and only reveals both dares to the two participants;
+// everyone else sees nothing pre-resolution and, once resolved, only the
+// dare that actually got posted (the winner's — the loser's own dare never
+// goes anywhere, so it stays hidden). The viewer's DID rides along on the
+// state GET, the poll fallback, and the WS connection (see index.html). The
+// new Leaderboard DO (one singleton instance, idFromName("global")) gets a
+// fire-and-forget /record call from Round the instant a round resolves, and
+// /api/leaderboard + public/leaderboard.html read it back out.
+//
 // Routes:
 //   GET  /r/<id>              -> personalized-OG unfurl shell (same SPA,
 //                                 index.html reads the id from the path)
@@ -63,7 +76,8 @@
 //   /api/round/<id>/decline   -> POST
 //   /api/round/<id>/pull      -> POST
 //   /api/round/<id>/ws        -> WebSocket upgrade (state push only)
-//   /api/round/<id>           -> GET, bare state fetch
+//   /api/round/<id>           -> GET, bare state fetch (?viewerDid=<did>)
+//   /api/leaderboard          -> GET, forwarded to the Leaderboard DO
 //   everything else           -> ASSETS
 
 interface DurableObjectId {
@@ -93,6 +107,7 @@ declare const WebSocketPair: { new (): WebSocketPair };
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   ROUND: DurableObjectNamespace;
+  LEADERBOARD: DurableObjectNamespace;
 }
 
 const SHARE_RE = /^\/r\/([A-Za-z0-9_-]{4,40})\/?$/;
@@ -170,6 +185,11 @@ export default {
       return stub.fetch(new Request(inner, request));
     }
 
+    if (url.pathname === "/api/leaderboard" && request.method === "GET") {
+      const stub = env.LEADERBOARD.get(env.LEADERBOARD.idFromName("global"));
+      return stub.fetch(new Request(new URL("/state", request.url)));
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
@@ -231,6 +251,7 @@ const MAX_DARE = 220;
 
 export class Round {
   private state: DurableObjectState;
+  private env: Env;
   private chambers = 6;
   private targetHandle = "";
   private creator: Player | null = null;
@@ -247,11 +268,12 @@ export class Round {
   private declined = false;
   private declinedBy: Role | null = null;
   private createdAt = 0;
-  private sessions = new Map<WebSocket, { role: string }>();
+  private sessions = new Map<WebSocket, { role: string; did: string }>();
   private ready: Promise<void>;
 
-  constructor(state: DurableObjectState) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state;
+    this.env = env;
     this.ready = this.state.blockConcurrencyWhile(async () => {
       const saved = await this.state.storage.get<string>("data");
       if (saved) Object.assign(this, JSON.parse(saved));
@@ -307,14 +329,27 @@ export class Round {
     };
   }
 
-  private publicState() {
-    const showDares = !!(this.creator && this.joiner);
+  // Dares are only shown to the two people playing, plus — once the round's
+  // over — the one dare that actually became a real post (the winner's; the
+  // loser's own dare never goes anywhere, so a spectator has no business
+  // reading it). viewerDid is the OAuth session DID of whoever's asking, not
+  // this browser's slot/token — someone can be "logged in as one of the
+  // accounts involved" from an entirely different device than the one that
+  // created or joined the round.
+  private publicState(viewerDid?: string) {
+    const bothJoined = !!(this.creator && this.joiner);
+    const isParticipant =
+      !!viewerDid &&
+      ((this.creator && viewerDid === this.creator.did) || (this.joiner && viewerDid === this.joiner.did));
+    const winnerRole: Role | null = this.resolved ? (this.loser === "creator" ? "joiner" : "creator") : null;
+    const showCreatorDare = bothJoined && (isParticipant || winnerRole === "creator");
+    const showJoinerDare = bothJoined && (isParticipant || winnerRole === "joiner");
     return {
       chambers: this.chambers,
       targetHandle: this.targetHandle,
       createdAt: this.createdAt,
-      creator: this.publicPlayer(this.creator, showDares),
-      joiner: this.publicPlayer(this.joiner, showDares),
+      creator: this.publicPlayer(this.creator, showCreatorDare),
+      joiner: this.publicPlayer(this.joiner, showJoinerDare),
       phase: this.phase(),
       locked: this.locked,
       commitHash: this.locked ? this.commitHash : null,
@@ -330,14 +365,34 @@ export class Round {
   }
 
   private broadcast() {
-    const payload = JSON.stringify({ t: "state", state: this.publicState() });
-    for (const ws of this.sessions.keys()) {
+    for (const [ws, sess] of this.sessions) {
       try {
-        ws.send(payload);
+        ws.send(JSON.stringify({ t: "state", state: this.publicState(sess.did) }));
       } catch {
         this.sessions.delete(ws);
       }
     }
+  }
+
+  // Best-effort: a Leaderboard write failing should never break the round
+  // result for the two people who just played it.
+  private async recordSurvivor(winner: Player) {
+    try {
+      const stub = this.env.LEADERBOARD.get(this.env.LEADERBOARD.idFromName("global"));
+      await stub.fetch(
+        new Request("https://leaderboard/record", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            did: winner.did,
+            handle: winner.handle,
+            displayName: winner.displayName,
+            avatar: winner.avatar,
+            chambers: this.chambers,
+          }),
+        }),
+      );
+    } catch {}
   }
 
   private async lockIn() {
@@ -359,7 +414,7 @@ export class Round {
     const path = url.pathname;
 
     if (path === "/state" && request.method === "GET") {
-      return json(this.publicState());
+      return json(this.publicState(url.searchParams.get("viewerDid") || undefined));
     }
 
     if (path === "/create" && request.method === "POST") {
@@ -384,7 +439,7 @@ export class Round {
       };
       this.persist();
       this.broadcast();
-      return json({ ok: true, token, role: "creator", state: this.publicState() });
+      return json({ ok: true, token, role: "creator", state: this.publicState(this.creator.did) });
     }
 
     if (path === "/join" && request.method === "POST") {
@@ -412,7 +467,7 @@ export class Round {
       };
       this.persist();
       this.broadcast();
-      return json({ ok: true, token, role: "joiner", state: this.publicState() });
+      return json({ ok: true, token, role: "joiner", state: this.publicState(this.joiner.did) });
     }
 
     if (path === "/agree" && request.method === "POST") {
@@ -428,7 +483,7 @@ export class Round {
       }
       this.persist();
       this.broadcast();
-      return json({ ok: true, state: this.publicState() });
+      return json({ ok: true, state: this.publicState(player.did) });
     }
 
     if (path === "/decline" && request.method === "POST") {
@@ -441,7 +496,7 @@ export class Round {
       this.declinedBy = role;
       this.persist();
       this.broadcast();
-      return json({ ok: true, state: this.publicState() });
+      return json({ ok: true, state: this.publicState(player.did) });
     }
 
     if (path === "/pull" && request.method === "POST") {
@@ -457,12 +512,14 @@ export class Round {
       if (hit) {
         this.resolved = true;
         this.loser = role as Role;
+        const winner = this.playerFor(role === "creator" ? "joiner" : "creator");
+        if (winner) await this.recordSurvivor(winner);
       } else {
         this.currentTurn = role === "creator" ? "joiner" : "creator";
       }
       this.persist();
       this.broadcast();
-      return json({ ok: true, state: this.publicState() });
+      return json({ ok: true, state: this.publicState(player.did) });
     }
 
     if (path === "/ws" && request.method === "GET") {
@@ -473,15 +530,84 @@ export class Round {
       const token = url.searchParams.get("token") || "";
       const player = this.playerFor(role);
       const verifiedRole = player && player.token === token ? role : "spectator";
+      // A verified participant's viewer identity is their own player DID
+      // (trustworthy, since it came with a matching token); a spectator's is
+      // whatever DID their OAuth session claims, self-reported via the query
+      // string — used only to widen what they can *see*, never what they can
+      // do, so a false claim here doesn't grant any write.
+      const viewerDid = verifiedRole !== "spectator" ? player!.did : url.searchParams.get("viewerDid") || "";
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       server.accept();
-      this.sessions.set(server, { role: verifiedRole });
-      server.send(JSON.stringify({ t: "state", state: this.publicState() }));
+      this.sessions.set(server, { role: verifiedRole, did: viewerDid });
+      server.send(JSON.stringify({ t: "state", state: this.publicState(viewerDid) }));
       const onClose = () => this.sessions.delete(server);
       server.addEventListener("close", onClose);
       server.addEventListener("error", onClose);
       return new Response(null, { status: 101, webSocket: client });
+    }
+
+    return json({ error: "not found" }, 404);
+  }
+}
+
+// --- Leaderboard Durable Object -------------------------------------------
+//
+// One singleton instance for the whole site (idFromName("global")), tallying
+// survived rounds per handle per chamber count ("type"). Round./pull posts a
+// win here the instant a round resolves; keyed by DID so a handle change
+// doesn't split someone's tally, but the handle/displayName/avatar shown are
+// just whatever came with the most recent win (no live profile refresh —
+// good enough for a leaderboard).
+
+interface LeaderboardEntry {
+  did: string;
+  handle: string;
+  displayName: string;
+  avatar: string;
+  counts: Record<string, number>;
+}
+
+export class Leaderboard {
+  private state: DurableObjectState;
+  private entries: Record<string, LeaderboardEntry> = {};
+  private ready: Promise<void>;
+
+  constructor(state: DurableObjectState) {
+    this.state = state;
+    this.ready = this.state.blockConcurrencyWhile(async () => {
+      const saved = await this.state.storage.get<string>("data");
+      if (saved) this.entries = JSON.parse(saved);
+    });
+  }
+
+  private persist() {
+    this.state.storage.put("data", JSON.stringify(this.entries)).catch(() => {});
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    await this.ready;
+    const url = new URL(request.url);
+
+    if (url.pathname === "/record" && request.method === "POST") {
+      const body = await safeJson(request);
+      const did = cleanStr(body?.did, 200);
+      const handle = cleanStr(body?.handle, 80);
+      const chambers = String(clampInt(body?.chambers, 2, 8, 6));
+      if (!did || !handle) return json({ error: "bad record" }, 400);
+      const key = did;
+      const entry: LeaderboardEntry = this.entries[key] || { did, handle, displayName: handle, avatar: "", counts: {} };
+      entry.handle = handle;
+      entry.displayName = cleanStr(body?.displayName, 100) || handle;
+      entry.avatar = cleanStr(body?.avatar, 500);
+      entry.counts[chambers] = (entry.counts[chambers] || 0) + 1;
+      this.entries[key] = entry;
+      this.persist();
+      return json({ ok: true });
+    }
+
+    if (url.pathname === "/state" && request.method === "GET") {
+      return json({ entries: Object.values(this.entries) });
     }
 
     return json({ error: "not found" }, 404);
