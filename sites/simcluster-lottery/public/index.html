@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>simcluster lottery — bisks.net</title>
+    <meta
+      name="description"
+      content="Buy tickets for hourly, daily, and weekly draws. Sign in with Bluesky, watch your play-money wallet climb the leaderboard, and try to be the richest DID in the simcluster when the month resets."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://simcluster-lottery.bisks.net/" />
+    <meta property="og:title" content="simcluster lottery" />
+    <meta
+      property="og:description"
+      content="Buy tickets for hourly, daily, and weekly draws. Sign in with Bluesky, track your play-money wallet, and chase the top of the leaderboard before it resets next month."
+    />
+    <meta property="og:image" content="https://simcluster-lottery.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="simcluster lottery: three ticking draws and a wallet leaderboard." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="simcluster lottery" />
+    <meta
+      name="twitter:description"
+      content="Buy tickets for hourly, daily, and weekly draws. Sign in with Bluesky and chase the top of the wallet leaderboard before it resets next month."
+    />
+    <meta name="twitter:image" content="https://simcluster-lottery.bisks.net/og.png" />
+
+    <link rel="icon" href="data:," />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as guestbet / trigrams / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #b1382e;
+        --gold: #a6790f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+
+      header { margin: 0 0 0.4rem; }
+      h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 66ch; margin: 0 0 1.3rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .authbar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem;
+        font-size: 0.82rem; color: var(--muted);
+        border: 1px solid var(--faint); border-radius: 10px;
+        padding: 0.7rem 0.9rem; margin-bottom: 1.4rem; background: var(--faintbg);
+      }
+      .authbar b { color: var(--ink); }
+      .authbar input {
+        font-family: inherit; font-size: 0.82rem; background: #fff; color: var(--ink);
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.4rem 0.6rem; width: 12rem;
+      }
+      .authbar .err { color: var(--bad); }
+      button {
+        font-family: inherit; font-size: 0.82rem; letter-spacing: 0.01em;
+        background: var(--accent); color: #fff; border: none; border-radius: 6px;
+        padding: 0.5rem 1rem; cursor: pointer; transition: opacity 0.15s ease;
+      }
+      button:hover:not(:disabled) { opacity: 0.85; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+      button.tiny { font-size: 0.72rem; padding: 0.32rem 0.6rem; }
+
+      .wallet {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.4rem;
+        border: 1px solid var(--faint); border-radius: 12px; padding: 1rem 1.15rem;
+        margin-bottom: 1.4rem;
+      }
+      .wallet .balance { font-size: 1.5rem; font-weight: 800; }
+      .wallet .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+      .wallet .stat { font-size: 0.82rem; color: var(--muted); }
+      .wallet .stat b { color: var(--ink); }
+      .wallet .rankpill {
+        margin-left: auto; font-size: 0.78rem; color: var(--gold); border: 1px solid var(--gold);
+        border-radius: 999px; padding: 0.2rem 0.7rem;
+      }
+
+      h2 { font-size: 1.05rem; font-weight: 700; margin: 2rem 0 0.8rem; }
+      .draws { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.9rem; }
+      .draw {
+        border: 1px solid var(--faint); border-radius: 12px; padding: 1rem 1.1rem;
+        display: flex; flex-direction: column; gap: 0.55rem;
+      }
+      .draw .kind { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+      .draw .pot { font-size: 1.35rem; font-weight: 800; }
+      .draw .meta { font-size: 0.78rem; color: var(--muted); }
+      .draw .countdown { font-size: 0.9rem; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+      .draw .yours { font-size: 0.78rem; }
+      .buyRow { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.2rem; }
+      .buyRow input {
+        font-family: inherit; font-size: 0.82rem; width: 4.2rem; text-align: right;
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.4rem 0.5rem;
+      }
+      .draw .err { font-size: 0.74rem; color: var(--bad); min-height: 1.1em; }
+
+      .feed { list-style: none; margin: 0; padding: 0; }
+      .feed li {
+        display: flex; justify-content: space-between; gap: 0.8rem;
+        font-size: 0.82rem; padding: 0.5rem 0; border-bottom: 1px solid var(--faint);
+      }
+      .feed li:last-child { border-bottom: none; }
+      .feed .who { color: var(--ink); }
+      .feed .empty-line { color: var(--muted); }
+      .feed .amt { color: var(--good); font-weight: 700; white-space: nowrap; }
+      .feed .amt.zero { color: var(--muted); font-weight: 400; }
+      .feed .when { color: var(--muted); font-size: 0.74rem; }
+
+      ol.lb { list-style: none; margin: 0; padding: 0; counter-reset: lb; }
+      ol.lb li {
+        counter-increment: lb;
+        display: flex; align-items: baseline; gap: 0.6rem;
+        font-size: 0.85rem; padding: 0.42rem 0; border-bottom: 1px solid var(--faint);
+      }
+      ol.lb li::before { content: counter(lb) "."; color: var(--muted); width: 1.6em; }
+      ol.lb li.me { color: var(--accent); font-weight: 700; }
+      ol.lb .h { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      ol.lb .n { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+      .champs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .champ {
+        font-size: 0.78rem; border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.32rem 0.8rem; color: var(--muted);
+      }
+      .champ b { color: var(--gold); }
+
+      .winBanner {
+        display: none; border: 1px solid var(--good); background: #f1faf4; border-radius: 10px;
+        padding: 0.8rem 1rem; margin-bottom: 1.2rem; font-size: 0.86rem;
+      }
+      .winBanner.show { display: block; }
+      .winBanner a.share { font-weight: 700; }
+
+      .disclaimer {
+        margin-top: 2.4rem; font-size: 0.76rem; color: var(--muted); line-height: 1.7;
+        border-top: 1px solid var(--faint); padding-top: 1.1rem;
+      }
+      footer { margin-top: 1rem; font-size: 0.74rem; color: var(--muted); }
+      .empty { color: var(--muted); font-size: 0.82rem; padding: 0.4rem 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>simcluster lottery</h1>
+        <p class="sub">
+          Buy tickets, watch three clocks run down, and see who takes the pot. Every ticket is one entry; the draw
+          picks a single winner weighted by tickets held, and they take the whole pot. It's <b>play money only</b> —
+          coins can't be bought or cashed out for anything real, and every wallet resets to a fresh
+          <b id="startBalanceLabel">1000</b> on the 1st of the month, so the leaderboard is really a monthly race, not
+          a lifetime one.
+        </p>
+      </header>
+
+      <div class="authbar" id="authbar">
+        <span id="authText">sign in with bluesky to open a wallet</span>
+        <span id="authForm">
+          <input id="handleInput" type="text" placeholder="your bluesky handle" />
+          <button id="signInBtn">sign in</button>
+        </span>
+      </div>
+
+      <div class="winBanner" id="winBanner"></div>
+
+      <div class="wallet" id="walletPanel" style="display: none">
+        <div>
+          <div class="label">your wallet</div>
+          <div class="balance" id="balanceVal">—</div>
+        </div>
+        <div class="stat" id="netStat"></div>
+        <div class="stat" id="statsStat"></div>
+        <span class="rankpill" id="rankPill" style="display: none"></span>
+        <button class="ghost tiny" id="stipendBtn" style="display: none">running low? claim a top-up</button>
+      </div>
+
+      <h2>draws</h2>
+      <div class="draws" id="draws">
+        <div class="draw" data-kind="hourly">
+          <div class="kind">hourly · <span class="priceLabel"></span> coins/ticket</div>
+          <div class="pot">— coins</div>
+          <div class="countdown">—</div>
+          <div class="meta metaLine"></div>
+          <div class="yours yoursLine"></div>
+          <div class="buyRow">
+            <input type="number" min="1" max="500" value="1" class="countInput" />
+            <button class="buyBtn">buy tickets</button>
+          </div>
+          <div class="err"></div>
+        </div>
+        <div class="draw" data-kind="daily">
+          <div class="kind">daily · <span class="priceLabel"></span> coins/ticket</div>
+          <div class="pot">— coins</div>
+          <div class="countdown">—</div>
+          <div class="meta metaLine"></div>
+          <div class="yours yoursLine"></div>
+          <div class="buyRow">
+            <input type="number" min="1" max="500" value="1" class="countInput" />
+            <button class="buyBtn">buy tickets</button>
+          </div>
+          <div class="err"></div>
+        </div>
+        <div class="draw" data-kind="weekly">
+          <div class="kind">weekly · <span class="priceLabel"></span> coins/ticket</div>
+          <div class="pot">— coins</div>
+          <div class="countdown">—</div>
+          <div class="meta metaLine"></div>
+          <div class="yours yoursLine"></div>
+          <div class="buyRow">
+            <input type="number" min="1" max="500" value="1" class="countInput" />
+            <button class="buyBtn">buy tickets</button>
+          </div>
+          <div class="err"></div>
+        </div>
+      </div>
+
+      <h2>recent draws</h2>
+      <ul class="feed" id="historyFeed"><li class="empty-line">no draws have resolved yet.</li></ul>
+
+      <h2>leaderboard <span style="font-weight: 400; color: var(--muted); font-size: 0.78rem">this month</span></h2>
+      <ol class="lb" id="leaderboard"><li class="empty">nobody's bought a ticket yet.</li></ol>
+
+      <div id="champsWrap" style="display: none">
+        <h2>past monthly champions</h2>
+        <div class="champs" id="champs"></div>
+      </div>
+
+      <div class="disclaimer">
+        Not real money. Coins can't be bought, deposited, cashed out, or redeemed for anything — the entire economy
+        lives in a Durable Object for the fun of the number going up, same "toy, not a casino" deal as
+        <a href="https://notgambling.bisks.net/" target="_blank" rel="noopener">notgambling</a>. Signing in only
+        hands this site your DID and handle (bare <code>atproto</code> OAuth scope — it never touches your PDS) so
+        your wallet and leaderboard spot are actually yours instead of an anonymous browser id. Every balance resets
+        to <span id="startBalanceLabel2">1000</span> coins at the start of each UTC month; whoever was on top gets
+        immortalized below first.
+      </div>
+      <footer>
+        a Durable Object runs the draws on real wall-clock alarms — see
+        <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a> for the rest of the fleet.
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share your wallet</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+
+      var authbar = document.getElementById("authbar");
+      var authText = document.getElementById("authText");
+      var authForm = document.getElementById("authForm");
+      var handleInput = document.getElementById("handleInput");
+      var signInBtn = document.getElementById("signInBtn");
+      var winBanner = document.getElementById("winBanner");
+      var walletPanel = document.getElementById("walletPanel");
+      var balanceVal = document.getElementById("balanceVal");
+      var netStat = document.getElementById("netStat");
+      var statsStat = document.getElementById("statsStat");
+      var rankPill = document.getElementById("rankPill");
+      var stipendBtn = document.getElementById("stipendBtn");
+      var historyFeed = document.getElementById("historyFeed");
+      var leaderboardEl = document.getElementById("leaderboard");
+      var champsWrap = document.getElementById("champsWrap");
+      var champsEl = document.getElementById("champs");
+      var shareLink = document.getElementById("shareLink");
+
+      var KIND_LABEL = { hourly: "hourly", daily: "daily", weekly: "weekly" };
+      var session = null;
+      var lastSeenHistoryId = { hourly: null, daily: null, weekly: null };
+      var celebrated = JSON.parse(localStorage.getItem("simclusterLottery.celebrated") || "[]");
+
+      function esc(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+        });
+      }
+      function fmt(n) {
+        return Math.round(n).toLocaleString();
+      }
+      function fmtDuration(ms) {
+        if (ms <= 0) return "resolving…";
+        var s = Math.floor(ms / 1000);
+        var d = Math.floor(s / 86400);
+        s -= d * 86400;
+        var h = Math.floor(s / 3600);
+        s -= h * 3600;
+        var m = Math.floor(s / 60);
+        s -= m * 60;
+        if (d > 0) return d + "d " + h + "h " + m + "m";
+        if (h > 0) return h + "h " + m + "m " + s + "s";
+        if (m > 0) return m + "m " + s + "s";
+        return s + "s";
+      }
+      function fmtAgo(ts) {
+        var ms = Date.now() - ts;
+        if (ms < 60000) return "just now";
+        if (ms < 3600000) return Math.floor(ms / 60000) + "m ago";
+        if (ms < 86400000) return Math.floor(ms / 3600000) + "h ago";
+        return Math.floor(ms / 86400000) + "d ago";
+      }
+
+      // ---- identity ----------------------------------------------------------
+      try {
+        session = (await completeLoginIfCallback()) || (await getSession());
+      } catch (e) {
+        authText.innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+      }
+
+      function renderAuth() {
+        if (session) {
+          authForm.style.display = "none";
+          authText.innerHTML =
+            'signed in as <b>@' + esc(session.handle) + '</b> — <a id="signOut">sign out</a>';
+          var out = document.getElementById("signOut");
+          if (out)
+            out.addEventListener("click", async function () {
+              await clearSession();
+              session = null;
+              renderAuth();
+              refresh();
+            });
+        } else {
+          authForm.style.display = "inline-flex";
+          authText.textContent = "sign in with bluesky to open a wallet";
+        }
+      }
+      renderAuth();
+
+      signInBtn.addEventListener("click", async function () {
+        var h = handleInput.value.trim();
+        if (!h) return;
+        signInBtn.disabled = true;
+        signInBtn.textContent = "redirecting…";
+        try {
+          await login(h);
+        } catch (e) {
+          signInBtn.disabled = false;
+          signInBtn.textContent = "sign in";
+          authText.innerHTML = '<span class="err">' + esc(e.message) + "</span>";
+        }
+      });
+      handleInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") signInBtn.click();
+      });
+
+      // ---- state fetch + render ------------------------------------------------
+      var drawEls = {};
+      document.querySelectorAll(".draw").forEach(function (el) {
+        drawEls[el.dataset.kind] = el;
+      });
+
+      var latest = null;
+
+      function renderWallet() {
+        if (!session) {
+          walletPanel.style.display = "none";
+          return;
+        }
+        walletPanel.style.display = "flex";
+        balanceVal.textContent = latest ? fmt(latest.balance) + " coins" : "—";
+        if (latest && latest.yourStats) {
+          var st = latest.yourStats;
+          netStat.innerHTML =
+            "net <b style=\"color:" +
+            (st.net >= 0 ? "var(--good)" : "var(--bad)") +
+            '">' +
+            (st.net >= 0 ? "+" : "") +
+            fmt(st.net) +
+            "</b>";
+          statsStat.innerHTML = fmt(st.ticketsBought) + " tickets bought · " + st.wins + " wins";
+        }
+        if (latest && latest.yourRank) {
+          rankPill.style.display = "inline-block";
+          rankPill.textContent = "#" + latest.yourRank + " on the leaderboard";
+        } else {
+          rankPill.style.display = "none";
+        }
+        stipendBtn.style.display = latest && latest.canClaimStipend ? "inline-block" : "none";
+      }
+
+      function renderDraws() {
+        if (!latest) return;
+        ["hourly", "daily", "weekly"].forEach(function (kind) {
+          var d = latest.draws[kind];
+          var el = drawEls[kind];
+          el.querySelector(".priceLabel").textContent = d.price;
+          el.querySelector(".pot").textContent = fmt(d.pot) + " coins";
+          el.querySelector(".countdown").textContent = fmtDuration(d.resolvesAt - latest.now);
+          el.querySelector(".metaLine").textContent =
+            d.ticketTotal + " ticket" + (d.ticketTotal === 1 ? "" : "s") + " sold · " + d.participants + " player" + (d.participants === 1 ? "" : "s");
+          el.querySelector(".yoursLine").textContent = session
+            ? "you: " + d.yourTickets + " ticket" + (d.yourTickets === 1 ? "" : "s") + " this round"
+            : "";
+          var buyBtn = el.querySelector(".buyBtn");
+          buyBtn.disabled = !session;
+          buyBtn.textContent = session ? "buy tickets" : "sign in to play";
+        });
+      }
+
+      function renderHistory() {
+        if (!latest || !latest.history.length) {
+          historyFeed.innerHTML = '<li class="empty-line">no draws have resolved yet.</li>';
+          return;
+        }
+        historyFeed.innerHTML = latest.history
+          .map(function (h) {
+            var who = h.winnerHandle ? "@" + esc(h.winnerHandle) : "no tickets sold";
+            var amtClass = h.pot > 0 ? "amt" : "amt zero";
+            return (
+              '<li><span class="who">' +
+              KIND_LABEL[h.kind] +
+              " — " +
+              who +
+              '</span><span class="amt-when"><span class="' +
+              amtClass +
+              '">' +
+              (h.pot > 0 ? "+" + fmt(h.pot) : "—") +
+              '</span> <span class="when">' +
+              fmtAgo(h.resolvedAt) +
+              "</span></span></li>"
+            );
+          })
+          .join("");
+      }
+
+      function renderLeaderboard() {
+        if (!latest || !latest.leaderboard.length) {
+          leaderboardEl.innerHTML = '<li class="empty">nobody\'s bought a ticket yet.</li>';
+          return;
+        }
+        leaderboardEl.innerHTML = latest.leaderboard
+          .map(function (row) {
+            var mine = session && row.did === session.did;
+            return (
+              '<li' +
+              (mine ? ' class="me"' : "") +
+              '><span class="h">@' +
+              esc(row.handle) +
+              '</span><span class="n">' +
+              fmt(row.balance) +
+              "</span></li>"
+            );
+          })
+          .join("");
+      }
+
+      function renderChamps() {
+        if (!latest || !latest.monthlyChampions.length) {
+          champsWrap.style.display = "none";
+          return;
+        }
+        champsWrap.style.display = "block";
+        champsEl.innerHTML = latest.monthlyChampions
+          .map(function (c) {
+            return '<span class="champ">' + esc(c.month) + " — <b>@" + esc(c.handle) + "</b> (" + fmt(c.balance) + ")</span>";
+          })
+          .join("");
+      }
+
+      function buildShareText() {
+        var text;
+        if (session && latest && latest.balance != null) {
+          text =
+            "I'm sitting at " +
+            fmt(latest.balance) +
+            " coins" +
+            (latest.yourRank ? " (#" + latest.yourRank + ")" : "") +
+            " on the simcluster lottery — https://simcluster-lottery.bisks.net";
+        } else {
+          text = "hourly, daily, and weekly play-money draws — simcluster lottery: https://simcluster-lottery.bisks.net";
+        }
+        return text.length > 300 ? text.slice(0, 297) + "..." : text;
+      }
+      function updateShareLink() {
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+      }
+
+      function checkWins() {
+        if (!session || !latest) return;
+        var freshWin = null;
+        for (var i = latest.history.length - 1; i >= 0; i--) {
+          var h = latest.history[i];
+          if (h.winnerDid !== session.did) continue;
+          var key = h.kind + ":" + h.id;
+          if (celebrated.indexOf(key) === -1) freshWin = h;
+        }
+        if (freshWin) {
+          var key = freshWin.kind + ":" + freshWin.id;
+          celebrated.push(key);
+          if (celebrated.length > 100) celebrated = celebrated.slice(-100);
+          localStorage.setItem("simclusterLottery.celebrated", JSON.stringify(celebrated));
+          var text =
+            "I just won the " +
+            KIND_LABEL[freshWin.kind] +
+            " draw on the simcluster lottery — " +
+            fmt(freshWin.pot) +
+            " coins. https://simcluster-lottery.bisks.net";
+          winBanner.className = "winBanner show";
+          winBanner.innerHTML =
+            "🎟️ you won the " +
+            KIND_LABEL[freshWin.kind] +
+            " draw — <b>+" +
+            fmt(freshWin.pot) +
+            " coins</b>. " +
+            '<a class="share" href="https://bsky.app/intent/compose?text=' +
+            encodeURIComponent(text.length > 300 ? text.slice(0, 297) + "..." : text) +
+            '" target="_blank" rel="noopener">share it</a>';
+        }
+      }
+
+      async function refresh() {
+        try {
+          var did = session ? "?did=" + encodeURIComponent(session.did) : "";
+          var r = await fetch("/api/state" + did);
+          latest = await r.json();
+          checkWins();
+          renderWallet();
+          renderDraws();
+          renderHistory();
+          renderLeaderboard();
+          renderChamps();
+          updateShareLink();
+        } catch (e) {
+          // transient network hiccup — keep showing the last good state.
+        }
+      }
+
+      document.querySelectorAll(".buyBtn").forEach(function (btn) {
+        btn.addEventListener("click", async function () {
+          var el = btn.closest(".draw");
+          var kind = el.dataset.kind;
+          var errEl = el.querySelector(".err");
+          errEl.textContent = "";
+          if (!session) {
+            errEl.textContent = "sign in first";
+            return;
+          }
+          var count = parseInt(el.querySelector(".countInput").value, 10);
+          if (!count || count < 1) {
+            errEl.textContent = "enter at least 1 ticket";
+            return;
+          }
+          btn.disabled = true;
+          btn.textContent = "buying…";
+          try {
+            var r = await fetch("/api/buy", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                did: session.did,
+                handle: session.handle,
+                displayName: session.displayName || session.handle,
+                avatar: session.avatar || "",
+                kind: kind,
+                count: count,
+              }),
+            });
+            var data = await r.json();
+            if (!r.ok || data.error) {
+              errEl.textContent = data.error || "could not buy tickets";
+            } else {
+              latest = data;
+              renderWallet();
+              renderDraws();
+              renderHistory();
+              renderLeaderboard();
+              renderChamps();
+              updateShareLink();
+            }
+          } catch (e) {
+            errEl.textContent = "network error — try again";
+          }
+          btn.disabled = !session;
+          btn.textContent = "buy tickets";
+        });
+      });
+
+      stipendBtn.addEventListener("click", async function () {
+        if (!session) return;
+        stipendBtn.disabled = true;
+        try {
+          var r = await fetch("/api/stipend", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ did: session.did, handle: session.handle }),
+          });
+          var data = await r.json();
+          if (!data.error) {
+            latest = data;
+            renderWallet();
+            renderDraws();
+          }
+        } catch (e) {}
+        stipendBtn.disabled = false;
+      });
+
+      refresh();
+      setInterval(refresh, 5000);
+      setInterval(function () {
+        if (latest) renderDraws();
+      }, 1000);
+    </script>
+  </body>
+</html>
