@@ -12,9 +12,39 @@
 // the handle server-side and stamps a personalized og:title/og:description
 // /og:url onto the same page shell before handing it back, so every share
 // gets its own cache entry. Falls through to ASSETS for everything else.
+//
+// SkeetIn Top℠ (the premium-upsell satire) is pure client-side theater —
+// no server surface, see public/app.js. SkeetIn Corvid (the limited-edition
+// numbered claim, @antiali.as's other ask) DOES need a server: the whole
+// bit is "only 500 exist and every number is unique," and a client-side
+// counter can't make that true against concurrent claimants — two tabs
+// would both read "next number is 42." A Durable Object serializes claims
+// one at a time (see CorvidClaims below), same pattern as griftmax's
+// AscensionEngine rank counter.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
+  CORVID: DurableObjectNamespace;
+}
+
+interface DurableObjectId {
+  toString(): string;
+}
+interface DurableObjectStub {
+  fetch(request: Request): Promise<Response>;
+}
+interface DurableObjectNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
+interface DurableObjectStorage {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  put(entries: Record<string, unknown>): Promise<void>;
+  list<T = unknown>(options?: { prefix?: string; limit?: number; reverse?: boolean }): Promise<Map<string, T>>;
+}
+interface DurableObjectState {
+  storage: DurableObjectStorage;
+  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 function cleanHandle(raw: string): string {
@@ -129,6 +159,114 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
   }
 }
 
+// ---------- SkeetIn Corvid: limited-edition numbered claim ----------
+// 500 numbers, ever. Anyone can type any handle in the claim box — same
+// no-auth read-only spirit as the rest of the site (nothing here writes to
+// a real PDS or grants a real privilege, it's a fake badge for a fake site)
+// — but the *numbering itself* is real and race-free: rank assignment reads
+// and writes `this.count` with no `await` between them, so two concurrent
+// claims can't ever be handed the same number (identical guarantee to
+// griftmax's AscensionEngine).
+
+const CORVID_TOTAL = 500;
+
+interface CorvidEntry {
+  number: number;
+  did: string;
+  handle: string;
+  displayName?: string;
+  avatar?: string;
+  claimedAt: number;
+}
+
+async function resolveDid(handle: string): Promise<string> {
+  if (handle.startsWith("did:")) return handle;
+  const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+  return r.did;
+}
+
+export class CorvidClaims {
+  private state: DurableObjectState;
+  private ready: Promise<void>;
+  private count = 0;
+
+  constructor(state: DurableObjectState, _env: Env) {
+    this.state = state;
+    this.ready = this.state.blockConcurrencyWhile(async () => {
+      this.count = (await this.state.storage.get<number>("count")) ?? 0;
+    });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    await this.ready;
+    const url = new URL(request.url);
+
+    if (url.pathname === "/status" && request.method === "GET") {
+      const map = await this.state.storage.list<CorvidEntry>({ prefix: "claim:" });
+      const recent = [...map.values()].sort((a, b) => b.number - a.number).slice(0, 12);
+      return json({ total: CORVID_TOTAL, claimed: this.count, remaining: Math.max(0, CORVID_TOTAL - this.count), recent });
+    }
+
+    if (url.pathname === "/lookup" && request.method === "GET") {
+      const did = url.searchParams.get("did") || "";
+      if (!did) return json({ error: "missing did" }, 400);
+      const entry = await this.state.storage.get<CorvidEntry>(`claim:${did}`);
+      return json({ entry: entry || null });
+    }
+
+    if (url.pathname === "/claim" && request.method === "POST") {
+      let body: any;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "bad request body" }, 400);
+      }
+      const rawHandle = typeof body?.handle === "string" ? cleanHandle(body.handle) : "";
+      if (!rawHandle) return json({ error: "type a handle to claim" }, 400);
+
+      let did: string;
+      let profile: any;
+      try {
+        did = await resolveDid(rawHandle);
+        profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+      } catch {
+        return json({ error: `couldn't find @${rawHandle} on Bluesky` }, 404);
+      }
+
+      const existing = await this.state.storage.get<CorvidEntry>(`claim:${did}`);
+      if (existing) return json({ entry: existing, alreadyClaimed: true });
+
+      if (this.count >= CORVID_TOTAL) {
+        return json({ error: "sold out — all 500 SkeetIn Corvid numbers are claimed", soldOut: true }, 410);
+      }
+
+      // No `await` between reading and incrementing `this.count` — see the
+      // file-header note on why that's what makes numbers race-free.
+      const number = ++this.count;
+      const entry: CorvidEntry = {
+        number,
+        did,
+        handle: profile.handle || rawHandle,
+        displayName: typeof profile.displayName === "string" ? profile.displayName.slice(0, 200) : undefined,
+        avatar: typeof profile.avatar === "string" ? profile.avatar : undefined,
+        claimedAt: Date.now(),
+      };
+      await this.state.storage.put({ count: this.count, [`claim:${did}`]: entry });
+
+      return json({ entry, alreadyClaimed: false });
+    }
+
+    return json({ error: "not found" }, 404);
+  }
+}
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -138,6 +276,14 @@ export default {
     // unfurler can't collapse them into one cached card.
     const m = url.pathname.match(/^\/s\/([^/]+)\/?$/);
     if (m) return renderShare(env, request, m[1]);
+
+    if (url.pathname.startsWith("/api/corvid/")) {
+      const sub = url.pathname.slice("/api/corvid".length); // "/status", "/claim", "/lookup"
+      const id = env.CORVID.idFromName("global");
+      const stub = env.CORVID.get(id);
+      const forward = new URL("https://corvid.internal" + sub + url.search);
+      return stub.fetch(new Request(forward.toString(), request));
+    }
 
     return env.ASSETS.fetch(request);
   },

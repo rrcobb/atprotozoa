@@ -29,7 +29,21 @@
     composerBtn: document.getElementById("composerBtn"),
     meAvatar: document.getElementById("meAvatar"),
     meNav: document.getElementById("meNav"),
+    meTopBadge: document.getElementById("meTopBadge"),
+    meLabelPlain: document.getElementById("meLabelPlain"),
     toast: document.getElementById("toast"),
+    // SkeetIn Top℠
+    pfViewersLocked: document.getElementById("pfViewersLocked"),
+    pfUpgradeBtn: document.getElementById("pfUpgradeBtn"),
+    promoUpgradeBtn: document.getElementById("promoUpgradeBtn"),
+    promoTopCard: document.getElementById("promoTopCard"),
+    boostUpsellBtn: document.getElementById("boostUpsellBtn"),
+    topModal: document.getElementById("topModal"),
+    topModalClose: document.getElementById("topModalClose"),
+    modalSubscribeBtn: document.getElementById("modalSubscribeBtn"),
+    // SkeetIn Corvid
+    corvidNavCount: document.getElementById("corvidNavCount"),
+    pfCorvidBadge: document.getElementById("pfCorvidBadge"),
   };
 
   // ---------- tiny utils ----------
@@ -94,6 +108,122 @@
   function jobTitleFor(handle) {
     const h = hashStr(handle);
     return TITLES[h % TITLES.length] + " at " + COMPANIES[(h >> 3) % COMPANIES.length];
+  }
+
+  // ---------- SkeetIn Top℠ (premium upsell satire, 100% client-side) ----------
+  // No account system exists here (see meNav's own tooltip: "nobody has a
+  // SkeetIn account"), so "subscribing" is just a localStorage flag that
+  // flips on some cosmetic gold trim and a fake "who viewed this profile"
+  // reveal. It's free forever because charging for it would require a
+  // payment processor this playground doesn't have and a product that isn't
+  // real — the bit IS that it's free.
+  const TOP_KEY = "skeetin_top_member";
+  const FAKE_VIEWER_ROLES = [
+    "A recruiter from a company that doesn't exist",
+    "Someone from Firehose Industries, allegedly",
+    "A fellow SkeetIn Corvid holder",
+    "Your former Chief Vibes Officer",
+    "A bot, almost certainly",
+    "Someone who un-viewed immediately after",
+  ];
+  function isTopMember() {
+    try { return localStorage.getItem(TOP_KEY) === "1"; } catch (_) { return false; }
+  }
+  function setTopMember(on) {
+    try { localStorage.setItem(TOP_KEY, on ? "1" : "0"); } catch (_) {}
+  }
+  function fakeViewersFor(did) {
+    const h = hashStr(did || "anon");
+    const picks = [];
+    for (let i = 0; i < 3; i++) picks.push(FAKE_VIEWER_ROLES[(h + i * 7) % FAKE_VIEWER_ROLES.length]);
+    return picks;
+  }
+  function renderProfileViewers(did) {
+    if (!isTopMember()) {
+      els.pfViewersLocked.innerHTML =
+        `🔒 SkeetIn Top℠ members can see who's been checking out this profile
+         <button class="top-upsell-btn" id="pfUpgradeBtn">✦ Try SkeetIn Top℠</button>`;
+      document.getElementById("pfUpgradeBtn").addEventListener("click", openTopModal);
+      return;
+    }
+    const viewers = fakeViewersFor(did);
+    els.pfViewersLocked.innerHTML =
+      `<div class="unlocked-list">${viewers
+        .map((v) => `<div class="viewer-row"><img alt="" /> ${esc(v)}</div>`)
+        .join("")}</div>
+       <div style="font-size:10.5px;color:var(--li-text3);margin-top:4px;">
+         SkeetIn Top℠ doesn't track real views — this is generated for comedic effect.
+       </div>`;
+  }
+  function applyTopUiState() {
+    const on = isTopMember();
+    els.meAvatar.classList.toggle("top-ring", on);
+    els.composerAvatar.classList.toggle("top-ring", on);
+    els.meTopBadge.style.display = on ? "" : "none";
+    els.meLabelPlain.style.display = on ? "none" : "";
+    if (els.promoTopCard) {
+      els.promoTopCard.querySelector(".card-title").textContent = on
+        ? "✦ You're SkeetIn Top℠"
+        : "✦ SkeetIn Top℠";
+      const cta = els.promoTopCard.querySelector(".promo-cta");
+      if (cta) cta.textContent = on ? "You're already subscribed" : "Try SkeetIn Top℠ free";
+    }
+  }
+  function openTopModal() {
+    if (isTopMember()) {
+      toast("You're already SkeetIn Top℠ — there's nothing more to unlock, this was never real.");
+      return;
+    }
+    els.topModal.classList.remove("hidden");
+  }
+  function closeTopModal() {
+    els.topModal.classList.add("hidden");
+  }
+  els.topModalClose.addEventListener("click", closeTopModal);
+  els.topModal.addEventListener("click", (e) => {
+    if (e.target === els.topModal) closeTopModal();
+  });
+  els.modalSubscribeBtn.addEventListener("click", () => {
+    setTopMember(true);
+    applyTopUiState();
+    closeTopModal();
+    toast("🎉 Welcome to SkeetIn Top℠. Nothing changed, but $0.00/mo feels great, doesn't it?");
+    if (currentActor) renderProfileViewers(currentActor);
+  });
+  els.pfUpgradeBtn.addEventListener("click", openTopModal);
+  els.promoUpgradeBtn.addEventListener("click", openTopModal);
+  els.boostUpsellBtn.addEventListener("click", () => {
+    if (isTopMember()) {
+      toast("Boosted! (Narrator: it was not boosted. SkeetIn can't post, like, or boost anything.)");
+    } else {
+      openTopModal();
+    }
+  });
+
+  // ---------- SkeetIn Corvid (limited-edition numbered claim, server-backed) --
+  async function refreshCorvidNavCount() {
+    try {
+      const res = await fetch("/api/corvid/status");
+      if (!res.ok) return;
+      const data = await res.json();
+      els.corvidNavCount.textContent =
+        data.remaining > 0 ? `${fmt(data.remaining)} left` : "sold out";
+    } catch (_) {
+      // nav chip just keeps its static "500 left" — not worth surfacing an error for
+    }
+  }
+  async function renderCorvidBadge(did) {
+    els.pfCorvidBadge.innerHTML = "";
+    try {
+      const res = await fetch("/api/corvid/lookup?did=" + encodeURIComponent(did));
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.entry) {
+        els.pfCorvidBadge.innerHTML = `<span class="corvid-badge" title="Claimed a SkeetIn Corvid — limited to 500, ever">🐦‍⬛ Corvid #${String(data.entry.number).padStart(3, "0")}</span>`;
+      }
+    } catch (_) {
+      // no badge is a fine fallback
+    }
   }
 
   // ---------- rich text (facets use UTF-8 byte offsets, not JS string indices) ----------
@@ -372,6 +502,9 @@
       els.composerAvatar.src = profile.avatar || "";
       els.meAvatar.src = profile.avatar || "";
 
+      renderProfileViewers(did);
+      renderCorvidBadge(did);
+
       await loadAuthorFeed(did, true);
       renderSuggestions(did);
     } catch (err) {
@@ -399,6 +532,8 @@
 
   // ---------- boot ----------
   function boot() {
+    applyTopUiState();
+    refreshCorvidNavCount();
     const path = location.pathname.match(/^\/s\/([^/]+)\/?$/);
     const qs = new URLSearchParams(location.search);
     const handle = path ? path[1] : qs.get("u");
