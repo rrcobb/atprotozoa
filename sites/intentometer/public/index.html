@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>the intentometer — what you actually meant by that</title>
+    <meta
+      name="description"
+      content="Paste whatever you're about to send. Get a needle, a percentage breakdown of genuine/petty/feral/guarded/chaotic, and a verdict you didn't ask for."
+    />
+    <meta property="og:title" content="the intentometer — what you actually meant by that" />
+    <meta property="og:description" content="Paste your message. It reads your real intent off the punctuation, caps, and word choice — with a needle and a verdict." />
+    <meta property="og:image" content="https://intentometer.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="the intentometer — a gauge needle pointing toward FERAL, with a percentage breakdown underneath." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://intentometer.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="the intentometer — what you actually meant by that" />
+    <meta name="twitter:description" content="Paste your message. It reads your real intent off the punctuation, caps, and word choice — with a needle and a verdict." />
+    <meta name="twitter:image" content="https://intentometer.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #100a17;
+        --panel: #191026;
+        --panel2: #201533;
+        --faint: #362450;
+        --ink: #f4ecff;
+        --muted: #a998c4;
+        --accent: #ff5fa8;
+        --accent2: #6ef2c9;
+        --warn: #ffb84d;
+        --guard: #7fb3ff;
+        --chaos: #f4e04d;
+        --accent-ink: #1a0410;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: radial-gradient(1100px 640px at 50% -10%, #2a1640, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 2rem 1.05rem 4.5rem; }
+      a { color: var(--accent2); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); }
+
+      header { text-align: center; margin: 1rem 0 1.5rem; }
+      .logo {
+        font-family: var(--mono);
+        font-weight: 800;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .tagline { color: var(--muted); font-size: 0.95rem; margin-top: 0.35rem; }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
+      }
+
+      .field { margin-bottom: 1.1rem; }
+      .field:last-child { margin-bottom: 0; }
+      .field-label {
+        display: block; font-size: 0.8rem; font-weight: 700; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.4rem;
+      }
+      textarea {
+        width: 100%; background: var(--panel2); border: 1px solid var(--faint);
+        color: var(--ink); border-radius: 10px; padding: 0.8rem 0.9rem;
+        font-family: var(--sans); font-size: 1rem; resize: vertical; min-height: 110px;
+      }
+      textarea:focus { outline: 2px solid var(--accent2); outline-offset: -1px; }
+      textarea::placeholder { color: #6c5a8a; }
+      .charcount { text-align: right; font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; }
+
+      button {
+        font-family: var(--sans); font-weight: 800; font-size: 1.05rem;
+        border: none; border-radius: 12px; padding: 0.95rem 1.2rem;
+        width: 100%; cursor: pointer; transition: transform 0.08s ease;
+      }
+      button:active { transform: scale(0.98); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      .btn-match {
+        background: linear-gradient(90deg, var(--accent), #ff8fc4);
+        color: var(--accent-ink); box-shadow: 0 0 24px rgba(255, 95, 168, 0.3);
+        margin-top: 0.4rem;
+      }
+      .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--faint); font-weight: 700; font-size: 0.95rem; margin-top: 0.6rem; }
+      .btn-share { background: var(--accent2); color: #062820; margin-top: 0.6rem; }
+      .btn-copy { background: var(--panel2); color: var(--ink); border: 1px solid var(--faint); font-weight: 700; font-size: 0.9rem; margin-top: 0.55rem; }
+
+      /* --- result screen --- */
+      .hidden { display: none !important; }
+
+      .gauge-wrap { text-align: center; margin: 0.2rem 0 0.3rem; }
+      svg.gauge { width: 220px; max-width: 80%; overflow: visible; }
+      #needle { transform-origin: 100px 100px; transition: transform 0.9s cubic-bezier(0.2, 0.9, 0.2, 1.1); }
+      .intensity-num {
+        font-family: var(--mono); font-weight: 800; font-size: 2.6rem; line-height: 1; margin-top: -0.6rem;
+      }
+      .intensity-label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+      .score-verdict { font-weight: 800; font-size: 1.15rem; margin-top: 0.6rem; text-align: center; }
+      .score-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.3rem; text-align: center; }
+
+      .breakdown { margin: 1.3rem 0 0.4rem; }
+      .breakdown-title {
+        font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--muted); margin-bottom: 0.7rem;
+      }
+      .bar-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.55rem; font-size: 0.88rem; }
+      .bar-label { width: 82px; flex-shrink: 0; font-weight: 700; }
+      .bar-track { flex: 1; background: var(--panel2); border-radius: 999px; height: 10px; overflow: hidden; }
+      .bar-fill { height: 100%; border-radius: 999px; }
+      .bar-pct { width: 3rem; text-align: right; font-family: var(--mono); color: var(--muted); flex-shrink: 0; }
+
+      .tell {
+        background: var(--panel2); border: 1px dashed var(--faint); border-radius: 10px;
+        padding: 0.75rem 0.9rem; font-size: 0.88rem; color: var(--muted); margin-top: 1.1rem;
+      }
+      .tell b { color: var(--ink); }
+
+      canvas#sharecanvas { display: none; }
+
+      footer { text-align: center; margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="back"><a href="https://bisks.net/">← bisks.net</a></p>
+
+      <header>
+        <div class="logo">the intentometer</div>
+        <div class="tagline">paste it before you send it. we'll tell you what you meant.</div>
+      </header>
+
+      <!-- FORM SCREEN -->
+      <section id="screen-form" class="card">
+        <div class="field">
+          <label class="field-label" for="message">the message</label>
+          <textarea id="message" maxlength="220" placeholder="k. fine. no worries at all, love that for us!!"></textarea>
+          <div class="charcount"><span id="charcount">0</span>/220</div>
+        </div>
+        <button class="btn-match" id="readBtn" disabled>read the intent</button>
+      </section>
+
+      <!-- RESULT SCREEN -->
+      <section id="screen-result" class="card hidden">
+        <div class="gauge-wrap">
+          <svg class="gauge" viewBox="0 0 200 115">
+            <defs>
+              <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#6ef2c9" />
+                <stop offset="0.5" stop-color="#f4e04d" />
+                <stop offset="1" stop-color="#ff5fa8" />
+              </linearGradient>
+            </defs>
+            <path d="M10,100 A90,90 0 0 1 190,100" fill="none" stroke="url(#gaugeGrad)" stroke-width="14" stroke-linecap="round" />
+            <line id="needle" x1="100" y1="100" x2="100" y2="25" stroke="#f4ecff" stroke-width="4" stroke-linecap="round" />
+            <circle cx="100" cy="100" r="7" fill="#f4ecff" />
+          </svg>
+          <div class="intensity-num"><span id="intensityNum">0</span></div>
+          <div class="intensity-label">intent intensity</div>
+        </div>
+
+        <div class="score-verdict" id="scoreVerdict"></div>
+        <div class="score-sub" id="scoreSub"></div>
+
+        <div class="breakdown">
+          <div class="breakdown-title">the full reading</div>
+          <div id="bars"></div>
+        </div>
+
+        <div class="tell" id="tell"></div>
+
+        <button class="btn-share" id="shareBtn">share this reading</button>
+        <button class="btn-copy" id="copyBtn">copy link to this reading</button>
+        <button class="btn-ghost" id="againBtn">read another one</button>
+      </section>
+
+      <footer>
+        built by <a href="https://bisks.net/">@buildthis.bisks.net</a> ·
+        for @thegodfungi.bsky.social, who called some other vibe tester "annoying" · this one has no idea what it's talking about, same as the others
+      </footer>
+    </div>
+
+    <canvas id="sharecanvas" width="1080" height="1080"></canvas>
+
+    <script src="app.js"></script>
+  </body>
+</html>
