@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>blockledger — who blocks who in your circle — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle. blockledger finds their true mutuals (follows ∩ followers), then checks every one of those mutuals' public block lists for anyone else in that same circle — surfacing the block edges hiding inside your own moots."
+    />
+    <meta property="og:title" content="blockledger — who blocks who in your circle" />
+    <meta
+      property="og:description"
+      content="Your mutuals are supposed to be your people. blockledger checks whether any of them quietly block each other."
+    />
+    <meta property="og:url" content="https://blockledger.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://blockledger.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="blockledger — who blocks who in your circle" />
+    <meta
+      name="twitter:description"
+      content="Your mutuals are supposed to be your people. blockledger checks whether any of them quietly block each other."
+    />
+    <meta name="twitter:image" content="https://blockledger.bisks.net/og.png" />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex / cloutgraph / metamoots. A
+         "ledger" gets one addition: a red accent reserved for block edges,
+         so the one thing this tool actually flags reads as a flag. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #0d7a3f;
+        --bad: #b3261e;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 600; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 62ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: var(--bad); }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.2rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+      .summary b.bad { color: var(--bad); }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      thead th {
+        text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted); font-weight: 600; padding: 0 0.4rem 0.5rem 0; border-bottom: 1px solid var(--ink);
+      }
+      tbody td { padding: 0.6rem 0.4rem 0.6rem 0; border-bottom: 1px solid var(--faint); vertical-align: middle; }
+      tbody tr:hover { background: #fafafa; }
+      .edgeCell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; flex-wrap: wrap; }
+      .who { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+      .who img { width: 24px; height: 24px; border-radius: 50%; flex: none; background: var(--faint); object-fit: cover; }
+      .who .names { min-width: 0; }
+      .who .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; font-size: 0.95em; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+      .who .hd { color: var(--muted); font-size: 0.78em; white-space: nowrap; }
+      .arrow { color: var(--bad); font-weight: 700; flex: none; }
+      .when { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+
+      .progress { margin: 0.9rem 0; }
+      .bar { height: 5px; border-radius: 3px; background: var(--faint); overflow: hidden; }
+      .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; width: 0%; transition: width 0.15s; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>blockledger <span class="slash">· who blocks who in your circle</span></h1>
+      <p class="intro">
+        Your mutuals are the people you actually follow each other with — supposedly
+        your circle. Paste a <b>Bluesky handle</b> and blockledger finds their real
+        mutuals (follows ∩ followers), then reads every one of those mutuals' public
+        block lists for anyone else in the same circle. If two of your moots quietly
+        block each other, this is how you'd find out.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">handle</label>
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button id="go" type="submit">check the ledger</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView + everyone's own PDS, all in your browser — no login.
+      </p>
+      <div class="progress" id="progressWrap" style="display: none">
+        <div class="bar"><i id="progressBar"></i></div>
+      </div>
+
+      <section id="result">
+        <div class="summary" id="summary"></div>
+
+        <table id="edgeTable">
+          <thead>
+            <tr>
+              <th>block</th>
+              <th style="text-align:right">since</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="note" id="emptyNote" style="display: none; font-size: 0.84rem; color: var(--muted)"></p>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          First, blockledger reads the handle's <code>getFollows</code> and
+          <code>getFollowers</code> in full and intersects them — a true mutual is
+          someone who follows and is followed back, no widening. Then, for each
+          mutual (up to 250 of them, largest circles first-come), it resolves their
+          PDS from their DID document and reads
+          <code>com.atproto.repo.listRecords</code> for their
+          <code>app.bsky.graph.block</code> collection — an ordinary public repo
+          read, no auth, since block records live in the blocker's own repo and
+          repos are public. Any block whose target is <b>also</b> one of the same
+          mutuals becomes a row in the ledger. Blocks aimed outside the circle
+          (at strangers, at spam, at you) don't show up — this only surfaces blocks
+          <b>between two people who are both your moots</b>.
+        </div>
+      </details>
+
+      <footer>
+        block = an <code>app.bsky.graph.block</code> record, read straight off the
+        blocker's own PDS. mutual = follows ∩ followers, verified against
+        <code>app.bsky.graph.getRelationships</code> when a follow graph is too big
+        to fully page. Everything runs anonymously and client-side — no login, no
+        server crawl. Built for <a href="https://bsky.app/profile/mfzx.net">@mfzx.net</a>,
+        who wanted to see which of their mutuals block each other. sibling of
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveDid, findMutuals, getProfiles } from "./lib/identity.js";
+      import { findBlockEdges, MUTUAL_SCAN_CAP } from "./lib/blocks.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
+      const emptyNote = $("emptyNote");
+      const progressWrap = $("progressWrap"), progressBar = $("progressBar");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function timeAgo(iso) {
+        if (!iso) return "";
+        const ms = Date.now() - new Date(iso).getTime();
+        if (!Number.isFinite(ms) || ms < 0) return "";
+        const d = Math.floor(ms / 86400000);
+        if (d < 1) return "today";
+        if (d < 30) return d + "d ago";
+        const mo = Math.floor(d / 30);
+        if (mo < 12) return mo + "mo ago";
+        return Math.floor(mo / 12) + "y ago";
+      }
+
+      function whoCell(p) {
+        return (
+          `<div class="who">` +
+          (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+          `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(p.handle || p.did)}" target="_blank" rel="noopener">` +
+          `<div class="dn">${escapeHtml(p.displayName || p.handle)}</div>` +
+          `<div class="hd">${short(p.handle)}</div>` +
+          `</a></div></div>`
+        );
+      }
+
+      function renderRows(edges) {
+        rowsEl.innerHTML = "";
+        for (const e of edges) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            `<td><div class="edgeCell">${whoCell(e.blocker)}<span class="arrow">blocks →</span>${whoCell(e.blocked)}</div></td>` +
+            `<td class="when" style="text-align:right">${timeAgo(e.createdAt)}</td>`;
+          rowsEl.appendChild(tr);
+        }
+      }
+
+      const SHARE_URL = "https://blockledger.bisks.net/";
+
+      function buildShareUrl(subjectHandle, edges) {
+        const params = new URLSearchParams({ n: String(edges.length) });
+        return `${SHARE_URL}s/${encodeURIComponent(subjectHandle.replace(/^@/, ""))}?${params.toString()}`;
+      }
+
+      function buildShareText(subjectHandle, edges, shareUrl) {
+        const who = "@" + subjectHandle.replace(/^@/, "");
+        if (!edges.length) {
+          return `blockledger checked ${who}'s mutuals against each other — clean circle, no blocks found. ${shareUrl}`;
+        }
+        const top = edges[0];
+        const named = ` e.g. ${short(top.blocker.handle)} blocks ${short(top.blocked.handle)}.`;
+        return `blockledger on ${who}'s mutuals: ${edges.length} block${edges.length === 1 ? "" : "s"} hiding inside the circle.${named} ${shareUrl}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(subjectHandle, edges) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("blockledger", 60, 90);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText(short(subjectHandle) + "'s circle", 60, 128);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("blockledger.bisks.net", W - 60, 50);
+        ctx.textAlign = "left";
+
+        ctx.fillStyle = edges.length ? "#b3261e" : "#0d7a3f";
+        ctx.font = `800 96px ${mono}`;
+        ctx.fillText(String(edges.length), 60, 250);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 20px ${mono}`;
+        ctx.fillText(edges.length === 1 ? "block found among mutuals" : "blocks found among mutuals", 60, 285);
+
+        const top = edges.slice(0, 5);
+        const rowH = 62;
+        const startY = 350;
+        const avatarsB = await Promise.all(top.map((e) => loadImg(e.blocker.avatar)));
+        const avatarsD = await Promise.all(top.map((e) => loadImg(e.blocked.avatar)));
+
+        top.forEach((e, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y + rowH - 14, W - 120, 1);
+
+          function drawWho(img, name, x) {
+            let tx = x;
+            if (img) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.arc(x + 16, y + 6, 16, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.clip();
+              ctx.drawImage(img, x, y - 10, 32, 32);
+              ctx.restore();
+              tx = x + 42;
+            }
+            ctx.fillStyle = "#111111";
+            ctx.font = `700 22px ${mono}`;
+            ctx.textAlign = "left";
+            ctx.fillText(name, tx, y + 12);
+            return tx;
+          }
+
+          const bName = (e.blocker.displayName || e.blocker.handle || "").slice(0, 16);
+          drawWho(avatarsB[i], bName, 60);
+
+          ctx.fillStyle = "#b3261e";
+          ctx.font = `700 18px ${mono}`;
+          ctx.fillText("blocks →", 380, y + 12);
+
+          const dName = (e.blocked.displayName || e.blocked.handle || "").slice(0, 16);
+          drawWho(avatarsD[i], dName, 540);
+        });
+
+        if (!top.length) {
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 22px ${mono}`;
+          ctx.fillText("no blocks found — clean circle.", 60, startY + 20);
+        }
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "blockledger.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "blockledger" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "blockledger.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        progressWrap.style.display = "none";
+        progressBar.style.width = "0%";
+        setStatus("resolving " + q + "…");
+        try {
+          const did = await resolveDid(q);
+          const { mutuals, counts } = await findMutuals(did, { onStep: (s) => setStatus(s) });
+
+          if (!mutuals.length) {
+            setStatus("no mutuals found for " + short(q.replace(/^@/, "")) + " — nothing to check.", "err");
+            goBtn.disabled = false;
+            return;
+          }
+
+          progressWrap.style.display = "";
+          const scanCount = Math.min(mutuals.length, MUTUAL_SCAN_CAP);
+          const { edges, scanned, capped } = await findBlockEdges(mutuals, {
+            onProgress: (done, total) => {
+              progressBar.style.width = Math.round((done / total) * 100) + "%";
+              setStatus(`checking block lists… ${done}/${total} mutuals`);
+            },
+          });
+          progressWrap.style.display = "none";
+
+          edges.sort((a, b) => {
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return tb - ta;
+          });
+
+          renderRows(edges);
+
+          const subjectHandle = q.replace(/^@/, "");
+          summaryEl.innerHTML =
+            `<b>${escapeHtml(short(subjectHandle))}</b> has ${mutuals.length} true mutual${mutuals.length === 1 ? "" : "s"} ` +
+            `(follows ${counts.follows}, followed by ${counts.followers}). Checked ${scanned}${capped ? ` of ${mutuals.length}` : ""} ` +
+            `mutuals' block lists — ` +
+            (edges.length
+              ? `<b class="bad">${edges.length}</b> block${edges.length === 1 ? "" : "s"} found inside the circle.`
+              : `<b>0</b> blocks found — clean circle.`) +
+            (capped ? ` (capped at ${MUTUAL_SCAN_CAP} mutuals for a big follow graph.)` : "");
+
+          emptyNote.style.display = edges.length ? "none" : "";
+          if (!edges.length) {
+            emptyNote.textContent = "no mutual-on-mutual blocks turned up in this circle.";
+          }
+
+          const shareUrl = buildShareUrl(subjectHandle, edges);
+          lastShareText = buildShareText(subjectHandle, edges, shareUrl);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(subjectHandle, edges);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          progressWrap.style.display = "none";
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
