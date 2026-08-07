@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>windchimes — hung on the atproto firehose</title>
+    <meta
+      name="description"
+      content="Wind chimes in the browser, stirred by the live atproto firehose. Pick a material — wood, bamboo, metal, glass — and a key; every post strikes a chime, and the recent post rate sets how hard the wind blows."
+    />
+    <meta property="og:title" content="windchimes" />
+    <meta
+      property="og:description"
+      content="Wood, bamboo, metal or glass — hang a set of wind chimes and let the atproto firehose blow through them. Every post strikes a chime; a busy firehose is a windy day."
+    />
+    <meta property="og:image" content="https://windchimes.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="windchimes: five hanging chime tubes over a dark sky, wind streaks blowing past, over 'wind chimes for the atproto firehose'."
+    />
+    <meta property="og:url" content="https://windchimes.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="windchimes — hung on the atproto firehose" />
+    <meta
+      name="twitter:description"
+      content="Wood, bamboo, metal, glass — five chimes, a live firehose for wind. Every post strikes one; busy firehose, windy day."
+    />
+    <meta name="twitter:image" content="https://windchimes.bisks.net/og.png" />
+    <!-- bisks.net house style, dark variant, warmed up for a windchime theme:
+         one readable mono, hairline separators, an amber accent for the UI
+         and per-material accent colors doing double duty as chime glow. -->
+    <style>
+      :root {
+        --bg: #05070a;
+        --panel: #0b0f14;
+        --ink: #eef2f5;
+        --muted: #7c8fa0;
+        --faint: rgba(238, 242, 245, 0.12);
+        --accent: #ffb454;
+        --wood: #e2a765;
+        --bamboo: #b9d97a;
+        --metal: #cfe3f5;
+        --glass: #7ff0e8;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 1.3rem; font-weight: 700; margin: 0; letter-spacing: 0.01em;
+      }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 span { color: var(--accent); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #333; transition: background 0.3s;
+      }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 60ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .start-row { margin: 0 0 1.5rem; }
+      #startBtn {
+        font-family: var(--mono); font-size: 0.95rem; font-weight: 600;
+        color: var(--bg); background: var(--accent); border: none;
+        border-radius: 6px; padding: 0.65rem 1.3rem; cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      #startBtn:hover { opacity: 0.85; }
+      #startBtn.playing {
+        background: none; color: var(--ink); border: 1px solid var(--faint);
+      }
+
+      .stage {
+        position: relative; width: 100%; height: 280px;
+        background: var(--panel); border: 1px solid var(--faint);
+        border-radius: 10px; overflow: hidden; margin: 0 0 1.25rem;
+      }
+      .stage canvas { width: 100%; height: 100%; display: block; }
+
+      .controls {
+        display: flex; flex-direction: column; gap: 0.8rem;
+        margin: 0 0 1.25rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .controls-row {
+        display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+      }
+      .controls label { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .controls select, .controls input[type="range"] { accent-color: var(--accent); }
+      .controls select {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.2rem 0.4rem;
+      }
+      .material-picker { display: inline-flex; gap: 0.4rem; }
+      .material-picker button {
+        font-family: var(--mono); font-size: 0.75rem; color: var(--muted);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.3rem 0.6rem; cursor: pointer; transition: all 0.15s;
+      }
+      .material-picker button.active {
+        color: var(--bg); font-weight: 700; border-color: transparent;
+      }
+      .material-picker button[data-material="wood"].active { background: var(--wood); }
+      .material-picker button[data-material="bamboo"].active { background: var(--bamboo); }
+      .material-picker button[data-material="metal"].active { background: var(--metal); }
+      .material-picker button[data-material="glass"].active { background: var(--glass); }
+      .stat { display: inline-flex; align-items: center; gap: 0.35rem; }
+      .stat .n { color: var(--ink); font-weight: 600; }
+      .spacer { flex: 1 1 auto; }
+      #shareLink {
+        color: var(--accent); text-decoration: none; font-size: 0.78rem;
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.25rem 0.6rem;
+      }
+      #shareLink:hover { border-color: var(--accent); }
+
+      .ticker { margin: 0; padding: 0; list-style: none; }
+      .ticker li {
+        padding: 0.5rem 0; border-top: 1px solid var(--faint);
+        font-size: 0.82rem; color: var(--muted);
+        display: flex; align-items: baseline; gap: 0.5rem;
+        animation: fade 0.25s ease both;
+      }
+      .ticker li:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .ticker .icon { flex: none; width: 1.4em; }
+      .ticker .who { color: var(--ink); }
+      .ticker .meta { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">wind<span>chimes</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">not connected</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        Five chimes hung in the browser, tuned to a pentatonic scale, and
+        stirred by the live atproto firehose instead of the weather. Every
+        new post picks a chime — the same account tends to land on the same
+        one — and gives it a strike; a deleted post gives a softer,
+        half-strength one. The recent post rate sets the <b>wind</b>: quiet
+        stretches barely stir the tubes, a busy firehose keeps all five
+        swaying and glinting. When the firehose is loud enough that every
+        single post would ring out as noise, most posts still jostle the
+        chimes visually but only a sampled handful actually sound — audio
+        stays musical no matter how hard it's blowing. Pick a
+        <b>material</b> for the tone (wood, bamboo, metal, glass) and a
+        <b>key</b> for the scale. Built for
+        <a href="https://bsky.app/profile/zzstoatzz.io" target="_blank" rel="noopener">@zzstoatzz.io</a>.
+        Nothing is recorded; it all runs live in your browser with Web Audio.
+      </p>
+
+      <div class="start-row">
+        <button id="startBtn">▶ start listening</button>
+      </div>
+
+      <div class="stage">
+        <canvas id="canvas"></canvas>
+      </div>
+
+      <div class="controls">
+        <div class="controls-row">
+          <span class="material-picker" id="materialPicker">
+            <button data-material="wood" class="active">wood</button>
+            <button data-material="bamboo">bamboo</button>
+            <button data-material="metal">metal</button>
+            <button data-material="glass">glass</button>
+          </span>
+          <label title="pentatonic key">
+            key
+            <select id="keySelect">
+              <option value="C">C</option>
+              <option value="D" selected>D</option>
+              <option value="E">E</option>
+              <option value="G">G</option>
+              <option value="A">A</option>
+            </select>
+          </label>
+        </div>
+        <div class="controls-row">
+          <label title="how strongly the firehose perturbs the chimes">
+            wind
+            <input id="wind" type="range" min="25" max="250" value="100" />
+          </label>
+          <label title="master volume">
+            vol
+            <input id="volume" type="range" min="0" max="100" value="70" />
+          </label>
+          <span class="stat" title="chimes struck aloud this session">🎐 <span class="n" id="strikeCount">0</span></span>
+          <span class="stat" title="posts/sec, smoothed">💨 <span class="n" id="rateText">0.0</span>/s</span>
+          <span class="spacer"></span>
+          <a id="shareLink" href="#" target="_blank" rel="noopener">share on bluesky</a>
+        </div>
+      </div>
+
+      <ul class="ticker" id="ticker"></ul>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- config ------------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const N_CHIMES = 5;
+      const MAX_TICKER = 30;
+      // Major-pentatonic scale degrees (semitones above the root): the five
+      // steps a wind chime set is traditionally strung to so any combination
+      // of chimes ringing together stays consonant.
+      const PENT_OFFSETS = [0, 2, 4, 7, 9];
+      const ROOTS = { C: 261.63, D: 293.66, E: 329.63, G: 392.0, A: 440.0 };
+      function scaleFreqs(rootHz) {
+        return PENT_OFFSETS.map((s) => rootHz * Math.pow(2, s / 12));
+      }
+      // Visual tube length only — longest (lowest note) on the left, like a
+      // real set strung low-to-high.
+      const CHIME_LENGTHS = [0, 1, 2, 3, 4].map((i) => 150 - i * 20);
+      const MATERIAL_WIDTH = { wood: 20, bamboo: 15, metal: 13, glass: 18 };
+      const MATERIAL_ACCENT = {
+        wood: "#e2a765",
+        bamboo: "#b9d97a",
+        metal: "#cfe3f5",
+        glass: "#7ff0e8",
+      };
+      // Firehose events well beyond this rate are mostly sonified by
+      // sampling (see maybeStrike below) so a busy firehose stays windy to
+      // look at without becoming a wall of noise.
+
+      // ---- dom -----------------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const startBtn = document.getElementById("startBtn");
+      const volumeInput = document.getElementById("volume");
+      const windInput = document.getElementById("wind");
+      const keySelect = document.getElementById("keySelect");
+      const materialPicker = document.getElementById("materialPicker");
+      const strikeCountEl = document.getElementById("strikeCount");
+      const rateTextEl = document.getElementById("rateText");
+      const ticker = document.getElementById("ticker");
+      const shareLink = document.getElementById("shareLink");
+      const canvas = document.getElementById("canvas");
+      const ctx2d = canvas.getContext("2d");
+
+      shareLink.href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent(
+          "hung a set of wind chimes on the atproto firehose 🎐 every post strikes one, and a busy firehose is a windy day\n\nwindchimes.bisks.net",
+        );
+
+      // ---- state -----------------------------------------------------------------
+      let material = "wood";
+      let freqs = scaleFreqs(ROOTS.D);
+      let windSensitivity = 1.0;
+
+      const chimes = Array.from({ length: N_CHIMES }, (_, i) => ({
+        length: CHIME_LENGTHS[i],
+        theta: 0,
+        omega: 0,
+        phase: Math.random() * Math.PI * 2,
+        freqMul: 0.42 + 0.06 * i, // ambient sway speed varies a little per tube
+        lastStrikeAt: -Infinity,
+      }));
+
+      materialPicker.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-material]");
+        if (!btn) return;
+        material = btn.dataset.material;
+        for (const b of materialPicker.children) b.classList.toggle("active", b === btn);
+      });
+
+      keySelect.addEventListener("change", () => {
+        freqs = scaleFreqs(ROOTS[keySelect.value] || ROOTS.D);
+      });
+
+      windInput.addEventListener("input", () => {
+        windSensitivity = Number(windInput.value) / 100;
+      });
+      windSensitivity = Number(windInput.value) / 100;
+
+      // ---- audio engine --------------------------------------------------------
+      let actx = null;
+      let masterGain = null;
+
+      function impulseResponse(c, seconds, decay) {
+        const rate = c.sampleRate;
+        const length = Math.max(1, Math.floor(rate * seconds));
+        const impulse = c.createBuffer(2, length, rate);
+        for (let ch = 0; ch < 2; ch++) {
+          const data = impulse.getChannelData(ch);
+          for (let i = 0; i < length; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+          }
+        }
+        return impulse;
+      }
+
+      function initAudio() {
+        if (actx) return;
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+
+        masterGain = actx.createGain();
+        masterGain.gain.value = Number(volumeInput.value) / 100;
+
+        // A light outdoor-ish reverb — chimes are meant to be heard in open air.
+        const dry = actx.createGain();
+        dry.gain.value = 0.78;
+        const wet = actx.createGain();
+        wet.gain.value = 0.3;
+        const convolver = actx.createConvolver();
+        convolver.buffer = impulseResponse(actx, 2.2, 2.0);
+
+        const comp = actx.createDynamicsCompressor();
+        comp.threshold.value = -20;
+        comp.knee.value = 24;
+        comp.ratio.value = 3;
+        comp.attack.value = 0.004;
+        comp.release.value = 0.3;
+
+        masterGain.connect(dry);
+        masterGain.connect(convolver);
+        convolver.connect(wet);
+        dry.connect(comp);
+        wet.connect(comp);
+        comp.connect(actx.destination);
+      }
+
+      volumeInput.addEventListener("input", () => {
+        if (masterGain) {
+          masterGain.gain.linearRampToValueAtTime(
+            Number(volumeInput.value) / 100,
+            actx.currentTime + 0.05,
+          );
+        }
+      });
+
+      // Wood: a short, dull thock — bandpassed noise burst plus a soft low
+      // "body" sine, both damped fast. No sustained ring, the way a solid
+      // wooden dowel actually sounds when struck.
+      function playWood(freq, strength) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.005;
+        const burstLen = Math.max(1, Math.ceil(actx.sampleRate * 0.09));
+        const buf = actx.createBuffer(1, burstLen, actx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < burstLen; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / burstLen);
+        }
+        const noise = actx.createBufferSource();
+        noise.buffer = buf;
+        const band = actx.createBiquadFilter();
+        band.type = "bandpass";
+        band.frequency.value = freq * 0.75;
+        band.Q.value = 2.2;
+        const env = actx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(0.55 * strength, t + 0.006);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+
+        const body = actx.createOscillator();
+        body.type = "sine";
+        body.frequency.value = freq * 0.5;
+        const bodyEnv = actx.createGain();
+        bodyEnv.gain.setValueAtTime(0.0001, t);
+        bodyEnv.gain.exponentialRampToValueAtTime(0.28 * strength, t + 0.004);
+        bodyEnv.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+
+        noise.connect(band);
+        band.connect(env);
+        env.connect(masterGain);
+        body.connect(bodyEnv);
+        bodyEnv.connect(masterGain);
+
+        noise.start(t);
+        body.start(t);
+        noise.stop(t + 0.4);
+        body.stop(t + 0.3);
+      }
+
+      // Bamboo: a Karplus-Strong plucked-tube loop, damped a bit harder and
+      // shorter than metal so it reads hollow rather than bright.
+      function playBamboo(freq, strength) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.005;
+        const period = 1 / freq;
+        const burstLen = Math.max(1, Math.ceil(actx.sampleRate * period));
+        const buf = actx.createBuffer(1, burstLen, actx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < burstLen; i++) {
+          data[i] = (Math.random() * 2 - 1) * (1 - i / burstLen);
+        }
+        const noise = actx.createBufferSource();
+        noise.buffer = buf;
+
+        const delay = actx.createDelay(1);
+        delay.delayTime.value = period;
+        const damp = actx.createBiquadFilter();
+        damp.type = "lowpass";
+        damp.frequency.value = Math.min(freq * 3.2, 5200);
+        const feedback = actx.createGain();
+        feedback.gain.value = 0.965;
+
+        const outGain = actx.createGain();
+        outGain.gain.setValueAtTime(0.5 * strength, t);
+        outGain.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+
+        noise.connect(delay);
+        delay.connect(damp);
+        damp.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(outGain);
+        outGain.connect(masterGain);
+
+        noise.start(t);
+        noise.stop(t + period * 1.2);
+        setTimeout(() => {
+          try {
+            feedback.disconnect();
+            delay.disconnect();
+            outGain.disconnect();
+          } catch {}
+        }, 1100);
+      }
+
+      // Metal: a two-oscillator FM hit — inharmonic partials, fast attack,
+      // long exponential decay. The brightest, longest-ringing of the four.
+      function playMetal(freq, strength) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.005;
+        const carrier = actx.createOscillator();
+        carrier.type = "sine";
+        carrier.frequency.value = freq * 2;
+        const modulator = actx.createOscillator();
+        modulator.type = "sine";
+        modulator.frequency.value = freq * 2.76;
+        const modGain = actx.createGain();
+        modGain.gain.value = freq * 1.2;
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
+
+        const env = actx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(0.5 * strength, t + 0.007);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+
+        carrier.connect(env);
+        env.connect(masterGain);
+
+        carrier.start(t);
+        modulator.start(t);
+        carrier.stop(t + 1.9);
+        modulator.stop(t + 1.9);
+      }
+
+      // Glass: three thin sine partials (octave, fifth, and a slightly
+      // inharmonic shimmer) with a soft attack and the longest decay of the
+      // four — the closest thing Web Audio has to a struck glass tube.
+      function playGlass(freq, strength) {
+        if (!actx) return;
+        const t = actx.currentTime + 0.005;
+        const partials = [
+          { mul: 2.0, amp: 0.34 },
+          { mul: 3.0, amp: 0.2 },
+          { mul: 4.82, amp: 0.12 },
+        ];
+        for (const p of partials) {
+          const osc = actx.createOscillator();
+          osc.type = "sine";
+          osc.frequency.value = freq * p.mul;
+          const lfo = actx.createOscillator();
+          lfo.type = "sine";
+          lfo.frequency.value = 4 + Math.random() * 2;
+          const lfoGain = actx.createGain();
+          lfoGain.gain.value = freq * p.mul * 0.003;
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+
+          const env = actx.createGain();
+          env.gain.setValueAtTime(0.0001, t);
+          env.gain.linearRampToValueAtTime(p.amp * strength, t + 0.02);
+          env.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+
+          osc.connect(env);
+          env.connect(masterGain);
+          osc.start(t);
+          lfo.start(t);
+          osc.stop(t + 2.7);
+          lfo.stop(t + 2.7);
+        }
+      }
+
+      function playTone(mat, freq, strength) {
+        if (mat === "wood") playWood(freq, strength);
+        else if (mat === "bamboo") playBamboo(freq, strength);
+        else if (mat === "metal") playMetal(freq, strength);
+        else playGlass(freq, strength);
+      }
+
+      // ---- did -> chime -----------------------------------------------------
+      function hashString(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+        return h;
+      }
+
+      // ---- rate estimate + audio throttle ---------------------------------------
+      // Sample down to roughly TARGET strikes/sec regardless of how fast the
+      // firehose is actually posting, so a busy firehose still looks windy
+      // (every event nudges a chime) without every event making a sound.
+      let rateEma = 0;
+      let lastEventAt = null;
+      function noteEvent() {
+        const now = performance.now();
+        if (lastEventAt != null) {
+          const instRate = 1000 / Math.max(1, now - lastEventAt);
+          rateEma = rateEma * 0.9 + instRate * 0.1;
+        }
+        lastEventAt = now;
+        return now;
+      }
+
+      // ---- physics + visuals -----------------------------------------------------
+      let dpr = Math.max(1, window.devicePixelRatio || 1);
+      function resizeCanvas() {
+        dpr = Math.max(1, window.devicePixelRatio || 1);
+        canvas.width = canvas.clientWidth * dpr;
+        canvas.height = canvas.clientHeight * dpr;
+      }
+      window.addEventListener("resize", resizeCanvas);
+
+      function strike(idx, impulseScale, sound) {
+        const c = chimes[idx];
+        const sign = Math.random() < 0.5 ? -1 : 1;
+        c.omega += sign * (2.4 + Math.random() * 1.2) * impulseScale * windSensitivity;
+        if (sound) c.lastStrikeAt = performance.now();
+      }
+
+      function maybeStrike(evt, isDelete) {
+        const now = noteEvent();
+        const idx = hashString(evt.did) % N_CHIMES;
+        const TARGET = (isDelete ? 1.4 : 4.5) * windSensitivity;
+        const prob = Math.min(1, TARGET / Math.max(rateEma, 0.001));
+        const sound = Math.random() < prob;
+        strike(idx, sound ? (isDelete ? 0.5 : 1) : 0.15, sound);
+        if (sound) {
+          const freq = freqs[idx];
+          playTone(material, freq, isDelete ? 0.55 : 1);
+          strikeCountEl.textContent = ++strikeCount;
+          pushTicker(idx, freq, evt.did, isDelete);
+        }
+      }
+
+      let strikeCount = 0;
+      function pushTicker(idx, freq, did, isDelete) {
+        const li = document.createElement("li");
+        li.innerHTML =
+          `<span class="icon">${isDelete ? "🍃" : "🎐"}</span>` +
+          `<span class="who">${did.slice(0, 22)}…</span>` +
+          `<span class="meta">${Math.round(freq)}Hz · ${material}</span>`;
+        ticker.prepend(li);
+        while (ticker.childElementCount > MAX_TICKER) {
+          ticker.removeChild(ticker.lastElementChild);
+        }
+      }
+
+      let lastFrame = null;
+      function physicsStep(dtRaw) {
+        const dt = Math.min(0.05, dtRaw);
+        const t = performance.now() / 1000;
+        // Ambient wind: strength tracks the smoothed post rate, so a quiet
+        // firehose barely stirs the tubes and a busy one keeps them all
+        // swaying, independent of whether any individual event sounded.
+        const windLevel = Math.min(1, rateEma / 14) * windSensitivity;
+        for (const c of chimes) {
+          const springK = 55 / c.length;
+          const ambient = Math.sin(t * c.freqMul * 2 + c.phase) * windLevel * 1.8;
+          const alpha = -springK * c.theta - 1.15 * c.omega + ambient;
+          c.omega += alpha * dt;
+          c.theta += c.omega * dt;
+          if (c.theta > 1.1) { c.theta = 1.1; c.omega *= -0.4; }
+          if (c.theta < -1.1) { c.theta = -1.1; c.omega *= -0.4; }
+        }
+      }
+
+      function roundRectPath(ctx, x, y, w, h, r) {
+        const rr = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+      }
+
+      function fillGradientFor(ctx, mat, width) {
+        const grad = ctx.createLinearGradient(-width / 2, 0, width / 2, 0);
+        if (mat === "wood") {
+          grad.addColorStop(0, "#5b3a20");
+          grad.addColorStop(0.5, "#a3713f");
+          grad.addColorStop(1, "#4c3019");
+        } else if (mat === "bamboo") {
+          grad.addColorStop(0, "#6d7a3f");
+          grad.addColorStop(0.5, "#cfca86");
+          grad.addColorStop(1, "#5f6b37");
+        } else if (mat === "metal") {
+          grad.addColorStop(0, "#6b7a89");
+          grad.addColorStop(0.5, "#eef4fa");
+          grad.addColorStop(1, "#5e6d7c");
+        } else {
+          grad.addColorStop(0, "rgba(140,220,220,0.32)");
+          grad.addColorStop(0.5, "rgba(225,252,252,0.68)");
+          grad.addColorStop(1, "rgba(140,220,220,0.32)");
+        }
+        return grad;
+      }
+
+      let streaks = [];
+      function updateStreaks(dt, w, h, windLevel) {
+        if (streaks.length < 200 && Math.random() < windLevel * 0.5 + 0.02) {
+          streaks.push({
+            x: -20,
+            y: 10 + Math.random() * (h - 20),
+            len: 30 + Math.random() * 60,
+            speed: 60 + windLevel * 260 + Math.random() * 40,
+            opacity: 0.04 + Math.random() * 0.08,
+          });
+        }
+        for (const s of streaks) s.x += s.speed * dt;
+        streaks = streaks.filter((s) => s.x < w + 100);
+      }
+
+      function draw(w, h) {
+        ctx2d.clearRect(0, 0, w, h);
+        const sky = ctx2d.createLinearGradient(0, 0, 0, h);
+        sky.addColorStop(0, "#0c1420");
+        sky.addColorStop(1, "#0b0f14");
+        ctx2d.fillStyle = sky;
+        ctx2d.fillRect(0, 0, w, h);
+
+        ctx2d.strokeStyle = "rgba(255,255,255,1)";
+        for (const s of streaks) {
+          ctx2d.globalAlpha = s.opacity;
+          ctx2d.lineWidth = 1.5;
+          ctx2d.beginPath();
+          ctx2d.moveTo(s.x, s.y);
+          ctx2d.lineTo(s.x + s.len, s.y);
+          ctx2d.stroke();
+        }
+        ctx2d.globalAlpha = 1;
+
+        const barY = 34;
+        const leftPad = 60;
+        const rightPad = w - 60;
+        ctx2d.strokeStyle = "rgba(200,200,210,0.35)";
+        ctx2d.lineWidth = 5;
+        ctx2d.beginPath();
+        ctx2d.moveTo(leftPad - 20, barY);
+        ctx2d.lineTo(rightPad + 20, barY);
+        ctx2d.stroke();
+
+        const now = performance.now();
+        for (let i = 0; i < N_CHIMES; i++) {
+          const c = chimes[i];
+          const anchorX = leftPad + (i * (rightPad - leftPad)) / (N_CHIMES - 1);
+          const width = MATERIAL_WIDTH[material];
+          const elapsed = now - c.lastStrikeAt;
+          const glow = elapsed < 500 ? 1 - elapsed / 500 : 0;
+
+          ctx2d.save();
+          ctx2d.strokeStyle = "rgba(230,230,230,0.25)";
+          ctx2d.lineWidth = 1.5;
+          ctx2d.beginPath();
+          ctx2d.moveTo(anchorX, barY);
+          ctx2d.lineTo(anchorX, barY + 12);
+          ctx2d.stroke();
+          ctx2d.restore();
+
+          ctx2d.save();
+          ctx2d.translate(anchorX, barY + 12);
+          ctx2d.rotate(c.theta);
+          if (glow > 0) {
+            ctx2d.shadowBlur = 30 * glow;
+            ctx2d.shadowColor = MATERIAL_ACCENT[material];
+          }
+          ctx2d.fillStyle = fillGradientFor(ctx2d, material, width);
+          roundRectPath(ctx2d, -width / 2, 0, width, c.length, width * 0.4);
+          ctx2d.fill();
+          ctx2d.shadowBlur = 0;
+
+          if (material === "bamboo") {
+            ctx2d.strokeStyle = "rgba(0,0,0,0.28)";
+            ctx2d.lineWidth = 2;
+            for (let y = c.length * 0.26; y < c.length; y += c.length * 0.3) {
+              ctx2d.beginPath();
+              ctx2d.moveTo(-width / 2, y);
+              ctx2d.lineTo(width / 2, y);
+              ctx2d.stroke();
+            }
+          } else if (material === "metal") {
+            ctx2d.fillStyle = "rgba(255,255,255,0.4)";
+            ctx2d.fillRect(-width * 0.14, c.length * 0.06, width * 0.14, c.length * 0.85);
+          } else if (material === "glass") {
+            ctx2d.fillStyle = "rgba(255,255,255,0.55)";
+            ctx2d.fillRect(-width * 0.1, c.length * 0.08, width * 0.1, c.length * 0.3);
+          }
+          ctx2d.restore();
+        }
+      }
+
+      function drawLoop(ts) {
+        requestAnimationFrame(drawLoop);
+        if (!canvas.width || !canvas.height) resizeCanvas();
+        if (lastFrame == null) lastFrame = ts;
+        const dt = Math.min(0.05, (ts - lastFrame) / 1000);
+        lastFrame = ts;
+
+        // Decay the rate estimate when events stop arriving so the wind
+        // actually dies down, instead of the last known rate hanging forever.
+        if (lastEventAt != null && performance.now() - lastEventAt > 400) {
+          rateEma *= 0.985;
+        }
+        rateTextEl.textContent = rateEma.toFixed(1);
+
+        physicsStep(dt);
+
+        ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const w = canvas.clientWidth || 1;
+        const h = canvas.clientHeight || 1;
+        const windLevel = Math.min(1, rateEma / 14) * windSensitivity;
+        updateStreaks(dt, w, h, windLevel);
+        draw(w, h);
+      }
+
+      // ---- firehose handling -----------------------------------------------------
+      function handleCommit(evt) {
+        const commit = evt.commit;
+        if (!commit || !evt.did) return;
+        if (commit.operation === "create") maybeStrike(evt, false);
+        else if (commit.operation === "delete") maybeStrike(evt, true);
+      }
+
+      // ---- websocket -----------------------------------------------------------
+      let ws = null;
+      let reconnectDelay = 1000;
+      let listening = false;
+
+      function setStatus(msg, live) {
+        statusText.textContent = msg;
+        dot.classList.toggle("live", !!live);
+      }
+
+      function connect() {
+        setStatus("connecting…", false);
+        ws = new WebSocket(JETSTREAM);
+
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus("live", true);
+        };
+
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handleCommit(evt);
+        };
+
+        ws.onclose = () => {
+          if (!listening) return;
+          setStatus("reconnecting…", false);
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      function disconnect() {
+        if (ws) {
+          try {
+            ws.close();
+          } catch {}
+          ws = null;
+        }
+        setStatus("not connected", false);
+      }
+
+      startBtn.addEventListener("click", async () => {
+        if (!listening) {
+          initAudio();
+          if (actx.state === "suspended") await actx.resume();
+          listening = true;
+          startBtn.textContent = "■ stop";
+          startBtn.classList.add("playing");
+          connect();
+        } else {
+          listening = false;
+          startBtn.textContent = "▶ start listening";
+          startBtn.classList.remove("playing");
+          disconnect();
+        }
+      });
+
+      document.addEventListener("visibilitychange", () => {
+        if (!listening) return;
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      resizeCanvas();
+      requestAnimationFrame(drawLoop);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
