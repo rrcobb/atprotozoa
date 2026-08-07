@@ -33,6 +33,42 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1).trimEnd() + "…";
 }
 
+// Mirrors public/app.js's describeEmbed/captionFor — a lot of skeets have no
+// text at all (image posts, link shares, bare quote posts), and an empty
+// og:description reads as broken. Same fallback chain: alt text, then embed
+// kind, so a shared image-only post still unfurls with something real.
+function describeEmbed(embed: any): string {
+  if (!embed) return "";
+  switch (embed.$type) {
+    case "app.bsky.embed.images#view": {
+      const imgs = embed.images || [];
+      const alt = imgs.map((i: any) => i.alt).find((a: string) => a && a.trim());
+      if (alt) return `[image: ${alt.trim()}]`;
+      return imgs.length > 1 ? "[posted images, no caption]" : "[posted an image, no caption]";
+    }
+    case "app.bsky.embed.video#view":
+      return embed.alt && embed.alt.trim() ? `[video: ${embed.alt.trim()}]` : "[posted a video, no caption]";
+    case "app.bsky.embed.external#view":
+      return `[link: ${embed.external?.title || embed.external?.uri || "shared link"}]`;
+    case "app.bsky.embed.record#view": {
+      const qa = embed.record?.author?.handle;
+      const qt = embed.record?.value?.text;
+      if (qt && qt.trim()) return `[quoting @${qa}: "${qt.trim()}"]`;
+      return qa ? `[quote-posted @${qa}]` : "[quote post]";
+    }
+    case "app.bsky.embed.recordWithMedia#view":
+      return describeEmbed(embed.media) || describeEmbed(embed.record);
+    default:
+      return "";
+  }
+}
+
+function captionFor(post: any): string {
+  const text = String(post.record?.text || "").trim();
+  if (text) return text;
+  return describeEmbed(post.embed) || "(said nothing at all)";
+}
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -75,13 +111,11 @@ async function renderShare(env: Env, request: Request, rawHandle: string, rkey: 
     if (!post) throw new Error("no such post");
 
     const authorHandle = post.author?.handle || handle;
-    const text = String(post.record?.text || "").trim();
+    const text = captionFor(post);
 
     const title = `nothoney: @${esc(authorHandle)} got the "for you" treatment`;
     const titleEsc = `nothoney: @${esc(authorHandle)} got the &quot;for you&quot; treatment`;
-    const desc = text
-      ? truncate(`Fancy Pooh says it's "for you." Actual receipts: "${text}" — @${authorHandle}`, 300)
-      : `Fancy Pooh says it's "for you." Plain Pooh has the receipts — @${authorHandle}'s actual skeet.`;
+    const desc = truncate(`Fancy Pooh says it's "for you." Actual receipts: "${text}" — @${authorHandle}`, 300);
     const ogUrl = `https://nothoney.bisks.net/s/${encodeURIComponent(handle)}/${encodeURIComponent(rkey)}`;
 
     html = html

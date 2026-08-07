@@ -33,6 +33,43 @@ async function xrpc(method, params) {
   return res.json();
 }
 
+// A lot of skeets have no text at all — image posts, link shares, bare quote
+// posts. Falling through to an empty speech bubble reads as broken, so when
+// record.text is blank, describe whatever's actually in the post's embed
+// instead (alt text first — plenty of posters write real alt text and never
+// see it surface anywhere useful).
+function describeEmbed(embed) {
+  if (!embed) return "";
+  switch (embed.$type) {
+    case "app.bsky.embed.images#view": {
+      const imgs = embed.images || [];
+      const alt = imgs.map((i) => i.alt).find((a) => a && a.trim());
+      if (alt) return `[image: ${alt.trim()}]`;
+      return imgs.length > 1 ? "[posted images, no caption]" : "[posted an image, no caption]";
+    }
+    case "app.bsky.embed.video#view":
+      return embed.alt && embed.alt.trim() ? `[video: ${embed.alt.trim()}]` : "[posted a video, no caption]";
+    case "app.bsky.embed.external#view":
+      return `[link: ${embed.external?.title || embed.external?.uri || "shared link"}]`;
+    case "app.bsky.embed.record#view": {
+      const qa = embed.record?.author?.handle;
+      const qt = embed.record?.value?.text;
+      if (qt && qt.trim()) return `[quoting @${qa}: "${qt.trim()}"]`;
+      return qa ? `[quote-posted @${qa}]` : "[quote post]";
+    }
+    case "app.bsky.embed.recordWithMedia#view":
+      return describeEmbed(embed.media) || describeEmbed(embed.record);
+    default:
+      return "";
+  }
+}
+
+function captionFor(post) {
+  const text = (post.record?.text || "").trim();
+  if (text) return text;
+  return describeEmbed(post.embed) || "(said nothing at all)";
+}
+
 // Resolve a bsky.app post URL (or at:// uri) to its text + author.
 async function resolvePost(urlOrUri) {
   let atUri = urlOrUri.trim();
@@ -52,7 +89,7 @@ async function resolvePost(urlOrUri) {
   if (!post) throw new Error("couldn't find that post");
   const rkey = m ? m[2] : atUri.split("/").pop();
   return {
-    text: post.record?.text || "",
+    text: captionFor(post),
     handle: post.author?.handle || "unknown",
     avatar: post.author?.avatar || null,
     permalink: `https://bsky.app/profile/${post.author?.handle}/post/${rkey}`,
