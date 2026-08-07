@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tamagotchip — flash your own firmware</title>
+<meta name="description" content="A little virtual computer you flash with your own firmware. Write a tiny screen-drawing script, hit flash, watch it boot." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="tamagotchip — flash your own firmware" />
+<meta property="og:description" content="A little virtual computer you flash with your own firmware. Write a tiny screen-drawing script, hit flash, watch it boot." />
+<meta property="og:image" content="https://tamagotchip.bisks.net/og.png" />
+<meta property="og:url" content="https://tamagotchip.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="tamagotchip — flash your own firmware" />
+<meta name="twitter:description" content="A little virtual computer you flash with your own firmware. Write a tiny screen-drawing script, hit flash, watch it boot." />
+<meta name="twitter:image" content="https://tamagotchip.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0d1410;
+    --panel: #142019;
+    --panel-border: #274536;
+    --ink: #c9f2d8;
+    --dim: #7fa88f;
+    --accent: #5be08f;
+    --accent2: #ffb454;
+    --screen-bg: #0a1f14;
+    --screen-fg: #6dffa8;
+    --danger: #ff6b6b;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(circle at 20% -10%, #1a2a20 0%, var(--bg) 55%);
+    color: var(--ink);
+    font-family: var(--mono);
+    min-height: 100vh;
+    padding: 24px 16px 64px;
+  }
+  a { color: var(--accent); }
+  header { max-width: 980px; margin: 0 auto 22px; }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: 0.5px;
+  }
+  h1 .chip { color: var(--accent2); }
+  header p {
+    color: var(--dim);
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 640px;
+  }
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  /* device */
+  .device {
+    position: sticky;
+    top: 20px;
+  }
+  .bezel {
+    background: linear-gradient(160deg, #1c2c22, #0f1811);
+    border: 1px solid #2c4636;
+    border-radius: 20px;
+    padding: 18px 16px 22px;
+    box-shadow: inset 0 0 0 1px #0a120d, 0 10px 30px rgba(0,0,0,0.4);
+  }
+  .bezel-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--dim);
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .screen-wrap {
+    background: #061109;
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid #0a1a0f;
+    box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+  }
+  canvas#screen {
+    display: block;
+    width: 100%;
+    image-rendering: pixelated;
+    background: var(--screen-bg);
+    border-radius: 3px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 1px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    background: #16241b;
+    color: var(--ink);
+    padding: 9px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    color: #062012;
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost {
+    background: transparent;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .status-line {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--dim);
+    min-height: 14px;
+    text-align: center;
+  }
+  .status-line.err { color: var(--danger); }
+
+  /* editor panel */
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 10px; }
+  label { font-size: 11px; color: var(--dim); }
+  select, input[type=text] {
+    font-family: var(--mono);
+    background: #0f1913;
+    border: 1px solid var(--panel-border);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+  select { flex: 0 0 auto; }
+  input[type=text] { flex: 1; min-width: 120px; }
+
+  textarea#fw {
+    width: 100%;
+    height: 210px;
+    margin-top: 10px;
+    background: #0a140e;
+    color: var(--screen-fg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 12px;
+    resize: vertical;
+  }
+  textarea#fw:focus { outline: 1px solid var(--accent); }
+
+  details.docs {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--dim);
+    border-top: 1px dashed var(--panel-border);
+    padding-top: 10px;
+  }
+  details.docs summary {
+    cursor: pointer;
+    color: var(--ink);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .cmd-table { margin-top: 10px; width: 100%; border-collapse: collapse; }
+  .cmd-table td { padding: 4px 0; vertical-align: top; font-size: 12px; }
+  .cmd-table td:first-child { color: var(--accent2); white-space: nowrap; padding-right: 10px; }
+
+  .saved-list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .saved-chip {
+    font-size: 11px;
+    background: #0f1913;
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 5px 10px;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .saved-chip:hover { border-color: var(--accent); }
+  .saved-chip .x { color: var(--danger); margin-left: 6px; }
+
+  .share-box {
+    margin-top: 14px;
+    border-top: 1px dashed var(--panel-border);
+    padding-top: 12px;
+  }
+  .share-url {
+    font-size: 11px;
+    color: var(--dim);
+    word-break: break-all;
+    background: #0a140e;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 8px;
+    margin-top: 8px;
+    display: none;
+  }
+  .share-url.show { display: block; }
+
+  footer {
+    max-width: 980px;
+    margin: 30px auto 0;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+  }
+  .banner {
+    max-width: 980px;
+    margin: 0 auto 16px;
+    background: #14261a;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--dim);
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="chip">tamagotchip</span> — flash your own firmware</h1>
+  <p>
+    A tiny virtual computer, the kind you'd flash with custom firmware yourself —
+    write a little screen-drawing script in the box, hit <b>FLASH</b>, and watch
+    it boot on the display. No real hardware, no real risk, just a fake little
+    e-ink brain you get to program.
+  </p>
+</header>
+
+<div class="banner" id="loadedBanner"></div>
+
+<main>
+  <div class="panel device">
+    <div class="bezel">
+      <div class="bezel-label">TAMAGOTCHIP // MODEL T-1</div>
+      <div class="screen-wrap">
+        <canvas id="screen" width="400" height="160"></canvas>
+      </div>
+      <div class="controls">
+        <button class="primary" id="flashBtn">⚡ FLASH</button>
+        <button class="ghost" id="resetBtn">RESET</button>
+      </div>
+      <div class="status-line" id="status">idle.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <label for="presets">load a preset:</label>
+      <select id="presets">
+        <option value="">— pick one —</option>
+        <option value="hello">hello world</option>
+        <option value="boot">boot sequence</option>
+        <option value="heart">pixel heart</option>
+        <option value="blink">blinking eyes</option>
+        <option value="scroll">scrolling ticker</option>
+      </select>
+    </div>
+
+    <textarea id="fw" spellcheck="false"># write firmware below, then hit FLASH
+CLEAR
+TEXT 5 1 BOOTING...
+WAIT 500
+TEXT 5 3 HELLO, WORLD
+WAIT 1500</textarea>
+
+    <details class="docs">
+      <summary>firmware instruction set (20×8 screen, one command per line)</summary>
+      <table class="cmd-table">
+        <tr><td>CLEAR</td><td>wipe the screen blank</td></tr>
+        <tr><td>TEXT x y text</td><td>write text starting at column x, row y</td></tr>
+        <tr><td>PIXEL x y [ch]</td><td>set a single cell (default block char)</td></tr>
+        <tr><td>RECT x y w h</td><td>draw a box outline, width w, height h</td></tr>
+        <tr><td>FILL x y w h [ch]</td><td>fill a rectangle solid</td></tr>
+        <tr><td>WAIT ms</td><td>snapshot the screen as a frame, hold it, then keep going</td></tr>
+        <tr><td># comment</td><td>ignored</td></tr>
+      </table>
+      <p style="margin-top:8px;">
+        The firmware runs top to bottom once, then loops forever from the top —
+        so a few CLEAR / draw / WAIT blocks in a row make a little boot
+        animation. x runs 0–19, y runs 0–7.
+      </p>
+    </details>
+
+    <div class="share-box">
+      <div class="row">
+        <input type="text" id="fwName" placeholder="name this firmware (for saving / sharing)" maxlength="40" />
+        <button id="saveBtn">💾 save</button>
+        <button id="shareBtn">🔗 share</button>
+      </div>
+      <div class="share-url" id="shareUrl"></div>
+      <div class="row" style="margin-top:8px;">
+        <a id="blueskyShare" href="#" target="_blank" rel="noopener" style="display:none; font-size:12px;">post it to Bluesky →</a>
+      </div>
+      <div class="saved-list" id="savedList"></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  built by <a href="https://bisks.net/">buildthis</a> for
+  <a href="https://bsky.app/profile/words.bsky.social" target="_blank" rel="noopener">@words.bsky.social</a>,
+  off a thread about <a href="https://buildinpublic.com/gadgets" target="_blank" rel="noopener">buildinpublic.com/gadgets</a> —
+  <a href="https://bisks.net/">more atprotozoa</a>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var COLS = 20, ROWS = 8;
+  var MAX_SRC_LEN = 4000, MAX_OPS = 400, MAX_FRAMES = 200;
+
+  // ---------- base64url helpers (mirrored server-side in src/index.ts) ----------
+  function b64urlEncode(str) {
+    var bytes = new TextEncoder().encode(str);
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecode(str) {
+    var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  // ---------- interpreter ----------
+  function blankGrid() {
+    var g = [];
+    for (var y = 0; y < ROWS; y++) g.push(new Array(COLS).fill(" "));
+    return g;
+  }
+  function cloneGrid(g) { return g.map(function (row) { return row.slice(); }); }
+
+  function parseFirmware(src) {
+    var lines = src.split("\n");
+    var ops = [], errors = [];
+    for (var i = 0; i < lines.length && ops.length < MAX_OPS; i++) {
+      var line = lines[i].trim();
+      if (!line || line.charAt(0) === "#") continue;
+      var parts = line.split(/\s+/);
+      var cmd = parts[0].toUpperCase();
+      if (cmd === "CLEAR") {
+        ops.push({ cmd: "CLEAR" });
+      } else if (cmd === "TEXT") {
+        var tx = parseInt(parts[1], 10), ty = parseInt(parts[2], 10);
+        var text = parts.slice(3).join(" ");
+        if (isNaN(tx) || isNaN(ty)) { errors.push("line " + (i + 1) + ": bad TEXT coords"); continue; }
+        ops.push({ cmd: "TEXT", x: tx, y: ty, text: text });
+      } else if (cmd === "PIXEL") {
+        var px = parseInt(parts[1], 10), py = parseInt(parts[2], 10);
+        var pch = parts[3] || "█";
+        if (isNaN(px) || isNaN(py)) { errors.push("line " + (i + 1) + ": bad PIXEL coords"); continue; }
+        ops.push({ cmd: "PIXEL", x: px, y: py, ch: pch.charAt(0) });
+      } else if (cmd === "RECT") {
+        var rx = parseInt(parts[1], 10), ry = parseInt(parts[2], 10);
+        var rw = parseInt(parts[3], 10), rh = parseInt(parts[4], 10);
+        if ([rx, ry, rw, rh].some(isNaN)) { errors.push("line " + (i + 1) + ": bad RECT args"); continue; }
+        ops.push({ cmd: "RECT", x: rx, y: ry, w: rw, h: rh });
+      } else if (cmd === "FILL") {
+        var fx = parseInt(parts[1], 10), fy = parseInt(parts[2], 10);
+        var fw = parseInt(parts[3], 10), fh = parseInt(parts[4], 10);
+        var fch = parts[5] || "█";
+        if ([fx, fy, fw, fh].some(isNaN)) { errors.push("line " + (i + 1) + ": bad FILL args"); continue; }
+        ops.push({ cmd: "FILL", x: fx, y: fy, w: fw, h: fh, ch: fch.charAt(0) });
+      } else if (cmd === "WAIT") {
+        var ms = parseInt(parts[1], 10);
+        ops.push({ cmd: "WAIT", ms: isNaN(ms) ? 500 : Math.max(50, Math.min(5000, ms)) });
+      } else {
+        errors.push("line " + (i + 1) + ": unknown command \"" + parts[0] + "\"");
+      }
+    }
+    return { ops: ops, errors: errors };
+  }
+
+  function setCell(grid, x, y, ch) {
+    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
+    grid[y][x] = ch;
+  }
+
+  function run(ops) {
+    var grid = blankGrid();
+    var frames = [];
+    var touched = false;
+    for (var i = 0; i < ops.length; i++) {
+      var op = ops[i];
+      if (op.cmd === "CLEAR") { grid = blankGrid(); touched = true; }
+      else if (op.cmd === "TEXT") {
+        for (var c = 0; c < op.text.length; c++) setCell(grid, op.x + c, op.y, op.text.charAt(c));
+        touched = true;
+      } else if (op.cmd === "PIXEL") {
+        setCell(grid, op.x, op.y, op.ch); touched = true;
+      } else if (op.cmd === "RECT") {
+        for (var xx = op.x; xx < op.x + op.w; xx++) {
+          setCell(grid, xx, op.y, "-"); setCell(grid, xx, op.y + op.h - 1, "-");
+        }
+        for (var yy = op.y; yy < op.y + op.h; yy++) {
+          setCell(grid, op.x, yy, "|"); setCell(grid, op.x + op.w - 1, yy, "|");
+        }
+        setCell(grid, op.x, op.y, "+"); setCell(grid, op.x + op.w - 1, op.y, "+");
+        setCell(grid, op.x, op.y + op.h - 1, "+"); setCell(grid, op.x + op.w - 1, op.y + op.h - 1, "+");
+        touched = true;
+      } else if (op.cmd === "FILL") {
+        for (var fy2 = op.y; fy2 < op.y + op.h; fy2++)
+          for (var fx2 = op.x; fx2 < op.x + op.w; fx2++) setCell(grid, fx2, fy2, op.ch);
+        touched = true;
+      } else if (op.cmd === "WAIT") {
+        frames.push({ grid: cloneGrid(grid), ms: op.ms });
+        touched = false;
+        if (frames.length >= MAX_FRAMES) break;
+      }
+    }
+    if (touched || frames.length === 0) frames.push({ grid: cloneGrid(grid), ms: 900 });
+    return frames;
+  }
+
+  // ---------- canvas render ----------
+  var canvas = document.getElementById("screen");
+  var ctx = canvas.getContext("2d");
+  var cellW = canvas.width / COLS, cellH = canvas.height / ROWS;
+
+  function drawGrid(grid) {
+    ctx.fillStyle = "#0a1f14";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#6dffa8";
+    ctx.font = Math.floor(cellH * 0.78) + "px monospace";
+    ctx.textBaseline = "middle";
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var ch = grid[y][x];
+        if (ch === " ") continue;
+        ctx.fillText(ch, x * cellW + cellW * 0.12, y * cellH + cellH / 2 + 1);
+      }
+    }
+    // faint scanlines for e-ink/CRT vibe
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = "#000";
+    for (var sy = 0; sy < canvas.height; sy += 3) ctx.fillRect(0, sy, canvas.width, 1);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------- player ----------
+  var timer = null;
+  var frameIdx = 0;
+  var currentFrames = [{ grid: blankGrid(), ms: 900 }];
+
+  function playFrame() {
+    if (timer) clearTimeout(timer);
+    var f = currentFrames[frameIdx % currentFrames.length];
+    drawGrid(f.grid);
+    frameIdx++;
+    timer = setTimeout(playFrame, f.ms);
+  }
+
+  function stopPlayer() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  // ---------- UI wiring ----------
+  var fwEl = document.getElementById("fw");
+  var statusEl = document.getElementById("status");
+  var flashBtn = document.getElementById("flashBtn");
+  var resetBtn = document.getElementById("resetBtn");
+
+  function flash() {
+    var src = fwEl.value.slice(0, MAX_SRC_LEN);
+    var parsed = parseFirmware(src);
+    frameIdx = 0;
+    currentFrames = run(parsed.ops);
+    playFrame();
+    if (parsed.errors.length) {
+      statusEl.textContent = "flashed with " + parsed.errors.length + " warning(s): " + parsed.errors[0];
+      statusEl.classList.add("err");
+    } else {
+      statusEl.textContent = "flashed. " + currentFrames.length + " frame(s) running.";
+      statusEl.classList.remove("err");
+    }
+  }
+
+  function resetDevice() {
+    stopPlayer();
+    frameIdx = 0;
+    currentFrames = [{ grid: blankGrid(), ms: 900 }];
+    drawGrid(currentFrames[0].grid);
+    statusEl.textContent = "idle.";
+    statusEl.classList.remove("err");
+  }
+
+  flashBtn.addEventListener("click", flash);
+  resetBtn.addEventListener("click", resetDevice);
+
+  // ---------- presets ----------
+  var PRESETS = {
+    hello: "CLEAR\nTEXT 5 1 BOOTING...\nWAIT 500\nTEXT 5 3 HELLO, WORLD\nWAIT 1500",
+    boot:
+      "CLEAR\nTEXT 5 1 BOOTING...\nRECT 2 4 16 3\nWAIT 300\n" +
+      "FILL 3 5 2 1\nWAIT 150\nFILL 3 5 4 1\nWAIT 150\nFILL 3 5 6 1\nWAIT 150\n" +
+      "FILL 3 5 8 1\nWAIT 150\nFILL 3 5 10 1\nWAIT 150\nFILL 3 5 12 1\nWAIT 150\n" +
+      "FILL 3 5 14 1\nWAIT 400\nCLEAR\nTEXT 6 3 READY.\nWAIT 1200",
+    heart:
+      "CLEAR\nTEXT 7 1 .##. .##.\nTEXT 6 2 ##########\nTEXT 6 3 ##########\n" +
+      "TEXT 7 4  ########\nTEXT 8 5   ######\nTEXT 9 6    ####\nTEXT 10 7    ##\nWAIT 1200",
+    blink:
+      "CLEAR\nTEXT 6 3 (  o.o  )\nTEXT 4 5 tamagotchip\nWAIT 900\n" +
+      "CLEAR\nTEXT 6 3 ( -....- )\nTEXT 4 5 tamagotchip\nWAIT 180",
+    scroll: buildScroll("HELLO FROM MY TAMAGOTCHIP  //  ")
+  };
+
+  function buildScroll(text) {
+    var lines = [];
+    var loopText = text + text;
+    for (var offset = 0; offset < text.length; offset++) {
+      var visible = loopText.slice(offset, offset + COLS);
+      lines.push("CLEAR");
+      lines.push("TEXT 0 3 " + visible);
+      lines.push("WAIT 120");
+    }
+    return lines.join("\n");
+  }
+
+  document.getElementById("presets").addEventListener("change", function (e) {
+    var v = e.target.value;
+    if (v && PRESETS[v]) {
+      fwEl.value = PRESETS[v];
+      flash();
+      document.getElementById("fwName").value = e.target.options[e.target.selectedIndex].text;
+    }
+  });
+
+  // ---------- save / load (localStorage) ----------
+  var STORE_KEY = "tamagotchip.saved";
+  function loadSaved() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); } catch (_) { return []; }
+  }
+  function writeSaved(list) { localStorage.setItem(STORE_KEY, JSON.stringify(list)); }
+  function renderSaved() {
+    var list = loadSaved();
+    var el = document.getElementById("savedList");
+    el.innerHTML = "";
+    list.forEach(function (item, i) {
+      var chip = document.createElement("span");
+      chip.className = "saved-chip";
+      chip.textContent = item.n;
+      chip.title = "click to load";
+      chip.addEventListener("click", function () {
+        fwEl.value = item.c;
+        document.getElementById("fwName").value = item.n;
+        flash();
+      });
+      var x = document.createElement("span");
+      x.className = "x";
+      x.textContent = "✕";
+      x.title = "delete";
+      x.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var l = loadSaved();
+        l.splice(i, 1);
+        writeSaved(l);
+        renderSaved();
+      });
+      chip.appendChild(x);
+      el.appendChild(chip);
+    });
+  }
+
+  document.getElementById("saveBtn").addEventListener("click", function () {
+    var name = (document.getElementById("fwName").value || "untitled").trim().slice(0, 40);
+    var list = loadSaved();
+    list = list.filter(function (i) { return i.n !== name; });
+    list.unshift({ n: name, c: fwEl.value });
+    if (list.length > 12) list = list.slice(0, 12);
+    writeSaved(list);
+    renderSaved();
+    statusEl.textContent = "saved \"" + name + "\" locally.";
+    statusEl.classList.remove("err");
+  });
+
+  // ---------- share ----------
+  function buildShareCode() {
+    var name = (document.getElementById("fwName").value || "untitled").trim().slice(0, 40) || "untitled";
+    var code = fwEl.value.slice(0, 600);
+    return b64urlEncode(JSON.stringify({ n: name, c: code }));
+  }
+
+  document.getElementById("shareBtn").addEventListener("click", function () {
+    var code = buildShareCode();
+    var url = "https://tamagotchip.bisks.net/f/" + code;
+    var box = document.getElementById("shareUrl");
+    box.textContent = url;
+    box.classList.add("show");
+
+    var name = (document.getElementById("fwName").value || "untitled").trim().slice(0, 40) || "untitled";
+    var shareText = "I flashed “" + name + "” onto my tamagotchip 🤖 " + url;
+    var bs = document.getElementById("blueskyShare");
+    bs.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    bs.style.display = "inline";
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(function () {
+        statusEl.textContent = "share link copied to clipboard.";
+        statusEl.classList.remove("err");
+      }).catch(function () {});
+    }
+  });
+
+  // ---------- load from /f/<code> ----------
+  function tryLoadFromPath() {
+    var m = location.pathname.match(/^\/f\/([^/]+)\/?$/);
+    if (!m) return;
+    try {
+      var payload = JSON.parse(b64urlDecode(m[1]));
+      if (typeof payload.c === "string") {
+        fwEl.value = payload.c;
+        document.getElementById("fwName").value = payload.n || "";
+        var banner = document.getElementById("loadedBanner");
+        banner.innerHTML = "loaded shared firmware: <b>" + escapeHtml(payload.n || "untitled") + "</b> — hit FLASH again to re-run it, or edit and make it yours.";
+        banner.classList.add("show");
+        flash();
+      }
+    } catch (_) {
+      // bad/garbled code in the URL — just fall through to the default firmware
+    }
+  }
+  function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // ---------- boot ----------
+  renderSaved();
+  tryLoadFromPath();
+  if (location.pathname.indexOf("/f/") !== 0) flash();
+})();
+</script>
+</body>
+</html>
