@@ -156,7 +156,11 @@ function esc(s: string): string {
 const GENERIC_TITLE = "didscope — your DID is your horoscope";
 const GENERIC_DESC =
   "Your last DID character was always going to determine your personality. Enter a handle and find out.";
-const GENERIC_OG_URL = "https://didscope.bisks.net/";
+// Matched as a full quoted attribute, not the bare URL — the bare URL is
+// also a prefix of the og:image/twitter:image URLs ("…/og.png"), so a naive
+// split/join on it corrupted those into "…/s/<handle>og.png" too (caught
+// while copying this pattern into nothoney and skeetin; see sites/sidenote).
+const GENERIC_OG_URL_ATTR = 'content="https://didscope.bisks.net/"';
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
@@ -196,7 +200,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     html = html
       .split(GENERIC_TITLE).join(esc(title))
       .split(GENERIC_DESC).join(esc(desc))
-      .split(GENERIC_OG_URL).join(ogUrl);
+      .split(GENERIC_OG_URL_ATTR).join(`content="${ogUrl}"`);
 
     return new Response(html, {
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
