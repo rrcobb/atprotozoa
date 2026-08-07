@@ -17,6 +17,13 @@ measurements are often still useful, and several of the failure modes recur.
   prefix-strip, bare-mount trailing slash), and the migration back to
   subdomains. The most useful of these if a deploy symptom looks familiar.
 
+- **`2026-08-pnpm-lockfile-outage.md`** — a new site's `package.json` landed
+  without a matching `pnpm-lock.yaml` update, which fails CI's
+  `--frozen-lockfile` install silently and skips `deploy` for every site in
+  that push and every push after it, with no alert anywhere. Traces a ~13-site
+  backlog back to its root commit and fixes it. The permanent lesson lives in
+  `notes/20-deploy.md`.
+
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
 

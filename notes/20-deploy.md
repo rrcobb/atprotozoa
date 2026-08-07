@@ -98,6 +98,23 @@ These are plain repo scripts, not CI gates. Wiring `check:imports` into
 `deploy.yml` needs someone with `.github/` write access — the builder is barred
 from that directory.
 
+**New workspace member needs a lockfile update, or `check` fails silently for
+everyone after it.** `deploy.yml`'s `check` job runs
+`pnpm install --frozen-lockfile` before `deploy` is allowed to run at all. A new
+`sites/<name>/package.json` is a new pnpm workspace member; if `pnpm-lock.yaml`
+isn't regenerated to add its `importers` entry, `--frozen-lockfile` fails hard.
+Because `deploy` needs `check` to pass, this doesn't just block the new site —
+it blocks *every* directory touched by that push, and by every push after it
+until the lockfile is fixed, since each of those inherits the same stale
+lockfile. There's no alert for this anywhere the bot looks; a red X on the
+commit is the only signal, and nothing in a normal build session runs
+`--frozen-lockfile` locally to surface it. After adding any new site (or any
+other new `package.json`), check `git diff --stat -- pnpm-lock.yaml` — expect a
+new `sites/<name>: {}` (or similar) importer entry. If it's not there, run
+`pnpm install` at the repo root before finishing the build. See
+`notes/history/2026-08-pnpm-lockfile-outage.md` for the incident this traces
+back to (13 sites silently queued up undeployed before a human noticed).
+
 ## Retired sites
 
 `sites/catsofatproto` is a deliberate retirement stub and **must not be
