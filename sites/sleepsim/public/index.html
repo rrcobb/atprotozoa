@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#000000" />
+<title>sleeping simulator — extremely accurate</title>
+<meta name="description" content="Hyper-realistic sleep simulation. Shows you exactly what you see when you're asleep, and nothing else." />
+<meta property="og:title" content="sleeping simulator — extremely accurate" />
+<meta property="og:description" content="Hyper-realistic sleep simulation. Shows you exactly what you see when you're asleep, and nothing else." />
+<meta property="og:url" content="https://sleepsim.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://sleepsim.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Sleeping simulator: a closed eye on a near-black card. That's the whole game." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="sleeping simulator — extremely accurate" />
+<meta name="twitter:description" content="Hyper-realistic sleep simulation. Shows you exactly what you see when you're asleep, and nothing else." />
+<meta name="twitter:image" content="https://sleepsim.bisks.net/og.png" />
+<style>
+  :root {
+    --fg: #eae6df;
+    --dim: #756f66;
+    --accent: #b23b3b;
+    --accent2: #8a8478;
+    --panel: #0c0b0a;
+    --border: #2a2723;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #000;
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { position: fixed; inset: 0; }
+  .scene { position: absolute; inset: 0; display: none; }
+  .scene.active { display: block; }
+
+  /* ---------- intro ---------- */
+  #scene-intro.active {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 1.5rem; overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 0%, #14100f 0%, #000 65%);
+  }
+  .intro-wrap { width: 100%; max-width: 480px; text-align: center; }
+  h1 {
+    font-size: 1.6rem; letter-spacing: 0.06em; margin: 0 0 0.4rem;
+    text-transform: uppercase; font-weight: 700;
+  }
+  .sub { color: var(--dim); font-size: 0.9rem; line-height: 1.6; margin: 0 0 1.6rem; }
+  .sub b { color: var(--accent2); font-weight: 600; }
+
+  .specs {
+    text-align: left; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.9rem 1.1rem; margin-bottom: 1.6rem;
+    font-size: 0.78rem; color: var(--accent2); line-height: 1.9;
+  }
+  .specs .row { display: flex; justify-content: space-between; gap: 1rem; }
+  .specs .row span:last-child { color: var(--dim); }
+
+  button {
+    font-family: inherit; cursor: pointer; border: none; border-radius: 8px;
+  }
+  .btn-primary {
+    background: var(--fg); color: #000; font-weight: 700; font-size: 0.95rem;
+    padding: 0.85rem 1.6rem; letter-spacing: 0.03em; width: 100%;
+  }
+  .btn-primary:active { transform: scale(0.98); }
+  .fine { color: #3d3a35; font-size: 0.68rem; margin-top: 1.1rem; line-height: 1.6; }
+
+  /* ---------- sleeping ---------- */
+  #scene-sleep.active { background: #000; }
+  .phosphene {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    filter: blur(1px); opacity: 0; background: radial-gradient(circle, #2a1a18 0%, transparent 70%);
+    animation: drift linear infinite;
+  }
+  @keyframes drift {
+    0% { opacity: 0; transform: translate(0, 0) scale(0.8); }
+    8% { opacity: var(--peak, 0.35); }
+    50% { opacity: var(--peak, 0.35); transform: translate(var(--dx, 6px), var(--dy, -8px)) scale(1.1); }
+    92% { opacity: var(--peak, 0.35); }
+    100% { opacity: 0; transform: translate(calc(var(--dx, 6px) * 2), calc(var(--dy, -8px) * 2)) scale(0.9); }
+  }
+  .breathe {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 50%, transparent 40%, #1a0a0a 150%);
+    animation: breathe 4.2s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 0.55; }
+  }
+  .dream-flash {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 2rem; pointer-events: none; opacity: 0;
+    font-size: 1.05rem; color: #4a4038; filter: blur(2.5px); letter-spacing: 0.02em;
+    transition: opacity 0.25s ease, filter 0.25s ease;
+  }
+  .dream-flash.show { opacity: 1; filter: blur(0.4px); transition: opacity 0.08s ease, filter 0.08s ease; }
+
+  .hud {
+    position: absolute; top: 0; left: 0; right: 0; padding: 1rem 1.1rem;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    opacity: 1; transition: opacity 1.1s ease; pointer-events: none;
+  }
+  .hud.dim { opacity: 0; }
+  .hud-title { font-size: 0.68rem; letter-spacing: 0.14em; color: #4a453e; text-transform: uppercase; }
+  .hud-timer { font-size: 0.72rem; color: #3d3a35; text-align: right; }
+  .hud-timer .n { color: #6b655c; }
+
+  .wake-btn {
+    position: absolute; bottom: 1.2rem; right: 1.2rem; z-index: 5;
+    background: transparent; color: #35312b; border: 1px solid #201d19;
+    font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.55rem 0.9rem; border-radius: 20px; opacity: 0.5;
+    transition: opacity 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+  .wake-btn:active { transform: scale(0.96); }
+  .hud:not(.dim) ~ .wake-btn, .wake-btn.lit {
+    opacity: 1; color: #8a8478; border-color: #3a352e;
+  }
+
+  .snore-btn {
+    position: absolute; top: 1rem; right: 1.1rem; pointer-events: auto;
+    background: transparent; color: #4a453e; font-size: 0.95rem; padding: 0.2rem 0.4rem;
+  }
+
+  /* No explicit z-index: it must stay behind wake-btn/snore-toggle (both
+     z-index:auto but later in DOM order, so they paint on top and stay
+     clickable) while still catching taps anywhere else on the black scene. */
+  .tap-catcher { position: absolute; inset: 0; background: transparent; border: none; }
+
+  /* ---------- alarm flash ---------- */
+  .alarm-flash {
+    position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 20;
+  }
+
+  /* ---------- report ---------- */
+  #scene-report.active {
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    padding: 2.2rem 1.3rem 3rem; overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 0%, #14100f 0%, #000 65%);
+  }
+  .report-wrap { width: 100%; max-width: 460px; }
+  .eye-mark { font-size: 1.6rem; text-align: center; margin-bottom: 0.6rem; opacity: 0.8; }
+  h2 { font-size: 1.3rem; text-align: center; margin: 0 0 0.3rem; }
+  .report-sub { color: var(--dim); font-size: 0.85rem; text-align: center; margin: 0 0 1.5rem; }
+
+  .stat-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+  }
+  .stat-row { display: flex; justify-content: space-between; align-items: baseline; padding: 0.45rem 0; }
+  .stat-row + .stat-row { border-top: 1px solid #1c1a17; }
+  .stat-label { font-size: 0.72rem; color: var(--dim); letter-spacing: 0.04em; text-transform: uppercase; }
+  .stat-value { font-size: 1.05rem; font-weight: 700; color: var(--fg); }
+  .flavor {
+    font-size: 0.82rem; color: var(--accent2); text-align: center; line-height: 1.6;
+    margin: 0 0 1.6rem; padding: 0 0.5rem;
+  }
+
+  .actions { display: flex; flex-direction: column; gap: 0.6rem; }
+  .btn-share {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+    background: #1a73e8; color: #fff; font-weight: 700; font-size: 0.9rem; padding: 0.8rem 1rem;
+  }
+  .btn-secondary {
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+    font-size: 0.85rem; padding: 0.75rem 1rem;
+  }
+  .card-preview {
+    display: block; width: 100%; border-radius: 10px; margin: 0.2rem 0 1.1rem;
+    border: 1px solid var(--border);
+  }
+  .shared-badge {
+    display: inline-block; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--dim); border: 1px solid var(--border); border-radius: 20px; padding: 0.3rem 0.7rem;
+    margin: 0 auto 1rem; text-align: center;
+  }
+  .center { text-align: center; }
+  a.link { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <section id="scene-intro" class="scene active">
+    <div class="intro-wrap">
+      <h1>Sleeping Simulator</h1>
+      <p class="sub">Extremely accurate. Hyper-realistic. Shows you <b>exactly</b> what you see when you're asleep — and nothing else.</p>
+      <div class="specs">
+        <div class="row"><span>Graphics</span><span>Ultra (Void)</span></div>
+        <div class="row"><span>Resolution</span><span>20/20, eyes closed</span></div>
+        <div class="row"><span>Field of view</span><span>0°</span></div>
+        <div class="row"><span>Ray tracing</span><span>ON (dreams only)</span></div>
+        <div class="row"><span>Realism</span><span>100% — cannot be increased</span></div>
+      </div>
+      <button class="btn-primary" id="go-sleep">Go to sleep</button>
+      <p class="fine">Best experienced with your eyes open, ironically. Tap to wake at any time.</p>
+    </div>
+  </section>
+
+  <section id="scene-sleep" class="scene">
+    <button class="tap-catcher" id="tap-catcher" aria-label="wake HUD"></button>
+    <div class="breathe"></div>
+    <div id="phosphenes"></div>
+    <div class="dream-flash" id="dream-flash"></div>
+    <div class="hud" id="hud">
+      <div class="hud-title">Sleeping Simulator</div>
+      <div class="hud-timer">asleep <span class="n" id="timer">0:00</span></div>
+    </div>
+    <button class="snore-btn" id="snore-toggle" title="toggle snoring" aria-label="toggle snoring">🔇</button>
+    <button class="wake-btn" id="wake-btn">Wake up</button>
+  </section>
+
+  <section id="scene-report" class="scene">
+    <div class="alarm-flash" id="alarm-flash"></div>
+    <div class="report-wrap">
+      <div id="shared-only" style="display:none">
+        <div class="center"><span class="shared-badge">Someone else's sleep report</span></div>
+      </div>
+      <div class="eye-mark">😴</div>
+      <h2 id="report-title">Sleep report</h2>
+      <p class="report-sub" id="report-sub"></p>
+
+      <div class="stat-card">
+        <div class="stat-row">
+          <div class="stat-label">Time asleep</div>
+          <div class="stat-value" id="stat-duration">0m</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Dream flashes</div>
+          <div class="stat-value" id="stat-dreams">0</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Things seen</div>
+          <div class="stat-value" id="stat-seen">0</div>
+        </div>
+      </div>
+      <p class="flavor" id="flavor"></p>
+
+      <canvas id="card-canvas" width="1200" height="630" class="card-preview" style="display:none"></canvas>
+
+      <div class="actions">
+        <button class="btn-share" id="share-bsky">Share on Bluesky</button>
+        <button class="btn-secondary" id="share-card">Save report card</button>
+        <button class="btn-secondary" id="sleep-again">Sleep again</button>
+      </div>
+      <p class="fine center" id="home-link-wrap" style="display:none">
+        <a class="link" href="/">try the simulator yourself →</a>
+      </p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var scenes = {
+    intro: $("scene-intro"),
+    sleep: $("scene-sleep"),
+    report: $("scene-report"),
+  };
+  function show(name) {
+    Object.keys(scenes).forEach(function (k) { scenes[k].classList.toggle("active", k === name); });
+  }
+
+  // ---------- shared-link view: /r/<code> shows a read-only report ----------
+  function b64urlDecode(str) {
+    var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    return decodeURIComponent(escape(atob(b64)));
+  }
+  function decodeReport(code) {
+    try {
+      var o = JSON.parse(b64urlDecode(code));
+      if (typeof o.m !== "number" || !isFinite(o.m) || o.m < 0) return null;
+      return {
+        minutes: Math.min(Math.floor(o.m), 999999),
+        dreams: typeof o.d === "number" && isFinite(o.d) ? Math.max(0, Math.min(Math.floor(o.d), 999)) : 0,
+      };
+    } catch (e) { return null; }
+  }
+  function fmtDuration(totalMinutes) {
+    var h = Math.floor(totalMinutes / 60), m = totalMinutes % 60;
+    return h > 0 ? (h + "h " + m + "m") : (m + "m");
+  }
+
+  var FLAVORS = [
+    "REM efficiency: implausible.",
+    "Sleep quality: suspiciously accurate.",
+    "Nothing was seen. This is correct.",
+    "Every second of this was pure black. As intended.",
+    "Diagnostic: eyes were, in fact, closed.",
+    "No notes. There was nothing to note.",
+  ];
+
+  var origin = location.origin;
+
+  function renderReport(minutes, dreams, isSharedView) {
+    $("report-title").textContent = isSharedView ? "Someone's sleep report" : "You woke up";
+    $("report-sub").textContent = isSharedView
+      ? "They ran the simulation. This is what happened."
+      : "Here's exactly what you saw.";
+    $("shared-only").style.display = isSharedView ? "block" : "none";
+    $("home-link-wrap").style.display = isSharedView ? "block" : "none";
+    $("stat-duration").textContent = fmtDuration(minutes);
+    $("stat-dreams").textContent = String(dreams);
+    $("stat-seen").textContent = "0";
+    $("flavor").textContent = FLAVORS[(minutes + dreams) % FLAVORS.length];
+
+    var code = btoa(unescape(encodeURIComponent(JSON.stringify({ m: minutes, d: dreams }))))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    var shareUrl = origin + "/r/" + code;
+    var dur = fmtDuration(minutes);
+    var shareText = dreams > 0
+      ? "I slept for " + dur + " in the sleeping simulator and saw absolutely nothing, except " + dreams + " dream flash" + (dreams === 1 ? "" : "es") + " I will never remember. Extremely accurate. " + shareUrl
+      : "I slept for " + dur + " in the sleeping simulator and saw absolutely nothing. Extremely accurate. " + shareUrl;
+
+    $("share-bsky").onclick = function () {
+      window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText), "_blank", "noopener");
+    };
+
+    $("share-card").onclick = function () { downloadCard(dur, dreams); };
+
+    if (!isSharedView) {
+      window.history.replaceState(null, "", "/r/" + code);
+    }
+  }
+
+  function drawCard(dur, dreams) {
+    var canvas = $("card-canvas");
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    var g = ctx.createRadialGradient(W * 0.5, H * 0.15, 40, W * 0.5, H * 0.5, W * 0.75);
+    g.addColorStop(0, "#1a0a0a");
+    g.addColorStop(1, "#000000");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#8a8478";
+    ctx.font = "600 30px ui-monospace, Menlo, monospace";
+    ctx.fillText("SLEEPING SIMULATOR", 70, 110);
+
+    ctx.fillStyle = "#eae6df";
+    ctx.font = "700 64px ui-monospace, Menlo, monospace";
+    ctx.fillText("slept " + dur, 70, 220);
+
+    ctx.fillStyle = "#756f66";
+    ctx.font = "400 28px ui-monospace, Menlo, monospace";
+    ctx.fillText("saw absolutely nothing", 70, 270);
+    ctx.fillText(dreams + " dream flash" + (dreams === 1 ? "" : "es") + " unremembered", 70, 310);
+
+    ctx.fillStyle = "#4a4038";
+    ctx.font = "500 24px ui-monospace, Menlo, monospace";
+    ctx.fillText("sleepsim.bisks.net", 70, H - 60);
+
+    return canvas;
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    var probe = new File([""], "probe.png", { type: "image/png" });
+    try { return navigator.canShare({ files: [probe] }); } catch (e) { return false; }
+  }
+
+  function downloadCard(dur, dreams) {
+    var canvas = drawCard(dur, dreams);
+    canvas.style.display = "block";
+    canvas.toBlob(async function (blob) {
+      if (!blob) return;
+      if (canShareFiles()) {
+        var file = new File([blob], "sleep-report.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: "I slept for " + dur + " and saw nothing.", title: "sleeping simulator" });
+          return;
+        } catch (e) { /* fall through to download */ }
+      }
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "sleep-report.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, "image/png");
+  }
+
+  // If we're on a shared /r/<code> link, jump straight to the read-only report.
+  var shareMatch = location.pathname.match(/^\/r\/([^\/]+)\/?$/);
+  if (shareMatch) {
+    var shared = decodeReport(decodeURIComponent(shareMatch[1]));
+    if (shared) {
+      show("report");
+      renderReport(shared.minutes, shared.dreams, true);
+    }
+  }
+
+  // ---------- audio: synthesized breathing "snore", no audio files ----------
+  var audioCtx = null, snoreNodes = null, snoreOn = false;
+  function ensureAudio() {
+    if (audioCtx) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+  }
+  function startSnore() {
+    ensureAudio();
+    if (!audioCtx || snoreNodes) return;
+    var bufferSize = 2 * audioCtx.sampleRate;
+    var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    noise.loop = true;
+
+    var filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 220;
+
+    var gain = audioCtx.createGain();
+    gain.gain.value = 0;
+
+    var lfo = audioCtx.createOscillator();
+    lfo.type = "sine";
+    lfo.frequency.value = 1 / 4.2; // matches the .breathe CSS cycle
+    var lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 0.05;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain.gain);
+    gain.gain.value = 0.045;
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start();
+    lfo.start();
+    snoreNodes = { noise: noise, lfo: lfo, gain: gain, filter: filter };
+  }
+  function stopSnore() {
+    if (!snoreNodes) return;
+    try { snoreNodes.noise.stop(); snoreNodes.lfo.stop(); } catch (e) {}
+    snoreNodes = null;
+  }
+  function beep(freq, start, dur, type) {
+    if (!audioCtx) return;
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = type || "square";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.001, audioCtx.currentTime + start);
+    gain.gain.exponentialRampToValueAtTime(0.12, audioCtx.currentTime + start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + start + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(audioCtx.currentTime + start);
+    osc.stop(audioCtx.currentTime + start + dur + 0.05);
+  }
+  function playAlarm() {
+    ensureAudio();
+    if (!audioCtx) return;
+    for (var i = 0; i < 4; i++) {
+      beep(880, i * 0.35, 0.18, "square");
+      beep(660, i * 0.35 + 0.19, 0.14, "square");
+    }
+  }
+
+  $("snore-toggle").addEventListener("click", function () {
+    snoreOn = !snoreOn;
+    this.textContent = snoreOn ? "🔊" : "🔇";
+    if (snoreOn) startSnore(); else stopSnore();
+  });
+
+  // ---------- phosphenes: faint drifting specks, the real "visual noise"
+  // your visual cortex produces behind closed eyelids ----------
+  var phosphenesEl = $("phosphenes");
+  var phosphTimers = [];
+  function spawnPhosphene() {
+    var el = document.createElement("div");
+    var size = 40 + Math.random() * 90;
+    el.className = "phosphene";
+    el.style.width = size + "px";
+    el.style.height = size + "px";
+    el.style.left = (Math.random() * 90) + "vw";
+    el.style.top = (Math.random() * 90) + "vh";
+    el.style.setProperty("--peak", (0.12 + Math.random() * 0.22).toFixed(2));
+    el.style.setProperty("--dx", (Math.random() * 24 - 12) + "px");
+    el.style.setProperty("--dy", (Math.random() * 24 - 12) + "px");
+    var dur = 5 + Math.random() * 6;
+    el.style.animationDuration = dur + "s";
+    phosphenesEl.appendChild(el);
+    setTimeout(function () { el.remove(); }, dur * 1000 + 200);
+  }
+
+  // ---------- dream flashes: a half-second blurry fragment, then gone ----------
+  var DREAM_FRAGMENTS = [
+    "you're back in your old school hallway",
+    "someone you know, but their face is wrong",
+    "the stairs keep going",
+    "you're trying to call someone but the numbers won't press",
+    "a room you've never been to, but you know where the light switch is",
+    "your teeth feel loose",
+    "you can almost fly, just not quite",
+    "the water is very calm and very deep",
+    "you're late for something you can't name",
+    "a hallway of doors, all slightly ajar",
+  ];
+  var dreamFlashEl = $("dream-flash");
+  var dreamCount = 0;
+  function triggerDreamFlash() {
+    var text = DREAM_FRAGMENTS[Math.floor(Math.random() * DREAM_FRAGMENTS.length)];
+    dreamFlashEl.textContent = text;
+    dreamFlashEl.classList.add("show");
+    dreamCount++;
+    setTimeout(function () { dreamFlashEl.classList.remove("show"); }, 260 + Math.random() * 260);
+  }
+
+  // ---------- sleep scene lifecycle ----------
+  var elapsedSec = 0;
+  var tickTimer = null, phosphTimer = null, dreamTimer = null, hudTimer = null;
+  var hudEl = $("hud"), wakeBtn = $("wake-btn"), timerEl = $("timer");
+
+  function fmtClock(sec) {
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var pad = function (n) { return n < 10 ? "0" + n : "" + n; };
+    return h > 0 ? (h + ":" + pad(m) + ":" + pad(s)) : (m + ":" + pad(s));
+  }
+
+  function scheduleDream() {
+    var wait = 14000 + Math.random() * 22000;
+    dreamTimer = setTimeout(function () { triggerDreamFlash(); scheduleDream(); }, wait);
+  }
+  function schedulePhosphenes() {
+    spawnPhosphene();
+    phosphTimer = setTimeout(schedulePhosphenes, 900 + Math.random() * 1600);
+  }
+
+  function wakeHud() {
+    hudEl.classList.remove("dim");
+    wakeBtn.classList.add("lit");
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(function () {
+      hudEl.classList.add("dim");
+      wakeBtn.classList.remove("lit");
+    }, 4000);
+  }
+
+  function startSleeping() {
+    elapsedSec = 0;
+    dreamCount = 0;
+    timerEl.textContent = "0:00";
+    show("sleep");
+    wakeHud();
+    tickTimer = setInterval(function () {
+      elapsedSec++;
+      timerEl.textContent = fmtClock(elapsedSec);
+    }, 1000);
+    schedulePhosphenes();
+    scheduleDream();
+  }
+
+  function stopSleeping() {
+    clearInterval(tickTimer);
+    clearTimeout(phosphTimer);
+    clearTimeout(dreamTimer);
+    clearTimeout(hudTimer);
+    stopSnore();
+    phosphenesEl.innerHTML = "";
+  }
+
+  function wakeUp() {
+    stopSleeping();
+    playAlarm();
+    var flash = $("alarm-flash");
+    var n = 0;
+    var flashInterval = setInterval(function () {
+      flash.style.transition = "none";
+      flash.style.opacity = (n % 2 === 0) ? "0.9" : "0";
+      n++;
+      if (n >= 5) {
+        clearInterval(flashInterval);
+        flash.style.transition = "opacity 0.4s ease";
+        flash.style.opacity = "0";
+        var minutes = Math.max(0, Math.round(elapsedSec / 60));
+        show("report");
+        renderReport(minutes, dreamCount, false);
+      }
+    }, 140);
+  }
+
+  $("go-sleep").addEventListener("click", function () {
+    ensureAudio();
+    startSleeping();
+  });
+  $("wake-btn").addEventListener("click", wakeUp);
+  $("tap-catcher").addEventListener("click", wakeHud);
+  document.addEventListener("keydown", function (e) {
+    if (!scenes.sleep.classList.contains("active")) return;
+    if (e.key === "Escape" || e.key === " " || e.key === "Enter") wakeUp();
+    else wakeHud();
+  });
+  $("sleep-again").addEventListener("click", function () {
+    window.history.replaceState(null, "", "/");
+    startSleeping();
+  });
+})();
+</script>
+</body>
+</html>
