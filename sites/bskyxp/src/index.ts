@@ -1,0 +1,127 @@
+// bskyxp Worker — bskyxp.bisks.net
+//
+// The client is a static SPA (public/index.html + app.js) that talks straight
+// to the public AppView (public.api.bsky.app) from the browser — no
+// server-side proxy for feeds/profiles/threads, since that API is open-read
+// and CORS-open (access-control-allow-origin: *).
+//
+// Two jobs live in this Worker instead:
+//
+// 1. SPA fallback: client-router paths (/profile/handle, /search, ...) have
+//    no matching static file. A direct load or refresh on one of those needs
+//    to get index.html, not a 404 — so any non-asset path falls through to
+//    the shell.
+// 2. Per-profile / per-post OG tags: a bare static index.html serves the same
+//    og:title/description/image for every /profile/<handle> URL, so a shared
+//    link would unfurl with one generic "Bluesky Social" card no matter whose
+//    profile it was. Fetches the real profile/post server-side and stamps
+//    personalized meta tags onto the same shell before handing it back.
+
+export interface Env {
+  ASSETS: { fetch: (req: Request) => Promise<Response> };
+}
+
+const APPVIEW = "https://public.api.bsky.app";
+const SITE_ORIGIN = "https://bskyxp.bisks.net";
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function truncate(s: string, n: number): string {
+  const clean = s.replace(/\s+/g, " ").trim();
+  return clean.length > n ? clean.slice(0, n - 1).trimEnd() + "…" : clean;
+}
+
+async function bskyGet(path: string, params: Record<string, string>): Promise<any> {
+  const url = new URL(`${APPVIEW}/xrpc/${path}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url.toString(), { headers: { accept: "application/json" } });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function shellHtml(env: Env, request: Request): Promise<string> {
+  const shellUrl = new URL(request.url);
+  shellUrl.pathname = "/";
+  const res = await env.ASSETS.fetch(new Request(shellUrl, { headers: request.headers }));
+  return res.text();
+}
+
+function injectMeta(html: string, meta: { title: string; description: string; image: string; url: string }): string {
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(meta.title)}</title>`)
+    .replace(/(<meta property="og:title" content=")[^"]*(")/, `$1${esc(meta.title)}$2`)
+    .replace(/(<meta property="og:description" content=")[^"]*(")/, `$1${esc(meta.description)}$2`)
+    .replace(/(<meta property="og:image" content=")[^"]*(")/, `$1${esc(meta.image)}$2`)
+    .replace(/(<meta property="og:url" content=")[^"]*(")/, `$1${esc(meta.url)}$2`)
+    .replace(/(<meta name="twitter:title" content=")[^"]*(")/, `$1${esc(meta.title)}$2`)
+    .replace(/(<meta name="twitter:description" content=")[^"]*(")/, `$1${esc(meta.description)}$2`)
+    .replace(/(<meta name="twitter:image" content=")[^"]*(")/, `$1${esc(meta.image)}$2`);
+}
+
+async function renderProfile(env: Env, request: Request, handle: string): Promise<Response> {
+  const html = await shellHtml(env, request);
+  const profile = await bskyGet("app.bsky.actor.getProfile", { actor: handle });
+  if (!profile) return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+
+  const name = profile.displayName ? `${profile.displayName} (@${profile.handle})` : `@${profile.handle}`;
+  const desc = profile.description
+    ? truncate(profile.description, 200)
+    : `${profile.followersCount ?? 0} followers · ${profile.followsCount ?? 0} following · ${profile.postsCount ?? 0} posts`;
+
+  const out = injectMeta(html, {
+    title: `${name} — Bluesky Social`,
+    description: desc,
+    image: profile.avatar || `${SITE_ORIGIN}/og.png`,
+    url: `${SITE_ORIGIN}/profile/${encodeURIComponent(profile.handle)}`,
+  });
+  return new Response(out, { headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+async function renderPost(env: Env, request: Request, handle: string, rkey: string): Promise<Response> {
+  const html = await shellHtml(env, request);
+  const profile = await bskyGet("app.bsky.actor.getProfile", { actor: handle });
+  if (!profile) return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+
+  const uri = `at://${profile.did}/app.bsky.feed.post/${rkey}`;
+  const thread = await bskyGet("app.bsky.feed.getPostThread", { uri, depth: "0" });
+  const post = thread?.thread?.post;
+  const name = profile.displayName ? `${profile.displayName} (@${profile.handle})` : `@${profile.handle}`;
+  const text = post?.record?.text ? truncate(post.record.text, 220) : `A post by ${name} on Bluesky Social.`;
+  const image =
+    post?.embed?.images?.[0]?.thumb || post?.embed?.media?.images?.[0]?.thumb || profile.avatar || `${SITE_ORIGIN}/og.png`;
+
+  const out = injectMeta(html, {
+    title: `${name}: "${text.length > 80 ? text.slice(0, 80) + "…" : text}"`,
+    description: text,
+    image,
+    url: `${SITE_ORIGIN}/profile/${encodeURIComponent(profile.handle)}/post/${encodeURIComponent(rkey)}`,
+  });
+  return new Response(out, { headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    const postMatch = path.match(/^\/profile\/([^/]+)\/post\/([^/]+)\/?$/);
+    if (postMatch) return renderPost(env, request, decodeURIComponent(postMatch[1]), decodeURIComponent(postMatch[2]));
+
+    const profileMatch = path.match(/^\/profile\/([^/]+)\/?$/);
+    if (profileMatch) return renderProfile(env, request, decodeURIComponent(profileMatch[1]));
+
+    const res = await env.ASSETS.fetch(request);
+    if (res.status !== 404) return res;
+
+    // SPA fallback: any other client-router path (/search, /feeds, /trending,
+    // a stray refresh mid-navigation) gets the shell; app.js takes it from there.
+    if (!path.includes(".")) {
+      const shellUrl = new URL(request.url);
+      shellUrl.pathname = "/";
+      return env.ASSETS.fetch(new Request(shellUrl, request));
+    }
+    return res;
+  },
+};
