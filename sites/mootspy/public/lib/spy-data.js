@@ -9,10 +9,26 @@
 // abstract) — moots.js widens its pool with plain follows when mutuals run
 // short, which is exactly the thing we can't do here: a decoy that's
 // secretly a real moot would make the grid unwinnable to judge fairly.
+//
+// Reported false negatives (2026-08-07, @norvid-studies.bsky.social /
+// @gracekind.net): large accounts (2000+ follows or followers) got real
+// moots dropped into the decoy pool. Root cause — follows/followers are
+// paginated and capped at GRAPH_PAGES; for an account past the cap, one side
+// of the mutual check goes stale, so `followerDids.has(f.did)` (or the
+// mirror check) comes back false for someone who's actually a genuine
+// mutual, just fetched-out-of-range. Confirmed against the live AppView:
+// norvid-studies follows 399 (fits) but has 2184 followers (didn't, at the
+// old 1200 cap), and timfduffy.com — a real mutual per
+// app.bsky.graph.getRelationships — fell past page 12 of that followers
+// fetch and landed in decoys. Fixed two ways below: a higher page cap, plus
+// a getRelationships double-check (see verifyMutuality) for whichever side
+// still truncates on very large accounts, so a fetched-but-unconfirmed decoy
+// gets a real per-DID answer instead of a guess from a partial list.
 
 const PUB = "https://api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 12; // ≤ ~1200 follows + ~1200 followers scanned
+const GRAPH_PAGES = 25; // ≤ ~2500 follows + ~2500 followers scanned per side
+const REL_BATCH = 30; // app.bsky.graph.getRelationships "others" cap per call
 
 async function jget(url) {
   const r = await fetch(url);
@@ -50,10 +66,15 @@ const profileOf = (p) => ({
 });
 
 // Page through a graph endpoint (getFollows / getFollowers), collecting the
-// actor array under `key`. Stops at GRAPH_PAGES so a mega-account stays fast.
+// actor array under `key`. Stops at GRAPH_PAGES so a mega-account stays
+// fast. Returns whether it stopped because of that cap (cursor still had
+// more) vs. because the list genuinely ended — callers use `truncated` to
+// decide whether the derived moot/decoy split needs a getRelationships
+// double-check.
 async function graphAll(endpoint, key, did) {
   const out = [];
   let cursor = "";
+  let truncated = false;
   for (let p = 0; p < GRAPH_PAGES; p++) {
     const u = new URL(`${PUB}/${endpoint}`);
     u.searchParams.set("actor", did);
@@ -68,8 +89,48 @@ async function graphAll(endpoint, key, did) {
     for (const it of d[key] || []) out.push(it);
     cursor = d.cursor;
     if (!cursor) break;
+    if (p === GRAPH_PAGES - 1) truncated = true;
   }
-  return out;
+  return { items: out, truncated };
+}
+
+// For a bucket of candidates whose mutuality is uncertain because the OTHER
+// side of the graph got truncated (see graphAll), ask the AppView directly
+// instead of guessing from a partial list: app.bsky.graph.getRelationships
+// answers "does `did` follow / get followed by each of these others" per-DID
+// without re-paginating anything. Batched at REL_BATCH, a few batches in
+// flight at once. `wantKey` is "followedBy" (candidate follows `did` back —
+// used for the follow-only bucket) or "following" (`did` follows candidate
+// back — used for the follower-only bucket).
+async function verifyMutuality(did, candidates, wantKey) {
+  const confirmed = new Set();
+  const batches = [];
+  for (let i = 0; i < candidates.length; i += REL_BATCH) {
+    batches.push(candidates.slice(i, i + REL_BATCH));
+  }
+  const CONCURRENCY = 6;
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const chunk = batches.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (batch) => {
+        const u = new URL(`${PUB}/app.bsky.graph.getRelationships`);
+        u.searchParams.set("actor", did);
+        for (const c of batch) u.searchParams.append("others", c.did);
+        try {
+          const d = await jget(u.toString());
+          return d.relationships || [];
+        } catch {
+          return [];
+        }
+      }),
+    );
+    for (const rels of results) {
+      for (const r of rels) {
+        if (r && r[wantKey]) confirmed.add(r.did);
+      }
+    }
+  }
+  return confirmed;
 }
 
 function dedupe(list) {
@@ -93,9 +154,13 @@ function dedupe(list) {
 export async function loadSpySet(actor, { onStep } = {}) {
   const did = await resolveDid(actor);
   if (onStep) onStep("finding who they follow…");
-  const follows = await graphAll("app.bsky.graph.getFollows", "follows", did);
+  const { items: follows, truncated: followsTruncated } = await graphAll(
+    "app.bsky.graph.getFollows",
+    "follows",
+    did,
+  );
   if (onStep) onStep("finding who follows them back…");
-  const followers = await graphAll(
+  const { items: followers, truncated: followersTruncated } = await graphAll(
     "app.bsky.graph.getFollowers",
     "followers",
     did,
@@ -117,17 +182,38 @@ export async function loadSpySet(actor, { onStep } = {}) {
   const followerDids = new Set(followers.map((f) => f.did));
   const followDids = new Set(follows.map((f) => f.did));
 
-  const moots = dedupe(
-    follows
-      .filter((f) => f.did !== did && followerDids.has(f.did))
-      .map(profileOf),
-  );
-  const followOnly = follows
+  let moots = follows
+    .filter((f) => f.did !== did && followerDids.has(f.did))
+    .map(profileOf);
+  let followOnly = follows
     .filter((f) => f.did !== did && !followerDids.has(f.did))
     .map(profileOf);
-  const followerOnly = followers
+  let followerOnly = followers
     .filter((f) => f.did !== did && !followDids.has(f.did))
     .map(profileOf);
+
+  // followOnly is only trustworthy as "not a moot" if the followers fetch
+  // saw everything; same for followerOnly against a truncated follows fetch.
+  // Where that's not true, ask the AppView per-DID instead of trusting the
+  // partial list, and promote anyone it confirms is actually mutual.
+  if (followersTruncated && followOnly.length) {
+    if (onStep) onStep("double-checking who follows back…");
+    const confirmed = await verifyMutuality(did, followOnly, "followedBy");
+    if (confirmed.size) {
+      moots = moots.concat(followOnly.filter((p) => confirmed.has(p.did)));
+      followOnly = followOnly.filter((p) => !confirmed.has(p.did));
+    }
+  }
+  if (followsTruncated && followerOnly.length) {
+    if (onStep) onStep("double-checking who they follow…");
+    const confirmed = await verifyMutuality(did, followerOnly, "following");
+    if (confirmed.size) {
+      moots = moots.concat(followerOnly.filter((p) => confirmed.has(p.did)));
+      followerOnly = followerOnly.filter((p) => !confirmed.has(p.did));
+    }
+  }
+
+  moots = dedupe(moots);
   const decoys = dedupe(followOnly.concat(followerOnly));
 
   return {
