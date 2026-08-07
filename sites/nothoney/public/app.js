@@ -50,11 +50,17 @@ async function resolvePost(urlOrUri) {
   const t = await xrpc("app.bsky.feed.getPostThread", { uri: atUri, depth: 0 });
   const post = t?.thread?.post;
   if (!post) throw new Error("couldn't find that post");
+  const rkey = m ? m[2] : atUri.split("/").pop();
   return {
     text: post.record?.text || "",
     handle: post.author?.handle || "unknown",
     avatar: post.author?.avatar || null,
-    permalink: `https://bsky.app/profile/${post.author?.handle}/post/${m ? m[2] : atUri.split("/").pop()}`,
+    permalink: `https://bsky.app/profile/${post.author?.handle}/post/${rkey}`,
+    // the site's own distinct per-post URL (src/index.ts's /s/<handle>/<rkey>
+    // route) — this is what gets shared, not the bare root, so a remix's
+    // Bluesky unfurl carries the actual quoted skeet instead of one generic
+    // "fancy pooh + FOR YOU jar" card for every share.
+    shareUrl: `https://nothoney.bisks.net/s/${encodeURIComponent(post.author?.handle || "unknown")}/${encodeURIComponent(rkey)}`,
   };
 }
 
@@ -72,13 +78,13 @@ function loadImg(url) {
 let lastShareText = "";
 let lastPermalink = "";
 
-function buildShareText(permalink) {
+function buildShareText(shareUrl, permalink) {
   const base = `made a "that's not 'for you'" out of this one → `;
-  const url = "https://nothoney.bisks.net/";
   // keep the original post's link too when there's room under bsky's 300
-  // grapheme cap; the site's own URL always wins if something has to give.
-  const withOriginal = `${base}${url} (from ${permalink})`;
-  return withOriginal.length <= 300 ? withOriginal : `${base}${url}`;
+  // grapheme cap; the site's own (per-post) URL always wins if something has
+  // to give — it's what actually unfurls into this specific meme.
+  const withOriginal = `${base}${shareUrl} (from ${permalink})`;
+  return withOriginal.length <= 300 ? withOriginal : `${base}${shareUrl}`;
 }
 
 async function makeMeme(rawUrl) {
@@ -99,7 +105,7 @@ async function makeMeme(rawUrl) {
     drawMeme(ctx, { handle: post.handle, text: post.text, avatarImg });
 
     lastPermalink = post.permalink;
-    lastShareText = buildShareText(post.permalink);
+    lastShareText = buildShareText(post.shareUrl, post.permalink);
     els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
 
     setStatus("");
@@ -152,9 +158,12 @@ if (canShareFiles()) {
   });
 }
 
-// ?u=<bsky.app post url> auto-builds on load, so a shared link (in the
-// intent-compose text) drops a visitor straight into their own remix.
-const sharedUrl = new URLSearchParams(location.search).get("u");
+// A shared link auto-builds the same meme on load: either the older ?u=<bsky
+// url> form, or /s/<handle>/<rkey> (src/index.ts's per-post share route,
+// which also carries personalized OG tags for the unfurl).
+const pathShare = location.pathname.match(/^\/s\/([^/]+)\/([^/]+)\/?$/);
+const sharedUrl = new URLSearchParams(location.search).get("u")
+  || (pathShare && `https://bsky.app/profile/${decodeURIComponent(pathShare[1])}/post/${decodeURIComponent(pathShare[2])}`);
 if (sharedUrl) {
   els.input.value = sharedUrl;
   makeMeme(sharedUrl);
