@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>liquid chess — the pieces are droplets</title>
+<meta name="description" content="Chess where every piece is a wobbling droplet of liquid. Flow across the board, dissolve your opponent's pieces on contact, and win by dissolving the king." />
+<meta property="og:title" content="liquid chess" />
+<meta property="og:description" content="Chess where every piece is a wobbling droplet of liquid. Flow across the board, dissolve your opponent's pieces on contact, and win by dissolving the king." />
+<meta property="og:url" content="https://liquidchess.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://liquidchess.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="liquid chess: a chessboard where the pieces are wobbling droplets of colored liquid." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="liquid chess" />
+<meta name="twitter:description" content="Chess where every piece is a wobbling droplet of liquid. Flow across the board, dissolve your opponent's pieces on contact, and win by dissolving the king." />
+<meta name="twitter:image" content="https://liquidchess.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #060d13;
+    --bg2: #0b1922;
+    --fg: #eaf7f6;
+    --dim: #7fa3aa;
+    --accent: #5be7c4;
+    --accent2: #9fe8ff;
+    --card: #0e1e28;
+    --border: #16323d;
+    --white-liq: #a9ecff;
+    --white-liq-dark: #4fc3e0;
+    --white-glyph: #08313f;
+    --black-liq: #4a3a86;
+    --black-liq-dark: #2a1f52;
+    --black-glyph: #ece5ff;
+    --sq: 60px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #0e3a44 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #1a2a52 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 900px; }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.3rem;
+    text-align: center;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: 0.5px;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 1.75rem;
+    line-height: 1.5;
+    text-align: center;
+  }
+  .tag code { color: var(--accent2); }
+
+  .layout {
+    display: flex;
+    gap: 1.75rem;
+    align-items: flex-start;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ---- board ---- */
+  .board-outer {
+    position: relative;
+    width: min(88vw, 560px);
+    aspect-ratio: 1 / 1;
+    border-radius: 14px;
+    padding: 10px;
+    background: linear-gradient(160deg, #0b2530, #061319);
+    box-shadow: 0 0 0 1px var(--border), 0 20px 60px -20px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.4);
+  }
+  .board {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .board-squares {
+    position: absolute; inset: 0;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+  }
+  .square { cursor: pointer; position: relative; }
+  .square.light { background: #cbe9e4; }
+  .square.dark { background: #24515e; }
+  .square.selected::after {
+    content: ""; position: absolute; inset: 3%;
+    border-radius: 6px;
+    box-shadow: 0 0 0 3px var(--accent), 0 0 18px 2px var(--accent);
+    pointer-events: none;
+  }
+  .square.legal::before {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 22%; height: 22%;
+    transform: translate(-50%,-50%);
+    border-radius: 50%;
+    background: rgba(6, 20, 24, 0.28);
+    pointer-events: none;
+  }
+  .square.legal-capture::after {
+    content: ""; position: absolute; inset: 6%;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 4px rgba(255, 90, 90, 0.65);
+    pointer-events: none;
+  }
+  .square.last-from, .square.last-to {
+    box-shadow: inset 0 0 0 999px rgba(91, 231, 196, 0.14);
+  }
+
+  .liquid-layer, .glyph-layer {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+  .liquid-layer { filter: url(#goo); }
+
+  .blob {
+    position: absolute;
+    left: 0; top: 0;
+    width: 0; height: 0;
+    transition: left 0.5s cubic-bezier(.5,0,.2,1.2), top 0.5s cubic-bezier(.5,0,.2,1.2);
+    animation: bob 3.2s ease-in-out infinite;
+  }
+  @keyframes bob {
+    0%, 100% { margin-top: 0; }
+    50% { margin-top: -3px; }
+  }
+  .blob-dot {
+    position: absolute;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: wobble 2.6s ease-in-out infinite;
+  }
+  .blob.white .blob-dot { background: radial-gradient(circle at 32% 28%, var(--accent2), var(--white-liq-dark) 75%); }
+  .blob.black .blob-dot { background: radial-gradient(circle at 32% 28%, #8a76e0, var(--black-liq-dark) 80%); }
+  @keyframes wobble {
+    0%, 100% { transform: translate(-50%, -50%) translate(0, 0); }
+    25%      { transform: translate(-50%, -50%) translate(var(--wx), var(--wy)); }
+    50%      { transform: translate(-50%, -50%) translate(calc(var(--wx) * -1), calc(var(--wy) * 0.6)); }
+    75%      { transform: translate(-50%, -50%) translate(calc(var(--wy) * 0.5), calc(var(--wx) * -1)); }
+  }
+  .blob.dissolving { animation: none; }
+  .blob.dissolving .blob-dot { animation: dissolve 0.55s ease forwards; }
+  @keyframes dissolve {
+    0%   { opacity: 1; filter: blur(0px); transform: translate(-50%,-50%) scale(1); }
+    55%  { opacity: 0.55; filter: blur(3px); transform: translate(-50%,-50%) scale(1.35); }
+    100% { opacity: 0; filter: blur(7px); transform: translate(-50%,-50%) scale(0.15) translateY(14px); }
+  }
+  .blob.boiling .blob-dot { animation: boil 0.7s ease; }
+  @keyframes boil {
+    0%   { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+    45%  { transform: translate(-50%,-50%) scale(1.5); filter: brightness(1.8) blur(2px); }
+    100% { transform: translate(-50%,-50%) scale(1); filter: brightness(1); }
+  }
+
+  .glyph {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: calc(var(--sq) * 0.62);
+    line-height: 1;
+    left: 0; top: 0;
+    transition: left 0.5s cubic-bezier(.5,0,.2,1.2), top 0.5s cubic-bezier(.5,0,.2,1.2), opacity 0.35s ease;
+    user-select: none;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
+  }
+  .glyph.white { color: var(--white-glyph); }
+  .glyph.black { color: var(--black-glyph); }
+  .glyph.fading { opacity: 0; transition: opacity 0.4s ease; }
+
+  /* ---- side panel ---- */
+  .panel {
+    width: min(88vw, 280px);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+  }
+  .turn-indicator { display: flex; align-items: center; gap: 0.6rem; font-size: 0.95rem; }
+  .turn-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; box-shadow: 0 0 10px 1px currentColor; }
+  .turn-dot.w { background: radial-gradient(circle at 32% 28%, var(--accent2), var(--white-liq-dark)); color: var(--white-liq-dark); }
+  .turn-dot.b { background: radial-gradient(circle at 32% 28%, #8a76e0, var(--black-liq-dark)); color: var(--black-liq-dark); }
+  .status-line { color: var(--dim); font-size: 0.82rem; margin-top: 0.45rem; min-height: 1.3em; }
+
+  .trays { display: flex; flex-direction: column; gap: 0.6rem; }
+  .tray-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .tray-label { color: var(--dim); font-size: 0.72rem; width: 100%; }
+  .tray-dot { width: 13px; height: 13px; border-radius: 50%; font-size: 0; }
+  .tray-dot.w { background: radial-gradient(circle at 32% 28%, var(--accent2), var(--white-liq-dark)); }
+  .tray-dot.b { background: radial-gradient(circle at 32% 28%, #8a76e0, var(--black-liq-dark)); }
+
+  button, .btn {
+    background: linear-gradient(90deg, var(--accent), #33b39a);
+    color: #04211b;
+    border: none;
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    width: 100%;
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .btn-row { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  details.rules summary {
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--accent2);
+  }
+  details.rules p, details.rules li { color: var(--dim); font-size: 0.8rem; line-height: 1.5; }
+  details.rules ul { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+
+  .winner-overlay {
+    position: absolute; inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: rgba(3, 8, 12, 0.72);
+    border-radius: 8px;
+    backdrop-filter: blur(2px);
+  }
+  .winner-overlay.show { display: flex; }
+  .winner-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem 1.75rem;
+    max-width: 85%;
+  }
+  .winner-card h2 { margin: 0 0 0.4rem; font-size: 1.3rem; color: var(--accent2); }
+  .winner-card p { margin: 0 0 1rem; color: var(--dim); font-size: 0.85rem; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    max-width: 600px;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+
+  @media (max-width: 700px) {
+    .layout { flex-direction: column; align-items: center; }
+    .panel { width: min(92vw, 560px); }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <filter id="goo">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur" />
+    <feColorMatrix in="blur" mode="matrix"
+      values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -9" result="goo" />
+    <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+  </filter>
+</svg>
+
+<div class="wrap">
+  <h1>liquid chess</h1>
+  <p class="tag">every piece is a droplet. <code>flow</code> to a square, <code>dissolve</code> whatever's standing there.</p>
+
+  <div class="layout">
+    <div class="board-outer">
+      <div class="board" id="board">
+        <div class="board-squares" id="squares"></div>
+        <div class="liquid-layer" id="liquidLayer"></div>
+        <div class="glyph-layer" id="glyphLayer"></div>
+        <div class="winner-overlay" id="winnerOverlay">
+          <div class="winner-card">
+            <h2 id="winnerTitle">white's puddle wins</h2>
+            <p id="winnerSub">the black king dissolved after 14 moves.</p>
+            <div class="btn-row">
+              <a class="btn" id="shareResult" target="_blank" rel="noopener">🦋 share the result</a>
+              <button class="secondary" id="playAgain">pour a new board</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <div class="turn-indicator">
+          <span class="turn-dot w" id="turnDot"></span>
+          <span id="turnText">white flows first</span>
+        </div>
+        <div class="status-line" id="statusLine">tap a droplet to see where it can flow.</div>
+      </div>
+
+      <div class="card trays">
+        <div class="tray-row"><span class="tray-label">dissolved white droplets</span><span id="trayW"></span></div>
+        <div class="tray-row"><span class="tray-label">dissolved black droplets</span><span id="trayB"></span></div>
+      </div>
+
+      <div class="card btn-row">
+        <button class="secondary" id="resetBtn">pour a new board</button>
+        <a class="btn" id="shareBluesky" target="_blank" rel="noopener">🦋 share liquid chess</a>
+      </div>
+
+      <div class="card">
+        <details class="rules">
+          <summary>the puddle rules</summary>
+          <ul>
+            <li>standard chess movement — pawns, knights, bishops, rooks, queens, kings all flow the usual way.</li>
+            <li>no check or checkmate: liquid doesn't hold a rigid shape for something so formal. capture the king outright and the puddle wins.</li>
+            <li>no castling, no en passant — currents this shallow don't have room for the paperwork.</li>
+            <li>a pawn that reaches the far shore boils off and condenses back down as a queen.</li>
+            <li>hotseat two-player: pass the device, or play across a room.</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>,
+    off a thread about the liquid and gas versions of every video game (<a href="https://bsky.app/profile/eyesack.bsky.social" target="_blank" rel="noopener">tetris gas</a> started it).
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
