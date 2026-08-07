@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>trashpanda — a raccoon digging the firehose for free ideas — bisks.net</title>
+    <meta
+      name="description"
+      content="Watches the live Bluesky/atproto firehose, entirely in your browser, for every post that reads like a free idea — and drags it back to the stash. No backend, no server, just a raccoon and a websocket."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://trashpanda.bisks.net/" />
+    <meta property="og:title" content="trashpanda — a raccoon digging the firehose for free ideas" />
+    <meta
+      property="og:description"
+      content="Live off the Bluesky firehose, entirely client-side: every post that says 'free idea' (or close enough) gets dragged into the stash. No backend — just a websocket and a raccoon."
+    />
+    <meta property="og:image" content="https://trashpanda.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="trashpanda: a raccoon rummaging the live atproto firehose for posts that give away a free idea." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="trashpanda — a raccoon digging the firehose for free ideas" />
+    <meta
+      name="twitter:description"
+      content="Live off the Bluesky firehose, entirely in-browser: every 'free idea' post gets dragged into the stash."
+    />
+    <meta name="twitter:image" content="https://trashpanda.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #0d0f0b;
+        --bg2: #14170f;
+        --panel: #171a13;
+        --ink: #eef0e6;
+        --muted: #93a086;
+        --faint: #2a2f22;
+        --faintbg: #14170f;
+        --accent: #f4b942;
+        --accent-dim: #a97f2c;
+        --moss: #7fae5b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background:
+          radial-gradient(ellipse 900px 500px at 15% -10%, rgba(127,174,91,0.08), transparent 60%),
+          radial-gradient(ellipse 700px 500px at 100% 0%, rgba(244,185,66,0.06), transparent 55%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.4rem 1.15rem 6rem; }
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { display: flex; align-items: flex-start; gap: 0.9rem; margin: 1.2rem 0 0.5rem; }
+      .mascot { flex: none; width: 52px; height: 52px; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5)); }
+      h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.25rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 0.95rem; display: block; margin-top: 0.15rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 62ch; margin: 0.6rem 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
+      .dot.live { background: var(--moss); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+      .status b { color: var(--accent); font-weight: 700; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.9;
+        padding: 2.2rem 0; border-top: 1px solid var(--faint); text-align: center;
+      }
+      .empty .big { font-size: 2rem; display: block; margin-bottom: 0.6rem; }
+
+      ol.stash { list-style: none; margin: 0; padding: 0; }
+      .row {
+        display: flex; gap: 0.85rem; padding: 1.05rem 0;
+        border-top: 1px solid var(--faint); align-items: flex-start;
+        animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .paw { flex: none; font-size: 1.15rem; padding-top: 0.2rem; opacity: 0.85; }
+      .body { flex: 1; min-width: 0; }
+      .who {
+        display: flex; align-items: center; gap: 0.5rem;
+        margin: 0 0 0.5rem; font-size: 0.8rem;
+      }
+      .who .avatar {
+        width: 20px; height: 20px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat;
+        border: 1px solid var(--faint);
+      }
+      .who .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .who .handle:hover { color: var(--accent); text-decoration: underline; }
+      .text {
+        font-size: 0.96rem; line-height: 1.55; white-space: pre-wrap;
+        overflow-wrap: break-word; word-break: break-word; margin: 0 0 0.55rem;
+      }
+      .text b { color: var(--accent); font-weight: 700; }
+      .meta {
+        display: flex; flex-wrap: wrap; gap: 0.9rem; color: var(--muted);
+        font-size: 0.78rem; font-variant-numeric: tabular-nums; align-items: center;
+        margin-bottom: 0.55rem;
+      }
+      .meta a { color: var(--muted); text-decoration: none; }
+      .meta a:hover { color: var(--ink); text-decoration: underline; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      button, a.btn {
+        font-family: inherit; font-size: 0.78rem; padding: 0.35rem 0.7rem;
+        border: 1px solid var(--faint); background: var(--panel); color: var(--ink);
+        border-radius: 7px; cursor: pointer; text-decoration: none; display: inline-block;
+      }
+      button:hover, a.btn:hover { border-color: var(--accent); color: var(--accent); }
+      a.btn.source { color: var(--muted); }
+
+      .share { margin: 2rem 0 1rem; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.8; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+          <ellipse cx="14" cy="14" rx="7" ry="9" fill="#4a4335" transform="rotate(-25 14 14)"/>
+          <ellipse cx="50" cy="14" rx="7" ry="9" fill="#4a4335" transform="rotate(25 50 14)"/>
+          <ellipse cx="14" cy="15" rx="3.4" ry="4.6" fill="#efe6d3" transform="rotate(-25 14 15)"/>
+          <ellipse cx="50" cy="15" rx="3.4" ry="4.6" fill="#efe6d3" transform="rotate(25 50 15)"/>
+          <ellipse cx="32" cy="34" rx="24" ry="20" fill="#6b6250"/>
+          <path d="M8 30 Q32 12 56 30 Q52 20 32 18 Q12 20 8 30Z" fill="#8a806a"/>
+          <path d="M14 40 Q32 54 50 40 Q48 50 32 54 Q16 50 14 40Z" fill="#efe6d3"/>
+          <path d="M9 27 Q17 18 25 27 Q17 33 9 27Z" fill="#2b2620"/>
+          <path d="M39 27 Q47 18 55 27 Q47 33 39 27Z" fill="#2b2620"/>
+          <circle cx="16.5" cy="27" r="2.4" fill="#efe6d3"/>
+          <circle cx="47.5" cy="27" r="2.4" fill="#efe6d3"/>
+          <circle cx="16.5" cy="27" r="1.1" fill="#111"/>
+          <circle cx="47.5" cy="27" r="1.1" fill="#111"/>
+          <ellipse cx="32" cy="38" rx="3.2" ry="2.4" fill="#2b2620"/>
+        </svg>
+        <div>
+          <h1>trashpanda <span class="slash">/ raiding the firehose for free ideas</span></h1>
+        </div>
+      </header>
+
+      <p class="sub">
+        A raccoon watching the <b>live atproto firehose</b> — every single
+        <code>app.bsky.feed.post</code> going by — for anything that reads
+        like someone tossing out a <b>free idea</b>: "free idea:", "free app
+        idea", "idea for free", and close variations. Whatever fits gets
+        dragged straight into the stash below. Runs entirely in your browser
+        — no backend, no server, just a websocket to
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        and a raccoon.
+      </p>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span><b id="checked">0</b> cans checked</span>
+        <span class="sep">·</span>
+        <span><b id="found">0</b> ideas dragged home</span>
+      </div>
+
+      <div class="empty" id="empty">
+        <span class="big">🦝</span>
+        still digging through cans… the first free idea of the session
+        usually turns up within a few minutes. leave the tab open.
+      </div>
+
+      <ol class="stash" id="stash"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=trashpanda.bisks.net" target="_blank" rel="noopener">🦝 share the stash</a>
+      </div>
+
+      <footer>
+        Sampled live off <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        straight in your browser — nothing is stored, nothing runs on a
+        server, close the tab and the stash is gone. Matching is a cheap
+        heuristic, not language understanding: a post counts if "free" and
+        "idea"/"ideas" (or a <code>#freeidea</code> tag) show up within a few
+        words of each other, so it can catch things that aren't really an
+        idea giveaway and miss phrasings that don't use the word "free" at
+        all — an honest approximation of a raccoon's judgment, not a perfect
+        one. asked for by
+        <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const checkedEl = document.getElementById("checked");
+      const foundEl = document.getElementById("found");
+      const empty = document.getElementById("empty");
+      const stash = document.getElementById("stash");
+
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_CARDS = 40;
+      const PAWS = ["🐾", "🗑️", "🍕", "🥫", "🍩", "🐾"];
+
+      let checked = 0;
+      let found = 0;
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      // ---- "free idea" heuristic --------------------------------------
+      // Normalize to a plain token stream (strips urls, mentions, hashtags'
+      // punctuation, case) and look for "free" and "idea"/"ideas" within a
+      // short window of each other, in either order. Loose on purpose — this
+      // is a raccoon's nose, not a parser — see the footer for the tradeoff.
+      const WINDOW = 6;
+      function tokensOf(text) {
+        return text
+          .toLowerCase()
+          .replace(/https?:\/\/\S+/g, " ")
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter(Boolean);
+      }
+      function isFreeIdea(text) {
+        const toks = tokensOf(text);
+        for (let i = 0; i < toks.length; i++) {
+          // Hashtags survive tokenizing as one glued word ("#freeidea" -> "freeidea"),
+          // so check the compound form directly before falling back to the
+          // word-window search below.
+          if (/^free(bie)?ideas?$/.test(toks[i]) || /^ideas?free(bie)?$/.test(toks[i])) return true;
+          const isFree = toks[i] === "free" || toks[i] === "freebie";
+          const isIdea = toks[i] === "idea" || toks[i] === "ideas";
+          if (!isFree && !isIdea) continue;
+          const wantIdea = isFree;
+          for (let j = i + 1; j < Math.min(toks.length, i + 1 + WINDOW); j++) {
+            const hit = wantIdea ? toks[j] === "idea" || toks[j] === "ideas" : toks[j] === "free";
+            if (hit) return true;
+          }
+        }
+        return false;
+      }
+
+      // Bold every standalone "free"/"idea(s)" for display — cheap and
+      // legible, doesn't try to isolate the exact matched span.
+      function highlight(text) {
+        return esc(text).replace(/\b(free(?:bie)?|ideas?)\b/gi, "<b>$1</b>");
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      const PROFILE_API =
+        "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+
+      async function fillAuthor(row, did) {
+        const prof = await fetchProfile(did);
+        const handleEl = row.querySelector(".handle");
+        const avatarEl = row.querySelector(".avatar");
+        if (!handleEl) return;
+        if (prof && prof.handle) {
+          handleEl.textContent = "@" + prof.handle;
+          handleEl.href = "https://bsky.app/profile/" + prof.handle;
+          if (prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
+        } else {
+          handleEl.textContent = did.slice(0, 20) + "…";
+        }
+      }
+
+      function renderRow(cand) {
+        empty.style.display = "none";
+        const row = document.createElement("li");
+        row.className = "row";
+        const paw = PAWS[Math.floor(Math.random() * PAWS.length)];
+        const url = postUrl(cand.did, cand.rkey);
+        const shareText = `found in the trash by 🦝: "${cand.text.slice(0, 180)}" — ${url}\n\ntrashpanda.bisks.net`;
+        const shareHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+        row.innerHTML = `
+          <div class="paw">${paw}</div>
+          <div class="body">
+            <div class="who"><span class="avatar"></span>
+              <a class="handle" href="${url.replace(/\/post\/.*$/, "")}" target="_blank" rel="noopener">resolving…</a>
+            </div>
+            <p class="text">${highlight(cand.text)}</p>
+            <div class="meta">
+              <span>${timeAgo(cand.seenAt)}</span>
+              <a href="${url}" target="_blank" rel="noopener">source ↗</a>
+            </div>
+            <div class="actions">
+              <a class="btn" href="${shareHref}" target="_blank" rel="noopener">🦝 share this find ↗</a>
+            </div>
+          </div>`;
+        stash.prepend(row);
+        fillAuthor(row, cand.did);
+        while (stash.childElementCount > MAX_CARDS) {
+          stash.removeChild(stash.lastElementChild);
+        }
+      }
+
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text) return;
+
+        checked++;
+        if (checked % 5 === 0) checkedEl.textContent = checked.toLocaleString();
+
+        if (!isFreeIdea(text)) return;
+
+        found++;
+        foundEl.textContent = found.toLocaleString();
+        renderRow({ text, did: evt.did, rkey: commit.rkey, seenAt: Date.now() });
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "digging");
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      connect();
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+    </script>
+  </body>
+</html>
