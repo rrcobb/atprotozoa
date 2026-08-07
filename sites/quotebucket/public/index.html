@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>quotebucket — the crow sorts norvid's quotes</title>
+<meta name="description" content="A crow watches a bucket. Every time @norvid-studies.bsky.social quote-posts something, the crow flies up and drops a bisk in the bucket. Every 24 hours it tips over." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://quotebucket.bisks.net/" />
+<meta property="og:title" content="quotebucket — the crow sorts norvid's quotes" />
+<meta property="og:description" content="A crow watches a bucket. Every time @norvid-studies.bsky.social quote-posts something, the crow flies up and drops a bisk in. Every 24h it tips over and dumps them all out." />
+<meta property="og:image" content="https://quotebucket.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A crow perched beside a bucket, small bisks floating in the air above it and a pile sorted inside." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="quotebucket — the crow sorts norvid's quotes" />
+<meta name="twitter:description" content="A crow watches a bucket. Every time @norvid-studies.bsky.social quote-posts something, the crow flies up and drops a bisk in. Every 24h it tips over." />
+<meta name="twitter:image" content="https://quotebucket.bisks.net/og.png" />
+
+<style>
+  :root {
+    --ink: #eef0f6;
+    --dim: #9aa3b8;
+    --bg0: #0d1016;
+    --bg1: #151a24;
+    --panel: #1a2030;
+    --border: #2b3348;
+    --gold: #e8b854;
+    --gold-dim: #7a6534;
+    --crow: #23283a;
+    --sky1: #0d1016;
+    --sky2: #1a2038;
+    --ok: #6fcf97;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg0);
+    color: var(--ink);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+
+  header { text-align: center; margin-bottom: 1.25rem; }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 0.35rem;
+    letter-spacing: 0.02em;
+  }
+  h1 .glow { color: var(--gold); }
+  .sub {
+    color: var(--dim);
+    font-size: 0.92rem;
+    line-height: 1.5;
+    margin: 0;
+  }
+  .sub a { color: var(--gold); text-decoration: none; }
+  .sub a:hover { text-decoration: underline; }
+
+  /* ── the scene ─────────────────────────────────────────────────────── */
+  .scene {
+    position: relative;
+    width: 100%;
+    height: 340px;
+    margin: 1.5rem 0 1rem;
+    border-radius: 16px;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 50% 0%, var(--sky2) 0%, var(--sky1) 60%);
+    border: 1px solid var(--border);
+  }
+  .stars {
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1.5px 1.5px at 20px 30px, rgba(255,255,255,0.35), transparent),
+      radial-gradient(1.5px 1.5px at 120px 80px, rgba(255,255,255,0.25), transparent),
+      radial-gradient(1px 1px at 200px 40px, rgba(255,255,255,0.3), transparent),
+      radial-gradient(1.5px 1.5px at 300px 100px, rgba(255,255,255,0.2), transparent),
+      radial-gradient(1px 1px at 380px 60px, rgba(255,255,255,0.3), transparent),
+      radial-gradient(1.5px 1.5px at 450px 20px, rgba(255,255,255,0.25), transparent),
+      radial-gradient(1px 1px at 520px 90px, rgba(255,255,255,0.3), transparent),
+      radial-gradient(1.5px 1.5px at 580px 50px, rgba(255,255,255,0.2), transparent);
+    background-repeat: repeat-x;
+    background-size: 600px 160px;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+  .ground {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 64px;
+    background: linear-gradient(180deg, #171c28 0%, #0f131c 100%);
+    border-top: 1px solid var(--border);
+  }
+
+  .sky-field {
+    position: absolute;
+    inset: 0 0 64px 0;
+  }
+  .bisk {
+    position: absolute;
+    width: 30px;
+    height: 22px;
+    background: #f3e6c8;
+    border: 1px solid #c9b585;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+  }
+  .bisk::before, .bisk::after {
+    content: "";
+    position: absolute;
+    left: 5px; right: 5px;
+    height: 2px;
+    background: #b9a878;
+    border-radius: 1px;
+  }
+  .bisk::before { top: 7px; }
+  .bisk::after { top: 12px; width: 60%; }
+  .bisk.floating {
+    animation: bob 6s ease-in-out infinite;
+    opacity: 0.9;
+  }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-14px); }
+  }
+
+  .bisk.flying {
+    transition: left 0.55s cubic-bezier(.4,0,.2,1), top 0.55s cubic-bezier(.4,0,.2,1),
+                transform 0.55s ease, opacity 0.3s ease 0.4s;
+    z-index: 5;
+  }
+
+  .crow-perch {
+    position: absolute;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-84px);
+    font-size: 40px;
+    line-height: 1;
+    transition: transform 0.55s cubic-bezier(.4,0,.2,1), bottom 0.55s cubic-bezier(.4,0,.2,1);
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,0.5));
+    user-select: none;
+  }
+  .crow-perch.hop {
+    animation: crowHop 1.15s ease-in-out 1;
+  }
+  @keyframes crowHop {
+    0% { transform: translateX(-84px) translateY(0) rotate(0deg); }
+    28% { transform: translateX(-66px) translateY(-92px) rotate(-12deg); }
+    50% { transform: translateX(-66px) translateY(-92px) rotate(8deg); }
+    72% { transform: translateX(-66px) translateY(-92px) rotate(-6deg); }
+    100% { transform: translateX(-84px) translateY(0) rotate(0deg); }
+  }
+
+  .bucket-wrap {
+    position: absolute;
+    bottom: 64px;
+    left: 50%;
+    transform: translateX(-6px);
+    width: 90px;
+    height: 90px;
+  }
+  .bucket {
+    position: absolute;
+    bottom: 0; left: 0;
+    font-size: 56px;
+    line-height: 1;
+    transform-origin: 50% 90%;
+    transition: transform 0.9s cubic-bezier(.5,-0.2,.5,1.3);
+    user-select: none;
+  }
+  .bucket.tipping { transform: rotate(-125deg) translate(-6px, 6px); }
+
+  .pile {
+    position: absolute;
+    bottom: 30px;
+    left: 6px;
+    width: 60px;
+    height: 46px;
+    pointer-events: none;
+  }
+  .pile .bisk {
+    width: 20px; height: 14px;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+  }
+  .pile .bisk::before { top: 4px; }
+  .pile .bisk::after { top: 8px; }
+
+  .pile-count {
+    position: absolute;
+    bottom: 34px;
+    left: 68px;
+    font-size: 0.75rem;
+    color: var(--dim);
+  }
+
+  /* ── stat rail ─────────────────────────────────────────────────────── */
+  .stats {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 1rem;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.9rem;
+    text-align: center;
+    min-width: 118px;
+  }
+  .stat .n {
+    display: block;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .stat .l {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.15rem;
+  }
+  .stat.tip .n { color: var(--ok); }
+
+  .status {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.82rem;
+    min-height: 1.2em;
+    margin-bottom: 1rem;
+  }
+
+  /* ── share ─────────────────────────────────────────────────────────── */
+  .share {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+  }
+  .share a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--gold);
+    color: #24190a;
+    font-weight: 700;
+    font-size: 0.85rem;
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    text-decoration: none;
+  }
+  .share a:hover { filter: brightness(1.08); }
+
+  /* ── log ───────────────────────────────────────────────────────────── */
+  .log-title {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    margin: 0 0 0.5rem;
+    text-align: center;
+  }
+  ul.log {
+    list-style: none;
+    margin: 0 0 2rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .log li {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    animation: appear 0.4s ease;
+  }
+  @keyframes appear {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .log li .t { color: var(--gold); flex-shrink: 0; }
+  .log li a { color: var(--ink); text-decoration: none; }
+  .log li a:hover { text-decoration: underline; }
+  .log .empty { color: var(--dim); text-align: center; font-style: italic; background: none; border: none; }
+
+  footer {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+  footer a { color: var(--gold); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>quote<span class="glow">bucket</span></h1>
+      <p class="sub">
+        A crow watches a bucket. Every time
+        <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>
+        quote-posts something, the crow flies up and drops a bisk in. Every 24 hours the bucket tips.
+      </p>
+    </header>
+
+    <div class="scene" id="scene">
+      <div class="stars"></div>
+      <div class="sky-field" id="skyField"></div>
+      <div class="bucket-wrap">
+        <div class="bucket" id="bucket">🪣</div>
+        <div class="pile" id="pile"></div>
+        <div class="pile-count" id="pileCount"></div>
+      </div>
+      <div class="crow-perch" id="crow">🐦‍⬛</div>
+      <div class="ground"></div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="n" id="statCount">–</span>
+        <span class="l">sorted today</span>
+      </div>
+      <div class="stat tip">
+        <span class="n" id="statCountdown">–:–:–</span>
+        <span class="l">until it tips</span>
+      </div>
+      <div class="stat">
+        <span class="n" id="statLast">–</span>
+        <span class="l">last dump</span>
+      </div>
+    </div>
+
+    <p class="status" id="status">watching the sky…</p>
+
+    <div class="share">
+      <a id="shareBtn" href="https://bsky.app/intent/compose?text=quotebucket.bisks.net" target="_blank" rel="noopener">share the bucket ↗</a>
+    </div>
+
+    <p class="log-title">sorted today</p>
+    <ul class="log" id="log"><li class="empty">nothing sorted yet — first quote of the day fills this in.</li></ul>
+
+    <footer>
+      a crow, a bucket, and @norvid-studies.bsky.social's quote-post habit ·
+      built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> ·
+      sibling of <a href="https://bisks.net">bisks.net</a>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
