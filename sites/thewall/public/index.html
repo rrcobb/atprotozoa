@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>the wall — an infinite conspiracy board</title>
+<meta name="description" content="Pin notes, import real skeets, and draw your own red yarn between them on an infinite, pannable corkboard. Saves under a link — come back and add more, or share it so others can add too." />
+<meta property="og:title" content="the wall — an infinite conspiracy board" />
+<meta property="og:description" content="Pin notes, import real skeets, and draw your own red yarn between them on an infinite, pannable corkboard. Saves under a link — come back and add more, or share it so others can add too." />
+<meta property="og:url" content="https://thewall.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://thewall.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A corkboard covered in pinned index cards and imported Bluesky posts, connected by red string." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="the wall — an infinite conspiracy board" />
+<meta name="twitter:description" content="Pin notes, import real skeets, and draw your own red yarn between them on an infinite, pannable corkboard." />
+<meta name="twitter:image" content="https://thewall.bisks.net/og.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --wood: #4a2f1c;
+    --wood2: #3a2415;
+    --cork: #c69a5c;
+    --cork-dark: #a97e42;
+    --ink: #2a1c10;
+    --dim: #e9d9b8;
+    --dim2: #cbb082;
+    --string: #c81e1e;
+    --panel: #241609;
+    --panel-border: #5c3d22;
+    --sky: #1a86ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--wood2);
+    color: var(--dim);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 1080px; }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.2;
+    margin: 0 0 0.3rem;
+    color: var(--string);
+    text-shadow: 0 0 18px rgba(200, 30, 30, 0.35);
+  }
+  .tag { color: var(--dim2); font-size: 0.92rem; margin: 0 0 1.2rem; line-height: 1.5; max-width: 680px; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 0.85rem;
+    margin-bottom: 0.65rem;
+  }
+  .panel h2 {
+    margin: 0 0 0.5rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim2);
+    font-weight: 700;
+  }
+  form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  input[type="text"], input[type="url"] {
+    flex: 1;
+    min-width: 220px;
+    background: #150c04;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+    font: inherit;
+    font-size: 0.92rem;
+  }
+  input:focus { outline: 2px solid var(--string); outline-offset: 1px; }
+  button {
+    background: linear-gradient(180deg, #e23c3c, #b81717);
+    color: #fff2ea;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-weight: 600;
+  }
+  button.ghost.on {
+    background: var(--string);
+    border-color: var(--string);
+    color: #fff2ea;
+  }
+  button.sky { background: linear-gradient(180deg, #3aa0ff, var(--sky)); color: #06182e; }
+  .hint { color: var(--dim2); font-size: 0.74rem; margin: 0.4rem 0 0; line-height: 1.4; }
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+    align-items: center;
+  }
+  .toolbar .spacer { flex: 1; }
+  .status-line {
+    font-size: 0.76rem;
+    color: var(--dim2);
+    display: flex;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .status-line b { color: var(--dim); }
+
+  .boardwrap {
+    position: relative;
+    width: 100%;
+    height: min(70vh, 640px);
+    min-height: 380px;
+    border-radius: 10px;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.05), transparent 40%),
+      radial-gradient(circle at 80% 75%, rgba(0,0,0,0.15), transparent 45%),
+      repeating-linear-gradient(45deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 2px, transparent 2px, transparent 6px),
+      linear-gradient(180deg, var(--cork), var(--cork-dark));
+    border: 14px solid var(--wood);
+    box-shadow: 0 18px 50px -20px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.25);
+    overflow: hidden;
+    touch-action: none;
+    cursor: grab;
+  }
+  .boardwrap.panning { cursor: grabbing; }
+  .boardwrap.connecting { cursor: crosshair; }
+  .boardwrap::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(0,0,0,0.10) 1px, transparent 1.4px);
+    background-size: 9px 9px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  #world {
+    position: absolute;
+    left: 0; top: 0;
+    width: 1px; height: 1px; /* children are absolutely positioned; the box itself doesn't need size */
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  #yarn { position: absolute; left: -20000px; top: -20000px; width: 40000px; height: 40000px; overflow: visible; pointer-events: none; }
+  #cards { position: absolute; left: 0; top: 0; }
+
+  .empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 2rem;
+    color: rgba(42, 28, 16, 0.55);
+    font-size: 0.95rem;
+    pointer-events: none;
+  }
+
+  .zoomctl {
+    position: absolute;
+    right: 22px;
+    bottom: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 5;
+  }
+  .zoomctl button {
+    width: 30px; height: 30px;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(36, 22, 9, 0.85);
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    border-radius: 6px;
+    font-size: 1rem;
+  }
+
+  .card {
+    position: absolute;
+    width: 190px;
+    padding: 0.6rem 0.65rem 0.7rem;
+    border-radius: 2px;
+    box-shadow: 0 6px 14px -4px rgba(0,0,0,0.5);
+    color: #1c1c1c;
+    word-break: break-word;
+    cursor: grab;
+    user-select: none;
+  }
+  .card.dragging { cursor: grabbing; z-index: 50; box-shadow: 0 16px 30px -8px rgba(0,0,0,0.65); }
+  .card.pickable { outline: 2px dashed rgba(200,30,30,0.7); outline-offset: 3px; }
+  .card.picked { outline: 2px solid var(--string); outline-offset: 3px; }
+  .card.note { font-family: "Permanent Marker", cursive; font-size: 0.98rem; line-height: 1.22; }
+  .card.skeet { font-family: "JetBrains Mono", monospace; font-size: 0.78rem; line-height: 1.35; background: #fbfaf7 !important; }
+
+  .card .pin {
+    position: absolute;
+    top: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    box-shadow: 0 2px 3px rgba(0,0,0,0.55), inset -2px -2px 3px rgba(0,0,0,0.35), inset 2px 2px 3px rgba(255,255,255,0.5);
+  }
+  .card .rm {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #241609;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.7rem;
+    line-height: 18px;
+    text-align: center;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+    cursor: pointer;
+  }
+  .card:hover .rm { opacity: 1; }
+
+  .skeet-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; }
+  .skeet-head img { width: 22px; height: 22px; border-radius: 50%; flex: none; background: #ddd; }
+  .skeet-head .who { min-width: 0; overflow: hidden; }
+  .skeet-head .name { font-weight: 700; font-size: 0.76rem; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  .skeet-head .handle { color: #5b6b7a; font-size: 0.68rem; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  .skeet-text { color: #14181c; }
+  .skeet-link { display: block; margin-top: 0.35rem; font-size: 0.68rem; color: var(--sky); text-decoration: none; }
+  .skeet-mark { position: absolute; bottom: -7px; right: 6px; font-size: 0.85rem; opacity: 0.85; }
+
+  footer {
+    margin-top: 2.2rem;
+    color: var(--dim2);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: #ff8f6b; }
+
+  .share {
+    margin-top: 1.4rem;
+    border-top: 1px dashed var(--panel-border);
+    padding-top: 1.1rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-actions a, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center;
+    border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .share-actions a {
+    background: linear-gradient(180deg, #e23c3c, #b81717);
+    color: #fff2ea;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+  }
+  .msg { color: var(--dim2); font-size: 0.8rem; margin: 0.5rem 0 0; min-height: 1.2em; }
+  .msg.err { color: #ff8f6b; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>the wall</h1>
+    <p class="tag">
+      Pin a note, import a real skeet, drag anything anywhere on an infinite
+      board — then draw your own red yarn between the pieces. It saves under
+      this board's link, so you can leave and come back, and anyone you send
+      the link to can add to the same wall.
+    </p>
+
+    <div class="panel">
+      <h2>pin a note</h2>
+      <form id="noteForm">
+        <input id="noteText" type="text" placeholder="e.g. the birds are drones" autocomplete="off" maxlength="220" />
+        <button id="noteBtn" type="submit">📌 pin it</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>import a skeet</h2>
+      <form id="skeetForm">
+        <input id="skeetUrl" type="url" placeholder="paste a bsky.app post link or at:// uri" autocomplete="off" />
+        <button id="skeetBtn" class="sky" type="submit">📎 pin the skeet</button>
+      </form>
+      <p class="hint" id="skeetHint">works with any public post — paste the link from the share menu.</p>
+    </div>
+
+    <div class="toolbar">
+      <button id="connectMode" class="ghost" type="button">🧷 connect mode</button>
+      <button id="zoomReset" class="ghost" type="button">⤢ fit board</button>
+      <div class="spacer"></div>
+      <div class="status-line">
+        <span><b id="cardCount">0</b> pinned</span>
+        <span><b id="edgeCount">0</b> threads</span>
+        <span id="fullNote" style="display:none;color:#ff8f6b;">board is full (150 max)</span>
+      </div>
+    </div>
+
+    <div class="boardwrap" id="boardwrap">
+      <div id="world">
+        <svg id="yarn"></svg>
+        <div id="cards"></div>
+      </div>
+      <div class="empty" id="emptyMsg">the wall is bare. pin something to start the theory.</div>
+      <div class="zoomctl">
+        <button id="zoomIn" type="button" title="zoom in">+</button>
+        <button id="zoomOut" type="button" title="zoom out">−</button>
+      </div>
+    </div>
+    <p class="hint" id="connectHint">drag a card to move it. click 🧷 connect mode, then click two cards to string yarn between them (click again to cut it).</p>
+
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" type="button" style="display:none;background:linear-gradient(180deg,#e23c3c,#b81717);color:#fff2ea;">📤 share card</button>
+        <a id="shareBluesky" target="_blank" rel="noopener">🦋 share this wall</a>
+        <button id="shareDownload" type="button">⬇ download card</button>
+        <button id="copyLink" type="button">🔗 copy link</button>
+      </div>
+      <p class="msg" id="status"></p>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
