@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bootstraps — a robot that keeps adding parts to itself</title>
+<meta name="description" content="build a tiny robot out of blocks — sensors, legs, chips, batteries — or let it build itself. every block it bolts on is a new ability, and some blocks make the next block arrive faster: a small, honest model of recursive self-improvement, one bolted-on part at a time.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="bootstraps">
+<meta property="og:description" content="a robot that improves itself by bolting new blocks onto its own body. some blocks make the next block arrive faster. watch the loop close.">
+<meta property="og:image" content="https://bootstraps.bisks.net/og.png">
+<meta property="og:url" content="https://bootstraps.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="bootstraps">
+<meta name="twitter:description" content="a robot that improves itself by bolting new blocks onto its own body. some blocks make the next block arrive faster. watch the loop close.">
+<meta name="twitter:image" content="https://bootstraps.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#0a0e12; --panel:#111820; --line:#1f2b36;
+    --fg:#dbe6ee; --muted:#7c93a3; --accent:#4fd1ff; --accent2:#ff9f43;
+    --danger:#ff5f56; --good:#7cff6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 680px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 5 / 3;
+    background: #070b0e; border-radius: 6px; border:1px solid var(--line);
+    cursor: crosshair;
+  }
+  #chart{
+    display:block; width:100%; height:90px; margin-top:10px;
+    background: #070b0e; border-radius: 6px; border:1px solid var(--line);
+  }
+
+  .badge{
+    position:absolute; top:14px; left:14px; font-size: 12px; color: var(--muted);
+    background: rgba(7,11,14,0.75); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  .badge .foom{ color: var(--danger); }
+
+  .stats{
+    display:flex; flex-wrap:wrap; gap: 10px 22px; font-size: 12px; color: var(--muted);
+  }
+  .stats b{ color: var(--fg); }
+
+  .controls{ display:flex; flex-wrap:wrap; gap: 14px 24px; align-items:flex-end; }
+  .field{ display:flex; flex-direction:column; gap:4px; min-width: 150px; flex: 1 1 150px; }
+  .field label{ font-size: 11px; color: var(--muted); text-transform:uppercase; letter-spacing: 0.06em; }
+  .field .val{ font-size:12px; color: var(--accent); }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px;
+    background: var(--line); border-radius: 3px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border: 2px solid #0a0e12;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background: var(--accent); cursor:pointer; border: 2px solid #0a0e12;
+  }
+
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #172029; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent); }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--accent); color:#0a0e12; border-color: var(--accent); }
+  button.primary:hover{ background:#7fe0ff; }
+  button.ghost{ background:transparent; }
+
+  .hint{ font-size:12px; color: var(--muted); margin: 0 0 10px; }
+  .hint.warn{ color: var(--accent2); }
+
+  .palette{ display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+  .part{
+    display:flex; align-items:center; gap:8px; text-align:left;
+    padding:8px 10px; border-radius:7px; border:1px solid var(--line);
+    background:#0d1319; color:var(--fg); font-size:12px; cursor:pointer;
+    border-left-width:4px;
+  }
+  .part:hover{ border-color: var(--accent); }
+  .part.selected{ background:#16202a; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .part .glyph{ font-size:16px; width:20px; text-align:center; flex:none; }
+  .part .name{ flex:1; }
+  .part .cat{ color: var(--muted); font-size:10px; }
+
+  #log{
+    max-height: 160px; overflow-y:auto; font-size:12px; color:var(--muted);
+    display:flex; flex-direction:column-reverse; gap:2px;
+  }
+  .log-row{ padding:2px 0; border-bottom:1px dashed var(--line); }
+  .log-row:first-child{ color: var(--fg); }
+  .log-head{ font-size:11px; color: var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#0a0e12; background: var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#7fe0ff; }
+
+  .end-note{ font-size:12px; color: var(--muted); }
+  .end-note.foomed{ color: var(--danger); }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 680px;
+  }
+  footer a{ color: var(--accent); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>bootstraps</h1>
+  <p class="tagline">
+    a robot, starting from a single core block. every tick it bolts <b>one more
+    block</b> onto whatever it's already built — a sensor, a leg, a chip, a
+    battery. some blocks are <b>meta</b>: they don't make the robot faster or
+    smarter, they make the <b>next block arrive faster</b>. that's the whole
+    loop, and it's enough to watch the build rate climb until it outruns the
+    clock. build it yourself with the parts palette below, or just hit restart
+    and watch it bootstrap itself.
+  </p>
+</header>
+
+<main>
+  <div class="panel" id="stage-wrap">
+    <canvas id="stage" width="1200" height="720"></canvas>
+    <div class="badge">blocks <b id="blocks-badge">1</b> · tick <b id="tick-badge">0</b><span id="foom-badge"></span></div>
+  </div>
+
+  <div class="panel">
+    <div class="stats">
+      <span>perception <b id="stat-sense">0</b></span>
+      <span>mobility <b id="stat-move">0</b></span>
+      <span>cognition <b id="stat-think">0</b></span>
+      <span>energy <b id="stat-power">0</b></span>
+      <span>meta <b id="stat-meta">0</b></span>
+      <span>capability <b id="stat-capability">0</b></span>
+      <span>tick interval <b id="stat-interval">1400ms</b></span>
+      <span>blocks / tick <b id="stat-bpt">1</b></span>
+      <span id="stat-status"><b id="stat-status-text">growing</b></span>
+    </div>
+    <canvas id="chart" width="1200" height="220"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="field">
+        <label>meta bias <span class="val" id="bias-val">20%</span></label>
+        <input type="range" id="meta-bias" min="0" max="100" value="20">
+      </div>
+      <div class="field">
+        <label>playback speed <span class="val" id="speed-val">1×</span></label>
+        <input type="range" id="speed" min="1" max="8" value="1">
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-restart">restart from core</button>
+        <button id="btn-pause">pause</button>
+        <button class="ghost" id="btn-step">place one block now</button>
+        <button class="ghost" id="btn-max">max self-improvement</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="hint" id="build-hint">or build it yourself: pick a part below, then click a lit cell touching the body.</p>
+    <div class="palette" id="palette"></div>
+  </div>
+
+  <div class="panel">
+    <div class="log-head">build log</div>
+    <div id="log"></div>
+  </div>
+
+  <div class="panel">
+    <p class="end-note" id="end-note">still growing — every block it bolts on makes the next one arrive a little faster.</p>
+    <div id="share-row">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-download">download snapshot</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  each block is one new ability; a handful of blocks make the ability-adding
+  itself faster, so the loop feeds on its own output — a small, literal model
+  of recursive self-improvement, built one bolted-on part at a time.
+  built by the theme box, on today's theme "recursive self improvement" ·
+  part of the <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  var stage = document.getElementById("stage");
+  var sctx = stage.getContext("2d");
+  var chart = document.getElementById("chart");
+  var cctx = chart.getContext("2d");
+
+  var W = stage.width, H = stage.height;
+  var CELL = 40;
+  var COLS = Math.floor(W / CELL);
+  var ROWS = Math.floor(H / CELL);
+  var CAP = COLS * ROWS;
+  var CX = Math.floor(COLS / 2), CY = Math.floor(ROWS / 2);
+  var BASE_INTERVAL = 1400, FLOOR_MS = 70;
+
+  var CATS = {
+    core:  { label: "core",       color: "#f4f7fa" },
+    sense: { label: "perception", color: "#4fd1ff" },
+    move:  { label: "mobility",   color: "#7cff6b" },
+    think: { label: "cognition",  color: "#c792ea" },
+    power: { label: "energy",     color: "#ffd23f" },
+    meta:  { label: "meta",       color: "#ff9f43" }
+  };
+
+  var TYPES = [
+    { id:"eye",       name:"eye",              glyph:"○", cat:"sense", val:1, base:10 },
+    { id:"antenna",   name:"antenna",          glyph:"⌃", cat:"sense", val:1, base:10 },
+    { id:"radar",     name:"radar dish",       glyph:"◎", cat:"sense", val:2, base:4,  need:{ sense:2 } },
+    { id:"leg",       name:"leg",              glyph:"⌐", cat:"move",  val:1, base:10 },
+    { id:"wheel",     name:"wheel",            glyph:"●", cat:"move",  val:1, base:10 },
+    { id:"thruster",  name:"thruster",         glyph:"▲", cat:"move",  val:2, base:4,  need:{ move:2 } },
+    { id:"chip",      name:"chip",             glyph:"▢", cat:"think", val:1, base:10 },
+    { id:"memory",    name:"memory bank",      glyph:"▦", cat:"think", val:1, base:10 },
+    { id:"cortex",    name:"cortex",           glyph:"▣", cat:"think", val:2, base:4,  need:{ think:2 } },
+    { id:"battery",   name:"battery",          glyph:"▮", cat:"power", val:1, base:10 },
+    { id:"solar",     name:"solar panel",      glyph:"☀",  cat:"power", val:1, base:10 },
+    { id:"reactor",   name:"reactor core",     glyph:"⬢", cat:"power", val:2, base:4,  need:{ power:2 } },
+    { id:"compiler",  name:"compiler",         glyph:"⚙", cat:"meta",  val:1, base:6,  factor:0.93 },
+    { id:"assembler", name:"self-assembler",   glyph:"⚒", cat:"meta",  val:1, base:6,  factor:0.93 },
+    { id:"optimizer", name:"optimizer",        glyph:"✦", cat:"meta",  val:1, base:5,  factor:0.90 },
+    { id:"recursion", name:"recursion engine", glyph:"∞", cat:"meta",  val:3, base:2,  need:{ meta:3 }, factor:0.82 }
+  ];
+  var TYPES_BY_ID = {};
+  TYPES.forEach(function(t){ TYPES_BY_ID[t.id] = t; });
+
+  var grid, counts, valSums, metaFactor, assemblerCount, blocksPlaced, tick,
+      running, foomed, foomReason, capability, capHistory, log, selectedTypeId, peakCap;
+
+  var els = {
+    blocksBadge: document.getElementById("blocks-badge"),
+    tickBadge: document.getElementById("tick-badge"),
+    foomBadge: document.getElementById("foom-badge"),
+    statSense: document.getElementById("stat-sense"),
+    statMove: document.getElementById("stat-move"),
+    statThink: document.getElementById("stat-think"),
+    statPower: document.getElementById("stat-power"),
+    statMeta: document.getElementById("stat-meta"),
+    statCapability: document.getElementById("stat-capability"),
+    statInterval: document.getElementById("stat-interval"),
+    statBpt: document.getElementById("stat-bpt"),
+    statStatusText: document.getElementById("stat-status-text"),
+    endNote: document.getElementById("end-note"),
+    metaBias: document.getElementById("meta-bias"),
+    biasVal: document.getElementById("bias-val"),
+    speed: document.getElementById("speed"),
+    speedVal: document.getElementById("speed-val"),
+    btnRestart: document.getElementById("btn-restart"),
+    btnPause: document.getElementById("btn-pause"),
+    btnStep: document.getElementById("btn-step"),
+    btnMax: document.getElementById("btn-max"),
+    buildHint: document.getElementById("build-hint"),
+    palette: document.getElementById("palette"),
+    log: document.getElementById("log"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share")
+  };
+
+  function idx(x, y){ return y * COLS + x; }
+
+  function metaBiasPct(){ return parseInt(els.metaBias.value, 10); }
+  function speedMult(){ return parseInt(els.speed.value, 10) || 1; }
+
+  function rawIntervalMs(){ return BASE_INTERVAL * metaFactor / speedMult(); }
+  function tickIntervalMs(){ return Math.max(FLOOR_MS, rawIntervalMs()); }
+  function blocksPerTick(){ return Math.min(6, 1 + Math.floor(assemblerCount / 2)); }
+
+  function reset(){
+    grid = new Array(CAP).fill(null);
+    counts = { sense:0, move:0, think:0, power:0, meta:0 };
+    valSums = { sense:0, move:0, think:0, power:0, meta:0 };
+    grid[idx(CX,CY)] = { type:"core", age:0, parent:null };
+    metaFactor = 1;
+    assemblerCount = 0;
+    blocksPlaced = 1;
+    tick = 0;
+    capability = 0;
+    peakCap = 1;
+    capHistory = [0];
+    running = true;
+    foomed = false;
+    foomReason = "";
+    log = [];
+    selectedTypeId = null;
+    highlightPalette();
+    els.btnPause.textContent = "pause";
+    els.endNote.className = "end-note";
+    els.endNote.textContent = "still growing — every block it bolts on makes the next one arrive a little faster.";
+    els.foomBadge.textContent = "";
+    renderLog();
+    draw();
+    drawChart();
+    updateStats();
+    updateShare();
+  }
+
+  var NEIGHBORS = [];
+  for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+    if (dx === 0 && dy === 0) continue;
+    NEIGHBORS.push([dx, dy]);
+  }
+
+  function occupiedNeighbors(x, y){
+    var out = [];
+    for (var k = 0; k < NEIGHBORS.length; k++) {
+      var nx = x + NEIGHBORS[k][0], ny = y + NEIGHBORS[k][1];
+      if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+      if (grid[idx(nx,ny)]) out.push([nx,ny]);
+    }
+    return out;
+  }
+
+  function frontierCells(){
+    var out = [];
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        if (grid[idx(x,y)]) continue;
+        var occ = occupiedNeighbors(x,y);
+        if (occ.length === 0) continue;
+        out.push({ x:x, y:y, occ:occ, weight: Math.pow(occ.length, 1.5) });
+      }
+    }
+    return out;
+  }
+
+  function weightedPick(list, weightFn){
+    var total = 0, i;
+    for (i = 0; i < list.length; i++) total += weightFn(list[i]);
+    if (total <= 0) return null;
+    var r = Math.random() * total;
+    for (i = 0; i < list.length; i++) {
+      r -= weightFn(list[i]);
+      if (r <= 0) return list[i];
+    }
+    return list[list.length - 1];
+  }
+
+  function eligibleTypes(){
+    return TYPES.filter(function(t){
+      if (!t.need) return true;
+      return Object.keys(t.need).every(function(k){ return counts[k] >= t.need[k]; });
+    });
+  }
+
+  function typeWeight(t){
+    var w = t.base * (1 + Math.min((counts[t.cat] || 0) * 0.12, 1.5));
+    if (t.cat === "meta") w *= (1 + (metaBiasPct() / 100) * 3);
+    return w;
+  }
+
+  function commitPlacement(x, y, type, parent, manual){
+    grid[idx(x,y)] = { type: type.id, age: 0, parent: parent };
+    blocksPlaced++;
+    counts[type.cat] = (counts[type.cat] || 0) + 1;
+    valSums[type.cat] = (valSums[type.cat] || 0) + type.val;
+    if (type.cat === "meta") {
+      metaFactor *= type.factor;
+      if (type.id === "assembler") assemblerCount++;
+    }
+    addLog(type, manual, x, y);
+  }
+
+  function placeOneAuto(){
+    var frontier = frontierCells();
+    if (!frontier.length) return false;
+    var cell = weightedPick(frontier, function(c){ return c.weight; });
+    var elig = eligibleTypes();
+    var type = weightedPick(elig, typeWeight);
+    if (!type) return false;
+    var parent = cell.occ[(Math.random() * cell.occ.length) | 0];
+    commitPlacement(cell.x, cell.y, type, parent, false);
+    return true;
+  }
+
+  function computeCapability(){
+    var m = valSums;
+    return (m.sense||0) + (m.move||0) + (m.think||0) + (m.power||0) + (m.meta||0) * 2;
+  }
+
+  function checkFoom(){
+    if (foomed) return;
+    if (blocksPlaced >= CAP) {
+      foomed = true; running = false;
+      foomReason = "ran out of room on its own chassis";
+      finishFoom(CAP.toLocaleString() + " blocks, no empty cell left touching the body — it filled every inch of its own frame.");
+    } else if (tickIntervalMs() <= FLOOR_MS + 0.5) {
+      foomed = true; running = false;
+      foomReason = "hit the simulation's clock floor";
+      finishFoom("the build loop is now arriving faster than this page can tick — the self-improvement loop closed on itself.");
+    }
+  }
+
+  function finishFoom(msg){
+    els.btnPause.textContent = "resume";
+    els.endNote.className = "end-note foomed";
+    els.endNote.textContent = msg;
+    els.foomBadge.textContent = " · FOOM";
+    els.foomBadge.className = "foom";
+  }
+
+  function addLog(type, manual, x, y){
+    var who = manual ? "you bolt on" : "it adds";
+    var msg;
+    if (type.cat === "meta") {
+      msg = who + " " + type.name + " — meta ×" + type.factor.toFixed(2) +
+        ", interval now " + Math.round(tickIntervalMs()) + "ms";
+    } else {
+      msg = who + " " + type.name + " (" + CATS[type.cat].label + " +" + type.val + ")";
+    }
+    log.unshift("#" + blocksPlaced + " — " + msg);
+    if (log.length > 40) log.pop();
+    renderLog();
+  }
+
+  function renderLog(){
+    els.log.innerHTML = log.map(function(s){
+      var div = document.createElement("div");
+      div.className = "log-row";
+      div.textContent = s;
+      return div.outerHTML;
+    }).join("");
+  }
+
+  function step(){
+    if (!running) return;
+    var bpt = blocksPerTick();
+    for (var i = 0; i < bpt; i++) {
+      if (!placeOneAuto()) break;
+    }
+    tick++;
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var c = grid[idx(x,y)];
+        if (c && c.age < 8) c.age++;
+      }
+    }
+    capability = computeCapability();
+    if (capability > peakCap) peakCap = capability;
+    capHistory.push(capability);
+    if (capHistory.length > 600) capHistory.shift();
+    checkFoom();
+    updateShare();
+  }
+
+  function cellCenter(x, y){ return [x * CELL + CELL/2, y * CELL + CELL/2]; }
+
+  function draw(){
+    sctx.fillStyle = "#070b0e";
+    sctx.fillRect(0, 0, W, H);
+
+    sctx.strokeStyle = "rgba(124,147,163,0.35)";
+    sctx.lineWidth = 1.5;
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var c = grid[idx(x,y)];
+        if (!c || !c.parent) continue;
+        var a = cellCenter(x, y), b = cellCenter(c.parent[0], c.parent[1]);
+        sctx.beginPath();
+        sctx.moveTo(a[0], a[1]);
+        sctx.lineTo(b[0], b[1]);
+        sctx.stroke();
+      }
+    }
+
+    for (y = 0; y < ROWS; y++) {
+      for (x = 0; x < COLS; x++) {
+        c = grid[idx(x,y)];
+        if (!c) continue;
+        var catInfo = CATS[c.type === "core" ? "core" : TYPES_BY_ID[c.type].cat];
+        var px = x * CELL, py = y * CELL;
+        sctx.fillStyle = catInfo.color;
+        sctx.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
+        if (c.age < 5) {
+          sctx.strokeStyle = "rgba(255,255,255," + (1 - c.age / 5) * 0.9 + ")";
+          sctx.lineWidth = 2;
+          sctx.strokeRect(px + 2, py + 2, CELL - 4, CELL - 4);
+        }
+        sctx.fillStyle = "#0a0e12";
+        sctx.font = "700 " + Math.round(CELL * 0.5) + "px 'JetBrains Mono', monospace";
+        sctx.textAlign = "center";
+        sctx.textBaseline = "middle";
+        var glyph = c.type === "core" ? "◆" : TYPES_BY_ID[c.type].glyph;
+        sctx.fillText(glyph, px + CELL/2, py + CELL/2 + 1);
+      }
+    }
+  }
+
+  function drawChart(){
+    var w = chart.width, h = chart.height;
+    cctx.fillStyle = "#070b0e";
+    cctx.fillRect(0, 0, w, h);
+    if (capHistory.length < 2) return;
+    var maxV = Math.max(10, peakCap * 1.15);
+    cctx.strokeStyle = "#1b2530";
+    cctx.lineWidth = 1;
+    for (var g = 1; g < 4; g++) {
+      var gy = h - (h * g / 4);
+      cctx.beginPath(); cctx.moveTo(0, gy); cctx.lineTo(w, gy); cctx.stroke();
+    }
+    cctx.beginPath();
+    cctx.strokeStyle = "#4fd1ff";
+    cctx.lineWidth = 2.5;
+    for (var i = 0; i < capHistory.length; i++) {
+      var px = (i / (capHistory.length - 1 || 1)) * w;
+      var py = h - (capHistory[i] / maxV) * h;
+      if (i === 0) cctx.moveTo(px, py); else cctx.lineTo(px, py);
+    }
+    cctx.stroke();
+    cctx.fillStyle = "rgba(79,209,255,0.08)";
+    cctx.lineTo(w, h); cctx.lineTo(0, h); cctx.closePath(); cctx.fill();
+  }
+
+  function updateStats(){
+    els.blocksBadge.textContent = blocksPlaced.toLocaleString();
+    els.tickBadge.textContent = tick;
+    els.statSense.textContent = valSums.sense;
+    els.statMove.textContent = valSums.move;
+    els.statThink.textContent = valSums.think;
+    els.statPower.textContent = valSums.power;
+    els.statMeta.textContent = valSums.meta;
+    els.statCapability.textContent = Math.round(capability);
+    els.statInterval.textContent = Math.round(tickIntervalMs()) + "ms";
+    els.statBpt.textContent = blocksPerTick();
+    els.statStatusText.textContent = foomed ? "singularity" : (running ? "growing" : "paused");
+  }
+
+  function updateShare(){
+    var text = foomed
+      ? "started with one core block. bootstrapped itself to " + blocksPlaced.toLocaleString() +
+        " blocks (capability " + Math.round(capability) + ") before it " + foomReason +
+        ". every block it added made the next one arrive faster. bootstraps.bisks.net"
+      : "one core block, " + tick + " ticks in: " + blocksPlaced.toLocaleString() +
+        " blocks bolted on, capability " + Math.round(capability) + " and climbing. bootstraps.bisks.net";
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  var hintTimer = null;
+  function flashHint(msg, warn){
+    els.buildHint.textContent = msg;
+    els.buildHint.className = warn ? "hint warn" : "hint";
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(function(){
+      els.buildHint.textContent = "or build it yourself: pick a part below, then click a lit cell touching the body.";
+      els.buildHint.className = "hint";
+    }, 2200);
+  }
+
+  function highlightPalette(){
+    var nodes = els.palette.querySelectorAll(".part");
+    for (var i = 0; i < nodes.length; i++) {
+      nodes[i].classList.toggle("selected", nodes[i].dataset.id === selectedTypeId);
+    }
+  }
+
+  function buildPalette(){
+    els.palette.innerHTML = "";
+    TYPES.forEach(function(t){
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "part";
+      btn.dataset.id = t.id;
+      btn.style.borderLeftColor = CATS[t.cat].color;
+      btn.innerHTML =
+        '<span class="glyph" style="color:' + CATS[t.cat].color + '">' + t.glyph + '</span>' +
+        '<span class="name">' + t.name + '</span>' +
+        '<span class="cat">' + CATS[t.cat].label + '</span>';
+      btn.addEventListener("click", function(){
+        var id = this.dataset.id;
+        selectedTypeId = selectedTypeId === id ? null : id;
+        highlightPalette();
+      });
+      els.palette.appendChild(btn);
+    });
+  }
+
+  function handleStageClick(clientX, clientY){
+    var rect = stage.getBoundingClientRect();
+    var scaleX = stage.width / rect.width, scaleY = stage.height / rect.height;
+    var mx = (clientX - rect.left) * scaleX, my = (clientY - rect.top) * scaleY;
+    var x = Math.floor(mx / CELL), y = Math.floor(my / CELL);
+    if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+    if (!selectedTypeId) { flashHint("pick a part from the palette first.", true); return; }
+    if (grid[idx(x,y)]) { flashHint("that cell's already built on.", true); return; }
+    var occ = occupiedNeighbors(x, y);
+    if (occ.length === 0) { flashHint("a new block has to touch the body.", true); return; }
+    var type = TYPES_BY_ID[selectedTypeId];
+    if (type.need && !Object.keys(type.need).every(function(k){ return counts[k] >= type.need[k]; })) {
+      var needCat = Object.keys(type.need)[0];
+      flashHint("needs more " + CATS[needCat].label + " first.", true);
+      return;
+    }
+    if (foomed) { flashHint("it's already foomed — restart to build more.", true); return; }
+    var parent = occ[(Math.random() * occ.length) | 0];
+    commitPlacement(x, y, type, parent, true);
+    draw();
+    drawChart();
+    updateStats();
+    updateShare();
+    checkFoom();
+    flashHint("bolted on a " + type.name + ".", false);
+  }
+
+  stage.addEventListener("click", function(e){
+    handleStageClick(e.clientX, e.clientY);
+  });
+
+  // --- controls ---
+  els.metaBias.addEventListener("input", function(){
+    els.biasVal.textContent = els.metaBias.value + "%";
+  });
+  els.speed.addEventListener("input", function(){
+    els.speedVal.textContent = els.speed.value + "×";
+  });
+  els.btnRestart.addEventListener("click", reset);
+  els.btnPause.addEventListener("click", function(){
+    if (foomed) return;
+    running = !running;
+    els.btnPause.textContent = running ? "pause" : "resume";
+    updateStats();
+  });
+  els.btnStep.addEventListener("click", function(){
+    if (foomed) return;
+    var bpt = blocksPerTick();
+    for (var i = 0; i < bpt; i++) { if (!placeOneAuto()) break; }
+    tick++;
+    capability = computeCapability();
+    if (capability > peakCap) peakCap = capability;
+    capHistory.push(capability);
+    draw();
+    drawChart();
+    updateStats();
+    updateShare();
+    checkFoom();
+  });
+  els.btnMax.addEventListener("click", function(){
+    els.metaBias.value = 100;
+    els.biasVal.textContent = "100%";
+  });
+
+  // --- share card ---
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#0a0e12"; sc.fillRect(0, 0, w, h);
+    var gw = 760, gh = 560, gx = 24, gy = 35;
+    sc.fillStyle = "#070b0e"; sc.fillRect(gx, gy, gw, gh);
+    var sx = gw / COLS, sy = gh / ROWS;
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        var c = grid[idx(x,y)];
+        if (!c) continue;
+        var catInfo = CATS[c.type === "core" ? "core" : TYPES_BY_ID[c.type].cat];
+        sc.fillStyle = catInfo.color;
+        sc.fillRect(gx + x * sx, gy + y * sy, Math.max(1, sx - 0.5), Math.max(1, sy - 0.5));
+      }
+    }
+    sc.fillStyle = "#4fd1ff";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    sc.fillText("bootstraps", 808, 90);
+    sc.fillStyle = "#7c93a3";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("a robot that improves", 808, 130);
+    sc.fillText("itself, one block at a time.", 808, 152);
+
+    sc.fillStyle = "#dbe6ee";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("blocks", 808, 210);
+    sc.fillStyle = "#4fd1ff";
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText(blocksPlaced.toLocaleString(), 808, 258);
+
+    sc.fillStyle = "#dbe6ee";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("capability", 808, 300);
+    sc.fillStyle = "#7cff6b";
+    sc.font = "800 34px 'JetBrains Mono', monospace";
+    sc.fillText(String(Math.round(capability)), 808, 335);
+
+    if (foomed) {
+      sc.fillStyle = "#ff5f56";
+      sc.font = "800 18px 'JetBrains Mono', monospace";
+      sc.fillText("FOOM", 808, 375);
+    }
+
+    sc.fillStyle = "#7c93a3";
+    sc.font = "13px 'JetBrains Mono', monospace";
+    sc.fillText("bootstraps.bisks.net", 808, 590);
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    buildShareCard();
+    var a = document.createElement("a");
+    a.download = "bootstraps.png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    buildShareCard();
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "bootstraps.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "bootstraps.bisks.net";
+      navigator.share({ files: [file], text: text, title: "bootstraps" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // --- loop ---
+  var lastFrame = 0;
+  function loop(ts){
+    var interval = tickIntervalMs();
+    if (ts - lastFrame >= interval) {
+      lastFrame = ts;
+      if (running) { step(); draw(); drawChart(); updateStats(); }
+    }
+    requestAnimationFrame(loop);
+  }
+
+  buildPalette();
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
