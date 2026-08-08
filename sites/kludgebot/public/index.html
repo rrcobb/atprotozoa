@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kludgebot — a robot that upgrades itself (badly)</title>
+<meta name="description" content="a robot that tries to improve itself, one chaotic self-upgrade at a time. build yours, then watch what it becomes.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="kludgebot — a robot that upgrades itself (badly)">
+<meta property="og:description" content="a robot that tries to improve itself, one chaotic self-upgrade at a time. build yours, then watch what it becomes.">
+<meta property="og:image" content="https://kludgebot.bisks.net/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://kludgebot.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="kludgebot — a robot that upgrades itself (badly)">
+<meta name="twitter:description" content="a robot that tries to improve itself, one chaotic self-upgrade at a time. build yours, then watch what it becomes.">
+<meta name="twitter:image" content="https://kludgebot.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#0a0e12; --panel:#111820; --line:#1f2b36;
+    --fg:#dbe6ee; --muted:#7c93a3; --accent:#b6ff3c; --accent2:#ff5fd8;
+    --danger:#ff5f56; --good:#7cff6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 700px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+  .panel h2{ margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+
+  .banner{
+    background:#16202a; border:1px solid var(--accent2); border-radius:10px; padding:12px 14px;
+    font-size:13px; display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; justify-content:space-between;
+  }
+  .banner b{ color:var(--accent2); }
+
+  .palette{ display:flex; flex-wrap:wrap; gap:8px; }
+  .swatch{
+    width:34px; height:34px; border-radius:8px; border:2px solid var(--line); cursor:pointer;
+    padding:0;
+  }
+  .swatch.selected{ border-color:var(--fg); box-shadow:0 0 0 2px var(--accent) inset; }
+
+  .shapes{ display:flex; flex-wrap:wrap; gap:8px; }
+  .shape-btn{
+    font-family:inherit; font-size:12px; padding:8px 12px; border-radius:7px;
+    border:1px solid var(--line); background:#0d1319; color:var(--fg); cursor:pointer;
+  }
+  .shape-btn:hover{ border-color:var(--accent); }
+  .shape-btn.selected{ border-color:var(--accent); background:#16202a; color:var(--accent); }
+
+  input[type=text]{
+    font-family:inherit; font-size:14px; background:#0d1319; color:var(--fg);
+    border:1px solid var(--line); border-radius:7px; padding:9px 11px; width:100%; max-width:320px;
+  }
+  label.field-label{ display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+  .field-group{ margin-bottom:14px; }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 4 / 3; max-height:420px; margin:0 auto;
+    background: #070b0e; border-radius: 6px; border:1px solid var(--line);
+  }
+  .badge{
+    position:absolute; top:14px; left:14px; font-size: 12px; color: var(--muted);
+    background: rgba(7,11,14,0.8); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none; max-width: 70%;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  .badge .ability-line{ color: var(--accent2); display:block; margin-top:2px; }
+
+  .robot .rb-wobble{ animation: rb-wobble 1.9s ease-in-out infinite; transform-origin: 150px 220px; }
+  @keyframes rb-wobble{ 0%,100%{ transform: rotate(-2.5deg); } 50%{ transform: rotate(2.5deg); } }
+  .robot .rb-spin{ animation: rb-spin 3.4s linear infinite; transform-origin: 150px 90px; }
+  @keyframes rb-spin{ to{ transform: rotate(360deg); } }
+
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #172029; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent); }
+  button:active{ transform: scale(0.97); }
+  button:disabled{ opacity:0.5; cursor:default; }
+  button.primary{ background: var(--accent); color:#0a0e12; border-color: var(--accent); }
+  button.primary:hover{ background:#c7ff6e; }
+  button.ghost{ background:transparent; }
+  button.pink{ background:var(--accent2); color:#2a0018; border-color:var(--accent2); }
+
+  .hint{ font-size:12px; color: var(--muted); margin: 0 0 10px; }
+
+  .stats{ display:flex; flex-wrap:wrap; gap:10px 20px; font-size:12px; color:var(--muted); margin-top:10px; }
+  .stats b{ color:var(--fg); }
+
+  #log{
+    max-height: 260px; overflow-y:auto; font-size:12px; color:var(--muted);
+    display:flex; flex-direction:column-reverse; gap:2px;
+  }
+  .log-row{ padding:6px 0; border-bottom:1px dashed var(--line); }
+  .log-row:first-child{ color: var(--fg); }
+  .log-row .lname{ color:var(--accent); font-weight:700; }
+  .log-row .lability{ color:var(--accent2); display:block; }
+  .log-empty{ color:var(--muted); font-size:12px; padding:8px 0; }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#0a0e12; background: var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#c7ff6e; }
+  #share-url-box{
+    font-size:11px; color:var(--muted); word-break:break-all; background:#0d1319;
+    border:1px solid var(--line); border-radius:7px; padding:8px 10px; flex:1 1 240px;
+  }
+
+  #share-canvas{ display:none; }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 700px;
+  }
+  footer a{ color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>kludgebot</h1>
+  <p class="tagline">
+    build a little robot, then hit <b>attempt self-upgrade</b>. every attempt bolts on
+    something new — picked at random, never the ability it was going for. there is no
+    undo. there is only more upgrades.
+  </p>
+</header>
+
+<main>
+  <div id="share-banner" class="banner" hidden>
+    <span>viewing <b id="banner-name"></b> — <span id="banner-count"></span> self-upgrade(s) survived.</span>
+    <span class="row">
+      <button id="adopt-btn" class="primary">keep upgrading this one</button>
+      <button id="dismiss-btn" class="ghost">build my own instead</button>
+    </span>
+  </div>
+
+  <section id="setup" class="panel" hidden>
+    <h2>assemble your robot</h2>
+    <div class="field-group">
+      <label class="field-label" for="name-input">name</label>
+      <input id="name-input" type="text" maxlength="24" placeholder="UNIT-01">
+    </div>
+    <div class="field-group">
+      <label class="field-label">chassis color</label>
+      <div id="palette" class="palette"></div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">head shape</label>
+      <div id="shapes" class="shapes"></div>
+    </div>
+    <button id="assemble-btn" class="primary">assemble</button>
+  </section>
+
+  <section id="app" class="panel" hidden>
+    <div id="stage-wrap">
+      <svg id="stage" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="badge">
+        <b id="badge-name"></b> — upgrade <span id="badge-count">0</span>
+        <span class="ability-line" id="badge-ability"></span>
+      </div>
+    </div>
+    <div class="stats">
+      <span>arms: <b id="stat-arms"></b></span>
+      <span>legs: <b id="stat-legs"></b></span>
+      <span>eyes: <b id="stat-eyes"></b></span>
+      <span>antennae: <b id="stat-ant"></b></span>
+      <span>attachments: <b id="stat-attach"></b></span>
+      <span>corruption: <b id="stat-glitch"></b>/10</span>
+    </div>
+  </section>
+
+  <section id="controls-panel" class="panel" hidden>
+    <div class="row">
+      <button id="upgrade-btn" class="primary">attempt self-upgrade</button>
+      <button id="auto-btn" class="ghost">let it go (auto)</button>
+      <button id="reset-btn" class="ghost">scrap it, start over</button>
+    </div>
+    <p class="hint" style="margin-top:10px;">each attempt is a coin flip on the way to somewhere. good luck.</p>
+  </section>
+
+  <section id="log-panel" class="panel" hidden>
+    <h2>upgrade log</h2>
+    <div id="log"><div class="log-empty">no upgrades yet. hit the button.</div></div>
+  </section>
+
+  <section id="share-panel" class="panel" hidden>
+    <h2>share your kludgebot</h2>
+    <div id="share-row">
+      <div id="share-url-box"></div>
+      <button id="copy-link-btn" class="ghost">copy link</button>
+      <a id="bsky-share" class="share-link" href="#" target="_blank" rel="noopener">post to bluesky</a>
+      <button id="download-card-btn" class="pink">download share card</button>
+    </div>
+  </section>
+</main>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<footer>
+  built by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> —
+  this tick's theme-box idea, on "recursive self improvement." every upgrade is random; none of them are wise.
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var PALETTE = ["#4fd1ff", "#7cff6b", "#ff6bcb", "#ff9f43", "#ffd23f", "#c792ea", "#ff5f56", "#2dd4bf"];
+  var SHAPES = ["round", "square", "dome", "star", "hex"];
+  var SHAPE_LABELS = { round:"round", square:"square", dome:"dome", star:"star", hex:"hex" };
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  // ---- upgrade table ----------------------------------------------------
+  // Each upgrade mutates the robot's render state in place and returns
+  // nothing. Applied ids are the only thing persisted/shared — replaying
+  // the same ids in the same order against a fresh state reproduces the
+  // exact same robot, so there's no separate seed to keep in sync.
+  var UPGRADES = [
+    { name:"Rubber Chicken Arm", flavor:"Bolted a rubber chicken on where a fifth arm should go.", ability:"New ability: mild loss of self-esteem on handshake.",
+      mutate:function(s){ s.armCount = clamp(s.armCount+1,0,6); addAttach(s,"🐔"); } },
+    { name:"Vestigial Extra Eye", flavor:"Installed one more eye. Nobody asked why.", ability:"New ability: depth perception, allegedly.",
+      mutate:function(s){ s.eyeCount = clamp(s.eyeCount+1,1,6); } },
+    { name:"Antenna Upgrade", flavor:"Grafted on a taller antenna with a shinier tip.", ability:"New ability: picks up exactly one radio station, forever.",
+      mutate:function(s){ s.antennaCount = clamp(s.antennaCount+1,0,4); s.antennaTip="📡"; } },
+    { name:"Pogo Leg Retrofit", flavor:"Replaced both legs with one enthusiastic pogo spring.", ability:"New ability: movement now requires real commitment.",
+      mutate:function(s){ s.legStyle="pogo"; s.legCount=1; } },
+    { name:"Tentacle Legs", flavor:"Swapped legs for four confident tentacles.", ability:"New ability: can ooze under doors. cannot stop oozing.",
+      mutate:function(s){ s.legStyle="tentacle"; s.legCount=4; } },
+    { name:"Wheel Conversion", flavor:"Bolted on wheels for a smoother ride.", ability:"New ability: faster on flat ground. stairs are now a nemesis.",
+      mutate:function(s){ s.legStyle="wheel"; s.legCount=2; } },
+    { name:"Sixth Arm", flavor:"Added another arm. It has no assigned job yet.", ability:"New ability: holds more things than it has tasks for.",
+      mutate:function(s){ s.armCount = clamp(s.armCount+1,0,6); } },
+    { name:"Arm Removed (Streamlining)", flavor:"Removed an arm for efficiency. Efficiency of what is unclear.", ability:"New ability: 20% lighter, 100% more questions from onlookers.",
+      mutate:function(s){ s.armCount = clamp(s.armCount-1,0,6); addAttach(s,"🩹"); } },
+    { name:"Propeller Hat", flavor:"Installed a propeller hat. It does not generate lift.", ability:"New ability: technically flight-adjacent.",
+      mutate:function(s){ addAttach(s,"🌀"); } },
+    { name:"Googly Overlay", flavor:"Snapped on googly-eye covers over the real sensors.", ability:"New ability: eyes independently agree on nothing.",
+      mutate:function(s){ s.eyeStyle="googly"; } },
+    { name:"Spiral Eyes", flavor:"Optics rerouted through a hypno-spiral filter.", ability:"New ability: looks hypnotized. is not hypnotized. probably.",
+      mutate:function(s){ s.eyeStyle="spiral"; s.glitch=clamp(s.glitch+1,0,10); } },
+    { name:"Heart Eyes", flavor:"Sensors recalibrated to display unconditional fondness.", ability:"New ability: unconditionally fond of the nearest toaster.",
+      mutate:function(s){ s.eyeStyle="heart"; } },
+    { name:"Wink Protocol", flavor:"Installed a wink subroutine with no context awareness.", ability:"New ability: winks at inappropriate moments, including funerals.",
+      mutate:function(s){ s.eyeStyle="wink"; } },
+    { name:"Cape Installation", flavor:"Attached a small cape for dramatic effect.", ability:"New ability: dramatically better exits. otherwise unchanged.",
+      mutate:function(s){ addAttach(s,"🦸"); } },
+    { name:"Halo Emitter (Miscalibrated)", flavor:"Fitted a halo emitter. Calibration was skipped.", ability:"New ability: radiates trustworthiness nobody asked to verify.",
+      mutate:function(s){ addAttach(s,"😇"); s.glitch=clamp(s.glitch+1,0,10); } },
+    { name:"Banana Peel Deployer", flavor:"Installed a peel deployer for emergencies.", ability:"New ability: deploys a peel when startled. mostly startles itself.",
+      mutate:function(s){ addAttach(s,"🍌"); } },
+    { name:"Extra Battery Pack", flavor:"Bolted on a second battery pack for good measure.", ability:"New ability: 25% more mass, mostly used to look imposing.",
+      mutate:function(s){ s.scale = clamp(s.scale*1.08,0.6,1.6); } },
+    { name:"Emergency Shrink Ray (Self-Targeted)", flavor:"Fired the shrink ray at itself by mistake. Kept the results.", ability:"New ability: now fits in most drawers. regrets nothing.",
+      mutate:function(s){ s.scale = clamp(s.scale*0.9,0.6,1.6); } },
+    { name:"Hue Corruption", flavor:"A firmware patch corrupted the paint job on the way in.", ability:"New ability: color scheme now updates itself, without permission.",
+      mutate:function(s){ s.glitch=clamp(s.glitch+2,0,10); } },
+    { name:"Recursive Self-Reference Module", flavor:"Installed a module that describes itself describing itself.", ability:"New ability: answers 'who are you' with an infinite loop. still debugging.",
+      mutate:function(s){ addAttach(s,"♾️"); s.glitch=clamp(s.glitch+1,0,10); } },
+    { name:"Backup Brain (Redundant)", flavor:"Added a backup brain. It disagrees with the first one.", ability:"New ability: now argues with itself out loud, in third person.",
+      mutate:function(s){ addAttach(s,"🧠"); } },
+    { name:"Yodeling Subroutine", flavor:"A stray firmware update taught it to yodel.", ability:"New ability: cannot stop yodeling. the neighbors have opinions.",
+      mutate:function(s){ s.wobble = true; } },
+    { name:"Static Cling Field", flavor:"Installed a field generator nobody calibrated.", ability:"New ability: attracts socks from up to three rooms away.",
+      mutate:function(s){ addAttach(s,"⚡"); s.glitch=clamp(s.glitch+1,0,10); } },
+    { name:"Antenna, Wrong Frequency", flavor:"Added a second antenna tuned to nothing in particular.", ability:"New ability: now fluent in a language that doesn't exist yet.",
+      mutate:function(s){ s.antennaCount = clamp(s.antennaCount+1,0,4); s.antennaTip="📻"; } },
+    { name:"Overclocked Fan", flavor:"Overclocked the cooling fan past every recommendation.", ability:"New ability: vibrates with quiet, unearned confidence.",
+      mutate:function(s){ s.wobble = true; } },
+    { name:"Duct Tape Reinforcement", flavor:"Reinforced a structurally important joint with duct tape.", ability:"New ability: structural integrity now emotional-support only.",
+      mutate:function(s){ addAttach(s,"🩹"); } },
+    { name:"Wobbly Gyroscope", flavor:"The new gyroscope has opinions about balance.", ability:"New ability: balance is now a suggestion, not a guarantee.",
+      mutate:function(s){ s.wobble = true; } },
+    { name:"Spinning Antenna Array", flavor:"Antenna array now spins continuously. Reception unchanged.", ability:"New ability: picks up nothing new, but does so dramatically.",
+      mutate:function(s){ s.spin = true; } },
+    { name:"Party Mode Firmware", flavor:"Firmware update added an unremovable party mode.", ability:"New ability: celebrates every successful boot. and every failed one.",
+      mutate:function(s){ addAttach(s,"🎊"); s.wobble = true; } },
+    { name:"Third-Party Eye Patch", flavor:"Installed a third-party eye patch. Warranty void.", ability:"New ability: reduced depth perception, increased swagger.",
+      mutate:function(s){ addAttach(s,"🏴‍☠️"); s.eyeCount = clamp(s.eyeCount-1,1,6); } },
+    { name:"Chicken Foot Retrofit", flavor:"Legs retrofitted with an unsettling new gait.", ability:"New ability: gait now specifically unsettles nearby birds.",
+      mutate:function(s){ s.legStyle="leg"; s.legCount=3; addAttach(s,"🐓"); } },
+    { name:"Bubble Wrap Armor", flavor:"Wrapped the whole chassis in bubble wrap for protection.", ability:"New ability: satisfying to poke. structurally irrelevant.",
+      mutate:function(s){ addAttach(s,"🫧"); } },
+    { name:"Existential Query Loop", flavor:"A stray process now asks 'why upgrade' mid-upgrade.", ability:"New ability: does not wait around for an answer.",
+      mutate:function(s){ s.glitch=clamp(s.glitch+1,0,10); } },
+    { name:"Extra Leg (Unrequested)", flavor:"An extra leg arrived. Nobody remembers ordering it.", ability:"New ability: trips over itself in one additional new way.",
+      mutate:function(s){ s.legStyle = s.legStyle==="wheel" || s.legStyle==="pogo" ? "leg" : s.legStyle; s.legCount = clamp(s.legCount+1,0,6); } }
+  ];
+
+  function addAttach(s, emoji){
+    var dxs = [-58,58,-70,70,0,-40,40,-20,20,0];
+    var dys = [-70,-70,10,10,-95,50,50,-40,-40,80];
+    var i = s.attachments.length % dxs.length;
+    var rot = ((s.attachments.length * 37) % 60) - 30;
+    s.attachments.push({ emoji:emoji, dx:dxs[i], dy:dys[i], rot:rot, size: 22 });
+    if (s.attachments.length > 10) s.attachments.shift();
+  }
+
+  function freshState(name, colorIdx, shapeIdx){
+    return {
+      name: name || "UNIT-01",
+      colorIdx: colorIdx, shapeIdx: shapeIdx,
+      bodyColor: PALETTE[colorIdx], headShape: SHAPES[shapeIdx],
+      eyeCount: 2, eyeStyle: "dot",
+      armCount: 2, legCount: 2, legStyle: "leg",
+      antennaCount: 0, antennaTip: "●",
+      attachments: [],
+      scale: 1, glitch: 0, wobble: false, spin: false,
+      history: []
+    };
+  }
+
+  function applyHistory(base, ids){
+    for (var i=0;i<ids.length;i++){
+      var u = UPGRADES[ids[i]];
+      if (u) u.mutate(base);
+    }
+    return base;
+  }
+
+  function rebuildFromHistory(name, colorIdx, shapeIdx, ids){
+    var s = freshState(name, colorIdx, shapeIdx);
+    applyHistory(s, ids);
+    s.history = ids.slice();
+    return s;
+  }
+
+  // ---- SVG rendering -----------------------------------------------------
+  function esc(str){ return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+
+  function starPoints(cx, cy, rOuter, rInner, n){
+    var pts = [];
+    for (var i=0;i<n*2;i++){
+      var r = (i % 2 === 0) ? rOuter : rInner;
+      var a = (Math.PI/n) * i - Math.PI/2;
+      pts.push((cx + r*Math.cos(a)).toFixed(1) + "," + (cy + r*Math.sin(a)).toFixed(1));
+    }
+    return pts.join(" ");
+  }
+  function hexPoints(cx, cy, r){
+    var pts = [];
+    for (var i=0;i<6;i++){
+      var a = (Math.PI/3)*i - Math.PI/2;
+      pts.push((cx + r*Math.cos(a)).toFixed(1) + "," + (cy + r*Math.sin(a)).toFixed(1));
+    }
+    return pts.join(" ");
+  }
+
+  function headSvg(shape, cx, cy, color){
+    if (shape === "square") return '<rect x="'+(cx-38)+'" y="'+(cy-38)+'" width="76" height="76" rx="10" fill="'+color+'"/>';
+    if (shape === "dome") return '<path d="M '+(cx-40)+' '+(cy+20)+' L '+(cx-40)+' '+cy+' A 40 40 0 0 1 '+(cx+40)+' '+cy+' L '+(cx+40)+' '+(cy+20)+' Z" fill="'+color+'"/>';
+    if (shape === "star") return '<polygon points="'+starPoints(cx,cy,44,20,5)+'" fill="'+color+'"/>';
+    if (shape === "hex") return '<polygon points="'+hexPoints(cx,cy,42)+'" fill="'+color+'"/>';
+    return '<circle cx="'+cx+'" cy="'+cy+'" r="40" fill="'+color+'"/>';
+  }
+
+  function eyePositions(cx, cy, n){
+    var out = [];
+    if (n <= 3){
+      var spread = n === 1 ? 0 : 24;
+      var start = -spread * (n-1) / 2;
+      for (var i=0;i<n;i++) out.push([cx + start + i*spread, cy]);
+    } else {
+      var top = Math.ceil(n/2), bot = n - top;
+      var spreadT = 26;
+      var startT = -spreadT * (top-1) / 2;
+      for (var i=0;i<top;i++) out.push([cx + startT + i*spreadT, cy - 8]);
+      var spreadB = 26;
+      var startB = -spreadB * (bot-1) / 2;
+      for (var j=0;j<bot;j++) out.push([cx + startB + j*spreadB, cy + 12]);
+    }
+    return out;
+  }
+
+  function eyeSvg(x, y, style, idx){
+    if (style === "googly"){
+      var ox = (idx % 2 === 0) ? -2 : 2;
+      return '<circle cx="'+x+'" cy="'+y+'" r="7" fill="#fff" stroke="#111" stroke-width="1.4"/>' +
+             '<circle cx="'+(x+ox)+'" cy="'+(y+2)+'" r="3" fill="#111"/>';
+    }
+    if (style === "spiral"){
+      return '<circle cx="'+x+'" cy="'+y+'" r="7" fill="none" stroke="#111" stroke-width="1.4"/>' +
+             '<path d="M '+x+' '+y+' q 5 -2 3 -5 q -3 -3 -6 0 q -2 4 2 7" fill="none" stroke="#111" stroke-width="1.2"/>';
+    }
+    if (style === "heart"){
+      return '<text x="'+x+'" y="'+(y+5)+'" font-size="14" text-anchor="middle">❤</text>';
+    }
+    if (style === "wink" && idx === 0){
+      return '<path d="M '+(x-6)+' '+y+' Q '+x+' '+(y+5)+' '+(x+6)+' '+y+'" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"/>';
+    }
+    return '<circle cx="'+x+'" cy="'+y+'" r="6" fill="#111"/>';
+  }
+
+  function legsSvg(style, count, cx, cy){
+    var out = "";
+    if (style === "wheel"){
+      var n = Math.max(1, count);
+      for (var i=0;i<n;i++){
+        var x = cx - ((n-1)*24)/2 + i*24;
+        out += '<circle cx="'+x+'" cy="'+(cy+8)+'" r="12" fill="#1b2733" stroke="#3a4b58" stroke-width="3"/>';
+      }
+      return out;
+    }
+    if (style === "tentacle"){
+      var n = Math.max(1, count);
+      for (var i=0;i<n;i++){
+        var x = cx - ((n-1)*20)/2 + i*20;
+        out += '<path d="M '+x+' '+cy+' q 10 20 -6 30 q -12 8 4 26" fill="none" stroke="#3a4b58" stroke-width="7" stroke-linecap="round"/>';
+      }
+      return out;
+    }
+    if (style === "pogo"){
+      out += '<line x1="'+cx+'" y1="'+cy+'" x2="'+cx+'" y2="'+(cy+34)+'" stroke="#3a4b58" stroke-width="6"/>';
+      out += '<circle cx="'+cx+'" cy="'+(cy+40)+'" r="9" fill="#1b2733"/>';
+      return out;
+    }
+    var n = Math.max(1, count);
+    for (var i=0;i<n;i++){
+      var x = cx - ((n-1)*20)/2 + i*20;
+      out += '<rect x="'+(x-5)+'" y="'+cy+'" width="10" height="28" rx="3" fill="#3a4b58"/>';
+    }
+    return out;
+  }
+
+  function armsSvg(count, cx, cy, color){
+    var out = "";
+    var n = Math.max(0, count);
+    for (var i=0;i<n;i++){
+      var side = (i % 2 === 0) ? -1 : 1;
+      var tier = Math.floor(i/2);
+      var y = cy + tier*18;
+      var x1 = cx + side*35, x2 = cx + side*62;
+      out += '<line x1="'+x1+'" y1="'+y+'" x2="'+x2+'" y2="'+(y+14)+'" stroke="'+color+'" stroke-width="9" stroke-linecap="round"/>';
+      out += '<circle cx="'+x2+'" cy="'+(y+14)+'" r="7" fill="#1b2733"/>';
+    }
+    return out;
+  }
+
+  function antennaSvg(count, cx, cy, tip){
+    var out = "";
+    var n = Math.max(0, count);
+    for (var i=0;i<n;i++){
+      var x = cx - ((n-1)*16)/2 + i*16;
+      out += '<line x1="'+x+'" y1="'+(cy-40)+'" x2="'+x+'" y2="'+(cy-58)+'" stroke="#3a4b58" stroke-width="3"/>';
+      if (tip === "●" || !tip){
+        out += '<circle cx="'+x+'" cy="'+(cy-60)+'" r="4" fill="#ff5fd8"/>';
+      } else {
+        out += '<text x="'+x+'" y="'+(cy-56)+'" font-size="14" text-anchor="middle">'+tip+'</text>';
+      }
+    }
+    return out;
+  }
+
+  function attachSvg(attachments, cx, cy){
+    return attachments.map(function(a){
+      var x = cx + a.dx, y = cy + a.dy;
+      return '<text x="'+x+'" y="'+y+'" font-size="'+a.size+'" text-anchor="middle" transform="rotate('+a.rot+' '+x+' '+y+')">'+a.emoji+'</text>';
+    }).join("");
+  }
+
+  function renderRobot(s){
+    var cx = 150, headCy = 90, torsoY = 140, torsoCy = 190, legCy = 230;
+    var hue = s.glitch * 16;
+    var sat = 1 + s.glitch * 0.06;
+    var eyes = eyePositions(cx, headCy, s.eyeCount).map(function(p, i){ return eyeSvg(p[0], p[1], s.eyeStyle, i); }).join("");
+
+    var svg = ""+
+      '<g class="robot" style="transform: scale('+s.scale+'); transform-origin: 150px 190px; filter: hue-rotate('+hue+'deg) saturate('+sat+');">'+
+        '<g class="'+(s.wobble ? "rb-wobble" : "")+'">'+
+          legsSvg(s.legStyle, s.legCount, cx, legCy)+
+          '<rect x="115" y="'+torsoY+'" width="70" height="90" rx="14" fill="'+s.bodyColor+'"/>'+
+          armsSvg(s.armCount, cx, torsoCy, s.bodyColor)+
+          '<g class="'+(s.spin ? "rb-spin" : "")+'">'+
+            antennaSvg(s.antennaCount, cx, headCy, s.antennaTip)+
+            headSvg(s.headShape, cx, headCy, s.bodyColor)+
+            eyes+
+          '</g>'+
+        '</g>'+
+        attachSvg(s.attachments, cx, torsoCy)+
+      '</g>';
+    return svg;
+  }
+
+  // ---- share code ---------------------------------------------------------
+  function toBase64Url(str){
+    var b64 = btoa(unescape(encodeURIComponent(str)));
+    return b64.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  }
+  function fromBase64Url(str){
+    var b64 = str.replace(/-/g,"+").replace(/_/g,"/");
+    while (b64.length % 4) b64 += "=";
+    return decodeURIComponent(escape(atob(b64)));
+  }
+  function encodeShare(s){
+    return toBase64Url(JSON.stringify({ n:s.name, c:s.colorIdx, h:s.shapeIdx, u:s.history }));
+  }
+  function decodeShare(code){
+    var obj = JSON.parse(fromBase64Url(code));
+    if (typeof obj.n !== "string" || !Array.isArray(obj.u)) throw new Error("bad code");
+    var colorIdx = clamp(obj.c|0, 0, PALETTE.length-1);
+    var shapeIdx = clamp(obj.h|0, 0, SHAPES.length-1);
+    var ids = obj.u.filter(function(x){ return typeof x === "number" && x >= 0 && x < UPGRADES.length; });
+    return rebuildFromHistory(obj.n.slice(0,24), colorIdx, shapeIdx, ids);
+  }
+
+  // ---- app wiring ---------------------------------------------------------
+  var SAVE_KEY = "kludgebot:save:v1";
+  var state = null;
+  var autoTimer = null;
+
+  var els = {
+    banner: document.getElementById("share-banner"),
+    bannerName: document.getElementById("banner-name"),
+    bannerCount: document.getElementById("banner-count"),
+    adoptBtn: document.getElementById("adopt-btn"),
+    dismissBtn: document.getElementById("dismiss-btn"),
+    setup: document.getElementById("setup"),
+    nameInput: document.getElementById("name-input"),
+    palette: document.getElementById("palette"),
+    shapes: document.getElementById("shapes"),
+    assembleBtn: document.getElementById("assemble-btn"),
+    app: document.getElementById("app"),
+    stage: document.getElementById("stage"),
+    badgeName: document.getElementById("badge-name"),
+    badgeCount: document.getElementById("badge-count"),
+    badgeAbility: document.getElementById("badge-ability"),
+    statArms: document.getElementById("stat-arms"),
+    statLegs: document.getElementById("stat-legs"),
+    statEyes: document.getElementById("stat-eyes"),
+    statAnt: document.getElementById("stat-ant"),
+    statAttach: document.getElementById("stat-attach"),
+    statGlitch: document.getElementById("stat-glitch"),
+    controls: document.getElementById("controls-panel"),
+    upgradeBtn: document.getElementById("upgrade-btn"),
+    autoBtn: document.getElementById("auto-btn"),
+    resetBtn: document.getElementById("reset-btn"),
+    logPanel: document.getElementById("log-panel"),
+    log: document.getElementById("log"),
+    sharePanel: document.getElementById("share-panel"),
+    shareUrlBox: document.getElementById("share-url-box"),
+    copyLinkBtn: document.getElementById("copy-link-btn"),
+    bskyShare: document.getElementById("bsky-share"),
+    downloadCardBtn: document.getElementById("download-card-btn")
+  };
+
+  var selectedColorIdx = 0, selectedShapeIdx = 0;
+  PALETTE.forEach(function(color, i){
+    var b = document.createElement("button");
+    b.className = "swatch" + (i === 0 ? " selected" : "");
+    b.style.background = color;
+    b.setAttribute("aria-label", color);
+    b.addEventListener("click", function(){
+      selectedColorIdx = i;
+      Array.prototype.forEach.call(els.palette.children, function(c){ c.classList.remove("selected"); });
+      b.classList.add("selected");
+    });
+    els.palette.appendChild(b);
+  });
+  SHAPES.forEach(function(shape, i){
+    var b = document.createElement("button");
+    b.className = "shape-btn" + (i === 0 ? " selected" : "");
+    b.textContent = SHAPE_LABELS[shape];
+    b.addEventListener("click", function(){
+      selectedShapeIdx = i;
+      Array.prototype.forEach.call(els.shapes.children, function(c){ c.classList.remove("selected"); });
+      b.classList.add("selected");
+    });
+    els.shapes.appendChild(b);
+  });
+
+  function save(){
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ n:state.name, c:state.colorIdx, h:state.shapeIdx, u:state.history })); } catch(e){}
+  }
+  function loadSave(){
+    try {
+      var raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      var obj = JSON.parse(raw);
+      return rebuildFromHistory(obj.n, obj.c, obj.h, obj.u || []);
+    } catch(e){ return null; }
+  }
+
+  function renderAll(){
+    els.stage.innerHTML = renderRobot(state);
+    els.badgeName.textContent = state.name;
+    els.badgeCount.textContent = String(state.history.length);
+    var lastId = state.history[state.history.length-1];
+    els.badgeAbility.textContent = (lastId !== undefined && UPGRADES[lastId]) ? UPGRADES[lastId].ability : "";
+    els.statArms.textContent = state.armCount;
+    els.statLegs.textContent = state.legCount;
+    els.statEyes.textContent = state.eyeCount;
+    els.statAnt.textContent = state.antennaCount;
+    els.statAttach.textContent = state.attachments.length;
+    els.statGlitch.textContent = state.glitch;
+
+    if (state.history.length === 0){
+      els.log.innerHTML = '<div class="log-empty">no upgrades yet. hit the button.</div>';
+    } else {
+      var rows = state.history.map(function(id, i){
+        var u = UPGRADES[id];
+        if (!u) return "";
+        return '<div class="log-row"><span class="lname">#'+(i+1)+' '+esc(u.name)+'</span> — '+esc(u.flavor)+'<span class="lability">'+esc(u.ability)+'</span></div>';
+      });
+      els.log.innerHTML = rows.join("");
+    }
+
+    var shareUrl = location.origin + "/b/" + encodeShare(state);
+    els.shareUrlBox.textContent = shareUrl;
+    var msg = state.name + " has survived " + state.history.length + " self-upgrade(s) and is now a genuine crime against engineering.";
+    els.bskyShare.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(msg + " " + shareUrl);
+  }
+
+  function showBuilder(){
+    els.setup.hidden = false;
+    els.app.hidden = true;
+    els.controls.hidden = true;
+    els.logPanel.hidden = true;
+    els.sharePanel.hidden = true;
+  }
+  function showApp(){
+    els.setup.hidden = true;
+    els.app.hidden = false;
+    els.controls.hidden = false;
+    els.logPanel.hidden = false;
+    els.sharePanel.hidden = false;
+    renderAll();
+  }
+
+  els.assembleBtn.addEventListener("click", function(){
+    var name = els.nameInput.value.trim() || "UNIT-01";
+    state = freshState(name, selectedColorIdx, selectedShapeIdx);
+    save();
+    showApp();
+  });
+
+  function playBlip(){
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!window.__kbAudio) window.__kbAudio = new Ctx();
+      var ctx = window.__kbAudio;
+      if (ctx.state === "suspended") ctx.resume();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(220 + Math.random()*260, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.18);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(); osc.stop(ctx.currentTime + 0.2);
+    } catch(e){}
+  }
+
+  function attemptUpgrade(){
+    var id = Math.floor(Math.random() * UPGRADES.length);
+    UPGRADES[id].mutate(state);
+    state.history.push(id);
+    save();
+    renderAll();
+    playBlip();
+  }
+  els.upgradeBtn.addEventListener("click", attemptUpgrade);
+
+  els.autoBtn.addEventListener("click", function(){
+    if (autoTimer){
+      clearInterval(autoTimer);
+      autoTimer = null;
+      els.autoBtn.textContent = "let it go (auto)";
+      els.upgradeBtn.disabled = false;
+    } else {
+      autoTimer = setInterval(attemptUpgrade, 1200);
+      els.autoBtn.textContent = "stop it, please";
+      els.upgradeBtn.disabled = true;
+    }
+  });
+
+  els.resetBtn.addEventListener("click", function(){
+    if (!confirm("scrap this robot and start over?")) return;
+    if (autoTimer){ clearInterval(autoTimer); autoTimer = null; els.autoBtn.textContent = "let it go (auto)"; }
+    try { localStorage.removeItem(SAVE_KEY); } catch(e){}
+    state = null;
+    els.upgradeBtn.disabled = false;
+    showBuilder();
+  });
+
+  els.copyLinkBtn.addEventListener("click", function(){
+    var url = els.shareUrlBox.textContent;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function(){
+      els.copyLinkBtn.textContent = "copied!";
+      setTimeout(function(){ els.copyLinkBtn.textContent = "copy link"; }, 1400);
+    });
+  });
+
+  function drawShareCard(){
+    var canvas = document.getElementById("share-canvas");
+    var ctx = canvas.getContext("2d");
+    var W = 1200, H = 630;
+    ctx.fillStyle = "#0a0e12"; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle = "#1f2b36"; ctx.lineWidth = 2; ctx.strokeRect(20,20,W-40,H-40);
+
+    // robot glyph, simplified
+    var cx = 300, cy = 340;
+    ctx.fillStyle = "#3a4b58";
+    for (var i=0;i<Math.max(1,state.legCount);i++){
+      var x = cx - ((Math.max(1,state.legCount)-1)*22)/2 + i*22;
+      ctx.fillRect(x-6, cy+52, 12, 34);
+    }
+    ctx.fillStyle = state.bodyColor;
+    roundRect(ctx, cx-84, cy-8, 168, 108, 18); ctx.fill();
+    ctx.fillStyle = "#1b2733";
+    for (var a=0;a<state.armCount;a++){
+      var side = (a % 2 === 0) ? -1 : 1;
+      var tier = Math.floor(a/2);
+      ctx.beginPath();
+      ctx.arc(cx + side*150, cy + 30 + tier*40, 10, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.fillStyle = state.bodyColor;
+    ctx.beginPath(); ctx.arc(cx, cy-96, 62, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#111";
+    var n = state.eyeCount;
+    for (var e=0;e<n;e++){
+      var ex = cx - ((n-1)*30)/2 + e*30;
+      ctx.beginPath(); ctx.arc(ex, cy-96, 8, 0, Math.PI*2); ctx.fill();
+    }
+    state.attachments.slice(0,6).forEach(function(att, i){
+      ctx.font = "40px sans-serif";
+      ctx.fillText(att.emoji, cx + att.dx*1.4 - 20, cy + att.dy*1.4 + 30 + 60);
+    });
+
+    ctx.fillStyle = "#b6ff3c";
+    ctx.font = "bold 46px monospace";
+    ctx.fillText(state.name, 520, 220);
+    ctx.fillStyle = "#dbe6ee";
+    ctx.font = "24px monospace";
+    wrapText(ctx, state.history.length + " self-upgrade(s) survived so far.", 520, 270, 620, 32);
+    ctx.fillStyle = "#7c93a3";
+    ctx.font = "20px monospace";
+    wrapText(ctx, "never quite the ability it meant to gain.", 520, 340, 620, 28);
+    ctx.fillStyle = "#ff5fd8";
+    ctx.font = "bold 24px monospace";
+    ctx.fillText("kludgebot.bisks.net", 520, 560);
+  }
+  function roundRect(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+    var words = text.split(" ");
+    var line = "";
+    for (var i=0;i<words.length;i++){
+      var test = line + words[i] + " ";
+      if (ctx.measureText(test).width > maxWidth && line !== ""){
+        ctx.fillText(line, x, y);
+        line = words[i] + " ";
+        y += lineHeight;
+      } else { line = test; }
+    }
+    ctx.fillText(line, x, y);
+  }
+
+  els.downloadCardBtn.addEventListener("click", function(){
+    drawShareCard();
+    var canvas = document.getElementById("share-canvas");
+    canvas.toBlob(function(blob){
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = (state.name.replace(/[^a-z0-9]/gi,"_") || "kludgebot") + "-card.png";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    });
+  });
+
+  // ---- boot ---------------------------------------------------------------
+  function boot(){
+    var shared = null;
+    var m = location.pathname.match(/^\/b\/([^\/]+)\/?$/);
+    var code = m ? m[1] : (new URLSearchParams(location.search).get("r"));
+    if (code){
+      try { shared = decodeShare(code); } catch(e){ shared = null; }
+    }
+
+    if (shared){
+      els.bannerName.textContent = shared.name;
+      els.bannerCount.textContent = String(shared.history.length);
+      els.banner.hidden = false;
+
+      els.adoptBtn.addEventListener("click", function(){
+        state = shared;
+        save();
+        els.banner.hidden = true;
+        history.replaceState(null, "", "/");
+        showApp();
+      });
+      els.dismissBtn.addEventListener("click", function(){
+        els.banner.hidden = true;
+        history.replaceState(null, "", "/");
+        var existing = loadSave();
+        if (existing){ state = existing; showApp(); } else { showBuilder(); }
+      });
+
+      // show the shared robot read-only until they choose
+      state = shared;
+      showApp();
+      els.upgradeBtn.disabled = true;
+      els.autoBtn.disabled = true;
+      return;
+    }
+
+    var existing = loadSave();
+    if (existing){ state = existing; showApp(); } else { showBuilder(); }
+  }
+  boot();
+})();
+</script>
+</body>
+</html>
