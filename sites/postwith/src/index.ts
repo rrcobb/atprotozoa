@@ -15,7 +15,7 @@
 // QuadrantHub. The DO's HTTP surface below is entirely read-only (GET).
 //
 // Collections:
-//   net.bisks.postwith.profile   rkey "self" — {topic, goal, note?, createdAt}
+//   net.bisks.postwith.profile   rkey "self" — {topic, goal, note?, location?, createdAt}
 //   net.bisks.postwith.meeting   rkey auto   — {toDid, toHandle, topic, message, createdAt}
 //   net.bisks.postwith.response  rkey auto   — {meetingUri, status, createdAt}
 //   net.bisks.postwith.feedback  rkey auto   — {meetingUri, outcome, note?, rematch, createdAt}
@@ -100,6 +100,7 @@ const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_TOPIC = 32;
 const MAX_GOAL = 240;
 const MAX_NOTE = 240;
+const MAX_LOCATION = 60;
 const MAX_MESSAGE = 300;
 const MAX_PROFILES = 3000;
 const MAX_MEETINGS = 8000;
@@ -112,6 +113,7 @@ interface ProfileEntry {
   topic: string;
   goal: string;
   note: string;
+  location: string;
   updatedAt: number;
 }
 
@@ -279,6 +281,7 @@ export class MatchHub {
       topic: cleanStr(rec.topic, MAX_TOPIC).toLowerCase(),
       goal: cleanStr(rec.goal, MAX_GOAL),
       note: cleanStr(rec.note, MAX_NOTE),
+      location: cleanStr(rec.location, MAX_LOCATION),
       updatedAt: Date.now(),
     });
     await this.persist("profiles", this.profiles);
@@ -414,18 +417,33 @@ export class MatchHub {
 
   private buildMe(did: string) {
     const profile = this.profiles.get(did) || null;
+    const myLoc = (profile?.location || "").toLowerCase();
 
     const candidates = profile
       ? Array.from(this.profiles.values())
           .filter((p) => p.did !== did && p.topic === profile.topic)
-          .sort((a, b) => b.updatedAt - a.updatedAt)
+          // Same-location candidates first (when I've set one) — topic alone
+          // can match you with someone across the planet, which is useless
+          // for anyone actually trying to meet up in person.
+          .sort((a, b) => {
+            if (myLoc) {
+              const aNear = a.location.toLowerCase() === myLoc ? 1 : 0;
+              const bNear = b.location.toLowerCase() === myLoc ? 1 : 0;
+              if (aNear !== bNear) return bNear - aNear;
+            }
+            return b.updatedAt - a.updatedAt;
+          })
           .slice(0, 40)
           .map((p) => {
             const already = Array.from(this.meetings.values()).find(
               (m) =>
                 (m.fromDid === did && m.toDid === p.did) || (m.fromDid === p.did && m.toDid === did),
             );
-            return { ...p, existingMeetingUri: already ? already.uri : null };
+            return {
+              ...p,
+              near: !!myLoc && !!p.location && p.location.toLowerCase() === myLoc,
+              existingMeetingUri: already ? already.uri : null,
+            };
           })
       : [];
 

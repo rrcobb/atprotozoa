@@ -34,7 +34,8 @@
           Post what you're into and what you want out of it. Get auto-matched with
           someone else on the same topic. Propose a meeting, they accept or decline,
           either of you logs how it went. Every record — profile, proposal, response,
-          feedback — is written straight to your own PDS.
+          feedback — is written straight to your own PDS. Add a city and we'll surface
+          matches near you first — handy if the point is to actually meet up.
         </p>
       </header>
 
@@ -65,11 +66,13 @@
             <select id="f-topic"></select>
           </div>
           <div>
-            <label for="f-goal">goal (what you want out of it)</label>
-            <input id="f-goal" type="text" placeholder="e.g. find a co-founder, practice Spanish, find a running buddy" maxlength="240" />
+            <label for="f-location">city (optional — matches near you float to the top)</label>
+            <input id="f-location" type="text" placeholder="e.g. Seattle — leave blank if remote's fine" maxlength="60" />
           </div>
         </div>
-        <label for="f-note">note (optional)</label>
+        <label for="f-goal">goal (what you want out of it)</label>
+        <input id="f-goal" type="text" placeholder="e.g. find a co-founder, practice Spanish, find a running buddy" maxlength="240" />
+        <label for="f-note" style="margin-top: 0.9rem">note (optional)</label>
         <textarea id="f-note" placeholder="anything else worth knowing" maxlength="240"></textarea>
         <div class="p-actions">
           <button id="btn-save-profile">post profile</button>
@@ -213,6 +216,7 @@
         if (me.profile) {
           sel.value = me.profile.topic;
           $("#f-goal").value = me.profile.goal;
+          $("#f-location").value = me.profile.location || "";
           $("#f-note").value = me.profile.note || "";
           $("#btn-save-profile").textContent = "update profile";
           $("#btn-remove-profile").style.display = "inline-block";
@@ -239,6 +243,7 @@
             topic: sel.value,
             goal,
             note: $("#f-note").value.trim(),
+            location: $("#f-location").value.trim(),
             createdAt: new Date().toISOString(),
           };
           const base = session.pdsUrl.replace(/\/$/, "");
@@ -248,7 +253,7 @@
             body: JSON.stringify({ repo: session.did, collection: PROFILE_COLLECTION, rkey: "self", record }),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-          me.profile = { did: session.did, handle: session.handle, topic: record.topic, goal: record.goal, note: record.note, updatedAt: Date.now() };
+          me.profile = { did: session.did, handle: session.handle, topic: record.topic, goal: record.goal, note: record.note, location: record.location, updatedAt: Date.now() };
           status.textContent = "posted — matching may take a minute to catch up.";
           status.className = "status ok";
           renderAll();
@@ -275,6 +280,7 @@
           me.profile = null;
           $("#f-goal").value = "";
           $("#f-note").value = "";
+          $("#f-location").value = "";
           status.textContent = "left the pool.";
           status.className = "status ok";
           renderAll();
@@ -308,6 +314,8 @@
               <div class="p-card-top">
                 ${avatarImg(c.avatar)}
                 <span class="who"><a href="${profileLink(c.handle)}" target="_blank" rel="noopener">@${esc(c.handle)}</a></span>
+                ${c.near ? `<span class="badge near">near you</span>` : ""}
+                ${c.location && !c.near ? `<span class="badge location">📍 ${esc(c.location)}</span>` : ""}
               </div>
               <p class="p-goal">${esc(c.goal)}</p>
               ${c.note ? `<p class="p-note">${esc(c.note)}</p>` : ""}
