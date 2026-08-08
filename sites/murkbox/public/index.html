@@ -325,6 +325,58 @@
   }
   .fader-unit.big .fader-label { color: var(--accent-2); font-weight: 700; }
 
+  .fader-unit.mini { width: 58px; }
+  .fader-unit.mini .fader-track { height: 90px; }
+  .fader-unit.mini .fader-track input[type="range"] { width: 90px; }
+
+  /* ---- LFO modulation panel --------------------------------------------- */
+  .mod-panel {
+    margin-top: 6px;
+    padding: 10px 10px 2px;
+    background: #1a151f;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .mod-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+  .mod-toggle, .mod-cycle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--metal);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+  .mod-toggle:hover, .mod-cycle:hover { background: var(--metal-hi); }
+  .mod-toggle[aria-pressed="true"] { color: var(--fg); border-color: var(--accent-2); }
+  .mod-led {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--led-off);
+    flex: none;
+  }
+  .mod-toggle[aria-pressed="true"] .mod-led {
+    background: var(--accent-2);
+    box-shadow: 0 0 6px 1px rgba(90,209,201,0.75);
+  }
+  .mod-faders {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 4px 8px;
+  }
+
   /* ---- footswitch ------------------------------------------------------ */
   .stomp-row {
     display: flex;
@@ -428,6 +480,28 @@
 
       <div class="faders" id="faders"></div>
 
+      <div class="mod-panel" id="modPanel">
+        <div class="mod-head">
+          <button class="mod-toggle" id="modToggle" type="button" aria-pressed="false" aria-label="Toggle LFO modulation">
+            <span class="mod-led" id="modLed"></span>LFO MOD
+          </button>
+          <button class="mod-cycle" id="modWaveBtn" type="button" aria-label="Cycle modulation waveform"></button>
+          <button class="mod-cycle" id="modTargetBtn" type="button" aria-label="Cycle modulation target"></button>
+        </div>
+        <div class="mod-faders">
+          <div class="fader-unit mini">
+            <div class="fader-value" id="val-rate"></div>
+            <div class="fader-track"><input type="range" id="rateInput" min="1" max="60" step="1" value="12" aria-label="LFO rate" /></div>
+            <div class="fader-label">RATE</div>
+          </div>
+          <div class="fader-unit mini">
+            <div class="fader-value" id="val-amount"></div>
+            <div class="fader-track"><input type="range" id="amountInput" min="0" max="100" step="1" value="45" aria-label="LFO amount" /></div>
+            <div class="fader-label">AMT</div>
+          </div>
+        </div>
+      </div>
+
       <div class="stomp-row">
         <button class="footswitch" id="stomp" type="button" aria-pressed="true" aria-label="Toggle effect bypass"><span class="cap"></span></button>
         <div class="stomp-label" id="stompLabel">EFFECT <b>ENGAGED</b> — tap to bypass</div>
@@ -441,10 +515,13 @@
 
     <footer class="about">
       Pulls a real public feed (no login) and redraws it as post cards, then runs it
-      through a lo-poly block averager, an ordered (Bayer 4×4) dither, grain, and a
-      channel-shift drift — all client-side canvas pixel work. <b>MURK</b> is the wet/dry
-      mix; the footswitch is true bypass. Built for @words.bsky.social by
-      <a href="https://buildthis.bisks.net/">@buildthis</a>.
+      through a lo-poly block averager, an ordered (Bayer 4×4) dither, grain, a
+      channel-shift drift, a hue rotation and a row-band wave warp — all client-side
+      canvas pixel work. <b>MURK</b> is the wet/dry mix; the footswitch is true bypass.
+      Flip <b>LFO MOD</b> on and any one fader oscillates on its own — pick a waveform
+      and a target, then dial in rate and amount. Built for @words.bsky.social by
+      <a href="https://buildthis.bisks.net/">@buildthis</a>, more modulation added on
+      request.
     </footer>
   </div>
 
@@ -465,6 +542,8 @@
     { key: "grain", label: "GRAIN", min: 0, max: 100, def: 16, fmt: (v) => v + "%" },
     { key: "drift", label: "DRIFT", min: 0, max: 14, def: 2, fmt: (v) => v + "px" },
     { key: "scan", label: "SCAN", min: 0, max: 100, def: 20, fmt: (v) => v + "%" },
+    { key: "warp", label: "WARP", min: 0, max: 40, def: 0, fmt: (v) => v + "px" },
+    { key: "hue", label: "HUE", min: 0, max: 360, def: 0, fmt: (v) => v + "°" },
     { key: "murk", label: "MURK", min: 0, max: 100, def: 62, fmt: (v) => v + "%", big: true },
   ];
   function pad(v) { return String(v).padStart(2, "0"); }
@@ -476,8 +555,24 @@
     [15, 7, 13, 5],
   ].map((row) => row.map((v) => (v + 0.5) / 16));
 
-  const params = {};
-  PARAMS.forEach((p) => (params[p.key] = p.def));
+  const PARAM_BY_KEY = {};
+  PARAMS.forEach((p) => (PARAM_BY_KEY[p.key] = p));
+
+  const baseParams = {};
+  PARAMS.forEach((p) => (baseParams[p.key] = p.def));
+
+  // ---- LFO modulation --------------------------------------------------
+  // A second layer on top of the static faders: pick a waveform and a
+  // target parameter, and that parameter's fader value oscillates on its
+  // own around whatever the fader is set to, driven by rAF time.
+  const WAVES = [
+    { key: "sine", label: "∿ SINE" },
+    { key: "square", label: "⊓ SQUARE" },
+    { key: "triangle", label: "△ TRI" },
+  ];
+  const MOD_TARGETS = PARAMS.map((p) => p.key);
+  const lfo = { on: false, waveIdx: 0, targetIdx: MOD_TARGETS.indexOf("murk"), rate: 12, amount: 45 };
+
   let engaged = true;
   let currentHandle = "";
   let rafPending = false; // declared here, not next to scheduleRender() below —
@@ -498,6 +593,13 @@
   const stompLabel = document.getElementById("stompLabel");
   const downloadBtn = document.getElementById("downloadBtn");
   const shareBtn = document.getElementById("shareBtn");
+  const modToggle = document.getElementById("modToggle");
+  const modWaveBtn = document.getElementById("modWaveBtn");
+  const modTargetBtn = document.getElementById("modTargetBtn");
+  const rateInput = document.getElementById("rateInput");
+  const amountInput = document.getElementById("amountInput");
+  const rateVal = document.getElementById("val-rate");
+  const amountVal = document.getElementById("val-amount");
 
   // offscreen buffers
   const cleanCanvas = document.createElement("canvas");
@@ -505,6 +607,12 @@
   const cleanCtx = cleanCanvas.getContext("2d");
   const smallCanvas = document.createElement("canvas");
   const smallCtx = smallCanvas.getContext("2d");
+  const warpCanvas = document.createElement("canvas");
+  warpCanvas.width = W; warpCanvas.height = H;
+  const warpCtx = warpCanvas.getContext("2d");
+  const hueCanvas = document.createElement("canvas");
+  hueCanvas.width = W; hueCanvas.height = H;
+  const hueCtx = hueCanvas.getContext("2d");
 
   // ---- fader UI -------------------------------------------------------
   PARAMS.forEach((p) => {
@@ -518,9 +626,9 @@
     const input = unit.querySelector("input");
     const valEl = unit.querySelector(".fader-value");
     const update = () => {
-      params[p.key] = Number(input.value);
-      valEl.textContent = p.fmt(params[p.key]);
-      scheduleRender();
+      baseParams[p.key] = Number(input.value);
+      valEl.textContent = p.fmt(baseParams[p.key]);
+      if (!lfo.on) scheduleRender();
     };
     input.addEventListener("input", update);
     input.addEventListener("dblclick", () => { input.value = p.def; update(); });
@@ -538,6 +646,53 @@
     scheduleRender();
   });
   led.classList.add("on");
+
+  // ---- LFO modulation UI -------------------------------------------------
+  function refreshModUI() {
+    modWaveBtn.textContent = WAVES[lfo.waveIdx].label;
+    modTargetBtn.textContent = "→ " + PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label;
+    rateVal.textContent = (lfo.rate / 10).toFixed(1) + "hz";
+    amountVal.textContent = lfo.amount + "%";
+  }
+  refreshModUI();
+
+  let animHandle = null;
+  function startAnim() {
+    if (animHandle) return;
+    const tick = (t) => {
+      render(t);
+      animHandle = requestAnimationFrame(tick);
+    };
+    animHandle = requestAnimationFrame(tick);
+  }
+  function stopAnim() {
+    if (animHandle) cancelAnimationFrame(animHandle);
+    animHandle = null;
+  }
+
+  modToggle.addEventListener("click", () => {
+    lfo.on = !lfo.on;
+    modToggle.setAttribute("aria-pressed", String(lfo.on));
+    if (lfo.on) startAnim();
+    else { stopAnim(); scheduleRender(); }
+  });
+  modWaveBtn.addEventListener("click", () => {
+    lfo.waveIdx = (lfo.waveIdx + 1) % WAVES.length;
+    refreshModUI();
+  });
+  modTargetBtn.addEventListener("click", () => {
+    lfo.targetIdx = (lfo.targetIdx + 1) % MOD_TARGETS.length;
+    refreshModUI();
+  });
+  rateInput.addEventListener("input", () => {
+    lfo.rate = Number(rateInput.value);
+    refreshModUI();
+  });
+  amountInput.addEventListener("input", () => {
+    lfo.amount = Number(amountInput.value);
+    refreshModUI();
+    if (!lfo.on) scheduleRender();
+  });
 
   // ---- status -------------------------------------------------------------
   function setStatus(kind, text) {
@@ -818,26 +973,75 @@
     c.putImageData(out, 0, 0);
   }
 
-  function render() {
+  function lfoWave(wave, phase) {
+    const s = Math.sin(phase);
+    if (wave === "square") return s >= 0 ? 1 : -1;
+    if (wave === "triangle") return (2 / Math.PI) * Math.asin(s);
+    return s;
+  }
+
+  function computeLiveParams(tNow) {
+    const live = Object.assign({}, baseParams);
+    if (lfo.on && tNow != null) {
+      const targetKey = MOD_TARGETS[lfo.targetIdx];
+      const def = PARAM_BY_KEY[targetKey];
+      const speed = lfo.rate / 10; // hz
+      const phase = (tNow / 1000) * speed * Math.PI * 2;
+      const wave = lfoWave(WAVES[lfo.waveIdx].key, phase);
+      const range = def.max - def.min;
+      const offset = wave * (lfo.amount / 100) * (range / 2);
+      live[targetKey] = Math.min(def.max, Math.max(def.min, baseParams[targetKey] + offset));
+    }
+    return live;
+  }
+
+  // Row-band wave displacement — snapshots the current screen, then redraws
+  // it in thin horizontal strips offset by a sine of their y position, so a
+  // still frame ripples like an old CRT with a bad sync signal.
+  function applyWarp(amt, tNow) {
+    warpCtx.clearRect(0, 0, W, H);
+    warpCtx.drawImage(screen, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const phase = tNow / 500;
+    const band = 4;
+    for (let y = 0; y < H; y += band) {
+      const off = Math.round(Math.sin(y * 0.045 + phase) * amt);
+      ctx.drawImage(warpCanvas, 0, y, W, band, off, y, W, band);
+    }
+  }
+
+  function applyHue(deg) {
+    hueCtx.clearRect(0, 0, W, H);
+    hueCtx.drawImage(screen, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.filter = "hue-rotate(" + deg + "deg)";
+    ctx.drawImage(hueCanvas, 0, 0);
+    ctx.filter = "none";
+  }
+
+  function render(tNow) {
     ctx.clearRect(0, 0, W, H);
     if (!engaged) {
       ctx.drawImage(cleanCanvas, 0, 0);
       return;
     }
-    const processed = applyLoPoly(cleanCanvas, params.block);
-    processPixels(processed, params.depth, params.dither, params.grain, params.drift);
+    const live = computeLiveParams(tNow);
+    const processed = applyLoPoly(cleanCanvas, live.block);
+    processPixels(processed, live.depth, live.dither, live.grain, live.drift);
 
     ctx.drawImage(cleanCanvas, 0, 0);
-    ctx.globalAlpha = params.murk / 100;
+    ctx.globalAlpha = live.murk / 100;
     ctx.drawImage(processed, 0, 0);
     ctx.globalAlpha = 1;
 
-    if (params.scan > 0) {
-      ctx.globalAlpha = (params.scan / 100) * 0.65;
+    if (live.scan > 0) {
+      ctx.globalAlpha = (live.scan / 100) * 0.65;
       ctx.fillStyle = "#000";
       for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
       ctx.globalAlpha = 1;
     }
+    if (live.warp > 0) applyWarp(live.warp, tNow || 0);
+    if (live.hue > 0) applyHue(live.hue);
   }
 
   function scheduleRender() {
@@ -905,9 +1109,12 @@
 
   function buildShareText() {
     const who = currentHandle ? "@" + currentHandle + "'s" : "a";
-    return "ran " + who + " feed through murkbox — block " + params.block +
-      ", depth " + params.depth + ", dither " + params.dither + "%, murk " + params.murk +
-      "%. try your own: https://murkbox.bisks.net/";
+    const mod = lfo.on
+      ? " · LFO on " + PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label + " (" + WAVES[lfo.waveIdx].key + ")"
+      : "";
+    return "ran " + who + " feed through murkbox — block " + baseParams.block +
+      ", depth " + baseParams.depth + ", dither " + baseParams.dither + "%, murk " + baseParams.murk +
+      "%" + mod + ". try your own: https://murkbox.bisks.net/";
   }
 
   shareBtn.addEventListener("click", async () => {
