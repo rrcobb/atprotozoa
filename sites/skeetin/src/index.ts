@@ -160,10 +160,11 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
 }
 
 // ---------- SkeetIn Corvid: limited-edition numbered claim ----------
-// 500 numbers, ever. Anyone can type any handle in the claim box — same
-// no-auth read-only spirit as the rest of the site (nothing here writes to
-// a real PDS or grants a real privilege, it's a fake badge for a fake site)
-// — but the *numbering itself* is real and race-free: rank assignment reads
+// 500 numbers, ever. Anyone can type any handle in the claim box — no login
+// required, unlike the real-login feed/post/Endorse flow the rest of the
+// site now has (see public/lib/oauth.js): nothing here writes to a real PDS
+// or grants a real privilege, it's a fake badge for a fake site — but the
+// *numbering itself* is real and race-free: rank assignment reads
 // and writes `this.count` with no `await` between them, so two concurrent
 // claims can't ever be handed the same number (identical guarantee to
 // griftmax's AscensionEngine).

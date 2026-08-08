@@ -1,6 +1,12 @@
-// SkeetIn — Bluesky's public AppView, reskinned as a LinkedIn feed. No auth,
-// no writes: every fetch below hits the public read-only AppView mirror, so
-// nothing a visitor clicks here posts, follows, or likes anything for real.
+// SkeetIn — Bluesky's public AppView, reskinned as a LinkedIn feed. Browsing
+// (anyone's Skeeting Career, What's Hot) hits the public read-only AppView
+// mirror and needs no account. Sign in with real atproto OAuth (see
+// lib/oauth.js, copied from sites/skyclone) and three things become real,
+// genuine writes to your own PDS: My Feed (app.bsky.feed.getTimeline, proxied
+// through your own PDS), Start a post (app.bsky.feed.post), and Endorse
+// (app.bsky.feed.like, create+delete). Comment/Repost/Send still just open
+// the real post on Bluesky — @antiali.as's ask was login + feed + posting +
+// liking, not a full write surface.
 (function () {
   "use strict";
 
@@ -44,7 +50,24 @@
     // SkeetIn Corvid
     corvidNavCount: document.getElementById("corvidNavCount"),
     pfCorvidBadge: document.getElementById("pfCorvidBadge"),
+    // real login
+    sessionStrip: document.getElementById("sessionStrip"),
+    feedTabs: document.getElementById("feedTabs"),
   };
+
+  // ---------- real login (atproto OAuth) ----------
+  let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null — see lib/oauth.js
+  let sessionProfile = null; // { avatar, displayName, ... } for the logged-in user, best-effort
+  let oauthLib = null;
+  // post uri -> like record uri, for posts Endorsed/un-Endorsed this session. The
+  // public AppView never returns viewer state, so there's no way to know on load
+  // whether a post was already liked elsewhere — same limitation as skyclone.
+  const likedPosts = new Map();
+
+  async function oauth() {
+    if (!oauthLib) oauthLib = await import("/lib/oauth.js");
+    return oauthLib;
+  }
 
   // ---------- tiny utils ----------
   function esc(s) {
@@ -305,6 +328,7 @@
     const headline = jobTitleFor(a.handle);
     const url = postBskyUrl(post);
     const openBsky = `window.open(${JSON.stringify(url)}, "_blank", "noopener")`;
+    const endorsed = likedPosts.has(post.uri);
     return `
     <div class="card post">
       <div class="post-head">
@@ -320,16 +344,83 @@
       ${renderEmbed(post.embed)}
       <div class="reaction-summary">
         <span class="glyphs"><span class="g-like">👍</span><span class="g-love">❤</span><span class="g-clap">👏</span></span>
-        <span class="rcount" onclick='${openBsky}'>${fmt(post.likeCount)}</span>
+        <span class="rcount" data-count="${post.likeCount || 0}" onclick='${openBsky}'>${fmt(post.likeCount)}</span>
       </div>
       <div class="post-actions">
-        <button onclick='${openBsky}'>${REACT_ICONS.like} Like</button>
+        <button class="like-btn${endorsed ? " endorsed" : ""}" data-action="endorse" data-uri="${esc(post.uri)}" data-cid="${esc(post.cid || "")}">${REACT_ICONS.like} ${endorsed ? "Endorsed" : "Like"}</button>
         <button onclick='${openBsky}'>${REACT_ICONS.comment} Comment${post.replyCount ? " · " + fmt(post.replyCount) : ""}</button>
         <button onclick='${openBsky}'>${REACT_ICONS.repost} Repost${post.repostCount ? " · " + fmt(post.repostCount) : ""}</button>
         <button onclick='${openBsky}'>${REACT_ICONS.send} Send</button>
       </div>
     </div>`;
   }
+
+  // A real app.bsky.feed.like record, created (and deleted, to un-Endorse)
+  // directly on the user's own PDS via their DPoP-bound OAuth session — no
+  // AppView proxy needed for repo writes, same pattern as skyclone's toggleLike.
+  async function toggleEndorse(btn) {
+    if (!session) {
+      openLoginModal();
+      return;
+    }
+    const uri = btn.getAttribute("data-uri");
+    const cid = btn.getAttribute("data-cid");
+    const wasEndorsed = likedPosts.has(uri);
+    const postEl = btn.closest(".post");
+    const countEl = postEl ? postEl.querySelector(".rcount") : null;
+    const base = countEl ? Number(countEl.getAttribute("data-count") || 0) : 0;
+
+    btn.classList.toggle("endorsed", !wasEndorsed);
+    btn.innerHTML = `${REACT_ICONS.like} ${wasEndorsed ? "Like" : "Endorsed"}`;
+    if (countEl) {
+      const next = wasEndorsed ? Math.max(0, base - 1) : base + 1;
+      countEl.setAttribute("data-count", next);
+      countEl.textContent = fmt(next);
+    }
+
+    try {
+      const { dpopFetch } = await oauth();
+      const pds = session.pdsUrl.replace(/\/$/, "");
+      if (!wasEndorsed) {
+        const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: "app.bsky.feed.like",
+            record: { $type: "app.bsky.feed.like", subject: { uri, cid }, createdAt: new Date().toISOString() },
+          }),
+        });
+        if (!res.ok) throw new Error(`endorse failed (${res.status})`);
+        const data = await res.json();
+        likedPosts.set(uri, data.uri);
+        toast("👍 Endorsed");
+      } else {
+        const likeUri = likedPosts.get(uri);
+        if (likeUri) {
+          const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.like", rkey: likeUri.split("/").pop() }),
+          });
+          if (!res.ok) throw new Error(`un-endorse failed (${res.status})`);
+        }
+        likedPosts.delete(uri);
+      }
+    } catch (e) {
+      btn.classList.toggle("endorsed", wasEndorsed);
+      btn.innerHTML = `${REACT_ICONS.like} ${wasEndorsed ? "Endorsed" : "Like"}`;
+      if (countEl) {
+        countEl.setAttribute("data-count", base);
+        countEl.textContent = fmt(base);
+      }
+      toast(e.message || "Couldn't update Endorsement");
+    }
+  }
+  els.feedRoot.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action='endorse']");
+    if (btn) toggleEndorse(btn);
+  });
 
   function fmt(n) {
     n = n || 0;
@@ -484,6 +575,7 @@
 
       const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
       currentActor = did;
+      renderFeedTabs();
       history.pushState({}, "", "/?u=" + encodeURIComponent(profile.handle));
       document.title = "SkeetIn: " + (profile.displayName || profile.handle);
 
@@ -499,8 +591,15 @@
       els.pfPosts.textContent = fmt(profile.postsCount);
       els.pfViewers.textContent = fmt(3 + (hashStr(did) % 900));
       els.pfBskyLink.href = "https://bsky.app/profile/" + profile.handle;
-      els.composerAvatar.src = profile.avatar || "";
-      els.meAvatar.src = profile.avatar || "";
+      // The "Me" avatar mirrors whoever's Skeeting Career you're viewing —
+      // satire ("this is you, hypothetically") for a logged-out visitor. Once
+      // real login is active it must stay the real signed-in user, since
+      // Start a post / Endorse genuinely write as that account, not whoever's
+      // profile happens to be open.
+      if (!session) {
+        els.composerAvatar.src = profile.avatar || "";
+        els.meAvatar.src = profile.avatar || "";
+      }
 
       renderProfileViewers(did);
       renderCorvidBadge(did);
@@ -512,12 +611,253 @@
     }
   }
 
+  // ---------- login modal ----------
+  function openLoginModal() {
+    if (document.getElementById("loginModal")) return;
+    const box = document.createElement("div");
+    box.id = "loginModal";
+    box.className = "modal-veil";
+    box.innerHTML = `
+      <div class="modal-box">
+        <button class="modal-close" id="loginModalClose" aria-label="Close">&times;</button>
+        <h2>Sign in with Bluesky</h2>
+        <div class="modal-sub">Real atproto OAuth, straight to your own PDS — SkeetIn never sees your password.
+          This unlocks your real My Feed (Connections' updates), and lets you actually Start a post and Endorse —
+          genuine writes to your own repo. SkeetIn still can't follow, repost, or DM for you.</div>
+        <input id="loginHandle" type="text" placeholder="yourhandle.bsky.social" autocomplete="off" />
+        <div class="modal-actions">
+          <button type="button" class="pill-btn" id="loginCancel">Cancel</button>
+          <button type="button" class="pill-btn primary" id="loginGo">Continue</button>
+        </div>
+        <div class="modal-status" id="loginStatus"></div>
+      </div>`;
+    document.body.appendChild(box);
+    const input = document.getElementById("loginHandle");
+    input.focus();
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(input);
+    box.addEventListener("click", (e) => { if (e.target === box) closeLoginModal(); });
+    document.getElementById("loginModalClose").onclick = closeLoginModal;
+    document.getElementById("loginCancel").onclick = closeLoginModal;
+    const go = document.getElementById("loginGo");
+    const status = document.getElementById("loginStatus");
+    const submit = async () => {
+      const h = input.value.trim().replace(/^@/, "");
+      if (!h) return;
+      go.disabled = true;
+      status.textContent = "Redirecting to your PDS…";
+      try {
+        const { login } = await oauth();
+        await login(h); // navigates away on success
+      } catch (e) {
+        status.textContent = e.message || String(e);
+        go.disabled = false;
+      }
+    };
+    go.onclick = submit;
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  }
+  function closeLoginModal() {
+    document.getElementById("loginModal")?.remove();
+  }
+
+  async function logout() {
+    const { clearSession } = await oauth();
+    await clearSession();
+    session = null;
+    sessionProfile = null;
+    likedPosts.clear();
+    renderMeNav();
+    renderSessionStrip();
+    toast("Signed out");
+    if (!currentActor) {
+      feedTab = "discover";
+      renderFeedTabs();
+      loadActiveFeed(true);
+    }
+  }
+
+  // ---------- compose modal (real app.bsky.feed.post) ----------
+  function openComposeModal() {
+    if (!session) {
+      openLoginModal();
+      return;
+    }
+    if (document.getElementById("composeModal")) return;
+    const box = document.createElement("div");
+    box.id = "composeModal";
+    box.className = "modal-veil";
+    box.innerHTML = `
+      <div class="modal-box">
+        <button class="modal-close" id="composeModalClose" aria-label="Close">&times;</button>
+        <h2>Start a post</h2>
+        <div class="modal-sub">Posting as @${esc(session.handle)} — a real app.bsky.feed.post, written straight to your own repo.</div>
+        <textarea id="composeText" maxlength="300" placeholder="What do you want to talk about?" autocomplete="off"></textarea>
+        <div class="modal-char-count" id="composeChars">300</div>
+        <div class="modal-actions">
+          <button type="button" class="pill-btn" id="composeCancel">Cancel</button>
+          <button type="button" class="pill-btn primary" id="composeGo">Post</button>
+        </div>
+        <div class="modal-status" id="composeStatus"></div>
+      </div>`;
+    document.body.appendChild(box);
+    const input = document.getElementById("composeText");
+    const chars = document.getElementById("composeChars");
+    input.focus();
+    input.addEventListener("input", () => { chars.textContent = String(300 - input.value.length); });
+    box.addEventListener("click", (e) => { if (e.target === box) closeComposeModal(); });
+    document.getElementById("composeModalClose").onclick = closeComposeModal;
+    document.getElementById("composeCancel").onclick = closeComposeModal;
+    const go = document.getElementById("composeGo");
+    const status = document.getElementById("composeStatus");
+    const submit = async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      go.disabled = true;
+      status.textContent = "Posting…";
+      try {
+        const { dpopFetch } = await oauth();
+        const pds = session.pdsUrl.replace(/\/$/, "");
+        const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: "app.bsky.feed.post",
+            record: { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString() },
+          }),
+        });
+        if (!res.ok) throw new Error(`post failed (${res.status})`);
+        closeComposeModal();
+        toast("Posted to your Skeeting Career 🎉");
+        if (!currentActor && feedTab === "timeline") loadActiveFeed(true);
+      } catch (e) {
+        status.textContent = e.message || String(e);
+        go.disabled = false;
+      }
+    };
+    go.onclick = submit;
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(); });
+  }
+  function closeComposeModal() {
+    document.getElementById("composeModal")?.remove();
+  }
+
+  function renderMeNav() {
+    if (session) {
+      const avatar = (sessionProfile && sessionProfile.avatar) || "";
+      els.meAvatar.src = avatar;
+      els.composerAvatar.src = avatar;
+      els.meNav.title = `Signed in as @${session.handle} — view your profile`;
+    } else {
+      els.meAvatar.src = "";
+      els.composerAvatar.src = "";
+      els.meNav.title = "Sign in with your real Bluesky account";
+    }
+  }
+
+  function renderSessionStrip() {
+    if (!els.sessionStrip) return;
+    if (session) {
+      els.sessionStrip.style.display = "flex";
+      els.sessionStrip.innerHTML =
+        `🟢 Signed in as <b>@${esc(session.handle)}</b> — posts and Endorsements are real.
+         <button type="button" id="signOutBtn">Sign out</button>`;
+      document.getElementById("signOutBtn").addEventListener("click", logout);
+    } else {
+      els.sessionStrip.style.display = "none";
+      els.sessionStrip.innerHTML = "";
+    }
+  }
+
+  // ---------- feed tabs (My Feed / What's Hot) ----------
+  let feedTab = "discover"; // "timeline" | "discover" — meaningful only when no profile is loaded
+
+  function renderFeedTabs() {
+    if (!els.feedTabs) return;
+    if (currentActor) {
+      els.feedTabs.style.display = "none";
+      els.feedTabs.innerHTML = "";
+      return;
+    }
+    els.feedTabs.style.display = "flex";
+    els.feedTabs.innerHTML = `
+      <div class="feed-tab${feedTab === "timeline" ? " active" : ""}" data-tab="timeline">🏠 My Feed</div>
+      <div class="feed-tab${feedTab === "discover" ? " active" : ""}" data-tab="discover">🔥 What's Hot</div>`;
+    [...els.feedTabs.querySelectorAll(".feed-tab")].forEach((t) => {
+      t.addEventListener("click", () => {
+        const tab = t.getAttribute("data-tab");
+        if (tab === feedTab) return;
+        if (tab === "timeline" && !session) {
+          openLoginModal();
+          return;
+        }
+        feedTab = tab;
+        renderFeedTabs();
+        loadActiveFeed(true);
+      });
+    });
+  }
+
+  async function loadActiveFeed(replace) {
+    if (feedTab === "timeline") await loadTimeline(replace);
+    else await loadWhatsHot(replace);
+  }
+
+  // Real getTimeline for a logged-in visitor — proxied through their own PDS to
+  // the AppView (the DPoP-bound session lib/oauth.js sets up), so My Feed
+  // reflects their actual Connections (follows), not the public What's Hot feed.
+  async function loadTimeline(replace) {
+    if (!session) {
+      feedTab = "discover";
+      renderFeedTabs();
+      return loadWhatsHot(replace);
+    }
+    if (replace) {
+      els.feedRoot.innerHTML = "";
+      currentCursor = null;
+    }
+    try {
+      const { dpopFetch } = await oauth();
+      const url = new URL(`${session.pdsUrl.replace(/\/$/, "")}/xrpc/app.bsky.feed.getTimeline`);
+      url.searchParams.set("limit", "20");
+      if (currentCursor) url.searchParams.set("cursor", currentCursor);
+      const res = await dpopFetch(session, url.toString(), {
+        headers: { accept: "application/json", "atproto-proxy": "did:web:api.bsky.app#bsky_appview" },
+      });
+      if (!res.ok) throw new Error(`getTimeline failed (${res.status})`);
+      const data = await res.json();
+      currentCursor = data.cursor || null;
+      const old = els.feedRoot.querySelector(".loadmore");
+      if (old) old.remove();
+      if (!data.feed || !data.feed.length) {
+        if (replace) els.feedRoot.innerHTML = `<div class="card empty-state"><h2>Nothing here yet</h2><p>Connect with people on Bluesky and their skeets will show up in My Feed.</p></div>`;
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.innerHTML = data.feed.map((f) => renderPost(f.post)).join("");
+      els.feedRoot.appendChild(wrap);
+      updateNews(data.feed);
+      if (currentCursor) renderMoreButton(async () => { await loadTimeline(false); });
+    } catch (e) {
+      if (replace) els.feedRoot.innerHTML = `<div class="card empty-state"><h2>Couldn't load My Feed</h2><p>${esc(e.message || String(e))}</p></div>`;
+    }
+  }
+
   // ---------- wiring ----------
   els.composerBtn.addEventListener("click", () => {
-    toast("SkeetIn is read-only — draft your actual post on Bluesky ↗");
-    window.open("https://bsky.app/intent/compose", "_blank", "noopener");
+    if (!session) {
+      openLoginModal();
+      return;
+    }
+    openComposeModal();
   });
-  els.meNav.addEventListener("click", () => toast("You don't have a SkeetIn account. Nobody does. This isn't real."));
+  els.meNav.addEventListener("click", () => {
+    if (!session) {
+      openLoginModal();
+      return;
+    }
+    loadProfile(session.handle);
+  });
 
   [...document.querySelectorAll(".chip")].forEach((chip) => {
     chip.addEventListener("click", () => loadProfile(chip.dataset.handle));
@@ -531,17 +871,46 @@
   });
 
   // ---------- boot ----------
-  function boot() {
+  // Complete an in-flight OAuth callback (if this load is the PDS redirecting
+  // back with ?code&state), or restore a previously-logged-in session, before
+  // the first render — so a returning signed-in visitor lands on their real
+  // My Feed instead of flashing the logged-out What's Hot feed first.
+  async function boot() {
     applyTopUiState();
     refreshCorvidNavCount();
+
+    let bootError = null;
+    let freshLogin = null;
+    try {
+      const { completeLoginIfCallback, getSession } = await oauth();
+      freshLogin = await completeLoginIfCallback();
+      session = freshLogin || (await getSession());
+    } catch (e) {
+      bootError = e.message || String(e);
+      session = null;
+    }
+    if (session) {
+      try {
+        sessionProfile = await xrpc("app.bsky.actor.getProfile", { actor: session.did });
+      } catch (_) {
+        sessionProfile = null;
+      }
+    }
+    renderMeNav();
+    renderSessionStrip();
+    if (freshLogin) toast(`Signed in as @${freshLogin.handle}`);
+    if (bootError) toast(bootError);
+
     const path = location.pathname.match(/^\/s\/([^/]+)\/?$/);
     const qs = new URLSearchParams(location.search);
     const handle = path ? path[1] : qs.get("u");
     if (handle) {
       loadProfile(handle);
     } else {
+      feedTab = session ? "timeline" : "discover";
+      renderFeedTabs();
       els.feedRoot.innerHTML = "";
-      loadWhatsHot(true);
+      loadActiveFeed(true);
       renderSuggestions(null, WHATS_HOT_DID);
     }
   }
