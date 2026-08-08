@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>recursivedo — a to-do list that improves itself, allegedly — bisks.net</title>
+    <meta
+      name="description"
+      content="A to-do list that hands out one new task a day. The task is always some flavor of 'improve the website that generates this to-do list.' It never gets any better — that's the bit."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://recursivedo.bisks.net/" />
+    <meta property="og:title" content="recursivedo — a to-do list that improves itself, allegedly" />
+    <meta
+      property="og:description"
+      content="One new task a day, always some flavor of 'improve the website that generates this to-do list.' It never actually gets better. That's the bit."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="recursivedo — a to-do list that improves itself, allegedly" />
+    <meta
+      name="twitter:description"
+      content="One new task a day, always some flavor of 'improve the website that generates this to-do list.' It never actually gets better."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / idea-mill / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── headline: today's task ───────────────────────────────────── */
+      .headline {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 2rem;
+      }
+      .headline .cap {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 0.5rem; flex-wrap: wrap;
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); margin-bottom: 0.55rem;
+      }
+      .headline .cap .ver { color: var(--accent); }
+      .headline .task {
+        font-size: 1.28rem; line-height: 1.45; font-weight: 600;
+        margin: 0 0 1.1rem;
+      }
+      .headline .task.done { color: var(--muted); text-decoration: line-through; }
+      .donerow { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+      .donerow label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; }
+      .donerow input { width: 16px; height: 16px; accent-color: var(--good); cursor: pointer; }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+
+      /* ── stats strip ───────────────────────────────────────────────── */
+      .stats {
+        display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.25rem;
+        font-size: 0.82rem; color: var(--muted);
+      }
+      .stats b { color: var(--ink); font-weight: 600; }
+
+      /* ── the log ───────────────────────────────────────────────────── */
+      .feedhead {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;
+      }
+      .feedhead h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+      .feedhead .sub { color: var(--muted); font-size: 0.8rem; }
+
+      #log { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        display: flex; gap: 0.8rem; align-items: flex-start;
+      }
+      #log li:first-child { border-top: 1px solid var(--ink); }
+      #log li.done .txt { color: var(--muted); text-decoration: line-through; }
+      #log input { margin-top: 0.2rem; width: 15px; height: 15px; accent-color: var(--good); cursor: pointer; flex: none; }
+      #log .body { flex: 1; min-width: 0; }
+      #log .txt { margin: 0 0 0.3rem; }
+      #log .when { color: var(--muted); font-size: 0.72rem; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>recursivedo <span class="slash">· a to-do list that improves itself, allegedly</span></h1>
+      <p class="intro">
+        One new task drops every day, and it's always some flavor of
+        <b>“improve the website that generates this to-do list.”</b> Check
+        it off if you like — the box lives only in your browser, so nothing
+        anywhere actually gets better. That's not a bug in the joke, it's
+        the whole joke: a self-improvement loop that only ever improves its
+        own paperwork. This tick's theme-box idea, for "recursive self
+        improvement."
+      </p>
+
+      <section class="headline">
+        <div class="cap">
+          <span id="dayLabel">day —</span>
+          <span class="ver" id="verLabel">v0.—</span>
+        </div>
+        <p class="task" id="task">loading…</p>
+        <div class="donerow">
+          <label>
+            <input type="checkbox" id="doneBox" />
+            mark today's improvement complete
+          </label>
+        </div>
+        <div class="btnrow">
+          <a class="btn" id="sendBuild" target="_blank" rel="noopener">send to @buildthis ↗</a>
+          <button class="ghost" id="copyBtn">copy</button>
+          <a class="btn ghost" id="shareBtn" target="_blank" rel="noopener">share ↗</a>
+          <span class="copied" id="copied">copied</span>
+        </div>
+      </section>
+
+      <div class="stats">
+        <span><b id="statShipped">0</b>/<b id="statTotal">0</b> improvements you've personally taken credit for</span>
+        <span><b id="statStreak">0</b>-day streak</span>
+      </div>
+
+      <div class="feedhead">
+        <h2>the log</h2>
+        <span class="sub">every day since launch — check off retroactively, we won't tell anyone</span>
+      </div>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          <b>Nothing here is stored anywhere but your browser.</b> Today's
+          task is seeded by the date, so it's the same for everyone; the
+          checkboxes are <code>localStorage</code>, so your "progress" is
+          yours alone and the site's actual code hasn't changed since the
+          day it shipped. It's not going to. It's very busy generating
+          tasks about that.
+        </p>
+        <p>
+          sibling of <a href="https://idea-mill.bisks.net">idea-mill</a> and
+          <a href="https://bisks.net">bisks.net</a>. built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          which is, if you send it today's task, entirely capable of taking
+          the assignment literally.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { taskForDate, dayNumber, versionFor, recentDates, dateStr } from "./lib/todo.js";
+
+      const today = dateStr(new Date()); // YYYY-MM-DD (UTC)
+      const SITE_URL = "https://recursivedo.bisks.net/";
+      const DONE_PREFIX = "recursivedo:done:";
+
+      const isDone = (d) => { try { return localStorage.getItem(DONE_PREFIX + d) === "1"; } catch { return false; } };
+      const setDone = (d, v) => { try { localStorage.setItem(DONE_PREFIX + d, v ? "1" : "0"); } catch {} };
+
+      const composeBuildUrl = (task) =>
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent("@buildthis.bisks.net " + task);
+
+      // ── headline: today's task ───────────────────────────────────────
+      const todayTask = taskForDate(today);
+      const taskEl = document.getElementById("task");
+      const dayLabel = document.getElementById("dayLabel");
+      const verLabel = document.getElementById("verLabel");
+      const doneBox = document.getElementById("doneBox");
+      const sendBuild = document.getElementById("sendBuild");
+      const copyBtn = document.getElementById("copyBtn");
+      const copied = document.getElementById("copied");
+      const shareBtn = document.getElementById("shareBtn");
+
+      dayLabel.textContent = "day " + dayNumber(today);
+      verLabel.textContent = versionFor(today);
+      taskEl.textContent = todayTask;
+      sendBuild.href = composeBuildUrl(todayTask);
+
+      function refreshHeadline() {
+        const done = isDone(today);
+        doneBox.checked = done;
+        taskEl.classList.toggle("done", done);
+      }
+      refreshHeadline();
+      doneBox.addEventListener("change", () => {
+        setDone(today, doneBox.checked);
+        refreshHeadline();
+        renderLog();
+        renderStats();
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(todayTask + " — " + SITE_URL); }
+        catch { /* clipboard blocked — send/share still work */ }
+        copied.classList.add("show");
+        setTimeout(() => copied.classList.remove("show"), 1200);
+      });
+
+      const shareText =
+        "today's assignment from recursivedo: “" + todayTask + "” — " + SITE_URL;
+      shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+      // ── the log: every day since launch ────────────────────────────
+      const HISTORY_DAYS = 14;
+      const log = document.getElementById("log");
+
+      function relDay(d) {
+        if (d === today) return "today";
+        const days = Math.round((new Date(today + "T00:00:00Z") - new Date(d + "T00:00:00Z")) / 86400000);
+        return days === 1 ? "yesterday" : days + " days ago";
+      }
+
+      function renderLog() {
+        const dates = recentDates(today, HISTORY_DAYS);
+        log.innerHTML = "";
+        for (const d of dates) {
+          const task = taskForDate(d);
+          const done = isDone(d);
+          const li = document.createElement("li");
+          li.className = done ? "done" : "";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = done;
+          cb.addEventListener("change", () => {
+            setDone(d, cb.checked);
+            if (d === today) refreshHeadline();
+            renderLog();
+            renderStats();
+          });
+          const body = document.createElement("div");
+          body.className = "body";
+          const txt = document.createElement("p");
+          txt.className = "txt";
+          txt.textContent = "day " + dayNumber(d) + " · " + task;
+          const when = document.createElement("div");
+          when.className = "when";
+          when.textContent = relDay(d) + " · " + versionFor(d);
+          body.append(txt, when);
+          li.append(cb, body);
+          log.appendChild(li);
+        }
+      }
+      renderLog();
+
+      // ── stats ────────────────────────────────────────────────────────
+      function renderStats() {
+        const dates = recentDates(today, HISTORY_DAYS);
+        const shipped = dates.filter(isDone).length;
+        document.getElementById("statShipped").textContent = shipped;
+        document.getElementById("statTotal").textContent = dates.length;
+        let streak = 0;
+        for (const d of dates) {
+          if (!isDone(d)) break;
+          streak++;
+        }
+        document.getElementById("statStreak").textContent = streak;
+      }
+      renderStats();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
