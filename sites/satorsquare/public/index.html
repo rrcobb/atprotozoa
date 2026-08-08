@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>satorsquare — real 3-letter word squares</title>
+<meta name="description" content="a sator square generator + build-your-own puzzle, limited to real three-letter words (plus AOC, AGI, CIA, LSD and a few other honorary ones).">
+<meta property="og:title" content="satorsquare">
+<meta property="og:description" content="a sator square generator + build-your-own puzzle, limited to real three-letter words (plus AOC, AGI, CIA, LSD and a few other honorary ones).">
+<meta property="og:url" content="https://satorsquare.bisks.net/">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://satorsquare.bisks.net/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="SATOR3: a sator square generator and puzzle, limited to real three-letter words. Example grid reading CIA / ISP / API.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="satorsquare">
+<meta name="twitter:description" content="a sator square generator + build-your-own puzzle, limited to real three-letter words (plus AOC, AGI, CIA, LSD and a few other honorary ones).">
+<meta name="twitter:image" content="https://satorsquare.bisks.net/og.png">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    padding: 40px 16px 70px;
+    background:
+      radial-gradient(ellipse at 50% -10%, #2b2416 0%, #17140d 55%, #0c0a06 100%);
+    color: #ecdfc4;
+    font-family: Georgia, 'Times New Roman', serif;
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(30px, 6vw, 46px);
+    letter-spacing: 0.18em;
+    color: #e7c874;
+    text-shadow: 0 0 24px rgba(231, 200, 116, 0.25);
+  }
+  h1 span { color: #b98b3a; font-size: 0.6em; vertical-align: super; }
+  p.sub {
+    margin: 0;
+    color: #b8ab88;
+    max-width: 52ch;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    background: #1c1810;
+    padding: 5px;
+    border-radius: 10px;
+    border: 1px solid #3a3120;
+  }
+  .tab {
+    font-family: inherit;
+    background: transparent;
+    border: none;
+    color: #a99a76;
+    padding: 9px 18px;
+    border-radius: 7px;
+    font-size: 14px;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+  }
+  .tab.active { background: #4a3c20; color: #f2e2b8; }
+  main { width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; }
+  .panel { display: none; width: 100%; flex-direction: column; align-items: center; gap: 16px; }
+  .panel.active { display: flex; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    background: #241d10;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #4a3c20;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4), inset 0 0 30px rgba(231,200,116,0.03);
+  }
+  .cell {
+    width: 78px;
+    height: 78px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: 700;
+    color: #f2e2b8;
+    background: #2f2716;
+    border: 1px solid #4a3c20;
+    border-radius: 6px;
+    text-transform: uppercase;
+  }
+  .grid.editable .cell {
+    background: #1c1810;
+  }
+  .cell input {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #f2e2b8;
+    font-family: inherit;
+    font-size: 32px;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    caret-color: #e7c874;
+  }
+  .cell.mirror { color: #8c7c54; background: #191509; }
+  .cell.locked { color: #e7c874; background: #362a13; }
+  .cell.row-ok { background: #21331e; border-color: #4e7a44; }
+  .cell.row-bad { background: #3a2020; border-color: #7a4a4a; }
+
+  .words { font-size: 16px; letter-spacing: 0.04em; color: #d7c79a; }
+  .words b { color: #f2e2b8; }
+  .acronym-note {
+    font-size: 13.5px;
+    color: #cbb87e;
+    background: #241d10;
+    border: 1px solid #4a3c20;
+    border-radius: 8px;
+    padding: 8px 12px;
+    max-width: 380px;
+  }
+  .acronym-note b { color: #e7c874; }
+
+  .controls, .share-row, .challenge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+  }
+  button, select {
+    font-family: inherit;
+    background: #3a3020;
+    color: #f2e2b8;
+    border: 1px solid #5a4a2c;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+  }
+  button:hover { background: #4a3c26; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: linear-gradient(135deg, #a97a2b, #e7c874); color: #241d10; border: none; font-weight: 700; }
+  select { cursor: pointer; }
+
+  #build-status { font-size: 14px; min-height: 20px; color: #cbb87e; }
+  #build-status.win { color: #7fbf6a; font-weight: 700; }
+
+  footer {
+    max-width: 500px;
+    font-size: 12.5px;
+    color: #8c7c54;
+    line-height: 1.6;
+    margin-top: 10px;
+  }
+  footer a { color: #cbb87e; }
+
+  canvas#card-canvas { display: none; }
+</style>
+</head>
+<body>
+
+<h1>SATOR<span>3</span></h1>
+<p class="sub">a sator square generator and build-your-own puzzle, limited to real three-letter words — plus AOC, AGI, CIA, LSD and a few other honorary ones. a square reads the same across and down.</p>
+
+<nav class="tabs">
+  <button class="tab active" data-mode="generate">generate</button>
+  <button class="tab" data-mode="build">build your own</button>
+</nav>
+
+<main>
+  <section id="generate-panel" class="panel active">
+    <div class="grid" id="gen-grid"></div>
+    <div class="words" id="gen-words">loading…</div>
+    <div class="acronym-note" id="gen-acronym-note" hidden></div>
+    <div class="controls">
+      <button id="gen-shuffle" class="primary">shuffle</button>
+      <button id="gen-acronym">surprise me with an acronym</button>
+    </div>
+    <div class="share-row">
+      <button id="gen-share-bsky">share to bluesky</button>
+      <button id="gen-share-card">save image</button>
+    </div>
+  </section>
+
+  <section id="build-panel" class="panel">
+    <div class="challenge-row">
+      <label for="challenge-select">start from</label>
+      <select id="challenge-select">
+        <option value="">blank grid</option>
+        <option value="AOC">AOC</option>
+        <option value="AGI">AGI</option>
+        <option value="CIA">CIA</option>
+        <option value="LSD">LSD</option>
+      </select>
+      <button id="reveal-btn">reveal a solution</button>
+      <button id="clear-btn">clear</button>
+    </div>
+    <div class="grid editable" id="build-grid"></div>
+    <div id="build-status">fill in the six free letters — the rest mirror automatically.</div>
+    <div class="acronym-note" id="build-acronym-note" hidden></div>
+    <div class="share-row" id="build-share-row" hidden>
+      <button id="build-share-bsky">share to bluesky</button>
+      <button id="build-share-card">save image</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  a sator square is a grid of words that reads the same across and down — the trick behind the
+  2000-year-old Latin square <em>SATOR AREPO TENET OPERA ROTAS</em>. this one sticks to real
+  three-letter English words (plus a short list of well-known initialisms), so you can go find
+  your AOC / AGI / CIA / LSD in there. sparked by a thread where
+  <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a> spelled AGI out of
+  a grid of letters. built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> —
+  more at <a href="https://bisks.net">bisks.net</a>.
+</footer>
+
+<canvas id="card-canvas" width="1200" height="630"></canvas>
+
+<script>
+const SITE_URL = "https://satorsquare.bisks.net/";
+let WORDS = [];
+let WORD_SET = new Set();
+let ACRONYMS = {};
+let SQUARES = [];
+let SQUARES_WITH_ACRONYM = [];
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- data ----------
+async function loadData() {
+  const [wordsRes, squaresRes] = await Promise.all([
+    fetch("/data/words.json"),
+    fetch("/data/squares.json"),
+  ]);
+  const wordsData = await wordsRes.json();
+  SQUARES = await squaresRes.json();
+  WORDS = wordsData.words;
+  WORD_SET = new Set(WORDS);
+  ACRONYMS = wordsData.acronyms;
+  SQUARES_WITH_ACRONYM = SQUARES.filter((s) => s.acronyms.length > 0);
+}
+
+function acronymBlurb(rows) {
+  const hits = rows.map((w) => w.toUpperCase()).filter((w) => ACRONYMS[w]);
+  if (!hits.length) return null;
+  return hits.map((w) => `<b>${w}</b> — ${ACRONYMS[w]}`).join("<br>");
+}
+
+// ---------- tabs ----------
+document.querySelectorAll(".tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    $(btn.dataset.mode + "-panel").classList.add("active");
+  });
+});
+
+// ---------- generate mode ----------
+let currentGenSquare = null;
+
+function renderGenGrid(rows) {
+  const grid = $("gen-grid");
+  grid.innerHTML = "";
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.textContent = rows[i][j].toUpperCase();
+      grid.appendChild(cell);
+    }
+  }
+}
+
+function showGenSquare(square) {
+  currentGenSquare = square;
+  renderGenGrid(square.rows);
+  $("gen-words").innerHTML =
+    "<b>" + square.rows.map((w) => w.toUpperCase()).join(" / ") + "</b> — reads the same across and down";
+  const blurb = acronymBlurb(square.rows);
+  const note = $("gen-acronym-note");
+  if (blurb) {
+    note.innerHTML = blurb;
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+}
+
+function randomFrom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+$("gen-shuffle").addEventListener("click", () => showGenSquare(randomFrom(SQUARES)));
+$("gen-acronym").addEventListener("click", () => showGenSquare(randomFrom(SQUARES_WITH_ACRONYM)));
+
+// ---------- build mode ----------
+// Editable cells are the diagonal + upper triangle; everything below the
+// diagonal is a read-only mirror, kept in sync automatically. That's the
+// whole trick of a sator square: grid[i][j] === grid[j][i].
+const EDITABLE = [[0,0],[0,1],[0,2],[1,1],[1,2],[2,2]];
+const MIRROR_OF = { "1,0": [0,1], "2,0": [0,2], "2,1": [1,2] };
+let buildCells = {}; // "i,j" -> {el, input?}
+let lockedRow0 = null;
+
+function buildGridDom() {
+  const grid = $("build-grid");
+  grid.innerHTML = "";
+  buildCells = {};
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const key = i + "," + j;
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      if (MIRROR_OF[key]) {
+        cell.classList.add("mirror");
+      } else {
+        const input = document.createElement("input");
+        input.maxLength = 1;
+        input.autocomplete = "off";
+        input.dataset.row = i;
+        input.dataset.col = j;
+        input.addEventListener("input", onCellInput);
+        input.addEventListener("keydown", onCellKeydown);
+        cell.appendChild(input);
+      }
+      grid.appendChild(cell);
+      buildCells[key] = cell;
+    }
+  }
+}
+
+function editableIndex(i, j) {
+  return EDITABLE.findIndex((p) => p[0] === i && p[1] === j);
+}
+
+function onCellKeydown(e) {
+  if (e.key === "Backspace" && !e.target.value) {
+    const idx = editableIndex(+e.target.dataset.row, +e.target.dataset.col);
+    if (idx > 0) {
+      const [pi, pj] = EDITABLE[idx - 1];
+      const prev = buildCells[pi + "," + pj].querySelector("input");
+      if (prev && !prev.disabled) prev.focus();
+    }
+  }
+}
+
+function onCellInput(e) {
+  const letter = e.target.value.replace(/[^a-zA-Z]/g, "").slice(-1).toUpperCase();
+  e.target.value = letter;
+  const i = +e.target.dataset.row, j = +e.target.dataset.col;
+
+  // mirror it
+  const mirrorKey = j + "," + i;
+  if (MIRROR_OF[mirrorKey]) {
+    buildCells[mirrorKey].textContent = letter;
+  }
+
+  if (letter) {
+    const idx = editableIndex(i, j);
+    if (idx >= 0 && idx < EDITABLE.length - 1) {
+      const [ni, nj] = EDITABLE[idx + 1];
+      const next = buildCells[ni + "," + nj].querySelector("input");
+      if (next && !next.disabled) next.focus();
+    }
+  }
+  validateBuild();
+}
+
+function cellValue(i, j) {
+  const key = i + "," + j;
+  const cell = buildCells[key];
+  const input = cell.querySelector("input");
+  return input ? input.value : cell.textContent;
+}
+
+function currentRows() {
+  const rows = [];
+  for (let i = 0; i < 3; i++) {
+    let w = "";
+    for (let j = 0; j < 3; j++) w += cellValue(i, j) || "";
+    rows.push(w.toLowerCase());
+  }
+  return rows;
+}
+
+function validateBuild() {
+  const rows = currentRows();
+  let allComplete = true;
+  let allValid = true;
+  for (let i = 0; i < 3; i++) {
+    const row = rows[i];
+    const complete = row.length === 3;
+    if (!complete) { allComplete = false; allValid = false; }
+    const valid = complete && WORD_SET.has(row);
+    if (!valid) allValid = false;
+    for (let j = 0; j < 3; j++) {
+      const cell = buildCells[i + "," + j];
+      cell.classList.remove("row-ok", "row-bad");
+      if (complete) cell.classList.add(valid ? "row-ok" : "row-bad");
+    }
+  }
+
+  const status = $("build-status");
+  const note = $("build-acronym-note");
+  const shareRow = $("build-share-row");
+  if (!allComplete) {
+    status.textContent = "fill in the six free letters — the rest mirror automatically.";
+    status.classList.remove("win");
+    note.hidden = true;
+    shareRow.hidden = true;
+  } else if (!allValid) {
+    status.textContent = "close — every row has to be a real three-letter word.";
+    status.classList.remove("win");
+    note.hidden = true;
+    shareRow.hidden = true;
+  } else {
+    status.textContent = "that's a sator square: " + rows.map((w) => w.toUpperCase()).join(" / ");
+    status.classList.add("win");
+    const blurb = acronymBlurb(rows);
+    if (blurb) {
+      note.innerHTML = blurb;
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
+    shareRow.hidden = false;
+  }
+  return { rows, allComplete, allValid };
+}
+
+function setCellLetter(i, j, letter, locked) {
+  const cell = buildCells[i + "," + j];
+  const input = cell.querySelector("input");
+  if (input) {
+    input.value = letter || "";
+    input.disabled = !!locked;
+    cell.classList.toggle("locked", !!locked);
+  } else {
+    cell.textContent = letter || "";
+  }
+}
+
+function resetBuildGrid() {
+  buildGridDom();
+  const challenge = $("challenge-select").value;
+  if (challenge) {
+    const letters = challenge.toLowerCase();
+    setCellLetter(0, 0, letters[0].toUpperCase(), true);
+    setCellLetter(0, 1, letters[1].toUpperCase(), true);
+    setCellLetter(0, 2, letters[2].toUpperCase(), true);
+    buildCells["1,0"].textContent = letters[1].toUpperCase();
+    buildCells["2,0"].textContent = letters[2].toUpperCase();
+    lockedRow0 = challenge;
+  } else {
+    lockedRow0 = null;
+  }
+  validateBuild();
+  const firstFree = challenge ? EDITABLE.find(([i]) => i !== 0) : EDITABLE[0];
+  if (firstFree) {
+    const [fi, fj] = firstFree;
+    const input = buildCells[fi + "," + fj].querySelector("input");
+    if (input) input.focus();
+  }
+}
+
+$("challenge-select").addEventListener("change", resetBuildGrid);
+$("clear-btn").addEventListener("click", resetBuildGrid);
+$("reveal-btn").addEventListener("click", () => {
+  let pool = SQUARES;
+  if (lockedRow0) {
+    const target = lockedRow0.toLowerCase();
+    pool = SQUARES.filter((s) => s.rows[0] === target);
+  }
+  if (!pool.length) return;
+  const sq = randomFrom(pool);
+  buildGridDom();
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const letter = sq.rows[i][j].toUpperCase();
+      const locked = lockedRow0 && i === 0;
+      setCellLetter(i, j, letter, locked);
+    }
+  }
+  validateBuild();
+});
+
+// ---------- sharing ----------
+function shareText(rows, verb) {
+  const url = SITE_URL + "?sq=" + rows.join("-");
+  const words = rows.map((w) => w.toUpperCase()).join(" / ");
+  return `${verb} a sator square: ${words} (reads the same across and down). try one: ${url}`;
+}
+
+function openBskyShare(text) {
+  const href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  window.open(href, "_blank", "noopener");
+}
+
+$("gen-share-bsky").addEventListener("click", () => {
+  if (!currentGenSquare) return;
+  openBskyShare(shareText(currentGenSquare.rows, "found"));
+});
+$("build-share-bsky").addEventListener("click", () => {
+  const { rows, allValid } = validateBuild();
+  if (!allValid) return;
+  openBskyShare(shareText(rows, "built"));
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+
+async function buildShareCard(rows) {
+  const canvas = $("card-canvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const bg = ctx.createRadialGradient(W * 0.5, -60, 100, W * 0.5, H * 0.5, W * 0.75);
+  bg.addColorStop(0, "#2b2416");
+  bg.addColorStop(0.55, "#17140d");
+  bg.addColorStop(1, "#0c0a06");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#e7c874";
+  ctx.font = "bold 46px Georgia, serif";
+  ctx.fillText("SATOR³", W / 2, 90);
+
+  ctx.font = "18px Georgia, serif";
+  ctx.fillStyle = "#b8ab88";
+  ctx.fillText("reads the same across and down", W / 2, 125);
+
+  const gridSize = 340;
+  const cellSize = gridSize / 3;
+  const gx = W / 2 - gridSize / 2;
+  const gy = 165;
+
+  ctx.strokeStyle = "#4a3c20";
+  ctx.lineWidth = 2;
+  ctx.fillStyle = "#241d10";
+  ctx.fillRect(gx - 12, gy - 12, gridSize + 24, gridSize + 24);
+  ctx.strokeRect(gx - 12, gy - 12, gridSize + 24, gridSize + 24);
+
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const x = gx + j * cellSize;
+      const y = gy + i * cellSize;
+      ctx.fillStyle = "#2f2716";
+      ctx.fillRect(x + 3, y + 3, cellSize - 6, cellSize - 6);
+      ctx.strokeStyle = "#4a3c20";
+      ctx.strokeRect(x + 3, y + 3, cellSize - 6, cellSize - 6);
+      ctx.fillStyle = "#f2e2b8";
+      ctx.font = "bold 56px Georgia, serif";
+      ctx.fillText(rows[i][j].toUpperCase(), x + cellSize / 2, y + cellSize / 2 + 20);
+    }
+  }
+
+  const hits = rows.map((w) => w.toUpperCase()).filter((w) => ACRONYMS[w]);
+  ctx.font = "20px Georgia, serif";
+  ctx.fillStyle = "#cbb87e";
+  if (hits.length) {
+    ctx.fillText("contains " + hits.join(", "), W / 2, gy + gridSize + 46);
+  }
+
+  ctx.font = "16px Georgia, serif";
+  ctx.fillStyle = "#8c7c54";
+  ctx.fillText("satorsquare.bisks.net", W / 2, H - 30);
+
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+async function shareCard(rows, verb) {
+  const blob = await buildShareCard(rows);
+  if (!blob) return;
+  const file = new File([blob], "sator-square.png", { type: "image/png" });
+  if (canShareFiles()) {
+    try {
+      await navigator.share({ files: [file], text: shareText(rows, verb), title: "satorsquare" });
+      return;
+    } catch {
+      // fall through to download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "sator-square.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+$("gen-share-card").addEventListener("click", () => {
+  if (!currentGenSquare) return;
+  shareCard(currentGenSquare.rows, "found");
+});
+$("build-share-card").addEventListener("click", () => {
+  const { rows, allValid } = validateBuild();
+  if (!allValid) return;
+  shareCard(rows, "built");
+});
+
+// ---------- boot ----------
+async function boot() {
+  await loadData();
+
+  const params = new URLSearchParams(location.search);
+  const sq = params.get("sq");
+  const challenge = params.get("challenge");
+
+  let shared = null;
+  if (sq && /^[a-z]{3}-[a-z]{3}-[a-z]{3}$/i.test(sq)) {
+    const rows = sq.toLowerCase().split("-");
+    shared = SQUARES.find((s) => s.rows[0] === rows[0] && s.rows[1] === rows[1] && s.rows[2] === rows[2]);
+  }
+  showGenSquare(shared || randomFrom(SQUARES));
+
+  buildGridDom();
+  if (challenge && ["AOC", "AGI", "CIA", "LSD"].includes(challenge.toUpperCase())) {
+    $("challenge-select").value = challenge.toUpperCase();
+    document.querySelector('.tab[data-mode="build"]').click();
+  }
+  resetBuildGrid();
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+// Bonus "words" — real 3-letter initialisms, not dictionary words, admitted
+// to the solver specifically so the generator can surface the joke this site
+// was built for (thread: @words.bsky.social spelling AOC / AGI / CIA out of a
+// grid of letters). Each has a short label shown when it lands in a square.
+export const ACRONYMS = {
+  AOC: "congresswoman",
+  AGI: "the thing everyone's holding their breath about",
+  CIA: "intelligence agency",
+  LSD: "the other kind of trip",
+  FBI: "intelligence agency, domestic",
+  NSA: "the ones listening",
+  GOP: "one of the two houses",
+  DNC: "the other one",
+  UFO: "unidentified",
+  CEO: "chief executive",
+  NFT: "2021 called",
+  GPU: "what AGI runs on",
+  CPU: "what GPU replaced",
+  API: "how sites like this talk to each other",
+  URL: "you're looking at one",
+  SQL: "select * from jokes",
+  RAM: "or a sheep",
+  USB: "universal, mostly",
+  LED: "the light in your router",
+  GPS: "you are here",
+  ATM: "cash machine",
+  VIP: "very important person",
+  DIY: "do it yourself",
+  IRS: "they know where you live",
+  DOJ: "prosecutes",
+  SEC: "regulates",
+  USA: "the whole country",
+  ISP: "your connection",
+  VPN: "hides your connection",
+};
