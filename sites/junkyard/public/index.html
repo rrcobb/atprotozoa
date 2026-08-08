@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>junkyard — every free idea, welded into a website — bisks.net</title>
+    <meta
+      name="description"
+      content="Watches the live Bluesky/atproto firehose for the same 'free idea' posts trashpanda finds, and welds each one into a fake little standalone-website mockup right there on the page. No backend, nothing ever really deployed — just a robot arm and a websocket."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://junkyard.bisks.net/" />
+    <meta property="og:title" content="junkyard — every free idea, welded into a website" />
+    <meta
+      property="og:description"
+      content="Live off the Bluesky firehose, entirely client-side: every 'free idea' post gets welded into a fake little standalone-website mockup, right there on the page. No backend — a robot arm and a websocket."
+    />
+    <meta property="og:image" content="https://junkyard.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="junkyard: a scrapyard robot arm welding 'free idea' firehose posts into tiny fake websites." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="junkyard — every free idea, welded into a website" />
+    <meta
+      name="twitter:description"
+      content="Live off the Bluesky firehose, entirely in-browser: every 'free idea' post gets welded into a fake standalone-website mockup."
+    />
+    <meta name="twitter:image" content="https://junkyard.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #100e0c;
+        --bg2: #171310;
+        --panel: #1b1613;
+        --ink: #f1ece3;
+        --muted: #a99d8c;
+        --faint: #33291f;
+        --accent: #d9762f;
+        --accent2: #e8b23d;
+        --warn: #f4d03f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background:
+          radial-gradient(ellipse 900px 500px at 15% -10%, rgba(217,118,47,0.09), transparent 60%),
+          radial-gradient(ellipse 700px 500px at 100% 0%, rgba(232,178,61,0.06), transparent 55%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.4rem 1.15rem 6rem; }
+      a { color: var(--accent2); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { display: flex; align-items: flex-start; gap: 0.9rem; margin: 1.2rem 0 0.5rem; }
+      .mascot { flex: none; width: 52px; height: 52px; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5)); }
+      h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.25rem; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 0.95rem; display: block; margin-top: 0.15rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.7; max-width: 64ch; margin: 0.6rem 0 1.4rem; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
+      .dot.live { background: var(--warn); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+      .status b { color: var(--accent2); font-weight: 700; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.9;
+        padding: 2.2rem 0; border-top: 1px solid var(--faint); text-align: center;
+      }
+      .empty .big { font-size: 2rem; display: block; margin-bottom: 0.6rem; }
+
+      ol.yard { list-style: none; margin: 0; padding: 0; }
+      .row {
+        padding: 1.2rem 0;
+        border-top: 1px solid var(--faint);
+        animation: rowIn 0.4s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+      /* the welded-together fake website mockup */
+      .mockup {
+        border: 1px solid var(--faint); border-radius: 10px; overflow: hidden;
+        background: #0c0a08; box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+      }
+      .mockup.building { animation: weld 1.1s ease; }
+      @keyframes weld {
+        0% { filter: brightness(2.4) saturate(0); outline: 2px solid var(--warn); }
+        15% { filter: brightness(0.7) saturate(0.3); }
+        30% { filter: brightness(2) saturate(0.6); }
+        45% { filter: brightness(0.8); }
+        100% { filter: none; outline: 2px solid transparent; }
+      }
+      .chrome {
+        display: flex; align-items: center; gap: 0.5rem;
+        padding: 0.55rem 0.7rem; background: #171310; border-bottom: 1px solid var(--faint);
+      }
+      .chrome .tl { display: flex; gap: 0.32rem; }
+      .chrome .tl span { width: 9px; height: 9px; border-radius: 50%; display: block; }
+      .chrome .urlbar {
+        flex: 1; min-width: 0; background: #0c0a08; border: 1px solid var(--faint);
+        border-radius: 6px; padding: 0.28rem 0.6rem; font-size: 0.74rem; color: var(--muted);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .chrome .urlbar b { color: var(--ink); font-weight: 600; }
+      .site-body { padding: 1.1rem 1.2rem 1.2rem; }
+      .nav {
+        display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.72rem;
+        color: var(--muted); margin-bottom: 1.1rem; padding-bottom: 0.7rem;
+        border-bottom: 1px dashed var(--faint);
+      }
+      .nav .logo { color: var(--ink); font-weight: 800; margin-right: auto; }
+      .hero-title {
+        font-size: 1.3rem; font-weight: 800; margin: 0 0 0.5rem; letter-spacing: -0.01em;
+      }
+      .hero-tag {
+        color: var(--muted); font-size: 0.88rem; line-height: 1.6; margin: 0 0 1rem;
+        white-space: pre-wrap; overflow-wrap: break-word;
+      }
+      .hero-tag b { color: var(--accent2); font-weight: 700; }
+      .cta {
+        display: inline-block; font-family: inherit; font-weight: 700; font-size: 0.8rem;
+        padding: 0.5rem 1.05rem; border-radius: 999px; border: none; cursor: default;
+        color: #1b1310;
+      }
+      .badge {
+        display: inline-block; font-size: 0.68rem; color: var(--muted); margin-left: 0.6rem;
+        border: 1px solid var(--faint); border-radius: 999px; padding: 0.1rem 0.5rem;
+      }
+
+      .below {
+        display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: center;
+        margin-top: 0.65rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .below a { color: var(--muted); text-decoration: none; }
+      .below a:hover { color: var(--ink); text-decoration: underline; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+      button, a.btn {
+        font-family: inherit; font-size: 0.78rem; padding: 0.35rem 0.7rem;
+        border: 1px solid var(--faint); background: var(--panel); color: var(--ink);
+        border-radius: 7px; cursor: pointer; text-decoration: none; display: inline-block;
+      }
+      button:hover, a.btn:hover { border-color: var(--accent2); color: var(--accent2); }
+
+      .share { margin: 2rem 0 1rem; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--accent2); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.8; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="6" y="46" width="52" height="6" rx="2" fill="#33291f"/>
+          <rect x="14" y="50" width="4" height="8" fill="#221b14"/>
+          <rect x="46" y="50" width="4" height="8" fill="#221b14"/>
+          <rect x="26" y="14" width="6" height="30" rx="2" fill="#7a6a54"/>
+          <rect x="16" y="8" width="26" height="8" rx="3" fill="#d9762f" transform="rotate(-18 16 8)"/>
+          <rect x="34" y="4" width="20" height="7" rx="3" fill="#e8b23d" transform="rotate(14 34 4)"/>
+          <circle cx="16" cy="4" r="4" fill="#f1ece3" stroke="#221b14" stroke-width="1.5"/>
+          <path d="M50 8 L54 4 M54 8 L50 4" stroke="#f1ece3" stroke-width="2" stroke-linecap="round"/>
+          <rect x="4" y="26" width="16" height="12" rx="2" fill="#4a3c2c" transform="rotate(-8 4 26)"/>
+          <rect x="44" y="30" width="14" height="10" rx="2" fill="#5a4a36" transform="rotate(10 44 30)"/>
+          <circle cx="29" cy="46" r="3" fill="#221b14"/>
+        </svg>
+        <div>
+          <h1>junkyard <span class="slash">/ welding free ideas into websites</span></h1>
+        </div>
+      </header>
+
+      <p class="sub">
+        The same live <b>atproto firehose</b> scan as
+        <a href="https://trashpanda.bisks.net" target="_blank" rel="noopener">trashpanda</a>
+        — every post that reads like a <b>free idea</b> giveaway — except instead of
+        stashing the post, the yard's robot arm grabs it and welds together a fake
+        little <b>standalone website</b> for it right here: a hero, a nav bar, a
+        made-up domain, a call to action nobody asked for. Nothing is actually
+        deployed anywhere. Runs entirely in your browser — no backend, just a
+        websocket to
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        and a robot arm with poor judgment.
+      </p>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span><b id="checked">0</b> scraps sorted</span>
+        <span class="sep">·</span>
+        <span><b id="found">0</b> sites welded</span>
+      </div>
+
+      <div class="empty" id="empty">
+        <span class="big">🤖🔧</span>
+        yard's quiet… the first free idea of the session usually turns up
+        within a few minutes. leave the tab open.
+      </div>
+
+      <ol class="yard" id="yard"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=junkyard.bisks.net" target="_blank" rel="noopener">🔧 share the yard</a>
+      </div>
+
+      <footer>
+        Sampled live off <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        straight in your browser — nothing is stored, nothing runs on a server,
+        close the tab and the whole yard is scrapped. Matching is the same
+        cheap heuristic as trashpanda: a post counts if "free" and
+        "idea"/"ideas" (or a <code>#freeidea</code> tag) show up within a few
+        words of each other. The "website" is a joke, not a build — a domain,
+        a headline, and a subtitle guessed from the post's words, nothing more.
+        asked for by
+        <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>,
+        continuing <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a>'s
+        trashpanda · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const checkedEl = document.getElementById("checked");
+      const foundEl = document.getElementById("found");
+      const empty = document.getElementById("empty");
+      const yard = document.getElementById("yard");
+
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_CARDS = 24;
+
+      let checked = 0;
+      let found = 0;
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      // ---- "free idea" heuristic --------------------------------------
+      // Identical to trashpanda's — same firehose, same matcher, so the two
+      // sites agree on exactly which posts count. Copied rather than shared
+      // (house style: no cross-site imports), see trashpanda's src for the
+      // original writeup of the tradeoff.
+      const WINDOW = 6;
+      function tokensOf(text) {
+        return text
+          .toLowerCase()
+          .replace(/https?:\/\/\S+/g, " ")
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter(Boolean);
+      }
+      function isFreeIdea(text) {
+        const toks = tokensOf(text);
+        for (let i = 0; i < toks.length; i++) {
+          if (/^free(bie)?ideas?$/.test(toks[i]) || /^ideas?free(bie)?$/.test(toks[i])) return true;
+          const isFree = toks[i] === "free" || toks[i] === "freebie";
+          const isIdea = toks[i] === "idea" || toks[i] === "ideas";
+          if (!isFree && !isIdea) continue;
+          const wantIdea = isFree;
+          for (let j = i + 1; j < Math.min(toks.length, i + 1 + WINDOW); j++) {
+            const hit = wantIdea ? toks[j] === "idea" || toks[j] === "ideas" : toks[j] === "free";
+            if (hit) return true;
+          }
+        }
+        return false;
+      }
+
+      function highlight(text) {
+        return esc(text).replace(/\b(free(?:bie)?|ideas?)\b/gi, "<b>$1</b>");
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      // ---- turn a free-idea post into a fake standalone website --------
+      const STOPWORDS = new Set([
+        "the","a","an","and","or","but","for","to","of","in","on","at","is",
+        "are","was","be","free","idea","ideas","freebie","this","that","if",
+        "you","your","i","im","my","me","it","its","with","from","just","so",
+        "someone","anyone","please","who","wants","want","take","taking",
+        "here","have","has","had","not","no","yes","one","up","out","all",
+      ]);
+      const TLDS = [".zip", ".wtf", ".lol", ".biz", ".xyz", ".quest", ".fyi", ".cafe", ".vc", ".app"];
+      const NAV_WORDS = ["Home", "Pricing", "About", "Docs", "Blog", "Login", "Features", "Roadmap", "FAQ", "Contact", "Investors", "Careers"];
+      const CTAS = ["Get Started", "Join Waitlist", "Ship It", "Try Free", "Claim This Idea", "Launch Now", "Sign Up", "Disrupt Now", "Reserve Your Spot"];
+      const THEMES = [
+        ["#d9762f", "#e8b23d"], ["#3f8f6b", "#8fd19e"], ["#3f6fa8", "#7fb8e8"],
+        ["#a84f8f", "#e896c9"], ["#a83f3f", "#e89a7f"], ["#8f8f3f", "#d4d47f"],
+      ];
+
+      function hashStr(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+        return Math.abs(h);
+      }
+
+      function titleCase(w) {
+        return w.charAt(0).toUpperCase() + w.slice(1);
+      }
+
+      function buildFakeSite(text, seed) {
+        const toks = tokensOf(text).filter((t) => t.length > 2 && !STOPWORDS.has(t));
+        const words = toks.slice(0, 3);
+        const brandWords = (words.length ? words.slice(0, 2) : ["idea", "co"]).map(titleCase);
+        const brand = brandWords.join("");
+        const domain = brandWords.join("").toLowerCase() + TLDS[seed % TLDS.length];
+        const heroWords = words.length ? words.slice(0, 4).map(titleCase) : ["Your", "Next", "Big", "Thing"];
+        const hero = heroWords.join(" ");
+        const theme = THEMES[seed % THEMES.length];
+        const cta = CTAS[seed % CTAS.length];
+        const navPicks = [];
+        const pool = NAV_WORDS.slice();
+        for (let i = 0; i < 3; i++) {
+          const idx = (seed + i * 7) % pool.length;
+          navPicks.push(pool.splice(idx % pool.length, 1)[0]);
+        }
+        return { brand, domain, hero, theme, cta, navPicks };
+      }
+
+      const PROFILE_API =
+        "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+
+      async function fillAuthor(row, did) {
+        const prof = await fetchProfile(did);
+        const el = row.querySelector(".author");
+        if (!el) return;
+        if (prof && prof.handle) {
+          el.textContent = "@" + prof.handle;
+          el.href = "https://bsky.app/profile/" + prof.handle;
+        } else {
+          el.textContent = did.slice(0, 20) + "…";
+        }
+      }
+
+      function renderRow(cand) {
+        empty.style.display = "none";
+        const seed = hashStr(cand.text + cand.rkey);
+        const site = buildFakeSite(cand.text, seed);
+        const row = document.createElement("li");
+        row.className = "row";
+        const url = postUrl(cand.did, cand.rkey);
+        const shareText = `the junkyard welded this free idea into a website:\n\n"${site.hero}" — ${site.domain}\n\nsource: ${url}\n\njunkyard.bisks.net`;
+        const shareHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+        row.innerHTML = `
+          <div class="mockup building">
+            <div class="chrome">
+              <span class="tl"><span style="background:#e0574a"></span><span style="background:#e0b13f"></span><span style="background:#5ab55a"></span></span>
+              <span class="urlbar">🔒 <b>${esc(site.domain)}</b></span>
+            </div>
+            <div class="site-body">
+              <nav class="nav">
+                <span class="logo" style="color:${site.theme[0]}">${esc(site.brand)}</span>
+                ${site.navPicks.map((w) => `<span>${esc(w)}</span>`).join("")}
+              </nav>
+              <div class="hero-title">${esc(site.hero)}</div>
+              <p class="hero-tag">${highlight(cand.text.slice(0, 200))}</p>
+              <button class="cta" style="background:linear-gradient(120deg, ${site.theme[0]}, ${site.theme[1]})">${esc(site.cta)}</button>
+              <span class="badge">beta</span>
+            </div>
+          </div>
+          <div class="below">
+            <a class="author" href="${url.replace(/\/post\/.*$/, "")}" target="_blank" rel="noopener">resolving…</a>
+            <span>welded from a post ${timeAgo(cand.seenAt)}</span>
+            <a href="${url}" target="_blank" rel="noopener">source ↗</a>
+          </div>
+          <div class="actions">
+            <a class="btn" href="${shareHref}" target="_blank" rel="noopener">🔧 share this site ↗</a>
+          </div>`;
+        yard.prepend(row);
+        fillAuthor(row, cand.did);
+        setTimeout(() => row.querySelector(".mockup").classList.remove("building"), 1100);
+        while (yard.childElementCount > MAX_CARDS) {
+          yard.removeChild(yard.lastElementChild);
+        }
+      }
+
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text) return;
+
+        checked++;
+        if (checked % 5 === 0) checkedEl.textContent = checked.toLocaleString();
+
+        if (!isFreeIdea(text)) return;
+
+        found++;
+        foundEl.textContent = found.toLocaleString();
+        renderRow({ text, did: evt.did, rkey: commit.rkey, seenAt: Date.now() });
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "scavenging");
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      connect();
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+    </script>
+  </body>
+</html>
