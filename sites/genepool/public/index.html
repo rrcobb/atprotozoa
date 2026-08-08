@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>genepool — evolve a robot that collects coins</title>
+<meta name="description" content="a population of tiny robots tries to collect coins in a maze you design. bad ones die off, good ones breed and mutate, and the next generation is slightly better — a genetic algorithm you can watch, step by step.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="genepool">
+<meta property="og:description" content="a population of robots evolves, generation by generation, to get better at collecting coins in a maze you draw yourself.">
+<meta property="og:image" content="https://genepool.bisks.net/og.png">
+<meta property="og:url" content="https://genepool.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="genepool">
+<meta name="twitter:description" content="a population of robots evolves, generation by generation, to get better at collecting coins in a maze you draw yourself.">
+<meta name="twitter:image" content="https://genepool.bisks.net/og.png">
+
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#111826; --line:#233046;
+    --fg:#dce6f0; --muted:#7d8ba3; --accent:#4fd1c5; --accent2:#ffb454;
+    --danger:#ff5f56; --solved:#7ee787;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding: 28px 16px 60px;
+  }
+  header{ width:100%; max-width:920px; margin-bottom:18px; }
+  h1{
+    font-size: clamp(28px, 5vw, 42px); margin: 0 0 6px; color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .tagline{ color: var(--muted); font-size: 14px; line-height:1.5; max-width: 660px; }
+  .tagline b{ color: var(--fg); }
+
+  main{ width:100%; max-width:920px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px;
+  }
+
+  #stage-wrap{ position:relative; }
+  #stage{
+    display:block; width:100%; height:auto; aspect-ratio: 1200 / 750;
+    background: #070b10; border-radius: 6px; border:1px solid var(--line);
+    cursor: crosshair; touch-action: none;
+  }
+  #chart{
+    display:block; width:100%; height:120px;
+    background: #070b10; border-radius: 6px; border:1px solid var(--line);
+  }
+
+  .badge{
+    position:absolute; top:14px; left:14px; font-size: 12px; color: var(--muted);
+    background: rgba(7,11,16,0.78); border:1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; pointer-events:none;
+  }
+  .badge b{ color: var(--accent); font-size: 15px; }
+  .badge .solved{ color: var(--solved); }
+
+  .hint{
+    position:absolute; bottom:14px; left:14px; font-size: 11px; color: var(--muted);
+    background: rgba(7,11,16,0.78); border:1px solid var(--line); border-radius: 6px;
+    padding: 5px 9px; pointer-events:none;
+  }
+
+  .stats{
+    display:flex; flex-wrap:wrap; gap: 10px 22px; font-size: 12px; color: var(--muted);
+  }
+  .stats b{ color: var(--fg); }
+  .stats .solved-text{ color: var(--solved); }
+  .stats .stuck-text{ color: var(--danger); }
+
+  .controls{ display:flex; flex-wrap:wrap; gap: 14px 24px; align-items:flex-end; }
+  .field{ display:flex; flex-direction:column; gap:4px; min-width: 150px; flex: 1 1 150px; }
+  .field label{ font-size: 11px; color: var(--muted); text-transform:uppercase; letter-spacing: 0.06em; }
+  .field .val{ font-size:12px; color: var(--accent); }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px;
+    background: var(--line); border-radius: 3px; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%;
+    background: var(--accent); cursor:pointer; border: 2px solid #0a0e14;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background: var(--accent); cursor:pointer; border: 2px solid #0a0e14;
+  }
+
+  .row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  button{
+    font-family: inherit; font-size: 13px; font-weight:700; cursor:pointer;
+    border-radius: 7px; border: 1px solid var(--line); padding: 9px 16px;
+    background: #172033; color: var(--fg); transition: transform 0.06s ease;
+  }
+  button:hover{ border-color: var(--accent); }
+  button:active{ transform: scale(0.97); }
+  button:disabled{ opacity:0.5; cursor:default; }
+  button.primary{ background: var(--accent); color:#08130f; border-color: var(--accent); }
+  button.primary:hover{ background:#6fe0d5; }
+  button.ghost{ background:transparent; }
+
+  #share-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#08130f; background: var(--accent2);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent2);
+  }
+  a.share-link:hover{ background:#ffc478; }
+
+  .end-note{ font-size:12px; color: var(--muted); }
+  .end-note.solved{ color: var(--solved); }
+
+  footer{
+    margin-top: 28px; font-size: 11px; color: var(--muted); text-align:center; max-width: 660px;
+  }
+  footer a{ color: var(--accent); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>genepool</h1>
+  <p class="tagline">
+    a population of 50 tiny robots, each born with a random string of moves.
+    every generation, whichever ones get closest to <b>the coins</b> get to
+    breed — their moves get spliced together and lightly mutated into the
+    next batch. no robot ever learns anything mid-run. the <b>population</b>
+    gets better, one generation at a time. draw walls, drop coins wherever
+    you like, and watch it climb.
+  </p>
+</header>
+
+<main>
+  <div class="panel" id="stage-wrap">
+    <canvas id="stage" width="1200" height="750"></canvas>
+    <div class="badge">gen <b id="gen-badge">0</b> · best <b id="best-badge">0</b>/<b id="total-badge">0</b> coins<span id="solved-badge"></span></div>
+    <div class="hint">click + drag to draw walls · click a wall to erase it</div>
+  </div>
+
+  <div class="panel">
+    <canvas id="chart" width="1200" height="300"></canvas>
+    <div class="stats" style="margin-top:10px;">
+      <span>generation <b id="stat-gen">0</b></span>
+      <span>best this gen <b id="stat-best">0</b></span>
+      <span>best ever <b id="stat-best-ever">0</b></span>
+      <span>avg this gen <b id="stat-avg">0.0</b></span>
+      <span>population <b id="stat-pop">50</b></span>
+      <span id="stat-status"><b id="stat-status-text">evolving</b></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <div class="field">
+        <label>mutation rate <span class="val" id="mut-val">5%</span></label>
+        <input type="range" id="mut-rate" min="1" max="25" value="5">
+      </div>
+      <div class="field">
+        <label>auto-evolve speed <span class="val" id="speed-val">3 gen/s</span></label>
+        <input type="range" id="speed" min="1" max="12" value="3">
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-step">run one generation</button>
+        <button id="btn-toggle">pause</button>
+      </div>
+      <div class="row">
+        <button class="ghost" id="btn-reset-pop">reset population</button>
+        <button class="ghost" id="btn-new-maze">new maze</button>
+        <button class="ghost" id="btn-clear-walls">clear walls</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="end-note" id="end-note">generation 0 — an untrained population, about to try the maze for the first time.</p>
+    <div id="share-row">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-download">download snapshot</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  a genetic algorithm, not a neural net: no robot ever adapts mid-life, moves
+  are picked at birth and never change. only the population improves, by
+  breeding whichever robots did best and throwing away the rest. built for
+  the theme box's "recursive self improvement." · part of the
+  <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  var stage = document.getElementById("stage");
+  var sctx = stage.getContext("2d");
+  var chart = document.getElementById("chart");
+  var cctx = chart.getContext("2d");
+
+  var W = stage.width, H = stage.height;
+  var CELL = 50;
+  var COLS = Math.floor(W / CELL); // 24
+  var ROWS = Math.floor(H / CELL); // 15
+
+  var START = { x: 2, y: Math.floor(ROWS / 2) };
+  var COIN_COUNT = 9;
+  var WALL_DENSITY = 0.16;
+
+  var POP_SIZE = 50;
+  var GENOME_LEN = 90;
+  var ELITISM = 3;
+  var TOURNAMENT_K = 4;
+
+  var DIRS = [ {dx:0,dy:-1}, {dx:1,dy:0}, {dx:0,dy:1}, {dx:-1,dy:0} ]; // up right down left
+
+  function idx(x, y){ return y * COLS + x; }
+  function inBounds(x, y){ return x >= 0 && y >= 0 && x < COLS && y < ROWS; }
+
+  var walls, coins, pop, gen, bestEverCoins, bestEverFitness, stuckStreak, solved;
+  var bestCoinsHistory, avgCoinsHistory, lastBest, autoEvolving, animating;
+
+  var els = {
+    genBadge: document.getElementById("gen-badge"),
+    bestBadge: document.getElementById("best-badge"),
+    totalBadge: document.getElementById("total-badge"),
+    solvedBadge: document.getElementById("solved-badge"),
+    statGen: document.getElementById("stat-gen"),
+    statBest: document.getElementById("stat-best"),
+    statBestEver: document.getElementById("stat-best-ever"),
+    statAvg: document.getElementById("stat-avg"),
+    statPop: document.getElementById("stat-pop"),
+    statStatusText: document.getElementById("stat-status-text"),
+    endNote: document.getElementById("end-note"),
+    mutRate: document.getElementById("mut-rate"),
+    mutVal: document.getElementById("mut-val"),
+    speed: document.getElementById("speed"),
+    speedVal: document.getElementById("speed-val"),
+    btnStep: document.getElementById("btn-step"),
+    btnToggle: document.getElementById("btn-toggle"),
+    btnResetPop: document.getElementById("btn-reset-pop"),
+    btnNewMaze: document.getElementById("btn-new-maze"),
+    btnClearWalls: document.getElementById("btn-clear-walls"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share"),
+  };
+
+  els.statPop.textContent = POP_SIZE;
+  els.totalBadge.textContent = COIN_COUNT;
+
+  function isWall(x, y){ return !!walls[idx(x, y)]; }
+
+  function randomizeMaze(){
+    walls = new Array(COLS * ROWS).fill(false);
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        if (x === START.x && y === START.y) continue;
+        if (Math.random() < WALL_DENSITY) walls[idx(x, y)] = true;
+      }
+    }
+    walls[idx(START.x, START.y)] = false;
+    coins = [];
+    var guard = 0;
+    while (coins.length < COIN_COUNT && guard < 5000) {
+      guard++;
+      var x = (Math.random() * COLS) | 0, y = (Math.random() * ROWS) | 0;
+      if (x === START.x && y === START.y) continue;
+      if (isWall(x, y)) continue;
+      var dup = false;
+      for (var c = 0; c < coins.length; c++) if (coins[c].x === x && coins[c].y === y) { dup = true; break; }
+      if (dup) continue;
+      coins.push({ x: x, y: y });
+    }
+  }
+
+  function randDir(){ return (Math.random() * 4) | 0; }
+  function randomGenome(){
+    var g = new Array(GENOME_LEN);
+    for (var i = 0; i < GENOME_LEN; i++) g[i] = randDir();
+    return g;
+  }
+  function initPopulation(){
+    var p = [];
+    for (var i = 0; i < POP_SIZE; i++) p.push(randomGenome());
+    return p;
+  }
+
+  function simulate(genome){
+    var x = START.x, y = START.y;
+    var mask = new Array(coins.length).fill(false);
+    var collected = 0;
+    var path = [[x, y]];
+    var steps = 0;
+    for (var i = 0; i < genome.length; i++) {
+      var d = DIRS[genome[i]];
+      var nx = x + d.dx, ny = y + d.dy;
+      if (inBounds(nx, ny) && !isWall(nx, ny)) { x = nx; y = ny; }
+      path.push([x, y]);
+      steps++;
+      for (var c = 0; c < coins.length; c++) {
+        if (!mask[c] && coins[c].x === x && coins[c].y === y) { mask[c] = true; collected++; }
+      }
+      if (collected === coins.length) break;
+    }
+    var fitness = collected * 1000;
+    if (collected < coins.length) {
+      var minD = Infinity;
+      for (var c2 = 0; c2 < coins.length; c2++) {
+        if (mask[c2]) continue;
+        var dd = Math.abs(x - coins[c2].x) + Math.abs(y - coins[c2].y);
+        if (dd < minD) minD = dd;
+      }
+      fitness -= minD * 2;
+    } else {
+      fitness += (genome.length - steps); // reward finishing early once fully solved
+    }
+    return { fitness: fitness, path: path, mask: mask, collected: collected };
+  }
+
+  function tournamentSelect(popArr, fits){
+    var bestI = (Math.random() * popArr.length) | 0, bestF = fits[bestI];
+    for (var k = 1; k < TOURNAMENT_K; k++) {
+      var i = (Math.random() * popArr.length) | 0;
+      if (fits[i] > bestF) { bestF = fits[i]; bestI = i; }
+    }
+    return popArr[bestI];
+  }
+  function crossover(a, b){
+    var point = 1 + ((Math.random() * (a.length - 1)) | 0);
+    return a.slice(0, point).concat(b.slice(point));
+  }
+  function mutate(g, rate){
+    for (var i = 0; i < g.length; i++) if (Math.random() < rate) g[i] = randDir();
+  }
+  function nextGeneration(popArr, fits){
+    var idxs = popArr.map(function(_, i){ return i; });
+    idxs.sort(function(a, b){ return fits[b] - fits[a]; });
+    var next = [];
+    for (var e = 0; e < ELITISM && e < idxs.length; e++) next.push(popArr[idxs[e]].slice());
+    while (next.length < POP_SIZE) {
+      var pa = tournamentSelect(popArr, fits);
+      var pb = tournamentSelect(popArr, fits);
+      var child = crossover(pa, pb);
+      mutate(child, parseInt(els.mutRate.value, 10) / 100);
+      next.push(child);
+    }
+    return next;
+  }
+
+  // --- rendering ---
+  function drawArena(trail, mask){
+    sctx.fillStyle = "#070b10";
+    sctx.fillRect(0, 0, W, H);
+
+    sctx.strokeStyle = "#121b2a";
+    sctx.lineWidth = 1;
+    for (var gx = 0; gx <= COLS; gx++) {
+      sctx.beginPath(); sctx.moveTo(gx * CELL, 0); sctx.lineTo(gx * CELL, H); sctx.stroke();
+    }
+    for (var gy = 0; gy <= ROWS; gy++) {
+      sctx.beginPath(); sctx.moveTo(0, gy * CELL), sctx.lineTo(W, gy * CELL); sctx.stroke();
+    }
+
+    sctx.fillStyle = "#1c2740";
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        if (isWall(x, y)) sctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+
+    for (var c = 0; c < coins.length; c++) {
+      var cx = coins[c].x * CELL + CELL / 2, cy = coins[c].y * CELL + CELL / 2;
+      var got = mask ? mask[c] : false;
+      sctx.beginPath();
+      sctx.arc(cx, cy, CELL * 0.24, 0, Math.PI * 2);
+      sctx.fillStyle = got ? "rgba(255,180,84,0.18)" : "#ffb454";
+      sctx.fill();
+      if (!got) {
+        sctx.strokeStyle = "#8a5a1e";
+        sctx.lineWidth = 2;
+        sctx.stroke();
+      }
+    }
+
+    sctx.fillStyle = "#4fd1c5";
+    sctx.strokeStyle = "#0a0e14";
+    sctx.lineWidth = 2;
+    sctx.beginPath();
+    sctx.arc(START.x * CELL + CELL / 2, START.y * CELL + CELL / 2, CELL * 0.14, 0, Math.PI * 2);
+    sctx.fill(); sctx.stroke();
+
+    if (trail && trail.length > 1) {
+      sctx.strokeStyle = "rgba(79,209,197,0.55)";
+      sctx.lineWidth = 3;
+      sctx.beginPath();
+      for (var i = 0; i < trail.length; i++) {
+        var px = trail[i][0] * CELL + CELL / 2, py = trail[i][1] * CELL + CELL / 2;
+        if (i === 0) sctx.moveTo(px, py); else sctx.lineTo(px, py);
+      }
+      sctx.stroke();
+
+      var last = trail[trail.length - 1];
+      var rx = last[0] * CELL + CELL / 2, ry = last[1] * CELL + CELL / 2;
+      sctx.fillStyle = "#4fd1c5";
+      sctx.beginPath();
+      sctx.arc(rx, ry, CELL * 0.22, 0, Math.PI * 2);
+      sctx.fill();
+      sctx.strokeStyle = "#08130f";
+      sctx.lineWidth = 2;
+      sctx.stroke();
+    }
+  }
+
+  function drawChart(){
+    var w = chart.width, h = chart.height;
+    cctx.fillStyle = "#070b10";
+    cctx.fillRect(0, 0, w, h);
+    if (bestCoinsHistory.length < 2) return;
+    var maxV = coins.length || 1;
+    cctx.strokeStyle = "#182238";
+    cctx.lineWidth = 1;
+    for (var g = 1; g < 4; g++) {
+      var gy = h - (h * g / 4);
+      cctx.beginPath(); cctx.moveTo(0, gy); cctx.lineTo(w, gy); cctx.stroke();
+    }
+    function plot(arr, color, width, fillA){
+      cctx.beginPath();
+      cctx.strokeStyle = color;
+      cctx.lineWidth = width;
+      for (var i = 0; i < arr.length; i++) {
+        var px = (i / (arr.length - 1 || 1)) * w;
+        var py = h - (arr[i] / maxV) * h;
+        if (i === 0) cctx.moveTo(px, py); else cctx.lineTo(px, py);
+      }
+      cctx.stroke();
+      if (fillA) {
+        cctx.lineTo(w, h); cctx.lineTo(0, h); cctx.closePath();
+        cctx.fillStyle = fillA; cctx.fill();
+      }
+    }
+    plot(avgCoinsHistory, "rgba(79,209,197,0.55)", 1.5, null);
+    plot(bestCoinsHistory, "#ffb454", 2.5, "rgba(255,180,84,0.10)");
+  }
+
+  // --- state ---
+  function resetPopulation(){
+    pop = initPopulation();
+    gen = 0;
+    bestEverCoins = 0;
+    bestEverFitness = -Infinity;
+    stuckStreak = 0;
+    solved = false;
+    bestCoinsHistory = [];
+    avgCoinsHistory = [];
+    lastBest = null;
+    els.solvedBadge.textContent = "";
+    els.endNote.className = "end-note";
+    els.endNote.textContent = "generation 0 — an untrained population, about to try the maze for the first time.";
+    drawArena(null, null);
+    drawChart();
+    updateStats();
+    updateShare();
+  }
+
+  function stepGeneration(animate){
+    if (animating) return;
+    var results = pop.map(simulate);
+    var fits = results.map(function(r){ return r.fitness; });
+    var bestIdx = 0;
+    for (var i = 1; i < fits.length; i++) if (fits[i] > fits[bestIdx]) bestIdx = i;
+    var best = results[bestIdx];
+    var totalCoins = 0;
+    for (var j = 0; j < results.length; j++) totalCoins += results[j].collected;
+    var avgCoins = totalCoins / results.length;
+
+    gen++;
+    bestCoinsHistory.push(best.collected);
+    avgCoinsHistory.push(avgCoins);
+    if (bestCoinsHistory.length > 500) { bestCoinsHistory.shift(); avgCoinsHistory.shift(); }
+
+    if (best.collected > bestEverCoins || (best.collected === bestEverCoins && best.fitness > bestEverFitness)) {
+      bestEverCoins = best.collected;
+      bestEverFitness = best.fitness;
+      stuckStreak = 0;
+    } else {
+      stuckStreak++;
+    }
+    if (best.collected >= coins.length && coins.length > 0) {
+      if (!solved) {
+        els.endNote.className = "end-note solved";
+        els.endNote.textContent = "solved — by generation " + gen + " the population figured out how to grab all " + coins.length + " coins.";
+      }
+      solved = true;
+    } else if (!solved) {
+      if (stuckStreak > 25) {
+        els.endNote.className = "end-note";
+        els.endNote.textContent = "plateaued for " + stuckStreak + " generations — try bumping the mutation rate, or check the maze is actually solvable.";
+      } else {
+        els.endNote.className = "end-note";
+        els.endNote.textContent = "generation " + gen + " — best robot got " + best.collected + "/" + coins.length + " coins.";
+      }
+    }
+
+    lastBest = best;
+    pop = nextGeneration(pop, fits);
+    updateStats(best, avgCoins);
+    updateShare(best);
+    drawChart();
+
+    if (animate) {
+      animating = true;
+      els.btnStep.disabled = true;
+      animateBestPath(best.path, best.mask, function(){
+        animating = false;
+        els.btnStep.disabled = false;
+      });
+    } else {
+      drawArena(best.path, best.mask);
+    }
+  }
+
+  function animateBestPath(path, mask, done){
+    var i = 0;
+    var stepsPerFrame = Math.max(1, Math.ceil(path.length / 50));
+    function frame(){
+      i += stepsPerFrame;
+      var shown = path.slice(0, Math.min(i, path.length));
+      drawArena(shown, null);
+      if (i < path.length) {
+        requestAnimationFrame(frame);
+      } else {
+        drawArena(path, mask);
+        if (done) done();
+      }
+    }
+    frame();
+  }
+
+  function updateStats(best, avgCoins){
+    var bestCoins = best ? best.collected : 0;
+    els.genBadge.textContent = gen;
+    els.bestBadge.textContent = bestCoins;
+    els.solvedBadge.innerHTML = solved ? " · <span class=\"solved\">solved</span>" : "";
+    els.statGen.textContent = gen;
+    els.statBest.textContent = bestCoins;
+    els.statBestEver.textContent = bestEverCoins;
+    els.statAvg.textContent = (avgCoins === undefined ? 0 : avgCoins).toFixed(1);
+    var statusText = solved ? "solved" : (autoEvolving ? "evolving" : "paused");
+    els.statStatusText.textContent = statusText;
+    els.statStatusText.className = solved ? "solved-text" : (stuckStreak > 25 ? "stuck-text" : "");
+  }
+
+  function updateShare(best){
+    var bestCoins = best ? best.collected : 0;
+    var text = solved
+      ? "genepool solved its own maze by generation " + gen + " — a random population, bred generation over generation, figured out how to grab all " + coins.length + " coins. genepool.bisks.net"
+      : "gen " + gen + ": genepool's best robot is grabbing " + bestCoins + "/" + coins.length + " coins, bred up from a population that started completely random. genepool.bisks.net";
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // --- maze editing ---
+  var dragging = false, dragValue = true;
+  function cellFromEvent(evt){
+    var rect = stage.getBoundingClientRect();
+    var scaleX = stage.width / rect.width, scaleY = stage.height / rect.height;
+    var px = (evt.clientX - rect.left) * scaleX;
+    var py = (evt.clientY - rect.top) * scaleY;
+    return { x: Math.floor(px / CELL), y: Math.floor(py / CELL) };
+  }
+  function isCoinCell(x, y){
+    for (var c = 0; c < coins.length; c++) if (coins[c].x === x && coins[c].y === y) return true;
+    return false;
+  }
+  function paintCell(x, y, value){
+    if (!inBounds(x, y)) return;
+    if (x === START.x && y === START.y) return;
+    if (isCoinCell(x, y)) return;
+    walls[idx(x, y)] = value;
+    drawArena(lastBest ? lastBest.path : null, lastBest ? lastBest.mask : null);
+  }
+  stage.addEventListener("pointerdown", function(evt){
+    var cell = cellFromEvent(evt);
+    if (!inBounds(cell.x, cell.y)) return;
+    dragging = true;
+    dragValue = !isWall(cell.x, cell.y);
+    paintCell(cell.x, cell.y, dragValue);
+    evt.preventDefault();
+  });
+  stage.addEventListener("pointermove", function(evt){
+    if (!dragging) return;
+    var cell = cellFromEvent(evt);
+    paintCell(cell.x, cell.y, dragValue);
+  });
+  window.addEventListener("pointerup", function(){ dragging = false; });
+
+  // --- controls ---
+  els.mutRate.addEventListener("input", function(){
+    els.mutVal.textContent = els.mutRate.value + "%";
+  });
+  els.speed.addEventListener("input", function(){
+    els.speedVal.textContent = els.speed.value + " gen/s";
+  });
+  els.btnStep.addEventListener("click", function(){ stepGeneration(true); });
+  els.btnToggle.addEventListener("click", function(){
+    autoEvolving = !autoEvolving;
+    els.btnToggle.textContent = autoEvolving ? "pause" : "resume";
+    updateStats(lastBest, lastBest ? undefined : undefined);
+  });
+  els.btnResetPop.addEventListener("click", resetPopulation);
+  els.btnNewMaze.addEventListener("click", function(){
+    randomizeMaze();
+    els.totalBadge.textContent = coins.length;
+    resetPopulation();
+  });
+  els.btnClearWalls.addEventListener("click", function(){
+    walls = new Array(COLS * ROWS).fill(false);
+    drawArena(lastBest ? lastBest.path : null, lastBest ? lastBest.mask : null);
+  });
+
+  // --- auto-evolve loop ---
+  var lastFrame = 0;
+  function loop(ts){
+    var speed = parseInt(els.speed.value, 10);
+    var interval = 1000 / speed;
+    if (ts - lastFrame >= interval) {
+      lastFrame = ts;
+      if (autoEvolving && !animating) stepGeneration(false);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // --- share card ---
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#0a0e14"; sc.fillRect(0, 0, w, h);
+    var gw = 760, gh = 560, gx = 24, gy = 35;
+    sc.fillStyle = "#070b10"; sc.fillRect(gx, gy, gw, gh);
+    var sx = gw / COLS, sy = gh / ROWS;
+    sc.fillStyle = "#1c2740";
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        if (isWall(x, y)) sc.fillRect(gx + x * sx, gy + y * sy, Math.max(1, sx - 0.5), Math.max(1, sy - 0.5));
+      }
+    }
+    var mask = lastBest ? lastBest.mask : null;
+    for (var c = 0; c < coins.length; c++) {
+      var cx = gx + coins[c].x * sx + sx / 2, cy = gy + coins[c].y * sy + sy / 2;
+      sc.beginPath(); sc.arc(cx, cy, sx * 0.3, 0, Math.PI * 2);
+      sc.fillStyle = (mask && mask[c]) ? "rgba(255,180,84,0.2)" : "#ffb454";
+      sc.fill();
+    }
+    if (lastBest && lastBest.path.length > 1) {
+      sc.strokeStyle = "rgba(79,209,197,0.6)";
+      sc.lineWidth = 2.5;
+      sc.beginPath();
+      for (var i = 0; i < lastBest.path.length; i++) {
+        var px = gx + lastBest.path[i][0] * sx + sx / 2, py = gy + lastBest.path[i][1] * sy + sy / 2;
+        if (i === 0) sc.moveTo(px, py); else sc.lineTo(px, py);
+      }
+      sc.stroke();
+    }
+
+    sc.fillStyle = "#4fd1c5";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    sc.fillText("genepool", 808, 90);
+    sc.fillStyle = "#7d8ba3";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("bred to collect coins,", 808, 130);
+    sc.fillText("one generation at a time.", 808, 152);
+
+    sc.fillStyle = "#dce6f0";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("generation", 808, 210);
+    sc.fillStyle = "#4fd1c5";
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText(String(gen), 808, 258);
+
+    sc.fillStyle = "#dce6f0";
+    sc.font = "700 15px 'JetBrains Mono', monospace";
+    sc.fillText("best robot's coins", 808, 300);
+    sc.fillStyle = "#ffb454";
+    sc.font = "800 34px 'JetBrains Mono', monospace";
+    sc.fillText((lastBest ? lastBest.collected : 0) + " / " + coins.length, 808, 335);
+
+    if (solved) {
+      sc.fillStyle = "#7ee787";
+      sc.font = "800 20px 'JetBrains Mono', monospace";
+      sc.fillText("maze solved", 808, 380);
+    }
+
+    sc.fillStyle = "#7d8ba3";
+    sc.font = "13px 'JetBrains Mono', monospace";
+    sc.fillText("genepool.bisks.net", 808, 590);
+  }
+
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    buildShareCard();
+    var a = document.createElement("a");
+    a.download = "genepool.png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    buildShareCard();
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "genepool.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "genepool.bisks.net";
+      navigator.share({ files: [file], text: text, title: "genepool" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // --- init ---
+  autoEvolving = true;
+  animating = false;
+  randomizeMaze();
+  els.totalBadge.textContent = coins.length;
+  resetPopulation();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
