@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>corkboard — it's all connected</title>
+<meta name="description" content="Type strings, pin them to a corkboard, watch red yarn connect the pieces whether or not any of it means anything." />
+<meta property="og:title" content="corkboard — it's all connected" />
+<meta property="og:description" content="Type strings, pin them to a corkboard, watch red yarn connect the pieces whether or not any of it means anything." />
+<meta property="og:url" content="https://corkboard.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://corkboard.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A corkboard covered in pinned index cards connected by red string." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="corkboard — it's all connected" />
+<meta name="twitter:description" content="Type strings, pin them to a corkboard, watch red yarn connect the pieces whether or not any of it means anything." />
+<meta name="twitter:image" content="https://corkboard.bisks.net/og.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --wood: #4a2f1c;
+    --wood2: #3a2415;
+    --cork: #c69a5c;
+    --cork-dark: #a97e42;
+    --ink: #2a1c10;
+    --dim: #e9d9b8;
+    --dim2: #cbb082;
+    --string: #c81e1e;
+    --panel: #241609;
+    --panel-border: #5c3d22;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--wood2);
+    color: var(--dim);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 980px; }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.2;
+    margin: 0 0 0.3rem;
+    color: var(--string);
+    text-shadow: 0 0 18px rgba(200, 30, 30, 0.35);
+  }
+  .tag { color: var(--dim2); font-size: 0.92rem; margin: 0 0 1.5rem; line-height: 1.5; max-width: 640px; }
+
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 220px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--string); outline-offset: 1px; }
+  button {
+    background: linear-gradient(180deg, #e23c3c, #b81717);
+    color: #fff2ea;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-weight: 600;
+  }
+  .hint { color: var(--dim2); font-size: 0.76rem; margin: 0 0 1.1rem; }
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+  }
+
+  .boardwrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    min-height: 420px;
+    border-radius: 10px;
+    background:
+      radial-gradient(circle at 15% 20%, rgba(255,255,255,0.05), transparent 40%),
+      radial-gradient(circle at 80% 75%, rgba(0,0,0,0.15), transparent 45%),
+      repeating-linear-gradient(45deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 2px, transparent 2px, transparent 6px),
+      linear-gradient(180deg, var(--cork), var(--cork-dark));
+    border: 14px solid var(--wood);
+    box-shadow: 0 18px 50px -20px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.25);
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+  .boardwrap::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(circle, rgba(0,0,0,0.10) 1px, transparent 1.4px);
+    background-size: 9px 9px;
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  #yarn { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #cards { position: absolute; inset: 0; }
+
+  .empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 2rem;
+    color: rgba(42, 28, 16, 0.55);
+    font-size: 0.95rem;
+    pointer-events: none;
+  }
+
+  .card {
+    position: absolute;
+    max-width: 190px;
+    min-width: 90px;
+    padding: 0.6rem 0.65rem 0.75rem;
+    border-radius: 2px;
+    box-shadow: 0 6px 14px -4px rgba(0,0,0,0.5);
+    transform-origin: center top;
+    font-family: "Permanent Marker", cursive;
+    font-size: 1rem;
+    line-height: 1.22;
+    color: #1c1c1c;
+    word-break: break-word;
+    cursor: default;
+  }
+  .card .pin {
+    position: absolute;
+    top: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    box-shadow: 0 2px 3px rgba(0,0,0,0.55), inset -2px -2px 3px rgba(0,0,0,0.35), inset 2px 2px 3px rgba(255,255,255,0.5);
+  }
+  .card .rm {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #241609;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.7rem;
+    line-height: 18px;
+    text-align: center;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .card:hover .rm { opacity: 1; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--dim2);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: #ff8f6b; }
+
+  .share {
+    margin-top: 1.6rem;
+    border-top: 1px dashed var(--panel-border);
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-actions a, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center;
+    border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .share-actions a {
+    background: linear-gradient(180deg, #e23c3c, #b81717);
+    color: #fff2ea;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+  }
+  .status { color: var(--dim2); font-size: 0.8rem; margin: 0.5rem 0 0; min-height: 1.2em; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>corkboard</h1>
+    <p class="tag">
+      Type a string. It gets pinned to the board. Red yarn finds its way to
+      whatever else is already up there, whether or not the connection means
+      anything. That's the whole theory.
+    </p>
+
+    <form id="f">
+      <input id="text" type="text" placeholder="e.g. the birds are drones" autocomplete="off" maxlength="90" />
+      <button id="pinBtn" type="submit">📌 pin it</button>
+    </form>
+    <p class="hint">connections are random. everything is connected is the default assumption here.</p>
+
+    <div class="toolbar">
+      <button id="restring" class="ghost" type="button">🧵 restring the board</button>
+      <button id="clear" class="ghost" type="button">🗑 clear board</button>
+    </div>
+
+    <div class="boardwrap" id="boardwrap">
+      <svg id="yarn"></svg>
+      <div id="cards"></div>
+      <div class="empty" id="emptyMsg">the board is bare. pin something to start the theory.</div>
+    </div>
+
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" type="button" style="display:none;background:linear-gradient(180deg,#e23c3c,#b81717);color:#fff2ea;border:none;">📤 share card</button>
+        <a id="shareBluesky" target="_blank" rel="noopener">🦋 share this board</a>
+        <button id="shareDownload" type="button">⬇ download card</button>
+        <button id="copyLink" type="button">🔗 copy link</button>
+      </div>
+      <p class="status" id="status"></p>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_PINS = 60;
+  var STORAGE_KEY = "corkboard-v1";
+
+  var CARD_COLORS = ["#f2e8c9", "#f6f0df", "#ecd9a6", "#f3d9de", "#d7e6ee", "#e6ecd2"];
+  var PIN_COLORS = ["#d1263b", "#2560c4", "#e0a622", "#2a9d4f", "#7c3aed"];
+
+  // --- deterministic PRNG: the whole board (positions, rotations, colors,
+  // yarn connections) is a pure function of {seed, texts}. Nothing about
+  // layout is stored — a shared link only needs those two things to
+  // reproduce the exact same board pixel-for-pixel.
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function seedFromString(s) {
+    var h = 1779033703 ^ s.length;
+    for (var i = 0; i < s.length; i++) {
+      h = Math.imul(h ^ s.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+  function randSeed() {
+    return seedFromString(Math.random().toString(36) + Date.now().toString(36));
+  }
+
+  // --- base64url helpers, unicode-safe ---
+  function b64urlEncode(str) {
+    var b64 = btoa(unescape(encodeURIComponent(str)));
+    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecode(str) {
+    var b64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    return decodeURIComponent(escape(atob(b64)));
+  }
+
+  // --- state ---
+  var state = { seed: randSeed(), texts: [] };
+
+  function loadFromUrl() {
+    var m = location.search.match(/[?&]c=([^&]+)/);
+    if (!m) return false;
+    try {
+      var data = JSON.parse(b64urlDecode(decodeURIComponent(m[1])));
+      if (data && typeof data.s === "number" && Array.isArray(data.t)) {
+        state.seed = data.s;
+        state.texts = data.t.filter(function (t) { return typeof t === "string"; }).slice(0, MAX_PINS);
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function loadFromStorage() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      var data = JSON.parse(raw);
+      if (data && typeof data.seed === "number" && Array.isArray(data.texts)) {
+        state.seed = data.seed;
+        state.texts = data.texts;
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+
+  // --- layout: fully derived from state each render ---
+  function computeLayout() {
+    var rng = mulberry32(state.seed);
+    var n = state.texts.length;
+    var positions = [];
+    var margin = 10;
+    for (var i = 0; i < n; i++) {
+      var best = null, bestScore = -1;
+      var attempts = n === 0 ? 1 : 26;
+      for (var a = 0; a < attempts; a++) {
+        var x = margin + rng() * (100 - 2 * margin);
+        var y = margin + rng() * (100 - 2 * margin);
+        var minDist = Infinity;
+        for (var j = 0; j < positions.length; j++) {
+          var dx = positions[j].x - x, dy = (positions[j].y - y) * 1.6;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < minDist) minDist = d;
+        }
+        if (positions.length === 0) minDist = 999;
+        if (minDist > bestScore) { bestScore = minDist; best = { x: x, y: y }; }
+        if (bestScore > 24) break;
+      }
+      var rot = (rng() * 16 - 8);
+      var color = CARD_COLORS[Math.floor(rng() * CARD_COLORS.length)];
+      var pinColor = PIN_COLORS[Math.floor(rng() * PIN_COLORS.length)];
+      positions.push({ x: best.x, y: best.y, rot: rot, color: color, pinColor: pinColor });
+    }
+
+    var edges = [];
+    for (var k = 1; k < n; k++) {
+      var count = 1;
+      if (rng() < 0.45) count++;
+      if (rng() < 0.2) count++;
+      count = Math.min(count, k);
+      var pool = [];
+      for (var p = 0; p < k; p++) pool.push(p);
+      for (var c = 0; c < count; c++) {
+        var idx = Math.floor(rng() * pool.length);
+        edges.push([k, pool[idx]]);
+        pool.splice(idx, 1);
+        if (!pool.length) break;
+      }
+    }
+
+    return { positions: positions, edges: edges };
+  }
+
+  // --- rendering ---
+  var els = {
+    boardwrap: document.getElementById("boardwrap"),
+    cards: document.getElementById("cards"),
+    yarn: document.getElementById("yarn"),
+    empty: document.getElementById("emptyMsg"),
+    form: document.getElementById("f"),
+    text: document.getElementById("text"),
+    pinBtn: document.getElementById("pinBtn"),
+    restring: document.getElementById("restring"),
+    clear: document.getElementById("clear"),
+    status: document.getElementById("status"),
+    shareCanvas: document.getElementById("shareCanvas"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareDownload: document.getElementById("shareDownload"),
+    shareNative: document.getElementById("shareNative"),
+    copyLink: document.getElementById("copyLink"),
+  };
+
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function render() {
+    var layout = computeLayout();
+    var rect = els.boardwrap.getBoundingClientRect();
+    var w = rect.width, h = rect.height;
+
+    els.empty.style.display = state.texts.length ? "none" : "flex";
+
+    // yarn
+    els.yarn.setAttribute("width", w);
+    els.yarn.setAttribute("height", h);
+    els.yarn.setAttribute("viewBox", "0 0 " + w + " " + h);
+    els.yarn.innerHTML = "";
+    var seedRng = mulberry32(state.seed ^ 0x9e3779b9);
+    layout.edges.forEach(function (e) {
+      var a = layout.positions[e[0]], b = layout.positions[e[1]];
+      if (!a || !b) return;
+      var ax = (a.x / 100) * w, ay = (a.y / 100) * h;
+      var bx = (b.x / 100) * w, by = (b.y / 100) * h;
+      var mx = (ax + bx) / 2, my = (ay + by) / 2;
+      var dx = bx - ax, dy = by - ay;
+      var len = Math.sqrt(dx * dx + dy * dy) || 1;
+      var nx = -dy / len, ny = dx / len;
+      var sag = (seedRng() - 0.5) * Math.min(70, len * 0.35);
+      var cx = mx + nx * sag, cy = my + ny * sag + Math.min(len * 0.06, 14);
+      var path = svgEl("path", {
+        d: "M " + ax + " " + ay + " Q " + cx + " " + cy + " " + bx + " " + by,
+        stroke: "#c81e1e",
+        "stroke-width": 2.2,
+        fill: "none",
+        opacity: 0.85,
+        "stroke-linecap": "round",
+      });
+      els.yarn.appendChild(path);
+    });
+
+    // cards
+    els.cards.innerHTML = "";
+    layout.positions.forEach(function (p, i) {
+      var card = document.createElement("div");
+      card.className = "card";
+      card.style.left = p.x + "%";
+      card.style.top = p.y + "%";
+      card.style.transform = "translate(-50%, -50%) rotate(" + p.rot.toFixed(1) + "deg)";
+      card.style.background = p.color;
+
+      var pin = document.createElement("div");
+      pin.className = "pin";
+      pin.style.background = p.pinColor;
+      card.appendChild(pin);
+
+      var rm = document.createElement("button");
+      rm.className = "rm";
+      rm.type = "button";
+      rm.title = "unpin";
+      rm.textContent = "✕";
+      rm.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        state.texts.splice(i, 1);
+        save();
+        render();
+      });
+      card.appendChild(rm);
+
+      var txt = document.createElement("div");
+      txt.textContent = state.texts[i];
+      card.appendChild(txt);
+
+      els.cards.appendChild(card);
+    });
+
+    updateShare();
+  }
+
+  window.addEventListener("resize", debounce(render, 150));
+  function debounce(fn, ms) {
+    var t;
+    return function () {
+      clearTimeout(t);
+      t = setTimeout(fn, ms);
+    };
+  }
+
+  // --- add / clear / restring ---
+  els.form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var v = els.text.value.trim();
+    if (!v) return;
+    state.texts.push(v);
+    if (state.texts.length > MAX_PINS) state.texts.shift();
+    els.text.value = "";
+    save();
+    render();
+  });
+
+  els.restring.addEventListener("click", function () {
+    state.seed = randSeed();
+    save();
+    render();
+  });
+
+  els.clear.addEventListener("click", function () {
+    if (state.texts.length && !confirm("clear the whole board?")) return;
+    state.seed = randSeed();
+    state.texts = [];
+    save();
+    render();
+  });
+
+  // --- share ---
+  function shareUrl() {
+    var payload = JSON.stringify({ s: state.seed, t: state.texts });
+    return "https://corkboard.bisks.net/?c=" + encodeURIComponent(b64urlEncode(payload));
+  }
+
+  function buildShareText() {
+    var url = shareUrl();
+    var n = state.texts.length;
+    if (!n) return "an empty corkboard. the conspiracy has not yet begun.\n\n" + url;
+    var preview = state.texts.slice(0, 3).map(function (t) { return "“" + t + "”"; }).join(", ");
+    var more = n > 3 ? " +" + (n - 3) + " more" : "";
+    var lead = "my corkboard: " + preview + more + ". it's all connected.";
+    var budget = 300 - (url.length + 2);
+    if (lead.length > budget) lead = lead.slice(0, Math.max(0, budget - 1)) + "…";
+    return lead + "\n\n" + url;
+  }
+
+  function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+    var words = text.split(" ");
+    var line = "", cy = y, lines = 0;
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (line && ctx.measureText(test).width > maxWidth) {
+        ctx.fillText(line, x, cy);
+        line = words[i];
+        cy += lineHeight;
+        lines++;
+        if (lines >= maxLines - 1) { line = line + "…"; break; }
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, cy);
+  }
+
+  function drawShareCard() {
+    var canvas = els.shareCanvas;
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+
+    ctx.fillStyle = "#3a2415";
+    ctx.fillRect(0, 0, W, H);
+    var bx = 24, by = 24, bw = W - 48, bh = H - 48;
+    var grad = ctx.createLinearGradient(0, by, 0, by + bh);
+    grad.addColorStop(0, "#c69a5c");
+    grad.addColorStop(1, "#a97e42");
+    ctx.fillStyle = grad;
+    ctx.fillRect(bx, by, bw, bh);
+
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    for (var i = 0; i < 260; i++) {
+      var px = bx + Math.random() * bw, py = by + Math.random() * bh;
+      ctx.beginPath();
+      ctx.arc(px, py, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    var n = state.texts.length;
+    var sample = state.texts.slice(0, Math.min(n, 6));
+    var pts = [];
+    var cols = 3, rows = 2;
+    var cellW = bw / cols, cellH = bh / rows;
+    var rng = mulberry32(state.seed);
+    sample.forEach(function (t, i) {
+      var col = i % cols, row = Math.floor(i / cols);
+      var jx = (rng() - 0.5) * cellW * 0.35;
+      var jy = (rng() - 0.5) * cellH * 0.3;
+      var cx = bx + cellW * col + cellW / 2 + jx;
+      var cy = by + cellH * row + cellH / 2 + jy;
+      pts.push({ x: cx, y: cy, rot: (rng() * 14 - 7) });
+    });
+
+    ctx.strokeStyle = "#c81e1e";
+    ctx.lineWidth = 3;
+    for (var e = 1; e < pts.length; e++) {
+      var a = pts[e], b = pts[Math.floor(rng() * e)];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      var mx = (a.x + b.x) / 2 + (rng() - 0.5) * 40;
+      var my = (a.y + b.y) / 2 + (rng() - 0.5) * 40;
+      ctx.quadraticCurveTo(mx, my, b.x, b.y);
+      ctx.stroke();
+    }
+
+    pts.forEach(function (p, i) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((p.rot * Math.PI) / 180);
+      var cw = 190, ch = 100;
+      ctx.fillStyle = CARD_COLORS[i % CARD_COLORS.length];
+      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 4;
+      ctx.fillRect(-cw / 2, -ch / 2, cw, ch);
+      ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+      ctx.fillStyle = "#1c1c1c";
+      ctx.font = "700 17px ui-monospace, monospace";
+      ctx.textAlign = "left";
+      wrapCanvasText(ctx, sample[i], -cw / 2 + 12, -ch / 2 + 26, cw - 24, 21, 4);
+      ctx.beginPath();
+      ctx.fillStyle = PIN_COLORS[i % PIN_COLORS.length];
+      ctx.arc(0, -ch / 2 - 2, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fff2ea";
+    ctx.font = "800 44px ui-monospace, monospace";
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 8;
+    ctx.fillText("corkboard", bx + 30, by + 56);
+    ctx.shadowBlur = 0;
+
+    ctx.font = "700 20px ui-monospace, monospace";
+    ctx.fillStyle = "#ffe4d6";
+    ctx.textAlign = "right";
+    ctx.fillText("corkboard.bisks.net", bx + bw - 24, by + bh - 20);
+  }
+
+  function updateShare() {
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+    drawShareCard();
+  }
+
+  els.shareDownload.addEventListener("click", function () {
+    els.shareCanvas.toBlob(function (blob) {
+      if (!blob) return;
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "corkboard.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  els.copyLink.addEventListener("click", function () {
+    var url = shareUrl();
+    var done = function () {
+      els.status.textContent = "link copied — " + url.length + " chars.";
+      setTimeout(function () { els.status.textContent = ""; }, 2500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, function () { prompt("copy this link:", url); });
+    } else {
+      prompt("copy this link:", url);
+    }
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.addEventListener("click", function () {
+      els.shareCanvas.toBlob(function (blob) {
+        if (!blob) return;
+        var file = new File([blob], "corkboard.png", { type: "image/png" });
+        navigator.share({ files: [file], text: buildShareText(), title: "corkboard" }).catch(function () {});
+      }, "image/png");
+    });
+  }
+
+  // --- boot ---
+  var fromShare = loadFromUrl();
+  if (!fromShare) loadFromStorage();
+  save();
+  render();
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
