@@ -13,6 +13,7 @@ const ACTOR = "norvid-studies.bsky.social";
 const POLL_MS = 25_000;
 const SCAN_PAGE_LIMIT = 100;
 const SCAN_MAX_PAGES = 10; // ~1000 posts of lookback — plenty for one day
+const HISTORY_SCAN_MAX_PAGES = 40; // a deliberate lookup, not a poll — worth digging further
 const PILE_VISIBLE_CAP = 14;
 
 const els = {
@@ -22,12 +23,20 @@ const els = {
   pile: document.getElementById("pile"),
   pileCount: document.getElementById("pileCount"),
   statCount: document.getElementById("statCount"),
+  statCountLabel: document.getElementById("statCountLabel"),
   statCountdown: document.getElementById("statCountdown"),
+  statCountdownLabel: document.getElementById("statCountdownLabel"),
   statLast: document.getElementById("statLast"),
   status: document.getElementById("status"),
   shareBtn: document.getElementById("shareBtn"),
   log: document.getElementById("log"),
   scene: document.getElementById("scene"),
+  dayPrev: document.getElementById("dayPrev"),
+  dayNext: document.getElementById("dayNext"),
+  dayPicker: document.getElementById("dayPicker"),
+  dayLive: document.getElementById("dayLive"),
+  replayRow: document.getElementById("replayRow"),
+  replayBtn: document.getElementById("replayBtn"),
 };
 
 async function jget(url) {
@@ -78,6 +87,19 @@ function periodStart(t) {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
+function isoDateForPeriodStart(ps) {
+  const d = new Date(ps);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function periodStartForDateStr(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
 // ── state ──────────────────────────────────────────────────────────────
 let did = null;
 let handle = ACTOR;
@@ -88,6 +110,16 @@ let seenUris = new Set();
 let quotesToday = []; // {uri, text, indexedAt} newest last
 let tipping = false;
 let ready = false;
+
+// ── time machine: browsing a past day instead of the live bucket ────────
+let liveMode = true;
+let viewedPeriodStart = periodStartMs; // only meaningful when !liveMode
+let replaying = false;
+const historyCache = new Map(); // periodStartMs -> {quotes, truncated}
+
+function currentViewedPeriodStart() {
+  return liveMode ? periodStartMs : viewedPeriodStart;
+}
 
 // ── ambient floating bisks (decorative, not tied 1:1 to the count) ──────
 const FLOAT_COUNT = 7;
@@ -138,18 +170,36 @@ function fmtClock(ms) {
 
 function updateStats() {
   els.statCount.textContent = String(count);
-  const remain = nextTipMs - Date.now();
-  els.statCountdown.textContent = fmtClock(remain);
+  if (liveMode) {
+    const remain = nextTipMs - Date.now();
+    els.statCountdown.textContent = fmtClock(remain);
+  } else {
+    els.statCountdown.textContent = "tipped";
+  }
   updateShare();
 }
 
+function updateLabels() {
+  els.statCountLabel.textContent = liveMode ? "sorted today" : "sorted that day";
+  els.statCountdownLabel.textContent = liveMode ? "until it tips" : "that day's spill";
+}
+
 function updateShare() {
-  const remain = fmtClock(nextTipMs - Date.now());
-  const text =
-    count === 0
-      ? `The quotebucket crow is still waiting on @norvid-studies.bsky.social to quote something today. Tips in ${remain}. https://quotebucket.bisks.net/`
-      : `The crow has sorted ${count} bisk${count === 1 ? "" : "s"} from @norvid-studies.bsky.social's quote-posts today. Bucket tips in ${remain}. https://quotebucket.bisks.net/`;
-  els.shareBtn.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+  if (liveMode) {
+    const remain = fmtClock(nextTipMs - Date.now());
+    const text =
+      count === 0
+        ? `The quotebucket crow is still waiting on @norvid-studies.bsky.social to quote something today. Tips in ${remain}. https://quotebucket.bisks.net/`
+        : `The crow has sorted ${count} bisk${count === 1 ? "" : "s"} from @norvid-studies.bsky.social's quote-posts today. Bucket tips in ${remain}. https://quotebucket.bisks.net/`;
+    els.shareBtn.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+  } else {
+    const label = isoDateForPeriodStart(viewedPeriodStart);
+    const text =
+      count === 0
+        ? `On ${label}, the quotebucket crow found nothing from @norvid-studies.bsky.social to sort. https://quotebucket.bisks.net/`
+        : `On ${label}, the crow sorted ${count} bisk${count === 1 ? "" : "s"} from @norvid-studies.bsky.social's quote-posts before the bucket tipped. https://quotebucket.bisks.net/`;
+    els.shareBtn.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+  }
 }
 
 function prependLog(item) {
@@ -235,14 +285,11 @@ function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-async function tip() {
-  if (tipping) return;
-  tipping = true;
-  els.status.textContent = "the bucket tips over…";
+// the visual tip alone — bisks tumbling out of the pile — with no state
+// changes, so it can be replayed for a past day without touching the live
+// bucket's count or clock.
+async function playTipAnimation() {
   els.bucket.classList.add("tipping");
-  const dumped = count;
-
-  // pile bisks tumble out
   const kids = Array.from(els.pile.children);
   kids.forEach((k, i) => {
     setTimeout(() => {
@@ -250,9 +297,17 @@ async function tip() {
       k.style.opacity = "0";
     }, i * 30);
   });
-
   await sleep(900);
   els.bucket.classList.remove("tipping");
+}
+
+async function tip() {
+  if (tipping) return;
+  tipping = true;
+  els.status.textContent = "the bucket tips over…";
+  const dumped = count;
+
+  await playTipAnimation();
   count = 0;
   quotesToday = [];
   seenUris.clear();
@@ -267,13 +322,16 @@ async function tip() {
   tipping = false;
 }
 
-// ── initial scan: count today's quotes without re-animating each one ─────
-async function initialScan() {
-  els.status.textContent = "checking what norvid's quoted today…";
+// ── scan norvid's feed for quotes inside a [startMs, endMs) window ───────
+// Walks pages newest-first; stops once it passes the window's start (older
+// posts can't matter anymore) or the page budget runs out. Shared by the
+// live "today so far" scan and the history browser below.
+async function scanWindow(startMs, endMs, maxPages) {
   let cursor;
   let pages = 0;
   const found = [];
-  outer: while (pages < SCAN_MAX_PAGES) {
+  let reachedStart = false;
+  outer: while (pages < maxPages) {
     let page;
     try {
       page = await fetchFeedPage(did, cursor);
@@ -283,7 +341,11 @@ async function initialScan() {
     const items = page.feed || [];
     for (const item of items) {
       const when = new Date(item.post.indexedAt).getTime();
-      if (when < periodStartMs) break outer;
+      if (when < startMs) {
+        reachedStart = true;
+        break outer;
+      }
+      if (when >= endMs) continue; // newer than the window we care about
       if (isQuote(item, did)) {
         found.push({
           uri: item.post.uri,
@@ -295,27 +357,148 @@ async function initialScan() {
     }
     cursor = page.cursor;
     pages += 1;
-    if (!cursor || !items.length) break;
+    if (!cursor || !items.length) {
+      reachedStart = true;
+      break;
+    }
   }
-
   found.reverse(); // oldest first
-  for (const q of found) {
-    seenUris.add(q.uri);
-    quotesToday.push(q);
-  }
-  count = found.length;
+  return { quotes: found, truncated: !reachedStart };
+}
+
+// ── initial scan: count today's quotes without re-animating each one ─────
+async function initialScan() {
+  els.status.textContent = "checking what norvid's quoted today…";
+  const { quotes } = await scanWindow(periodStartMs, Infinity, SCAN_MAX_PAGES);
+  quotesToday = quotes;
+  seenUris = new Set(quotes.map((q) => q.uri));
+  count = quotes.length;
   renderPile();
   updateStats();
-  if (found.length) {
-    for (const q of found) prependLog(q);
+  if (quotes.length) {
+    for (const q of quotes) prependLog(q);
     els.status.textContent = "caught up. watching for the next one…";
   } else {
     els.status.textContent = "nothing yet today. watching the sky…";
   }
 }
 
+// ── time machine: jump to a past (or back to the live) day ──────────────
+function refreshNavUi() {
+  const ps = currentViewedPeriodStart();
+  const today0 = periodStart(Date.now());
+  els.dayPicker.value = isoDateForPeriodStart(ps);
+  els.dayPrev.disabled = replaying;
+  els.dayNext.disabled = replaying || ps >= today0;
+  els.dayPicker.disabled = replaying;
+  els.dayLive.disabled = replaying || liveMode;
+  els.dayLive.classList.toggle("active", liveMode);
+}
+
+function updateReplayUi() {
+  els.replayRow.hidden = liveMode;
+  if (!liveMode) els.replayBtn.disabled = replaying || quotesToday.length === 0;
+}
+
+async function goToDay(ps) {
+  if (replaying || !did) return;
+  const today0 = periodStart(Date.now());
+  if (ps > today0) ps = today0;
+
+  if (ps === today0) {
+    if (!liveMode) {
+      liveMode = true;
+      periodStartMs = ps;
+      nextTipMs = periodStartMs + 86_400_000;
+      updateLabels();
+      refreshNavUi();
+      updateReplayUi();
+      await initialScan();
+    }
+    return;
+  }
+
+  liveMode = false;
+  viewedPeriodStart = ps;
+  updateLabels();
+  refreshNavUi();
+  count = 0;
+  quotesToday = [];
+  seenUris = new Set();
+  renderPile();
+  clearLog("flipping back through the sky…");
+  updateStats();
+  updateReplayUi();
+  els.status.textContent = "checking what norvid quoted that day…";
+
+  const pe = ps + 86_400_000;
+  let entry = historyCache.get(ps);
+  if (!entry) {
+    entry = await scanWindow(ps, pe, HISTORY_SCAN_MAX_PAGES);
+    historyCache.set(ps, entry);
+  }
+  if (liveMode || currentViewedPeriodStart() !== ps) return; // user moved on while this was loading
+
+  quotesToday = entry.quotes;
+  seenUris = new Set(quotesToday.map((q) => q.uri));
+  count = quotesToday.length;
+  renderPile();
+  if (quotesToday.length) {
+    clearLog("");
+    for (const q of quotesToday) prependLog(q);
+  } else {
+    clearLog("quiet day — the crow never moved.");
+  }
+  updateStats();
+  updateReplayUi();
+  els.status.textContent = entry.truncated
+    ? "found some — but couldn't scroll back far enough to be sure that's everything."
+    : quotesToday.length
+    ? `that day's spill: ${quotesToday.length} bisk${quotesToday.length === 1 ? "" : "s"}. tap replay to watch it.`
+    : "no quotes that day.";
+}
+
+async function playReplay() {
+  if (replaying || liveMode || !quotesToday.length) return;
+  const toPlay = quotesToday.slice();
+  const dayPs = viewedPeriodStart;
+  replaying = true;
+  refreshNavUi();
+  updateReplayUi();
+  els.replayBtn.textContent = "replaying…";
+  count = 0;
+  renderPile();
+  clearLog("");
+  els.status.textContent = "watching the crow work through that day…";
+
+  for (const q of toPlay) {
+    if (liveMode || viewedPeriodStart !== dayPs) break; // user navigated away mid-replay
+    await playSort(q);
+    await sleep(180);
+  }
+
+  if (!liveMode && viewedPeriodStart === dayPs) {
+    await sleep(500);
+    els.status.textContent = "the bucket tips…";
+    await playTipAnimation();
+    quotesToday = toPlay;
+    seenUris = new Set(toPlay.map((q) => q.uri));
+    count = 0;
+    renderPile();
+    clearLog(toPlay.length ? "" : "quiet day — the crow never moved.");
+    for (const q of toPlay) prependLog(q);
+    updateStats();
+    els.status.textContent = `that's the whole spill — ${toPlay.length} bisk${toPlay.length === 1 ? "" : "s"}.`;
+  }
+
+  replaying = false;
+  els.replayBtn.textContent = "▶ replay the spill";
+  refreshNavUi();
+  updateReplayUi();
+}
+
 async function pollForNew() {
-  if (!did || tipping) return;
+  if (!did || tipping || !liveMode) return;
   let page;
   try {
     page = await fetchFeedPage(did);
@@ -340,13 +523,30 @@ async function pollForNew() {
 }
 
 function tickClock() {
+  if (!liveMode) return;
   updateStats();
   if (ready && !tipping && Date.now() >= nextTipMs) tip();
+}
+
+function setupTimeMachine() {
+  els.dayPicker.max = isoDateForPeriodStart(periodStart(Date.now()));
+  els.dayPrev.addEventListener("click", () => goToDay(currentViewedPeriodStart() - 86_400_000));
+  els.dayNext.addEventListener("click", () => goToDay(currentViewedPeriodStart() + 86_400_000));
+  els.dayLive.addEventListener("click", () => goToDay(periodStart(Date.now())));
+  els.dayPicker.addEventListener("change", () => {
+    if (!els.dayPicker.value) return;
+    goToDay(periodStartForDateStr(els.dayPicker.value));
+  });
+  els.replayBtn.addEventListener("click", playReplay);
+  updateLabels();
+  refreshNavUi();
+  updateReplayUi();
 }
 
 async function boot() {
   spawnFloatingField();
   window.addEventListener("resize", spawnFloatingField);
+
   try {
     did = await resolveDid(ACTOR);
   } catch {
@@ -361,4 +561,5 @@ async function boot() {
   pollForNew();
 }
 
+setupTimeMachine();
 boot();
