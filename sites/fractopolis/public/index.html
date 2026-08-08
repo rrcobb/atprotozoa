@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fractopolis — a city made of itself</title>
+<meta name="description" content="An infinite fractal cityscape. Every block is a smaller city grid, roads and all. Click any block to zoom in — it never bottoms out." />
+<meta property="og:title" content="fractopolis — a city made of itself" />
+<meta property="og:description" content="An infinite fractal cityscape. Every block is a smaller city grid, roads and all. Click any block to zoom in — it never bottoms out." />
+<meta property="og:url" content="https://fractopolis.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://fractopolis.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A neon fractal city grid, streets subdividing into smaller identical city blocks." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="fractopolis — a city made of itself" />
+<meta name="twitter:description" content="An infinite fractal cityscape. Every block is a smaller city grid, roads and all. Click any block to zoom in — it never bottoms out." />
+<meta name="twitter:image" content="https://fractopolis.bisks.net/og.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0d13;
+    --bg2: #060810;
+    --panel: #10141d;
+    --panel-border: #232a3b;
+    --ink: #e3e9f4;
+    --dim: #8891a6;
+    --dim2: #626b80;
+    --accent: #3ee6c4;
+    --accent2: #ff5f8f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg2);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.2rem 1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 980px; }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.2;
+    margin: 0 0 0.3rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.2rem; line-height: 1.55; max-width: 640px; }
+
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 0.9rem;
+  }
+  button {
+    background: linear-gradient(180deg, #2be0bd, #1fae94);
+    color: #06231d;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1.05rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button.ghost {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  button.ghost.on {
+    background: linear-gradient(180deg, #ff7fa6, #e14577);
+    color: #2a0512;
+    border-color: transparent;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .stat {
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 0.8rem;
+    text-align: right;
+  }
+  .stat b { color: var(--accent); font-size: 0.95rem; }
+
+  .cityframe {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    min-height: 340px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    box-shadow: 0 18px 50px -20px rgba(0,0,0,0.8);
+    background: #0d1017;
+    cursor: zoom-in;
+  }
+  #city { display: block; width: 100%; height: 100%; }
+  .hint { color: var(--dim2); font-size: 0.76rem; margin: 0.6rem 0 1.3rem; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--dim2);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent); }
+
+  .share {
+    margin-top: 1.6rem;
+    border-top: 1px dashed var(--panel-border);
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-actions a, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center;
+    border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .share-actions a {
+    background: linear-gradient(180deg, #ff7fa6, #e14577);
+    color: #2a0512;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--ink);
+  }
+  .status { color: var(--dim); font-size: 0.8rem; margin: 0.5rem 0 0; min-height: 1.2em; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>fractopolis</h1>
+    <p class="tag">
+      A city built out of smaller identical versions of itself. Every block is
+      really a whole city grid, roads and all, waiting at a scale you haven't
+      looked at yet. Click any block to dive into it — it never bottoms out.
+    </p>
+
+    <div class="toolbar">
+      <button id="newCity" type="button">🎲 new city</button>
+      <button id="autoDive" class="ghost" type="button">▶ auto-dive</button>
+      <button id="resetZoom" class="ghost" type="button">⤴ surface</button>
+      <div class="stat"><b id="depthStat">0</b> levels deep</div>
+    </div>
+
+    <div class="cityframe" id="cityframe">
+      <canvas id="city"></canvas>
+    </div>
+    <p class="hint">click a block to zoom in · seed reproduces the style, not your exact path</p>
+
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" type="button" style="display:none;background:linear-gradient(180deg,#ff7fa6,#e14577);color:#2a0512;">📤 share card</button>
+        <a id="shareBluesky" target="_blank" rel="noopener">🦋 share this city</a>
+        <button id="shareDownload" type="button">⬇ download card</button>
+        <button id="copyLink" type="button">🔗 copy link</button>
+      </div>
+      <p class="status" id="status"></p>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // --- deterministic PRNG + hashing. Every block's look (color, windows,
+  // whether it's a park) is a pure function of a 32-bit seed that gets
+  // rehashed one step per grid-cell as you recurse or zoom — so the whole
+  // infinite city is reproducible from one integer, never stored as a tree.
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function hashCombine(seed, i) {
+    var a = (seed ^ Math.imul(i + 0x9e3779b9, 2654435761)) >>> 0;
+    a = Math.imul(a ^ (a >>> 16), 2246822519) >>> 0;
+    a = Math.imul(a ^ (a >>> 13), 3266489917) >>> 0;
+    return (a ^ (a >>> 16)) >>> 0;
+  }
+  function seedFromString(s) {
+    var h = 1779033703 ^ s.length;
+    for (var i = 0; i < s.length; i++) {
+      h = Math.imul(h ^ s.charCodeAt(i), 3432918353);
+      h = (h << 13) | (h >>> 19);
+    }
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+  function randSeed() {
+    return seedFromString(Math.random().toString(36) + Date.now().toString(36));
+  }
+
+  // --- state ---
+  var state = { seed: randSeed(), depth: 0 };
+
+  function loadFromUrl() {
+    var m = location.search.match(/[?&]seed=([^&]+)/);
+    if (!m) return false;
+    var n = parseInt(m[1], 10);
+    if (!isFinite(n)) return false;
+    state.seed = n >>> 0;
+    return true;
+  }
+  loadFromUrl();
+
+  // --- the fractal renderer ---
+  var canvas = document.getElementById("city");
+  var ctx = canvas.getContext("2d");
+  var cityframe = document.getElementById("cityframe");
+  var dpr = 1;
+
+  var ROAD_FRAC = 0.075;   // gap between cells, as a fraction of cell size — shrinks with the cells, so streets stay self-similar at every scale
+  var LEAF_PX = 40;        // stop recursing once a cell is this small on screen
+  var MAX_LOCAL_DEPTH = 6; // hard cap regardless of pixel size
+  var NODE_BUDGET = 14000; // safety valve against huge/hi-dpi screens
+
+  // Populated fresh by every full render(): every grid cell drawn, in
+  // canvas-pixel space, with the seed/depth needed to zoom into it. Click
+  // hit-testing walks this backwards so the *deepest* (smallest) cell under
+  // the cursor wins.
+  var lastRects = [];
+  var budget = 0;
+
+  function drawLeaf(x, y, w, h, seed, isCenter, globalDepth) {
+    var rng = mulberry32(seed);
+    var hue = isCenter
+      ? (125 + (rng() * 20 - 10) + globalDepth * 3) % 360
+      : (200 + globalDepth * 13 + rng() * 40) % 360;
+    if (hue < 0) hue += 360;
+
+    if (isCenter) {
+      ctx.fillStyle = "hsl(" + hue.toFixed(0) + ", 40%, " + (16 + rng() * 8).toFixed(0) + "%)";
+      ctx.fillRect(x, y, w, h);
+      if (w > 10 && h > 10) {
+        ctx.fillStyle = "hsl(" + hue.toFixed(0) + ", 45%, " + (26 + rng() * 10).toFixed(0) + "%)";
+        var r = Math.min(w, h) * (0.16 + rng() * 0.1);
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+
+    var light = 22 + rng() * 30;
+    var sat = 45 + rng() * 25;
+    ctx.fillStyle = "hsl(" + hue.toFixed(0) + ", " + sat.toFixed(0) + "%, " + light.toFixed(0) + "%)";
+    ctx.fillRect(x, y, w, h);
+
+    // cheap pseudo-3D: a light diagonal sheen, top-left to bottom-right
+    var grad = ctx.createLinearGradient(x, y, x + w, y + h);
+    grad.addColorStop(0, "rgba(255,255,255,0.10)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0)");
+    grad.addColorStop(1, "rgba(0,0,0,0.22)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+
+    if (w >= 26 && h >= 26) {
+      var cols = w > 60 ? 3 : 2;
+      var rows = h > 60 ? 3 : 2;
+      var pad = Math.min(w, h) * 0.14;
+      var gw = (w - pad * 2) / cols;
+      var gh = (h - pad * 2) / rows;
+      var winW = gw * 0.55, winH = gh * 0.55;
+      for (var r2 = 0; r2 < rows; r2++) {
+        for (var c2 = 0; c2 < cols; c2++) {
+          var lit = rng() < 0.4;
+          ctx.fillStyle = lit ? "rgba(255,214,120,0.85)" : "rgba(0,0,0,0.28)";
+          ctx.fillRect(
+            x + pad + c2 * gw + (gw - winW) / 2,
+            y + pad + r2 * gh + (gh - winH) / 2,
+            winW, winH
+          );
+        }
+      }
+    }
+  }
+
+  // Draws the fractal rooted at (x,y,w,h) with the given seed: a 3x3 grid
+  // separated by road gaps, each of the 9 cells recursing the same way,
+  // until a cell is too small (or the depth/node budget runs out) and
+  // becomes a leaf — a building, or a park if it's the grid's center cell.
+  // `out`, if given, collects every cell (leaf or not) as a zoom target.
+  function render(seed, globalDepth, out) {
+    var rect = cityframe.getBoundingClientRect();
+    dpr = window.devicePixelRatio || 1;
+    var cw = Math.max(1, Math.round(rect.width * dpr));
+    var ch = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
+    ctx.fillStyle = "#14161d";
+    ctx.fillRect(0, 0, cw, ch);
+    budget = NODE_BUDGET;
+    renderCell(0, 0, cw, ch, seed, 0, globalDepth, out || null, false);
+  }
+
+  function renderCell(x, y, w, h, seed, localDepth, globalDepth, out, isCenter) {
+    budget--;
+    var gx = Math.max(0.6, w * ROAD_FRAC);
+    var gy = Math.max(0.6, h * ROAD_FRAC);
+    var cellW = (w - 4 * gx) / 3;
+    var cellH = (h - 4 * gy) / 3;
+    var isLeaf = budget <= 0 || localDepth >= MAX_LOCAL_DEPTH || w < LEAF_PX || h < LEAF_PX || cellW < 1 || cellH < 1;
+
+    if (isLeaf) {
+      drawLeaf(x, y, w, h, seed, !!isCenter, globalDepth);
+      return;
+    }
+
+    ctx.fillStyle = "#14161d";
+    ctx.fillRect(x, y, w, h);
+
+    for (var row = 0; row < 3; row++) {
+      for (var col = 0; col < 3; col++) {
+        var idx = row * 3 + col;
+        var cx = x + gx + col * (cellW + gx);
+        var cy = y + gy + row * (cellH + gy);
+        var childSeed = hashCombine(seed, idx);
+        var childGlobalDepth = globalDepth + 1;
+        if (out) out.push({ x: cx, y: cy, w: cellW, h: cellH, seed: childSeed, localDepth: localDepth + 1, globalDepth: childGlobalDepth });
+        renderCell(cx, cy, cellW, cellH, childSeed, localDepth + 1, childGlobalDepth, out, idx === 4);
+      }
+    }
+  }
+
+  function fullRender() {
+    lastRects = [];
+    render(state.seed, state.depth, lastRects);
+    updateDepthStat();
+    updateShare();
+  }
+
+  function updateDepthStat() {
+    document.getElementById("depthStat").textContent = state.depth.toLocaleString();
+  }
+
+  // --- zoom: animate by rescaling a snapshot of the current canvas toward
+  // the clicked rect, then recompute the fractal fresh once we're "inside"
+  // it — the brief soft-focus during the animation is the same effect real
+  // deep-zoom fractal renders use, and it's what makes the dive read as
+  // continuous instead of a jump-cut. ---
+  var animating = false;
+
+  function zoomToRect(target) {
+    if (animating) return;
+    animating = true;
+    var snap = document.createElement("canvas");
+    snap.width = canvas.width;
+    snap.height = canvas.height;
+    snap.getContext("2d").drawImage(canvas, 0, 0);
+
+    var fullW = canvas.width, fullH = canvas.height;
+    var start = performance.now();
+    var duration = 480;
+
+    function frame(now) {
+      var t = Math.min(1, (now - start) / duration);
+      var e = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      var sx = 0 + (target.x - 0) * e;
+      var sy = 0 + (target.y - 0) * e;
+      var sw = fullW + (target.w - fullW) * e;
+      var sh = fullH + (target.h - fullH) * e;
+      ctx.clearRect(0, 0, fullW, fullH);
+      ctx.drawImage(snap, sx, sy, sw, sh, 0, 0, fullW, fullH);
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        state.seed = target.seed;
+        state.depth += target.localDepth;
+        animating = false;
+        fullRender();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function pickRectAt(px, py) {
+    for (var i = lastRects.length - 1; i >= 0; i--) {
+      var r = lastRects[i];
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r;
+    }
+    return null;
+  }
+
+  cityframe.addEventListener("click", function (ev) {
+    if (animating) return;
+    var rect = canvas.getBoundingClientRect();
+    var px = (ev.clientX - rect.left) * (canvas.width / rect.width);
+    var py = (ev.clientY - rect.top) * (canvas.height / rect.height);
+    var hit = pickRectAt(px, py);
+    if (hit) zoomToRect(hit);
+  });
+
+  // --- auto-dive: keeps picking a plausible block and diving into it,
+  // forever, so the "never-ending" part is visible without a thousand clicks ---
+  var autoTimer = null;
+  var autoBtn = document.getElementById("autoDive");
+
+  function autoStep() {
+    if (animating || !lastRects.length) return;
+    var candidates = lastRects.filter(function (r) { return r.w > 30 && r.h > 30; });
+    if (!candidates.length) candidates = lastRects;
+    var pick = candidates[Math.floor(Math.random() * candidates.length)];
+    zoomToRect(pick);
+  }
+  function setAutoDive(on) {
+    autoBtn.classList.toggle("on", on);
+    autoBtn.textContent = on ? "⏸ stop diving" : "▶ auto-dive";
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (on) autoTimer = setInterval(autoStep, 1500);
+  }
+  autoBtn.addEventListener("click", function () {
+    setAutoDive(!autoBtn.classList.contains("on"));
+  });
+
+  document.getElementById("newCity").addEventListener("click", function () {
+    setAutoDive(false);
+    state.seed = randSeed();
+    state.depth = 0;
+    history.replaceState(null, "", location.pathname);
+    fullRender();
+  });
+  document.getElementById("resetZoom").addEventListener("click", function () {
+    setAutoDive(false);
+    state.depth = 0;
+    fullRender();
+  });
+
+  window.addEventListener("resize", debounce(fullRender, 150));
+  function debounce(fn, ms) {
+    var t;
+    return function () {
+      clearTimeout(t);
+      t = setTimeout(fn, ms);
+    };
+  }
+
+  // --- share ---
+  function shareUrl() {
+    return "https://fractopolis.bisks.net/?seed=" + state.seed;
+  }
+  function buildShareText() {
+    var url = shareUrl();
+    var depth = state.depth.toLocaleString();
+    var lead = state.depth > 0
+      ? depth + " levels deep into a fractal city that never bottoms out."
+      : "a fractal city that never bottoms out. every block is another city.";
+    return lead + "\n\n" + url;
+  }
+
+  var shareCanvas = document.getElementById("shareCanvas");
+  var shareCtx = shareCanvas.getContext("2d");
+  function drawShareCard() {
+    var W = shareCanvas.width, H = shareCanvas.height;
+    shareCtx.fillStyle = "#0a0d13";
+    shareCtx.fillRect(0, 0, W, H);
+
+    // crop the live city canvas into a square-ish panel on the left
+    var panelX = 24, panelY = 24, panelSize = H - 48;
+    var cw = canvas.width, ch = canvas.height;
+    var srcSize = Math.min(cw, ch);
+    var srcX = (cw - srcSize) / 2, srcY = (ch - srcSize) / 2;
+    if (cw > 0 && ch > 0) {
+      shareCtx.drawImage(canvas, srcX, srcY, srcSize, srcSize, panelX, panelY, panelSize, panelSize);
+    } else {
+      shareCtx.fillStyle = "#14161d";
+      shareCtx.fillRect(panelX, panelY, panelSize, panelSize);
+    }
+    shareCtx.strokeStyle = "#232a3b";
+    shareCtx.lineWidth = 2;
+    shareCtx.strokeRect(panelX, panelY, panelSize, panelSize);
+
+    var tx = panelX + panelSize + 40;
+    var tw = W - tx - 40;
+
+    shareCtx.textAlign = "left";
+    var grad = shareCtx.createLinearGradient(tx, 0, tx + 260, 0);
+    grad.addColorStop(0, "#3ee6c4");
+    grad.addColorStop(1, "#ff5f8f");
+    shareCtx.fillStyle = grad;
+    shareCtx.font = "800 52px 'JetBrains Mono', monospace";
+    shareCtx.fillText("fractopolis", tx, panelY + 70);
+
+    shareCtx.fillStyle = "#e3e9f4";
+    shareCtx.font = "600 22px 'JetBrains Mono', monospace";
+    wrapCanvasText(shareCtx, "a city made of smaller identical versions of itself. click a block, it's a city too.", tx, panelY + 120, tw, 30, 4);
+
+    shareCtx.fillStyle = "#3ee6c4";
+    shareCtx.font = "800 30px 'JetBrains Mono', monospace";
+    shareCtx.fillText(state.depth.toLocaleString() + " levels deep", tx, panelY + panelSize - 90);
+
+    shareCtx.fillStyle = "#8891a6";
+    shareCtx.font = "700 20px 'JetBrains Mono', monospace";
+    shareCtx.fillText("fractopolis.bisks.net", tx, panelY + panelSize - 50);
+  }
+
+  function wrapCanvasText(c, text, x, y, maxWidth, lineHeight, maxLines) {
+    var words = text.split(" ");
+    var line = "", cy = y, lines = 0;
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (line && c.measureText(test).width > maxWidth) {
+        c.fillText(line, x, cy);
+        line = words[i];
+        cy += lineHeight;
+        lines++;
+        if (lines >= maxLines - 1) { line = line + "…"; break; }
+      } else {
+        line = test;
+      }
+    }
+    if (line) c.fillText(line, x, cy);
+  }
+
+  function updateShare() {
+    document.getElementById("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+    drawShareCard();
+  }
+
+  document.getElementById("shareDownload").addEventListener("click", function () {
+    shareCanvas.toBlob(function (blob) {
+      if (!blob) return;
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "fractopolis.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  document.getElementById("copyLink").addEventListener("click", function () {
+    var url = shareUrl();
+    var statusEl = document.getElementById("status");
+    var done = function () {
+      statusEl.textContent = "link copied — style reproduces, dive again from the surface.";
+      setTimeout(function () { statusEl.textContent = ""; }, 3000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, function () { prompt("copy this link:", url); });
+    } else {
+      prompt("copy this link:", url);
+    }
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) { return false; }
+  }
+  if (canShareFiles()) {
+    var shareNativeBtn = document.getElementById("shareNative");
+    shareNativeBtn.style.display = "";
+    shareNativeBtn.addEventListener("click", function () {
+      shareCanvas.toBlob(function (blob) {
+        if (!blob) return;
+        var file = new File([blob], "fractopolis.png", { type: "image/png" });
+        navigator.share({ files: [file], text: buildShareText(), title: "fractopolis" }).catch(function () {});
+      }, "image/png");
+    });
+  }
+
+  // --- boot ---
+  fullRender();
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
