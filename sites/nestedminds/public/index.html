@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>nestedminds — a matryoshka doll of tic-tac-toe AIs</title>
+    <meta
+      name="description"
+      content="Open a doll, play its tic-tac-toe AI. Beat it and a slightly smarter one is nested inside — one more rule each time, from pure chaos to unbeatable."
+    />
+    <meta property="og:title" content="nestedminds — beat the doll, a smarter one is inside" />
+    <meta
+      property="og:description"
+      content="Six nested dolls, six tic-tac-toe AIs. Each one is the last one plus exactly one more rule. Watch small tweaks add up to unbeatable."
+    />
+    <meta property="og:url" content="https://nestedminds.bisks.net/" />
+    <meta property="og:image" content="https://nestedminds.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A teal nesting doll labeled with a number, next to a tic-tac-toe board and a ladder of rules." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #101a2e;
+        --ink: #eaf2ff;
+        --muted: #7f93b8;
+        --faint: #1c2a45;
+        --accent: #35e0c0;
+        --accent2: #ffb84d;
+        --bad: #ff6b6b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      body { display: flex; flex-direction: column; }
+
+      header {
+        padding: 0.85rem 1rem 0.6rem; border-bottom: 1px solid var(--faint);
+        flex: none; background: var(--panel);
+      }
+      header .top {
+        display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+      }
+      h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      header p.tag {
+        margin: 0.3rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 64ch;
+      }
+      .backlink { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .backlink:hover { text-decoration: underline; }
+
+      #breadcrumb {
+        display: flex; gap: 0.4rem; padding: 0.55rem 1rem; flex-wrap: wrap;
+        border-bottom: 1px solid var(--faint); background: var(--panel);
+      }
+      .mini-btn {
+        width: 34px; height: 44px; padding: 0; border: none; background: none; cursor: pointer;
+        opacity: 0.55; transition: opacity 0.15s, transform 0.15s;
+      }
+      .mini-btn:hover:not(:disabled) { opacity: 0.85; transform: translateY(-2px); }
+      .mini-btn.current { opacity: 1; }
+      .mini-btn.current svg { filter: drop-shadow(0 0 6px var(--accent)); }
+      .mini-btn.locked { opacity: 0.2; cursor: default; }
+      .mini-btn svg { width: 100%; height: 100%; }
+
+      main {
+        flex: 1 1 auto; display: flex; flex-direction: column; align-items: center;
+        padding: 1.2rem 1rem 2rem; gap: 1rem; max-width: 720px; margin: 0 auto; width: 100%;
+      }
+
+      .doll-title { font-size: 1rem; font-weight: 700; color: var(--ink); text-align: center; }
+
+      #dollSlot { width: 130px; margin: 0 auto; }
+      .doll-main { width: 100%; height: auto; display: block; }
+
+      #ruleList {
+        list-style: none; margin: 0; padding: 0; width: 100%; max-width: 480px;
+        display: flex; flex-direction: column; gap: 0.35rem;
+      }
+      #ruleList li {
+        font-size: 0.78rem; color: var(--muted); padding: 0.35rem 0.6rem;
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--panel);
+      }
+      #ruleList li.new { color: var(--ink); border-color: var(--accent); background: #123634; }
+
+      .board {
+        display: grid; grid-template-columns: repeat(3, 84px); grid-template-rows: repeat(3, 84px);
+        gap: 6px; background: var(--faint); padding: 6px; border-radius: 10px;
+      }
+      .cell {
+        background: var(--panel); border: none; border-radius: 6px; color: var(--ink);
+        font-family: var(--mono); font-size: 2.2rem; font-weight: 700; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .cell:hover:not(:disabled):not(.filled) { background: #16233d; }
+      .cell:disabled { cursor: default; }
+      .cell.X { color: var(--accent2); }
+      .cell.O { color: var(--accent); }
+
+      .status { font-size: 0.85rem; min-height: 1.3em; text-align: center; }
+      .status.good { color: var(--accent); }
+      .status.bad { color: var(--bad); }
+
+      .controls { display: flex; gap: 0.6rem; }
+      button.action {
+        font-family: inherit; font-size: 0.8rem; padding: 0.45rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--bg); color: var(--ink);
+        border-radius: 6px; cursor: pointer;
+      }
+      button.action:hover { background: #16233d; }
+      button.action.solid { background: var(--accent); color: #06231d; border-color: var(--accent); font-weight: 700; }
+      button.action.solid:hover { background: #55f0d4; }
+
+      .stat { font-size: 0.78rem; color: var(--muted); text-align: center; }
+      .stat strong { color: var(--accent); }
+
+      #completion {
+        width: 100%; max-width: 480px; border: 1px solid var(--accent); border-radius: 10px;
+        background: #0e2422; padding: 0.9rem 1rem; text-align: center; display: flex;
+        flex-direction: column; gap: 0.6rem;
+      }
+      #completion h2 { margin: 0; font-size: 0.95rem; color: var(--accent); }
+      #completion p { margin: 0; font-size: 0.8rem; color: var(--muted); }
+      .share-row { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+
+      #shareCanvas { display: none; }
+
+      footer {
+        flex: none; padding: 0.5rem 1rem; border-top: 1px solid var(--faint);
+        font-size: 0.75rem; color: var(--muted); display: flex; gap: 0.75rem; flex-wrap: wrap;
+        align-items: center; background: var(--panel); justify-content: center;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 420px) {
+        .board { grid-template-columns: repeat(3, 72px); grid-template-rows: repeat(3, 72px); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="top">
+        <h1><a href="https://bisks.net/">bisks.net</a><span class="slash">/</span><a href="https://nestedminds.bisks.net/">nestedminds</a></h1>
+        <a class="backlink" href="https://bisks.net/">← the zoo</a>
+      </div>
+      <p class="tag">
+        a matryoshka doll of tic-tac-toe AIs. beat the doll you're playing and a slightly
+        smarter one is nested inside — one more rule each time, chaos to unbeatable.
+      </p>
+    </header>
+
+    <div id="breadcrumb"></div>
+
+    <main>
+      <div id="dollSlot"></div>
+      <div class="doll-title" id="dollTitle"></div>
+      <ul id="ruleList"></ul>
+
+      <div class="board" id="board">
+        <button class="cell" data-i="0"></button>
+        <button class="cell" data-i="1"></button>
+        <button class="cell" data-i="2"></button>
+        <button class="cell" data-i="3"></button>
+        <button class="cell" data-i="4"></button>
+        <button class="cell" data-i="5"></button>
+        <button class="cell" data-i="6"></button>
+        <button class="cell" data-i="7"></button>
+        <button class="cell" data-i="8"></button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="controls">
+        <button class="action" id="retryBtn" hidden>↺ retry this doll</button>
+        <button class="action solid" id="nextBtn" hidden>open the next doll →</button>
+      </div>
+
+      <div class="stat">deepest doll reached: <strong id="deepestStat">0</strong> of 5</div>
+
+      <div id="completion" hidden>
+        <h2>that's the ceiling</h2>
+        <p>doll 5 plays perfectly — the best anyone can do against it is draw. six rules, one at a time, took tic-tac-toe from pure chaos to unbeatable.</p>
+        <div class="share-row">
+          <button class="action solid" id="shareCardBtn">share card</button>
+          <a id="shareBluesky" class="backlink" target="_blank" rel="noopener" href="#">post to bluesky →</a>
+        </div>
+      </div>
+    </main>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <footer>
+      <span>each doll's move is the last doll's move, plus exactly one more rule.</span>
+      <span class="spacer"></span>
+      <span>built for the theme box's "recursive self improvement."</span>
+    </footer>
+
+    <script src="game.js"></script>
+  </body>
+</html>
