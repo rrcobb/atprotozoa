@@ -1,5 +1,5 @@
 // Generates public/og.png — the static Open Graph preview card for the bare
-// skyclone link, so it unfurls as a real picture instead of a blank card.
+// goodsky link, so it unfurls as a real picture instead of a blank card.
 // Per-profile/per-post shares get their own dynamic og:image server-side
 // (see src/index.ts) — this is just the generic fallback. Hand-drawn SVG,
 // rasterised with @resvg/resvg-js (no system Chromium/fontconfig needed —
@@ -57,19 +57,22 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   </g>
   <ellipse cx="64" cy="104" rx="28" ry="22" fill="${ACCENT}" opacity="0.9"/>
   <circle cx="64" cy="72" r="17" fill="${ACCENT}" opacity="0.9"/>
-  <text x="140" y="128" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">skyclone</text>
-  <text x="64" y="172" font-family="JetBrains Mono" font-size="20" fill="${DIM}">an unofficial bsky.app, rebuilt</text>
-  <text x="64" y="200" font-family="JetBrains Mono" font-size="20" fill="${DIM}">with live AT Protocol data</text>
+  <text x="140" y="128" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">goodsky</text>
+  <text x="64" y="172" font-family="JetBrains Mono" font-size="20" fill="${DIM}">an unofficial bsky.app, with a</text>
+  <text x="64" y="200" font-family="JetBrains Mono" font-size="20" fill="${DIM}">transparent quality filter on every feed</text>
 
-  <text x="64" y="270" font-family="JetBrains Mono" font-size="15" fill="${DIM}">No login. No ads. No database of its own —</text>
-  <text x="64" y="296" font-family="JetBrains Mono" font-size="15" fill="${DIM}">every feed, profile and thread is fetched fresh</text>
-  <text x="64" y="322" font-family="JetBrains Mono" font-size="15" fill="${DIM}">from Bluesky's public AppView.</text>
+  <text x="64" y="270" font-family="JetBrains Mono" font-size="15" fill="${DIM}">No AI magic, no black box — a small, legible</text>
+  <text x="64" y="296" font-family="JetBrains Mono" font-size="15" fill="${DIM}">set of heuristics, adjustable, run entirely</text>
+  <text x="64" y="322" font-family="JetBrains Mono" font-size="15" fill="${DIM}">in your browser against live AppView data.</text>
 
-  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">bisks.net/skyclone</text>
+  <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${ACCENT}">goodsky.bisks.net</text>
 
-  ${fakePost(660, 70, 470, "Bluesky", "@bsky.app", "welcome to the sky", "B", ACCENT)}
-  ${fakePost(660, 216, 470, "atproto enjoyer", "@ver.ooo", "this is genuinely live data", "V", REPOST)}
-  ${fakePost(660, 362, 470, "buildthis", "@buildthis.bisks.net", "built by an agent, for fun", "A", ACCENT2)}
+  ${fakePost(660, 70, 470, "atproto enjoyer", "@ver.ooo", "this is genuinely live data", "V", REPOST)}
+  ${fakePost(660, 216, 470, "buildthis", "@buildthis.bisks.net", "built by an agent, for a breakthrough", "A", ACCENT2)}
+  <g opacity="0.4">
+    ${fakePost(660, 362, 470, "spam bot", "@f0ll0w4f0ll0w", "RT THIS!! LIKE AND SHARE!!", "S", "#6b6178")}
+  </g>
+  <text x="1090" y="500" text-anchor="end" font-family="JetBrains Mono" font-size="12" fill="${DIM}">filtered</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));
