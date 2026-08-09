@@ -532,6 +532,14 @@ function h(strings, ...vals) {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// Like .slice(0, n), but never leaves a lone surrogate half dangling at the
+// cut point — post text is arbitrary user content, and a plain .slice() that
+// lands mid-emoji produces an unpaired surrogate that throws "URI malformed"
+// the moment it hits encodeURIComponent() (e.g. building a share link).
+function safeSlice(s, n) {
+  const out = s.slice(0, n);
+  return /[\uD800-\uDBFF]$/.test(out) ? out.slice(0, -1) : out;
+}
 
 // ---------- "Elsewhere" profile panel ----------
 // Every profile links out to a few sibling atprotozoa sites, pre-filled with
@@ -855,7 +863,7 @@ function postCard(post, opts) {
   const record = post.record || {};
   const url = postUrl(author.handle, post.uri);
   const shareUrl = `${SITE_URL}/profile/${encodeURIComponent(author.handle)}/post/${rkeyOf(post.uri)}`;
-  const shareText = `Post by @${author.handle} on skyclone: "${(record.text || "").slice(0, 120)}"`;
+  const shareText = `Post by @${author.handle} on skyclone: "${safeSlice(record.text || "", 120)}"`;
   return `<article class="post" data-href="${url}">
     <a class="post-avatar" href="${profileUrl(author.handle)}" data-link>
       <img src="${esc(author.avatar || FALLBACK_AVATAR)}" alt="">
@@ -1182,7 +1190,7 @@ function notificationRow(n) {
     <a href="${profileUrl(author.handle)}" data-link><img src="${esc(author.avatar || FALLBACK_AVATAR)}" alt=""></a>
     <div class="cr-body">
       <div class="cr-title">${meta.icon} <a href="${profileUrl(author.handle)}" data-link>${esc(author.displayName || author.handle)}</a> ${esc(meta.verb)}</div>
-      ${text ? `<div class="cr-desc">${esc(text.slice(0, 140))}</div>` : ""}
+      ${text ? `<div class="cr-desc">${esc(safeSlice(text, 140))}</div>` : ""}
       <div class="cr-sub">${relTime(n.indexedAt)}</div>
     </div>
   </div>`;
@@ -1442,7 +1450,7 @@ function actorRow(a) {
     <div class="cr-body">
       <div class="cr-title">${esc(a.displayName || a.handle)}${verifyBadge(a)}</div>
       <div class="cr-sub">@${esc(a.handle)}</div>
-      ${a.description ? `<div class="cr-desc">${esc((a.description || "").slice(0, 140))}</div>` : ""}
+      ${a.description ? `<div class="cr-desc">${esc(safeSlice(a.description || "", 140))}</div>` : ""}
     </div>
   </div>`;
 }
@@ -1668,7 +1676,7 @@ async function ThreadView(main, params, args) {
     parents = chain.map((c) => `<div class="thread-parent">${postCard(c.post)}</div>`).join("");
 
     const focus = thread.post;
-    const shareText = `${focus.author.displayName || focus.author.handle} (@${focus.author.handle}) on skyclone: "${(focus.record.text || "").slice(0, 100)}"`;
+    const shareText = `${focus.author.displayName || focus.author.handle} (@${focus.author.handle}) on skyclone: "${safeSlice(focus.record.text || "", 100)}"`;
     const shareUrl = `${SITE_URL}/profile/${encodeURIComponent(focus.author.handle)}/post/${rkeyOf(focus.uri)}`;
     const focusHtml = `<div class="thread-focus">
       <div class="post-head-full">

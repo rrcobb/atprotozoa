@@ -32,10 +32,14 @@ function esc(s: string): string {
 }
 
 // Truncate on a grapheme-ish boundary for a meta description; doesn't need to
-// be exact, just not mid-surrogate-pair.
+// be exact, just not mid-surrogate-pair (a lone surrogate half left dangling
+// at the cut renders as a replacement character in the unfurled meta tags).
 function truncate(s: string, n: number): string {
   const clean = s.replace(/\s+/g, " ").trim();
-  return clean.length > n ? clean.slice(0, n - 1).trimEnd() + "…" : clean;
+  if (clean.length <= n) return clean;
+  let cut = clean.slice(0, n - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut.trimEnd() + "…";
 }
 
 async function bskyGet(path: string, params: Record<string, string>): Promise<any> {
