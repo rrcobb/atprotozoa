@@ -127,16 +127,24 @@ export async function fetchRepoRecords(pds, did, types, onProgress) {
   const bytes = new Uint8Array(buf);
   const out = [];
   let scanned = 0;
+  // Tallied off every decoded block regardless of `wanted` — not a signal
+  // this site otherwise tracks, but shimmermathlabs.com's bit ("anyone with
+  // topchicken records deserves extra points") became a real bonus in
+  // computeThrash, so it needs a real count. The client already fully
+  // decodes each block to check its $type, so this piggybacks for free.
+  let topchickenCount = 0;
   if (onProgress) onProgress(`parsing ${(buf.byteLength / 1048576).toFixed(1)} MB repo CAR ...`);
 
   for (const blockBytes of carBlocks(bytes)) {
     scanned++;
     let obj;
     try { obj = cborDecode(blockBytes); } catch (_) { continue; }
-    if (!obj || typeof obj !== "object" || Array.isArray(obj) || !wanted.has(obj.$type)) continue;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
+    if (typeof obj.$type === "string" && /topchicken/i.test(obj.$type)) topchickenCount++;
+    if (!wanted.has(obj.$type)) continue;
     out.push(obj);
     if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${out.length} matching records so far`);
   }
 
-  return { records: out, bytes: buf.byteLength };
+  return { records: out, bytes: buf.byteLength, topchickenCount };
 }

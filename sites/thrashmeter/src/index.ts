@@ -353,7 +353,7 @@ const CAR_MAX_POST_RECORDS_DECODED = 5_000;
 const CAR_MAX_OTHER_RECORDS_DECODED_PER_TYPE = 2_000;
 const POST_TYPE = "app.bsky.feed.post";
 
-async function fetchRepoRecords(pds: string, did: string): Promise<Record<string, any[]>> {
+async function fetchRepoRecords(pds: string, did: string): Promise<{ byType: Record<string, any[]>; topchickenCount: number }> {
   const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
   if (!res.ok) throw new Error(`getRepo ${res.status}`);
   const buf = await res.arrayBuffer();
@@ -365,10 +365,18 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
   let scanned = 0;
   let decodedPosts = 0;
   const decodedOther: Record<string, number> = {};
+  // Tallied off peekType's already-cheap read of every scanned block's
+  // $type, whether or not that type is in WANTED_TYPES — shimmermathlabs.com
+  // ruled (2026-08-09) that anyone with "topchicken records" (the unrelated
+  // non-bsky collection that used to tank fromthewestmeadow's score, see
+  // CAR_MAX_BLOCKS_SCANNED's comment above) deserves bonus points for it, so
+  // this is now a real signal in computeThrash rather than junk to skip past.
+  let topchickenCount = 0;
   for (const blockBytes of carBlocks(bytes)) {
     if (++scanned > CAR_MAX_BLOCKS_SCANNED) break;
     let type: string | null;
     try { type = peekType(blockBytes); } catch { continue; }
+    if (type && /topchicken/i.test(type)) topchickenCount++;
     if (!type || !wanted.has(type)) continue;
     if (type === POST_TYPE) {
       if (++decodedPosts > CAR_MAX_POST_RECORDS_DECODED) continue;
@@ -381,7 +389,7 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
     try { obj = cborDecode(blockBytes); } catch { continue; }
     (byType[obj.$type] || (byType[obj.$type] = [])).push(obj);
   }
-  return byType;
+  return { byType, topchickenCount };
 }
 
 // --- thrashing signals (kept in lockstep with public/index.html's copy) ---
@@ -392,7 +400,7 @@ interface Signal {
   detail: string | null;
 }
 
-function computeThrash(did: string, profile: any, byType: Record<string, any[]>): { score: number; signals: Signal[]; sampled: number } {
+function computeThrash(did: string, profile: any, byType: Record<string, any[]>, topchickenCount: number): { score: number; signals: Signal[]; sampled: number } {
   const signals: Signal[] = [];
   let points = 0;
   const add = (label: string, pts: number, detail: string | null = null) => {
@@ -469,6 +477,11 @@ function computeThrash(did: string, profile: any, byType: Record<string, any[]>)
   const touched = sprawl.filter((arr) => arr.length > 0).length;
   if (touched >= 3) add("all over the protocol", Math.min((touched - 2) * 3, 15), `${touched} different record types besides posts`);
 
+  // shimmermathlabs.com's ruling, 2026-08-09: "anyone with 'topchicken
+  // records' deserves to have extra points in their score." Not a bug fix —
+  // the people asked for a bonus, so it's a bonus.
+  if (topchickenCount > 0) add("caught with topchicken records", Math.min(Math.ceil(topchickenCount / 500), 15), `${topchickenCount} topchicken records in the repo — shimmermathlabs said that's worth bonus points`);
+
   let nightCount = 0;
   for (const t of times) { const h = new Date(t).getUTCHours(); if (h >= 3 && h < 7) nightCount++; }
   const nightRate = nightCount / own;
@@ -498,11 +511,12 @@ function computeThrash(did: string, profile: any, byType: Record<string, any[]>)
   return { score, signals: signals.sort((a, b) => b.pts - a.pts), sampled: own };
 }
 
-async function fetchThrashData(did: string): Promise<{ byType: Record<string, any[]>; full: boolean }> {
+async function fetchThrashData(did: string): Promise<{ byType: Record<string, any[]>; full: boolean; topchickenCount: number }> {
   const pds = await resolvePds(did);
   if (pds) {
     try {
-      return { byType: await fetchRepoRecords(pds, did), full: true };
+      const { byType, topchickenCount } = await fetchRepoRecords(pds, did);
+      return { byType, full: true, topchickenCount };
     } catch {
       // fall through
     }
@@ -511,13 +525,13 @@ async function fetchThrashData(did: string): Promise<{ byType: Record<string, an
   const posts = ((feed.feed || []) as any[])
     .filter((item) => !item.reason && item.post && item.post.author && item.post.author.did === did)
     .map((item) => item.post.record || {});
-  return { byType: { "app.bsky.feed.post": posts }, full: false };
+  return { byType: { "app.bsky.feed.post": posts }, full: false, topchickenCount: 0 };
 }
 
 async function computeScore(did: string): Promise<{ profile: any; score: number; signals: Signal[]; sampled: number }> {
   const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-  const { byType } = await fetchThrashData(did);
-  const { score, signals, sampled } = computeThrash(did, profile, byType);
+  const { byType, topchickenCount } = await fetchThrashData(did);
+  const { score, signals, sampled } = computeThrash(did, profile, byType, topchickenCount);
   return { profile, score, signals, sampled };
 }
 
@@ -615,6 +629,14 @@ interface UserRecord {
 const LEADERBOARD_SIZE = 100;
 const RESCORE_COOLDOWN_MS = 30_000;
 
+// Bump whenever computeThrash's rules change enough that stored scores are
+// stale, not just newly-submitted ones — e.g. the topchicken bonus added
+// 2026-08-09 per shimmermathlabs.com's request. maybeRerankAll() walks every
+// stored record once, the first time /api/leaderboard is hit after a bump,
+// and re-derives its score under the current rules; the version marker
+// keeps that a one-time cost rather than a re-scan on every page load.
+const RULES_VERSION = 2;
+
 // Holds one UserRecord per DID that's ever been scored, under "user:<did>".
 // A submit re-derives the score from the account's repo every time (activity
 // changes), unless it was just scored within the cooldown window, in which
@@ -627,10 +649,41 @@ export class Thrashboard {
     this.state = state;
   }
 
+  // Re-derives every stored user's score under the current rules, once per
+  // RULES_VERSION bump. A single stale/unreachable account (deleted, PDS
+  // down) is skipped, not fatal to the rest of the rerank — it just keeps
+  // its old score until the next successful pass.
+  private async maybeRerankAll(): Promise<void> {
+    const version = await this.state.storage.get<number>("meta:rulesVersion");
+    if (version === RULES_VERSION) return;
+
+    const users = await this.state.storage.list<UserRecord>({ prefix: "user:" });
+    for (const [key, record] of users) {
+      try {
+        const result = await computeScore(record.did);
+        const updated: UserRecord = {
+          ...record,
+          handle: result.profile.handle || record.handle,
+          displayName: result.profile.displayName || record.displayName,
+          avatar: result.profile.avatar || record.avatar,
+          score: result.score,
+          topSignals: result.signals.slice(0, 6),
+          sampled: result.sampled,
+          updatedAt: Date.now(),
+        };
+        await this.state.storage.put({ [key]: updated });
+      } catch {
+        // leave the stale record as-is — one bad rescan shouldn't block the rest
+      }
+    }
+    await this.state.storage.put({ "meta:rulesVersion": RULES_VERSION });
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/leaderboard" && request.method === "GET") {
+      await this.maybeRerankAll();
       const users = await this.state.storage.list<UserRecord>({ prefix: "user:" });
       const all = [...users.values()];
       const board = all

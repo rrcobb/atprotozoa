@@ -255,7 +255,7 @@ const WANTED_TYPES = [
   "app.bsky.feed.postgate",
 ];
 
-function computeThrash(did, profile, byType) {
+function computeThrash(did, profile, byType, topchickenCount) {
   const signals = [];
   let points = 0;
   function add(label, pts, detail) {
@@ -332,6 +332,11 @@ function computeThrash(did, profile, byType) {
   const touched = sprawl.filter(function (arr) { return arr.length > 0; }).length;
   if (touched >= 3) add("all over the protocol", Math.min((touched - 2) * 3, 15), touched + " different record types besides posts");
 
+  // shimmermathlabs.com's ruling, 2026-08-09: "anyone with 'topchicken
+  // records' deserves to have extra points in their score." Not a bug fix —
+  // the people asked for a bonus, so it's a bonus.
+  if (topchickenCount > 0) add("caught with topchicken records", Math.min(Math.ceil(topchickenCount / 500), 15), fmt(topchickenCount) + " topchicken records in the repo — shimmermathlabs said that's worth bonus points");
+
   let nightCount = 0;
   for (const t of times) { const h = new Date(t).getUTCHours(); if (h >= 3 && h < 7) nightCount++; }
   const nightRate = nightCount / own;
@@ -372,13 +377,13 @@ async function fetchThrashData(did, onProgress) {
   const pds = await resolvePds(did);
   if (pds) {
     try {
-      const { records } = await fetchRepoRecords(pds, did, WANTED_TYPES, onProgress);
+      const { records, topchickenCount } = await fetchRepoRecords(pds, did, WANTED_TYPES, onProgress);
       const byType = {};
       for (const r of records) {
         const t = r.$type;
         (byType[t] || (byType[t] = [])).push(r);
       }
-      return { byType: byType, full: true };
+      return { byType: byType, full: true, topchickenCount: topchickenCount || 0 };
     } catch (_) {
       // fall through to the AppView sample below
     }
@@ -388,7 +393,7 @@ async function fetchThrashData(did, onProgress) {
   const posts = (feed.feed || [])
     .filter(function (item) { return !item.reason && item.post && item.post.author && item.post.author.did === did; })
     .map(function (item) { return item.post.record || {}; });
-  return { byType: { "app.bsky.feed.post": posts }, full: false };
+  return { byType: { "app.bsky.feed.post": posts }, full: false, topchickenCount: 0 };
 }
 
 async function analyzeAccount(handleRaw, onProgress) {
@@ -401,8 +406,8 @@ async function analyzeAccount(handleRaw, onProgress) {
     did = r.did;
   }
   const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-  const { byType, full } = await fetchThrashData(did, onProgress);
-  const scored = computeThrash(did, profile, byType);
+  const { byType, full, topchickenCount } = await fetchThrashData(did, onProgress);
+  const scored = computeThrash(did, profile, byType, topchickenCount);
 
   return {
     did: did,
