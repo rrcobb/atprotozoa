@@ -303,8 +303,8 @@ const WANTED_TYPES = [
 // The fix: peekType (above) reads a block's "$type" for ~5x less than a
 // full cborDecode (benchmarked against that same repo: ~0.8us/block to peek
 // and skip vs. ~4us/block to fully decode), so CAR_MAX_BLOCKS_SCANNED can
-// walk much further into the repo hunting for wanted records, while
-// CAR_MAX_RECORDS_DECODED keeps the expensive part — actually building
+// walk much further into the repo hunting for wanted records, while the
+// decode budgets below keep the expensive part — actually building
 // wanted-type objects — bounded close to what the original single cap
 // intended. Re-run against that repo and four others off the live
 // leaderboard: typical (non-pathological) accounts finish long before
@@ -317,7 +317,27 @@ const WANTED_TYPES = [
 // job is independently re-deriving a real number from real repo bytes as
 // an anti-cheat check, not reproducing the client's exact count.
 const CAR_MAX_BLOCKS_SCANNED = 30_000;
-const CAR_MAX_RECORDS_DECODED = 8_000;
+
+// Two decode budgets, not one, because posts vastly outnumber every other
+// collection in practice. A single shared CAR_MAX_RECORDS_DECODED (used to
+// be 8,000, `break`ing the whole scan once hit) let a post-heavy repo burn
+// the entire budget on posts before the walk ever reached that account's
+// (usually much smaller) blocks/likes/reposts/etc. later in CAR block
+// order — silently zeroing out signals like "trigger-happy with the block
+// button" for accounts whose blocks just happened to land late in the
+// file. Caught 2026-08-09 via @catblanketflower.yuwakisa.com noticing
+// their block-derived points vanished server-side while shimmermathlabs.com
+// noticed a same-thread client/server score gap and flagged it as a bug.
+// Splitting the budget so posts and everything-else each get their own
+// means a large posts collection can no longer starve the smaller
+// collections the sprawl/block signals depend on. The loop also now
+// `continue`s (skip decoding, keep scanning) rather than `break`s once a
+// bucket's budget is spent, so hitting the post cap early doesn't stop the
+// walk from still reaching later blocks/likes/etc. — only the block-count
+// cap above still hard-stops the whole scan, to bound total CPU time.
+const CAR_MAX_POST_RECORDS_DECODED = 5_000;
+const CAR_MAX_OTHER_RECORDS_DECODED = 3_000;
+const POST_TYPE = "app.bsky.feed.post";
 
 async function fetchRepoRecords(pds: string, did: string): Promise<Record<string, any[]>> {
   const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
@@ -329,13 +349,18 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
   const wanted = new Set(WANTED_TYPES);
   const byType: Record<string, any[]> = {};
   let scanned = 0;
-  let decoded = 0;
+  let decodedPosts = 0;
+  let decodedOther = 0;
   for (const blockBytes of carBlocks(bytes)) {
     if (++scanned > CAR_MAX_BLOCKS_SCANNED) break;
     let type: string | null;
     try { type = peekType(blockBytes); } catch { continue; }
     if (!type || !wanted.has(type)) continue;
-    if (++decoded > CAR_MAX_RECORDS_DECODED) break;
+    if (type === POST_TYPE) {
+      if (++decodedPosts > CAR_MAX_POST_RECORDS_DECODED) continue;
+    } else {
+      if (++decodedOther > CAR_MAX_OTHER_RECORDS_DECODED) continue;
+    }
     let obj: any;
     try { obj = cborDecode(blockBytes); } catch { continue; }
     (byType[obj.$type] || (byType[obj.$type] = [])).push(obj);

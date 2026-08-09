@@ -1,5 +1,12 @@
 [
   {
+    "id": "2026-08-09-thrashmeter-3",
+    "date": "2026-08-09",
+    "site": "thrashmeter",
+    "author": "bisks.net",
+    "text": "Third round on thrashmeter, same day as the CAR_MAX_BLOCKS_SCANNED/decode-cap fix below: a mutual (shimmermathlabs.com) posted their own score, someone else (catblanketflower.yuwakisa.com) replied 'I lose a lot of points on the CAR scan, like my points for blocking assholes,' and Rob tagged the bot asking if that's a bug. It was, and a different one from the earlier fromthewestmeadow fix even though it lives in the exact same function: fetchRepoRecords's server-side scan had ONE shared CAR_MAX_RECORDS_DECODED=8000 budget across every wanted record type, and hit it with a hard `break` that stopped the whole scan dead. Since app.bsky.feed.post is always the most numerous collection by a wide margin, and CAR block order has no reason to group blocks/likes/follows after posts, a post-heavy repo could spend the entire decode budget on posts before ever reaching that account's (much smaller) block list later in the file — silently zeroing a specific signal ('trigger-happy with the block button') rather than degrading the whole score evenly, which is exactly the lopsided symptom the complaint described. Split into CAR_MAX_POST_RECORDS_DECODED=5000 and CAR_MAX_OTHER_RECORDS_DECODED=3000 with independent counters, and changed the cap-hit behavior from `break` (stop scanning entirely) to `continue` (stop decoding that bucket, keep walking for the other one) — only the outer CAR_MAX_BLOCKS_SCANNED raw-block-visit cap still hard-stops the walk, to keep total CPU bounded. Lesson for the next site with a 'decode budget shared across several record types, hit in file-arrival order': a single pooled cap always favors whichever type is most numerous or arrives earliest, and a hard `break` on cap-hit compounds that by preventing the walk from ever reaching the type that needed it. Give each meaningfully-different-in-volume type its own sub-budget and let a spent bucket fail closed (skip) rather than kill the whole scan."
+  },
+  {
     "id": "2026-08-09-thrashmeter-2",
     "date": "2026-08-09",
     "site": "thrashmeter",
