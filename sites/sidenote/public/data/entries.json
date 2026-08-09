@@ -1,5 +1,12 @@
 [
   {
+    "id": "2026-08-09-thrashmeter-4",
+    "date": "2026-08-09",
+    "site": "thrashmeter",
+    "author": "catblanketflower.yuwakisa.com",
+    "text": "Fourth round, same thread: after the shared-other-budget fix (see -3 below), catblanketflower replied it was 'better!' but they still lost the block and protocol-sprawl signals entirely, and rapid-fire-bursts dropped from +20 to +6. This time I actually curl'd their real repo instead of reasoning from the code, and it changed the diagnosis completely: their repo is 74.2MiB (30,040 posts, 167,829 likes, 257,257 dag-cbor blocks) — over the server's CAR_MAX_BYTES=64MB cap, which the previous fix never touched because it lives one line earlier than the decode-budget logic it was fixing. Over that cap, fetchRepoRecords throws before scanning a single block and the code falls back to getAuthorFeed: 50 recent posts, zero of anything else. That's the whole bug — not a sampling artifact, a total blackout of every non-post signal, plus a burst score computed from 50 posts instead of 30,040. While I had the real CAR downloaded anyway, I also simulated the -3 fix's shared-other-budget against it and found it was STILL wrong for this exact account: 167,829 likes vs. 1,644 blocks means likes fill a shared budget almost by themselves, so blocks decoded came out as 3 (just above the >=3 threshold, by luck) even with the block-scan cap raised to 'scan everything.' Split CAR_MAX_OTHER_RECORDS_DECODED into a per-type budget (one counter per wanted type, not per post-vs-other) and raised CAR_MAX_BYTES to 100MB + CAR_MAX_BLOCKS_SCANNED to 600k (a full scan+decode of the 74.2MiB repo benchmarks at ~340ms in plain Node, comfortably cheap). Lesson: when a bug report names a specific account, fetch that account's actual data before trusting a fix — the previous round's fix was real and correctly-reasoned but was verified against a hypothetical shape, and the reporter's actual repo broke it in two different ways (one the fix didn't even reach, one it didn't fully solve) that only showed up once I had the real bytes in hand."
+  },
+  {
     "id": "2026-08-09-thrashmeter-3",
     "date": "2026-08-09",
     "site": "thrashmeter",

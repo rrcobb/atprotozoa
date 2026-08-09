@@ -113,8 +113,18 @@ function authorFromUri(uri: string | undefined): string | null {
 }
 
 // Bail out (fall back to getAuthorFeed) rather than let a fetch to an
-// oversized repo eat unbounded memory/download time.
-const CAR_MAX_BYTES = 64 * 1024 * 1024;
+// oversized repo eat unbounded memory/download time. Was 64MB until
+// 2026-08-09, when @catblanketflower.yuwakisa.com's own 74.2MiB/257k-block
+// repo (30k posts, 168k likes) tripped it: the fallback returns only 50
+// recent posts and *zero* non-post records, which is why they still saw
+// "trigger-happy with the block button" and "all over the protocol" read
+// zero, and why their rapid-fire-bursts score dropped from the client's
+// full-repo +20 to a 50-post-sample +6 — not a decode-budget issue, the
+// server never got past this line. Raised to give real headroom above a
+// confirmed real repo of that size; a 100MiB buffer plus the (still capped,
+// see CAR_MAX_*_RECORDS_DECODED below) decoded objects comfortably fits
+// Workers' 128MB isolate memory ceiling.
+const CAR_MAX_BYTES = 100 * 1024 * 1024;
 const DAG_CBOR_CODEC = 0x71;
 
 function readVarint(bytes: Uint8Array, offset: number): [number, number] {
@@ -316,27 +326,31 @@ const WANTED_TYPES = [
 // always reads the true whole repo. Intentional asymmetry: the server's
 // job is independently re-deriving a real number from real repo bytes as
 // an anti-cheat check, not reproducing the client's exact count.
-const CAR_MAX_BLOCKS_SCANNED = 30_000;
+//
+// Raised 2026-08-09 from 30,000 to 600,000: @catblanketflower.yuwakisa.com's
+// 74.2MiB repo (see CAR_MAX_BYTES above) has 257,257 dag-cbor blocks, comfortably
+// over the old cap — a full unclipped scan+decode of it benchmarks at ~340ms,
+// so 600,000 leaves headroom for a repo up to the new byte cap without ever
+// being the thing that truncates a scan short of the file's end. peekType
+// being ~5x cheaper than a full decode is what makes this affordable.
+const CAR_MAX_BLOCKS_SCANNED = 600_000;
 
-// Two decode budgets, not one, because posts vastly outnumber every other
-// collection in practice. A single shared CAR_MAX_RECORDS_DECODED (used to
-// be 8,000, `break`ing the whole scan once hit) let a post-heavy repo burn
-// the entire budget on posts before the walk ever reached that account's
-// (usually much smaller) blocks/likes/reposts/etc. later in CAR block
-// order — silently zeroing out signals like "trigger-happy with the block
-// button" for accounts whose blocks just happened to land late in the
-// file. Caught 2026-08-09 via @catblanketflower.yuwakisa.com noticing
-// their block-derived points vanished server-side while shimmermathlabs.com
-// noticed a same-thread client/server score gap and flagged it as a bug.
-// Splitting the budget so posts and everything-else each get their own
-// means a large posts collection can no longer starve the smaller
-// collections the sprawl/block signals depend on. The loop also now
-// `continue`s (skip decoding, keep scanning) rather than `break`s once a
-// bucket's budget is spent, so hitting the post cap early doesn't stop the
-// walk from still reaching later blocks/likes/etc. — only the block-count
-// cap above still hard-stops the whole scan, to bound total CPU time.
+// Per-type decode budgets, not one shared "other" bucket. The previous fix
+// (2026-08-09, see git history) split posts from everything-else because a
+// post-heavy repo could burn a single shared budget before reaching blocks/
+// likes/etc. later in CAR order. That fix was incomplete: "everything-else"
+// is itself multiple collections of wildly different volume — likes usually
+// outnumber blocks/follows/lists by 10-100x — so a shared other-budget just
+// moved the same starvation problem one level down. Confirmed against
+// @catblanketflower.yuwakisa.com's repo (168k likes vs. 1,644 blocks): a
+// shared 3,000-record other-budget filled almost entirely with likes and
+// left only 3 blocks decoded even with the full 257k-block scan above, while
+// giving every wanted type its own budget correctly captures all 1,644.
+// Each non-post type gets its own counter in otherDecoded below rather than
+// its own named constant, since the set of "other" types is WANTED_TYPES
+// minus POST_TYPE, not a fixed handful.
 const CAR_MAX_POST_RECORDS_DECODED = 5_000;
-const CAR_MAX_OTHER_RECORDS_DECODED = 3_000;
+const CAR_MAX_OTHER_RECORDS_DECODED_PER_TYPE = 2_000;
 const POST_TYPE = "app.bsky.feed.post";
 
 async function fetchRepoRecords(pds: string, did: string): Promise<Record<string, any[]>> {
@@ -350,7 +364,7 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
   const byType: Record<string, any[]> = {};
   let scanned = 0;
   let decodedPosts = 0;
-  let decodedOther = 0;
+  const decodedOther: Record<string, number> = {};
   for (const blockBytes of carBlocks(bytes)) {
     if (++scanned > CAR_MAX_BLOCKS_SCANNED) break;
     let type: string | null;
@@ -359,7 +373,9 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
     if (type === POST_TYPE) {
       if (++decodedPosts > CAR_MAX_POST_RECORDS_DECODED) continue;
     } else {
-      if (++decodedOther > CAR_MAX_OTHER_RECORDS_DECODED) continue;
+      const count = (decodedOther[type] || 0) + 1;
+      decodedOther[type] = count;
+      if (count > CAR_MAX_OTHER_RECORDS_DECODED_PER_TYPE) continue;
     }
     let obj: any;
     try { obj = cborDecode(blockBytes); } catch { continue; }
