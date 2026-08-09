@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>abstractodo — a to-do list that only escalates — bisks.net</title>
+    <meta
+      name="description"
+      content="Check off a task and it never finishes — you get handed a more abstract version instead. 'organize desk' becomes 'improve your task management skills' becomes 'audit the audit of your self-improvement audits,' climbing toward a singularity at rung 21."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://abstractodo.bisks.net/" />
+    <meta property="og:title" content="abstractodo — a to-do list that only escalates" />
+    <meta
+      property="og:description"
+      content="'organize desk' becomes 'improve your task management skills' becomes 'audit the audit of your self-improvement audits.' Checking a task off never finishes it — it hands you a more abstract one. Climb toward the singularity at rung 21."
+    />
+    <meta property="og:image" content="https://abstractodo.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="abstractodo — a to-do list that only escalates" />
+    <meta
+      name="twitter:description"
+      content="'organize desk' becomes 'improve your task management skills' becomes 'audit the audit of your self-improvement audits.' Climb toward the singularity at rung 21."
+    />
+    <meta name="twitter:image" content="https://abstractodo.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / recursivedo / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── start screen ─────────────────────────────────────────────── */
+      .startcard {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 2rem;
+      }
+      .startcard label {
+        display: block; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.5rem;
+      }
+      .startcard input[type="text"] {
+        width: 100%; font-family: inherit; font-size: 1rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 4px; margin-bottom: 0.9rem; background: var(--faintbg);
+        color: var(--ink);
+      }
+      .startcard input[type="text"]:focus { outline: 2px solid var(--accent); background: var(--bg); }
+
+      /* ── headline: current rung ───────────────────────────────────── */
+      .headline {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 2rem;
+      }
+      .headline .cap {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 0.5rem; flex-wrap: wrap;
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); margin-bottom: 0.55rem;
+      }
+      .headline .cap .band { color: var(--accent); }
+      .headline .task {
+        font-size: 1.28rem; line-height: 1.45; font-weight: 600;
+        margin: 0 0 1.1rem;
+      }
+      .donerow { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+      .donerow label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; }
+      .donerow input { width: 16px; height: 16px; accent-color: var(--good); cursor: pointer; }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+
+      /* ── the singularity ─────────────────────────────────────────── */
+      .endcard {
+        border: 1px solid var(--accent); border-radius: 6px;
+        padding: 1.5rem 1.3rem; margin-bottom: 2rem; background: var(--faintbg);
+      }
+      .endcard .cap {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--accent); margin-bottom: 0.6rem;
+      }
+      .endcard .task { font-size: 1.35rem; line-height: 1.45; font-weight: 700; margin: 0 0 0.9rem; }
+      .endcard .sub { color: var(--muted); font-size: 0.88rem; margin: 0 0 1.1rem; }
+
+      /* ── stats strip ───────────────────────────────────────────────── */
+      .stats {
+        display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.25rem;
+        font-size: 0.82rem; color: var(--muted);
+      }
+      .stats b { color: var(--ink); font-weight: 600; }
+
+      /* ── the ladder log ────────────────────────────────────────────── */
+      .feedhead {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;
+      }
+      .feedhead h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+      .feedhead .sub { color: var(--muted); font-size: 0.8rem; }
+
+      #log { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        display: flex; gap: 0.8rem; align-items: flex-start;
+      }
+      #log li:first-child { border-top: 1px solid var(--ink); }
+      #log .rung {
+        flex: none; width: 2.1rem; color: var(--muted); font-size: 0.78rem;
+        padding-top: 0.05rem;
+      }
+      #log .body { flex: 1; min-width: 0; }
+      #log .txt { margin: 0 0 0.3rem; text-decoration: line-through; color: var(--muted); }
+      #log .when { color: var(--muted); font-size: 0.72rem; }
+      #log .empty { color: var(--muted); font-size: 0.85rem; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>abstractodo <span class="slash">· a to-do list that only escalates</span></h1>
+      <p class="intro">
+        Type a task and check it off. It won't finish — you'll get handed a
+        <b>more abstract version of it</b> instead. "organize desk" becomes
+        "improve your task management skills" becomes "optimize your
+        self-improvement strategy" becomes, eventually, "contemplate the
+        heat death of your to-do list." Keep checking things off and the
+        ladder ends at rung 21, in a place a to-do list probably shouldn't
+        go. Everything lives only in your browser. This tick's theme-box
+        idea, for "recursive self improvement."
+      </p>
+
+      <!-- ── not started yet ─────────────────────────────────────────── -->
+      <section class="startcard" id="startCard">
+        <label for="startInput">first task</label>
+        <input type="text" id="startInput" placeholder="e.g. organize desk" maxlength="120" autocomplete="off" />
+        <div class="btnrow">
+          <button id="startBtn">start climbing</button>
+          <button class="ghost" id="surpriseBtn">surprise me</button>
+        </div>
+      </section>
+
+      <!-- ── in progress ──────────────────────────────────────────────── -->
+      <section class="headline hidden" id="headlineCard">
+        <div class="cap">
+          <span id="rungLabel">rung —</span>
+          <span class="band" id="bandLabel"></span>
+        </div>
+        <p class="task" id="task">…</p>
+        <div class="donerow">
+          <label>
+            <input type="checkbox" id="doneBox" />
+            check this off
+          </label>
+        </div>
+        <div class="btnrow">
+          <button class="ghost" id="copyBtn">copy</button>
+          <a class="btn ghost" id="shareBtn" target="_blank" rel="noopener">share ↗</a>
+          <button class="ghost" id="resetBtn">start a new ladder</button>
+          <span class="copied" id="copied">copied</span>
+        </div>
+      </section>
+
+      <!-- ── the singularity ──────────────────────────────────────────── -->
+      <section class="endcard hidden" id="endCard">
+        <div class="cap">rung 21 · the singularity</div>
+        <p class="task" id="endTask">…</p>
+        <p class="sub">
+          You have reached a stable fixed point of self-optimization. There
+          is nothing left to improve, except the claim that there's nothing
+          left to improve.
+        </p>
+        <div class="btnrow">
+          <a class="btn ghost" id="endShareBtn" target="_blank" rel="noopener">share ↗</a>
+          <button id="climbAgainBtn">climb again</button>
+          <span class="copied" id="endCopied">copied</span>
+        </div>
+      </section>
+
+      <div class="stats">
+        <span><b id="statRung">0</b>/21 rungs climbed this ladder</span>
+        <span><b id="statBest">0</b> highest rung ever reached</span>
+      </div>
+
+      <div class="feedhead">
+        <h2>the ladder so far</h2>
+        <span class="sub">everything you've checked off, most recent first</span>
+      </div>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          <b>Nothing here is stored anywhere but your browser.</b> Your
+          ladder — the task you started with, how far you've climbed, and
+          the log below — lives in <code>localStorage</code>. Reload the
+          page and it's exactly where you left it; a different browser
+          starts a fresh ladder from rung 0.
+        </p>
+        <p>
+          sibling of <a href="https://recursivedo.bisks.net">recursivedo</a>
+          and <a href="https://bisks.net">bisks.net</a>. built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { textForLevel, randomStarter, bandNameFor, isEnding, LADDER_END } from "./lib/ladder.js";
+
+      const SITE_URL = "https://abstractodo.bisks.net/";
+      const CHAIN_KEY = "abstractodo:chain";
+      const BEST_KEY = "abstractodo:best";
+
+      const els = {
+        startCard: document.getElementById("startCard"),
+        startInput: document.getElementById("startInput"),
+        startBtn: document.getElementById("startBtn"),
+        surpriseBtn: document.getElementById("surpriseBtn"),
+
+        headlineCard: document.getElementById("headlineCard"),
+        rungLabel: document.getElementById("rungLabel"),
+        bandLabel: document.getElementById("bandLabel"),
+        task: document.getElementById("task"),
+        doneBox: document.getElementById("doneBox"),
+        copyBtn: document.getElementById("copyBtn"),
+        copied: document.getElementById("copied"),
+        shareBtn: document.getElementById("shareBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+
+        endCard: document.getElementById("endCard"),
+        endTask: document.getElementById("endTask"),
+        endShareBtn: document.getElementById("endShareBtn"),
+        endCopied: document.getElementById("endCopied"),
+        climbAgainBtn: document.getElementById("climbAgainBtn"),
+
+        statRung: document.getElementById("statRung"),
+        statBest: document.getElementById("statBest"),
+        log: document.getElementById("log"),
+      };
+
+      function newSeed() {
+        try { return crypto.randomUUID(); }
+        catch { return "s" + Date.now() + "-" + Math.random().toString(36).slice(2); }
+      }
+
+      function loadChain() {
+        try {
+          const raw = localStorage.getItem(CHAIN_KEY);
+          if (!raw) return null;
+          const c = JSON.parse(raw);
+          if (!c || typeof c.seed !== "string" || typeof c.startTask !== "string") return null;
+          return c;
+        } catch { return null; }
+      }
+      function saveChain(c) {
+        try { localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); } catch {}
+      }
+      function clearChain() {
+        try { localStorage.removeItem(CHAIN_KEY); } catch {}
+      }
+      function loadBest() {
+        try { return parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0; } catch { return 0; }
+      }
+      function saveBest(n) {
+        try { localStorage.setItem(BEST_KEY, String(n)); } catch {}
+      }
+
+      let chain = loadChain();
+
+      function startChain(startTask) {
+        const task = (startTask || "").trim() || randomStarter(newSeed());
+        chain = {
+          seed: newSeed(),
+          startTask: task,
+          level: 0,
+          history: [], // [{level, text, at}], for levels 0..level-1 (completed)
+          startedAt: Date.now(),
+        };
+        saveChain(chain);
+        render();
+      }
+
+      function checkOffCurrent() {
+        if (!chain) return;
+        const currentText = textForLevel(chain.seed, chain.level, chain.startTask);
+        chain.history.unshift({ level: chain.level, text: currentText, at: Date.now() });
+        chain.level += 1;
+        if (chain.level > loadBest()) saveBest(chain.level);
+        saveChain(chain);
+        render();
+      }
+
+      function resetLadder() {
+        clearChain();
+        chain = null;
+        render();
+      }
+
+      function composeUrl(text) {
+        return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      function relTime(ms) {
+        const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+        if (s < 60) return "just now";
+        const m = Math.round(s / 60);
+        if (m < 60) return m + "m ago";
+        const h = Math.round(m / 60);
+        if (h < 24) return h + "h ago";
+        return Math.round(h / 24) + "d ago";
+      }
+
+      function renderLog() {
+        els.log.innerHTML = "";
+        const items = chain ? chain.history : [];
+        if (!items.length) {
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = "nothing checked off yet.";
+          els.log.appendChild(li);
+          return;
+        }
+        for (const item of items) {
+          const li = document.createElement("li");
+          const rung = document.createElement("div");
+          rung.className = "rung";
+          rung.textContent = "#" + item.level;
+          const body = document.createElement("div");
+          body.className = "body";
+          const txt = document.createElement("p");
+          txt.className = "txt";
+          txt.textContent = item.text;
+          const when = document.createElement("div");
+          when.className = "when";
+          when.textContent = bandNameFor(item.level) + " · " + relTime(item.at);
+          body.append(txt, when);
+          li.append(rung, body);
+          els.log.appendChild(li);
+        }
+      }
+
+      function renderStats() {
+        els.statRung.textContent = chain ? chain.level : 0;
+        els.statBest.textContent = loadBest();
+      }
+
+      function render() {
+        renderStats();
+        renderLog();
+
+        if (!chain) {
+          els.startCard.classList.remove("hidden");
+          els.headlineCard.classList.add("hidden");
+          els.endCard.classList.add("hidden");
+          return;
+        }
+
+        if (isEnding(chain.level)) {
+          els.startCard.classList.add("hidden");
+          els.headlineCard.classList.add("hidden");
+          els.endCard.classList.remove("hidden");
+          const lastCompleted = chain.history[0];
+          const finalText = lastCompleted ? lastCompleted.text : chain.startTask;
+          els.endTask.textContent = "“" + finalText + "”";
+          const shareText =
+            "I reached rung " + LADDER_END + " on abstractodo: “" + finalText + "” — " + SITE_URL;
+          els.endShareBtn.href = composeUrl(shareText);
+          els.endCopied.classList.remove("show");
+          return;
+        }
+
+        els.startCard.classList.add("hidden");
+        els.endCard.classList.add("hidden");
+        els.headlineCard.classList.remove("hidden");
+
+        const text = textForLevel(chain.seed, chain.level, chain.startTask);
+        els.rungLabel.textContent = "rung " + chain.level + " / " + LADDER_END;
+        els.bandLabel.textContent = bandNameFor(chain.level);
+        els.task.textContent = text;
+        els.doneBox.checked = false;
+
+        const shareText =
+          "rung " + chain.level + " of abstractodo: “" + text + "” — " + SITE_URL;
+        els.shareBtn.href = composeUrl(shareText);
+      }
+
+      // ── wiring ────────────────────────────────────────────────────────
+      els.startBtn.addEventListener("click", () => startChain(els.startInput.value));
+      els.startInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") startChain(els.startInput.value);
+      });
+      els.surpriseBtn.addEventListener("click", () => startChain(""));
+
+      els.doneBox.addEventListener("change", () => {
+        if (els.doneBox.checked) checkOffCurrent();
+      });
+
+      els.resetBtn.addEventListener("click", () => {
+        if (confirm("Start a brand new ladder from rung 0? This one's log will be cleared.")) {
+          resetLadder();
+        }
+      });
+      els.climbAgainBtn.addEventListener("click", resetLadder);
+
+      els.copyBtn.addEventListener("click", async () => {
+        if (!chain) return;
+        const text = textForLevel(chain.seed, chain.level, chain.startTask);
+        try { await navigator.clipboard.writeText(text + " — " + SITE_URL); }
+        catch { /* clipboard blocked — share still works */ }
+        els.copied.classList.add("show");
+        setTimeout(() => els.copied.classList.remove("show"), 1200);
+      });
+
+      render();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
