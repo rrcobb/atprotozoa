@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>metado — a to-do list that recurses into itself — bisks.net</title>
+    <meta
+      name="description"
+      content="A to-do list whose tasks are all suggestions for improving the thing that generates the to-do list. Clear the list and you can 'refine' — which never improves a task, just wraps the target in one more layer of 'the thing that generates the thing that generates...'."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://metado.bisks.net/" />
+    <meta property="og:title" content="metado — a to-do list that recurses into itself" />
+    <meta
+      property="og:description"
+      content="Every task is a suggestion for improving the thing that generates the to-do list. Clear the list, hit refine, and the target gets wrapped in one more layer of 'the thing that generates...'. Forever."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="metado — a to-do list that recurses into itself" />
+    <meta
+      name="twitter:description"
+      content="Every task improves the thing that generates the to-do list. Refine wraps the target in one more layer of 'the thing that generates...'. Forever."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / recursivedo / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* ── headline: current recursion depth + target ───────────────── */
+      .headline {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.3rem 1.3rem 1.15rem; margin-bottom: 2rem;
+      }
+      .headline .cap {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 0.5rem; flex-wrap: wrap;
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); margin-bottom: 0.55rem;
+      }
+      .headline .cap .depth { color: var(--accent); }
+      .headline .focus {
+        font-size: 0.92rem; line-height: 1.55; color: var(--muted);
+        margin: 0 0 1rem; word-break: break-word;
+      }
+      .headline .focus b { color: var(--ink); font-weight: 600; }
+
+      #tasks { list-style: none; margin: 0 0 1.1rem; padding: 0; }
+      #tasks li {
+        display: flex; gap: 0.7rem; align-items: flex-start;
+        padding: 0.55rem 0; border-top: 1px solid var(--faint);
+      }
+      #tasks li:first-child { border-top: none; }
+      #tasks input { margin-top: 0.25rem; width: 16px; height: 16px; accent-color: var(--good); cursor: pointer; flex: none; }
+      #tasks .txt { font-size: 1rem; line-height: 1.45; font-weight: 600; }
+      #tasks li.done .txt { color: var(--muted); text-decoration: line-through; font-weight: 500; }
+
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      button:disabled {
+        background: var(--faintbg); color: var(--muted); border-color: var(--faint);
+        cursor: not-allowed;
+      }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+      .hint { color: var(--muted); font-size: 0.78rem; margin-top: 0.7rem; }
+
+      /* ── stats strip ───────────────────────────────────────────────── */
+      .stats {
+        display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.25rem;
+        font-size: 0.82rem; color: var(--muted);
+      }
+      .stats b { color: var(--ink); font-weight: 600; }
+
+      /* ── the log ───────────────────────────────────────────────────── */
+      .feedhead {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;
+      }
+      .feedhead h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+      .feedhead .sub { color: var(--muted); font-size: 0.8rem; }
+
+      #log { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        display: flex; gap: 0.8rem; align-items: flex-start;
+      }
+      #log li:first-child { border-top: 1px solid var(--ink); }
+      #log .body { flex: 1; min-width: 0; }
+      #log .txt { margin: 0 0 0.3rem; }
+      #log .txt .lvl { color: var(--ink); font-weight: 600; }
+      #log .when { color: var(--muted); font-size: 0.72rem; }
+      #log .when.cleared { color: var(--good); }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>metado <span class="slash">· a to-do list that recurses into itself</span></h1>
+      <p class="intro">
+        Every task on this list is a suggestion for improving
+        <b>the thing that generates this to-do list.</b> Clear all of
+        today's tasks and you can <b>refine</b> — but refining doesn't make
+        the tasks better, it just wraps the target in one more layer of
+        "the thing that generates the thing that generates…". The
+        recursion is real, not a metaphor: the string genuinely gets
+        longer every time you click. This tick's theme-box idea, for
+        "recursive self improvement."
+      </p>
+
+      <section class="headline">
+        <div class="cap">
+          <span id="depthLabel" class="depth">depth 0</span>
+          <span id="clearedLabel">0/0 cleared at this depth</span>
+        </div>
+        <p class="focus" id="focus">loading…</p>
+        <ul id="tasks"></ul>
+        <div class="btnrow">
+          <button id="refineBtn" disabled>refine the system ↻</button>
+          <a class="btn ghost" id="sendBuild" target="_blank" rel="noopener">send to @buildthis ↗</a>
+          <button class="ghost" id="copyBtn">copy</button>
+          <a class="btn ghost" id="shareBtn" target="_blank" rel="noopener">share ↗</a>
+          <span class="copied" id="copied">copied</span>
+        </div>
+        <p class="hint" id="hint"></p>
+      </section>
+
+      <div class="stats">
+        <span><b id="statDepth">0</b> layers deep</span>
+        <span><b id="statCleared">0</b> tasks completed, all-time</span>
+        <span><b id="statChars">0</b> characters in the current target string</span>
+      </div>
+
+      <div class="feedhead">
+        <h2>the recursion so far</h2>
+        <span class="sub">every layer reached, newest first</span>
+      </div>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          <b>Nothing here is stored anywhere but your browser.</b> Your
+          depth and completions live in <code>localStorage</code>, so your
+          recursion is yours alone — nobody else's "the thing that
+          generates the thing that generates…" looks the same length as
+          yours, and the site's own code hasn't changed since the day it
+          shipped. It's very busy generating tasks about that instead.
+        </p>
+        <p>
+          sibling of <a href="https://recursivedo.bisks.net">recursivedo</a>,
+          <a href="https://idea-mill.bisks.net">idea-mill</a>, and
+          <a href="https://bisks.net">bisks.net</a>. built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>,
+          which is, if you send it a task, entirely capable of taking the
+          assignment literally.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { tasksForDepth, focusForDepth, focusShort, TASKS_PER_LEVEL } from "./lib/metado.js";
+
+      const SITE_URL = "https://metado.bisks.net/";
+      const DEPTH_KEY = "metado:depth";
+      const DONE_PREFIX = "metado:done:";
+
+      const getDepth = () => {
+        try { return Math.max(0, parseInt(localStorage.getItem(DEPTH_KEY), 10) || 0); }
+        catch { return 0; }
+      };
+      const setDepth = (d) => { try { localStorage.setItem(DEPTH_KEY, String(d)); } catch {} };
+
+      const getDone = (depth) => {
+        try {
+          const raw = JSON.parse(localStorage.getItem(DONE_PREFIX + depth) || "null");
+          if (Array.isArray(raw) && raw.length === TASKS_PER_LEVEL) return raw;
+        } catch {}
+        return new Array(TASKS_PER_LEVEL).fill(false);
+      };
+      const setDone = (depth, arr) => {
+        try { localStorage.setItem(DONE_PREFIX + depth, JSON.stringify(arr)); } catch {}
+      };
+
+      const composeBuildUrl = (task) =>
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent("@buildthis.bisks.net " + task);
+
+      let depth = getDepth();
+
+      const depthLabel = document.getElementById("depthLabel");
+      const clearedLabel = document.getElementById("clearedLabel");
+      const focusEl = document.getElementById("focus");
+      const tasksEl = document.getElementById("tasks");
+      const refineBtn = document.getElementById("refineBtn");
+      const sendBuild = document.getElementById("sendBuild");
+      const copyBtn = document.getElementById("copyBtn");
+      const copied = document.getElementById("copied");
+      const shareBtn = document.getElementById("shareBtn");
+      const hint = document.getElementById("hint");
+
+      function render() {
+        const focus = focusForDepth(depth);
+        const tasks = tasksForDepth(depth);
+        const done = getDone(depth);
+        const clearedCount = done.filter(Boolean).length;
+
+        depthLabel.textContent = "depth " + depth;
+        clearedLabel.textContent = clearedCount + "/" + TASKS_PER_LEVEL + " cleared at this depth";
+        focusEl.innerHTML = "target: <b>" + escapeHtml(focus) + "</b>";
+
+        tasksEl.innerHTML = "";
+        tasks.forEach((task, i) => {
+          const li = document.createElement("li");
+          li.className = done[i] ? "done" : "";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = done[i];
+          cb.addEventListener("change", () => {
+            const d = getDone(depth);
+            d[i] = cb.checked;
+            setDone(depth, d);
+            render();
+          });
+          const txt = document.createElement("span");
+          txt.className = "txt";
+          txt.textContent = task;
+          li.append(cb, txt);
+          tasksEl.appendChild(li);
+        });
+
+        const allDone = clearedCount === TASKS_PER_LEVEL;
+        refineBtn.disabled = !allDone;
+        hint.textContent = allDone
+          ? "every task at this depth is done — refine to wrap the target in one more layer."
+          : "clear every task at this depth to unlock the next layer of recursion.";
+
+        sendBuild.href = composeBuildUrl(tasks[0]);
+
+        const shareFocus = focusShort(depth);
+        const shareText =
+          "I've recursed my to-do list " + depth + " layer" + (depth === 1 ? "" : "s") +
+          " deep. Current target: “" + shareFocus + "” — " + SITE_URL;
+        shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        renderStats();
+        renderLog();
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement("div");
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      refineBtn.addEventListener("click", () => {
+        const done = getDone(depth);
+        if (done.filter(Boolean).length !== TASKS_PER_LEVEL) return;
+        depth += 1;
+        setDepth(depth);
+        render();
+      });
+
+      copyBtn.addEventListener("click", async () => {
+        const tasks = tasksForDepth(depth);
+        const text = "metado, depth " + depth + ":\n" + tasks.map((t) => "- " + t).join("\n") + "\n" + SITE_URL;
+        try { await navigator.clipboard.writeText(text); }
+        catch { /* clipboard blocked — send/share still work */ }
+        copied.classList.add("show");
+        setTimeout(() => copied.classList.remove("show"), 1200);
+      });
+
+      // ── stats ────────────────────────────────────────────────────────
+      function renderStats() {
+        let totalCleared = 0;
+        for (let d = 0; d <= depth; d++) totalCleared += getDone(d).filter(Boolean).length;
+        document.getElementById("statDepth").textContent = depth;
+        document.getElementById("statCleared").textContent = totalCleared;
+        document.getElementById("statChars").textContent = focusForDepth(depth).length;
+      }
+
+      // ── the log: every layer reached, newest first ─────────────────
+      const LOG_DEPTHS = 10;
+      const log = document.getElementById("log");
+
+      function renderLog() {
+        log.innerHTML = "";
+        const from = Math.max(0, depth - LOG_DEPTHS + 1);
+        for (let d = depth; d >= from; d--) {
+          const done = getDone(d);
+          const clearedCount = done.filter(Boolean).length;
+          const cleared = clearedCount === TASKS_PER_LEVEL;
+          const li = document.createElement("li");
+          const body = document.createElement("div");
+          body.className = "body";
+          const txt = document.createElement("p");
+          txt.className = "txt";
+          txt.innerHTML = '<span class="lvl">depth ' + d + '</span> · ' + escapeHtml(focusShort(d));
+          const when = document.createElement("div");
+          when.className = "when" + (cleared ? " cleared" : "");
+          when.textContent = d === depth
+            ? "current · " + clearedCount + "/" + TASKS_PER_LEVEL + " cleared"
+            : cleared
+              ? "cleared · refined onward"
+              : clearedCount + "/" + TASKS_PER_LEVEL + " cleared";
+          body.append(txt, when);
+          li.appendChild(body);
+          log.appendChild(li);
+        }
+      }
+
+      render();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
