@@ -209,6 +209,61 @@ function cborValue(st: CborState): any {
   }
 }
 
+// Advances st.pos past one CBOR value without building it — no TextDecoder
+// calls, no array/object allocation. Used to walk past a record's fields
+// once peekType (below) has already decided the record isn't wanted, so a
+// giant irrelevant record costs a cheap byte-walk instead of a full decode.
+function cborSkip(st: CborState): void {
+  const bytes = st.bytes;
+  const initial = bytes[st.pos++];
+  const majorType = initial >> 5;
+  const info = initial & 0x1f;
+
+  if (majorType === 7) {
+    if (info === 25) st.pos += 2;
+    else if (info === 26) st.pos += 4;
+    else if (info === 27) st.pos += 8;
+    return;
+  }
+
+  const arg = cborArg(st, info);
+  switch (majorType) {
+    case 0: case 1: return; // arg already consumed the int's own bytes
+    case 2: case 3: st.pos += arg; return; // bytes/text: skip the payload
+    case 4: for (let i = 0; i < arg; i++) cborSkip(st); return;
+    case 5: for (let i = 0; i < arg; i++) { cborSkip(st); cborSkip(st); } return; // skip key, skip value
+    case 6: cborSkip(st); return;
+    default: throw new Error("unsupported CBOR major type " + majorType);
+  }
+}
+
+// Cheaply reads just a record block's "$type" field — decoding each key as
+// it's encountered but skipping (not decoding) every value that isn't
+// "$type" — instead of the full cborDecode every block used to pay for
+// regardless of whether the record turned out to matter. Benchmarked
+// against a 42k-block/10.6MB repo: full-decoding every block costs ~4us
+// each; this costs ~0.8us for a block it ends up skipping, a ~5x saving
+// this site now spends on scanning further into the repo rather than
+// leaving on the table. Returns null for anything that isn't a top-level
+// map or that has no "$type" key (both cheap early-outs).
+function peekType(bytes: Uint8Array): string | null {
+  const st: CborState = { bytes, pos: 0 };
+  const initial = bytes[st.pos++];
+  const majorType = initial >> 5;
+  if (majorType !== 5) return null;
+  const info = initial & 0x1f;
+  const n = cborArg(st, info);
+  for (let i = 0; i < n; i++) {
+    const key = cborValue(st);
+    if (key === "$type") {
+      const val = cborValue(st);
+      return typeof val === "string" ? val : null;
+    }
+    cborSkip(st);
+  }
+  return null;
+}
+
 // The whole collection sweep this site cares about — every lexicon a
 // "thrashing" account's repo would touch. $type on a decoded record body
 // already equals its collection nsid, so bucketing by $type after a flat
@@ -227,19 +282,42 @@ const WANTED_TYPES = [
   "app.bsky.feed.postgate",
 ];
 
-// Deliberately a block *count* cap, not a wall-clock deadline: Workers
+// Deliberately block *count* caps, not a wall-clock deadline: Workers
 // freezes Date.now() for the duration of a synchronous span (only advances
 // it after a real I/O yield, as a Spectre-timing mitigation), so a tight
 // decode loop would never see its own deadline pass — see sites/intrigue's
 // identical comment on its own CAR_MAX_BLOCKS for the fuller writeup and the
-// ~100ms-per-7MB-repo measurement this cap is sized against. A repo bigger
-// than this cap gets a real, honestly-partial prefix scanned server-side —
-// not literally every record — while the client (no CPU-time limit at all;
-// see public/lib/car.js) always reads the true whole repo. Intentional
-// asymmetry: the server's job is independently re-deriving a real number
-// from real repo bytes as an anti-cheat check, not reproducing the client's
-// exact count.
-const CAR_MAX_BLOCKS = 6_000;
+// ~100ms-per-7MB-repo measurement the original single cap was sized against.
+//
+// Two tiers, not one, because a single "blocks visited" cap turned out to
+// pick its sample almost entirely by luck of CAR block order rather than by
+// relevance. Caught 2026-08-09 on @fromthewestmeadow.com's own repo (the
+// account that asked for this site) after a mutual pointed out they scored
+// suspiciously low: their repo interleaves ~17.5k records from an unrelated
+// non-bsky collection ahead of most of their 5,928 real posts in CAR block
+// order, so the old 6,000-block cap spent its entire budget decoding that
+// junk and came away with 39 sampled posts and zero follows/blocks/likes
+// worth mentioning — a wildly unrepresentative slice that scored them as
+// the calmest account on the whole leaderboard.
+//
+// The fix: peekType (above) reads a block's "$type" for ~5x less than a
+// full cborDecode (benchmarked against that same repo: ~0.8us/block to peek
+// and skip vs. ~4us/block to fully decode), so CAR_MAX_BLOCKS_SCANNED can
+// walk much further into the repo hunting for wanted records, while
+// CAR_MAX_RECORDS_DECODED keeps the expensive part — actually building
+// wanted-type objects — bounded close to what the original single cap
+// intended. Re-run against that repo and four others off the live
+// leaderboard: typical (non-pathological) accounts finish long before
+// either cap and score identically to before; @fromthewestmeadow.com's own
+// re-derived score moved from 60 to 91, in line with what an uncapped scan
+// of their full repo actually gives (92). A repo that still exhausts both
+// caps gets a real, honestly-partial prefix — not literally every record —
+// while the client (no CPU-time limit at all; see public/lib/car.js)
+// always reads the true whole repo. Intentional asymmetry: the server's
+// job is independently re-deriving a real number from real repo bytes as
+// an anti-cheat check, not reproducing the client's exact count.
+const CAR_MAX_BLOCKS_SCANNED = 30_000;
+const CAR_MAX_RECORDS_DECODED = 8_000;
 
 async function fetchRepoRecords(pds: string, did: string): Promise<Record<string, any[]>> {
   const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
@@ -251,11 +329,15 @@ async function fetchRepoRecords(pds: string, did: string): Promise<Record<string
   const wanted = new Set(WANTED_TYPES);
   const byType: Record<string, any[]> = {};
   let scanned = 0;
+  let decoded = 0;
   for (const blockBytes of carBlocks(bytes)) {
-    if (++scanned > CAR_MAX_BLOCKS) break;
+    if (++scanned > CAR_MAX_BLOCKS_SCANNED) break;
+    let type: string | null;
+    try { type = peekType(blockBytes); } catch { continue; }
+    if (!type || !wanted.has(type)) continue;
+    if (++decoded > CAR_MAX_RECORDS_DECODED) break;
     let obj: any;
     try { obj = cborDecode(blockBytes); } catch { continue; }
-    if (!obj || typeof obj !== "object" || Array.isArray(obj) || !wanted.has(obj.$type)) continue;
     (byType[obj.$type] || (byType[obj.$type] = [])).push(obj);
   }
   return byType;
@@ -353,7 +435,19 @@ function computeThrash(did: string, profile: any, byType: Record<string, any[]>)
 
   if (typeof profile.createdAt === "string") {
     const ageDays = Math.max((Date.now() - Date.parse(profile.createdAt)) / 86400000, 1);
-    const totalRecords = own + likes.length + reposts.length + follows.length + blocks.length + listitems.length;
+    // postsCount/followsCount come straight off the profile (an AppView
+    // aggregate, exact regardless of any CAR scan cap) — take the max of
+    // that and the sampled count so a repo that outran the scan caps above
+    // doesn't silently understate a prolific account's real posting rate.
+    // likes/reposts/blocks/listitems have no such exact aggregate, so those
+    // stay sample-only.
+    const totalRecords =
+      Math.max(own, typeof profile.postsCount === "number" ? profile.postsCount : 0) +
+      likes.length +
+      reposts.length +
+      Math.max(follows.length, typeof profile.followsCount === "number" ? profile.followsCount : 0) +
+      blocks.length +
+      listitems.length;
     const perDay = totalRecords / ageDays;
     if (perDay >= 8 && ageDays >= 3) add("posting like the servers are on fire", Math.min(Math.round(perDay), 20), `~${perDay.toFixed(1)} records/day since joining`);
   }

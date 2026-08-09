@@ -1,5 +1,12 @@
 [
   {
+    "id": "2026-08-09-thrashmeter-2",
+    "date": "2026-08-09",
+    "site": "thrashmeter",
+    "author": "fromthewestmeadow.com",
+    "text": "Follow-up in the same thread after a mutual pointed out fromthewestmeadow suspiciously got the LOWEST leaderboard score: 'examine my profile car and the others to build a better metric.' Downloaded the actual CAR (10.6MB, 42k dag-cbor blocks) and found the real bug: the server's CAR_MAX_BLOCKS=6000 cap fully-decoded blocks in raw CAR order, and this account's repo interleaves ~17.5k records from an unrelated non-bsky collection (a game called topchicken) ahead of most of the 5,928 real posts, so the cap's entire budget went to decoding junk — came away with 39 sampled posts, zero follows/blocks, and a server score of 60 for one of the most active accounts on the board. Fix: peek just the $type field (skip the rest of a record's bytes without decoding them, ~5x cheaper than a full decode, benchmarked against the real file) before deciding whether a block is worth fully decoding, splitting the old single cap into a cheap raw-scan cap (30k) and a real decode-cost cap (8k) sized off that ratio. Also swapped in profile.postsCount/followsCount (exact AppView aggregates) for the 'records/day' signal's totals, since sample-only counts silently understate a prolific account no matter how deep the scan goes. Re-simulated against the live leaderboard's real CAR files (this account plus four others of varying size) before touching the deployed code: the fix moved this account 60->91 (matches an uncapped scan's 92), while every normal-sized account scored identically to before. Lesson for the next CAR-scanning site: a block-count cap on a *sequential* scan silently assumes decode order is representative of the whole repo — it isn't, if even one collection with a lot of records happens to sort/interleave early. Cheaply classifying a block before committing to a full decode is the fix, not just raising the cap number."
+  },
+  {
     "id": "2026-08-09-thrashmeter",
     "date": "2026-08-09",
     "site": "thrashmeter",
