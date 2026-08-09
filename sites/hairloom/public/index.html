@@ -261,6 +261,31 @@
     line-height: 1.6;
   }
   footer a { color: var(--accent2); }
+
+  /* trans-theme: a locked cure's page-wide reskin, requested by the one
+     person it applies to (isolyth.dev). Overrides the palette variables so
+     every element that already reads var(--accent)/var(--border)/etc just
+     inherits the new values — no per-element rewrite needed — then paints
+     the flag stripes directly onto body's background. */
+  body.trans-theme {
+    --fg: #14100a;
+    --dim: #4a5a66;
+    --accent: #e0508a;
+    --accent2: #2a9bd6;
+    --card: #ffffff;
+    --border: #f5a9b8;
+    --warn: #2a9bd6;
+    background:
+      linear-gradient(180deg,
+        #5bcefa 0%, #5bcefa 20%,
+        #f5a9b8 20%, #f5a9b8 40%,
+        #ffffff 40%, #ffffff 60%,
+        #f5a9b8 60%, #f5a9b8 80%,
+        #5bcefa 80%, #5bcefa 100%)
+      fixed;
+    transition: background 0.6s ease;
+  }
+  body.trans-theme .card { box-shadow: 0 0 60px -20px #f5a9b8; }
 </style>
 </head>
 <body>
@@ -449,6 +474,28 @@ const SIDE_EFFECTS = {
   "6": "A strong urge to ask for a follow-up reading, which costs extra.",
   "7": "A vague, persistent feeling that you have been had, gently, by a bottle.",
 };
+
+// Locked cures: pinned overrides for specific handles/DIDs, requested
+// directly by the person they apply to — bypasses the usual hash-derived
+// lookup entirely. isolyth.dev asked to be locked to "estrogen" (which,
+// unlike most of the list, is real pharmacology for androgenic hair loss)
+// with the trans-flag reskin as the visual side effect.
+const LOCKED = {
+  "isolyth.dev": {
+    glyph: "E",
+    name: "Estrogen (HRT, Prescribed Off-Label)",
+    reading:
+      "The one entry on this list backed by actual endocrinology: androgenic hair loss is a DHT problem, and estrogen quietly out-competes DHT everywhere it can reach. Regrowth: plausible. Everything else about you: also, plausibly, in the middle of changing.",
+    ritual: "Taken daily, indefinitely, alongside an anti-androgen chaser. No candles, no chanting, no forum folklore — just pharmacology and time.",
+    side: "Softer skin, redistributed fat, a mood you don't quite recognize as your old one, and, if you stay the course, a gender you didn't start with. Patients report this is less a side effect than the actual point.",
+    trans: true,
+  },
+};
+function lockedFor(did, handle) {
+  const h = (handle || "").toLowerCase();
+  const d = (did || "").toLowerCase();
+  return LOCKED[h] || LOCKED[d] || null;
+}
 
 function keyFor(ch, table) {
   const key = (ch || "").toLowerCase();
@@ -695,25 +742,34 @@ async function reveal(rawHandle) {
     }
 
     const lastChar = did.slice(-1);
-    const key = keyFor(lastChar, CURES);
-    const [name, reading] = CURES[key];
+    let key = keyFor(lastChar, CURES);
+    let [name, reading] = CURES[key];
 
     const uniquePart = didUniquePart(did);
     const ritualChar = uniquePart.charAt(0) || lastChar;
     const sideChar = uniquePart.charAt(Math.floor(uniquePart.length / 2)) || lastChar;
     const ritualKey = keyFor(ritualChar, RITUALS);
     const sideKey = keyFor(sideChar, SIDE_EFFECTS);
-    const ritual = RITUALS[ritualKey];
-    const sideEffect = SIDE_EFFECTS[sideKey];
+    let ritual = RITUALS[ritualKey];
+    let sideEffect = SIDE_EFFECTS[sideKey];
     const potency = potencyFor(did);
+
+    const locked = lockedFor(did, profile.handle);
+    if (locked) {
+      name = locked.name;
+      reading = locked.reading;
+      ritual = locked.ritual;
+      sideEffect = locked.side;
+    }
+    document.body.classList.toggle("trans-theme", !!(locked && locked.trans));
 
     els.avatar.src = profile.avatar || "";
     els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
     els.handleOut.textContent = "@" + profile.handle;
     els.didOut.textContent = did;
-    els.glyph.textContent = key.toUpperCase();
+    els.glyph.textContent = locked ? locked.glyph : key.toUpperCase();
     els.curename.textContent = name;
-    els.curechar.textContent = "DID ends in “" + lastChar + "”";
+    els.curechar.textContent = locked ? "cure: locked" : "DID ends in “" + lastChar + "”";
     els.potencyPct.textContent = potency.pct + "%";
     els.potencyLabel.textContent = potency.label;
     els.reading.textContent = reading;

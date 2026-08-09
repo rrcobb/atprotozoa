@@ -55,6 +55,15 @@ const CURES: Record<string, [string, string]> = {
   "7": ["The Lucky Number Regimen", "No active ingredients. Just seven drops, seven times, for seven days. Faith-based."],
 };
 
+// Mirrors public/index.html's LOCKED table — server side only needs the OG
+// text fields, not the ritual/side-effect/theme, which stay client-owned.
+const LOCKED: Record<string, [string, string]> = {
+  "isolyth.dev": [
+    "Estrogen (HRT, Prescribed Off-Label)",
+    "The one entry on this list backed by actual endocrinology: androgenic hair loss is a DHT problem, and estrogen quietly out-competes DHT everywhere it can reach.",
+  ],
+};
+
 function potencyFor(did: string): { pct: number; label: string } {
   let hash = 0;
   for (const c of did) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
@@ -132,7 +141,8 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
 
     const lastChar = did.slice(-1);
     const key = CURES[lastChar.toLowerCase()] ? lastChar.toLowerCase() : "a";
-    const [name, blurb] = CURES[key];
+    const locked = LOCKED[(profile.handle || handle).toLowerCase()] || LOCKED[did.toLowerCase()];
+    const [name, blurb] = locked || CURES[key];
     const potency = potencyFor(did);
 
     const who = "@" + (profile.handle || handle);
