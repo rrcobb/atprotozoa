@@ -99,9 +99,16 @@
     border-radius: 16px;
     padding: 1.75rem;
     box-shadow: 0 0 60px -25px var(--accent);
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
   }
   .card.show { display: block; animation: rise 0.4s ease; }
+  .card.affirm-1 { box-shadow: 0 0 70px -20px var(--accent); }
+  .card.affirm-2 { box-shadow: 0 0 80px -15px var(--accent), 0 0 30px -10px var(--accent2); }
+  .card.affirm-3 { box-shadow: 0 0 90px -10px var(--accent), 0 0 40px -8px var(--accent2); transform: scale(1.01); }
+  .card.affirm-4 { box-shadow: 0 0 110px -5px var(--accent), 0 0 50px -5px var(--accent2); transform: scale(1.015); }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @keyframes proofrise { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+  .proof.bonus { animation: proofrise 0.35s ease; border-left-color: var(--accent); }
 
   .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
   .who img { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); }
@@ -172,6 +179,41 @@
     line-height: 1.6;
   }
   .didline code { color: var(--accent2); word-break: break-all; }
+
+  .affirm-more {
+    text-align: center;
+    margin: 0.4rem 0 1.4rem;
+  }
+  #affirmBtn {
+    background: transparent;
+    border: 1px dashed var(--accent2);
+    color: var(--accent2);
+    border-radius: 999px;
+    padding: 0.55rem 1.1rem;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  #affirmBtn:disabled { opacity: 0.65; cursor: default; border-style: solid; }
+  .affirm-ceiling {
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-top: 0.5rem;
+    line-height: 1.5;
+  }
+
+  .confetti {
+    position: fixed;
+    top: -2rem;
+    font-size: 1.4rem;
+    pointer-events: none;
+    z-index: 50;
+    animation: confetti-fall linear forwards;
+  }
+  @keyframes confetti-fall {
+    to { transform: translateY(105vh) rotate(360deg); opacity: 0; }
+  }
 
   .share {
     border-top: 1px dashed var(--border);
@@ -265,6 +307,11 @@
         handles can change. that string doesn't.
       </div>
 
+      <div class="affirm-more">
+        <button id="affirmBtn" type="button">not affirmed enough? →</button>
+        <div id="affirmCeiling" class="affirm-ceiling" style="display:none;"></div>
+      </div>
+
       <div class="share">
         <canvas id="shareCanvas" width="1200" height="630"></canvas>
         <div class="share-actions">
@@ -313,6 +360,12 @@ function plural(n, word) {
   return n + " " + word + (n === 1 ? "" : "s");
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
 const els = {
   form: document.getElementById("f"),
   input: document.getElementById("handle"),
@@ -331,9 +384,106 @@ const els = {
   shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
   shareDownload: document.getElementById("shareDownload"),
+  affirmBtn: document.getElementById("affirmBtn"),
+  affirmCeiling: document.getElementById("affirmCeiling"),
 };
 
 let lastShareText = "";
+
+// "more affirmation" is still receipts, not vibes — each click unlocks the
+// next real-but-obscure thing the AppView knows (lists, feedgens, starter
+// packs, bio, pinned post), and only escalates the tone once the record
+// backs it up.
+const AFFIRM_HEADLINES = [
+  "yes, you're really here.",
+  "okay but you're EXTRA here.",
+  "the record is now formally obsessed with you.",
+  "the AppView is affirming you so hard it's basically vibrating.",
+  "MAXIMUM AFFIRMATION ACHIEVED. you may stop refreshing now.",
+];
+const AFFIRM_BTN_LABELS = [
+  "not affirmed enough? →",
+  "affirm harder →",
+  "AFFIRM HARDER →",
+  "MORE. AFFIRMATION. →",
+];
+let affirmLevel = 0;
+let bonusProofs = [];
+
+function computeBonusProofs(profile) {
+  const out = [];
+  const assoc = profile.associated || {};
+  if (assoc.lists) {
+    out.push(`you've curated <span class="num">${assoc.lists}</span> list${assoc.lists === 1 ? "" : "s"}. organizing the timeline is its own kind of care.`);
+  }
+  if (assoc.starterPacks) {
+    out.push(`you've put together <span class="num">${assoc.starterPacks}</span> starter pack${assoc.starterPacks === 1 ? "" : "s"} — you brought other people here too.`);
+  }
+  if (assoc.feedgens) {
+    out.push(`you built <span class="num">${assoc.feedgens}</span> custom feed${assoc.feedgens === 1 ? "" : "s"}. you didn't just use the timeline, you shaped it.`);
+  }
+  if (profile.joinedViaStarterPack) {
+    out.push(`you didn't even arrive alone — someone's starter pack brought you in.`);
+  }
+  if (profile.pinnedPost) {
+    out.push(`you cared enough about one specific post to pin it to the top of everything.`);
+  }
+  if (profile.description && profile.description.trim()) {
+    out.push(`you wrote yourself a bio: <i>&ldquo;${escapeHtml(profile.description.trim().slice(0, 140))}${profile.description.trim().length > 140 ? "…" : ""}&rdquo;</i> — words, on purpose, about you.`);
+  }
+  return out;
+}
+
+function resetAffirm(profile) {
+  affirmLevel = 0;
+  bonusProofs = computeBonusProofs(profile);
+  els.card.className = "card show";
+  els.affirmBtn.disabled = false;
+  els.affirmBtn.textContent = AFFIRM_BTN_LABELS[0];
+  els.affirmBtn.style.display = "";
+  els.affirmCeiling.style.display = "none";
+}
+
+function fireConfetti() {
+  const bits = ["✨", "🎉", "💛", "🦋", "⭐"];
+  for (let i = 0; i < 24; i++) {
+    const span = document.createElement("span");
+    span.className = "confetti";
+    span.textContent = bits[Math.floor(Math.random() * bits.length)];
+    span.style.left = Math.random() * 100 + "vw";
+    span.style.animationDuration = 1.1 + Math.random() * 0.9 + "s";
+    span.style.animationDelay = Math.random() * 0.3 + "s";
+    document.body.appendChild(span);
+    span.addEventListener("animationend", () => span.remove());
+  }
+}
+
+function affirmMore() {
+  if (affirmLevel >= AFFIRM_HEADLINES.length - 1) return;
+  affirmLevel++;
+
+  if (affirmLevel - 1 < bonusProofs.length) {
+    const div = document.createElement("div");
+    div.className = "proof bonus";
+    div.innerHTML = bonusProofs[affirmLevel - 1];
+    els.proofs.appendChild(div);
+  }
+
+  els.headline.textContent = AFFIRM_HEADLINES[affirmLevel];
+  els.card.className = "card show affirm-" + affirmLevel;
+
+  const maxed = affirmLevel >= AFFIRM_HEADLINES.length - 1;
+  if (maxed) {
+    els.affirmBtn.disabled = true;
+    els.affirmBtn.textContent = AFFIRM_BTN_LABELS[AFFIRM_BTN_LABELS.length - 1];
+    els.affirmCeiling.style.display = "";
+    els.affirmCeiling.textContent = "that's the ceiling — every real thing the record has on you. still real, all the way up.";
+    fireConfetti();
+  } else {
+    els.affirmBtn.textContent = AFFIRM_BTN_LABELS[affirmLevel];
+  }
+}
+els.affirmBtn.addEventListener("click", affirmMore);
 
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
@@ -545,7 +695,7 @@ async function reveal(rawHandle) {
     els.proofs.innerHTML = buildProofs(profile, since);
 
     setStatus("");
-    els.card.classList.add("show");
+    resetAffirm(profile);
 
     const rebuildShare = (quote) => {
       lastShareText = shareText(profile, since);
