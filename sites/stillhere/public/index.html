@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stillhere — proof you're still here</title>
+<meta name="description" content="Real numbers pulled live from Bluesky's AppView: how long you've been here, how many posts you've kept, one thing you actually wrote. Not vibes — receipts." />
+<meta property="og:title" content="stillhere — proof you're still here" />
+<meta property="og:description" content="Real numbers pulled live from Bluesky's AppView: how long you've been here, how many posts you've kept, one thing you actually wrote. Not vibes — receipts." />
+<meta property="og:url" content="https://stillhere.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://stillhere.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="stillhere: a warm card confirming a Bluesky handle is real, with post count, follower count, and days on the network." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="stillhere — proof you're still here" />
+<meta name="twitter:description" content="Real numbers pulled live from Bluesky's AppView: how long you've been here, how many posts you've kept, one thing you actually wrote. Not vibes — receipts." />
+<meta name="twitter:image" content="https://stillhere.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #fdf6ec;
+    --bg2: #f7ece0;
+    --fg: #2b241c;
+    --dim: #8a7c68;
+    --accent: #e07a5f;
+    --accent2: #6b9080;
+    --card: #fffaf2;
+    --border: #e8dcc8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #fbe3d0 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #e6f0ea 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    color: var(--accent);
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.55;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: var(--accent);
+    color: #fffaf2;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #b3543f; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.4rem; }
+  .who img { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; font-size: 1.05rem; }
+  .who .did { color: var(--dim); font-size: 0.7rem; word-break: break-all; }
+
+  .headline {
+    text-align: center;
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin: 1.4rem 0 0.3rem;
+    line-height: 1.35;
+  }
+  .subhead {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.82rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .proofs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
+  .proof {
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--accent2);
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+  .proof b { color: var(--fg); }
+  .proof .num { color: var(--accent); font-weight: 800; }
+
+  .receipt {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.1rem;
+    margin-bottom: 1.4rem;
+  }
+  .receipt .label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent2);
+    margin-bottom: 0.5rem;
+  }
+  .receipt blockquote {
+    margin: 0;
+    font-style: italic;
+    color: var(--fg);
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .receipt .none { color: var(--dim); font-style: normal; }
+  .receipt .from {
+    color: var(--dim);
+    font-size: 0.74rem;
+    margin-top: 0.5rem;
+  }
+
+  .didline {
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+    font-size: 0.78rem;
+    color: var(--dim);
+    line-height: 1.6;
+  }
+  .didline code { color: var(--accent2); word-break: break-all; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: var(--accent);
+    color: #fffaf2;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>stillhere</h1>
+    <p class="tag">
+      No vibes, no affirmation-of-the-day generator — just what
+      <code>public.api.bsky.app</code> actually knows about you, read back as
+      proof. Enter a handle. It's real. You're on it.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">confirm</button>
+    </form>
+    <p class="hint">works on any handle. yours especially.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+        </div>
+      </div>
+
+      <div class="headline" id="headline"></div>
+      <div class="subhead" id="subhead"></div>
+
+      <div class="proofs" id="proofs"></div>
+
+      <div class="receipt">
+        <div class="label">something you actually wrote</div>
+        <blockquote id="quote">—</blockquote>
+        <div class="from" id="quoteFrom"></div>
+      </div>
+
+      <div class="didline">
+        underneath the handle, the part that's really yours:<br />
+        <code id="didOut"></code><br />
+        handles can change. that string doesn't.
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the proof</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function daysAgo(iso) {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return null;
+  const now = Date.now();
+  return Math.max(0, Math.floor((now - then) / 86400000));
+}
+
+function fmtDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+}
+
+function plural(n, word) {
+  return n + " " + word + (n === 1 ? "" : "s");
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  headline: document.getElementById("headline"),
+  subhead: document.getElementById("subhead"),
+  proofs: document.getElementById("proofs"),
+  quote: document.getElementById("quote"),
+  quoteFrom: document.getElementById("quoteFrom"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function findQuote(did) {
+  try {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 30, filter: "posts_no_replies" });
+    const items = (feed.feed || [])
+      .map((f) => ({ text: f.post.record && f.post.record.text, createdAt: f.post.record && f.post.record.createdAt }))
+      .filter((p) => p.text && p.text.trim().length > 3);
+    if (!items.length) return null;
+    return items[Math.floor(Math.random() * items.length)];
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildProofs(profile, since) {
+  const posts = profile.postsCount ?? 0;
+  const followers = profile.followersCount ?? 0;
+  const follows = profile.followsCount ?? 0;
+  const out = [];
+
+  out.push(
+    `<div class="proof">you've posted <span class="num">${posts}</span> time${posts === 1 ? "" : "s"}. ` +
+    `${posts} moments you decided were worth keeping on the record.</div>`
+  );
+  out.push(
+    `<div class="proof"><span class="num">${followers}</span> ${followers === 1 ? "person" : "people"} chose to follow you. ` +
+    `not an algorithm deciding for them — an actual click, by an actual account.</div>`
+  );
+  out.push(
+    `<div class="proof">you follow <span class="num">${follows}</span> ${follows === 1 ? "account" : "accounts"} back. ` +
+    `${follows} times you decided someone else's presence mattered too.</div>`
+  );
+  if (since) {
+    const d = daysAgo(since);
+    out.push(
+      `<div class="proof">on the network since <b>${fmtDate(since)}</b> — <span class="num">${d}</span> ${plural(d, "day")} ` +
+      `of just... being here.</div>`
+    );
+  }
+  return out.join("");
+}
+
+function shareText(profile, since) {
+  const bits = [];
+  bits.push(`@${profile.handle} is real: ${profile.postsCount ?? 0} posts, ${profile.followersCount ?? 0} followers`);
+  if (since) bits.push(`here since ${fmtDate(since)}`);
+  return `${bits.join(", ")}.\n\nconfirm your own → ${shareUrlFor(profile.handle)}`;
+}
+
+// A real path per handle, so every share unfurls with its own og:title —
+// see notes/45-sharing-and-virality.md and sites/didscope's /s/<handle>.
+function shareUrlFor(handle) {
+  return "https://stillhere.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, since, quote }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#fdf6ec";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#fbe3d0");
+  glow.addColorStop(1, "rgba(253,246,236,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#e07a5f";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("stillhere", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#2b241c";
+  ctx.font = `700 30px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 162);
+
+  ctx.strokeStyle = "#e8dcc8";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#fffaf2";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "left";
+  const rows = [
+    [`${profile.postsCount ?? 0} posts kept`, "#e07a5f"],
+    [`${profile.followersCount ?? 0} people followed`, "#6b9080"],
+    [`${profile.followsCount ?? 0} followed back`, "#6b9080"],
+  ];
+  if (since) rows.push([`here since ${fmtDate(since)}`, "#6b9080"]);
+
+  let ry = cardY + 58;
+  for (const [text, color] of rows) {
+    ctx.fillStyle = color;
+    ctx.fillRect(cardX + 40, ry - 22, 4, 30);
+    ctx.fillStyle = "#2b241c";
+    ctx.font = `700 26px ${mono}`;
+    ctx.fillText(text, cardX + 62, ry);
+    ry += 52;
+  }
+
+  if (quote && quote.text) {
+    ry += 12;
+    ctx.fillStyle = "#6b9080";
+    ctx.font = `700 15px ${mono}`;
+    ctx.fillText("IN THEIR OWN WORDS", cardX + 40, ry);
+    ry += 30;
+    ctx.fillStyle = "#2b241c";
+    ctx.font = `italic 18px ${mono}`;
+    wrapCanvasText(ctx, "“" + quote.text + "”", cardX + 40, ry, cardW - 80, 26);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6b9080";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("stillhere.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("checking the record for " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const since = profile.createdAt || null;
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.headline.textContent = "yes, you're really here.";
+    els.subhead.textContent = profile.displayName ? profile.displayName + " — confirmed, not imagined." : "confirmed, not imagined.";
+    els.proofs.innerHTML = buildProofs(profile, since);
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    const rebuildShare = (quote) => {
+      lastShareText = shareText(profile, since);
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+      buildShareCard({ profile, since, quote });
+    };
+    rebuildShare(null);
+
+    els.quote.textContent = "pulling up something you wrote...";
+    findQuote(did).then((q) => {
+      if (q) {
+        els.quote.textContent = "“" + q.text + "”";
+        els.quoteFrom.textContent = q.createdAt ? "posted " + fmtDate(q.createdAt) : "";
+      } else {
+        els.quote.textContent = "no posts turned up. a quiet account is still an account.";
+        els.quote.classList.add("none");
+      }
+      rebuildShare(q);
+    });
+  } catch (err) {
+    setStatus("couldn't find that one: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "stillhere-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "stillhere-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "stillhere" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+</body>
+</html>
