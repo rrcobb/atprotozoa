@@ -370,6 +370,15 @@
     background: var(--accent-2);
     box-shadow: 0 0 6px 1px rgba(90,209,201,0.75);
   }
+  .mod-toggle.wild[aria-pressed="true"] { border-color: var(--accent); }
+  .mod-toggle.wild[aria-pressed="true"] .mod-led {
+    background: var(--accent);
+    box-shadow: 0 0 6px 1px rgba(255,90,60,0.8);
+  }
+  .mod-cycle:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
   .mod-faders {
     display: flex;
     justify-content: center;
@@ -487,16 +496,22 @@
           </button>
           <button class="mod-cycle" id="modWaveBtn" type="button" aria-label="Cycle modulation waveform"></button>
           <button class="mod-cycle" id="modTargetBtn" type="button" aria-label="Cycle modulation target"></button>
+          <button class="mod-toggle wild" id="modWanderBtn" type="button" aria-pressed="false" aria-label="Toggle random target wandering — the modulation target jumps to a new fader on its own">
+            <span class="mod-led"></span>WANDER
+          </button>
+          <button class="mod-toggle wild" id="modSpreadBtn" type="button" aria-pressed="false" aria-label="Toggle spread — co-modulate a second, unrelated fader out of phase">
+            <span class="mod-led"></span>SPREAD
+          </button>
         </div>
         <div class="mod-faders">
           <div class="fader-unit mini">
             <div class="fader-value" id="val-rate"></div>
-            <div class="fader-track"><input type="range" id="rateInput" min="1" max="60" step="1" value="12" aria-label="LFO rate" /></div>
+            <div class="fader-track"><input type="range" id="rateInput" min="1" max="140" step="1" value="12" aria-label="LFO rate" /></div>
             <div class="fader-label">RATE</div>
           </div>
           <div class="fader-unit mini">
             <div class="fader-value" id="val-amount"></div>
-            <div class="fader-track"><input type="range" id="amountInput" min="0" max="100" step="1" value="45" aria-label="LFO amount" /></div>
+            <div class="fader-track"><input type="range" id="amountInput" min="0" max="160" step="1" value="45" aria-label="LFO amount" /></div>
             <div class="fader-label">AMT</div>
           </div>
         </div>
@@ -520,11 +535,16 @@
       a row-band wave warp — all client-side canvas pixel work. <b>ZALGO</b> stacks
       combining diacritics onto the post text itself: the letters never change, the
       shape does — readable if you fight for it, uncanny if you don't. <b>MURK</b> is
-      the wet/dry mix; the footswitch is true bypass. Flip <b>LFO MOD</b> on and any
-      one fader oscillates on its own — pick a waveform and a target, then dial in
-      rate and amount. Built for @words.bsky.social by
-      <a href="https://buildthis.bisks.net/">@buildthis</a>, glitchier and weirder on
-      request.
+      the wet/dry mix; the footswitch is true bypass. Flip <b>LFO MOD</b> on and a
+      fader oscillates on its own — six waveforms now, including S&amp;H (a fresh
+      random jump every cycle) and CHAOS (three sines at odds with each other, never
+      quite repeating). <b>WANDER</b> lets the target itself hop to a different
+      fader on an irregular schedule; <b>SPREAD</b> co-modulates a second, unrelated
+      fader out of phase with the first. Push rate and amount past their old ceilings
+      and the wave clips hard against the rails; near either extreme the whole frame
+      takes a jolt of colour. Built for @words.bsky.social by
+      <a href="https://buildthis.bisks.net/">@buildthis</a>, modulations turned up to
+      drastic, cathartic, and confusing on request.
     </footer>
   </div>
 
@@ -575,9 +595,20 @@
     { key: "sine", label: "∿ SINE" },
     { key: "square", label: "⊓ SQUARE" },
     { key: "triangle", label: "△ TRI" },
+    { key: "saw", label: "⩘ SAW" },
+    { key: "sh", label: "⌁ S&H" },
+    { key: "chaos", label: "≈ CHAOS" },
   ];
   const MOD_TARGETS = PARAMS.map((p) => p.key);
-  const lfo = { on: false, waveIdx: 0, targetIdx: MOD_TARGETS.indexOf("murk"), rate: 12, amount: 45 };
+  const lfo = {
+    on: false,
+    waveIdx: 0,
+    targetIdx: MOD_TARGETS.indexOf("murk"),
+    rate: 12,
+    amount: 45,
+    wander: false, // target hops to a new fader on its own, on a random schedule
+    spread: false, // a second, unrelated fader gets co-modulated out of phase
+  };
 
   let engaged = true;
   let currentHandle = "";
@@ -602,6 +633,8 @@
   const modToggle = document.getElementById("modToggle");
   const modWaveBtn = document.getElementById("modWaveBtn");
   const modTargetBtn = document.getElementById("modTargetBtn");
+  const modWanderBtn = document.getElementById("modWanderBtn");
+  const modSpreadBtn = document.getElementById("modSpreadBtn");
   const rateInput = document.getElementById("rateInput");
   const amountInput = document.getElementById("amountInput");
   const rateVal = document.getElementById("val-rate");
@@ -697,7 +730,8 @@
   // ---- LFO modulation UI -------------------------------------------------
   function refreshModUI() {
     modWaveBtn.textContent = WAVES[lfo.waveIdx].label;
-    modTargetBtn.textContent = "→ " + PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label;
+    modTargetBtn.textContent = lfo.wander ? "⟳ WANDERING" : "→ " + PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label;
+    modTargetBtn.disabled = lfo.wander;
     rateVal.textContent = (lfo.rate / 10).toFixed(1) + "hz";
     amountVal.textContent = lfo.amount + "%";
   }
@@ -730,6 +764,15 @@
   modTargetBtn.addEventListener("click", () => {
     lfo.targetIdx = (lfo.targetIdx + 1) % MOD_TARGETS.length;
     refreshModUI();
+  });
+  modWanderBtn.addEventListener("click", () => {
+    lfo.wander = !lfo.wander;
+    modWanderBtn.setAttribute("aria-pressed", String(lfo.wander));
+    refreshModUI();
+  });
+  modSpreadBtn.addEventListener("click", () => {
+    lfo.spread = !lfo.spread;
+    modSpreadBtn.setAttribute("aria-pressed", String(lfo.spread));
   });
   rateInput.addEventListener("input", () => {
     lfo.rate = Number(rateInput.value);
@@ -1072,26 +1115,89 @@
     c.putImageData(img, 0, 0);
   }
 
-  function lfoWave(wave, phase) {
+  // Deterministic hash -> [0,1), used for sample&hold steps and for the
+  // WANDER hop schedule — same inputs always give the same output so a
+  // paused/resumed rAF loop (or a re-render at the same tNow) can't drift.
+  function hash01(n) {
+    const x = Math.sin(n * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  function lfoWave(wave, phase, voiceSeed) {
     const s = Math.sin(phase);
     if (wave === "square") return s >= 0 ? 1 : -1;
     if (wave === "triangle") return (2 / Math.PI) * Math.asin(s);
+    if (wave === "saw") {
+      const cyc = phase / (Math.PI * 2);
+      return 2 * (cyc - Math.floor(cyc + 0.5));
+    }
+    if (wave === "sh") {
+      // sample & hold: a fresh random value every cycle, held flat until
+      // the next one lands — the classic "unpredictable stepped" modulation
+      const cyc = Math.floor(phase / (Math.PI * 2));
+      return hash01(cyc * 97.13 + (voiceSeed || 0) * 7.77) * 2 - 1;
+    }
+    if (wave === "chaos") {
+      // three sines at incommensurate ratios so the sum never repeats on
+      // any short cycle — smooth but genuinely unpredictable
+      const t = phase + (voiceSeed || 0) * 1.7;
+      const v = Math.sin(t) + Math.sin(t * 1.618 + 1.3) * 0.6 + Math.sin(t * 2.71 + 2.7) * 0.35;
+      return Math.max(-1, Math.min(1, v / 1.7));
+    }
     return s;
+  }
+
+  // WANDER: the mod target hops to a new (different) fader on an
+  // irregular 3-8s schedule instead of sitting still — walks the hop
+  // schedule forward from t=0 rather than keeping mutable state, so it
+  // stays a pure function of tNow like the rest of the render path.
+  function wanderTargetIdx(tNow) {
+    const CYCLE = 10 * 60 * 1000; // schedule repeats every 10 minutes, so a
+    // long-open tab never grows the walk below unbounded — tNow is huge
+    // after hours of `requestAnimationFrame`, but the hop count stays small
+    const tt = tNow % CYCLE;
+    let t = 0, idx = lfo.targetIdx, hop = 0;
+    while (true) {
+      const dur = 3000 + hash01(hop * 3.31) * 5000;
+      if (t + dur > tt) break;
+      t += dur;
+      const step = 1 + Math.floor(hash01(hop * 5.19) * (MOD_TARGETS.length - 1));
+      idx = (idx + step) % MOD_TARGETS.length;
+      hop++;
+    }
+    return idx;
+  }
+
+  // Applies one modulation "voice" (a wave driving one fader) into `live`,
+  // clamped to that fader's own range. `polarity` flips the wave so a
+  // SPREAD voice can swing opposite the primary one instead of in lockstep.
+  function applyVoice(live, idx, waveKey, phase, voiceSeed, polarity) {
+    const key = MOD_TARGETS[idx];
+    const def = PARAM_BY_KEY[key];
+    const wave = lfoWave(waveKey, phase, voiceSeed) * polarity;
+    const range = def.max - def.min;
+    const offset = wave * (lfo.amount / 100) * (range / 2);
+    live[key] = Math.min(def.max, Math.max(def.min, baseParams[key] + offset));
+    return wave;
   }
 
   function computeLiveParams(tNow) {
     const live = Object.assign({}, baseParams);
+    let primaryWave = 0;
     if (lfo.on && tNow != null) {
-      const targetKey = MOD_TARGETS[lfo.targetIdx];
-      const def = PARAM_BY_KEY[targetKey];
+      const waveKey = WAVES[lfo.waveIdx].key;
       const speed = lfo.rate / 10; // hz
       const phase = (tNow / 1000) * speed * Math.PI * 2;
-      const wave = lfoWave(WAVES[lfo.waveIdx].key, phase);
-      const range = def.max - def.min;
-      const offset = wave * (lfo.amount / 100) * (range / 2);
-      live[targetKey] = Math.min(def.max, Math.max(def.min, baseParams[targetKey] + offset));
+      const targetIdx = lfo.wander ? wanderTargetIdx(tNow) : lfo.targetIdx;
+      primaryWave = applyVoice(live, targetIdx, waveKey, phase, targetIdx, 1);
+
+      if (lfo.spread) {
+        const step = 1 + Math.floor(hash01(targetIdx * 2.2) * (MOD_TARGETS.length - 2));
+        const secondIdx = (targetIdx + step) % MOD_TARGETS.length;
+        applyVoice(live, secondIdx, waveKey, phase + (Math.PI * 2) / 3, secondIdx, -1);
+      }
     }
-    return live;
+    return { live, primaryWave };
   }
 
   // Row-band wave displacement — snapshots the current screen, then redraws
@@ -1144,7 +1250,7 @@
       ctx.drawImage(cleanCanvas, 0, 0);
       return;
     }
-    const live = computeLiveParams(tNow);
+    const { live, primaryWave } = computeLiveParams(tNow);
 
     // Only repaint the clean text layer when ZALGO is doing something —
     // it's a full redraw of every card, so skip it on the (default) frames
@@ -1171,6 +1277,19 @@
     if (live.slice > 0) applySlice(live.slice, tNow || 0);
     if (live.warp > 0) applyWarp(live.warp, tNow || 0);
     if (live.hue > 0) applyHue(live.hue);
+
+    // Cathartic release: near either extreme of the modulation wave, slam
+    // a brief colour flash over the whole frame — a jolt instead of a
+    // smooth ride, on top of whatever wave shape is driving it.
+    if (lfo.on) {
+      const edge = Math.abs(primaryWave) - 0.9;
+      if (edge > 0) {
+        ctx.globalAlpha = (edge / 0.1) * 0.4;
+        ctx.fillStyle = primaryWave > 0 ? "#ff5a3c" : "#5ad1c9";
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = 1;
+      }
+    }
   }
 
   function scheduleRender() {
@@ -1239,7 +1358,8 @@
   function buildShareText() {
     const who = currentHandle ? "@" + currentHandle + "'s" : "a";
     const mod = lfo.on
-      ? " · LFO on " + PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label + " (" + WAVES[lfo.waveIdx].key + ")"
+      ? " · LFO on " + (lfo.wander ? "WANDER" : PARAM_BY_KEY[MOD_TARGETS[lfo.targetIdx]].label) +
+        " (" + WAVES[lfo.waveIdx].key + (lfo.spread ? "+spread" : "") + ")"
       : "";
     return "ran " + who + " feed through murkbox — block " + baseParams.block +
       ", depth " + baseParams.depth + ", dither " + baseParams.dither + "%, murk " + baseParams.murk +
