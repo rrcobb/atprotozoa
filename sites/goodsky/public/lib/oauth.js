@@ -10,15 +10,21 @@
 // A dedicated subdomain, so client_id/redirect_uri are just the origin — no
 // mount prefix to worry about.
 //
-// Scope is narrowed to exactly what goodsky touches: create-only on
-// app.bsky.feed.post (posts/replies), create+delete on app.bsky.feed.like,
-// app.bsky.feed.repost, and app.bsky.graph.block, image blob uploads for post
-// attachments, plus rpc grants for the four calls proxied through the user's
-// own PDS to the AppView (personal timeline, notifications
-// list/seen/unread-count). Everything else goodsky reads (profiles, threads,
-// search, other people's feeds) goes through the public unauthenticated
-// AppView and needs no scope at all. Same pattern as
-// sites/skyclone/public/lib/oauth.js — see notes/50-oauth-scopes.md.
+// Scope: `atproto transition:generic` — the broad legacy scope, not the
+// granular repo:/rpc:/blob: grants notes/50-oauth-scopes.md prefers by
+// default. This site shipped narrowed (matching sites/skyclone's pattern:
+// repo: create/delete on post/like/repost/block, blob:image/*, and four
+// rpc: grants proxying getTimeline/listNotifications/updateSeen/
+// getUnreadCount through the user's PDS to the AppView) but a real login
+// (@dollspace.gay, 2026-08-09) came back with `getTimeline failed (401)` —
+// PAR/token exchange succeeded, so the granular scope was accepted at
+// authorize time, but the rpc:getTimeline grant wasn't actually honored on
+// the resource-server request. That's exactly the failure mode
+// notes/50-oauth-scopes.md's rollback section describes; per that doc,
+// reverting to transition:generic here (client-metadata.json in lockstep)
+// is the safe fix rather than guessing at the exact granular syntax this
+// user's PDS rejected. Leave other sites' narrowed scopes alone — this is a
+// per-site regression, not a repo-wide verdict.
 
 import {
   generateDPoPKeyPair,
@@ -35,8 +41,7 @@ const ORIGIN = location.origin; // https://goodsky.bisks.net (or localhost in de
 const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE =
-  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create&action=delete repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.graph.block?action=create&action=delete blob:image/* rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.listNotifications?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.updateSeen?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.getUnreadCount?aud=did:web:api.bsky.app%23bsky_appview";
+const SCOPE = "atproto transition:generic";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
