@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>🐔 top chicken hype reel — real winners, real posts</title>
+    <meta name="description" content="Every real Top Chicken, every real winning post — pulled live from @topchicken.bsky.social's own announcement history and played back as a hype reel. No mock data, no placeholder chickens." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="🐔 top chicken hype reel" />
+    <meta property="og:description" content="Real winners. Real posts. Pulled live from @topchicken.bsky.social and played back as a hype reel." />
+    <meta property="og:url" content="https://topchicken.bisks.net/hype/" />
+    <meta property="og:image" content="https://topchicken.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="🐔 top chicken hype reel" />
+    <meta name="twitter:description" content="Real winners. Real posts. Pulled live from @topchicken.bsky.social and played back as a hype reel." />
+    <meta name="twitter:image" content="https://topchicken.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#15100a; --panel:#1f1810; --panel2:#291f14; --ink:#f7f0e2;
+        --muted:#a8967d; --faint:#33271a; --accent:#f4b400; --accent2:#e2571f;
+        --like:#ff5c6c; --good:#7bc47f;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html, body { margin:0; height:100%; overflow:hidden; background:var(--bg); }
+      body { color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+      a { color:var(--accent); }
+
+      #viz { position:fixed; inset:0; width:100%; height:100%; display:block; background:var(--bg); }
+
+      .foot {
+        position:fixed; top:0.9rem; left:1rem; right:1rem; z-index:5;
+        display:flex; justify-content:space-between; align-items:center;
+        font-family:var(--mono); font-size:0.68rem; color:var(--muted); letter-spacing:0.02em;
+      }
+      .foot a { color:var(--muted); text-decoration:none; }
+      .foot a:hover { color:var(--accent); text-decoration:underline; }
+
+      /* ---------- gate ---------- */
+      .gateWrap {
+        position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+        justify-content:center; gap:1.1rem; padding:1.5rem 1.3rem; text-align:center; z-index:4;
+      }
+      .gateWrap h1 {
+        margin:0; font-weight:900; letter-spacing:-0.02em; line-height:1;
+        font-size:clamp(2.1rem, 9vw, 3.6rem);
+      }
+      .gateWrap p { margin:0; max-width:42ch; color:var(--muted); font-size:0.92rem; line-height:1.6; }
+      .gateWrap p b { color:var(--ink); }
+      .gateStatus { font-family:var(--mono); font-size:0.8rem; color:var(--muted); min-height:1.3em; }
+      .gateStatus.err { color:var(--like); }
+      .go {
+        font-family:var(--mono); font-weight:800; font-size:0.95rem; letter-spacing:0.02em;
+        color:#1a1206; background:linear-gradient(120deg,var(--accent),var(--accent2));
+        border:0; border-radius:999px; padding:0.9rem 1.7rem; cursor:pointer;
+        box-shadow:0 10px 34px rgba(244,180,0,0.28);
+      }
+      .go:hover { filter:brightness(1.07); }
+      .go:disabled { opacity:0.55; cursor:wait; }
+      .credit { font-family:var(--mono); font-size:0.72rem; color:var(--muted); }
+      .credit a { color:var(--muted); text-decoration:underline; }
+
+      /* ---------- stage ---------- */
+      .stage { position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+        justify-content:center; padding:4.4rem 1.1rem 6.4rem; z-index:3; }
+      .stage.show { display:flex; }
+
+      .storybar { position:fixed; top:2.4rem; left:1rem; right:1rem; z-index:5; display:flex; gap:0.3rem; }
+      .storybar i { flex:1; height:3px; border-radius:3px; background:rgba(255,255,255,0.14); overflow:hidden; }
+      .storybar i b {
+        display:block; height:100%; width:0%; background:var(--accent); transform-origin:left;
+      }
+      .storybar i.done b { width:100% !important; }
+      .storybar i.fill b { animation-name:fillBar; animation-timing-function:linear; animation-fill-mode:forwards; }
+      @keyframes fillBar { from { width:0%; } to { width:100%; } }
+      .storybar.paused i.fill b { animation-play-state:paused; }
+
+      .badge {
+        display:inline-flex; align-items:center; gap:0.4rem; font-family:var(--mono);
+        font-weight:800; font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase;
+        color:#1a1206; background:linear-gradient(120deg,var(--accent2),var(--accent));
+        border-radius:999px; padding:0.32rem 0.75rem; margin-bottom:0.9rem;
+      }
+
+      .card { display:flex; flex-direction:column; align-items:center; gap:0.9rem; max-width:640px; width:100%; text-align:center; }
+      .avatarWrap { position:relative; width:128px; height:128px; }
+      .avatarGlow {
+        position:absolute; inset:-22px; border-radius:50%;
+        background:radial-gradient(circle, rgba(244,180,0,0.55), rgba(244,180,0,0) 70%);
+        filter:blur(2px);
+      }
+      .avatar {
+        position:relative; width:128px; height:128px; border-radius:50%; object-fit:cover;
+        background:var(--panel2); border:3px solid var(--accent);
+        box-shadow:0 12px 40px rgba(0,0,0,0.5);
+      }
+      .dn { font-weight:900; font-size:1.5rem; letter-spacing:-0.01em; }
+      .hd { font-family:var(--mono); color:var(--muted); font-size:0.88rem; }
+      .when { font-family:var(--mono); color:var(--muted); font-size:0.72rem; }
+
+      .quote {
+        font-size:clamp(1.05rem, 3.6vw, 1.4rem); line-height:1.5; font-weight:600;
+        color:var(--ink); white-space:pre-wrap; overflow-wrap:break-word; word-break:break-word;
+        max-height:8.5em; overflow:hidden; position:relative;
+      }
+      .quote::before, .quote::after { content:'"'; color:var(--accent); font-weight:900; }
+      .shot {
+        max-width:min(88vw, 420px); max-height:220px; border-radius:14px; margin-top:0.2rem;
+        border:1px solid var(--faint); box-shadow:0 10px 30px rgba(0,0,0,0.4); object-fit:cover;
+      }
+
+      .likes {
+        display:inline-flex; align-items:baseline; gap:0.4rem; font-family:var(--mono);
+        color:var(--like); font-weight:800; font-size:1.6rem; margin-top:0.3rem;
+      }
+      .likes span.lbl { font-size:0.62em; color:var(--muted); font-weight:600; }
+
+      .controls {
+        position:fixed; left:50%; bottom:1.3rem; transform:translateX(-50%); z-index:5;
+        display:none; gap:0.45rem; align-items:center; background:rgba(21,16,10,0.78);
+        backdrop-filter:blur(8px); border:1px solid rgba(244,180,0,0.28); border-radius:999px;
+        padding:0.5rem 0.6rem; flex-wrap:wrap; justify-content:center; max-width:94vw;
+      }
+      .controls.show { display:flex; }
+      .controls button, .controls a.share {
+        font-family:var(--mono); font-weight:700; font-size:0.78rem; color:var(--ink);
+        background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+        border-radius:999px; padding:0.5rem 0.8rem; cursor:pointer; line-height:1; text-decoration:none;
+        white-space:nowrap;
+      }
+      .controls button:hover { background:rgba(255,255,255,0.12); }
+      .controls a.share { color:#1a1206; background:linear-gradient(120deg,var(--accent2),var(--accent)); border-color:transparent; }
+
+      @media (max-width:480px) {
+        .foot { font-size:0.6rem; }
+        .avatarWrap, .avatar { width:96px; height:96px; }
+        .avatarGlow { inset:-16px; }
+        .controls button, .controls a.share { font-size:0.72rem; padding:0.45rem 0.65rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="viz"></canvas>
+
+    <div class="foot">
+      <span>🐔 TOP CHICKEN HYPE REEL — a buildthis production</span>
+      <a href="../">← back to top chicken</a>
+    </div>
+
+    <div class="gateWrap" id="gateWrap">
+      <h1>🐔 hype reel</h1>
+      <p>Every real <b>Top Chicken</b>, every real winning post — pulled live from
+        <b>@topchicken.bsky.social</b>'s own announcement history. Not mocked up,
+        not placeholder chickens: actual winners, actual likes, actual receipts.</p>
+      <button class="go" id="go" type="button">▶ start the reel</button>
+      <div class="gateStatus" id="gateStatus"></div>
+      <div class="credit">winners courtesy of <a href="https://bsky.app/profile/topchicken.bsky.social" target="_blank" rel="noopener">@topchicken.bsky.social</a></div>
+    </div>
+
+    <div class="storybar" id="storybar"></div>
+
+    <div class="stage" id="stage">
+      <div class="card">
+        <div class="badge" id="badge">🐔 top chicken</div>
+        <div class="avatarWrap">
+          <div class="avatarGlow"></div>
+          <img class="avatar" id="avatar" alt="" referrerpolicy="no-referrer" />
+        </div>
+        <div class="dn" id="dn"></div>
+        <div class="hd" id="hd"></div>
+        <div class="when" id="when"></div>
+        <div class="quote" id="quote"></div>
+        <img class="shot" id="shot" alt="" referrerpolicy="no-referrer" style="display:none" />
+        <div class="likes" id="likes"><span id="likesNum">0</span> ♥<span class="lbl">likes</span></div>
+      </div>
+    </div>
+
+    <div class="controls" id="controls">
+      <button id="prev" type="button">⏮ prev</button>
+      <button id="toggle" type="button">⏸ pause</button>
+      <button id="next" type="button">next ⏭</button>
+      <button id="mute" type="button">🔊 sound</button>
+      <a class="share" id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share this one</a>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var API = "https://public.api.bsky.app/xrpc/";
+        var BOT = "topchicken.bsky.social";
+        var MAX_PAGES = 6;
+
+        var canvas = document.getElementById("viz");
+        var ctx = canvas.getContext("2d");
+        var gateWrap = document.getElementById("gateWrap");
+        var gateStatus = document.getElementById("gateStatus");
+        var goBtn = document.getElementById("go");
+        var storybar = document.getElementById("storybar");
+        var stageEl = document.getElementById("stage");
+        var controlsEl = document.getElementById("controls");
+        var badgeEl = document.getElementById("badge");
+        var avatarEl = document.getElementById("avatar");
+        var dnEl = document.getElementById("dn");
+        var hdEl = document.getElementById("hd");
+        var whenEl = document.getElementById("when");
+        var quoteEl = document.getElementById("quote");
+        var shotEl = document.getElementById("shot");
+        var likesNumEl = document.getElementById("likesNum");
+        var prevBtn = document.getElementById("prev");
+        var toggleBtn = document.getElementById("toggle");
+        var nextBtn = document.getElementById("next");
+        var muteBtn = document.getElementById("mute");
+        var shareLink = document.getElementById("shareBluesky");
+
+        function xrpc(method, params) {
+          var qs = new URLSearchParams(params).toString();
+          return fetch(API + method + (qs ? "?" + qs : ""), { cache: "no-store" }).then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          });
+        }
+
+        function embedImage(e) {
+          if (!e) return null;
+          var t = e.$type || "";
+          if (t.indexOf("images#view") !== -1 && e.images && e.images[0]) return e.images[0].thumb;
+          if (t.indexOf("recordWithMedia#view") !== -1 && e.media && e.media.images && e.media.images[0]) return e.media.images[0].thumb;
+          if (t.indexOf("external#view") !== -1 && e.external && e.external.thumb) return e.external.thumb;
+          if (t.indexOf("video#view") !== -1 && e.thumbnail) return e.thumbnail;
+          return null;
+        }
+
+        // TopChicken quotes the winning post in its embed, so the winner's
+        // did/handle/avatar/text/likeCount all come straight off that
+        // embedded viewRecord — same source sites/bawkchain reads, but here
+        // we also pull the ACTUAL winning post text + image (view.value /
+        // view.embeds), not just the bot's own announcement copy.
+        function parseWinner(item) {
+          var post = item.post;
+          var rec = post.record || {};
+          var embed = post.embed;
+          if (!embed || embed.$type !== "app.bsky.embed.record#view") return null;
+          var view = embed.record;
+          if (!view || view.$type !== "app.bsky.embed.record#viewRecord") return null;
+          var author = view.author;
+          if (!author) return null;
+          var value = view.value || {};
+          var m = /got ([\d,]+) likes/i.exec(rec.text || "");
+          var likeCount = typeof view.likeCount === "number" ? view.likeCount : (m ? parseInt(m[1].replace(/,/g, ""), 10) : 0);
+          var embedView = (view.embeds && view.embeds[0]) || null;
+          return {
+            announcedAt: rec.createdAt || post.indexedAt,
+            announcePostUri: post.uri,
+            winningPostUri: view.uri,
+            winner: {
+              did: author.did,
+              handle: author.handle,
+              displayName: author.displayName || author.handle,
+              avatar: author.avatar || null,
+            },
+            likeCount: likeCount,
+            text: (value.text || "").trim(),
+            image: embedImage(embedView),
+          };
+        }
+
+        function fetchWinners(onStep) {
+          var out = [];
+          var cursor;
+          function page(n) {
+            if (n >= MAX_PAGES) return Promise.resolve(out);
+            onStep && onStep("reading @" + BOT + "'s feed (page " + (n + 1) + ")…");
+            var params = { actor: BOT, limit: "100", filter: "posts_no_replies" };
+            if (cursor) params.cursor = cursor;
+            return xrpc("app.bsky.feed.getAuthorFeed", params).then(function (data) {
+              (data.feed || []).forEach(function (item) {
+                var w = parseWinner(item);
+                if (w) out.push(w);
+              });
+              cursor = data.cursor;
+              if (!cursor || !data.feed || !data.feed.length) return out;
+              return page(n + 1);
+            });
+          }
+          return page(0);
+        }
+
+        function postLink(uri) {
+          var m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri || "");
+          if (!m) return "https://bsky.app";
+          return "https://bsky.app/profile/" + m[1] + "/post/" + m[2];
+        }
+
+        function fmtDate(iso) {
+          try {
+            return new Date(iso).toLocaleDateString(undefined, { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" });
+          } catch (e) { return iso || ""; }
+        }
+
+        // ---------- canvas backdrop: drifting feathers + a pulse on reveal ----------
+        var W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+        function resize() {
+          W = window.innerWidth; H = window.innerHeight;
+          canvas.width = W * DPR; canvas.height = H * DPR;
+          canvas.style.width = W + "px"; canvas.style.height = H + "px";
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        var feathers = [];
+        for (var i = 0; i < 26; i++) {
+          feathers.push({
+            x: Math.random() * 1000, y: Math.random() * 1000,
+            spd: 0.15 + Math.random() * 0.35, drift: (Math.random() - 0.5) * 0.4,
+            size: 12 + Math.random() * 16, rot: Math.random() * Math.PI * 2,
+            rotSpd: (Math.random() - 0.5) * 0.02, glyph: Math.random() < 0.5 ? "🪶" : "✨",
+          });
+        }
+        var revealPulse = 0;
+        var t0 = null;
+        function draw(ts) {
+          if (t0 === null) t0 = ts;
+          ctx.fillStyle = "rgba(21,16,10,0.28)";
+          ctx.fillRect(0, 0, W, H);
+
+          var cx = W / 2, cy = H * 0.4;
+          revealPulse *= 0.93;
+          if (revealPulse > 0.01) {
+            var glowR = Math.min(W, H) * (0.3 + revealPulse * 0.12);
+            var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+            grad.addColorStop(0, "rgba(244,180,0," + (revealPulse * 0.28) + ")");
+            grad.addColorStop(1, "rgba(244,180,0,0)");
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
+          }
+
+          ctx.font = "20px serif";
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          for (var f = 0; f < feathers.length; f++) {
+            var p = feathers[f];
+            p.y += p.spd; p.x += p.drift; p.rot += p.rotSpd;
+            if (p.y > H + 30) { p.y = -30; p.x = Math.random() * W; }
+            if (p.x < -30) p.x = W + 30;
+            if (p.x > W + 30) p.x = -30;
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            ctx.translate(p.x % (W + 60), p.y);
+            ctx.rotate(p.rot);
+            ctx.font = p.size + "px serif";
+            ctx.fillText(p.glyph, 0, 0);
+            ctx.restore();
+          }
+          ctx.globalAlpha = 1;
+
+          requestAnimationFrame(draw);
+        }
+        requestAnimationFrame(draw);
+
+        // ---------- tiny audio stingers (no ambient loop, just accents) ----------
+        var audioCtx = null, muted = false;
+        function ac() {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+          return audioCtx;
+        }
+        function blip(freq, t, dur, type, gain) {
+          if (muted) return;
+          var c = ac();
+          var osc = c.createOscillator();
+          var g = c.createGain();
+          osc.type = type || "square";
+          osc.frequency.setValueAtTime(freq, t);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(gain || 0.18, t + 0.01);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+          osc.connect(g); g.connect(c.destination);
+          osc.start(t); osc.stop(t + dur + 0.02);
+        }
+        function chime() {
+          if (muted) return;
+          var c = ac();
+          var t = c.currentTime;
+          blip(660, t, 0.11, "triangle", 0.16);
+          blip(880, t + 0.06, 0.14, "triangle", 0.16);
+          blip(1320, t + 0.12, 0.2, "triangle", 0.14);
+        }
+        function tick(pitch) {
+          if (muted) return;
+          blip(pitch, ac().currentTime, 0.045, "square", 0.05);
+        }
+
+        // ---------- reel state ----------
+        var reel = [];
+        var idx = -1;
+        var timer = null;
+        var playing = true;
+        var DWELL_MIN = 4800, DWELL_MAX = 9500;
+
+        function dwellFor(w) {
+          return Math.max(DWELL_MIN, Math.min(DWELL_MAX, 2200 + (w.text || "").length * 32));
+        }
+
+        function buildStorybar() {
+          storybar.innerHTML = "";
+          for (var i = 0; i < reel.length; i++) {
+            var i1 = document.createElement("i");
+            var b = document.createElement("b");
+            i1.appendChild(b);
+            storybar.appendChild(i1);
+          }
+        }
+
+        function animateLikes(target) {
+          var start = 0;
+          var dur = 900;
+          var t0 = performance.now();
+          var lastTickAt = 0;
+          function step(now) {
+            var p = Math.min(1, (now - t0) / dur);
+            var eased = 1 - Math.pow(1 - p, 3);
+            var val = Math.round(start + (target - start) * eased);
+            likesNumEl.textContent = val.toLocaleString();
+            if (now - lastTickAt > 70 && p < 1) { tick(520 + Math.random() * 260); lastTickAt = now; }
+            if (p < 1) requestAnimationFrame(step);
+            else likesNumEl.textContent = target.toLocaleString();
+          }
+          requestAnimationFrame(step);
+        }
+
+        function renderScene(i) {
+          var w = reel[i];
+          var isBest = w.__isBest;
+          badgeEl.textContent = isBest ? "👑 all-time top chicken" : "🐔 top chicken";
+          avatarEl.src = w.winner.avatar || "";
+          dnEl.textContent = w.winner.displayName;
+          hdEl.textContent = "@" + w.winner.handle;
+          whenEl.textContent = "crowned " + fmtDate(w.announcedAt);
+          quoteEl.textContent = w.text || "(no text — media post)";
+          if (w.image) { shotEl.src = w.image; shotEl.style.display = ""; }
+          else { shotEl.removeAttribute("src"); shotEl.style.display = "none"; }
+          animateLikes(w.likeCount || 0);
+
+          revealPulse = 1;
+          chime();
+
+          var url = "https://topchicken.bisks.net/hype/";
+          var head = "🐔 top chicken hype reel: @" + w.winner.handle + " — " + (w.likeCount || 0).toLocaleString() + " likes\n";
+          var tail = "\n" + url;
+          var budget = 300 - head.length - tail.length - 4;
+          var snippet = (w.text || "").replace(/\s+/g, " ").trim();
+          if (snippet.length > budget) snippet = snippet.slice(0, Math.max(0, budget - 1)).trimEnd() + "…";
+          shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(head + (snippet ? "“" + snippet + "”" : "") + tail);
+
+          var bars = storybar.querySelectorAll("i");
+          bars.forEach(function (bar, bi) {
+            bar.classList.toggle("done", bi < i);
+            bar.classList.toggle("fill", bi === i);
+            var b = bar.querySelector("b");
+            b.style.animation = "none";
+            b.style.width = bi < i ? "100%" : "0%";
+          });
+        }
+
+        // The CSS bar animation is the single source of truth for "how much
+        // of this scene is left" — animation-play-state:paused freezes it
+        // exactly where it is, so pause/resume just needs to toggle that
+        // class and keep a matching setTimeout (which does NOT auto-pause)
+        // in sync using elapsed-time bookkeeping.
+        var sceneStart = 0, sceneDur = 0;
+
+        function armBar(i, dur) {
+          var bar = storybar.querySelectorAll("i")[i];
+          if (!bar) return;
+          var b = bar.querySelector("b");
+          void bar.offsetWidth; // restart the keyframes from 0%
+          b.style.animationDuration = dur + "ms";
+        }
+
+        function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
+
+        function goTo(i) {
+          if (i < 0) i = reel.length - 1;
+          if (i >= reel.length) i = 0;
+          idx = i;
+          clearTimer();
+          renderScene(idx);
+          sceneDur = dwellFor(reel[idx]);
+          sceneStart = performance.now();
+          armBar(idx, sceneDur);
+          storybar.classList.toggle("paused", !playing);
+          if (playing) timer = setTimeout(function () { goTo(idx + 1); }, sceneDur);
+        }
+
+        function setPlaying(on) {
+          if (on === playing) return;
+          playing = on;
+          toggleBtn.textContent = playing ? "⏸ pause" : "▶ play";
+          if (playing) {
+            storybar.classList.remove("paused");
+            var remaining = Math.max(200, sceneDur - (performance.now() - sceneStart));
+            timer = setTimeout(function () { goTo(idx + 1); }, remaining);
+          } else {
+            storybar.classList.add("paused");
+            clearTimer();
+          }
+        }
+
+        prevBtn.addEventListener("click", function () { goTo(idx - 1); });
+        nextBtn.addEventListener("click", function () { goTo(idx + 1); });
+        toggleBtn.addEventListener("click", function () { setPlaying(!playing); });
+        muteBtn.addEventListener("click", function () {
+          muted = !muted;
+          muteBtn.textContent = muted ? "🔇 muted" : "🔊 sound";
+        });
+
+        function setGateStatus(msg, isErr) {
+          gateStatus.textContent = msg || "";
+          gateStatus.className = "gateStatus" + (isErr ? " err" : "");
+        }
+
+        function start() {
+          goBtn.disabled = true;
+          setGateStatus("waking up the coop…");
+          ac(); // unlock audio inside the click gesture
+          fetchWinners(function (msg) { setGateStatus(msg); }).then(function (winners) {
+            if (!winners.length) {
+              setGateStatus("nobody's been crowned yet — the coop is quiet. try again after topchicken's next daily post.", true);
+              goBtn.disabled = false;
+              return;
+            }
+            // winners comes back newest-first (feed order). Cold-open on the
+            // all-time best, then play the rest newest-first so the reel
+            // still reads as "recent recap."
+            var best = winners.reduce(function (a, b) { return (b.likeCount || 0) > (a.likeCount || 0) ? b : a; });
+            best.__isBest = true;
+            var rest = winners.filter(function (w) { return w !== best; });
+            reel = [best].concat(rest);
+
+            gateWrap.style.display = "none";
+            stageEl.classList.add("show");
+            controlsEl.classList.add("show");
+            buildStorybar();
+            goTo(0);
+          }).catch(function (e) {
+            setGateStatus("couldn't reach the coop: " + e.message, true);
+            goBtn.disabled = false;
+          });
+        }
+
+        goBtn.addEventListener("click", start);
+
+        var autoplay = new URLSearchParams(location.search).get("play");
+        if (autoplay) start();
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
