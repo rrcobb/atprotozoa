@@ -18,8 +18,9 @@
 //            and signals push it up or down.
 //   good:    score >= the active threshold (see THRESHOLDS below).
 //   reasons: short strings explaining what moved the score, worst-first —
-//            surfaced by the "why?" affordance so filtering is inspectable,
-//            not a mystery.
+//            surfaced inline via the goodbar's "show hidden" toggle (see
+//            wrapHidden()/mountFilterBar() in app.js), so filtering is
+//            inspectable on your own feed, not a mystery.
 //
 // Deliberately does NOT filter on: viewpoint, topic, sensitivity labels,
 // verification status, or follower count. Filtering by *opinion* is a
@@ -187,18 +188,31 @@ export function setThreshold(n) {
   localStorage.setItem(LS_THRESHOLD, String(n));
 }
 
-// Filters a feed array (of raw feed items, or bare postViews) against the
-// visitor's current settings. Returns { kept, hiddenCount }. When the filter
-// is off, everything passes through untouched.
+// Scores a feed array (of raw feed items, or bare postViews) against the
+// visitor's current settings and returns every item annotated, in original
+// order — nothing is dropped here. Returns { scored, hiddenCount }, where
+// each scored entry is { item, score, reasons, good, visible }. `visible` is
+// what callers should actually gate rendering on: it's `true` for every item
+// when the filter is off (score/reasons are null — never computed, since
+// nothing needs them), and equal to `good` when the filter is on. Keeping
+// hidden items in the list (instead of dropping them) is what lets the UI
+// render them inline behind a "show hidden" toggle — see mountFilterBar/
+// wrapHidden in app.js — so the filter stays inspectable rather than a
+// silent black box.
 export function applyFilter(items) {
-  if (!isGoodPostsEnabled()) return { kept: items, hiddenCount: 0 };
-  const threshold = getThreshold();
-  const kept = [];
-  let hiddenCount = 0;
-  for (const item of items) {
-    const { good } = scorePost(item, threshold);
-    if (good) kept.push(item);
-    else hiddenCount++;
+  const enabled = isGoodPostsEnabled();
+  if (!enabled) {
+    return {
+      scored: items.map((item) => ({ item, score: null, reasons: [], good: true, visible: true })),
+      hiddenCount: 0,
+    };
   }
-  return { kept, hiddenCount };
+  const threshold = getThreshold();
+  let hiddenCount = 0;
+  const scored = items.map((item) => {
+    const { score, reasons, good } = scorePost(item, threshold);
+    if (!good) hiddenCount++;
+    return { item, score, reasons, good, visible: good };
+  });
+  return { scored, hiddenCount };
 }

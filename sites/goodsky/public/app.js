@@ -993,14 +993,27 @@ function threadedPostHtml(post, replyRef, opts) {
   return replyFallbackHtml(replyRef) + postCard(post, opts);
 }
 
-function feedItemHtml(item) {
+// Wraps a rendered post in `.hidden-post` when the goodposts filter cut it —
+// CSS hides `.hidden-post` by default and reveals it when an ancestor gets
+// `.show-hidden` (toggled by the goodbar's "show hidden" checkbox, see
+// mountFilterBar below). `scoreInfo` is the { score, reasons, visible } entry
+// applyFilter() attaches to each item; posts kept by the filter (or scored
+// when the filter's off entirely) pass through untouched.
+function wrapHidden(html, scoreInfo) {
+  if (!scoreInfo || scoreInfo.visible) return html;
+  const reasons = scoreInfo.reasons?.length ? scoreInfo.reasons.join(" · ") : "below threshold";
+  return `<div class="hidden-post"><div class="hidden-post-tag">🙈 filtered (score ${scoreInfo.score}) — ${esc(reasons)}</div>${html}</div>`;
+}
+
+function feedItemHtml(item, scoreInfo) {
   const reason = item.reason;
   let reasonLine = "";
   if (reason?.$type === "app.bsky.feed.defs#reasonRepost") {
     reasonLine = `<div class="reply-context">🔁 <a href="${profileUrl(reason.by.handle)}" data-link>${esc(reason.by.displayName || reason.by.handle)}</a> reposted</div>`;
   }
   const body = threadedPostHtml(item.post, item.reply);
-  return reasonLine ? reasonLine + body.replace('class="post"', 'class="post" style="padding-top:0"') : body;
+  const html = reasonLine ? reasonLine + body.replace('class="post"', 'class="post" style="padding-top:0"') : body;
+  return wrapHidden(html, scoreInfo);
 }
 
 // ---------- generic UI bits ----------
@@ -1036,8 +1049,16 @@ function centerMsg(title, body) {
 // changing strictness needs a fresh page to reveal posts a stricter setting
 // had discarded before they ever reached the DOM.
 
-function filterBarHtml(enabled, thresholdKey, hiddenCount) {
+function filterBarHtml(enabled, thresholdKey, hiddenCount, showHidden) {
   const opt = (key, label) => `<option value="${key}"${key === thresholdKey ? " selected" : ""}>${label}</option>`;
+  const hiddenBit =
+    enabled && hiddenCount > 0
+      ? `<span class="goodbar-hidden">${hiddenCount} hidden</span>
+         <label class="goodbar-showhidden">
+           <input type="checkbox" id="goodbar-show-hidden"${showHidden ? " checked" : ""}>
+           <span>show hidden</span>
+         </label>`
+      : "";
   return `<div class="goodbar">
     <label class="goodbar-toggle">
       <input type="checkbox" id="goodbar-enabled"${enabled ? " checked" : ""}>
@@ -1047,7 +1068,7 @@ function filterBarHtml(enabled, thresholdKey, hiddenCount) {
     <select id="goodbar-threshold" class="goodbar-select"${enabled ? "" : " disabled"}>
       ${opt("lenient", "Lenient")}${opt("balanced", "Balanced")}${opt("strict", "Strict")}
     </select>
-    ${enabled && hiddenCount > 0 ? `<span class="goodbar-hidden">${hiddenCount} hidden</span>` : ""}
+    ${hiddenBit}
     <a class="goodbar-why" href="${MOUNT}/about" data-link>why?</a>
   </div>`;
 }
@@ -1057,12 +1078,20 @@ function thresholdKeyOf(n, THRESHOLDS) {
 }
 
 // Renders the bar into `bar` (an existing element) from current settings and
-// wires its controls to persist changes and call `reload()`.
-async function mountFilterBar(bar, hiddenCount) {
+// wires its controls to persist changes and call `reload()`. `filterState`
+// (the same { hidden, showHidden } object load*() threads through a view's
+// lifetime) carries this page's hidden count and whether "show hidden" is
+// currently on; `box` is the feed container those hidden posts render into
+// (see wrapHidden/feedItemHtml) — toggling the checkbox flips `.show-hidden`
+// on it directly, no re-fetch needed, since hidden posts are already in the
+// DOM behind `display:none`.
+async function mountFilterBar(bar, filterState, box) {
   const { isGoodPostsEnabled, getThreshold, setGoodPostsEnabled, setThreshold, THRESHOLDS } = await goodposts();
   const enabled = isGoodPostsEnabled();
   const thresholdKey = thresholdKeyOf(getThreshold(), THRESHOLDS);
-  bar.innerHTML = filterBarHtml(enabled, thresholdKey, hiddenCount || 0);
+  const hiddenCount = filterState?.hidden || 0;
+  const showHidden = !!filterState?.showHidden;
+  bar.innerHTML = filterBarHtml(enabled, thresholdKey, hiddenCount, showHidden);
   bar.querySelector("#goodbar-enabled").addEventListener("change", (e) => {
     setGoodPostsEnabled(e.target.checked);
     bar.dispatchEvent(new CustomEvent("goodbar-change"));
@@ -1071,6 +1100,11 @@ async function mountFilterBar(bar, hiddenCount) {
     setThreshold(THRESHOLDS[e.target.value] || THRESHOLDS.balanced);
     bar.dispatchEvent(new CustomEvent("goodbar-change"));
   });
+  bar.querySelector("#goodbar-show-hidden")?.addEventListener("change", (e) => {
+    if (filterState) filterState.showHidden = e.target.checked;
+    if (box) box.classList.toggle("show-hidden", e.target.checked);
+  });
+  if (box) box.classList.toggle("show-hidden", showHidden);
 }
 
 // ---------- shell (nav / layout) ----------
@@ -1226,14 +1260,14 @@ async function HomeView(main, params) {
 
   const box = document.getElementById("feed-posts");
   const bar = document.getElementById("goodbar");
-  const filterState = { hidden: 0 };
+  const filterState = { hidden: 0, showHidden: false };
   const load = () => (activeUri === TIMELINE_URI ? loadTimeline(box, undefined, filterState, bar) : loadFeed(activeUri, box, undefined, filterState, bar));
   bar.addEventListener("goodbar-change", () => {
     filterState.hidden = 0;
     box.innerHTML = skeleton(6);
     load();
   });
-  await mountFilterBar(bar, 0);
+  await mountFilterBar(bar, filterState, box);
   await load();
 }
 
@@ -1258,19 +1292,21 @@ async function loadTimeline(box, cursor, filterState, bar) {
     if (!res.ok) throw new Error(`getTimeline failed (${res.status})`);
     const data = await res.json();
     const { applyFilter } = await goodposts();
-    const { kept, hiddenCount } = applyFilter(data.feed);
+    const { scored, hiddenCount } = applyFilter(data.feed);
     if (filterState) {
       filterState.hidden += hiddenCount;
-      if (bar) mountFilterBar(bar, filterState.hidden);
+      if (bar) mountFilterBar(bar, filterState, box);
     }
     if (!cursor) box.innerHTML = "";
     else box.querySelector(".load-more")?.remove();
+    const allFiltered = data.feed.length > 0 && hiddenCount === data.feed.length;
     box.insertAdjacentHTML(
       "beforeend",
-      kept.map(feedItemHtml).join("") ||
-        (data.feed.length
-          ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, or loosen the filter.")
-          : centerMsg("Nothing here yet", "Follow some people on Bluesky and they'll show up here."))
+      (data.feed.length === 0
+        ? centerMsg("Nothing here yet", "Follow some people on Bluesky and they'll show up here.")
+        : allFiltered
+        ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, loosen the filter, or toggle “show hidden” above.")
+        : "") + scored.map((s) => feedItemHtml(s.item, s)).join("")
     );
     if (data.cursor && data.feed.length) {
       box.insertAdjacentHTML("beforeend", loadMoreBtn());
@@ -1288,17 +1324,21 @@ async function loadFeed(feedUri, box, cursor, filterState, bar) {
   try {
     const data = await xrpc("app.bsky.feed.getFeed", { feed: feedUri, limit: 25, cursor });
     const { applyFilter } = await goodposts();
-    const { kept, hiddenCount } = applyFilter(data.feed);
+    const { scored, hiddenCount } = applyFilter(data.feed);
     if (filterState) {
       filterState.hidden += hiddenCount;
-      if (bar) mountFilterBar(bar, filterState.hidden);
+      if (bar) mountFilterBar(bar, filterState, box);
     }
     if (!cursor) box.innerHTML = "";
     else box.querySelector(".load-more")?.remove();
+    const allFiltered = data.feed.length > 0 && hiddenCount === data.feed.length;
     box.insertAdjacentHTML(
       "beforeend",
-      kept.map(feedItemHtml).join("") ||
-        (data.feed.length ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, or loosen the filter.") : centerMsg("Nothing here yet"))
+      (data.feed.length === 0
+        ? centerMsg("Nothing here yet")
+        : allFiltered
+        ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, loosen the filter, or toggle “show hidden” above.")
+        : "") + scored.map((s) => feedItemHtml(s.item, s)).join("")
     );
     if (data.cursor && data.feed.length) {
       box.insertAdjacentHTML("beforeend", loadMoreBtn());
@@ -1497,13 +1537,13 @@ async function CustomFeedView(main, params, args) {
       <div id="feed-posts">${skeleton(6)}</div>`;
     const box = document.getElementById("feed-posts");
     const bar = document.getElementById("goodbar");
-    const filterState = { hidden: 0 };
+    const filterState = { hidden: 0, showHidden: false };
     bar.addEventListener("goodbar-change", () => {
       filterState.hidden = 0;
       box.innerHTML = skeleton(6);
       loadFeed(uri, box, undefined, filterState, bar);
     });
-    await mountFilterBar(bar, 0);
+    await mountFilterBar(bar, filterState, box);
     await loadFeed(uri, box, undefined, filterState, bar);
   } catch (e) {
     main.innerHTML = headerHtml("Feed", "", true) + errorBox("Couldn't load this feed (" + e.message + ")");
@@ -1565,13 +1605,13 @@ async function ProfileView(main, params, args) {
   const tab = PROFILE_TABS.find((t) => t.key === activeTab) || PROFILE_TABS[0];
   const box = document.getElementById("feed-posts");
   const bar = document.getElementById("goodbar");
-  const filterState = { hidden: 0 };
+  const filterState = { hidden: 0, showHidden: false };
   bar.addEventListener("goodbar-change", () => {
     filterState.hidden = 0;
     box.innerHTML = skeleton(5);
     loadAuthorFeed(profile.did, tab.filter, box, undefined, filterState, bar);
   });
-  await mountFilterBar(bar, 0);
+  await mountFilterBar(bar, filterState, box);
   await loadAuthorFeed(profile.did, tab.filter, box, undefined, filterState, bar);
 }
 
@@ -1579,17 +1619,24 @@ async function loadAuthorFeed(actor, filter, box, cursor, filterState, bar) {
   try {
     const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor, filter, limit: 25, cursor });
     const { applyFilter } = await goodposts();
-    const { kept, hiddenCount } = applyFilter(data.feed);
+    const { scored, hiddenCount } = applyFilter(data.feed);
     if (filterState) {
       filterState.hidden += hiddenCount;
-      if (bar) mountFilterBar(bar, filterState.hidden);
+      if (bar) mountFilterBar(bar, filterState, box);
     }
     if (!cursor) box.innerHTML = "";
     else box.querySelector(".load-more")?.remove();
+    const allFiltered = data.feed.length > 0 && hiddenCount === data.feed.length;
     box.insertAdjacentHTML(
       "beforeend",
-      kept.map((it) => (filter === "posts_with_replies" ? threadedPostHtml(it.post, it.reply) : postCard(it.post))).join("") ||
-        (data.feed.length ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, or loosen the filter.") : centerMsg("Nothing here yet"))
+      (data.feed.length === 0
+        ? centerMsg("Nothing here yet")
+        : allFiltered
+        ? centerMsg("All caught up", "Everything on this page got filtered — try Show more, loosen the filter, or toggle “show hidden” above.")
+        : "") +
+        scored
+          .map((s) => wrapHidden(filter === "posts_with_replies" ? threadedPostHtml(s.item.post, s.item.reply) : postCard(s.item.post), s))
+          .join("")
     );
     if (data.cursor && data.feed.length) {
       box.insertAdjacentHTML("beforeend", loadMoreBtn());
@@ -1937,7 +1984,7 @@ function AboutView(main) {
     headerHtml("About goodsky") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
       <p><b>goodsky</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, search, and notifications, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own — with one addition: every feed runs through <b>Good posts only</b>, a small, transparent, adjustable quality filter (see the bar above any feed, and the "why?" link on it).</p>
-      <p>The filter (<code>lib/goodposts.js</code>) is a fixed set of legible heuristics scored entirely in your browser against fields the AppView already returns on every post — bait/spam phrasing, shouting, hashtag-stuffing, reply-heavy "ratio'd" posts, bare unlabeled links, very-short low-context posts, with small bonuses for image alt text and genuine reply/quote commentary. No model, no server, no per-user training, nothing hidden: every score comes with reasons you can inspect, and three thresholds (Lenient/Balanced/Strict) trade off how aggressively it cuts. It deliberately does not filter by viewpoint, topic, sensitivity label, verification, or follower count — that's a different, more fraught kind of filtering than flagging quality signals, and goodsky only does the latter.</p>
+      <p>The filter (<code>lib/goodposts.js</code>) is a fixed set of legible heuristics scored entirely in your browser against fields the AppView already returns on every post — bait/spam phrasing, shouting, hashtag-stuffing, reply-heavy "ratio'd" posts, bare unlabeled links, very-short low-context posts, with small bonuses for image alt text and genuine reply/quote commentary. No model, no server, no per-user training, nothing hidden: every feed's filter bar shows how many posts got cut, and a <b>show hidden</b> checkbox reveals them right there in the timeline, each one tagged with its score and the exact reasons it was cut — so you can audit the filter on your own feed instead of taking its word for it. Three thresholds (Lenient/Balanced/Strict) trade off how aggressively it cuts. It deliberately does not filter by viewpoint, topic, sensitivity label, verification, or follower count — that's a different, more fraught kind of filtering than flagging quality signals, and goodsky only does the latter.</p>
       <p>No account is required to browse — the Discover feed and any custom feed run through the filter for guests too. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — goodsky never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS, filtered the same way). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: ❤️ is a genuine <code>app.bsky.feed.like</code>, 🔁 is a genuine <code>app.bsky.feed.repost</code>, and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref, images and all. goodsky still never follows anyone or touches your DMs for you.</p>
       <p>Notifications (🔔) are real too — a genuine <code>app.bsky.notification.listNotifications</code> call through your own PDS. goodsky quietly polls for new ones in the background and toasts you when one lands.</p>
       <p>Every "Liked by" list also has a 🤍 next to each name — a like's subject can be any record per the lexicon, including someone else's like, so goodsky lets you like a like (a real write) and see who's meta-liked it. bsky.app never built this UI; it isn't hiding, it's just not exposed. Keep clicking through and it's meta-likes all the way down.</p>
