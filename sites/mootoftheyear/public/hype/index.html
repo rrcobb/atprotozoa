@@ -4,16 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MOOT HYPE REEL — #AWOTY2026, the moot of the year, animated</title>
-    <meta name="description" content="#AWOTY2026: the mootoftheyear cover, but it's a hype video: synthesized drum machine, canvas visuals that pulse to the beat, and your avatar as the star. Pick a moot, hit play." />
+    <meta name="description" content="#AWOTY2026: the mootoftheyear cover, but it's a hype video: synthesized drum machine, canvas visuals that pulse to the beat, and a multi-scene reel through their best posts from the recent past. Pick a moot, hit play." />
 
     <meta property="og:type" content="website" />
     <meta property="og:title" content="MOOT HYPE REEL — the moot of the year, animated" />
-    <meta property="og:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, your avatar in the spotlight." />
+    <meta property="og:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, and a scene for every great post they've dropped recently." />
     <meta property="og:url" content="https://mootoftheyear.bisks.net/hype/" />
     <meta property="og:image" content="https://mootoftheyear.bisks.net/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MOOT HYPE REEL — the moot of the year, animated" />
-    <meta name="twitter:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, your avatar in the spotlight." />
+    <meta name="twitter:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, and a scene for every great post they've dropped recently." />
     <meta name="twitter:image" content="https://mootoftheyear.bisks.net/og.png" />
 
     <style>
@@ -44,8 +44,9 @@
       .kicker {
         font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.3em;
         text-transform: uppercase; color: var(--gold); opacity: 0.9;
-        margin: 0 0 0.6rem;
+        margin: 0 0 0.6rem; transition: opacity 0.18s ease, transform 0.18s ease;
       }
+      .kicker.pulse { opacity: 0.15; transform: translateY(-3px); }
       .badge {
         position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
         font-family: var(--mono); font-size: 0.65rem; font-weight: 800;
@@ -181,7 +182,8 @@
     <div class="gateWrap" id="gateWrap">
       <h1><span class="red">MOOT</span> hype reel</h1>
       <p>#AWOTY2026 — the TIME-style cover, but it moves. synthesized beat,
-        canvas visuals, your own avatar in the spotlight. pick who's up first.</p>
+        canvas visuals, your own avatar in the spotlight — now a whole reel of
+        scenes, one per great post from the recent past. pick who's up first.</p>
       <form class="gateForm" id="gateForm">
         <input id="handleInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
         <button class="gate" id="gate" type="submit">▶ play</button>
@@ -249,7 +251,9 @@
           return text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
         }
 
-        function findHeadlinePost(did) {
+        // top N posts by engagement, most recent ~50 non-reply posts —
+        // each one becomes its own scene in the reel, not just the single winner.
+        function findTopPosts(did, n) {
           return xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 50, filter: "posts_no_replies" })
             .then(function (feed) {
               var posts = (feed.feed || [])
@@ -264,14 +268,14 @@
                   };
                 })
                 .filter(function (p) { return p.text.length > 3; });
-              if (!posts.length) return null;
+              if (!posts.length) return [];
               posts.forEach(function (p) {
                 p.score = p.likeCount + p.repostCount * 2 + p.quoteCount * 2 + p.replyCount;
               });
               posts.sort(function (a, b) { return b.score - a.score; });
-              return posts[0];
+              return posts.slice(0, n);
             })
-            .catch(function () { return null; });
+            .catch(function () { return []; });
         }
 
         function loadImg(url) {
@@ -400,7 +404,7 @@
           osc1.start(t); osc2.start(t); osc1.stop(t + dur + 0.02); osc2.stop(t + dur + 0.02);
         }
 
-        var kickPulse = 0, snarePulse = 0, hatPulse = 0, flash = 0;
+        var kickPulse = 0, snarePulse = 0, hatPulse = 0, flash = 0, sceneFlash = 0;
 
         function scheduleStep(step, t) {
           var i = step % STEPS;
@@ -446,34 +450,46 @@
           timerId = null;
         }
 
-        // ---------- captions, built from the moot's real data once loaded ----------
-        var LINES = ["#AWOTY2026 presents: the moot of the year"];
-        var lineIdx = -1;
+        // ---------- scenes, built from the moot's real data once loaded ----------
+        // each scene is a {kicker, sub} pair; the reel cycles one per bar
+        // (~1.875s at 128bpm), so a handle with several great posts gets a
+        // proper multi-scene hype video, not just one caption.
+        var SCENES = [{ kicker: "#AWOTY2026 presents: the moot of the year", sub: "loading..." }];
+        var sceneIdx = -1;
         function nextCaption() {
-          lineIdx = (lineIdx + 1) % LINES.length;
+          sceneIdx = (sceneIdx + 1) % SCENES.length;
+          var scene = SCENES[sceneIdx];
           subEl.classList.remove("show");
+          kickerEl.classList.add("pulse");
+          sceneFlash = 1;
           setTimeout(function () {
-            subEl.textContent = LINES[lineIdx];
+            kickerEl.textContent = scene.kicker;
+            subEl.textContent = scene.sub;
             subEl.classList.add("show");
+            kickerEl.classList.remove("pulse");
           }, 180);
         }
 
-        function buildLines(profile, top) {
+        function buildScenes(profile, tops) {
           var who = "@" + profile.handle;
-          var lines = [
-            "#AWOTY2026 presents: the moot of the year",
-            who,
-          ];
-          if (top) {
-            lines.push('"' + (top.text.length > 90 ? top.text.slice(0, 89) + "…" : top.text) + '"');
-            lines.push(top.likeCount + " likes · " + top.repostCount + " reposts on the cover post");
+          var intro = "#AWOTY2026 presents: the moot of the year";
+          var scenes = [{ kicker: intro, sub: who }];
+
+          if (tops && tops.length) {
+            tops.forEach(function (post, i) {
+              var label = "scene " + (i + 1) + "/" + tops.length + " — a great post from the recent past";
+              var quote = '"' + (post.text.length > 90 ? post.text.slice(0, 89) + "…" : post.text) + '"';
+              var stats = post.likeCount + " likes · " + post.repostCount + " reposts · " + post.replyCount + " replies";
+              scenes.push({ kicker: label, sub: quote });
+              scenes.push({ kicker: label, sub: stats });
+            });
           } else {
-            lines.push("new to the timeline. the year is still theirs to lose.");
+            scenes.push({ kicker: intro, sub: "new to the timeline. the year is still theirs to lose." });
           }
-          lines.push((profile.followersCount || 0) + " followers · " + (profile.postsCount || 0) + " posts");
-          lines.push("chosen by @buildthis.bisks.net for #AWOTY2026");
-          lines.push("crown your own moot → mootoftheyear.bisks.net");
-          return lines;
+
+          scenes.push({ kicker: intro, sub: (profile.followersCount || 0) + " followers · " + (profile.postsCount || 0) + " posts" });
+          scenes.push({ kicker: "chosen by @buildthis.bisks.net for #AWOTY2026", sub: "crown your own moot → mootoftheyear.bisks.net" });
+          return scenes;
         }
 
         // ---------- canvas visuals ----------
@@ -510,6 +526,7 @@
           snarePulse *= 0.85;
           hatPulse *= 0.8;
           flash *= 0.86;
+          sceneFlash *= 0.89;
 
           // perspective grid, red-tinted, brighter on kick
           var gridColor = "rgba(210,31,31," + (0.12 + kickPulse * 0.35) + ")";
@@ -584,6 +601,13 @@
             ctx.fillRect(0, 0, W, H);
           }
 
+          // bigger gold flash on every scene change — makes each new post
+          // in the reel land as its own beat, not just a caption swap
+          if (sceneFlash > 0.01) {
+            ctx.fillStyle = "rgba(201,162,39," + (sceneFlash * 0.4) + ")";
+            ctx.fillRect(0, 0, W, H);
+          }
+
           // orbiting gold particles, drift faster with hats
           ctx.fillStyle = "rgba(201,162,39,0.85)";
           for (var i = 0; i < particles.length; i++) {
@@ -648,11 +672,11 @@
 
           return didP.then(function (did) {
             return xrpc("app.bsky.actor.getProfile", { actor: did }).then(function (profile) {
-              setGateStatus("scanning the feed for a cover story...");
-              return findHeadlinePost(did).then(function (top) {
+              setGateStatus("scanning the feed for great posts...");
+              return findTopPosts(did, 4).then(function (tops) {
                 var proxiedAvatar = profile.avatar ? "/img?u=" + encodeURIComponent(profile.avatar) : null;
                 return loadImg(proxiedAvatar).then(function (img) {
-                  return { profile: profile, top: top, img: img };
+                  return { profile: profile, tops: tops, img: img };
                 });
               });
             });
@@ -665,8 +689,8 @@
 
         function beginPlayback(data) {
           avatarImg = data.img;
-          LINES = buildLines(data.profile, data.top);
-          lineIdx = -1;
+          SCENES = buildScenes(data.profile, data.tops);
+          sceneIdx = -1;
           handleLineEl.textContent = "@" + data.profile.handle;
 
           var url = "https://mootoftheyear.bisks.net/hype/";
