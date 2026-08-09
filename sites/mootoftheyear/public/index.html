@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mootoftheyear — crown your moot of the year</title>
+<meta name="description" content="Enter a Bluesky handle. We pull your best-performing post as the headline, your avatar as the cover photo, and print you a TIME-style Moot of the Year cover." />
+<meta property="og:title" content="mootoftheyear — crown your moot of the year" />
+<meta property="og:description" content="Enter a Bluesky handle. We pull your best-performing post as the headline, your avatar as the cover photo, and print you a TIME-style Moot of the Year cover." />
+<meta property="og:url" content="https://mootoftheyear.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://mootoftheyear.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="mootoftheyear: a red-bordered magazine cover reading MOOT with a PERSON OF THE YEAR gold ribbon, a profile photo, and a headline pulled from a real post." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mootoftheyear — crown your moot of the year" />
+<meta name="twitter:description" content="Enter a Bluesky handle. We pull your best-performing post as the headline, your avatar as the cover photo, and print you a TIME-style Moot of the Year cover." />
+<meta name="twitter:image" content="https://mootoftheyear.bisks.net/og.png" />
+<style>
+  :root {
+    --paper: #f7f3ea;
+    --ink: #17130f;
+    --red: #d21f1f;
+    --red-dark: #9d1414;
+    --gold: #c9a227;
+    --dim: #6b6255;
+    --border: #ddd3bf;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Georgia, "Times New Roman", Times, serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.15;
+    margin: 0 0 0.35rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .red { color: var(--red); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.95rem;
+    margin: 0 0 2.1rem;
+    line-height: 1.55;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .tag code { color: var(--red-dark); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--red); outline-offset: 1px; }
+  button {
+    background: var(--red);
+    color: #fff8ec;
+    border: none;
+    border-radius: 6px;
+    padding: 0.75rem 1.15rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: var(--red-dark); }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint {
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin: 0 0 2rem;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .status {
+    color: var(--dim);
+    font-size: 0.9rem;
+    min-height: 1.4em;
+    margin-bottom: 1rem;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .status.err { color: var(--red-dark); }
+
+  .result {
+    display: none;
+  }
+  .result.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .cover-frame {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem;
+    box-shadow: 0 20px 50px -28px rgba(23, 19, 15, 0.5);
+    margin-bottom: 1.1rem;
+  }
+  #cover {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+
+  .stats {
+    display: flex;
+    gap: 1.4rem;
+    flex-wrap: wrap;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--dim);
+    margin-bottom: 1.4rem;
+    padding-bottom: 1.2rem;
+    border-bottom: 1px dashed var(--border);
+  }
+  .stats b { color: var(--ink); }
+  .stats .src {
+    width: 100%;
+    font-style: italic;
+  }
+  .stats .src q { color: var(--ink); }
+
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 6px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: var(--red);
+    color: #fff8ec;
+  }
+  .share-post:hover { background: var(--red-dark); }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--ink);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  footer a { color: var(--red-dark); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span class="red">MOOT</span> of the Year</h1>
+    <p class="tag">
+      Bluesky's answer to the January cover story. Enter a handle: we pull the
+      profile photo, dig up the best-performing post from the last few months,
+      and print the headline on a real cover — <code>getProfile</code> +
+      <code>getAuthorFeed</code>, no login required.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">crown them</button>
+    </form>
+    <p class="hint">yours, a friend's, a nemesis's — everyone gets a cover.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="result" class="result">
+      <div class="cover-frame">
+        <canvas id="cover" width="960" height="1200"></canvas>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="share-actions">
+        <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share cover</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 post your cover</a>
+        <button id="shareDownload" type="button">⬇ download cover</button>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+const KICKERS = [
+  "the year's biggest moot",
+  "the timeline's own",
+  "certified moot of record",
+  "your feed's front page",
+  "atproto's cover story",
+];
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function stripForHeadline(text) {
+  return text
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// pull the last ~50 non-reply posts and rank by engagement, so the cover
+// headline is whatever actually landed for this person, not just their
+// most recent skeet.
+async function findHeadlinePost(did) {
+  try {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 50, filter: "posts_no_replies" });
+    const posts = (feed.feed || [])
+      .filter((f) => !f.reason && f.post && f.post.record && typeof f.post.record.text === "string")
+      .map((f) => ({
+        text: stripForHeadline(f.post.record.text),
+        likeCount: f.post.likeCount || 0,
+        repostCount: f.post.repostCount || 0,
+        quoteCount: f.post.quoteCount || 0,
+        replyCount: f.post.replyCount || 0,
+        uri: f.post.uri,
+      }))
+      .filter((p) => p.text.length > 3);
+    if (!posts.length) return null;
+    posts.forEach((p) => { p.score = p.likeCount + p.repostCount * 2 + p.quoteCount * 2 + p.replyCount; });
+    posts.sort((a, b) => b.score - a.score);
+    return posts[0];
+  } catch (_) {
+    return null;
+  }
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  result: document.getElementById("result"),
+  cover: document.getElementById("cover"),
+  stats: document.getElementById("stats"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+// cover-fit (like CSS object-fit: cover) for drawing the avatar photo.
+function drawCover(ctx, img, x, y, w, h) {
+  const ir = img.width / img.height, r = w / h;
+  let sx, sy, sw, sh;
+  if (ir > r) {
+    sh = img.height; sw = sh * r; sx = (img.width - sw) / 2; sy = 0;
+  } else {
+    sw = img.width; sh = sw / r; sx = 0; sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+
+function wrapLines(ctx, text, maxWidth) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function fitLines(ctx, text, maxWidth, maxLines) {
+  let lines = wrapLines(ctx, text, maxWidth);
+  if (lines.length <= maxLines) return lines;
+  lines = lines.slice(0, maxLines);
+  let last = lines[maxLines - 1];
+  while (last.length > 1 && ctx.measureText(last + "…").width > maxWidth) {
+    last = last.slice(0, -1);
+  }
+  lines[maxLines - 1] = last.replace(/[.,;:\s]+$/, "") + "…";
+  return lines;
+}
+
+function initials(name) {
+  return (name || "?").replace(/^@/, "").slice(0, 2).toUpperCase();
+}
+
+async function drawCoverCard({ profile, headline, kicker, year }) {
+  const canvas = els.cover;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const serif = "Georgia, 'Times New Roman', Times, serif";
+  const mono = "ui-monospace, monospace";
+  const RED = "#d21f1f", INK = "#17130f", DIM = "#6b6255", GOLD = "#c9a227";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#f7f3ea";
+  ctx.fillRect(0, 0, W, H);
+
+  // outer red border, TIME-style
+  ctx.strokeStyle = RED;
+  ctx.lineWidth = 14;
+  ctx.strokeRect(7, 7, W - 14, H - 14);
+
+  const M = 34; // inner margin
+
+  // masthead band
+  const mastY = 40, mastH = 118;
+  ctx.fillStyle = RED;
+  ctx.fillRect(M, mastY, W - M * 2, mastH);
+  ctx.fillStyle = "#fff8ec";
+  ctx.textAlign = "center";
+  ctx.font = `800 78px ${serif}`;
+  ctx.fillText("MOOT", W / 2, mastY + mastH - 30);
+
+  // issue line: year (left) / edition (right)
+  const issueY = mastY + mastH + 34;
+  ctx.textAlign = "left";
+  ctx.fillStyle = INK;
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText(String(year), M, issueY);
+  ctx.textAlign = "right";
+  ctx.fillStyle = DIM;
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText(kicker.toUpperCase(), W - M, issueY);
+
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(M, issueY + 16);
+  ctx.lineTo(W - M, issueY + 16);
+  ctx.stroke();
+
+  // photo box
+  const photoY = issueY + 40;
+  const photoH = 620;
+  ctx.save();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(M, photoY, W - M * 2, photoH);
+  ctx.beginPath();
+  ctx.rect(M + 3, photoY + 3, W - M * 2 - 6, photoH - 6);
+  ctx.clip();
+  if (profile.avatarImg) {
+    drawCover(ctx, profile.avatarImg, M + 3, photoY + 3, W - M * 2 - 6, photoH - 6);
+  } else {
+    ctx.fillStyle = "#e8ddc4";
+    ctx.fillRect(M + 3, photoY + 3, W - M * 2 - 6, photoH - 6);
+    ctx.fillStyle = DIM;
+    ctx.textAlign = "center";
+    ctx.font = `800 160px ${serif}`;
+    ctx.fillText(initials(profile.displayName || profile.handle), W / 2, photoY + photoH / 2 + 55);
+  }
+  // name scrim + handle at bottom of photo
+  const scrimH = 120;
+  const grad = ctx.createLinearGradient(0, photoY + photoH - scrimH, 0, photoY + photoH);
+  grad.addColorStop(0, "rgba(23,19,15,0)");
+  grad.addColorStop(1, "rgba(23,19,15,0.82)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(M + 3, photoY + photoH - scrimH, W - M * 2 - 6, scrimH);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff8ec";
+  ctx.font = `800 40px ${serif}`;
+  ctx.fillText("@" + profile.handle, M + 26, photoY + photoH - 26);
+  ctx.restore();
+
+  // gold ribbon, top-right corner of the photo
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(M, photoY, W - M * 2, photoH);
+  ctx.clip();
+  ctx.translate(W - M - 70, photoY + 150);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = GOLD;
+  ctx.fillRect(-190, -26, 380, 52);
+  ctx.fillStyle = "#241c0a";
+  ctx.textAlign = "center";
+  ctx.font = `800 22px ${mono}`;
+  ctx.fillText("MOOT OF THE YEAR", 0, 8);
+  ctx.restore();
+
+  // headline
+  ctx.textAlign = "left";
+  ctx.fillStyle = INK;
+  ctx.font = `800 46px ${serif}`;
+  const headlineY = photoY + photoH + 74;
+  const hLines = fitLines(ctx, headline.toUpperCase(), W - M * 2, 3);
+  hLines.forEach((line, i) => ctx.fillText(line, M, headlineY + i * 54));
+
+  // footer
+  ctx.textAlign = "left";
+  ctx.fillStyle = RED;
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("mootoftheyear.bisks.net", M, H - 44);
+}
+
+function shareUrlFor(handle) {
+  return "https://mootoftheyear.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(profile, headline, hasRealPost) {
+  const lead = hasRealPost
+    ? `@${profile.handle} is officially the MOOT OF THE YEAR. cover line: "${headline}"`
+    : `@${profile.handle} is officially the MOOT OF THE YEAR. (still writing their first cover-worthy post)`;
+  return `${lead}\n\ncrown your own → ${shareUrlFor(profile.handle)}`;
+}
+
+async function crown(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.result.classList.remove("show");
+  setStatus("pulling " + handle + "'s file...");
+
+  try {
+    let did;
+    if (handle.startsWith("did:")) {
+      did = handle;
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+    }
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    setStatus("scanning the feed for a cover story...");
+    const top = await findHeadlinePost(did);
+
+    const year = 2026;
+    const kicker = KICKERS[Math.floor(Math.random() * KICKERS.length)];
+    const headline = top ? top.text : "new to the timeline. the year is still theirs to lose.";
+
+    // routed through /img (src/index.ts): cdn.bsky.app sends no CORS header,
+    // so a direct cross-origin load either fails outright or taints the
+    // canvas and breaks the download/share toBlob() calls below.
+    const proxiedAvatar = profile.avatar ? "/img?u=" + encodeURIComponent(profile.avatar) : null;
+    profile.avatarImg = await loadImg(proxiedAvatar);
+
+    await drawCoverCard({ profile, headline, kicker, year });
+
+    els.stats.innerHTML =
+      `<span><b>${profile.followersCount ?? 0}</b> followers</span>` +
+      `<span><b>${profile.postsCount ?? 0}</b> posts</span>` +
+      (top ? `<span><b>${top.likeCount}</b> likes · <b>${top.repostCount}</b> reposts on the cover post</span>` : "") +
+      (top ? `<span class="src">source: <q>${escapeHtml(top.text)}</q></span>` : "");
+
+    lastShareText = buildShareText(profile, headline, !!top);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+    setStatus("");
+    els.result.classList.add("show");
+  } catch (err) {
+    setStatus("couldn't build a cover for that one: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  crown(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.cover.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "moot-of-the-year.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.cover.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "moot-of-the-year.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "mootoftheyear" });
+      } catch (_) {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or the older ?h=<handle> both auto-crown on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  crown(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
