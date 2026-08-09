@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>hairloom — the cure for baldness, passed down through your DID</title>
+<meta name="description" content="Enter a Bluesky handle. Your did:plc determines your personalized snake-oil cure, ritual, side effect, and clinically dubious potency rating. Family heirloom, not medical advice." />
+<meta property="og:title" content="hairloom — the cure for baldness, passed down through your DID" />
+<meta property="og:description" content="Enter a Bluesky handle. Your did:plc determines your personalized snake-oil cure, ritual, side effect, and clinically dubious potency rating. Family heirloom, not medical advice." />
+<meta property="og:url" content="https://hairloom.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://hairloom.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="hairloom: a prescription-label card reading a did:plc as a personalized cure for baldness, with a ritual and a potency rating." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="hairloom — the cure for baldness, passed down through your DID" />
+<meta name="twitter:description" content="Enter a Bluesky handle. Your did:plc determines your personalized snake-oil cure, ritual, side effect, and clinically dubious potency rating. Family heirloom, not medical advice." />
+<meta name="twitter:image" content="https://hairloom.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #14100a;
+    --bg2: #1e170e;
+    --fg: #f4e9d4;
+    --dim: #b8a582;
+    --accent: #d99a3d;
+    --accent2: #7fa66b;
+    --card: #241b10;
+    --border: #4a3a22;
+    --warn: #c0674a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a2810 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #1f3a24 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.5;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #b56a1f);
+    color: #1a1206;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--warn); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -20px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .rxlabel {
+    text-align: center;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .glyph {
+    font-size: 3.5rem;
+    line-height: 1;
+    text-align: center;
+    margin: 0.5rem 0 0.25rem;
+    color: var(--accent2);
+    text-shadow: 0 0 30px var(--accent2);
+  }
+  .curename {
+    text-align: center;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.15rem;
+  }
+  .curechar {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-bottom: 1rem;
+  }
+  .curechar b { color: var(--accent); }
+
+  .potency {
+    text-align: center;
+    margin-bottom: 1.4rem;
+  }
+  .potency .pct {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .potency .label {
+    font-size: 0.78rem;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .reading {
+    font-size: 1rem;
+    line-height: 1.55;
+    margin-bottom: 1.4rem;
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--accent);
+  }
+
+  .blocks {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.2rem;
+    margin-bottom: 1.4rem;
+  }
+  .block {
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--border);
+    margin-bottom: 1.1rem;
+  }
+  .block:last-child { margin-bottom: 0; }
+  .block.ritual { border-left-color: var(--accent2); }
+  .block.ritual .block-label { color: var(--accent2); }
+  .block.side { border-left-color: var(--warn); }
+  .block.side .block-label { color: var(--warn); }
+  .block-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.25rem;
+  }
+  .block-body {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .testimonial {
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+  }
+  .testimonial .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent2);
+    margin-bottom: 0.4rem;
+  }
+  .testimonial blockquote {
+    margin: 0;
+    font-style: italic;
+    color: var(--fg);
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .testimonial .none { color: var(--dim); font-style: normal; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #b56a1f);
+    color: #1a1206;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>hairloom</h1>
+    <p class="tag">
+      The cure for baldness, passed down through your <code>did:plc</code>.
+      Not medical advice. Not medical anything. Enter a Bluesky handle and
+      receive your family remedy.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">diagnose</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, an enemy's, your barber's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="rxlabel">℞ your cure</div>
+      <div class="glyph" id="glyph"></div>
+      <div class="curename" id="curename"></div>
+      <div class="curechar" id="curechar"></div>
+
+      <div class="potency">
+        <div class="pct" id="potencyPct"></div>
+        <div class="label" id="potencyLabel"></div>
+      </div>
+
+      <div class="reading" id="reading"></div>
+
+      <div class="blocks">
+        <div class="block ritual">
+          <div class="block-label">the ritual</div>
+          <div class="block-body" id="ritualBody"></div>
+        </div>
+        <div class="block side">
+          <div class="block-label">side effects</div>
+          <div class="block-body" id="sideBody"></div>
+        </div>
+      </div>
+
+      <div class="testimonial">
+        <div class="label">patient testimonial</div>
+        <blockquote id="testimonial">—</blockquote>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your cure</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+// did:plc identifiers end in a base32-sortable char (a-z, 2-7) — same
+// alphabet as sites/didscope, repurposed here as the cure lookup instead of
+// a zodiac sign.
+const CURES = {
+  a: ["The Onion Poultice", "Raw onion, crushed nightly onto the scalp. Neighbors will smell it. Follicles remain skeptical."],
+  b: ["The Bull Semen Tonic", "Victorian-era, still sold today, allegedly. Regrowth rate: statistically identical to placebo, spiritually higher."],
+  c: ["The Copper Comb Ritual", "Static electricity as folk medicine. Your hair stands up straight. That's it. That's the treatment."],
+  d: ["The Dandy Horse Liniment", "A 19th-century patent medicine, reformulated with 2% actual horse."],
+  e: ["The Electrostim Cap", "A helmet that mildly shocks your scalp on a schedule you set and then dread."],
+  f: ["The Fermented Rice Water Rinse", "K-beauty by way of your grandmother's kitchen counter, left out three days too long."],
+  g: ["The Garlic Clove Scalp Massage", "Vampires avoid you now. Follicles remain unconvinced. Your dates have opinions."],
+  h: ["The Horsetail Extract Capsules", "Silica, allegedly, from a plant named after the exact thing you're trying to grow back."],
+  i: ["The Ice Bath Scalp Plunge", "Cold shock therapy for a scalp that did nothing to deserve this."],
+  j: ["The Jojoba & Regret Serum", "A very good oil, applied with a very bad sense of timing — you started this eleven years too late."],
+  k: ["The Ketogenic Follicle Protocol", "Eat only meat, cheese, and hope. The hair does not care about your macros."],
+  l: ["The Laser Comb", "FDA-cleared, mechanism unclear, results filed under 'ask again in six months.'"],
+  m: ["The Minoxidil Micro-Dose", "The one that's actually real, taken at a homeopathic quarter-dose so it doesn't have to work."],
+  n: ["The Nettle Tea Rinse", "Stings going on, stings coming off, does nothing measurable in between."],
+  o: ["The Onion & Egg Yolk Mask", "Two kitchen ingredients that had never met before you introduced them, directly, to your head."],
+  p: ["The Pumpkin Seed Oil Regimen", "DHT-blocking, allegedly, in a study funded by the pumpkin seed oil industry."],
+  q: ["The Quicksilver Salve", "A genuinely dangerous 1800s remedy, included here for historical completeness, not application."],
+  r: ["The Rosemary Oil Protocol", "The one folk remedy with an actual small study behind it. Suspiciously, this makes it less fun."],
+  s: ["The Saw Palmetto Regimen", "A berry, taken as a supplement, in the hope it can out-negotiate your endocrine system."],
+  t: ["The Turmeric & Yogurt Mask", "Stains the sink orange forever. The hair, less so."],
+  u: ["The Ultrasonic Scalp Massager", "A vibrating device that promises 'increased blood flow' to a place that was never short on it."],
+  v: ["The Vinegar Rinse", "Apple cider vinegar, diluted, applied with the confidence of someone who read one forum post."],
+  w: ["The Wig, Frankly", "The only 100% success rate in this entire list. Consider it seriously."],
+  x: ["The Experimental Compound X-47", "Purchased from a website with no return policy and a five-star review from 'J.'"],
+  y: ["The Yogic Inversion Practice", "Hang upside down for twenty minutes a day. Blood rushes to your head. So does regret."],
+  z: ["The Zinc & Biotin Megadose", "Nutrients your hair was never actually deficient in, taken at ten times the useful amount."],
+  "2": ["The Second Opinion", "You asked a dermatologist. They said 'genetics.' You did not like that answer, so here we are."],
+  "3": ["The Three-Step Clinical System", "Cleanse, thicken, activate. Step four, not included, is 'accept.'"],
+  "4": ["The Fourth-Generation Family Tonic", "Handed down, unchanged, unimproved, unproven, for four generations."],
+  "5": ["The Five-Minute Scalp Detox", "Charcoal, clay, and the specific hope that your hair loss was a hygiene problem all along."],
+  "6": ["The Sixth Sense Scalp Reading", "A psychic feels your head and identifies 'blocked energy.' Refunds not offered."],
+  "7": ["The Lucky Number Regimen", "No active ingredients. Just seven drops, seven times, for seven days. Faith-based."],
+};
+const ORDER = Object.keys(CURES);
+
+// ritual: read off the first character of the DID's method-specific id.
+// how you're meant to apply the cure — the part everyone skips.
+const RITUALS = {
+  a: "Apply at exactly 3am, facing north, in total silence.",
+  b: "Work it in backwards — start at the neck, finish at the part.",
+  c: "Chant the ingredient list aloud while it sets. Mispronunciations void the treatment.",
+  d: "Apply during a waning moon only. The internet was very specific about this.",
+  e: "Leave it on exactly as long as an episode of your comfort show. Do not pause.",
+  f: "Apply with your non-dominant hand. This is the whole trick, apparently.",
+  g: "Rinse with water that has been left out overnight 'to breathe.'",
+  h: "Massage in circles, clockwise only, for one full minute per follicle you can name.",
+  i: "Apply cold, straight from the fridge, while making unbroken eye contact with the mirror.",
+  j: "Wrap your head in cling film, sit very still, and think about your choices.",
+  k: "Apply, then immediately go outside and stand in direct sunlight for exactly nine minutes.",
+  l: "Layer it under a shower cap overnight. Wake up smelling like the ingredients list.",
+  m: "Apply twice daily, seven days a week, forever, or the gains (there are no gains) reverse.",
+  n: "Apply while barefoot on natural ground. Concrete does not count and the forum was adamant about this.",
+  o: "Combine two ingredients you were told to never combine. Apply anyway.",
+  p: "Apply only on days that end in 'y.' This covers every day. That was the joke.",
+  q: "Whisper 'grow' into the bottle before each use. It does not help. It also does not hurt.",
+  r: "Apply in the shower, right before the water goes cold, so you associate hair growth with suffering.",
+  s: "Take with a full glass of water and a fuller glass of denial.",
+  t: "Apply, then avoid mirrors for the recommended 6–8 week 'adjustment period.'",
+  u: "Hold the device against your scalp for exactly as long as you can stand the hum.",
+  v: "Dilute, apply, and immediately regret the smell decision you just made.",
+  w: "Put it on. Look in the mirror. Nod. That's the whole ritual.",
+  x: "Follow the enclosed instructions, printed in a font too small to actually read.",
+  y: "Hold the pose until your face turns a color you don't recognize.",
+  z: "Take with breakfast, forever, and report back to no one in particular.",
+  "2": "Nod, say 'noted,' and go buy the cure anyway.",
+  "3": "Follow all three steps in order. Skipping to step three does not work, they checked.",
+  "4": "Prepare exactly as your great-grandmother did, using ingredients she'd not recognize today.",
+  "5": "Set a five-minute timer. Stare at the timer more than your scalp.",
+  "6": "Sit very still while a stranger hovers a hand two inches from your forehead.",
+  "7": "Count to seven, out loud, per application. Losing count restarts the ritual.",
+};
+
+// side effects: read off the middle character of the DID's method-specific id.
+const SIDE_EFFECTS = {
+  a: "Mild scalp tingling and a strong onion smell that follows you into meetings.",
+  b: "None reported. Also no results reported. Draw your own conclusions.",
+  c: "Your hair will, briefly, stand on end in a way that looks like progress. It is not progress.",
+  d: "Smells faintly of liniment and 1890s desperation.",
+  e: "A small, recurring shock that you will start to find weirdly motivating.",
+  f: "A smell that fermented rice water enthusiasts insist you'll 'get used to.' You will not.",
+  g: "You will not be invited to the next dinner party. The garlic precedes you.",
+  h: "Mild digestive upset, if taken orally, which the label does not clearly discourage.",
+  i: "A brief, sharp regret, followed by a slightly less brief, duller regret.",
+  j: "The oil works great. The eleven years did not wait for you to notice.",
+  k: "Irritability, low energy, and a hairline that remains, precisely, unmoved.",
+  l: "A comb that hums faintly and a sense you've been sold a very expensive novelty item.",
+  m: "By taking a quarter-dose, you have also taken a quarter-result. This tracks.",
+  n: "A scalp that stings for twenty minutes and looks exactly the same after.",
+  o: "A smell your pillow will remember long after you've moved on.",
+  p: "Funded-by-the-industry studies show promising results. Independent studies show a pumpkin.",
+  q: "Please, seriously, do not use this one. It's from the 1800s for a reason.",
+  r: "Mild disappointment that the one remedy with real evidence behind it is also the most boring.",
+  s: "Occasional stomach upset and a berry that has opinions about your hormones now.",
+  t: "A sink that will be orange until the heat death of the universe.",
+  u: "A faint hum in your ears that outlasts the actual treatment by several hours.",
+  v: "A smell that announces you before you enter the room.",
+  w: "Frankly, none. It's a wig. It just works. This is suspicious to everyone involved.",
+  x: "Undisclosed. The label was mostly Comic Sans and a money-back guarantee with no address to send it to.",
+  y: "A face the color of a tomato and a new appreciation for gravity.",
+  z: "Nothing you'll notice, aside from very expensive urine.",
+  "2": "A dermatologist's bill, unpaid, sitting in a drawer next to a receipt for this instead.",
+  "3": "A fourth step you invented yourself out of desperation. It also does not work.",
+  "4": "A tonic bottle that has outlived three family members and zero of their hairlines.",
+  "5": "A very clean scalp and an unchanged hairline, in that order.",
+  "6": "A strong urge to ask for a follow-up reading, which costs extra.",
+  "7": "A vague, persistent feeling that you have been had, gently, by a bottle.",
+};
+
+function keyFor(ch, table) {
+  const key = (ch || "").toLowerCase();
+  return table[key] ? key : ORDER[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % ORDER.length] || "a";
+}
+
+// the DID's method-specific id (everything after "did:<method>:"), used to
+// read the ritual/side-effect off different positions than the cure's char.
+function didUniquePart(did) {
+  const parts = did.split(":");
+  return parts.length > 2 ? parts.slice(2).join(":") : did;
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+// A deterministic, clinically dubious potency rating, 0-140%, hashed from
+// the full DID — over 100% reads as a joke about batch mislabeling, not a
+// bug.
+function potencyFor(did) {
+  let hash = 0;
+  for (const c of did) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+  const pct = hash % 141;
+  let label;
+  if (pct <= 15) label = "clinically insignificant";
+  else if (pct <= 40) label = "placebo-adjacent";
+  else if (pct <= 65) label = "surprisingly persuasive";
+  else if (pct <= 90) label = "regulatorily concerning";
+  else if (pct <= 100) label = "pending FDA review";
+  else label = "batch mislabeled, do not exceed";
+  return { pct, label };
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  glyph: document.getElementById("glyph"),
+  curename: document.getElementById("curename"),
+  curechar: document.getElementById("curechar"),
+  potencyPct: document.getElementById("potencyPct"),
+  potencyLabel: document.getElementById("potencyLabel"),
+  reading: document.getElementById("reading"),
+  ritualBody: document.getElementById("ritualBody"),
+  sideBody: document.getElementById("sideBody"),
+  testimonial: document.getElementById("testimonial"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function findTestimonial(did) {
+  try {
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 30, filter: "posts_no_replies" });
+    const posts = (feed.feed || [])
+      .map((f) => f.post.record && f.post.record.text)
+      .filter((t) => t && t.trim().length > 3);
+    if (!posts.length) return null;
+    return posts[Math.floor(Math.random() * posts.length)];
+  } catch (_) {
+    return null;
+  }
+}
+
+// A real path per handle, not a query string on the same URL — every share
+// is a genuinely distinct page (own og:title/description/url, server-
+// rendered in src/index.ts) instead of one cached, generic embed for
+// everyone. Same fix as sites/didscope's /s/<handle>.
+function shareUrlFor(handle) {
+  return "https://hairloom.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, name, key, potency, testimonialText) {
+  const testimonialBit = testimonialText ? ` Testimonial: “${testimonialText}”` : "";
+  return (
+    `@${profile.handle}'s did:plc ends in “${key}” — prescribed ${name}, ` +
+    `${potency.pct}% potency (${potency.label}).${testimonialBit}\n\n` +
+    `get your own cure → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+// draws a 1200x630 share card mirroring the on-page cure, so the
+// download/attach flow gets an image that matches what was just prescribed.
+async function buildShareCard({ profile, did, lastChar, name, reading, potency, testimonialText }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#14100a";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#3a2810");
+  glow.addColorStop(1, "rgba(20,16,10,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#d99a3d";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("hairloom", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#f4e9d4";
+  ctx.font = `700 30px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 162);
+
+  ctx.strokeStyle = "#4a3a22";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 230, cardW = W - 120, cardH = H - 290;
+  ctx.fillStyle = "#241b10";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#7fa66b";
+  ctx.font = `700 60px ${mono}`;
+  ctx.fillText(lastChar.toUpperCase(), W / 2, cardY + 78);
+
+  ctx.fillStyle = "#f4e9d4";
+  ctx.font = `800 30px ${mono}`;
+  ctx.fillText(name, W / 2, cardY + 126);
+
+  ctx.fillStyle = "#b8a582";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText("DID ends in “" + lastChar + "”", W / 2, cardY + 148);
+
+  ctx.fillStyle = "#d99a3d";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText(potency.pct + "% potency (" + potency.label + ")", W / 2, cardY + 176);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#d99a3d";
+  ctx.fillRect(cardX + 48, cardY + 198, 4, 70);
+  ctx.fillStyle = "#f4e9d4";
+  ctx.font = `400 20px ${mono}`;
+  wrapCanvasText(ctx, reading, cardX + 68, cardY + 220, cardW - 136, 28);
+
+  if (testimonialText) {
+    ctx.fillStyle = "#7fa66b";
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText("PATIENT TESTIMONIAL", cardX + 48, cardY + cardH - 66);
+    ctx.fillStyle = "#f4e9d4";
+    ctx.font = `italic 15px ${mono}`;
+    wrapCanvasText(ctx, "“" + testimonialText + "”", cardX + 48, cardY + cardH - 40, cardW - 96, 22);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#7fa66b";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("hairloom.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("diagnosing " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const lastChar = did.slice(-1);
+    const key = keyFor(lastChar, CURES);
+    const [name, reading] = CURES[key];
+
+    const uniquePart = didUniquePart(did);
+    const ritualChar = uniquePart.charAt(0) || lastChar;
+    const sideChar = uniquePart.charAt(Math.floor(uniquePart.length / 2)) || lastChar;
+    const ritualKey = keyFor(ritualChar, RITUALS);
+    const sideKey = keyFor(sideChar, SIDE_EFFECTS);
+    const ritual = RITUALS[ritualKey];
+    const sideEffect = SIDE_EFFECTS[sideKey];
+    const potency = potencyFor(did);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.glyph.textContent = key.toUpperCase();
+    els.curename.textContent = name;
+    els.curechar.textContent = "DID ends in “" + lastChar + "”";
+    els.potencyPct.textContent = potency.pct + "%";
+    els.potencyLabel.textContent = potency.label;
+    els.reading.textContent = reading;
+    els.ritualBody.textContent = ritual;
+    els.sideBody.textContent = sideEffect;
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    const rebuildShare = (testimonialText) => {
+      lastShareText = shareText(profile, name, key, potency, testimonialText);
+      els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+      buildShareCard({ profile, did, lastChar, name, reading, potency, testimonialText });
+    };
+    rebuildShare(null);
+
+    els.testimonial.textContent = "consulting patient records...";
+    findTestimonial(did).then((text) => {
+      els.testimonial.textContent = text ? "“" + text + "”" : "no testimonial on file. a silence is also a data point.";
+      if (!text) els.testimonial.classList.add("none");
+      rebuildShare(text);
+    });
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "hairloom-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+// native share sheet (mobile mostly): hands the actual card image + text to
+// whatever the OS offers — Bluesky app, Messages, Instagram stories, etc —
+// so sharing isn't stuck behind a manual download-then-attach.
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "hairloom-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "hairloom" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or the older ?h=<handle> form both auto-reveal
+// on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
