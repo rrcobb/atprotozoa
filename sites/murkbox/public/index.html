@@ -516,11 +516,14 @@
     <footer class="about">
       Pulls a real public feed (no login) and redraws it as post cards, then runs it
       through a lo-poly block averager, an ordered (Bayer 4×4) dither, grain, a
-      channel-shift drift, a hue rotation and a row-band wave warp — all client-side
-      canvas pixel work. <b>MURK</b> is the wet/dry mix; the footswitch is true bypass.
-      Flip <b>LFO MOD</b> on and any one fader oscillates on its own — pick a waveform
-      and a target, then dial in rate and amount. Built for @words.bsky.social by
-      <a href="https://buildthis.bisks.net/">@buildthis</a>, more modulation added on
+      channel-shift drift, a row pixel-sorter, a datamosh slicer, a hue rotation and
+      a row-band wave warp — all client-side canvas pixel work. <b>ZALGO</b> stacks
+      combining diacritics onto the post text itself: the letters never change, the
+      shape does — readable if you fight for it, uncanny if you don't. <b>MURK</b> is
+      the wet/dry mix; the footswitch is true bypass. Flip <b>LFO MOD</b> on and any
+      one fader oscillates on its own — pick a waveform and a target, then dial in
+      rate and amount. Built for @words.bsky.social by
+      <a href="https://buildthis.bisks.net/">@buildthis</a>, glitchier and weirder on
       request.
     </footer>
   </div>
@@ -541,7 +544,10 @@
     { key: "dither", label: "DITHER", min: 0, max: 100, def: 45, fmt: (v) => v + "%" },
     { key: "grain", label: "GRAIN", min: 0, max: 100, def: 16, fmt: (v) => v + "%" },
     { key: "drift", label: "DRIFT", min: 0, max: 14, def: 2, fmt: (v) => v + "px" },
+    { key: "zalgo", label: "ZALGO", min: 0, max: 100, def: 0, fmt: (v) => v + "%" },
+    { key: "sort", label: "SORT", min: 0, max: 100, def: 0, fmt: (v) => v + "%" },
     { key: "scan", label: "SCAN", min: 0, max: 100, def: 20, fmt: (v) => v + "%" },
+    { key: "slice", label: "SLICE", min: 0, max: 100, def: 0, fmt: (v) => v + "%" },
     { key: "warp", label: "WARP", min: 0, max: 40, def: 0, fmt: (v) => v + "px" },
     { key: "hue", label: "HUE", min: 0, max: 360, def: 0, fmt: (v) => v + "°" },
     { key: "murk", label: "MURK", min: 0, max: 100, def: 62, fmt: (v) => v + "%", big: true },
@@ -613,6 +619,47 @@
   const hueCanvas = document.createElement("canvas");
   hueCanvas.width = W; hueCanvas.height = H;
   const hueCtx = hueCanvas.getContext("2d");
+  const sliceCanvas = document.createElement("canvas");
+  sliceCanvas.width = W; sliceCanvas.height = H;
+  const sliceCtx = sliceCanvas.getContext("2d");
+
+  // deterministic little PRNG so SLICE glitch bursts hold still for a beat
+  // instead of dissolving into pure per-frame static
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---- zalgo text ------------------------------------------------------
+  // Stacks combining diacritics onto glyphs so the *letters* stay exactly
+  // what they were — still readable if you fight for it — while the shape
+  // on screen turns uncannily illegible. Density scales with the ZALGO
+  // fader; re-rolled on every paint so an engaged fader buzzes rather than
+  // sitting static.
+  const ZALGO_UP = [0x0300, 0x0301, 0x0304, 0x0306, 0x030c, 0x0310, 0x0313, 0x033d, 0x0342, 0x0351];
+  const ZALGO_DOWN = [0x0316, 0x0317, 0x0318, 0x0319, 0x031c, 0x0320, 0x0323, 0x0330, 0x0333, 0x0339];
+  const ZALGO_MID = [0x0334, 0x0335, 0x0336, 0x0337, 0x0338];
+  function zalgoify(str, amt) {
+    if (!str || amt <= 0) return str;
+    const density = amt / 100;
+    const maxMarks = 1 + Math.round(density * 7);
+    let out = "";
+    for (const ch of str) {
+      out += ch;
+      if (ch === " " || Math.random() > 0.15 + density * 0.7) continue;
+      const n = 1 + Math.floor(Math.random() * maxMarks);
+      for (let i = 0; i < n; i++) {
+        const pool = Math.random() < 0.55 ? ZALGO_UP : Math.random() < 0.7 ? ZALGO_DOWN : ZALGO_MID;
+        out += String.fromCharCode(pool[Math.floor(Math.random() * pool.length)]);
+      }
+    }
+    return out;
+  }
 
   // ---- fader UI -------------------------------------------------------
   PARAMS.forEach((p) => {
@@ -825,7 +872,33 @@
     cleanCtx.restore();
   }
 
-  async function buildClean(handle, cards) {
+  // cache of the last-loaded feed so the ZALGO fader can repaint the text
+  // layer live (re-rolling diacritics every frame) without re-fetching
+  // anything from the network or the image proxy
+  let cachedHandle = "";
+  let cachedCards = [];
+  let cachedPre = [];
+  let zalgoWasActive = false;
+
+  async function loadClean(handle, cards) {
+    cachedHandle = handle;
+    cachedCards = cards;
+    cachedPre = cards.length
+      ? await Promise.all(
+          cards.map(async (c) => ({
+            avatar: await loadImage(proxied(c.avatar)),
+            image: await loadImage(proxied(c.image)),
+          }))
+        )
+      : [];
+    paintClean(baseParams.zalgo);
+  }
+
+  function paintClean(zalgoAmt) {
+    const handle = cachedHandle;
+    const cards = cachedCards;
+    const preloaded = cachedPre;
+
     cleanCtx.fillStyle = "#f4f2f8";
     cleanCtx.fillRect(0, 0, W, H);
 
@@ -855,13 +928,6 @@
       return;
     }
 
-    const preloaded = await Promise.all(
-      cards.map(async (c) => ({
-        avatar: await loadImage(proxied(c.avatar)),
-        image: await loadImage(proxied(c.image)),
-      }))
-    );
-
     let y = 56;
     const pad = 14;
     const cardW = W - pad * 2;
@@ -883,7 +949,7 @@
       cleanCtx.font = "700 13px 'JetBrains Mono', system-ui, sans-serif";
       cleanCtx.textAlign = "left";
       cleanCtx.textBaseline = "alphabetic";
-      cleanCtx.fillText(c.name.slice(0, 26), pad + 44, cy + 13);
+      cleanCtx.fillText(zalgoify(c.name.slice(0, 26), zalgoAmt), pad + 44, cy + 13);
       cleanCtx.fillStyle = "#8b8296";
       cleanCtx.font = "500 11px 'JetBrains Mono', system-ui, sans-serif";
       cleanCtx.fillText("@" + c.handle.slice(0, 30), pad + 44, cy + 27);
@@ -893,7 +959,7 @@
       cleanCtx.font = "500 13px 'JetBrains Mono', system-ui, sans-serif";
       const lines = wrapText(cleanCtx, c.text || "( no text )", cardW - 4, 4);
       for (const line of lines) {
-        cleanCtx.fillText(line, pad, textY);
+        cleanCtx.fillText(zalgoify(line, zalgoAmt), pad, textY);
         textY += 18;
       }
 
@@ -973,6 +1039,39 @@
     c.putImageData(out, 0, 0);
   }
 
+  // Pixel-sort glitch: a random subset of rows gets rearranged by luminance
+  // instead of any spatial rule, so the feed streaks into brightness
+  // gradients — the classic "corrupted video" look, tuned by SORT.
+  function applySort(canvas, amt) {
+    if (amt <= 0) return;
+    const c = canvas.getContext("2d");
+    const img = c.getImageData(0, 0, W, H);
+    const data = img.data;
+    const prob = (amt / 100) * 0.4;
+    const lum = new Float32Array(W);
+    for (let y = 0; y < H; y++) {
+      if (Math.random() > prob) continue;
+      const row = y * W * 4;
+      const order = new Array(W);
+      for (let x = 0; x < W; x++) {
+        const i = row + x * 4;
+        lum[x] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        order[x] = x;
+      }
+      order.sort((a, b) => lum[a] - lum[b]);
+      const rowCopy = data.slice(row, row + W * 4);
+      for (let x = 0; x < W; x++) {
+        const si = order[x] * 4;
+        const di = row + x * 4;
+        data[di] = rowCopy[si];
+        data[di + 1] = rowCopy[si + 1];
+        data[di + 2] = rowCopy[si + 2];
+        data[di + 3] = rowCopy[si + 3];
+      }
+    }
+    c.putImageData(img, 0, 0);
+  }
+
   function lfoWave(wave, phase) {
     const s = Math.sin(phase);
     if (wave === "square") return s >= 0 ? 1 : -1;
@@ -1019,6 +1118,26 @@
     ctx.filter = "none";
   }
 
+  // Datamosh slices: chops the frame into ragged horizontal bands and
+  // shoves some of them sideways. Bands hold for ~90ms so it reads as
+  // discrete corruption bursts rather than pure noise — a beat of clarity,
+  // then a tear, then clarity again.
+  function applySlice(amt, tNow) {
+    if (amt <= 0) return;
+    sliceCtx.clearRect(0, 0, W, H);
+    sliceCtx.drawImage(screen, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const rnd = mulberry32(Math.floor((tNow || 0) / 90) * 2654435761);
+    let y = 0;
+    while (y < H) {
+      const bandH = Math.min(H - y, 6 + Math.floor(rnd() * 46));
+      const hit = rnd() < (amt / 100) * 0.6;
+      const off = hit ? Math.round((rnd() - 0.5) * amt * 3.2) : 0;
+      ctx.drawImage(sliceCanvas, 0, y, W, bandH, off, y, W, bandH);
+      y += bandH;
+    }
+  }
+
   function render(tNow) {
     ctx.clearRect(0, 0, W, H);
     if (!engaged) {
@@ -1026,8 +1145,17 @@
       return;
     }
     const live = computeLiveParams(tNow);
+
+    // Only repaint the clean text layer when ZALGO is doing something —
+    // it's a full redraw of every card, so skip it on the (default) frames
+    // where the fader sits at zero.
+    const zalgoActive = live.zalgo > 0;
+    if (zalgoActive || zalgoWasActive) paintClean(live.zalgo);
+    zalgoWasActive = zalgoActive;
+
     const processed = applyLoPoly(cleanCanvas, live.block);
     processPixels(processed, live.depth, live.dither, live.grain, live.drift);
+    applySort(processed, live.sort);
 
     ctx.drawImage(cleanCanvas, 0, 0);
     ctx.globalAlpha = live.murk / 100;
@@ -1040,6 +1168,7 @@
       for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
       ctx.globalAlpha = 1;
     }
+    if (live.slice > 0) applySlice(live.slice, tNow || 0);
     if (live.warp > 0) applyWarp(live.warp, tNow || 0);
     if (live.hue > 0) applyHue(live.hue);
   }
@@ -1062,14 +1191,14 @@
       currentHandle = handle;
       handleInput.value = "";
       handleInput.placeholder = "@" + handle;
-      await buildClean(handle, cards);
+      await loadClean(handle, cards);
       setStatus(cards.length ? "ok" : "err", cards.length
         ? "live: @" + handle + " · " + cards.length + " posts"
         : "@" + handle + " had nothing to show");
       render();
     } catch (e) {
       setStatus("err", "couldn't tune in to that handle — try another");
-      await buildClean(label, []);
+      await loadClean(label, []);
       render();
     }
   }
