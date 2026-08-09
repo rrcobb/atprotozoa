@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MOOT HYPE REEL — the moot of the year, animated</title>
+    <meta name="description" content="The mootoftheyear cover, but it's a hype video: synthesized drum machine, canvas visuals that pulse to the beat, and your avatar as the star. Pick a moot, hit play." />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="MOOT HYPE REEL — the moot of the year, animated" />
+    <meta property="og:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, your avatar in the spotlight." />
+    <meta property="og:url" content="https://mootoftheyear.bisks.net/hype/" />
+    <meta property="og:image" content="https://mootoftheyear.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="MOOT HYPE REEL — the moot of the year, animated" />
+    <meta name="twitter:description" content="The TIME-style cover, but animated: Web Audio drum machine, canvas visuals, your avatar in the spotlight." />
+    <meta name="twitter:image" content="https://mootoftheyear.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #17130f;
+        --ink: #f7f3ea;
+        --dim: #cabf9e;
+        --red: #d21f1f;
+        --red2: #ff5a4a;
+        --gold: #c9a227;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+        --serif: Georgia, "Times New Roman", Times, serif;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font-family: var(--serif); overflow: hidden;
+      }
+      #viz {
+        position: fixed; inset: 0; width: 100%; height: 100%; display: block;
+        background: var(--bg);
+      }
+      .stage {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: flex-end; text-align: center;
+        padding: 1.5rem 1.5rem 3.4rem; pointer-events: none;
+      }
+      .kicker {
+        font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.3em;
+        text-transform: uppercase; color: var(--gold); opacity: 0.9;
+        margin: 0 0 0.6rem;
+      }
+      .title {
+        position: relative; margin: 0 0 0.2rem; font-weight: 800;
+        font-size: clamp(2rem, 8vw, 4.6rem); line-height: 0.98;
+        letter-spacing: -0.01em;
+        background: linear-gradient(120deg, var(--red2), var(--gold) 60%, var(--red));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: 0 0 60px rgba(210,31,31,0.35);
+        transition: transform 0.08s ease-out;
+      }
+      .title::before, .title::after {
+        content: attr(data-text); position: absolute; inset: 0;
+        background: none; -webkit-text-fill-color: initial; color: var(--red2);
+        opacity: 0; mix-blend-mode: screen;
+      }
+      .title.glitch::before {
+        opacity: 0.7; color: #6ef2c9; transform: translate(-3px, 1px);
+        clip-path: inset(10% 0 55% 0);
+      }
+      .title.glitch::after {
+        opacity: 0.7; color: #ff5fd1; transform: translate(3px, -1px);
+        clip-path: inset(60% 0 5% 0);
+      }
+      .handle {
+        font-family: var(--mono); font-weight: 700; color: var(--ink);
+        font-size: clamp(0.85rem, 2.2vw, 1.05rem); margin: 0 0 0.9rem;
+      }
+      .sub {
+        font-family: var(--mono); font-weight: 600; letter-spacing: 0.01em;
+        font-size: clamp(0.82rem, 2.2vw, 1.05rem); color: var(--dim);
+        margin: 0; min-height: 1.6em; max-width: 46ch;
+        opacity: 0; transform: translateY(6px);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+      }
+      .sub.show { opacity: 1; transform: translateY(0); }
+
+      .gateWrap, .controls, .foot { pointer-events: auto; }
+
+      .gateWrap {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 1.1rem; padding: 1.5rem;
+        text-align: center;
+      }
+      .gateWrap h1 {
+        font-family: var(--serif); font-weight: 800; margin: 0;
+        font-size: clamp(1.8rem, 7vw, 3.2rem);
+        color: var(--ink);
+      }
+      .gateWrap h1 .red { color: var(--red2); }
+      .gateWrap p {
+        font-family: var(--mono); color: var(--dim); font-size: 0.85rem;
+        margin: 0; max-width: 40ch; line-height: 1.6;
+      }
+      .gateForm {
+        display: flex; gap: 0.5rem; font-family: var(--mono);
+      }
+      .gateForm input {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.18);
+        color: var(--ink); border-radius: 6px; padding: 0.7rem 0.9rem;
+        font: inherit; font-size: 0.9rem; min-width: 220px;
+      }
+      .gateForm input:focus { outline: 2px solid var(--red2); outline-offset: 1px; }
+      .gate {
+        font-family: var(--mono); font-weight: 800; font-size: 0.9rem;
+        letter-spacing: 0.06em; text-transform: uppercase; color: #241c0a;
+        background: linear-gradient(120deg, var(--red2), var(--gold));
+        border: 0; border-radius: 999px; padding: 0.85rem 1.5rem; cursor: pointer;
+        box-shadow: 0 10px 40px rgba(210,31,31,0.35); white-space: nowrap;
+      }
+      .gate:hover { filter: brightness(1.08); }
+      .gate:active { transform: scale(0.97); }
+      .gate:disabled { opacity: 0.55; cursor: wait; }
+      .gateStatus {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--dim);
+        min-height: 1.2em;
+      }
+      .gateStatus.err { color: var(--red2); }
+
+      .controls {
+        position: fixed; left: 50%; bottom: 1.4rem; transform: translateX(-50%);
+        display: none; gap: 0.5rem; align-items: center;
+        background: rgba(23,19,15,0.75); backdrop-filter: blur(8px);
+        border: 1px solid rgba(210,31,31,0.3); border-radius: 999px;
+        padding: 0.5rem 0.7rem; z-index: 5;
+      }
+      .controls.show { display: flex; }
+      .controls button {
+        font-family: var(--mono); font-weight: 700; font-size: 0.82rem;
+        color: var(--ink); background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.1); border-radius: 999px;
+        padding: 0.5rem 0.85rem; cursor: pointer; line-height: 1;
+      }
+      .controls button:hover { background: rgba(255,255,255,0.12); }
+      .controls a.share {
+        font-family: var(--mono); font-weight: 700; font-size: 0.82rem;
+        color: #241c0a; background: linear-gradient(120deg, var(--red2), var(--gold));
+        border-radius: 999px; padding: 0.5rem 0.85rem; text-decoration: none;
+      }
+
+      .foot {
+        position: fixed; top: 1rem; left: 1rem; right: 1rem;
+        display: flex; justify-content: space-between; align-items: center;
+        font-family: var(--mono); font-size: 0.68rem; color: var(--dim);
+        letter-spacing: 0.03em; z-index: 5;
+      }
+      .foot a { color: var(--dim); }
+      .foot a:hover { color: var(--red2); }
+
+      @media (max-width: 480px) {
+        .foot { font-size: 0.6rem; }
+        .gateForm { flex-direction: column; }
+        .gateForm input { min-width: 0; width: 78vw; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="viz"></canvas>
+
+    <div class="foot">
+      <span>MOOT HYPE REEL — a buildthis production</span>
+      <a href="/">← back to the cover generator</a>
+    </div>
+
+    <div class="gateWrap" id="gateWrap">
+      <h1><span class="red">MOOT</span> hype reel</h1>
+      <p>the TIME-style cover, but it moves. synthesized beat, canvas visuals,
+        your own avatar in the spotlight. pick who's up first.</p>
+      <form class="gateForm" id="gateForm">
+        <input id="handleInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button class="gate" id="gate" type="submit">▶ play</button>
+      </form>
+      <p class="gateStatus" id="gateStatus">chosen moot: @antiali.as — the one who started all this. change it to feature yourself instead.</p>
+    </div>
+
+    <div class="stage" id="stage" style="display:none;">
+      <p class="kicker" id="kicker">presenting the 2026 moot of the year</p>
+      <h1 class="title glitch" id="title" data-text="MOOT OF THE YEAR">MOOT OF THE YEAR</h1>
+      <p class="handle" id="handleLine"></p>
+      <p class="sub" id="sub"></p>
+    </div>
+
+    <div class="controls" id="controls">
+      <button id="toggle" type="button">⏸ pause</button>
+      <button id="mute" type="button">🔊 sound</button>
+      <button id="another" type="button">🔁 new moot</button>
+      <a class="share" id="shareBluesky" href="#" target="_blank" rel="noopener">share to bluesky</a>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var API = "https://public.api.bsky.app/xrpc/";
+        var DEFAULT_HANDLE = "antiali.as";
+
+        var canvas = document.getElementById("viz");
+        var ctx = canvas.getContext("2d");
+        var titleEl = document.getElementById("title");
+        var handleLineEl = document.getElementById("handleLine");
+        var subEl = document.getElementById("sub");
+        var kickerEl = document.getElementById("kicker");
+        var gateWrap = document.getElementById("gateWrap");
+        var gateForm = document.getElementById("gateForm");
+        var handleInput = document.getElementById("handleInput");
+        var gateBtn = document.getElementById("gate");
+        var gateStatus = document.getElementById("gateStatus");
+        var stageEl = document.getElementById("stage");
+        var controlsEl = document.getElementById("controls");
+        var toggleBtn = document.getElementById("toggle");
+        var muteBtn = document.getElementById("mute");
+        var anotherBtn = document.getElementById("another");
+        var shareLink = document.getElementById("shareBluesky");
+
+        handleInput.value = DEFAULT_HANDLE;
+
+        function cleanHandle(raw) {
+          var h = (raw || "").trim().replace(/^@/, "");
+          var m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+          if (m) h = m[1];
+          return h;
+        }
+
+        function xrpc(method, params) {
+          var qs = new URLSearchParams(params).toString();
+          return fetch(API + method + (qs ? "?" + qs : "")).then(function (res) {
+            if (!res.ok) throw new Error(res.statusText);
+            return res.json();
+          });
+        }
+
+        function stripForHeadline(text) {
+          return text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+        }
+
+        function findHeadlinePost(did) {
+          return xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 50, filter: "posts_no_replies" })
+            .then(function (feed) {
+              var posts = (feed.feed || [])
+                .filter(function (f) { return !f.reason && f.post && f.post.record && typeof f.post.record.text === "string"; })
+                .map(function (f) {
+                  return {
+                    text: stripForHeadline(f.post.record.text),
+                    likeCount: f.post.likeCount || 0,
+                    repostCount: f.post.repostCount || 0,
+                    quoteCount: f.post.quoteCount || 0,
+                    replyCount: f.post.replyCount || 0,
+                  };
+                })
+                .filter(function (p) { return p.text.length > 3; });
+              if (!posts.length) return null;
+              posts.forEach(function (p) {
+                p.score = p.likeCount + p.repostCount * 2 + p.quoteCount * 2 + p.replyCount;
+              });
+              posts.sort(function (a, b) { return b.score - a.score; });
+              return posts[0];
+            })
+            .catch(function () { return null; });
+        }
+
+        function loadImg(url) {
+          if (!url) return Promise.resolve(null);
+          return new Promise(function (resolve) {
+            var img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = function () { resolve(img); };
+            img.onerror = function () { resolve(null); };
+            img.src = url;
+          });
+        }
+
+        // ---------- canvas sizing ----------
+        var W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+        function resize() {
+          W = window.innerWidth; H = window.innerHeight;
+          canvas.width = W * DPR; canvas.height = H * DPR;
+          canvas.style.width = W + "px"; canvas.style.height = H + "px";
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // ---------- audio engine: 16-step drum machine + bass (same recipe as sonnethype) ----------
+        var audioCtx = null, master = null, analyser = null, freqData = null;
+        var BPM = 128, STEPS = 16;
+        var stepDur = 60 / BPM / 4;
+        var current16 = 0, nextTime = 0, timerId = null;
+        var lookahead = 25, scheduleAhead = 0.12;
+        var playing = false, muted = false;
+        var noiseBuffer = null;
+
+        var KICK  = [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0];
+        var SNARE = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
+        var HAT    = [1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,1,1];
+        var HATOPEN= [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1];
+        var NOTE = { A1: 55.0, C2: 65.41, E2: 82.41, G1: 49.0, D2: 73.42 };
+        var BASS = [
+          NOTE.A1, null, NOTE.A1, null, NOTE.C2, null, NOTE.A1, null,
+          NOTE.G1, null, NOTE.G1, null, NOTE.E2, null, NOTE.D2, null
+        ];
+
+        function makeNoiseBuffer() {
+          var len = audioCtx.sampleRate * 1;
+          var buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+          var d = buf.getChannelData(0);
+          for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+          return buf;
+        }
+
+        function initAudio() {
+          if (audioCtx) return;
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          master = audioCtx.createGain();
+          master.gain.value = 0.85;
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          freqData = new Uint8Array(analyser.frequencyBinCount);
+          master.connect(analyser);
+          analyser.connect(audioCtx.destination);
+          noiseBuffer = makeNoiseBuffer();
+          stepDur = 60 / BPM / 4;
+        }
+
+        function playKick(t) {
+          var osc = audioCtx.createOscillator();
+          var g = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(150, t);
+          osc.frequency.exponentialRampToValueAtTime(38, t + 0.14);
+          g.gain.setValueAtTime(1.0, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+          osc.connect(g); g.connect(master);
+          osc.start(t); osc.stop(t + 0.34);
+        }
+
+        function playSnare(t) {
+          var noise = audioCtx.createBufferSource();
+          noise.buffer = noiseBuffer;
+          var bp = audioCtx.createBiquadFilter();
+          bp.type = "bandpass"; bp.frequency.value = 1800; bp.Q.value = 0.9;
+          var ng = audioCtx.createGain();
+          ng.gain.setValueAtTime(0.9, t);
+          ng.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+          noise.connect(bp); bp.connect(ng); ng.connect(master);
+          noise.start(t); noise.stop(t + 0.18);
+
+          var osc = audioCtx.createOscillator();
+          var og = audioCtx.createGain();
+          osc.type = "triangle"; osc.frequency.value = 190;
+          og.gain.setValueAtTime(0.5, t);
+          og.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+          osc.connect(og); og.connect(master);
+          osc.start(t); osc.stop(t + 0.12);
+        }
+
+        function playHat(t, open) {
+          var noise = audioCtx.createBufferSource();
+          noise.buffer = noiseBuffer;
+          var hp = audioCtx.createBiquadFilter();
+          hp.type = "highpass"; hp.frequency.value = 7500;
+          var g = audioCtx.createGain();
+          var dur = open ? 0.22 : 0.045;
+          g.gain.setValueAtTime(open ? 0.35 : 0.28, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          noise.connect(hp); hp.connect(g); g.connect(master);
+          noise.start(t); noise.stop(t + dur + 0.02);
+        }
+
+        function playBass(t, freq, dur) {
+          var osc1 = audioCtx.createOscillator();
+          var osc2 = audioCtx.createOscillator();
+          var lp = audioCtx.createBiquadFilter();
+          var g = audioCtx.createGain();
+          osc1.type = "sawtooth"; osc1.frequency.value = freq;
+          osc2.type = "square"; osc2.frequency.value = freq * 0.5;
+          lp.type = "lowpass";
+          lp.frequency.setValueAtTime(900, t);
+          lp.frequency.exponentialRampToValueAtTime(220, t + dur);
+          lp.Q.value = 4;
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          osc1.connect(lp); osc2.connect(lp); lp.connect(g); g.connect(master);
+          osc1.start(t); osc2.start(t); osc1.stop(t + dur + 0.02); osc2.stop(t + dur + 0.02);
+        }
+
+        var kickPulse = 0, snarePulse = 0, hatPulse = 0, flash = 0;
+
+        function scheduleStep(step, t) {
+          var i = step % STEPS;
+          if (KICK[i]) { playKick(t); schedulePulse(t, "kick"); }
+          if (SNARE[i]) { playSnare(t); schedulePulse(t, "snare"); }
+          if (HAT[i]) { playHat(t, false); schedulePulse(t, "hat"); }
+          if (HATOPEN[i]) playHat(t, true);
+          if (BASS[i]) playBass(t, BASS[i], stepDur * 1.9);
+
+          if (i === 0) {
+            var delay = Math.max(0, (t - audioCtx.currentTime) * 1000);
+            setTimeout(nextCaption, delay);
+          }
+        }
+
+        function schedulePulse(t, kind) {
+          var delay = Math.max(0, (t - audioCtx.currentTime) * 1000);
+          setTimeout(function () {
+            if (kind === "kick") kickPulse = 1;
+            if (kind === "snare") { snarePulse = 1; flash = 0.5; }
+            if (kind === "hat") hatPulse = Math.max(hatPulse, 0.5);
+          }, delay);
+        }
+
+        function scheduler() {
+          while (nextTime < audioCtx.currentTime + scheduleAhead) {
+            scheduleStep(current16, nextTime);
+            nextTime += stepDur;
+            current16 = (current16 + 1) % STEPS;
+          }
+          timerId = setTimeout(scheduler, lookahead);
+        }
+
+        function startAudio() {
+          initAudio();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+          nextTime = audioCtx.currentTime + 0.05;
+          current16 = 0;
+          scheduler();
+        }
+        function stopAudio() {
+          if (timerId) clearTimeout(timerId);
+          timerId = null;
+        }
+
+        // ---------- captions, built from the moot's real data once loaded ----------
+        var LINES = ["presenting the 2026 moot of the year"];
+        var lineIdx = -1;
+        function nextCaption() {
+          lineIdx = (lineIdx + 1) % LINES.length;
+          subEl.classList.remove("show");
+          setTimeout(function () {
+            subEl.textContent = LINES[lineIdx];
+            subEl.classList.add("show");
+          }, 180);
+        }
+
+        function buildLines(profile, top) {
+          var who = "@" + profile.handle;
+          var lines = [
+            "presenting the 2026 moot of the year",
+            who,
+          ];
+          if (top) {
+            lines.push('"' + (top.text.length > 90 ? top.text.slice(0, 89) + "…" : top.text) + '"');
+            lines.push(top.likeCount + " likes · " + top.repostCount + " reposts on the cover post");
+          } else {
+            lines.push("new to the timeline. the year is still theirs to lose.");
+          }
+          lines.push((profile.followersCount || 0) + " followers · " + (profile.postsCount || 0) + " posts");
+          lines.push("chosen by @buildthis.bisks.net");
+          lines.push("crown your own moot → mootoftheyear.bisks.net");
+          return lines;
+        }
+
+        // ---------- canvas visuals ----------
+        var avatarImg = null;
+        var particles = [];
+        for (var p = 0; p < 50; p++) {
+          particles.push({
+            a: Math.random() * Math.PI * 2,
+            r: 60 + Math.random() * 560,
+            spd: 0.15 + Math.random() * 0.4,
+            size: 1.5 + Math.random() * 2.6
+          });
+        }
+
+        function drawCoverFit(c, img, x, y, w, h) {
+          var ir = img.width / img.height, r = w / h;
+          var sx, sy, sw, sh;
+          if (ir > r) { sh = img.height; sw = sh * r; sx = (img.width - sw) / 2; sy = 0; }
+          else { sw = img.width; sh = sw / r; sx = 0; sy = (img.height - sh) / 2; }
+          c.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+        }
+
+        var t0 = null;
+        function draw(ts) {
+          if (t0 === null) t0 = ts;
+          var time = (ts - t0) / 1000;
+
+          ctx.fillStyle = "rgba(23,19,15,0.26)";
+          ctx.fillRect(0, 0, W, H);
+
+          var cx = W / 2, cy = H * 0.42;
+
+          kickPulse *= 0.90;
+          snarePulse *= 0.85;
+          hatPulse *= 0.8;
+          flash *= 0.86;
+
+          // perspective grid, red-tinted, brighter on kick
+          var gridColor = "rgba(210,31,31," + (0.12 + kickPulse * 0.35) + ")";
+          ctx.strokeStyle = gridColor;
+          ctx.lineWidth = 1;
+          var horizon = cy + H * 0.34;
+          var spacing = 46;
+          var scroll = (time * 65) % spacing;
+          ctx.beginPath();
+          for (var gy = horizon; gy < H + spacing; gy += spacing) {
+            var yy = gy + scroll;
+            if (yy > H) continue;
+            ctx.moveTo(0, yy); ctx.lineTo(W, yy);
+          }
+          for (var gx = -20; gx <= 20; gx++) {
+            var xx = cx + gx * spacing * 2.2;
+            ctx.moveTo(cx, horizon);
+            ctx.lineTo(xx, H);
+          }
+          ctx.stroke();
+
+          // radial glow behind the avatar, pulsing on kick
+          var glowR = Math.min(W, H) * (0.24 + kickPulse * 0.05);
+          var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR * 1.6);
+          grad.addColorStop(0, "rgba(255,90,74," + (0.35 + kickPulse * 0.25) + ")");
+          grad.addColorStop(1, "rgba(255,90,74,0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(cx, cy, glowR * 1.6, 0, Math.PI * 2);
+          ctx.fill();
+
+          // avatar photo, circular frame, scaling with kick
+          var baseR = Math.min(W, H) * 0.2;
+          var r = baseR * (1 + kickPulse * 0.05);
+          if (avatarImg) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.clip();
+            drawCoverFit(ctx, avatarImg, cx - r, cy - r, r * 2, r * 2);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = "#e8ddc4";
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.lineWidth = 6;
+          ctx.strokeStyle = "rgba(247,243,234,0.92)";
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // gold ribbon, slowly rotating, snapping brighter on snare
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.translate(cx, cy);
+          ctx.rotate(Math.PI / 4 + time * 0.15);
+          ctx.fillStyle = "rgba(201,162,39," + (0.92 + snarePulse * 0.08) + ")";
+          ctx.fillRect(-r * 1.3, -20 - snarePulse * 4, r * 2.6, 40 + snarePulse * 8);
+          ctx.fillStyle = "#241c0a";
+          ctx.textAlign = "center";
+          ctx.font = "800 " + Math.round(r * 0.13) + "px ui-monospace, monospace";
+          ctx.fillText("MOOT OF THE YEAR", 0, r * 0.045);
+          ctx.restore();
+
+          // camera-flash pop on snare
+          if (flash > 0.01) {
+            ctx.fillStyle = "rgba(247,243,234," + (flash * 0.5) + ")";
+            ctx.fillRect(0, 0, W, H);
+          }
+
+          // orbiting gold particles, drift faster with hats
+          ctx.fillStyle = "rgba(201,162,39,0.85)";
+          for (var i = 0; i < particles.length; i++) {
+            var pt = particles[i];
+            pt.a += pt.spd * 0.01 * (1 + hatPulse);
+            var rr = pt.r - ((time * 12 + i * 10) % pt.r);
+            var x = cx + Math.cos(pt.a) * rr;
+            var y = cy + Math.sin(pt.a) * rr * 0.55;
+            var alpha = 1 - rr / pt.r;
+            ctx.globalAlpha = Math.max(0, alpha);
+            ctx.beginPath();
+            ctx.arc(x, y, pt.size, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+
+          // frequency bars, mirrored, bottom of screen
+          if (analyser) {
+            analyser.getByteFrequencyData(freqData);
+            var n = 48;
+            var bw = W / n;
+            for (var b = 0; b < n; b++) {
+              var v = freqData[Math.floor((b / n) * freqData.length * 0.6)] / 255;
+              var bh = v * H * 0.22;
+              var hue = b / n;
+              ctx.fillStyle = "rgba(" +
+                Math.round(210 + hue * 45) + "," +
+                Math.round(31 + hue * 130) + "," +
+                Math.round(31 + hue * 40) + "," + (0.5 + v * 0.4) + ")";
+              ctx.fillRect(b * bw, H - bh, bw * 0.7, bh);
+            }
+          }
+
+          var scale = 1 + kickPulse * 0.04;
+          titleEl.style.transform = "scale(" + scale.toFixed(3) + ")";
+
+          requestAnimationFrame(draw);
+        }
+        requestAnimationFrame(draw);
+
+        setInterval(function () {
+          if (Math.random() < 0.3) {
+            titleEl.classList.add("glitch");
+            setTimeout(function () { titleEl.classList.remove("glitch"); }, 120 + Math.random() * 160);
+          }
+        }, 1300);
+
+        // ---------- load + play ----------
+        function setGateStatus(msg, isErr) {
+          gateStatus.textContent = msg || "";
+          gateStatus.className = "gateStatus" + (isErr ? " err" : "");
+        }
+
+        function loadMoot(rawHandle) {
+          var handle = cleanHandle(rawHandle) || DEFAULT_HANDLE;
+          gateBtn.disabled = true;
+          setGateStatus("pulling @" + handle + "'s file...");
+
+          var didP = handle.indexOf("did:") === 0
+            ? Promise.resolve(handle)
+            : xrpc("com.atproto.identity.resolveHandle", { handle: handle }).then(function (r) { return r.did; });
+
+          return didP.then(function (did) {
+            return xrpc("app.bsky.actor.getProfile", { actor: did }).then(function (profile) {
+              setGateStatus("scanning the feed for a cover story...");
+              return findHeadlinePost(did).then(function (top) {
+                var proxiedAvatar = profile.avatar ? "/img?u=" + encodeURIComponent(profile.avatar) : null;
+                return loadImg(proxiedAvatar).then(function (img) {
+                  return { profile: profile, top: top, img: img };
+                });
+              });
+            });
+          }).catch(function (err) {
+            setGateStatus("couldn't pull that one: " + err.message, true);
+            gateBtn.disabled = false;
+            return null;
+          });
+        }
+
+        function beginPlayback(data) {
+          avatarImg = data.img;
+          LINES = buildLines(data.profile, data.top);
+          lineIdx = -1;
+          handleLineEl.textContent = "@" + data.profile.handle;
+
+          var url = "https://mootoftheyear.bisks.net/hype/";
+          var shareText = "@" + data.profile.handle + " just got the MOOT HYPE REEL treatment — synthesized beat, canvas visuals, cover-worthy. " + url;
+          shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+          gateWrap.style.display = "none";
+          stageEl.style.display = "flex";
+          controlsEl.classList.add("show");
+          gateBtn.disabled = false;
+
+          startAudio();
+          playing = true;
+          nextCaption();
+        }
+
+        gateForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          loadMoot(handleInput.value).then(function (data) {
+            if (data) beginPlayback(data);
+          });
+        });
+
+        toggleBtn.addEventListener("click", function () {
+          if (playing) {
+            stopAudio();
+            if (audioCtx) audioCtx.suspend();
+            playing = false;
+            toggleBtn.textContent = "▶ play";
+          } else {
+            if (audioCtx) audioCtx.resume();
+            nextTime = audioCtx.currentTime + 0.05;
+            current16 = 0;
+            scheduler();
+            playing = true;
+            toggleBtn.textContent = "⏸ pause";
+          }
+        });
+
+        muteBtn.addEventListener("click", function () {
+          muted = !muted;
+          if (master) master.gain.value = muted ? 0 : 0.85;
+          muteBtn.textContent = muted ? "🔇 muted" : "🔊 sound";
+        });
+
+        anotherBtn.addEventListener("click", function () {
+          stopAudio();
+          if (audioCtx) audioCtx.suspend();
+          playing = false;
+          avatarImg = null;
+          controlsEl.classList.remove("show");
+          stageEl.style.display = "none";
+          gateWrap.style.display = "flex";
+          setGateStatus("pick another moot, or run it back.");
+        });
+
+        // ?h=<handle> auto-plays on load, same convention as the cover generator.
+        var sharedHandle = new URLSearchParams(location.search).get("h");
+        if (sharedHandle) {
+          handleInput.value = sharedHandle;
+          loadMoot(sharedHandle).then(function (data) {
+            if (data) beginPlayback(data);
+          });
+        }
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
