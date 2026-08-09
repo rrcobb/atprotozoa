@@ -12,11 +12,12 @@
 //
 // Scope is narrowed to exactly what goodsky touches: create-only on
 // app.bsky.feed.post (posts/replies), create+delete on app.bsky.feed.like,
-// app.bsky.feed.repost, and app.bsky.graph.block, plus rpc grants for the
-// four calls proxied through the user's own PDS to the AppView (personal
-// timeline, notifications list/seen/unread-count). Everything else goodsky
-// reads (profiles, threads, search, other people's feeds) goes through the
-// public unauthenticated AppView and needs no scope at all. Same pattern as
+// app.bsky.feed.repost, and app.bsky.graph.block, image blob uploads for post
+// attachments, plus rpc grants for the four calls proxied through the user's
+// own PDS to the AppView (personal timeline, notifications
+// list/seen/unread-count). Everything else goodsky reads (profiles, threads,
+// search, other people's feeds) goes through the public unauthenticated
+// AppView and needs no scope at all. Same pattern as
 // sites/skyclone/public/lib/oauth.js — see notes/50-oauth-scopes.md.
 
 import {
@@ -35,7 +36,7 @@ const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE =
-  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create&action=delete repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.graph.block?action=create&action=delete rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.listNotifications?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.updateSeen?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.getUnreadCount?aud=did:web:api.bsky.app%23bsky_appview";
+  "atproto repo:app.bsky.feed.post?action=create repo:app.bsky.feed.like?action=create&action=delete repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.graph.block?action=create&action=delete blob:image/* rpc:app.bsky.feed.getTimeline?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.listNotifications?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.updateSeen?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.notification.getUnreadCount?aud=did:web:api.bsky.app%23bsky_appview";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

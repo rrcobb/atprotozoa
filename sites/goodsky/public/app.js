@@ -369,6 +369,7 @@ function openReplyModal(trigger) {
       <h2>Reply${toHandle ? ` to @${esc(toHandle)}` : ""}</h2>
       <p>A real app.bsky.feed.post, written straight to your own repo.</p>
       <textarea id="reply-text" maxlength="300" placeholder="Say something…" autocomplete="off"></textarea>
+      ${imagePickerHtml("reply")}
       <div class="reply-count-hint" id="reply-chars">300</div>
       <div class="modal-actions">
         <button type="button" id="reply-cancel" class="pill-btn">Cancel</button>
@@ -379,6 +380,7 @@ function openReplyModal(trigger) {
   document.body.appendChild(box);
   const input = document.getElementById("reply-text");
   const chars = document.getElementById("reply-chars");
+  const images = wireImagePicker(box, "reply");
   input.focus();
   input.addEventListener("input", () => {
     chars.textContent = String(300 - input.value.length);
@@ -391,10 +393,12 @@ function openReplyModal(trigger) {
   const status = document.getElementById("reply-status");
   const submit = async () => {
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !images.length) return;
     go.disabled = true;
-    status.textContent = "Posting…";
+    status.textContent = images.length ? "Uploading images…" : "Posting…";
     try {
+      const embed = await uploadImagesEmbed(images);
+      status.textContent = "Posting…";
       const { dpopFetch } = await oauth();
       const pds = session.pdsUrl.replace(/\/$/, "");
       const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
@@ -407,6 +411,7 @@ function openReplyModal(trigger) {
             $type: "app.bsky.feed.post",
             text,
             reply: { root, parent },
+            ...(embed ? { embed } : {}),
             createdAt: new Date().toISOString(),
           },
         }),
@@ -449,6 +454,7 @@ function openComposeModal() {
       <h2>New post</h2>
       <p>A real app.bsky.feed.post, written straight to your own repo.</p>
       <textarea id="compose-text" maxlength="300" placeholder="What's on your mind?" autocomplete="off"></textarea>
+      ${imagePickerHtml("compose")}
       <div class="reply-count-hint" id="compose-chars">300</div>
       <div class="modal-actions">
         <button type="button" id="compose-cancel" class="pill-btn">Cancel</button>
@@ -459,6 +465,7 @@ function openComposeModal() {
   document.body.appendChild(box);
   const input = document.getElementById("compose-text");
   const chars = document.getElementById("compose-chars");
+  const images = wireImagePicker(box, "compose");
   input.focus();
   input.addEventListener("input", () => {
     chars.textContent = String(300 - input.value.length);
@@ -471,10 +478,12 @@ function openComposeModal() {
   const status = document.getElementById("compose-status");
   const submit = async () => {
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !images.length) return;
     go.disabled = true;
-    status.textContent = "Posting…";
+    status.textContent = images.length ? "Uploading images…" : "Posting…";
     try {
+      const embed = await uploadImagesEmbed(images);
+      status.textContent = "Posting…";
       const { dpopFetch } = await oauth();
       const pds = session.pdsUrl.replace(/\/$/, "");
       const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
@@ -486,6 +495,7 @@ function openComposeModal() {
           record: {
             $type: "app.bsky.feed.post",
             text,
+            ...(embed ? { embed } : {}),
             createdAt: new Date().toISOString(),
           },
         }),
@@ -505,6 +515,98 @@ function openComposeModal() {
 }
 function closeComposeModal() {
   document.getElementById("compose-modal")?.remove();
+}
+
+// ---------- image attachments (compose/reply) ----------
+//
+// Up to 4 images per post, uploaded as real com.atproto.repo.uploadBlob blobs
+// straight to the user's own PDS at submit time, then wired into the post
+// record as a normal app.bsky.embed.images — the same embed shape imagesEmbed()
+// already renders on read. `prefix` ("compose"/"reply") namespaces element ids
+// so both modals can be open... well, one at a time, but keeps them distinct.
+
+const MAX_IMAGES = 4;
+const MAX_IMAGE_BYTES = 1000000; // Bluesky's per-image blob cap (~976.6KB)
+
+function imagePickerHtml(prefix) {
+  return `<div class="modal-toolbar">
+    <label class="modal-img-btn" id="${prefix}-img-btn" title="Add image (up to ${MAX_IMAGES})">
+      🖼️<input type="file" id="${prefix}-img-input" accept="image/*" multiple hidden>
+    </label>
+  </div>
+  <div class="compose-imgs" id="${prefix}-imgs"></div>`;
+}
+
+// Alt text matters here beyond accessibility: goodposts.js's own scorePost()
+// gives a small bonus for images with alt text on every image (see the
+// "image alt text present" signal) — filling it in is the one thing you can
+// do to help your own post clear someone else's filter, not just a courtesy.
+function composeImgItemHtml(img, i) {
+  return `<div class="compose-img-item">
+    <img src="${img.previewUrl}" alt="">
+    <span class="rm" data-idx="${i}" title="Remove">✕</span>
+    <input class="alt" data-idx="${i}" placeholder="Alt text" value="${esc(img.alt)}" maxlength="1000">
+  </div>`;
+}
+
+function wireImagePicker(box, prefix) {
+  const images = [];
+  const input = box.querySelector(`#${prefix}-img-input`);
+  const btn = box.querySelector(`#${prefix}-img-btn`);
+  const strip = box.querySelector(`#${prefix}-imgs`);
+  const renderStrip = () => {
+    strip.innerHTML = images.map(composeImgItemHtml).join("");
+    btn.style.display = images.length >= MAX_IMAGES ? "none" : "";
+    strip.querySelectorAll(".rm").forEach((el) => {
+      el.addEventListener("click", () => {
+        const i = Number(el.getAttribute("data-idx"));
+        URL.revokeObjectURL(images[i].previewUrl);
+        images.splice(i, 1);
+        renderStrip();
+      });
+    });
+    strip.querySelectorAll("input.alt").forEach((el) => {
+      el.addEventListener("input", () => {
+        images[Number(el.getAttribute("data-idx"))].alt = el.value;
+      });
+    });
+  };
+  input.addEventListener("change", () => {
+    for (const file of input.files) {
+      if (images.length >= MAX_IMAGES) break;
+      if (!file.type.startsWith("image/")) continue;
+      if (file.size > MAX_IMAGE_BYTES) {
+        showToast(`${file.name} is over 1MB — skipped`, "err");
+        continue;
+      }
+      images.push({ file, alt: "", previewUrl: URL.createObjectURL(file) });
+    }
+    input.value = "";
+    renderStrip();
+  });
+  renderStrip();
+  return images;
+}
+
+// Uploads every picked image as its own blob, in order, and returns a ready
+// app.bsky.embed.images embed — or undefined if there's nothing to attach, so
+// callers can spread it straight into a record with `...(embed ? {embed} : {})`.
+async function uploadImagesEmbed(images) {
+  if (!images.length) return undefined;
+  const { dpopFetch } = await oauth();
+  const pds = session.pdsUrl.replace(/\/$/, "");
+  const out = [];
+  for (const img of images) {
+    const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.uploadBlob`, {
+      method: "POST",
+      headers: { "content-type": img.file.type || "application/octet-stream" },
+      body: img.file,
+    });
+    if (!res.ok) throw new Error(`image upload failed (${res.status})`);
+    const data = await res.json();
+    out.push({ image: data.blob, alt: img.alt || "" });
+  }
+  return { $type: "app.bsky.embed.images", images: out };
 }
 
 // ---------- small helpers ----------
@@ -1043,8 +1145,8 @@ function asideHtml() {
   </div>
   <div class="aside-card">
     <h2>What is this?</h2>
-    <p>skyclone is a fan-made rebuild of the bsky.app web client. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
-    <p>Browse without an account, or log in with OAuth to see your real home timeline, spin your own posts, catch posts in your web (a real like, no hearts), repost, and reply — genuine writes to your own repo. skyclone never follows for you. Real notifications live in the 🔔 tab — a spider crawls across your screen when a new one comes in. For DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
+    <p>goodsky is a fan-made rebuild of the bsky.app web client, with a transparent quality filter over every feed. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
+    <p>Browse without an account, or log in with OAuth to see your real home timeline (filtered, same as everything else here), like, repost, and reply — genuine writes to your own repo. goodsky never follows for you. Real notifications live in the 🔔 tab. For DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
@@ -1644,7 +1746,7 @@ function metaLikeActionHtml(likeUri, likeCid, count) {
   </span>`;
 }
 
-// Like actorRow, but with a spider badge that drills into who meta-liked
+// Like actorRow, but with a meta-like badge that drills into who meta-liked
 // *this* liker's like of `subjectUri` — the same MetaLikesView, one level
 // deeper each click, since a like's own "liked by" list is exactly as
 // meta-likeable as anything else.
@@ -1832,12 +1934,13 @@ async function SearchView(main, params) {
 
 function AboutView(main) {
   main.innerHTML =
-    headerHtml("About skyclone") +
+    headerHtml("About goodsky") +
     `<div style="padding:16px;font-size:15px;line-height:1.6">
-      <p><b>skyclone</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, search, and notifications, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own.</p>
-      <p>No account is required to browse. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — skyclone never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: catching a post in your web is a genuine <code>app.bsky.feed.like</code> (drawn as a spider, not a heart), 🪰 is a genuine <code>app.bsky.feed.repost</code> (a fly, loosed back into the web), and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref. skyclone still never follows anyone or touches your DMs for you.</p>
-      <p>Notifications (🔔) are real too — a genuine <code>app.bsky.notification.listNotifications</code> call through your own PDS. skyclone quietly polls for new ones in the background, and when one lands, a spider crawls across your screen. AHH!</p>
-      <p>Every "Liked by" list also has a 🕸️ next to each name — a like's subject can be any record per the lexicon, including someone else's like, so skyclone lets you like a like (a real write) and see who's meta-liked it. bsky.app never built this UI; it isn't hiding, it's just not exposed. Keep clicking through and it's meta-likes all the way down.</p>
+      <p><b>goodsky</b> is an unofficial rebuild of the bsky.app web client — the home feed, profiles, threads, feed discovery, search, and notifications, all wired to Bluesky's live public AppView (<code>public.api.bsky.app</code>) instead of a database of its own — with one addition: every feed runs through <b>Good posts only</b>, a small, transparent, adjustable quality filter (see the bar above any feed, and the "why?" link on it).</p>
+      <p>The filter (<code>lib/goodposts.js</code>) is a fixed set of legible heuristics scored entirely in your browser against fields the AppView already returns on every post — bait/spam phrasing, shouting, hashtag-stuffing, reply-heavy "ratio'd" posts, bare unlabeled links, very-short low-context posts, with small bonuses for image alt text and genuine reply/quote commentary. No model, no server, no per-user training, nothing hidden: every score comes with reasons you can inspect, and three thresholds (Lenient/Balanced/Strict) trade off how aggressively it cuts. It deliberately does not filter by viewpoint, topic, sensitivity label, verification, or follower count — that's a different, more fraught kind of filtering than flagging quality signals, and goodsky only does the latter.</p>
+      <p>No account is required to browse — the Discover feed and any custom feed run through the filter for guests too. Logging in is optional and uses real atproto OAuth (PKCE + DPoP) straight to your own PDS — goodsky never sees your password — and unlocks your actual home timeline (<code>app.bsky.feed.getTimeline</code>, proxied through your PDS, filtered the same way). Every byte you see (posts, likes, follower counts, avatars) is fetched fresh from Bluesky at request time; nothing is stored server-side. Interactions are real writes to your own repo, straight to your PDS, no AppView proxy: ❤️ is a genuine <code>app.bsky.feed.like</code>, 🔁 is a genuine <code>app.bsky.feed.repost</code>, and 💬 opens a compose box that writes a genuine <code>app.bsky.feed.post</code> with a real reply ref, images and all. goodsky still never follows anyone or touches your DMs for you.</p>
+      <p>Notifications (🔔) are real too — a genuine <code>app.bsky.notification.listNotifications</code> call through your own PDS. goodsky quietly polls for new ones in the background and toasts you when one lands.</p>
+      <p>Every "Liked by" list also has a 🤍 next to each name — a like's subject can be any record per the lexicon, including someone else's like, so goodsky lets you like a like (a real write) and see who's meta-liked it. bsky.app never built this UI; it isn't hiding, it's just not exposed. Keep clicking through and it's meta-likes all the way down.</p>
       <p>For DMs or the full posting experience, you still want the real <a class="rt-link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a> — this is a for-fun exercise in the atproto ecosystem, not a replacement.</p>
       <p>Not affiliated with or endorsed by Bluesky PBC. Built as part of <a class="rt-link" href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a>, a garden of tiny atproto experiments — <a class="rt-link" href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source on GitHub</a>.</p>
     </div>`;
