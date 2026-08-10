@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fantasy duel — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter two atproto handles. Each gets turned into a fantasy character — class, race, weapon, stats like Tweet Strength and Follower Agility — and a made-up battle decides who wins."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="fantasy duel — two handles enter, one character wins" />
+    <meta
+      property="og:description"
+      content="Two atproto accounts become fantasy characters — class, race, weapon, Tweet Strength, Follower Agility — and a narrated battle decides the winner. Same pairing, same fight, every time."
+    />
+    <meta property="og:image" content="https://fantasyduel.bisks.net/og.png" />
+    <meta property="og:url" content="https://fantasyduel.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="fantasy duel — two handles enter, one character wins" />
+    <meta
+      name="twitter:description"
+      content="Two atproto accounts become fantasy characters and fight it out — Tweet Strength, Follower Agility, and a narrated battle log decide it."
+    />
+    <meta name="twitter:image" content="https://fantasyduel.bisks.net/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --bg: #100b06; --ink: #f3e9d6; --muted: #a99a80; --faint: #1c1409; --card: #191106;
+        --border: #3a2c15; --a: #ff9d4d; --b: #6fc4ff; --gold: #ffd166;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header { margin-bottom: 0.6rem; }
+      h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .vs { color: var(--gold); }
+      .intro { color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.88rem; line-height: 1.75; max-width: 64ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--b); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .fighters { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: end; }
+      .fighter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .fighter-field label { font-size: 0.76rem; color: var(--muted); }
+      .fighter-field.left label { color: var(--a); }
+      .fighter-field.right label { color: var(--b); }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: var(--faint); color: var(--ink); border-radius: 6px;
+      }
+      input[type="text"]::placeholder { color: #6b5f45; }
+      .fighter-field.left input:focus { border-color: var(--a); outline: none; }
+      .fighter-field.right input:focus { border-color: var(--b); outline: none; }
+      .vs-glyph { font-weight: 700; color: var(--gold); padding-bottom: 0.6rem; text-align: center; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--border); background: var(--ink); color: #241708;
+        border-radius: 6px; cursor: pointer; font-weight: 700;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #291d09; width: 100%; margin-top: 1rem; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.6rem; }
+
+      .status { font-size: 0.82rem; color: var(--muted); min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: #ff8a6a; }
+
+      #arena { display: none; }
+      .sheets { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; margin-bottom: 1.1rem; }
+      .sheet { border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; background: var(--faint); text-align: center; }
+      .sheet.left { border-top: 3px solid var(--a); }
+      .sheet.right { border-top: 3px solid var(--b); }
+      .sheet img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--card); }
+      .sheet .handle { font-weight: 700; font-size: 0.82rem; margin-top: 0.4rem; word-break: break-word; }
+      .sheet.left .handle { color: var(--a); }
+      .sheet.right .handle { color: var(--b); }
+      .sheet .char-name { font-size: 1.02rem; font-weight: 700; color: var(--ink); margin-top: 0.3rem; }
+      .sheet .char-title { font-size: 0.74rem; color: var(--gold); margin-top: 0.1rem; }
+      .sheet .char-weapon { font-size: 0.74rem; color: var(--muted); margin-top: 0.35rem; font-style: italic; }
+
+      .stat-row { margin-bottom: 0.7rem; }
+      .stat-row .stat-label {
+        display: flex; justify-content: space-between; font-size: 0.72rem;
+        color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 0.3rem;
+      }
+      .stat-track { display: flex; align-items: center; gap: 0.5rem; }
+      .bar-wrap { flex: 1; height: 10px; border-radius: 999px; background: var(--faint); overflow: hidden; position: relative; }
+      .bar-wrap.right { transform: scaleX(-1); }
+      .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.9s cubic-bezier(.2,.8,.2,1); }
+      .bar-fill.a { background: linear-gradient(90deg, #ff9d4d, #ffc98a); }
+      .bar-fill.b { background: linear-gradient(90deg, #6fc4ff, #9fdcff); }
+      .stat-val { font-size: 0.74rem; color: var(--muted); width: 2.4em; text-align: center; flex: none; }
+
+      .power-row { margin: 1rem 0 0.4rem; }
+      .power-row .stat-label { font-size: 0.8rem; color: var(--ink); font-weight: 700; }
+      .power-row .bar-fill { height: 16px; }
+      .power-row .bar-wrap { height: 16px; }
+
+      #battle-log { margin: 1.2rem 0; }
+      #battle-log .log-line {
+        padding: 0.5rem 0.7rem; border-left: 3px solid var(--border); margin-bottom: 0.4rem;
+        font-size: 0.85rem; color: var(--ink); background: var(--faint); border-radius: 0 6px 6px 0;
+        opacity: 0; transform: translateX(-6px); transition: opacity 0.3s, transform 0.3s;
+      }
+      #battle-log .log-line.show { opacity: 1; transform: translateX(0); }
+
+      #result { margin-top: 1.2rem; opacity: 0; transform: translateY(6px); transition: opacity 0.4s, transform 0.4s; }
+      #result.show { opacity: 1; transform: translateY(0); }
+      .banner {
+        border-radius: 10px; padding: 1.1rem 1.2rem; text-align: center;
+        border: 1px solid var(--gold); background: linear-gradient(155deg, rgba(255,209,102,0.16), rgba(255,157,77,0.08));
+      }
+      .banner h2 { margin: 0 0 0.3rem; font-size: 1.25rem; }
+      .banner p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+      canvas#share-canvas { display: none; }
+
+      .howitworks summary { cursor: pointer; color: var(--b); font-size: 0.85rem; }
+      .howitworks p { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+
+      footer { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--b); }
+
+      @media (max-width: 520px) {
+        .sheets { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">fantasy<span class="vs"> ⚔ </span>duel</a></h1>
+      </header>
+      <p class="intro">
+        Enter two atproto handles. Each gets turned into a fantasy character —
+        a race, a class, a title, and a signature weapon — with stats pulled
+        from their real public profile: <b>Tweet Strength</b> (post count),
+        <b>Follower Agility</b> (follower/follow ratio), <b>Bio Cunning</b>
+        (profile flair), and <b>Clout Aura</b> (follower count). A narrated,
+        completely made-up battle decides the winner. Same two handles always
+        get the same fight — it's a duel, not a coin flip.
+      </p>
+
+      <div class="card">
+        <div class="label">choose your combatants</div>
+        <div class="fighters">
+          <div class="fighter-field left">
+            <label for="handle-a">combatant one</label>
+            <input type="text" id="handle-a" placeholder="you.bsky.social" />
+          </div>
+          <div class="vs-glyph">VS</div>
+          <div class="fighter-field right">
+            <label for="handle-b">combatant two</label>
+            <input type="text" id="handle-b" placeholder="a.rival.bsky.social" />
+          </div>
+        </div>
+        <button class="primary" id="duel-go">SUMMON &amp; DUEL</button>
+        <div class="status" id="duel-status"></div>
+      </div>
+
+      <div id="arena" class="card">
+        <div class="sheets">
+          <div class="sheet left">
+            <img id="av-a" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-a">—</div>
+            <div class="char-name" id="cn-a"></div>
+            <div class="char-title" id="ct-a"></div>
+            <div class="char-weapon" id="cw-a"></div>
+          </div>
+          <div class="sheet right">
+            <img id="av-b" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-b">—</div>
+            <div class="char-name" id="cn-b"></div>
+            <div class="char-title" id="ct-b"></div>
+            <div class="char-weapon" id="cw-b"></div>
+          </div>
+        </div>
+
+        <div id="stat-rows"></div>
+
+        <div class="power-row stat-row">
+          <div class="stat-label"><span>total power</span><span>total power</span></div>
+          <div class="stat-track">
+            <span class="stat-val" id="pv-a"></span>
+            <div class="bar-wrap"><div class="bar-fill a" id="pb-a"></div></div>
+            <div class="bar-wrap right"><div class="bar-fill b" id="pb-b"></div></div>
+            <span class="stat-val" id="pv-b"></span>
+          </div>
+        </div>
+
+        <div id="battle-log"></div>
+
+        <div id="result">
+          <div class="banner" id="banner">
+            <h2 id="banner-title">—</h2>
+            <p id="banner-sub"></p>
+          </div>
+          <div class="row" style="margin-top: 1rem">
+            <a id="share-result" target="_blank" rel="noopener" href="#">
+              <button class="tiny">share this duel</button>
+            </a>
+            <button class="tiny ghost" id="share-download">download card</button>
+            <button class="tiny ghost" id="share-native" style="display: none">share card</button>
+            <button class="tiny ghost" id="rematch">new duel</button>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+      <details class="howitworks">
+        <summary>how does this work?</summary>
+        <p>
+          Each handle's public profile (<code>app.bsky.actor.getProfile</code>)
+          feeds four stats: <b>Tweet Strength</b> from post count, <b>Follower
+          Agility</b> from the follower/follow ratio, <b>Bio Cunning</b> from
+          bio length and profile polish, <b>Clout Aura</b> from raw follower
+          count. Whichever stat is highest picks a class — a Berserker leads
+          with Strength, a Scout with Agility, a Hedge Wizard with Cunning, a
+          Paladin with Aura. Race, weapon, and title are picked from a seeded
+          roll on the account's own DID, so a character looks the same no
+          matter who they're matched against. The fight itself adds one more
+          seeded roll — Fortune — then narrates five rounds and lets total
+          power (weighted stats + Fortune) decide who wins. The whole thing is
+          seeded off a hash of both DIDs together, so a rematch between the
+          same two handles always plays out the same way.
+        </p>
+      </details>
+
+      <footer>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a>. every character and every swing is
+        entirely made up — nobody's actual tweets got hurt.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { getProfile } from "./lib/atproto.js";
+      import { duel } from "./lib/duel.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const SITE_URL = "https://fantasyduel.bisks.net";
+
+      if (window.attachHandleTypeahead) {
+        attachHandleTypeahead($("#handle-a"));
+        attachHandleTypeahead($("#handle-b"));
+      }
+
+      function setStatus(msg, isErr) {
+        const el = $("#duel-status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      const STAT_LABELS = { str: "tweet strength", agi: "follower agility", int: "bio cunning", aur: "clout aura", luck: "fortune" };
+
+      function renderStatRows(a, b) {
+        const rows = Object.keys(STAT_LABELS)
+          .map((key) => {
+            const va = key === "luck" ? a.luck : a.stats[key];
+            const vb = key === "luck" ? b.luck : b.stats[key];
+            return `
+          <div class="stat-row">
+            <div class="stat-label"><span>${STAT_LABELS[key]}</span><span>${STAT_LABELS[key]}</span></div>
+            <div class="stat-track">
+              <span class="stat-val">${Math.round(va)}</span>
+              <div class="bar-wrap"><div class="bar-fill a" data-stat="${key}" data-side="a"></div></div>
+              <div class="bar-wrap right"><div class="bar-fill b" data-stat="${key}" data-side="b"></div></div>
+              <span class="stat-val">${Math.round(vb)}</span>
+            </div>
+          </div>`;
+          })
+          .join("");
+        $("#stat-rows").innerHTML = rows;
+      }
+
+      function animateBars(a, b) {
+        requestAnimationFrame(() => {
+          Object.keys(STAT_LABELS).forEach((key) => {
+            const va = key === "luck" ? a.luck : a.stats[key];
+            const vb = key === "luck" ? b.luck : b.stats[key];
+            const barA = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="a"]`);
+            const barB = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="b"]`);
+            if (barA) barA.style.width = `${va}%`;
+            if (barB) barB.style.width = `${vb}%`;
+          });
+          $("#pb-a").style.width = `${Math.min(100, a.power)}%`;
+          $("#pb-b").style.width = `${Math.min(100, b.power)}%`;
+        });
+      }
+
+      function playLog(lines) {
+        const container = $("#battle-log");
+        container.innerHTML = "";
+        return new Promise((resolve) => {
+          lines.forEach((line, i) => {
+            setTimeout(() => {
+              const div = document.createElement("div");
+              div.className = "log-line";
+              div.textContent = `${i + 1}. ${line}`;
+              container.appendChild(div);
+              requestAnimationFrame(() => div.classList.add("show"));
+              if (i === lines.length - 1) setTimeout(resolve, 500);
+            }, i * 550);
+          });
+        });
+      }
+
+      function buildShareText(result, a, b) {
+        const winnerSide = result.winner === "a" ? a : b;
+        const loserSide = result.winner === "a" ? b : a;
+        return (
+          `fantasy duel: ${winnerSide.class} ${winnerSide.race} @${winnerSide.profile.handle} beat ` +
+          `${loserSide.class} ${loserSide.race} @${loserSide.profile.handle}, ${Math.round(winnerSide.power)} to ` +
+          `${Math.round(loserSide.power)} power: ${SITE_URL}`
+        );
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (maxLines && lines >= maxLines) return cy;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      async function buildShareCard(result, a, b) {
+        const canvas = $("#share-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const winnerSide = result.winner === "a" ? a : b;
+        const loserSide = result.winner === "a" ? b : a;
+        const [avatarW, avatarL] = await Promise.all([loadImg(winnerSide.profile.avatar), loadImg(loserSide.profile.avatar)]);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#100b06";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, H * 0.1, 0, W * 0.5, H * 0.1, W * 0.7);
+        glow.addColorStop(0, "#3a2810");
+        glow.addColorStop(1, "rgba(16,11,6,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `800 52px ${mono}`;
+        ctx.fillText("fantasy duel", W / 2, 90);
+
+        const cardX = 70, cardY = 130, cardW = W - 140, cardH = H - 200;
+        ctx.strokeStyle = "#3a2c15";
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = "#191106";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        function drawSide(side, avatar, cx, color) {
+          if (avatar) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cardY + 90, 48, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(avatar, cx - 48, cardY + 42, 96, 96);
+            ctx.restore();
+          }
+          ctx.fillStyle = color;
+          ctx.font = `700 22px ${mono}`;
+          ctx.fillText("@" + side.profile.handle, cx, cardY + 168);
+          ctx.fillStyle = "#f3e9d6";
+          ctx.font = `800 26px ${mono}`;
+          ctx.fillText(side.class + " " + side.race, cx, cardY + 200);
+          ctx.fillStyle = "#a99a80";
+          ctx.font = `italic 16px ${mono}`;
+          ctx.fillText(side.title, cx, cardY + 224);
+        }
+
+        drawSide(winnerSide, avatarW, W / 2 - cardW / 4, "#ffd166");
+        drawSide(loserSide, avatarL, W / 2 + cardW / 4, "#a99a80");
+
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `700 40px ${mono}`;
+        ctx.fillText("VS", W / 2, cardY + 105);
+
+        ctx.fillStyle = "#f3e9d6";
+        ctx.font = `700 24px ${mono}`;
+        ctx.fillText(`🏆 @${winnerSide.profile.handle} wins`, W / 2, cardY + 290);
+
+        ctx.fillStyle = "#a99a80";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText(`${Math.round(winnerSide.power)} to ${Math.round(loserSide.power)} power`, W / 2, cardY + 320);
+
+        ctx.fillStyle = "#f3e9d6";
+        ctx.font = `400 16px ${mono}`;
+        const lastLine = result.log[result.log.length - 1] || "";
+        wrapCanvasText(ctx, lastLine, W / 2 - (cardW / 2 - 40), cardY + 360, cardW - 80, 24, 2);
+
+        ctx.fillStyle = "#6fc4ff";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("fantasyduel.bisks.net", W / 2, cardY + cardH - 24);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        $("#share-native").style.display = "";
+        $("#share-native").addEventListener("click", () => {
+          $("#share-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "fantasyduel.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "fantasy duel" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      $("#share-download").addEventListener("click", () => {
+        $("#share-canvas").toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "fantasyduel.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run() {
+        const rawA = $("#handle-a").value.trim();
+        const rawB = $("#handle-b").value.trim();
+        if (!rawA || !rawB) return setStatus("enter both handles.", true);
+
+        const btn = $("#duel-go");
+        btn.disabled = true;
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        $("#battle-log").innerHTML = "";
+        setStatus("summoning combatants…");
+
+        try {
+          const [profileA, profileB] = await Promise.all([getProfile(rawA), getProfile(rawB)]);
+          if (profileA.did === profileB.did) {
+            setStatus("that's the same account twice — pick a real opponent.", true);
+            btn.disabled = false;
+            return;
+          }
+          setStatus("");
+
+          const result = duel(profileA, profileB);
+          const a = result.a, b = result.b;
+
+          $("#av-a").src = a.profile.avatar || "";
+          $("#av-b").src = b.profile.avatar || "";
+          $("#h-a").textContent = `@${a.profile.handle}`;
+          $("#h-b").textContent = `@${b.profile.handle}`;
+          $("#cn-a").textContent = `${a.class} ${a.race}`;
+          $("#cn-b").textContent = `${b.class} ${b.race}`;
+          $("#ct-a").textContent = `${a.profile.displayName || a.profile.handle} ${a.title}`;
+          $("#ct-b").textContent = `${b.profile.displayName || b.profile.handle} ${b.title}`;
+          $("#cw-a").textContent = `wields ${a.weapon}`;
+          $("#cw-b").textContent = `wields ${b.weapon}`;
+          $("#pv-a").textContent = Math.round(a.power);
+          $("#pv-b").textContent = Math.round(b.power);
+
+          renderStatRows(a, b);
+          $("#arena").style.display = "";
+          requestAnimationFrame(() => animateBars(a, b));
+
+          await playLog(result.log);
+
+          const winnerSide = result.winner === "a" ? a : b;
+          const loserSide = result.winner === "a" ? b : a;
+
+          $("#banner-title").textContent = `🏆 ${winnerSide.class} ${winnerSide.race} @${winnerSide.profile.handle} wins`;
+          $("#banner-sub").textContent = `${Math.round(winnerSide.power)} to ${Math.round(loserSide.power)} power — margin of ${Math.round(result.margin)}.`;
+          $("#result").classList.add("show");
+
+          lastShareText = buildShareText(result, a, b);
+          $("#share-result").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(lastShareText)}`;
+          await buildShareCard(result, a, b);
+        } catch (e) {
+          setStatus(e.message || "couldn't resolve one of those handles.", true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("#duel-go").addEventListener("click", run);
+      [$("#handle-a"), $("#handle-b")].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") run();
+        }),
+      );
+      $("#rematch").addEventListener("click", () => {
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        setStatus("");
+      });
+    </script>
+  </body>
+</html>
