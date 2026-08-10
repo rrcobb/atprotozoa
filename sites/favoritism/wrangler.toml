@@ -1,0 +1,31 @@
+name = "atprotozoa-favoritism"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @fromthewestmeadow.com asked for a "who likes whose posts more" checker
+# between two handles, with the actual liked posts (and their thread context)
+# shown side by side, not just a score. The read runs client-side
+# (public/lib/car.js downloads each account's whole repo as one CAR, so every
+# like they've ever given is available with no recent-window cap), EXCEPT two
+# things that need a server, same shape as sites/beefcheck (this site's
+# lineage):
+#
+#   /api/likes — fallback for an account whose full-repo CAR download fails:
+#   "did A like B's posts" isn't a queryable AppView endpoint
+#   (app.bsky.feed.getLikes goes post -> likers, not actor -> liked-authors),
+#   so this hits the liker's own PDS via com.atproto.repo.listRecords on the
+#   app.bsky.feed.like collection, server-side, to dodge per-PDS CORS
+#   inconsistency and keep DID-doc resolution off the client's back.
+#
+#   /s/<a>+<b> — a personalized OG share URL per handle pair.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "favoritism.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: both /api/likes and /s/<a>+<b> are dynamic, so the Worker
+# must run before the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true

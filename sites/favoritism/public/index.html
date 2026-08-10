@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>favoritism — who likes who more?</title>
+<meta name="description" content="Enter two Bluesky handles. favoritism reads each account's whole like history and shows who likes the other's posts more — every liked post, with its reply context, laid out side by side." />
+<meta property="og:title" content="favoritism — who likes who more?" />
+<meta property="og:description" content="Enter two Bluesky handles. favoritism reads each account's whole like history and shows who likes the other's posts more — every liked post, with its reply context, laid out side by side." />
+<meta property="og:url" content="https://favoritism.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://favoritism.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="favoritism: two avatars, a like count each, and a > sign between them." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="favoritism — who likes who more?" />
+<meta name="twitter:description" content="Enter two Bluesky handles. favoritism reads each account's whole like history and shows who likes the other's posts more — every liked post, with its reply context, laid out side by side." />
+<meta name="twitter:image" content="https://favoritism.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0910;
+    --bg2: #14121e;
+    --fg: #f3eefc;
+    --dim: #9a90b0;
+    --accent: #ff4d8d;
+    --accent2: #ffb84c;
+    --good: #6ee7a8;
+    --bad: #ff5c5c;
+    --card: #14111d;
+    --border: #2a2438;
+    --sideA: #5ad1ff;
+    --sideB: #ff4d8d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #2a0d3a 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 5%, #0d1f3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .handle-row { display: flex; gap: 0.5rem; align-items: center; }
+  .handle-row input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  .handle-row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .handle-row .vs { color: var(--dim); font-size: 0.78rem; width: 1.6rem; text-align: center; flex-shrink: 0; }
+  button[type="submit"] {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #1a0a12; border: none; border-radius: 8px; padding: 0.8rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer; margin-top: 0.3rem;
+  }
+  button[type="submit"]:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  #results { display: none; flex-direction: column; gap: 1.4rem; }
+  #results.show { display: flex; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .pair-who { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-bottom: 1.2rem; }
+  .pair-who .p { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; width: 7rem; }
+  .pair-who img { width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg2); }
+  .pair-who .p.side-a img { border-color: var(--sideA); }
+  .pair-who .p.side-b img { border-color: var(--sideB); }
+  .pair-who .handle { font-size: 0.78rem; font-weight: 700; word-break: break-word; }
+  .pair-who .handle a { color: var(--fg); text-decoration: none; }
+  .pair-who .sign { font-size: 1.6rem; font-weight: 800; color: var(--accent2); min-width: 2rem; text-align: center; }
+
+  .scoreline { text-align: center; font-size: 0.95rem; margin-bottom: 1.1rem; }
+  .scoreline b { color: var(--fg); }
+  .scoreline .n-a { color: var(--sideA); font-weight: 800; }
+  .scoreline .n-b { color: var(--sideB); font-weight: 800; }
+
+  .bar { position: relative; height: 14px; border-radius: 7px; overflow: hidden; background: var(--bg2); border: 1px solid var(--border); margin-bottom: 1.5rem; display: flex; }
+  .bar .seg-a { background: var(--sideA); height: 100%; }
+  .bar .seg-b { background: var(--sideB); height: 100%; }
+  .bar .seg-mid { width: 2px; background: var(--border); }
+
+  .caveat { color: var(--dim); font-size: 0.74rem; text-align: center; margin: -0.7rem 0 1.3rem; }
+
+  .feeds { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 620px) { .feeds { grid-template-columns: 1fr; } }
+  .feed-col { min-width: 0; }
+  .feed-head { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.4rem 0.1rem; margin-bottom: 0.55rem; border-bottom: 2px solid var(--border); }
+  .feed-col.side-a .feed-head { color: var(--sideA); border-color: var(--sideA); }
+  .feed-col.side-b .feed-head { color: var(--sideB); border-color: var(--sideB); }
+  .feed-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .feed-empty { color: var(--dim); font-size: 0.82rem; padding: 0.6rem 0.1rem; }
+
+  .liked-post { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.8rem; font-size: 0.83rem; line-height: 1.45; text-decoration: none; color: inherit; display: block; }
+  .liked-post:hover { border-color: var(--accent); }
+  .lp-parent { color: var(--dim); font-size: 0.76rem; border-left: 2px solid var(--border); padding-left: 0.5rem; margin-bottom: 0.4rem; }
+  .lp-parent .lp-who { font-weight: 700; }
+  .lp-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem; }
+  .lp-avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .lp-who { font-weight: 700; color: var(--fg); }
+  .lp-when { color: var(--dim); font-size: 0.72rem; margin-left: auto; flex-shrink: 0; }
+  .lp-text { color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .lp-media { color: var(--dim); font-size: 0.74rem; margin-top: 0.3rem; }
+  .lp-gone { color: var(--dim); font-style: italic; }
+
+  .feed-more { color: var(--dim); font-size: 0.76rem; text-align: center; padding: 0.5rem 0; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a0a12; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>favoritism</h1>
+    <p class="tag">
+      Paste two Bluesky handles. favoritism downloads each account's
+      <b>whole repo</b> straight from their PDS — every like they've ever
+      given, not just a recent sample — counts how many times each side
+      liked the other's posts, and lays every one of those liked posts (with
+      reply context, if it was a reply) out side by side.
+    </p>
+    <p class="credit">
+      built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>,
+      who wanted an actual breakdown of who's more generous with the likes —
+      not vibes, the real counts, with receipts.
+    </p>
+
+    <form id="f">
+      <div class="handle-row">
+        <input type="text" id="hA" class="h-input" placeholder="e.g. alice.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="handle-row">
+        <span class="vs">vs</span>
+        <input type="text" id="hB" class="h-input" placeholder="e.g. bob.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <button id="go" type="submit">check who likes who more</button>
+    </form>
+    <p class="hint">reads each account's whole like history from their PDS, so prolific likers take a little longer. shows the most recent liked posts per side; the totals cover everything found.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="results"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { resolvePds, authorFromUri } from "./lib/identity.js";
+
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_FEED_PER_SIDE = 24; // how many liked posts to render (with hydrated content) per side — totals cover everything found, this just caps the DOM/fetch cost of the feed itself.
+const GETPOSTS_CHUNK = 25; // app.bsky.feed.getPosts caps at 25 uris per call
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  hA: document.getElementById("hA"),
+  hB: document.getElementById("hB"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+};
+
+if (window.attachHandleTypeahead) {
+  window.attachHandleTypeahead(els.hA);
+  window.attachHandleTypeahead(els.hB);
+}
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  // URLSearchParams(obj) comma-joins array values into one param, but XRPC
+  // wants an array param repeated (?uris=a&uris=b) for getPosts.
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) {
+    if (Array.isArray(v)) v.forEach((item) => usp.append(k, item));
+    else usp.append(k, v);
+  }
+  const qs = usp.toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function likesApiFallback(repoDid, targetDid) {
+  try {
+    const res = await fetch(`/api/likes?repo=${encodeURIComponent(repoDid)}&target=${encodeURIComponent(targetDid)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.matches || []).map((m) => ({ subjectUri: m.subjectUri, createdAt: m.createdAt }));
+  } catch (_) {
+    return [];
+  }
+}
+
+// The whole point of "download the whole repo": one com.atproto.sync.getRepo
+// CAR download per account gets every like they've ever given, in a single
+// request — no recent-window cap, no per-collection cursor walk. Each like's
+// subject.uri already encodes the liked post's author DID (at://<did>/...),
+// so filtering "likes aimed at this other account" needs no extra lookup.
+async function fetchPersonLikes(did) {
+  try {
+    const pds = await resolvePds(did);
+    if (!pds) throw new Error("no PDS found");
+    const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.like");
+    const likes = [];
+    for (const { value } of records) {
+      const subjectUri = value.subject && value.subject.uri;
+      if (subjectUri && value.createdAt) likes.push({ subjectUri, createdAt: value.createdAt });
+    }
+    return { likes, full: true };
+  } catch (_) {
+    return { likes: null, full: false };
+  }
+}
+
+async function resolveOne(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) throw new Error("empty handle");
+  const did = handle.startsWith("did:") ? handle : (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+  return { did, handle: profile.handle || handle, displayName: profile.displayName || "", avatar: profile.avatar || "" };
+}
+
+// Batch-hydrate a set of post URIs via app.bsky.feed.getPosts (25 at a
+// time) — one/two requests for a whole feed column, instead of one
+// getPostThread call per liked post. Missing posts (deleted, or the author
+// blocked/blocked-by us) just don't come back; callers treat that as "gone".
+async function hydratePosts(uris) {
+  const byUri = new Map();
+  for (let i = 0; i < uris.length; i += GETPOSTS_CHUNK) {
+    const chunk = uris.slice(i, i + GETPOSTS_CHUNK);
+    if (!chunk.length) continue;
+    try {
+      const data = await xrpc("app.bsky.feed.getPosts", { uris: chunk });
+      for (const p of data.posts || []) byUri.set(p.uri, p);
+    } catch (_) {
+      // a bad chunk just leaves those uris unhydrated below
+    }
+  }
+  return byUri;
+}
+
+function embedSummary(embed) {
+  if (!embed) return "";
+  const t = embed.$type || "";
+  if (t.startsWith("app.bsky.embed.images")) {
+    const n = (embed.images || []).length;
+    return n ? `🖼 ${n} image${n === 1 ? "" : "s"}` : "";
+  }
+  if (t.startsWith("app.bsky.embed.video")) return "🎬 video";
+  if (t.startsWith("app.bsky.embed.record")) {
+    const rec = embed.record && (embed.record.record || embed.record);
+    const author = rec && rec.author && rec.author.handle;
+    return author ? `↻ quotes @${author}` : "↻ quote post";
+  }
+  if (t.startsWith("app.bsky.embed.external")) {
+    const title = embed.external && embed.external.title;
+    return title ? `🔗 ${title}` : "🔗 link";
+  }
+  return "";
+}
+
+function fmtWhen(iso) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch (_) {
+    return "";
+  }
+}
+
+// Renders one liked-post card: the post itself, plus (if it was a reply) a
+// one-line "replying to @x: ..." strip above it, sourced from a separate
+// batch-hydrated lookup of parent URIs — that's the "thread context."
+function renderLikedPost(uri, postsByUri, parentsByUri) {
+  const post = postsByUri.get(uri);
+  const bskyUrl = (() => {
+    const m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(uri);
+    return m ? `https://bsky.app/profile/${encodeURIComponent(m[1])}/post/${m[2]}` : null;
+  })();
+
+  if (!post) {
+    return `<div class="liked-post lp-gone">post no longer available (deleted, or one side blocks the other)</div>`;
+  }
+
+  const author = post.author || {};
+  const record = post.record || {};
+  const parentUri = record.reply && record.reply.parent && record.reply.parent.uri;
+  let parentHtml = "";
+  if (parentUri) {
+    const parent = parentsByUri.get(parentUri);
+    if (parent) {
+      const pAuthor = parent.author || {};
+      const pText = (parent.record && parent.record.text) || "";
+      parentHtml = `<div class="lp-parent"><span class="lp-who">↪ replying to @${esc(pAuthor.handle || "")}</span>: ${esc(pText.slice(0, 140))}${pText.length > 140 ? "…" : ""}</div>`;
+    } else {
+      parentHtml = `<div class="lp-parent">↪ replying to a post that's no longer available</div>`;
+    }
+  }
+
+  const media = embedSummary(post.embed);
+  const text = record.text || "";
+  const avatar = author.avatar ? `<img class="lp-avatar" src="${esc(author.avatar)}" alt="" onerror="this.style.visibility='hidden'" />` : `<span class="lp-avatar"></span>`;
+
+  const inner = `
+    ${parentHtml}
+    <div class="lp-head">
+      ${avatar}
+      <span class="lp-who">@${esc(author.handle || "")}</span>
+      <span class="lp-when">${esc(fmtWhen(record.createdAt || post.indexedAt))}</span>
+    </div>
+    <div class="lp-text">${esc(text) || "<em>(no text)</em>"}</div>
+    ${media ? `<div class="lp-media">${esc(media)}</div>` : ""}
+  `;
+
+  return bskyUrl
+    ? `<a class="liked-post" href="${bskyUrl}" target="_blank" rel="noopener">${inner}</a>`
+    : `<div class="liked-post">${inner}</div>`;
+}
+
+async function buildFeedColumn(likes) {
+  const sorted = [...likes].sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1));
+  const shown = sorted.slice(0, MAX_FEED_PER_SIDE);
+  const uris = shown.map((l) => l.subjectUri);
+  const postsByUri = await hydratePosts(uris);
+
+  const parentUris = [];
+  for (const uri of uris) {
+    const post = postsByUri.get(uri);
+    const parentUri = post && post.record && post.record.reply && post.record.reply.parent && post.record.reply.parent.uri;
+    if (parentUri) parentUris.push(parentUri);
+  }
+  const parentsByUri = parentUris.length ? await hydratePosts(parentUris) : new Map();
+
+  return { shown, postsByUri, parentsByUri, totalCount: likes.length };
+}
+
+function renderFeedColumn(sideClass, label, count, feed) {
+  const itemsHtml = feed.shown.length
+    ? feed.shown.map((l) => renderLikedPost(l.subjectUri, feed.postsByUri, feed.parentsByUri)).join("")
+    : `<div class="feed-empty">no likes found in this direction.</div>`;
+  const moreHtml = feed.totalCount > feed.shown.length
+    ? `<div class="feed-more">+ ${feed.totalCount - feed.shown.length} more not shown</div>`
+    : "";
+  return `
+    <div class="feed-col ${sideClass}">
+      <div class="feed-head">${esc(label)} (${count})</div>
+      <div class="feed-list">${itemsHtml}${moreHtml}</div>
+    </div>`;
+}
+
+function shareUrlFor(a, b) {
+  return "https://favoritism.bisks.net/s/" + encodeURIComponent(a) + "+" + encodeURIComponent(b);
+}
+
+function buildShareText(a, b, nAtoB, nBtoA) {
+  const url = shareUrlFor(a.handle, b.handle);
+  let headline;
+  if (nAtoB === nBtoA) headline = `checked @${a.handle} vs @${b.handle}: dead even, ${nAtoB} likes each way.`;
+  else if (nAtoB > nBtoA) headline = `checked @${a.handle} vs @${b.handle}: @${a.handle} likes @${b.handle} more (${nAtoB} > ${nBtoA}).`;
+  else headline = `checked @${a.handle} vs @${b.handle}: @${b.handle} likes @${a.handle} more (${nBtoA} > ${nAtoB}).`;
+  let text = `${headline}\n\n${url}`;
+  if (text.length > 300) text = `${headline}\n${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard(canvas, a, b, nAtoB, nBtoA) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const [avA, avB] = await Promise.all([loadImg(a.avatar), loadImg(b.avatar)]);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0910";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#2a0d3a");
+  glow.addColorStop(1, "rgba(10,9,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `800 44px ${mono}`;
+  ctx.fillText("favoritism", 56, 84);
+
+  const drawAvatar = (img, cx, cy, r, ring) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = ring;
+    ctx.fill();
+    ctx.restore();
+    if (!img) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+  };
+  drawAvatar(avA, 230, 170, 46, "#5ad1ff");
+  drawAvatar(avB, W - 230, 170, 46, "#ff4d8d");
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#f3eefc";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("@" + a.handle, 230, 244);
+  ctx.fillText("@" + b.handle, W - 230, 244);
+
+  ctx.strokeStyle = "#2a2438";
+  ctx.lineWidth = 1.5;
+  const cardX = 56, cardY = 280, cardW = W - 112, cardH = H - 340;
+  ctx.fillStyle = "#14111d";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#5ad1ff";
+  ctx.font = `800 84px ${mono}`;
+  ctx.textAlign = "center";
+  ctx.fillText(String(nAtoB), cardX + cardW * 0.28, cardY + 130);
+  ctx.fillStyle = "#9a90b0";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText(nAtoB === nBtoA ? "=" : nAtoB > nBtoA ? ">" : "<", cardX + cardW * 0.5, cardY + 118);
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `800 84px ${mono}`;
+  ctx.fillText(String(nBtoA), cardX + cardW * 0.72, cardY + 130);
+
+  ctx.fillStyle = "#f3eefc";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText("likes given, each direction", cardX + cardW / 2, cardY + 172);
+
+  const verdict = nAtoB === nBtoA
+    ? "dead even"
+    : nAtoB > nBtoA
+      ? `@${a.handle} likes harder`
+      : `@${b.handle} likes harder`;
+  ctx.fillStyle = "#ffb84c";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText(verdict.toUpperCase(), cardX + cardW / 2, cardY + 220);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("favoritism.bisks.net", 56, H - 40);
+}
+
+function renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial) {
+  const nAtoB = likesAtoB.length;
+  const nBtoA = likesBtoA.length;
+  const total = Math.max(nAtoB + nBtoA, 1);
+  const pctA = (nAtoB / total) * 100;
+  const sign = nAtoB === nBtoA ? "=" : nAtoB > nBtoA ? ">" : "<";
+
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML = `
+    <div class="pair-who">
+      <div class="p side-a">
+        ${a.avatar ? `<img src="${esc(a.avatar)}" alt="" />` : `<img src="" alt="" style="visibility:hidden;" />`}
+        <div class="handle"><a href="https://bsky.app/profile/${a.handle}" target="_blank" rel="noopener">@${esc(a.handle)}</a></div>
+      </div>
+      <div class="sign">${sign}</div>
+      <div class="p side-b">
+        ${b.avatar ? `<img src="${esc(b.avatar)}" alt="" />` : `<img src="" alt="" style="visibility:hidden;" />`}
+        <div class="handle"><a href="https://bsky.app/profile/${b.handle}" target="_blank" rel="noopener">@${esc(b.handle)}</a></div>
+      </div>
+    </div>
+    <div class="scoreline">
+      <span class="n-a">@${esc(a.handle)}: ${nAtoB} likes</span>
+      &nbsp;${sign}&nbsp;
+      <span class="n-b">@${esc(b.handle)}: ${nBtoA} likes</span>
+    </div>
+    <div class="bar">
+      <div class="seg-a" style="width:${pctA}%"></div>
+      <div class="seg-mid"></div>
+      <div class="seg-b" style="width:${100 - pctA}%"></div>
+    </div>
+    ${partial.length ? `<p class="caveat">couldn't download @${partial.map(esc).join(" / @")}'s full repo — used a recent-history fallback for that side, so its total may be a floor, not exact.</p>` : ""}
+    <div class="feeds">
+      ${renderFeedColumn("side-a", `❤️ liked by @${a.handle}`, nAtoB, feedA)}
+      ${renderFeedColumn("side-b", `❤️ liked by @${b.handle}`, nBtoA, feedB)}
+    </div>
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button class="shareNative" type="button" style="display:none;border:none;">📤 share card</button>
+        <a class="shareBluesky" target="_blank" rel="noopener">🦋 share the score</a>
+        <button class="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+  `;
+
+  const canvas = div.querySelector("#shareCanvas");
+  const shareBluesky = div.querySelector(".shareBluesky");
+  const shareDownload = div.querySelector(".shareDownload");
+  const shareNative = div.querySelector(".shareNative");
+  const shareText = buildShareText(a, b, nAtoB, nBtoA);
+  shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(canvas, a, b, nAtoB, nBtoA);
+
+  shareDownload.addEventListener("click", () => {
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `favoritism-${a.handle}-${b.handle}.png`.replace(/[^a-z0-9.-]/gi, "_");
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    shareNative.style.display = "";
+    shareNative.addEventListener("click", () => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "favoritism.png", { type: "image/png" });
+        try { await navigator.share({ files: [file], text: shareText, title: "favoritism" }); } catch (_) {}
+      }, "image/png");
+    });
+  }
+
+  return div;
+}
+
+async function run() {
+  const rawA = els.hA.value;
+  const rawB = els.hB.value;
+  if (!cleanHandle(rawA) || !cleanHandle(rawB)) { setStatus("enter both handles.", true); return; }
+  if (cleanHandle(rawA).toLowerCase() === cleanHandle(rawB).toLowerCase()) { setStatus("those are the same handle.", true); return; }
+
+  els.go.disabled = true;
+  els.results.classList.remove("show");
+  els.results.innerHTML = "";
+  setStatus("resolving handles...");
+
+  try {
+    const [a, b] = await Promise.all([resolveOne(rawA), resolveOne(rawB)]);
+
+    setStatus(`downloading @${a.handle} and @${b.handle}'s full like history...`);
+    const [likesA, likesB] = await Promise.all([fetchPersonLikes(a.did), fetchPersonLikes(b.did)]);
+
+    const partial = [];
+    let likesAtoB, likesBtoA;
+    if (likesA.full) {
+      likesAtoB = likesA.likes.filter((l) => authorFromUri(l.subjectUri) === b.did);
+    } else {
+      partial.push(a.handle);
+      setStatus(`couldn't get @${a.handle}'s full repo — falling back to recent history...`);
+      likesAtoB = await likesApiFallback(a.did, b.did);
+    }
+    if (likesB.full) {
+      likesBtoA = likesB.likes.filter((l) => authorFromUri(l.subjectUri) === a.did);
+    } else {
+      partial.push(b.handle);
+      setStatus(`couldn't get @${b.handle}'s full repo — falling back to recent history...`);
+      likesBtoA = await likesApiFallback(b.did, a.did);
+    }
+
+    setStatus("loading the liked posts themselves...");
+    const [feedA, feedB] = await Promise.all([buildFeedColumn(likesAtoB), buildFeedColumn(likesBtoA)]);
+
+    els.results.innerHTML = "";
+    els.results.appendChild(renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial));
+    els.results.classList.add("show");
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't run that check: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run();
+});
+
+// /s/<a>+<b> (share links) or ?a=<handle>&b=<handle> both auto-run on load.
+const pathMatch = location.pathname.match(/\/s\/([^/+]+)\+([^/]+)\/?$/);
+const qs = new URLSearchParams(location.search);
+const sharedA = (pathMatch && decodeURIComponent(pathMatch[1])) || qs.get("a");
+const sharedB = (pathMatch && decodeURIComponent(pathMatch[2])) || qs.get("b");
+if (sharedA && sharedB) {
+  els.hA.value = sharedA;
+  els.hB.value = sharedB;
+  run();
+}
+</script>
+
+<!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+<style>
+  #cm-toggle {
+    position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+    background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+  #cm-coop { position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden; pointer-events: none; z-index: 2147483000; display: none; }
+  #cm-coop.on { display: block; }
+  .cm-chicken { position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1); animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+  @keyframes cm-strut {
+    0% { transform: translateX(-3rem) scaleX(-1); }
+    48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+    50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+    98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+    100% { transform: translateX(-3rem) scaleX(-1); }
+  }
+</style>
+<button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+<div id="cm-coop"></div>
+<script>
+  (function () {
+    var coop = document.getElementById("cm-coop");
+    var toggle = document.getElementById("cm-toggle");
+    if (!coop || !toggle) return;
+    var KEY = "chicken-mode";
+    var spawner = null;
+    function spawn() {
+      var c = document.createElement("div");
+      c.className = "cm-chicken";
+      c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+      var duration = 14 + Math.random() * 10;
+      c.style.animationDuration = duration + "s";
+      c.style.animationDelay = -Math.random() * duration + "s";
+      c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+      coop.appendChild(c);
+    }
+    function start() {
+      if (spawner) return;
+      coop.innerHTML = "";
+      for (var i = 0; i < 5; i++) spawn();
+      spawner = setInterval(function () {
+        if (coop.children.length < 8) spawn();
+      }, 4000);
+    }
+    function stop() {
+      if (spawner) clearInterval(spawner);
+      spawner = null;
+      coop.innerHTML = "";
+    }
+    function setMode(on) {
+      coop.classList.toggle("on", on);
+      toggle.classList.toggle("on", on);
+      if (on) start(); else stop();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+    toggle.addEventListener("click", function () {
+      setMode(!coop.classList.contains("on"));
+    });
+    var startedOn = false;
+    try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    if (startedOn) setMode(true);
+  })();
+</script>
+<!-- /chicken mode -->
+</body>
+</html>
