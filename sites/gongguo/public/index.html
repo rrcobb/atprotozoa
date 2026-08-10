@@ -1,0 +1,848 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gongguo — a ledger of merit and demerit for your bluesky account</title>
+<meta name="description" content="Scored like a 17th-century Chinese Buddhist self-examination ledger. Enter a handle for an automatic reading off your public activity, then confess the rest yourself." />
+<meta property="og:title" content="gongguo — a ledger of merit and demerit for your bluesky account" />
+<meta property="og:description" content="Scored like a 17th-century Chinese Buddhist self-examination ledger. Enter a handle for an automatic reading off your public activity, then confess the rest yourself." />
+<meta property="og:url" content="https://gongguo.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://gongguo.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="gongguo: an ink-and-parchment ledger card tallying merit and demerit points for a Bluesky handle, in the style of a 17th-century Chinese Buddhist self-examination ledger." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="gongguo — a ledger of merit and demerit for your bluesky account" />
+<meta name="twitter:description" content="Scored like a 17th-century Chinese Buddhist self-examination ledger. Enter a handle for an automatic reading off your public activity, then confess the rest yourself." />
+<meta name="twitter:image" content="https://gongguo.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #130d08;
+    --bg2: #1c130b;
+    --fg: #f3e6cf;
+    --dim: #b39c78;
+    --accent: #c1272d;
+    --accent2: #d4af37;
+    --card: #201810;
+    --border: #4a3a24;
+    --good: #6fae63;
+    --bad: #c1272d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a1a12 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a220a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h1 .cn { -webkit-text-fill-color: var(--accent2); color: var(--accent2); font-size: 1.1rem; margin-left: 0.4rem; }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.55;
+  }
+  .tag code, .tag b { color: var(--accent2); font-weight: 700; }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #8c1a1f);
+    color: #fbeedb;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #e08a8a; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -20px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .netlabel {
+    text-align: center;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent2);
+    margin-bottom: 0.4rem;
+  }
+  .netscore {
+    font-size: 3.4rem;
+    line-height: 1;
+    text-align: center;
+    margin: 0.5rem 0 0.35rem;
+    font-weight: 800;
+    text-shadow: 0 0 30px currentColor;
+  }
+  .netscore.good { color: var(--good); }
+  .netscore.bad { color: var(--bad); }
+  .netscore.mid { color: var(--accent2); }
+  .tiername {
+    text-align: center;
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.15rem;
+  }
+  .tiername .cn { color: var(--accent2); margin-right: 0.4rem; }
+  .tierdesc {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.85rem;
+    margin-bottom: 1.6rem;
+  }
+
+  .section {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.1rem;
+    margin-bottom: 1.1rem;
+  }
+  .section-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent2);
+    margin-bottom: 0.65rem;
+  }
+  .section-sub { color: var(--dim); font-size: 0.78rem; margin: -0.4rem 0 0.7rem; line-height: 1.4; }
+
+  .line {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    margin-bottom: 0.5rem;
+  }
+  .line .delta { font-weight: 700; min-width: 2.6em; text-align: right; flex-shrink: 0; }
+  .line .delta.pos { color: var(--good); }
+  .line .delta.neg { color: var(--bad); }
+  .line .tag { color: var(--accent2); font-size: 0.78rem; flex-shrink: 0; }
+  .line .label { color: var(--fg); }
+  .line.empty { color: var(--dim); font-style: italic; }
+
+  .confess-group { margin-bottom: 0.9rem; }
+  .confess-group-title { font-size: 0.72rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+  .confess-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.4rem 0.3rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .confess-item:hover { background: rgba(212, 175, 55, 0.06); }
+  .confess-item input { margin-top: 0.2rem; accent-color: var(--accent2); flex-shrink: 0; }
+  .confess-item .delta { font-weight: 700; min-width: 2.6em; text-align: right; flex-shrink: 0; }
+  .confess-item .delta.pos { color: var(--good); }
+  .confess-item .delta.neg { color: var(--bad); }
+  .confess-item .tag { color: var(--accent2); font-size: 0.76rem; margin-right: 0.3rem; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #8c1a1f);
+    color: #fbeedb;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>gongguo <span class="cn">功過格</span></h1>
+    <p class="tag">
+      A <b>ledger of merit and demerit</b>, the record-keeping practice Buddhist
+      moralists in Ming-Qing China used to tally a life in points — most
+      famously Yunqi Zhuhong's 1604 <code>自知錄</code> ("Record for
+      Self-Knowledge"). This one runs it on a Bluesky account: enter a
+      handle for an automatic reading off your public activity, then confess
+      the rest yourself. Merit and demerit are self-reported past this
+      point, same as the original.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">open the ledger</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, a rival's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="netlabel">淨業 net karma</div>
+      <div class="netscore mid" id="netscore">0</div>
+      <div class="tiername" id="tiername"></div>
+      <div class="tierdesc" id="tierdesc"></div>
+
+      <div class="section">
+        <div class="section-label">觀察所得 — observed from public activity</div>
+        <div class="section-sub">Pulled automatically from the profile and recent posts. No confession required for this part.</div>
+        <div id="observedLines"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">自陳 — confess the rest yourself</div>
+        <div class="section-sub">The ledger can't observe what happened off-platform, in the DMs, or in your head. Tick what applies.</div>
+
+        <div class="confess-group">
+          <div class="confess-group-title">功 · merit</div>
+          <div id="confessMerit"></div>
+        </div>
+        <div class="confess-group">
+          <div class="confess-group-title">過 · demerit</div>
+          <div id="confessDemerit"></div>
+        </div>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share ledger</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your score</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+// Word lists for the "observed" scan of recent post text. Deliberately
+// small and blunt — this is a joke ledger, not a moderation tool, so false
+// positives (someone saying "killed it" at a show) are the cost of keeping
+// the whole thing legible and funny rather than a real classifier.
+const KIND = ["thank you", "thanks", "grateful", "appreciate", "proud of", "congrats", "congratulations", "sorry", "love you", "so kind", "you got this", "take care", "be well"];
+const HOSTILE = ["shut up", "idiot", "stupid", "i hate", "screw you", "get lost", "loser", "pathetic", "kill yourself"];
+const SOLICIT = ["buy now", "limited time", "dm me for", "click here", "link in bio", "use code", "% off", "discount code"];
+const HELPFUL = ["here's how", "psa:", "reminder:", "free resource", "here's a thread", "tl;dr", "pro tip"];
+
+function countHits(text, list) {
+  let n = 0;
+  for (const phrase of list) {
+    let idx = 0;
+    while ((idx = text.indexOf(phrase, idx)) !== -1) { n++; idx += phrase.length; }
+  }
+  return n;
+}
+
+// The 觀察所得 tally — everything derivable from public profile + feed data,
+// no confession needed. Point values loosely echo the ledger tradition's own
+// units (small acts: 1-10; larger patterns: up to 20).
+function computeObserved(profile, posts) {
+  let score = 0;
+  const lines = [];
+  const add = (delta, label, tag) => { score += delta; lines.push({ delta, label, tag }); };
+
+  const postsCount = profile.postsCount || 0;
+  if (postsCount > 5000) add(-5, `excessive idle speech — ${postsCount} posts and counting`, "雜不善");
+  else if (postsCount > 0 && postsCount < 20) add(5, `restraint in speech — a mere ${postsCount} posts`, "口業清淨");
+
+  const followers = profile.followersCount || 0;
+  const follows = profile.followsCount || 0;
+  if (follows > followers * 2 && follows > 20) add(8, "follows generously, expects little back", "布施法緣");
+  if (followers > follows * 5 && followers > 500) add(-8, "courts fame beyond one's following", "貪名");
+
+  if (profile.description && String(profile.description).trim().length > 0) add(3, "presents oneself plainly, bio and all", "坦誠自陳");
+  else add(-2, "gives no account of oneself", "身份隱晦");
+
+  if (profile.avatar) add(2, "shows one's true likeness", "示人以真容");
+  else add(-2, "hides behind the default egg", "匿名遁世");
+
+  const total = posts.length;
+  const replies = posts.filter((p) => p.isReply).length;
+  if (total >= 8 && replies / total > 0.6) add(5, "eager and generous in conversation", "熱心應答");
+
+  const allText = posts.map((p) => p.text || "").join(" \n ").toLowerCase();
+  const kindHits = countHits(allText, KIND);
+  const hostileHits = countHits(allText, HOSTILE);
+  const solicitHits = countHits(allText, SOLICIT);
+  const helpfulHits = countHits(allText, HELPFUL);
+
+  if (kindHits > 0) add(Math.min(kindHits * 2, 20), `${kindHits} word${kindHits === 1 ? "" : "s"} of open gratitude or kindness`, "仁慈之語");
+  if (hostileHits > 0) add(-Math.min(hostileHits * 4, 20), `${hostileHits} turn${hostileHits === 1 ? "" : "s"} of harsh speech`, "口業惡言");
+  if (solicitHits > 0) add(-Math.min(solicitHits * 3, 15), `${solicitHits} pitch${solicitHits === 1 ? "" : "es"} for money or attention`, "貪利廣告");
+  if (helpfulHits > 0) add(Math.min(helpfulHits * 1, 10), `${helpfulHits} share${helpfulHits === 1 ? "" : "s"} offered for others' benefit`, "利他分享");
+
+  return { score, lines };
+}
+
+// The 自陳 checklist — modeled on the four categories 自知錄 actually used:
+// 忠孝 (loyalty & filial devotion), 仁慈 (benevolence), 三寶 (the Three
+// Jewels — Buddha/Dharma/Sangha), 雜善 (miscellaneous good), and their
+// mirror-image demerit categories. Point values climb the way the original
+// ledger's did: small courtesies near 1, real harm or real generosity out
+// past 20.
+const CONFESS = [
+  { id: "m1", delta: 1, tag: "雜善", label: "liked a post genuinely, not performatively" },
+  { id: "m2", delta: 2, tag: "雜善", label: "gave someone credit in a reply instead of staying quiet" },
+  { id: "m3", delta: 3, tag: "仁慈", label: "left a kind reply on a total stranger's post" },
+  { id: "m4", delta: 5, tag: "仁慈", label: "checked in on a mutual who'd gone quiet" },
+  { id: "m5", delta: 5, tag: "雜善", label: "reported real harassment, not just a take you disliked" },
+  { id: "m6", delta: 8, tag: "三寶", label: "shared something true even though the replies hated it" },
+  { id: "m7", delta: 10, tag: "忠孝", label: "defended a friend's name when they weren't in the room" },
+  { id: "m8", delta: 15, tag: "仁慈", label: "talked someone down from posting something they'd regret" },
+  { id: "m9", delta: 20, tag: "三寶", label: "logged off and touched grass, on purpose" },
+  { id: "m10", delta: 30, tag: "仁慈", label: "helped a stranger through something hard, in the DMs" },
+  { id: "m11", delta: 50, tag: "忠孝", label: "gave real money because of something you saw on this app" },
+
+  { id: "d1", delta: -1, tag: "雜不善", label: "subtweeted someone without naming them" },
+  { id: "d2", delta: -2, tag: "雜不善", label: "left a chat on read for a week out of spite" },
+  { id: "d3", delta: -3, tag: "不仁", label: "screenshotted a post to laugh at it in a group chat" },
+  { id: "d4", delta: -5, tag: "不仁", label: "ratio'd someone for a cheap laugh" },
+  { id: "d5", delta: -5, tag: "三寶罪", label: "argued religion or politics with a stranger past the point either of you was listening" },
+  { id: "d6", delta: -8, tag: "雜不善", label: "quote-posted just to dunk, added nothing" },
+  { id: "d7", delta: -10, tag: "不仁", label: "screenshotted a DM to use against someone" },
+  { id: "d8", delta: -15, tag: "不忠孝", label: "went cold on a friend instead of saying you were upset" },
+  { id: "d9", delta: -20, tag: "三寶罪", label: "built a whole alt just to argue with one person" },
+  { id: "d10", delta: -30, tag: "不仁", label: "organized or piled onto a pile-on" },
+  { id: "d11", delta: -50, tag: "三寶罪", label: "ran a scam or catfish account" },
+];
+
+function tierFor(net) {
+  if (net >= 150) return ["錄仙籍", "Name Entered in the Immortals' Register"];
+  if (net >= 80) return ["積善之家", "House of Accumulated Goodness"];
+  if (net >= 30) return ["略有盈餘", "Merit Ahead of Demerit, Modestly"];
+  if (net >= -29) return ["功過相抵", "Perfectly Balanced, As All Ledgers Should Be"];
+  if (net >= -79) return ["宿業未消", "Old Karma, Still Unresolved"];
+  if (net >= -149) return ["餓鬼道候補", "Hungry Ghost Realm, Waitlisted"];
+  return ["地獄簿有名", "Already Written Into Hell's Register"];
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  netscore: document.getElementById("netscore"),
+  tiername: document.getElementById("tiername"),
+  tierdesc: document.getElementById("tierdesc"),
+  observedLines: document.getElementById("observedLines"),
+  confessMerit: document.getElementById("confessMerit"),
+  confessDemerit: document.getElementById("confessDemerit"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let state = null; // { profile, did, observedScore, observedLines, checked: Set }
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function shareUrlFor(handle) {
+  return "https://gongguo.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function renderObservedLines(lines) {
+  els.observedLines.innerHTML = "";
+  if (!lines.length) {
+    const div = document.createElement("div");
+    div.className = "line empty";
+    div.textContent = "nothing notable observed — a clean, unremarkable record.";
+    els.observedLines.appendChild(div);
+    return;
+  }
+  for (const l of lines) {
+    const div = document.createElement("div");
+    div.className = "line";
+    const sign = l.delta > 0 ? "+" : "";
+    div.innerHTML =
+      `<span class="delta ${l.delta >= 0 ? "pos" : "neg"}">${sign}${l.delta}</span>` +
+      `<span class="tag">${l.tag}</span>` +
+      `<span class="label">${l.label}</span>`;
+    els.observedLines.appendChild(div);
+  }
+}
+
+function renderConfessList(container, items, checked) {
+  container.innerHTML = "";
+  for (const item of items) {
+    const label = document.createElement("label");
+    label.className = "confess-item";
+    const sign = item.delta > 0 ? "+" : "";
+    label.innerHTML =
+      `<input type="checkbox" data-id="${item.id}" ${checked.has(item.id) ? "checked" : ""} />` +
+      `<span class="delta ${item.delta >= 0 ? "pos" : "neg"}">${sign}${item.delta}</span>` +
+      `<span><span class="tag">${item.tag}</span>${item.label}</span>`;
+    container.appendChild(label);
+  }
+  container.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const id = cb.getAttribute("data-id");
+      if (cb.checked) state.checked.add(id); else state.checked.delete(id);
+      updateTotal();
+    });
+  });
+}
+
+function currentTotal() {
+  let confessScore = 0;
+  for (const item of CONFESS) if (state.checked.has(item.id)) confessScore += item.delta;
+  return state.observedScore + confessScore;
+}
+
+function shareText(net, tierName, tierDesc, handle) {
+  return (
+    `@${handle}'s Ledger of Merit and Demerit (功過格): net karma ${net >= 0 ? "+" : ""}${net}. ` +
+    `${tierName} — ${tierDesc}.\n\n` +
+    `open your own ledger → ${shareUrlFor(handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard({ profile, net, tierName, tierDesc, topLines }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#130d08";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#3a1a12");
+  glow.addColorStop(1, "rgba(19,13,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#c1272d";
+  ctx.font = `800 48px ${mono}`;
+  ctx.fillText("gongguo 功過格", 60, 96);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#f3e6cf";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 148, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 120, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 158);
+
+  ctx.strokeStyle = "#4a3a24";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#201810";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = net >= 30 ? "#6fae63" : net <= -30 ? "#c1272d" : "#d4af37";
+  ctx.font = `800 66px ${mono}`;
+  ctx.fillText((net >= 0 ? "+" : "") + net, W / 2, cardY + 84);
+
+  ctx.fillStyle = "#d4af37";
+  ctx.font = `800 30px ${mono}`;
+  ctx.fillText(tierName, W / 2, cardY + 126);
+
+  ctx.fillStyle = "#b39c78";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText(tierDesc, W / 2, cardY + 150);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#c1272d";
+  ctx.fillRect(cardX + 48, cardY + 184, 4, 96);
+  ctx.fillStyle = "#f3e6cf";
+  ctx.font = `400 17px ${mono}`;
+  let ly = cardY + 206;
+  for (const l of topLines.slice(0, 4)) {
+    const sign = l.delta > 0 ? "+" : "";
+    ctx.fillStyle = l.delta >= 0 ? "#6fae63" : "#c1272d";
+    ctx.font = `700 17px ${mono}`;
+    ctx.fillText(sign + l.delta, cardX + 68, ly);
+    ctx.fillStyle = "#f3e6cf";
+    ctx.font = `400 16px ${mono}`;
+    ctx.fillText(String(l.label).slice(0, 52), cardX + 118, ly);
+    ly += 26;
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#d4af37";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("gongguo.bisks.net", 60, H - 40);
+}
+
+function updateTotal() {
+  const net = currentTotal();
+  els.netscore.textContent = (net >= 0 ? "+" : "") + net;
+  els.netscore.className = "netscore " + (net >= 30 ? "good" : net <= -30 ? "bad" : "mid");
+  const [tierName, tierDesc] = tierFor(net);
+  els.tiername.innerHTML = `<span class="cn">${tierName}</span>${tierDesc}`;
+  els.tierdesc.textContent = "";
+
+  const merged = state.observedLines.concat(
+    CONFESS.filter((c) => state.checked.has(c.id))
+  ).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  lastShareText = shareText(net, tierName, tierDesc, state.profile.handle);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard({ profile: state.profile, net, tierName, tierDesc, topLines: merged });
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("consulting the ledger for " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    let posts = [];
+    try {
+      const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 50 });
+      posts = (feed.feed || []).map((f) => ({
+        text: (f.post.record && f.post.record.text) || "",
+        isReply: !!f.reply,
+      }));
+    } catch (_) {
+      // feed unavailable — observed score still runs on profile fields alone
+    }
+
+    const { score, lines } = computeObserved(profile, posts);
+
+    state = { profile, did, observedScore: score, observedLines: lines, checked: new Set() };
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+
+    renderObservedLines(lines);
+    renderConfessList(els.confessMerit, CONFESS.filter((c) => c.delta > 0), state.checked);
+    renderConfessList(els.confessDemerit, CONFESS.filter((c) => c.delta < 0), state.checked);
+
+    setStatus("");
+    els.card.classList.add("show");
+    updateTotal();
+  } catch (err) {
+    setStatus("couldn't open a ledger for that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "ledger").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "gongguo-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "ledger").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "gongguo-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "gongguo" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (current share links) or the older ?h=<handle> both auto-open.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
