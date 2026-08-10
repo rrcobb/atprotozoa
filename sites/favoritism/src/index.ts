@@ -77,6 +77,13 @@ interface LikeMatch {
 // Newest-first, up to 8 pages (~800 likes) — the fallback path only runs
 // when a full repo CAR download already failed, so this leans a bit deeper
 // than a pure teaser read to still land a reasonable total.
+//
+// listRecords' `reverse` param is the opposite of what its name suggests:
+// omitting it (default false) returns newest-first, while reverse=true
+// returns oldest-first. Confirmed empirically against a live PDS — a repo
+// with reverse=true here silently read a prolific liker's *oldest* ~800
+// likes instead of their newest, so recent activity (the whole point of a
+// "recent history" fallback) never showed up. Leave reverse unset.
 async function findLikesOf(repoDid: string, targetDid: string): Promise<{ matches: LikeMatch[]; scanned: number }> {
   const doc = await resolveDidDoc(repoDid);
   const pds = pdsFromDoc(doc);
@@ -92,7 +99,6 @@ async function findLikesOf(repoDid: string, targetDid: string): Promise<{ matche
       repo: repoDid,
       collection: "app.bsky.feed.like",
       limit: "100",
-      reverse: "true",
     };
     if (cursor) params.cursor = cursor;
     const qs = new URLSearchParams(params).toString();
