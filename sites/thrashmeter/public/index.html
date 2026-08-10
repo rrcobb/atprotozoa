@@ -237,6 +237,19 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// "handle.invalid" is AT Protocol's reserved placeholder handle — the
+// AppView returns it (instead of a real handle) for any DID whose declared
+// handle fails bidirectional verification, which is common for stale/moved
+// accounts. It shows up in ordinary places like searchActorsTypeahead
+// results, so it reaches this page as if it were a normal handle. It isn't
+// resolvable (com.atproto.identity.resolveHandle 400s on it) and isn't a
+// valid bsky.app/profile/<handle> path, so anywhere this page would show or
+// scan-by "@handle.invalid" it should fall back to the DID instead, which is
+// always resolvable and always a valid profile link.
+function isRealHandle(h) { return !!h && h !== "handle.invalid"; }
+function handleLabel(handle, did) { return isRealHandle(handle) ? "@" + handle : (did || "unresolved handle"); }
+function profileSlug(handle, did) { return isRealHandle(handle) ? handle : did; }
+
 // --- thrashing signals — kept in lockstep with src/index.ts's copy. This
 // runs client-side for instant feedback; the leaderboard never trusts it,
 // the Worker recomputes the same thing itself from the handle alone. ---
@@ -402,7 +415,12 @@ async function analyzeAccount(handleRaw, onProgress) {
 
   let did = handle;
   if (!handle.startsWith("did:")) {
-    const r = await xrpc("com.atproto.identity.resolveHandle", { handle: handle });
+    let r;
+    try {
+      r = await xrpc("com.atproto.identity.resolveHandle", { handle: handle });
+    } catch (_) {
+      throw new Error("couldn't find that handle — check the spelling");
+    }
     did = r.did;
   }
   const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
@@ -467,8 +485,8 @@ function renderResult(result) {
   const tier = tierFor(result.score);
 
   els.avatar.src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
-  els.name.textContent = result.displayName || result.handle;
-  els.handle.textContent = "@" + result.handle;
+  els.name.textContent = result.displayName || handleLabel(result.handle, result.did);
+  els.handle.textContent = handleLabel(result.handle, result.did);
   els.score.textContent = result.score;
   els.tier.textContent = tier.label;
   els.tierBlurb.textContent = tier.blurb;
@@ -476,8 +494,8 @@ function renderResult(result) {
   els.signals.innerHTML = signalsHtml(result.signals);
   els.card.classList.add("show");
 
-  const url = "https://thrashmeter.bisks.net/s/" + encodeURIComponent(result.handle);
-  const shareText = "@" + result.handle + " scores " + result.score + "/100 on the thrash-o-meter (" + tier.label + "). " + url;
+  const url = "https://thrashmeter.bisks.net/s/" + encodeURIComponent(profileSlug(result.handle, result.did));
+  const shareText = handleLabel(result.handle, result.did) + " scores " + result.score + "/100 on the thrash-o-meter (" + tier.label + "). " + url;
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
   buildShareCard(result, tier).then(function (blobUrl) {
@@ -524,7 +542,8 @@ async function buildShareCard(result, tier) {
 
   ctx.fillStyle = "#f5ece7";
   ctx.font = "700 34px ui-monospace, monospace";
-  ctx.fillText("@" + result.handle, 56, 160);
+  const cardLabel = handleLabel(result.handle, result.did);
+  ctx.fillText(cardLabel.length > 30 ? cardLabel.slice(0, 29) + "…" : cardLabel, 56, 160);
 
   ctx.fillStyle = "#ffc23d";
   ctx.font = "800 200px ui-monospace, monospace";
@@ -639,9 +658,13 @@ function renderSuggest() {
 function pickSuggest(i) {
   const a = suggestItems[i];
   if (!a) return;
-  els.input.value = a.handle;
+  // Scan by DID, not handle: searchActorsTypeahead can return accounts whose
+  // handle is the reserved "handle.invalid" placeholder (see isRealHandle
+  // above), and resolveHandle 400s on that literal string. The DID from the
+  // same suggestion is always valid and skips resolveHandle entirely.
+  els.input.value = isRealHandle(a.handle) ? a.handle : a.did;
   hideSuggest();
-  runScan(a.handle);
+  runScan(a.did || a.handle);
 }
 
 els.suggest.addEventListener("mousedown", function (e) {
@@ -715,10 +738,16 @@ function breakdownHtml(entry) {
         );
       }).join("")
     : '<div class="bdNote">nothing stood out — a very calm account.</div>';
+  // bsky.app/profile/<slug> needs a real handle or a DID — "handle.invalid"
+  // (see isRealHandle above) is neither, so fall back to the DID, which
+  // /api/leaderboard always includes on every board entry.
+  const slug = profileSlug(entry.handle, entry.did);
   return (
     '<div class="breakdown">' + body +
     '<div class="bdNote">top signals from their last score — re-run them above for a full, live breakdown.</div>' +
-    '<a class="bdLink" href="https://bsky.app/profile/' + encodeURIComponent(entry.handle) + '" target="_blank" rel="noopener">view @' + escapeHtml(entry.handle) + ' on bluesky ↗</a>' +
+    (slug
+      ? '<a class="bdLink" href="https://bsky.app/profile/' + encodeURIComponent(slug) + '" target="_blank" rel="noopener">view ' + escapeHtml(handleLabel(entry.handle, entry.did)) + ' on bluesky ↗</a>'
+      : '') +
     '</div>'
   );
 }
@@ -742,7 +771,7 @@ function renderBoard(data) {
       '<div class="row" data-i="' + i + '">' +
       '<span class="rank' + (rank <= 3 ? " gold" : "") + '">' + rank + '</span>' +
       '<img src="' + (entry.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
-      '<span class="rhandle">@' + escapeHtml(entry.handle) + '</span>' +
+      '<span class="rhandle">' + escapeHtml(handleLabel(entry.handle, entry.did)) + '</span>' +
       '<span class="rtier">' + escapeHtml(tier.label) + '</span>' +
       '<span class="rscore">' + entry.score + '</span>' +
       '<span class="rcaret">▶</span>' +

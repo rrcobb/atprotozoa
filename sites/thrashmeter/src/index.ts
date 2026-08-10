@@ -590,7 +590,12 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const tier = tierFor(score);
     const top = signals[0];
 
-    const who = "@" + (profile.handle || handle);
+    // profile.handle can be the reserved "handle.invalid" placeholder AT
+    // Protocol returns for a DID whose declared handle fails bidirectional
+    // verification — not a real handle, so fall back to the DID rather than
+    // showing "@handle.invalid" in the share card.
+    const realHandle = profile.handle && profile.handle !== "handle.invalid" ? profile.handle : null;
+    const who = realHandle ? "@" + realHandle : did;
     const title = `thrashmeter: ${who} scores ${score}/100 — ${tier.label}`;
     const topBit = top ? ` Top signal: ${top.label} (+${top.pts}).` : "";
     const desc = truncate(`${tier.blurb}.${topBit} Score your own at thrashmeter.bisks.net.`, 300);
