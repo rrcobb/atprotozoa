@@ -1,0 +1,41 @@
+name = "atprotozoa-bangerwatch"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @cee.wtf asked for a site that watches a handle's mutuals (people they
+# follow who follow them back) and shows their posts live as they climb
+# toward 10 likes — riffing on @catblanketflower.yuwakisa.com's "a banger is
+# like 10 likes." Posts stop being tracked the moment they cross 10; that's
+# also the cue for the over-the-top confetti + fanfare.
+#
+# Same shape as sites/ratioed: one Durable Object watches the live firehose
+# (Jetstream) and holds the rolling state, refreshed on an alarm heartbeat via
+# the public, unauthenticated AppView (getPosts/getFollows/getFollowers — no
+# login needed). Mutuals computation lives in the same DO, gated behind the
+# alarm loop rather than blocking a request, same reasoning as sites/the-place.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/bangerwatch path route and no prefix-stripping needed.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [
+  { pattern = "bangerwatch.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# /api/* is dynamic (the tracker Durable Object), so the Worker must run
+# BEFORE the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "TRACKER"
+class_name = "MutualTracker"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MutualTracker"]

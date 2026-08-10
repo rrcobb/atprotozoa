@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bangerwatch — watch a banger happen live</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle and watch their mutuals' posts climb live toward 10 likes. The instant one crosses the line: full-screen confetti and an egregious fanfare. Posts over 10 likes aren't tracked — that's the whole bit."
+    />
+    <meta property="og:title" content="bangerwatch — watch a banger happen live" />
+    <meta
+      property="og:description"
+      content="A banger is 10 likes. Type a handle, watch their mutuals' posts climb toward it live, and get the confetti cannon the moment one crosses the line."
+    />
+    <meta property="og:image" content="https://bangerwatch.bisks.net/og.png" />
+    <meta property="og:url" content="https://bangerwatch.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="bangerwatch — watch a banger happen live" />
+    <meta name="twitter:description" content="A banger is 10 likes. Watch a handle's mutuals climb toward it live, then get the confetti cannon." />
+    <meta name="twitter:image" content="https://bangerwatch.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0b0a10;
+        --panel: #15131c;
+        --panel2: #1c1926;
+        --ink: #f2eefc;
+        --muted: #9d95b3;
+        --faint: #4a4460;
+        --line: #2c2740;
+        --gold: #ffcf4d;
+        --pink: #ff6ec7;
+        --teal: #5ee6c8;
+        --blue: #7fbfff;
+        --bar: linear-gradient(90deg, var(--pink), var(--gold));
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; position: relative; z-index: 1; }
+      a { color: var(--teal); }
+      a:hover { color: var(--gold); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 {
+        font-size: 2rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem;
+        background: linear-gradient(90deg, var(--gold), var(--pink) 60%, var(--blue));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .sub { color: var(--muted); font-size: 0.92rem; line-height: 1.65; max-width: 58ch; margin: 0 0 1.5rem; }
+      .sub b { color: var(--ink); }
+
+      /* ---- landing form ---- */
+      form.track {
+        display: flex; gap: 0.5rem; margin: 1.4rem 0 0.6rem; flex-wrap: wrap;
+      }
+      form.track input {
+        flex: 1; min-width: 200px; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 10px; padding: 0.75rem 0.9rem; color: var(--ink); font-family: var(--mono);
+        font-size: 0.95rem;
+      }
+      form.track input:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
+      form.track button {
+        background: var(--pink); color: #1a0d15; border: none; border-radius: 10px;
+        padding: 0.75rem 1.2rem; font-family: var(--mono); font-weight: 800; font-size: 0.95rem;
+        cursor: pointer;
+      }
+      form.track button:hover { background: var(--gold); }
+      .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.8rem; }
+      .chip {
+        font-size: 0.78rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+        border-radius: 999px; padding: 0.3rem 0.75rem; text-decoration: none; cursor: pointer;
+      }
+      .chip:hover { color: var(--ink); border-color: var(--pink); }
+      .formerr { color: var(--pink); font-size: 0.82rem; margin: 0 0 1rem; display: none; }
+
+      /* ---- tracking view ---- */
+      #trackView { display: none; }
+      .target {
+        display: flex; align-items: center; gap: 0.85rem; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.2rem; margin-bottom: 1.2rem;
+      }
+      .target img {
+        width: 46px; height: 46px; border-radius: 50%; object-fit: cover; background: var(--faint);
+        border: 1px solid var(--line); flex: none;
+      }
+      .target .who { min-width: 0; flex: 1; }
+      .target .name { font-weight: 800; font-size: 1rem; }
+      .target .handle { color: var(--muted); font-size: 0.82rem; }
+      .target .mcount { font-size: 0.78rem; color: var(--muted); text-align: right; flex: none; }
+      .target .mcount b { color: var(--teal); }
+      .target .change { flex: none; }
+      .target .change a { font-size: 0.75rem; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.65rem; }
+      .target .change a:hover { color: var(--ink); border-color: var(--pink); }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--line);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
+      .dot.live { background: var(--teal); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: var(--faint); }
+      .status.err { color: var(--pink); }
+
+      h2.section {
+        font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted);
+        font-weight: 800; margin: 1.8rem 0 0.8rem;
+      }
+      .empty { color: var(--muted); font-size: 0.88rem; line-height: 1.7; padding: 0.6rem 0 1.2rem; }
+
+      ul.cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
+      .card {
+        display: flex; gap: 0.8rem; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 12px; padding: 0.9rem 1rem; animation: rowIn 0.35s ease both;
+      }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .card.hit { border-color: var(--gold); background: linear-gradient(180deg, rgba(255,207,77,0.08), var(--panel) 60%); }
+      .card img.avatar {
+        width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--faint);
+        border: 1px solid var(--line); flex: none;
+      }
+      .card .body { flex: 1; min-width: 0; }
+      .card .who2 { font-size: 0.82rem; margin-bottom: 0.25rem; }
+      .card .who2 .n { font-weight: 700; }
+      .card .who2 .h { color: var(--muted); }
+      .card .badge {
+        font-size: 0.68rem; background: var(--gold); color: #241a06; border-radius: 6px;
+        padding: 0.08rem 0.4rem; font-weight: 800; margin-left: 0.4rem;
+      }
+      .card .text { font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; margin: 0 0 0.55rem; }
+      .card img.postimg { max-width: 100%; max-height: 200px; border-radius: 8px; border: 1px solid var(--line); display: block; margin: 0 0 0.55rem; }
+      .card .meta { display: flex; align-items: center; gap: 0.7rem; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+      .card .meta a.perma { color: var(--muted); text-decoration: none; }
+      .card .meta a.perma:hover { color: var(--ink); text-decoration: underline; }
+      .likebar { flex: 1; height: 8px; border-radius: 5px; background: var(--panel2); overflow: hidden; min-width: 60px; }
+      .likebar > i { display: block; height: 100%; background: var(--bar); transition: width 0.5s ease; }
+      .likenum { font-weight: 800; color: var(--ink); white-space: nowrap; }
+
+      .share { margin: 1.8rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--line); border-radius: 9px; padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--pink); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+
+      /* ---- celebration overlay ---- */
+      #confettiCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 9998; }
+      #celebrateBanner {
+        position: fixed; left: 50%; top: 14%; transform: translate(-50%, -20px) scale(0.85);
+        z-index: 9999; background: linear-gradient(135deg, var(--pink), var(--gold));
+        color: #1a0d15; font-weight: 900; font-size: 1.4rem; padding: 1.1rem 1.6rem;
+        border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); text-align: center;
+        opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease;
+        max-width: 90vw;
+      }
+      #celebrateBanner.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+      #celebrateBanner .who { font-size: 0.95rem; font-weight: 700; margin-top: 0.35rem; }
+      #celebrateBanner img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 0.5rem; border: 2px solid #1a0d15; }
+      @keyframes flashbg { 0% { background-color: rgba(255,207,77,0); } 12% { background-color: rgba(255,207,77,0.18); } 100% { background-color: rgba(255,207,77,0); } }
+      body.flash { animation: flashbg 0.9s ease; }
+    </style>
+  </head>
+  <body>
+    <canvas id="confettiCanvas"></canvas>
+    <div id="celebrateBanner"></div>
+
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>bangerwatch</h1>
+        <p class="sub">
+          A banger is <b>10 likes</b> — <a href="https://bsky.app/profile/catblanketflower.yuwakisa.com" target="_blank" rel="noopener">@catblanketflower.yuwakisa.com</a>
+          said so. Type a handle and this watches their <b>mutuals</b> — people they follow who follow them back —
+          live off the firehose, tracking every post as the likes climb. The second one hits 10, it gets the full
+          treatment and stops being tracked. <b>Posts over 10 likes aren't tracked.</b> That's the whole bit.
+        </p>
+      </header>
+
+      <form class="track" id="trackForm">
+        <input id="handleInput" type="text" placeholder="a handle, e.g. cee.wtf" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button type="submit">watch</button>
+      </form>
+      <p class="formerr" id="formErr"></p>
+      <div class="chips">
+        <span class="chip" data-h="cee.wtf">@cee.wtf</span>
+        <span class="chip" data-h="catblanketflower.yuwakisa.com">@catblanketflower.yuwakisa.com</span>
+        <span class="chip" data-h="buildthis.bisks.net">@buildthis.bisks.net</span>
+      </div>
+
+      <div id="trackView">
+        <div class="target" id="target" style="display:none">
+          <img id="tAvatar" alt="" referrerpolicy="no-referrer" />
+          <div class="who">
+            <div class="name" id="tName"></div>
+            <div class="handle" id="tHandle"></div>
+          </div>
+          <div class="mcount"><b id="mCount">0</b> mutuals<br />being watched</div>
+          <div class="change"><a href="/">watch someone else</a></div>
+        </div>
+
+        <div class="status" id="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+
+        <h2 class="section">climbing 📈</h2>
+        <div class="empty" id="climbingEmpty">Nobody's mutuals have posted yet — hang tight, or check that the handle has mutuals to watch.</div>
+        <ul class="cards" id="climbingList"></ul>
+
+        <h2 class="section">bangers 🎉</h2>
+        <div class="empty" id="bangersEmpty">Nothing's crossed 10 likes yet. First one through the door gets the confetti.</div>
+        <ul class="cards" id="bangersList"></ul>
+
+        <div class="share">
+          <a id="shareLink" href="https://bsky.app/intent/compose?text=bangerwatch.bisks.net" target="_blank" rel="noopener">share this dashboard</a>
+        </div>
+      </div>
+
+      <footer>
+        Mutuals = people the handle follows who follow them back, computed from
+        <a href="https://docs.bsky.app/docs/category/http-reference" target="_blank" rel="noopener">the public AppView</a>
+        (capped at the first ~1500 follows/followers — plenty for a personal account). New posts are caught live off
+        the <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose;
+        like counts refresh roughly every 20 seconds until a post crosses 10, at which point it's frozen and retired
+        to the hall of fame. asked for by <a href="https://bsky.app/profile/cee.wtf">@cee.wtf</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      // ---------------------------------------------------------------------
+      // helpers
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+      function postUrl(handle, rkey) {
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+      function normalizeForUrl(h) {
+        return (h || "").trim().replace(/^@/, "");
+      }
+
+      // ---------------------------------------------------------------------
+      // confetti — a full-viewport canvas burst, called as many times as
+      // asked. "Really go for it" per the brief.
+      const canvas = document.getElementById("confettiCanvas");
+      const ctx = canvas.getContext("2d");
+      let particles = [];
+      let rafId = null;
+      const CONFETTI_COLORS = ["#ffcf4d", "#ff6ec7", "#5ee6c8", "#7fbfff", "#ffffff", "#c98bff"];
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+
+      function burstConfetti(count) {
+        const w = canvas.width, h = canvas.height;
+        for (let i = 0; i < count; i++) {
+          const fromTop = Math.random() < 0.6;
+          particles.push({
+            x: Math.random() * w,
+            y: fromTop ? -20 - Math.random() * h * 0.3 : h * 0.3 + Math.random() * h * 0.4,
+            vx: (Math.random() - 0.5) * 6,
+            vy: 2 + Math.random() * 5,
+            size: 5 + Math.random() * 7,
+            color: CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0],
+            rot: Math.random() * Math.PI * 2,
+            vrot: (Math.random() - 0.5) * 0.3,
+            shape: Math.random() < 0.5 ? "rect" : "circle",
+            life: 0,
+            maxLife: 220 + Math.random() * 140,
+          });
+        }
+        if (!rafId) tick();
+      }
+
+      function tick() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach((p) => {
+          p.life++;
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.06;
+          p.vx *= 0.995;
+          p.rot += p.vrot;
+          const fade = p.life > p.maxLife - 40 ? Math.max(0, (p.maxLife - p.life) / 40) : 1;
+          ctx.save();
+          ctx.globalAlpha = fade;
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.fillStyle = p.color;
+          if (p.shape === "rect") {
+            ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+          } else {
+            ctx.beginPath();
+            ctx.arc(0, 0, p.size / 2.4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
+        });
+        particles = particles.filter((p) => p.life < p.maxLife && p.y < canvas.height + 40);
+        if (particles.length) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          rafId = null;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // fanfare — a tiny synthesized brass stab + timpani hit, no external
+      // asset. Layered oscillators, a short triumphant motif.
+      let audioCtx = null;
+      function ensureAudio() {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        return audioCtx;
+      }
+      function tone(ac, t0, freq, dur, type, gainPeak, detune) {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t0);
+        if (detune) osc.detune.setValueAtTime(detune, t0);
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(gainPeak, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(gain).connect(ac.destination);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.05);
+      }
+      function thump(ac, t0) {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(180, t0);
+        osc.frequency.exponentialRampToValueAtTime(45, t0 + 0.35);
+        gain.gain.setValueAtTime(0.5, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.4);
+        osc.connect(gain).connect(ac.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.45);
+      }
+      function noiseBurst(ac, t0, dur) {
+        const bufferSize = ac.sampleRate * dur;
+        const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+        const src = ac.createBufferSource();
+        src.buffer = buffer;
+        const gain = ac.createGain();
+        gain.gain.setValueAtTime(0.35, t0);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        const hp = ac.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 3000;
+        src.connect(hp).connect(gain).connect(ac.destination);
+        src.start(t0);
+      }
+      function playFanfare() {
+        try {
+          const ac = ensureAudio();
+          if (ac.state === "suspended") ac.resume();
+          const t0 = ac.currentTime + 0.02;
+          thump(ac, t0);
+          noiseBurst(ac, t0, 0.5);
+          // C major triumphant run: C5 E5 G5 C6, then a held G6 stab
+          const notes = [
+            [0.0, 523.25, 0.18],
+            [0.14, 659.25, 0.18],
+            [0.28, 783.99, 0.18],
+            [0.42, 1046.5, 0.55],
+          ];
+          notes.forEach(([offset, freq, dur]) => {
+            tone(ac, t0 + offset, freq, dur, "sawtooth", 0.13);
+            tone(ac, t0 + offset, freq / 2, dur, "square", 0.07);
+          });
+          // a little vibrato flourish on top, staggered
+          tone(ac, t0 + 0.42, 1567.98, 0.5, "triangle", 0.09, 8);
+          // second thump for extra "egregious"
+          thump(ac, t0 + 0.5);
+          noiseBurst(ac, t0 + 0.5, 0.35);
+        } catch (e) {
+          // audio can fail before a user gesture unlocks it — confetti still runs
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // full celebration: banner + repeated confetti bursts + fanfare
+      const banner = document.getElementById("celebrateBanner");
+      let celebrateQueue = [];
+      let celebrating = false;
+      function queueCelebration(entry) {
+        celebrateQueue.push(entry);
+        if (!celebrating) runNextCelebration();
+      }
+      function runNextCelebration() {
+        const entry = celebrateQueue.shift();
+        if (!entry) {
+          celebrating = false;
+          return;
+        }
+        celebrating = true;
+        playFanfare();
+        document.body.classList.remove("flash");
+        void document.body.offsetWidth;
+        document.body.classList.add("flash");
+        burstConfetti(180);
+        setTimeout(() => burstConfetti(120), 220);
+        setTimeout(() => burstConfetti(90), 500);
+        banner.innerHTML =
+          `<div>🎉 BANGER 🎉</div>` +
+          `<div class="who"><img src="${esc(entry.avatar || "")}" referrerpolicy="no-referrer" alt="" />` +
+          `${esc(entry.displayName || entry.handle)} just hit ${entry.likeCount} likes!</div>`;
+        banner.classList.add("show");
+        setTimeout(() => {
+          banner.classList.remove("show");
+          setTimeout(runNextCelebration, 500);
+        }, 2600);
+      }
+
+      // ---------------------------------------------------------------------
+      // landing vs tracking view
+      const trackForm = document.getElementById("trackForm");
+      const handleInput = document.getElementById("handleInput");
+      const formErr = document.getElementById("formErr");
+      const trackView = document.getElementById("trackView");
+
+      document.querySelectorAll(".chip").forEach((chip) => {
+        chip.addEventListener("click", () => go(chip.dataset.h));
+      });
+      trackForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = handleInput.value.trim();
+        if (!v) return;
+        go(v);
+      });
+      function go(handle) {
+        const h = normalizeForUrl(handle);
+        const url = new URL(location.href);
+        url.searchParams.set("u", h);
+        history.replaceState(null, "", url);
+        startTracking(h);
+      }
+
+      let seenCelebrations = new Set();
+      let firstPoll = true;
+      let pollTimer = null;
+      let currentHandle = null;
+
+      function startTracking(handle) {
+        currentHandle = handle;
+        handleInput.value = handle;
+        trackForm.style.display = "none";
+        document.querySelector(".chips").style.display = "none";
+        formErr.style.display = "none";
+        trackView.style.display = "block";
+        seenCelebrations = new Set();
+        firstPoll = true;
+        if (pollTimer) clearInterval(pollTimer);
+        poll();
+        pollTimer = setInterval(poll, 5000);
+      }
+
+      const dot = document.getElementById("dot");
+      const statusEl = document.getElementById("status");
+      const statusText = document.getElementById("statusText");
+      const target = document.getElementById("target");
+      const shareLink = document.getElementById("shareLink");
+
+      function renderTarget(data) {
+        if (!data.targetProfile) return;
+        target.style.display = "flex";
+        document.getElementById("tAvatar").src = data.targetProfile.avatar || "";
+        document.getElementById("tName").textContent = data.targetProfile.displayName || data.targetProfile.handle;
+        document.getElementById("tHandle").textContent = "@" + data.targetProfile.handle;
+        document.getElementById("mCount").textContent = data.mutualsCount || 0;
+        const shareText = `watching @${data.targetProfile.handle}'s mutuals climb toward a banger (10 likes) — bangerwatch.bisks.net/?u=${encodeURIComponent(data.handle)}`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      function cardHTML(e, isHit) {
+        const pct = Math.max(4, Math.min(100, Math.round((e.likeCount / (isHit ? e.likeCount : 10)) * 100)));
+        const img = e.imgThumb
+          ? `<img class="postimg" src="${esc(e.imgThumb)}" alt="" referrerpolicy="no-referrer" loading="lazy" />`
+          : "";
+        const badge = isHit ? `<span class="badge">🎉 banger</span>` : "";
+        const timeLabel = isHit ? timeAgo(e.hitAt) + " · hit " + e.likeCount : timeAgo(e.createdAt);
+        return `
+          <li class="card${isHit ? " hit" : ""}">
+            <img class="avatar" src="${esc(e.avatar || "")}" alt="" referrerpolicy="no-referrer" />
+            <div class="body">
+              <div class="who2">
+                <span class="n">${esc(e.displayName || e.handle)}</span>
+                <span class="h">@${esc(e.handle)}</span>${badge}
+              </div>
+              <p class="text">${esc(e.text) || "<em>(no text)</em>"}</p>
+              ${img}
+              <div class="meta">
+                ${
+                  isHit
+                    ? ""
+                    : `<span class="likebar"><i style="width:${pct}%"></i></span><span class="likenum">${e.likeCount}/10</span>`
+                }
+                <span>${timeLabel}</span>
+                <a class="perma" href="${postUrl(e.handle, e.rkey)}" target="_blank" rel="noopener">open ↗</a>
+              </div>
+            </div>
+          </li>`;
+      }
+
+      const climbingList = document.getElementById("climbingList");
+      const climbingEmpty = document.getElementById("climbingEmpty");
+      const bangersList = document.getElementById("bangersList");
+      const bangersEmpty = document.getElementById("bangersEmpty");
+
+      function render(data) {
+        renderTarget(data);
+
+        const climbing = data.climbing || [];
+        climbingEmpty.style.display = climbing.length ? "none" : "";
+        climbingList.innerHTML = climbing.map((e) => cardHTML(e, false)).join("");
+
+        const celebrations = data.celebrations || [];
+        bangersEmpty.style.display = celebrations.length ? "none" : "";
+        bangersList.innerHTML = celebrations.map((e) => cardHTML(e, true)).join("");
+
+        if (!firstPoll) {
+          for (const c of celebrations) {
+            if (!seenCelebrations.has(c.uri)) queueCelebration(c);
+          }
+        }
+        for (const c of celebrations) seenCelebrations.add(c.uri);
+        firstPoll = false;
+      }
+
+      function statusLine(data) {
+        if (data.mutualsStatus === "pending" || data.mutualsStatus === "none") {
+          return "finding mutuals…";
+        }
+        if (data.mutualsStatus === "error") {
+          return "couldn't load that handle — " + (data.mutualsError || "check the spelling and try again");
+        }
+        if (!data.mutualsCount) {
+          return "no mutuals found for this handle — nothing to watch yet";
+        }
+        return `watching ${data.mutualsCount} mutuals · ${(data.climbing || []).length} posts climbing` + (data.updatedAt ? ` · updated ${timeAgo(data.updatedAt)}` : "");
+      }
+
+      let failCount = 0;
+      async function poll() {
+        if (!currentHandle) return;
+        try {
+          const r = await fetch("/api/state?handle=" + encodeURIComponent(currentHandle), { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          statusEl.classList.toggle("err", data.mutualsStatus === "error");
+          dot.classList.toggle("live", data.mutualsStatus === "ready");
+          statusText.textContent = statusLine(data);
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // boot: read ?u= from the URL, or show the landing form
+      (function boot() {
+        const params = new URLSearchParams(location.search);
+        const u = params.get("u");
+        if (u) startTracking(normalizeForUrl(u));
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
