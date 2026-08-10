@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>thrashradar — the Bluesky thrash leaderboard that finds itself</title>
+<meta name="description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta property="og:title" content="thrashradar — the Bluesky thrash leaderboard that finds itself" />
+<meta property="og:description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta property="og:url" content="https://thrashradar.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://thrashradar.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="thrashradar: a Bluesky handle with a thrashing score out of 100, spotted via the firehose." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="thrashradar — the Bluesky thrash leaderboard that finds itself" />
+<meta name="twitter:description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta name="twitter:image" content="https://thrashradar.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #100a0a;
+    --fg: #f5ece7;
+    --dim: #b09590;
+    --accent: #ff5b3d;
+    --accent2: #ffc23d;
+    --card: #1b1210;
+    --border: #3a2620;
+    --pos: #ff8a5b;
+    --neg: #6bd9c4;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #4a1408 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 0%, #3a2a05 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.5; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .inputWrap { position: relative; flex: 1; min-width: 0; }
+  input[type="text"] {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .suggest {
+    display: none; position: absolute; left: 0; right: 0; top: calc(100% + 0.35rem);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; z-index: 20; box-shadow: 0 12px 30px -12px #000;
+  }
+  .suggest.show { display: block; }
+  .suggest .opt {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.7rem;
+    cursor: pointer; border-bottom: 1px solid var(--border);
+  }
+  .suggest .opt:last-child { border-bottom: none; }
+  .suggest .opt:hover, .suggest .opt.active { background: #26181490; }
+  .suggest .opt img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
+  .suggest .opt .osub { min-width: 0; }
+  .suggest .opt .oname { font-size: 0.84rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggest .opt .ohandle { color: var(--dim); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #100a0a;
+    border: none; border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 1.75rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1.5rem; }
+  .status.err { color: #ff7676; }
+
+  .card {
+    display: none; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.6rem; margin-bottom: 2rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.1rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); object-fit: cover; }
+  .who .name { font-weight: 700; }
+  .who .handle { color: var(--dim); font-size: 0.8rem; }
+
+  .scoreRow { display: flex; align-items: baseline; gap: 0.9rem; margin-bottom: 0.4rem; }
+  .scoreNum {
+    font-size: 3.2rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .scoreOf { color: var(--dim); font-size: 1rem; }
+  .tier { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.15rem; }
+  .tierBlurb { color: var(--dim); font-size: 0.85rem; margin-bottom: 1rem; }
+  .gauge { height: 8px; border-radius: 5px; background: #241713; overflow: hidden; margin-bottom: 1.35rem; }
+  .gaugeFill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.5s ease; }
+
+  .signal { display: flex; align-items: baseline; gap: 0.6rem; border-top: 1px solid var(--border); padding: 0.55rem 0; }
+  .signal:first-of-type { border-top: none; }
+  .signal .pts { font-weight: 800; font-size: 0.82rem; flex-shrink: 0; width: 2.6rem; text-align: right; }
+  .signal .pts.pos { color: var(--pos); }
+  .signal .pts.neg { color: var(--neg); }
+  .signal .body { min-width: 0; }
+  .signal .label { font-size: 0.86rem; font-weight: 600; }
+  .signal .detail { color: var(--dim); font-size: 0.76rem; margin-top: 0.1rem; }
+  .noSignals { color: var(--dim); font-size: 0.82rem; font-style: italic; padding: 0.4rem 0; }
+
+  .actions { display: flex; gap: 0.5rem; margin-top: 1.3rem; flex-wrap: wrap; }
+  .actions a, .actions button { font-size: 0.82rem; padding: 0.55rem 0.85rem; }
+  .actions a {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 8px; text-decoration: none; font-weight: 600;
+  }
+
+  h2 { font-size: 1.1rem; margin: 0 0 0.2rem; color: var(--fg); }
+  .boardhint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; }
+  .board { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; max-height: 480px; overflow-y: auto; }
+  .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); color: var(--fg); cursor: pointer; }
+  .rowWrap:last-child .row:not(.expanded) { border-bottom: none; }
+  .row:hover { background: #26181490; }
+  .rank { width: 1.8rem; text-align: right; color: var(--dim); font-size: 0.82rem; flex-shrink: 0; }
+  .rank.gold { color: var(--accent2); font-weight: 800; }
+  .row img { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; object-fit: cover; background: var(--border); }
+  .row .rhandle { font-size: 0.82rem; font-weight: 600; flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rsource { font-size: 0.78rem; flex-shrink: 0; width: 1.1rem; text-align: center; }
+  .row .rtier { color: var(--dim); font-size: 0.74rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rscore { font-weight: 800; font-size: 0.9rem; flex-shrink: 0; color: var(--accent); }
+  .row .rcaret { color: var(--dim); font-size: 0.7rem; flex-shrink: 0; transition: transform 0.15s ease; }
+  .row.expanded .rcaret { transform: rotate(90deg); }
+  .breakdown { padding: 0.3rem 0.85rem 0.85rem; border-bottom: 1px solid var(--border); background: #160f0d; }
+  .breakdown .bdSignal { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.35rem 0; border-top: 1px solid var(--border); }
+  .breakdown .bdSignal:first-child { border-top: none; }
+  .breakdown .bdSignal .pts { font-weight: 800; font-size: 0.78rem; flex-shrink: 0; width: 2.4rem; text-align: right; }
+  .breakdown .bdSignal .pts.pos { color: var(--pos); }
+  .breakdown .bdSignal .pts.neg { color: var(--neg); }
+  .breakdown .bdSignal .label { font-size: 0.8rem; font-weight: 600; }
+  .breakdown .bdSignal .detail { color: var(--dim); font-size: 0.72rem; margin-top: 0.1rem; }
+  .breakdown .bdLink { display: inline-block; margin-top: 0.5rem; color: var(--accent); font-size: 0.76rem; text-decoration: none; font-weight: 600; }
+  .breakdown .bdNote { color: var(--dim); font-size: 0.72rem; margin-top: 0.5rem; }
+  .empty-board { color: var(--dim); font-size: 0.82rem; padding: 1rem; text-align: center; }
+  .scanners { color: var(--dim); font-size: 0.76rem; margin-top: 0.7rem; text-align: center; }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📡 thrashradar</h1>
+  <p class="tag">A <a href="https://thrashmeter.bisks.net/" target="_blank" rel="noopener">thrashmeter</a> fork that fills its own leaderboard: a quiet watcher sits on the live firehose, and once an account posts in a rapid-fire burst it gets the exact same treatment a manual search does — profile pull, <em>entire</em> repo download as one CAR straight off their own PDS, scored out of 100 on rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl, and more. Or just search a handle yourself below — either way the number is re-derived server-side, so nobody can claim a fake 100.</p>
+
+  <form id="scanForm">
+    <div class="inputWrap">
+      <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <div class="suggest" id="suggestList"></div>
+    </div>
+    <button type="submit" id="scanBtn">thrash it</button>
+  </form>
+  <p class="hint">no login needed — reads public data only.</p>
+  <p class="status" id="status"></p>
+
+  <div class="card" id="resultCard">
+    <div class="who">
+      <img id="rAvatar" src="" alt="" />
+      <div>
+        <div class="name" id="rName"></div>
+        <div class="handle" id="rHandle"></div>
+      </div>
+    </div>
+
+    <div class="scoreRow">
+      <span class="scoreNum" id="rScore">0</span>
+      <span class="scoreOf">/ 100</span>
+    </div>
+    <div class="tier" id="rTier"></div>
+    <div class="tierBlurb" id="rTierBlurb"></div>
+    <div class="gauge"><div class="gaugeFill" id="rGauge" style="width:0%"></div></div>
+
+    <div id="rSignals"></div>
+
+    <div class="actions">
+      <a id="shareBluesky" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      <a id="shareCard" href="#" download="thrashradar.png">download share card</a>
+      <button type="button" class="ghost" id="shareNative" style="display:none;">share</button>
+    </div>
+  </div>
+
+  <h2>the leaderboard</h2>
+  <p class="boardhint">every handle examined so far, ranked by thrashing score — some searched by hand, some spotted live on the firehose (📡). re-derived from a fresh repo CAR server-side every time, so nobody can fake a number.</p>
+  <div class="board" id="boardList"></div>
+  <p class="scanners" id="scannerCount"></p>
+
+  <footer>
+    built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · a fork of <a href="https://thrashmeter.bisks.net/" target="_blank" rel="noopener">thrashmeter</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
+
+<script type="module">
+import { fetchRepoRecords } from "./lib/car.js";
+import { resolvePds, authorFromUri } from "./lib/identity.js";
+
+const API = "https://public.api.bsky.app/xrpc/";
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) throw new Error(method + " " + res.status);
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+function fmt(n) { return Number(n || 0).toLocaleString(); }
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// "handle.invalid" is AT Protocol's reserved placeholder handle — the
+// AppView returns it (instead of a real handle) for any DID whose declared
+// handle fails bidirectional verification, which is common for stale/moved
+// accounts. It shows up in ordinary places like searchActorsTypeahead
+// results, so it reaches this page as if it were a normal handle. It isn't
+// resolvable (com.atproto.identity.resolveHandle 400s on it) and isn't a
+// valid bsky.app/profile/<handle> path, so anywhere this page would show or
+// scan-by "@handle.invalid" it should fall back to the DID instead, which is
+// always resolvable and always a valid profile link.
+function isRealHandle(h) { return !!h && h !== "handle.invalid"; }
+function handleLabel(handle, did) { return isRealHandle(handle) ? "@" + handle : (did || "unresolved handle"); }
+function profileSlug(handle, did) { return isRealHandle(handle) ? handle : did; }
+
+// --- thrashing signals — kept in lockstep with src/index.ts's copy. This
+// runs client-side for instant feedback; the leaderboard never trusts it,
+// the Worker recomputes the same thing itself from the handle alone. ---
+
+const WANTED_TYPES = [
+  "app.bsky.feed.post",
+  "app.bsky.feed.like",
+  "app.bsky.feed.repost",
+  "app.bsky.graph.follow",
+  "app.bsky.graph.block",
+  "app.bsky.graph.listitem",
+  "app.bsky.graph.list",
+  "app.bsky.graph.starterpack",
+  "app.bsky.feed.generator",
+  "app.bsky.feed.threadgate",
+  "app.bsky.feed.postgate",
+];
+
+function computeThrash(did, profile, byType, topchickenCount) {
+  const signals = [];
+  let points = 0;
+  function add(label, pts, detail) {
+    if (!pts) return;
+    points += pts;
+    signals.push({ label: label, pts: pts, detail: detail || null });
+  }
+
+  const posts = byType["app.bsky.feed.post"] || [];
+  const likes = byType["app.bsky.feed.like"] || [];
+  const reposts = byType["app.bsky.feed.repost"] || [];
+  const follows = byType["app.bsky.graph.follow"] || [];
+  const blocks = byType["app.bsky.graph.block"] || [];
+  const listitems = byType["app.bsky.graph.listitem"] || [];
+  const lists = byType["app.bsky.graph.list"] || [];
+  const starterpacks = byType["app.bsky.graph.starterpack"] || [];
+  const feedgens = byType["app.bsky.feed.generator"] || [];
+  const threadgates = byType["app.bsky.feed.threadgate"] || [];
+  const postgates = byType["app.bsky.feed.postgate"] || [];
+
+  const own = posts.length;
+  const times = [];
+  let replies = 0;
+  let selfReplies = 0;
+  let quotes = 0;
+
+  for (const p of posts) {
+    const t = Date.parse(p.createdAt || "");
+    if (isFinite(t)) times.push(t);
+    if (p.reply && p.reply.parent && p.reply.parent.uri) {
+      replies++;
+      if (authorFromUri(p.reply.parent.uri) === did) selfReplies++;
+    }
+    const embedType = (p.embed && p.embed.$type) || "";
+    if (embedType === "app.bsky.embed.record" || embedType === "app.bsky.embed.recordWithMedia") quotes++;
+  }
+  times.sort(function (a, b) { return a - b; });
+
+  if (own === 0) return { score: 0, signals: [], sampled: 0 };
+
+  // rapid-fire bursts: the most posts crammed into any single 10-minute window
+  let maxBurst = 1;
+  {
+    let i = 0;
+    for (let j = 0; j < times.length; j++) {
+      while (times[j] - times[i] > 10 * 60 * 1000) i++;
+      maxBurst = Math.max(maxBurst, j - i + 1);
+    }
+  }
+  if (maxBurst >= 4) add("rapid-fire bursts", Math.min((maxBurst - 3) * 3, 20), maxBurst + " posts inside a single 10-minute window");
+
+  // erratic rhythm: coefficient of variation across the gaps between posts
+  if (times.length >= 8) {
+    const gaps = [];
+    for (let i = 1; i < times.length; i++) gaps.push(times[i] - times[i - 1]);
+    const mean = gaps.reduce(function (a, b) { return a + b; }, 0) / gaps.length;
+    if (mean > 0) {
+      const variance = gaps.reduce(function (a, b) { return a + Math.pow(b - mean, 2); }, 0) / gaps.length;
+      const cv = Math.sqrt(variance) / mean;
+      if (cv >= 1.5) add("erratic rhythm", Math.min(Math.round((cv - 1) * 6), 18), "posting gaps swing wildly, no steady pace (cv " + cv.toFixed(1) + ")");
+    }
+  }
+
+  const replyRate = replies / own;
+  if (replyRate >= 0.15) add("lives in other people's replies", Math.min(Math.round(replyRate * 22), 18), Math.round(replyRate * 100) + "% of posts are replies");
+
+  if (selfReplies >= 3) add("argues with themselves", Math.min(selfReplies * 2, 14), selfReplies + " self-replies");
+
+  if (quotes >= 2) add("quote-dunks", Math.min(quotes * 2, 12), quotes + " quote posts");
+
+  if (blocks.length >= 3) add("trigger-happy with the block button", Math.min(blocks.length, 16), blocks.length + " blocks on record");
+
+  const sprawl = [likes, reposts, follows, blocks, listitems, lists, starterpacks, feedgens, threadgates, postgates];
+  const touched = sprawl.filter(function (arr) { return arr.length > 0; }).length;
+  if (touched >= 3) add("all over the protocol", Math.min((touched - 2) * 3, 15), touched + " different record types besides posts");
+
+  // shimmermathlabs.com's ruling, 2026-08-09: "anyone with 'topchicken
+  // records' deserves to have extra points in their score." Not a bug fix —
+  // the people asked for a bonus, so it's a bonus.
+  if (topchickenCount > 0) add("caught with topchicken records", Math.min(Math.ceil(topchickenCount / 500), 15), fmt(topchickenCount) + " topchicken records in the repo — shimmermathlabs said that's worth bonus points");
+
+  let nightCount = 0;
+  for (const t of times) { const h = new Date(t).getUTCHours(); if (h >= 3 && h < 7) nightCount++; }
+  const nightRate = nightCount / own;
+  if (nightRate >= 0.2 && own >= 10) add("posts through the witching hours", Math.min(Math.round(nightRate * 30), 14), Math.round(nightRate * 100) + "% of posts land 3–7am UTC");
+
+  if (typeof profile.createdAt === "string") {
+    const ageDays = Math.max((Date.now() - Date.parse(profile.createdAt)) / 86400000, 1);
+    // postsCount/followsCount are exact AppView aggregates — take the max of
+    // that and the sampled count (kept in lockstep with src/index.ts, where
+    // this guards against the server's CAR scan caps understating a
+    // prolific account; harmless here since the client reads the whole CAR).
+    const totalRecords = Math.max(own, Number(profile.postsCount) || 0) + likes.length + reposts.length +
+      Math.max(follows.length, Number(profile.followsCount) || 0) + blocks.length + listitems.length;
+    const perDay = totalRecords / ageDays;
+    if (perDay >= 8 && ageDays >= 3) add("posting like the servers are on fire", Math.min(Math.round(perDay), 20), "~" + perDay.toFixed(1) + " records/day since joining");
+  }
+
+  const raw = Math.max(points, 0);
+  const score = Math.max(0, Math.min(100, Math.round(100 * (1 - Math.exp(-raw / 50)))));
+  signals.sort(function (a, b) { return b.pts - a.pts; });
+  return { score: score, signals: signals, sampled: own };
+}
+
+function tierFor(score) {
+  if (score >= 90) return { label: "full mosh pit", blurb: "the timeline is a blast radius" };
+  if (score >= 75) return { label: "properly thrashing", blurb: "energy of someone circling the pit" };
+  if (score >= 55) return { label: "elbows out", blurb: "kicks up dust now and then" };
+  if (score >= 35) return { label: "a little jumpy", blurb: "the occasional shove" };
+  if (score >= 15) return { label: "mostly stationary", blurb: "barely swaying" };
+  return { label: "glacial", blurb: "hasn't moved in weeks" };
+}
+
+// Prefers the full repo: one com.atproto.sync.getRepo CAR download off the
+// account's own PDS gets every record they've ever written, no page cap.
+// Falls back to a single page of app.bsky.feed.getAuthorFeed (posts only)
+// if the PDS can't be resolved or the CAR fetch/parse fails.
+async function fetchThrashData(did, onProgress) {
+  const pds = await resolvePds(did);
+  if (pds) {
+    try {
+      const { records, topchickenCount } = await fetchRepoRecords(pds, did, WANTED_TYPES, onProgress);
+      const byType = {};
+      for (const r of records) {
+        const t = r.$type;
+        (byType[t] || (byType[t] = [])).push(r);
+      }
+      return { byType: byType, full: true, topchickenCount: topchickenCount || 0 };
+    } catch (_) {
+      // fall through to the AppView sample below
+    }
+  }
+  if (onProgress) onProgress("falling back to a recent-posts sample…");
+  const feed = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: "50" });
+  const posts = (feed.feed || [])
+    .filter(function (item) { return !item.reason && item.post && item.post.author && item.post.author.did === did; })
+    .map(function (item) { return item.post.record || {}; });
+  return { byType: { "app.bsky.feed.post": posts }, full: false, topchickenCount: 0 };
+}
+
+async function analyzeAccount(handleRaw, onProgress) {
+  const handle = cleanHandle(handleRaw);
+  if (!handle) throw new Error("enter a handle");
+
+  let did = handle;
+  if (!handle.startsWith("did:")) {
+    let r;
+    try {
+      r = await xrpc("com.atproto.identity.resolveHandle", { handle: handle });
+    } catch (_) {
+      throw new Error("couldn't find that handle — check the spelling");
+    }
+    did = r.did;
+  }
+  const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+  const { byType, full, topchickenCount } = await fetchThrashData(did, onProgress);
+  const scored = computeThrash(did, profile, byType, topchickenCount);
+
+  return {
+    did: did,
+    handle: profile.handle || handle,
+    displayName: profile.displayName || "",
+    avatar: profile.avatar || "",
+    score: scored.score,
+    signals: scored.signals,
+    sampled: scored.sampled,
+    full: full,
+  };
+}
+
+// --- UI wiring ---
+
+const els = {
+  form: document.getElementById("scanForm"),
+  input: document.getElementById("handleInput"),
+  suggest: document.getElementById("suggestList"),
+  btn: document.getElementById("scanBtn"),
+  status: document.getElementById("status"),
+  card: document.getElementById("resultCard"),
+  avatar: document.getElementById("rAvatar"),
+  name: document.getElementById("rName"),
+  handle: document.getElementById("rHandle"),
+  score: document.getElementById("rScore"),
+  tier: document.getElementById("rTier"),
+  tierBlurb: document.getElementById("rTierBlurb"),
+  gauge: document.getElementById("rGauge"),
+  signals: document.getElementById("rSignals"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareCard: document.getElementById("shareCard"),
+  shareNative: document.getElementById("shareNative"),
+  boardList: document.getElementById("boardList"),
+  scannerCount: document.getElementById("scannerCount"),
+};
+
+function signalsHtml(signals) {
+  if (!signals || !signals.length) return '<div class="noSignals">nothing stood out — a very calm account.</div>';
+  return signals.map(function (s) {
+    const cls = s.pts >= 0 ? "pos" : "neg";
+    const sign = s.pts >= 0 ? "+" : "";
+    return (
+      '<div class="signal">' +
+      '<div class="pts ' + cls + '">' + sign + s.pts + '</div>' +
+      '<div class="body"><div class="label">' + escapeHtml(s.label) + '</div>' +
+      (s.detail ? '<div class="detail">' + escapeHtml(s.detail) + '</div>' : '') +
+      '</div></div>'
+    );
+  }).join("");
+}
+
+let lastResult = null;
+
+function renderResult(result) {
+  lastResult = result;
+  const tier = tierFor(result.score);
+
+  els.avatar.src = result.avatar || "https://bsky.app/static/apple-touch-icon.png";
+  els.name.textContent = result.displayName || handleLabel(result.handle, result.did);
+  els.handle.textContent = handleLabel(result.handle, result.did);
+  els.score.textContent = result.score;
+  els.tier.textContent = tier.label;
+  els.tierBlurb.textContent = tier.blurb;
+  els.gauge.style.width = result.score + "%";
+  els.signals.innerHTML = signalsHtml(result.signals);
+  els.card.classList.add("show");
+
+  const url = "https://thrashradar.bisks.net/s/" + encodeURIComponent(profileSlug(result.handle, result.did));
+  const shareText = handleLabel(result.handle, result.did) + " scores " + result.score + "/100 on the thrash-o-meter (" + tier.label + "). " + url;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(result, tier).then(function (blobUrl) {
+    els.shareCard.href = blobUrl;
+  });
+
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.onclick = async function () {
+      try {
+        const canvas = document.getElementById("cardCanvas");
+        const blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+        const file = new File([blob], "thrashradar.png", { type: "image/png" });
+        await navigator.share({ files: [file], text: shareText, title: "thrashradar" });
+      } catch (_) {}
+    };
+  }
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+
+async function buildShareCard(result, tier) {
+  const canvas = document.getElementById("cardCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#3a1206");
+  bg.addColorStop(1, "#100a0a");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#ff5b3d";
+  ctx.font = "800 52px ui-monospace, monospace";
+  ctx.fillText("thrashradar", 56, 96);
+
+  ctx.fillStyle = "#f5ece7";
+  ctx.font = "700 34px ui-monospace, monospace";
+  const cardLabel = handleLabel(result.handle, result.did);
+  ctx.fillText(cardLabel.length > 30 ? cardLabel.slice(0, 29) + "…" : cardLabel, 56, 160);
+
+  ctx.fillStyle = "#ffc23d";
+  ctx.font = "800 200px ui-monospace, monospace";
+  ctx.fillText(String(result.score), 56, 400);
+
+  ctx.fillStyle = "#b09590";
+  ctx.font = "600 34px ui-monospace, monospace";
+  ctx.fillText("/ 100", 470, 400);
+
+  ctx.fillStyle = "#f5ece7";
+  ctx.font = "800 32px ui-monospace, monospace";
+  ctx.fillText(tier.label, 56, 460);
+
+  ctx.fillStyle = "#b09590";
+  ctx.font = "600 22px ui-monospace, monospace";
+  ctx.fillText("thrashradar.bisks.net", 56, H - 40);
+
+  return new Promise(function (resolve) {
+    canvas.toBlob(function (blob) {
+      resolve(URL.createObjectURL(blob));
+    }, "image/png");
+  });
+}
+
+// The card above renders the client's own scan the instant it finishes, for
+// speed — but the leaderboard only ever shows the server's independently
+// re-derived number (see src/index.ts's header comment). Those two can
+// legitimately disagree: a very large repo can trip the server's
+// CAR_MAX_BLOCKS_SCANNED/CAR_MAX_RECORDS_DECODED caps while the client's
+// browser-side scan has no such limit.
+// Once the server answers, reconcile the card to match it instead of leaving
+// two different scores on screen at once (same pattern sites/intrigue hit).
+async function submitToLeaderboard(result) {
+  try {
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle: result.did }),
+    });
+    const data = await res.json();
+    if (data && typeof data.score === "number" && lastResult && lastResult.did === result.did) {
+      const verified = Object.assign({}, result, { score: data.score, signals: data.signals || result.signals, sampled: data.sampled });
+      renderResult(verified);
+      if (data.score !== result.score) {
+        els.status.textContent = "server independently re-verified this at " + data.score + "/100 (this browser's own scan said " + result.score + ") — the leaderboard number is the one that counts.";
+      }
+    }
+  } catch (_) {
+    // leaderboard submission is best-effort; the personal result still shows.
+  }
+  loadLeaderboard();
+}
+
+async function runScan(handleRaw) {
+  els.btn.disabled = true;
+  els.status.classList.remove("err");
+  els.status.textContent = "resolving " + handleRaw + "…";
+  try {
+    const result = await analyzeAccount(handleRaw, function (msg) { els.status.textContent = msg; });
+    els.status.textContent = result.full
+      ? "scored from their entire repo (" + fmt(result.sampled) + " post" + (result.sampled === 1 ? "" : "s") + ") plus their profile"
+      : "scored from " + fmt(result.sampled) + " recent post" + (result.sampled === 1 ? "" : "s") + " and their profile (couldn't reach their PDS for the full repo)";
+    renderResult(result);
+    submitToLeaderboard(result);
+  } catch (err) {
+    els.status.classList.add("err");
+    els.status.textContent = "couldn't score that — " + (err && err.message ? err.message : "check the handle and try again");
+  } finally {
+    els.btn.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", function (e) {
+  e.preventDefault();
+  hideSuggest();
+  const v = els.input.value.trim();
+  if (v) runScan(v);
+});
+
+// --- typeahead: suggested accounts as you type, via the public AppView's
+// actor search-typeahead endpoint (no auth needed, same public.api host as
+// every other lookup on this page). Debounced so every keystroke doesn't
+// fire a request, and stale responses are dropped by request-id so a slow
+// early query can't clobber the dropdown after a faster later one lands. ---
+
+let suggestItems = [];
+let suggestActive = -1;
+let suggestDebounce = null;
+let suggestReqId = 0;
+
+function hideSuggest() {
+  els.suggest.classList.remove("show");
+  els.suggest.innerHTML = "";
+  suggestItems = [];
+  suggestActive = -1;
+}
+
+function renderSuggest() {
+  if (!suggestItems.length) { hideSuggest(); return; }
+  els.suggest.innerHTML = suggestItems.map(function (a, i) {
+    return (
+      '<div class="opt' + (i === suggestActive ? " active" : "") + '" data-i="' + i + '">' +
+      '<img src="' + (a.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
+      '<div class="osub"><div class="oname">' + escapeHtml(a.displayName || a.handle) + '</div>' +
+      '<div class="ohandle">@' + escapeHtml(a.handle) + '</div></div>' +
+      '</div>'
+    );
+  }).join("");
+  els.suggest.classList.add("show");
+}
+
+function pickSuggest(i) {
+  const a = suggestItems[i];
+  if (!a) return;
+  // Scan by DID, not handle: searchActorsTypeahead can return accounts whose
+  // handle is the reserved "handle.invalid" placeholder (see isRealHandle
+  // above), and resolveHandle 400s on that literal string. The DID from the
+  // same suggestion is always valid and skips resolveHandle entirely.
+  els.input.value = isRealHandle(a.handle) ? a.handle : a.did;
+  hideSuggest();
+  runScan(a.did || a.handle);
+}
+
+els.suggest.addEventListener("mousedown", function (e) {
+  const opt = e.target.closest(".opt");
+  if (!opt) return;
+  e.preventDefault();
+  pickSuggest(Number(opt.dataset.i));
+});
+
+els.input.addEventListener("input", function () {
+  const q = els.input.value.trim();
+  if (suggestDebounce) clearTimeout(suggestDebounce);
+  if (q.length < 2) { hideSuggest(); return; }
+  suggestDebounce = setTimeout(function () {
+    const reqId = ++suggestReqId;
+    xrpc("app.bsky.actor.searchActorsTypeahead", { q: q, limit: "6" })
+      .then(function (data) {
+        if (reqId !== suggestReqId) return; // a newer query already landed
+        suggestItems = data.actors || [];
+        suggestActive = -1;
+        renderSuggest();
+      })
+      .catch(function () {
+        if (reqId === suggestReqId) hideSuggest();
+      });
+  }, 200);
+});
+
+els.input.addEventListener("keydown", function (e) {
+  if (!els.suggest.classList.contains("show")) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    suggestActive = Math.min(suggestActive + 1, suggestItems.length - 1);
+    renderSuggest();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    suggestActive = Math.max(suggestActive - 1, -1);
+    renderSuggest();
+  } else if (e.key === "Enter" && suggestActive >= 0) {
+    e.preventDefault();
+    pickSuggest(suggestActive);
+  } else if (e.key === "Escape") {
+    hideSuggest();
+  }
+});
+
+els.input.addEventListener("blur", function () {
+  // deferred so a mousedown on an option fires before the dropdown vanishes
+  setTimeout(hideSuggest, 150);
+});
+
+// --- leaderboard ---
+
+// Row-click score breakdowns use topSignals straight from /api/leaderboard's
+// response — that field's already on every board entry (see ThrashRadar.fetch
+// in src/index.ts), so expanding a row costs no extra request. topSignals is
+// capped at the top 6 by the server, so the breakdown is labeled accordingly
+// rather than implying it's the complete list.
+function breakdownHtml(entry) {
+  const signals = entry.topSignals || [];
+  const body = signals.length
+    ? signals.map(function (s) {
+        const cls = s.pts >= 0 ? "pos" : "neg";
+        const sign = s.pts >= 0 ? "+" : "";
+        return (
+          '<div class="bdSignal">' +
+          '<div class="pts ' + cls + '">' + sign + s.pts + '</div>' +
+          '<div><div class="label">' + escapeHtml(s.label) + '</div>' +
+          (s.detail ? '<div class="detail">' + escapeHtml(s.detail) + '</div>' : '') +
+          '</div></div>'
+        );
+      }).join("")
+    : '<div class="bdNote">nothing stood out — a very calm account.</div>';
+  // bsky.app/profile/<slug> needs a real handle or a DID — "handle.invalid"
+  // (see isRealHandle above) is neither, so fall back to the DID, which
+  // /api/leaderboard always includes on every board entry.
+  const slug = profileSlug(entry.handle, entry.did);
+  const sourceNote = entry.source === "firehose"
+    ? "spotted live on the firehose (posted in a rapid-fire burst), then scored the same way a search would be."
+    : "found by search.";
+  return (
+    '<div class="breakdown">' + body +
+    '<div class="bdNote">top signals from their last score — re-run them above for a full, live breakdown. ' + sourceNote + '</div>' +
+    (slug
+      ? '<a class="bdLink" href="https://bsky.app/profile/' + encodeURIComponent(slug) + '" target="_blank" rel="noopener">view ' + escapeHtml(handleLabel(entry.handle, entry.did)) + ' on bluesky ↗</a>'
+      : '') +
+    '</div>'
+  );
+}
+
+function renderBoard(data) {
+  const list = data.board || [];
+  if (!list.length) {
+    els.boardList.innerHTML = '<div class="empty-board">nobody has been examined yet — be the first.</div>';
+    return;
+  }
+  let rank = 0;
+  let prevScore = null;
+  els.boardList.innerHTML = list.map(function (entry, i) {
+    if (entry.score !== prevScore) {
+      rank++;
+      prevScore = entry.score;
+    }
+    const tier = tierFor(entry.score);
+    const sourceBadge = entry.source === "firehose"
+      ? '<span class="rsource" title="spotted live on the firehose">📡</span>'
+      : '<span class="rsource" title="found by search"></span>';
+    return (
+      '<div class="rowWrap">' +
+      '<div class="row" data-i="' + i + '">' +
+      '<span class="rank' + (rank <= 3 ? " gold" : "") + '">' + rank + '</span>' +
+      '<img src="' + (entry.avatar || "https://bsky.app/static/apple-touch-icon.png") + '" alt="" />' +
+      '<span class="rhandle">' + escapeHtml(handleLabel(entry.handle, entry.did)) + '</span>' +
+      sourceBadge +
+      '<span class="rtier">' + escapeHtml(tier.label) + '</span>' +
+      '<span class="rscore">' + entry.score + '</span>' +
+      '<span class="rcaret">▶</span>' +
+      '</div>' +
+      '</div>'
+    );
+  }).join("");
+  boardData = list;
+  boardExpanded = -1; // the redraw above already dropped any expanded breakdown DOM
+}
+
+let boardData = [];
+let boardExpanded = -1;
+
+els.boardList.addEventListener("click", function (e) {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  const i = Number(row.dataset.i);
+  const wrap = row.closest(".rowWrap");
+  if (boardExpanded === i) {
+    row.classList.remove("expanded");
+    const bd = wrap.querySelector(".breakdown");
+    if (bd) bd.remove();
+    boardExpanded = -1;
+    return;
+  }
+  const prevWrap = els.boardList.querySelector(".row.expanded");
+  if (prevWrap) {
+    prevWrap.classList.remove("expanded");
+    const prevBd = prevWrap.closest(".rowWrap").querySelector(".breakdown");
+    if (prevBd) prevBd.remove();
+  }
+  row.classList.add("expanded");
+  wrap.insertAdjacentHTML("beforeend", breakdownHtml(boardData[i]));
+  boardExpanded = i;
+});
+
+async function loadLeaderboard() {
+  try {
+    const data = await (await fetch("/api/leaderboard")).json();
+    const total = data.scored || 0;
+    const firehoseFound = data.firehoseFound || 0;
+    els.scannerCount.textContent = total
+      ? fmt(total) + " handle" + (total === 1 ? "" : "s") + " examined so far — " + fmt(firehoseFound) + " spotted live on the firehose (📡), " + fmt(data.searchFound || 0) + " by search"
+      : "";
+    renderBoard(data);
+  } catch (_) {
+    els.scannerCount.textContent = "";
+  }
+}
+
+loadLeaderboard();
+setInterval(loadLeaderboard, 30000); // the board fills itself in the background — keep it live without a refresh
+
+// auto-run from a shared link: thrashradar.bisks.net/s/handle (the Worker's
+// per-result unfurl route, see src/index.ts renderShare) or the older
+// thrashradar.bisks.net/?h=handle query-string form.
+(function () {
+  const params = new URLSearchParams(location.search);
+  let h = params.get("h");
+  if (!h) {
+    const m = location.pathname.match(/^\/s\/([^/]+)\/?$/);
+    if (m) h = decodeURIComponent(m[1]);
+  }
+  if (h) {
+    els.input.value = h;
+    runScan(h);
+  }
+})();
+</script>
+</body>
+</html>
