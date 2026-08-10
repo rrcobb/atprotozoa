@@ -88,6 +88,8 @@ const CLIMBING_EXPIRE_MS = 4 * 24 * 60 * 60 * 1000; // give a post 4 days to rea
 const NOT_YET_INDEXED_GRACE_MS = 90 * 1000; // a post this fresh might not be in getPosts yet — don't drop it as deleted
 const MAX_CLIMBING = 250; // safety valve for a very high-volume mutuals set
 const CELEBRATIONS_KEEP = 80; // hall-of-fame size kept in storage/response
+const PRELOAD_SAMPLE_MUTUALS = 40; // cap on getAuthorFeed calls made once, right after mutuals first resolve
+const PRELOAD_MAX_ADD = 15; // don't flood a fresh dashboard — a handful of already-climbing posts is enough
 
 interface PersonInfo {
   did: string;
@@ -154,6 +156,7 @@ export class MutualTracker {
   private climbing: ClimbingPost[] = [];
   private celebrations: Celebration[] = [];
   private lastTick = 0;
+  private preloaded = false; // have we already seeded `climbing` from mutuals' recent posts?
 
   private ws: any = null;
   private reconnectDelay = 1000;
@@ -172,6 +175,7 @@ export class MutualTracker {
         climbing,
         celebrations,
         lastTick,
+        preloaded,
       ] = await Promise.all([
         this.state.storage.get<string>("targetHandleInput"),
         this.state.storage.get<PersonInfo>("targetProfile"),
@@ -183,6 +187,7 @@ export class MutualTracker {
         this.state.storage.get<ClimbingPost[]>("climbing"),
         this.state.storage.get<Celebration[]>("celebrations"),
         this.state.storage.get<number>("lastTick"),
+        this.state.storage.get<boolean>("preloaded"),
       ]);
       this.targetHandleInput = targetHandleInput ?? "";
       this.targetProfile = targetProfile ?? null;
@@ -194,6 +199,7 @@ export class MutualTracker {
       this.climbing = climbing ?? [];
       this.celebrations = celebrations ?? [];
       this.lastTick = lastTick ?? 0;
+      this.preloaded = preloaded ?? false;
     });
     this.connectSocket().catch(() => {});
     this.state.storage.setAlarm(Date.now() + ALARM_MS).catch(() => {});
@@ -211,6 +217,7 @@ export class MutualTracker {
       climbing: this.climbing,
       celebrations: this.celebrations,
       lastTick: this.lastTick,
+      preloaded: this.preloaded,
     });
   }
 
@@ -364,6 +371,73 @@ export class MutualTracker {
     }
   }
 
+  // One-shot, right after mutuals first resolve: sample a chunk of the
+  // mutuals list and pull their recent posts via getAuthorFeed, seeding
+  // `climbing` with whatever's already sub-10-likes so the dashboard opens
+  // with something on it instead of a blank wall waiting for the firehose.
+  private async preloadClimbing(): Promise<void> {
+    if (this.mutuals.size === 0) return;
+    const pool = Array.from(this.mutuals.values());
+    const sampleSize = Math.min(pool.length, PRELOAD_SAMPLE_MUTUALS);
+    const sample: PersonInfo[] = [];
+    const usedIdx = new Set<number>();
+    while (sample.length < sampleSize) {
+      const i = Math.floor(Math.random() * pool.length);
+      if (usedIdx.has(i)) continue;
+      usedIdx.add(i);
+      sample.push(pool[i]);
+    }
+
+    const now = Date.now();
+    const found: ClimbingPost[] = [];
+    await Promise.all(
+      sample.map(async (person) => {
+        try {
+          const data = await bskyGet("app.bsky.feed.getAuthorFeed", { actor: person.did, limit: "5" });
+          if (!data || !Array.isArray(data.feed)) return;
+          for (const item of data.feed) {
+            const post = item && item.post;
+            if (!post || !post.uri || !post.author || post.author.did !== person.did) continue; // skip reposts
+            const likeCount = post.likeCount || 0;
+            if (likeCount >= BANGER_LIKES) continue;
+            const createdAt = Date.parse((post.record && post.record.createdAt) || "") || 0;
+            if (!createdAt || now - createdAt > CLIMBING_EXPIRE_MS) continue;
+            const rkey = post.uri.split("/").pop() || "";
+            const text = ((post.record && post.record.text) || "").trim();
+            found.push({
+              uri: post.uri,
+              did: person.did,
+              rkey,
+              handle: person.handle,
+              displayName: person.displayName,
+              avatar: person.avatar,
+              text: text.length > 300 ? text.slice(0, 300) + "…" : text,
+              createdAt,
+              likeCount,
+              replyCount: post.replyCount || 0,
+              repostCount: post.repostCount || 0,
+              imgThumb: embedImage(post),
+              isReply: !!(post.record && post.record.reply),
+            });
+          }
+        } catch {
+          // one mutual's feed failing shouldn't block the rest
+        }
+      }),
+    );
+
+    found.sort((a, b) => b.createdAt - a.createdAt);
+    const existing = new Set(this.climbing.map((c) => c.uri));
+    let added = 0;
+    for (const c of found) {
+      if (added >= PRELOAD_MAX_ADD || this.climbing.length >= MAX_CLIMBING) break;
+      if (existing.has(c.uri)) continue;
+      this.climbing.push(c);
+      existing.add(c.uri);
+      added++;
+    }
+  }
+
   // ---- stats -------------------------------------------------------------
   private async fetchStats(uris: string[]): Promise<Map<string, any>> {
     const out = new Map<string, any>();
@@ -420,6 +494,10 @@ export class MutualTracker {
       const needsRetry = this.mutualsStatus === "error" && now - this.mutualsErrorAt > MUTUALS_RETRY_MS;
       if (needsInitial || needsRefresh || needsRetry) {
         await this.computeMutuals();
+        if (this.mutualsStatus === "ready" && !this.preloaded) {
+          await this.preloadClimbing();
+          this.preloaded = true;
+        }
       }
     }
 
