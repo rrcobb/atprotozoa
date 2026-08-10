@@ -75,6 +75,18 @@
   #results { display: none; flex-direction: column; gap: 1.4rem; }
   #results.show { display: flex; }
 
+  .filter-row { display: none; align-items: center; flex-wrap: wrap; gap: 0.45rem; margin: -0.4rem 0 1.1rem; }
+  .filter-row.show { display: flex; }
+  .filter-label { color: var(--dim); font-size: 0.76rem; margin-right: 0.15rem; }
+  .filter-btn {
+    background: var(--card); border: 1px solid var(--border); color: var(--dim);
+    border-radius: 999px; padding: 0.35rem 0.75rem; font: inherit; font-size: 0.76rem;
+    cursor: pointer;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--fg); }
+  .filter-btn.active { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a0a12; border-color: transparent; font-weight: 700; }
+  .filter-btn:disabled { opacity: 0.5; cursor: wait; }
+
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
   @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -98,6 +110,7 @@
   .bar .seg-mid { width: 2px; background: var(--border); }
 
   .caveat { color: var(--dim); font-size: 0.74rem; text-align: center; margin: -0.7rem 0 1.3rem; }
+  .range-note { color: var(--accent2); font-size: 0.76rem; text-align: center; margin: -0.6rem 0 1rem; }
 
   .feeds { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 620px) { .feeds { grid-template-columns: 1fr; } }
@@ -162,9 +175,17 @@
       </div>
       <button id="go" type="submit">check who likes who more</button>
     </form>
-    <p class="hint">reads each account's whole like history from their PDS, so prolific likers take a little longer. shows the most recent liked posts per side; the totals cover everything found.</p>
+    <p class="hint">reads each account's whole like history from their PDS, so prolific likers take a little longer. shows the most recent liked posts per side; the totals cover everything found — narrow it to a date range with the buttons above the results once they're in.</p>
 
     <p id="status" class="status"></p>
+
+    <div id="filterRow" class="filter-row">
+      <span class="filter-label">range:</span>
+      <button type="button" class="filter-btn active" data-range="all">all time</button>
+      <button type="button" class="filter-btn" data-range="30">last 30 days</button>
+      <button type="button" class="filter-btn" data-range="90">last 90 days</button>
+      <button type="button" class="filter-btn" data-range="365">last year</button>
+    </div>
 
     <div id="results"></div>
 
@@ -182,6 +203,8 @@ import { resolvePds, authorFromUri } from "./lib/identity.js";
 const API = "https://public.api.bsky.app/xrpc/";
 const MAX_FEED_PER_SIDE = 24; // how many liked posts to render (with hydrated content) per side — totals cover everything found, this just caps the DOM/fetch cost of the feed itself.
 const GETPOSTS_CHUNK = 25; // app.bsky.feed.getPosts caps at 25 uris per call
+const RANGE_DAYS = { all: 0, "30": 30, "90": 90, "365": 365 };
+const RANGE_LABEL = { all: "all time", "30": "the last 30 days", "90": "the last 90 days", "365": "the last year" };
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -201,7 +224,12 @@ const els = {
   go: document.getElementById("go"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
+  filterRow: document.getElementById("filterRow"),
+  filterBtns: Array.from(document.querySelectorAll(".filter-btn")),
 };
+
+let lastFetch = null; // { a, b, likesAtoB, likesBtoA, partial } — full unfiltered like history from the last run, so switching ranges re-filters instead of re-downloading.
+let currentRange = "all";
 
 if (window.attachHandleTypeahead) {
   window.attachHandleTypeahead(els.hA);
@@ -398,6 +426,13 @@ function renderFeedColumn(sideClass, label, count, feed) {
     </div>`;
 }
 
+function filterLikesByRange(likes, rangeKey) {
+  const days = RANGE_DAYS[rangeKey];
+  if (!days) return likes;
+  const cutoff = Date.now() - days * 86400000;
+  return likes.filter((l) => new Date(l.createdAt).getTime() >= cutoff);
+}
+
 function shareUrlFor(a, b) {
   return "https://favoritism.bisks.net/s/" + encodeURIComponent(a) + "+" + encodeURIComponent(b);
 }
@@ -509,12 +544,15 @@ async function buildShareCard(canvas, a, b, nAtoB, nBtoA) {
   ctx.fillText("favoritism.bisks.net", 56, H - 40);
 }
 
-function renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial) {
+function renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial, rangeKey) {
   const nAtoB = likesAtoB.length;
   const nBtoA = likesBtoA.length;
   const total = Math.max(nAtoB + nBtoA, 1);
   const pctA = (nAtoB / total) * 100;
   const sign = nAtoB === nBtoA ? "=" : nAtoB > nBtoA ? ">" : "<";
+  const rangeNote = rangeKey && rangeKey !== "all"
+    ? `<p class="range-note">showing ${esc(RANGE_LABEL[rangeKey])} only${partial.length ? " — note the caveat below, since the fallback data was already recency-limited" : ""}.</p>`
+    : "";
 
   const div = document.createElement("div");
   div.className = "card";
@@ -530,6 +568,7 @@ function renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial) {
         <div class="handle"><a href="https://bsky.app/profile/${b.handle}" target="_blank" rel="noopener">@${esc(b.handle)}</a></div>
       </div>
     </div>
+    ${rangeNote}
     <div class="scoreline">
       <span class="n-a">@${esc(a.handle)}: ${nAtoB} likes</span>
       &nbsp;${sign}&nbsp;
@@ -596,6 +635,35 @@ function renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial) {
   return div;
 }
 
+function setFilterButtonsEnabled(enabled) {
+  els.filterBtns.forEach((btn) => { btn.disabled = !enabled; });
+}
+
+function setActiveRangeButton(rangeKey) {
+  els.filterBtns.forEach((btn) => btn.classList.toggle("active", btn.dataset.range === rangeKey));
+}
+
+// Re-filters already-downloaded like history by range and re-renders — no
+// re-download needed, since fetchPersonLikes already pulled everything.
+async function applyRange(rangeKey) {
+  if (!lastFetch) return;
+  currentRange = rangeKey;
+  setActiveRangeButton(rangeKey);
+  setFilterButtonsEnabled(false);
+  setStatus("loading the liked posts themselves...");
+
+  const { a, b, likesAtoB, likesBtoA, partial } = lastFetch;
+  const fAtoB = filterLikesByRange(likesAtoB, rangeKey);
+  const fBtoA = filterLikesByRange(likesBtoA, rangeKey);
+  const [feedA, feedB] = await Promise.all([buildFeedColumn(fAtoB), buildFeedColumn(fBtoA)]);
+
+  els.results.innerHTML = "";
+  els.results.appendChild(renderResultCard(a, b, fAtoB, fBtoA, feedA, feedB, partial, rangeKey));
+  els.results.classList.add("show");
+  setStatus("");
+  setFilterButtonsEnabled(true);
+}
+
 async function run() {
   const rawA = els.hA.value;
   const rawB = els.hB.value;
@@ -605,6 +673,8 @@ async function run() {
   els.go.disabled = true;
   els.results.classList.remove("show");
   els.results.innerHTML = "";
+  els.filterRow.classList.remove("show");
+  lastFetch = null;
   setStatus("resolving handles...");
 
   try {
@@ -630,15 +700,21 @@ async function run() {
       likesBtoA = await likesApiFallback(b.did, a.did);
     }
 
+    lastFetch = { a, b, likesAtoB, likesBtoA, partial };
+    currentRange = "all";
+    setActiveRangeButton("all");
+    els.filterRow.classList.add("show");
+
     setStatus("loading the liked posts themselves...");
     const [feedA, feedB] = await Promise.all([buildFeedColumn(likesAtoB), buildFeedColumn(likesBtoA)]);
 
     els.results.innerHTML = "";
-    els.results.appendChild(renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial));
+    els.results.appendChild(renderResultCard(a, b, likesAtoB, likesBtoA, feedA, feedB, partial, "all"));
     els.results.classList.add("show");
     setStatus("");
   } catch (err) {
     setStatus("couldn't run that check: " + err.message, true);
+    els.filterRow.classList.remove("show");
   } finally {
     els.go.disabled = false;
   }
@@ -647,6 +723,13 @@ async function run() {
 els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   run();
+});
+
+els.filterBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.range === currentRange) return;
+    applyRange(btn.dataset.range);
+  });
 });
 
 // /s/<a>+<b> (share links) or ?a=<handle>&b=<handle> both auto-run on load.
