@@ -1,0 +1,39 @@
+# @cee.wtf asked for "a Situation Detector, a sort of Geiger counter for
+# situations, happenings, and circumstances using the bsky firehose." This
+# Durable Object holds one persistent outbound Jetstream WebSocket (the
+# fetch()-with-Upgrade-header pattern from sites/ratioed / sites/thrashradar),
+# subscribed to just app.bsky.feed.post. It tokenizes post text into words
+# and hashtags, keeps a bounded in-memory per-term rate (never persisted —
+# see notes/ideas/store-ours-rederive-theirs.md), and compares each tick's
+# count against that term's own decaying baseline. A term running well hot
+# against its own normal rate gets logged as a "situation" — that derived
+# log (term, ratio, a few sample posts) is the only thing written to
+# storage. See notes/40-new-site-playbook.md.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+name = "atprotozoa-dosimeter"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+routes = [
+  { pattern = "dosimeter.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/reading is dynamic (the live-reading Durable
+# Object), so the Worker must run BEFORE the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "READING"
+class_name = "Dosimeter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Dosimeter"]
