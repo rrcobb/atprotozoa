@@ -740,13 +740,18 @@ function breakdownHtml(entry) {
     : '<div class="bdNote">nothing stood out — a very calm account.</div>';
   // bsky.app/profile/<slug> needs a real handle or a DID — "handle.invalid"
   // (see isRealHandle above) is neither, so fall back to the DID, which
-  // /api/leaderboard always includes on every board entry.
+  // /api/leaderboard always includes on every board entry. Don't
+  // encodeURIComponent the slug: bsky.app's own server-side profile route
+  // doesn't decode the path segment before resolving the actor, so an
+  // encoded "did:plc:xyz" (colons -> %3A) 404s where the literal DID
+  // resolves fine — confirmed against the live site. Handles and DIDs are
+  // already made of URL-safe characters, so this never needed escaping.
   const slug = profileSlug(entry.handle, entry.did);
   return (
     '<div class="breakdown">' + body +
     '<div class="bdNote">top signals from their last score — re-run them above for a full, live breakdown.</div>' +
     (slug
-      ? '<a class="bdLink" href="https://bsky.app/profile/' + encodeURIComponent(slug) + '" target="_blank" rel="noopener">view ' + escapeHtml(handleLabel(entry.handle, entry.did)) + ' on bluesky ↗</a>'
+      ? '<a class="bdLink" href="https://bsky.app/profile/' + escapeHtml(slug) + '" target="_blank" rel="noopener">view ' + escapeHtml(handleLabel(entry.handle, entry.did)) + ' on bluesky ↗</a>'
       : '') +
     '</div>'
   );
