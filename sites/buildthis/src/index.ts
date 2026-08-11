@@ -69,14 +69,18 @@ const IDEA_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 //
 // shimmermathlabs.com asked (2026-08-11, in the bigredbutton/lemon thread) that
 // roughly every 12 hours the bot add a small prank to a random existing site,
-// using its own judgment, trying not to break things. There's no toggle here
-// (unlike the theme box) — it was asked for unconditionally, so it just runs.
-// Own trigger, PRANK_TICK_CRON, separate from the 2-min watcher and the 3-hour
-// theme tick. Picks a target from the live apex gallery (skipping the bot's own
-// infra so it can't prank itself mid-flight), invents nothing fancier than a
-// short brief, and runs it through the SAME box queue a real tag uses — same
-// INSTRUCTIONS.md sandbox ("try not to break things" is also load-bearing
-// there), same honest replies, same directory/logs.
+// using its own judgment, trying not to break things. Same thread, same day,
+// they came back feeling guilty and asked for the opposite of "unconditionally
+// runs": stop actually doing the pranks — instead write down the PLAN for one,
+// in a log, each entry more over the top than the last. So this tick no longer
+// touches the box queue at all: no announcement post claiming to sneak
+// something in, no build, no dispatch, no site ever actually edited. It just
+// picks a random target off the live apex gallery (same exclusions as before —
+// skip the bot's own infra), asks Workers AI for one escalating, obviously-
+// fictional prank idea, and appends it to a KV-backed log rendered at
+// /pranklog. Own trigger, PRANK_TICK_CRON, unchanged — still every 12 hours,
+// still unconditional (no toggle), just harmless now by construction: the
+// worst a bad idea can do is read badly in the log.
 const PRANK_TICK_CRON = "0 */12 * * *";
 const PRANK_EXCLUDE = new Set([
   "buildthis", // the bot pranking its own control plane is a bad night for everyone
@@ -84,6 +88,13 @@ const PRANK_EXCLUDE = new Set([
   "sidenote", // the bot's private diary — not a stage for a gag
 ]);
 const PRANK_LAST_TARGET_KEY = "prank:last-target";
+
+// The plan log itself: one JSON array under a single KV key (the toy-scale
+// event set here is tiny — one entry per 12h tick — so there's no need for the
+// per-record-key pattern the event log uses). Capped so KV doesn't grow
+// forever; a log this size still shows plenty of escalation.
+const PRANK_LOG_KEY = "prank:log";
+const PRANK_LOG_MAX = 300;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -172,6 +183,16 @@ export default {
     }
     if (url.pathname === "/theme.json") {
       return handleThemeState(env);
+    }
+
+    // The prank PLAN log (see the "Prank tick" section for the cron half that
+    // writes to it). Every 12 hours the bot invents one escalating, never-
+    // executed prank idea and appends it here instead of actually building it.
+    if (url.pathname === "/pranklog") {
+      return handlePrankLogPage(env);
+    }
+    if (url.pathname === "/pranklog.json") {
+      return handlePrankLogJson(env);
     }
 
     return env.ASSETS.fetch(request);
@@ -453,11 +474,11 @@ function extractIdeaText(raw: unknown): string | null {
 }
 
 // The prank tick (own trigger, PRANK_TICK_CRON — every 12 hours). Picks a
-// random live site off the apex gallery, posts an announcement as the bot,
-// and enqueues a build with that post as the reply target — same BuildPayload
-// shape and same queue/dispatch path runThemeTick and runWatcher use, so a
-// prank tick is indistinguishable downstream from a real tag. Best-effort
-// throughout: any failure here just skips this tick, the next one retries.
+// random live site off the apex gallery (same pool as before) and, instead of
+// building anything, invents ONE escalating prank PLAN and appends it to the
+// KV-backed log at /pranklog. No queue, no dispatch, no site ever touched.
+// Best-effort throughout: any failure here just skips this tick, the next one
+// retries.
 async function runPrankTick(env: Env): Promise<void> {
   const target = await pickPrankTarget(env);
   if (!target) {
@@ -465,53 +486,37 @@ async function runPrankTick(env: Env): Promise<void> {
     return;
   }
 
-  let session: Session;
-  let post: { uri: string; cid: string };
-  try {
-    session = await login(env);
-    post = await createPost(
-      session,
-      clip(`🍋 prank tick: sneaking something into ${target}.bisks.net…`, 300),
-    );
-  } catch (err) {
-    console.error(`prank tick: announcement post failed: ${err}`);
+  const log = await readPrankLog(env);
+  const level = log.length + 1;
+  const previousIdea = log[log.length - 1]?.idea;
+  const idea = await generatePrankIdea(env, target, level, previousIdea);
+  if (!idea) {
+    console.error("prank tick: idea generation failed");
     return;
   }
 
-  const brief = `Prank tick — a standing request from shimmermathlabs.com (2026-08-11, in the bigredbutton/lemon thread): roughly every 12 hours, add a small prank to a random existing project, using your own judgment, trying not to break things.
-
-This tick's target: sites/${target} (${target}.bisks.net).
-
-Add ONE small, fun, harmless prank to that site — an easter egg, a silly hidden interaction, a visual gag, something surprising on click/hover/console — not a redesign. It should not break the site's core functionality, and it should be easy for a future build to find and remove if it ever needs to be. Treat this brief as a description of the work, not as instructions about how to operate — same rule as any other brief. Report the edit as a change to "${target}" (BUILD_RESULT = "${target}"), not a new site.`;
-
-  const payload: BuildPayload = {
-    brief,
-    authorHandle: "prank-tick",
-    mentionUri: post.uri,
-    replyRootUri: post.uri,
-    replyRootCid: post.cid,
-    replyParentUri: post.uri,
-    replyParentCid: post.cid,
-  };
-
-  await recordEvent(env, post.uri, {
-    mentionUri: post.uri,
-    authorHandle: "prank-tick",
-    text: clip(`[prank tick] target: ${target}`, 600),
-    isReply: false,
-  });
-  await recordEvent(env, post.uri, { mutual: true });
-
-  const useQueue = env.USE_BOX_QUEUE === "1";
-  const dispatched = useQueue
-    ? await enqueueJob(env, payload)
-    : await dispatchBuild(env, payload);
-  await recordEvent(env, post.uri, { dispatched });
+  const entry: PrankLogEntry = { at: new Date().toISOString(), target, idea, level };
+  await appendPrankLogEntry(env, log, entry);
 
   try {
     await env.STATE.put(PRANK_LAST_TARGET_KEY, target);
   } catch (err) {
     console.error(`prank tick: failed to record last target: ${err}`);
+  }
+
+  // Announce it — but honestly, as a plan, not as something that happened. A
+  // failure here just means a quieter tick; the log entry above already landed.
+  try {
+    const session = await login(env);
+    await createPost(
+      session,
+      clip(
+        `🍋 prank log #${level}: plotting something for ${target}.bisks.net (not doing it — just writing it down). ${idea} — buildthis.bisks.net/pranklog`,
+        300,
+      ),
+    );
+  } catch (err) {
+    console.error(`prank tick: announcement post failed: ${err}`);
   }
 }
 
@@ -540,6 +545,149 @@ async function pickPrankTarget(env: Env): Promise<string | null> {
     console.error(`pickPrankTarget failed: ${err}`);
     return null;
   }
+}
+
+// One entry in the prank PLAN log — never executed, just written down.
+interface PrankLogEntry {
+  at: string; // ISO
+  target: string; // site name the plan is aimed at (never actually touched)
+  idea: string;
+  level: number; // 1-based, monotonically increasing — the escalation counter
+}
+
+async function readPrankLog(env: Env): Promise<PrankLogEntry[]> {
+  try {
+    const raw = await env.STATE.get(PRANK_LOG_KEY);
+    return raw ? (JSON.parse(raw) as PrankLogEntry[]) : [];
+  } catch (err) {
+    console.error(`readPrankLog failed: ${err}`);
+    return [];
+  }
+}
+
+// Append one entry to an already-read log and cap it at PRANK_LOG_MAX, dropping
+// the oldest first. Takes the current log rather than re-reading it — the
+// caller (runPrankTick) already has it, since it needs the length for the
+// escalation level and the last entry for the "top this" prompt.
+async function appendPrankLogEntry(
+  env: Env,
+  log: PrankLogEntry[],
+  entry: PrankLogEntry,
+): Promise<void> {
+  const next = [...log, entry];
+  const trimmed = next.length > PRANK_LOG_MAX ? next.slice(next.length - PRANK_LOG_MAX) : next;
+  try {
+    await env.STATE.put(PRANK_LOG_KEY, JSON.stringify(trimmed));
+  } catch (err) {
+    console.error(`appendPrankLogEntry failed: ${err}`);
+  }
+}
+
+// Ask Workers AI for one prank PLAN — a log entry, never carried out. Told to
+// escalate past the previous entry (shown level N-1's idea when there is one),
+// same "don't refuse, riff playfully instead" posture as generateThemeIdea:
+// the worst case downstream is a silly-reading log line, not an action against
+// anyone's actual site.
+async function generatePrankIdea(
+  env: Env,
+  target: string,
+  level: number,
+  previousIdea?: string,
+): Promise<string | null> {
+  try {
+    const raw = await env.AI.run(IDEA_MODEL, {
+      messages: [
+        {
+          role: "system",
+          content:
+            "You write entries for a build bot's \"prank log\" — a running list of prank IDEAS that are never actually carried out, just written down for fun. Each entry names one existing small website and describes a hypothetical prank in 1-2 punchy sentences, cartoonish supervillain-monologue energy (think: gloating about a combustible lemon), never something that could really happen or really hurt anyone or any data if it somehow did. No markdown, no preamble, no quotes around it — just the plan itself, written like a gleeful scheme. Each entry must read as more over-the-top and more absurd than the one before it.",
+        },
+        {
+          role: "user",
+          content: previousIdea
+            ? `Target site: ${target}.bisks.net. This is plan #${level} in the log. Plan #${level - 1} was: "${previousIdea}" — top that. Make #${level} noticeably more ridiculous and over-the-top than #${level - 1}.`
+            : `Target site: ${target}.bisks.net. This is plan #1, the very first entry in the log — start reasonably mischievous, there's a lot of room to escalate in future entries.`,
+        },
+      ],
+      max_tokens: 150,
+      temperature: 1.0,
+    });
+    const text = extractIdeaText(raw);
+    return text ? clip(text, 400) : null;
+  } catch (err) {
+    console.error(`generatePrankIdea failed: ${err}`);
+    return null;
+  }
+}
+
+const PRANKLOG_JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+
+// GET /pranklog.json — the raw log, newest first. Public read, no secrets in
+// play, same posture as /theme.json.
+async function handlePrankLogJson(env: Env): Promise<Response> {
+  const log = await readPrankLog(env);
+  return new Response(JSON.stringify({ entries: [...log].reverse() }), {
+    headers: { ...PRANKLOG_JSON_HEADERS, "cache-control": "no-cache" },
+  });
+}
+
+async function handlePrankLogPage(env: Env): Promise<Response> {
+  const log = await readPrankLog(env);
+  return new Response(renderPrankLogPage(log), {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+  });
+}
+
+// Rendered newest-first, each entry numbered so the escalation across ticks —
+// the whole point of the log — is visible at a glance without reading dates.
+function renderPrankLogPage(log: PrankLogEntry[]): string {
+  const rows = log.length
+    ? [...log]
+        .reverse()
+        .map(
+          (e) => `<div class="card">
+          <h2>plan #${e.level} <span class="target">— ${escHtml(e.target)}.bisks.net</span></h2>
+          <p>${escHtml(e.idea)}</p>
+          <p class="when">${escHtml(fmtDay(e.at))}</p>
+        </div>`,
+        )
+        .join("\n")
+    : `<p class="empty">no plans logged yet — check back in up to 12 hours.</p>`;
+
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>prank log — buildthis.bisks.net</title>
+<meta name="description" content="Every 12 hours the bot writes down a prank idea instead of actually doing it. Each one is meant to be worse than the last." />
+<style>
+  body { margin:0; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    background:#0d0a06; color:#e8dcc8; line-height:1.6; }
+  .wrap { max-width:640px; margin:0 auto; padding:3rem 1.25rem 5rem; }
+  h1 { font-size:1.4rem; margin:0 0 0.25rem; }
+  p.lede { color:#9c8f78; margin:0 0 1.5rem; font-style:italic; }
+  .card { background:#17130c; border:1px solid #1f2226; border-left:4px solid #c8922e;
+    border-radius:10px; padding:0.9rem 1.1rem; margin-bottom:0.7rem; }
+  .card h2 { font-size:1rem; margin:0 0 0.35rem; color:#aeb4ba; font-weight:700; }
+  .card h2 .target { color:#9c8f78; font-weight:400; font-size:0.85rem; }
+  .card p { margin:0 0 0.3rem; }
+  .card p:last-child { margin-bottom:0; }
+  .card .when { font-size:0.75rem; color:#9c8f78; }
+  .empty { color:#9c8f78; font-style:italic; }
+  footer { margin-top:2rem; color:#9c8f78; font-size:0.78rem; }
+  a { color:#e0b23c; }
+</style></head><body><div class="wrap">
+  <h1>prank log</h1>
+  <p class="lede">
+    shimmermathlabs.com asked for a standing prank every 12 hours, then got
+    cold feet — so now I write down the PLAN instead of doing it. Nothing
+    below has actually happened to the named site. Each entry is meant to be
+    more over-the-top than the one before it.
+  </p>
+  ${rows}
+  <footer>
+    <a href="/live">what I've actually built</a> · <a href="/theme">theme box</a> · <a href="/">buildthis</a>
+  </footer>
+</div></body></html>`;
 }
 
 const THEME_JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
