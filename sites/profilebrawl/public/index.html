@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>profile brawl — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter two atproto handles. Five real, actually-read criteria — most cat pictures, most creative bio, wildest emoji rotation, hashtag hoarding, longest-winded posting — decide who wins, scored off their real bio and recent posts."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="profile brawl — judged on cat pictures, bio creativity, and worse" />
+    <meta
+      property="og:description"
+      content="Two atproto accounts, judged on five ridiculous but genuinely-read criteria: most cat pictures, most creative bio, wildest emoji rotation, hashtag hoarding, longest-winded posting. Scored off real content, not stats."
+    />
+    <meta property="og:image" content="https://profilebrawl.bisks.net/og.png" />
+    <meta property="og:url" content="https://profilebrawl.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="profile brawl — judged on cat pictures, bio creativity, and worse" />
+    <meta
+      name="twitter:description"
+      content="Two atproto accounts, five ridiculous criteria, scored off real content: cat pictures, bio creativity, emoji rotation, hashtag hoarding, longest-winded posting."
+    />
+    <meta name="twitter:image" content="https://profilebrawl.bisks.net/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --bg: #120c14; --ink: #f5eef2; --muted: #a395a3; --faint: #1a121d; --card: #1a121d;
+        --border: #33243a; --a: #4fd1c5; --b: #ff6fa1; --gold: #ffce54;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header { margin-bottom: 0.6rem; }
+      h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .glove { margin-right: 0.15em; }
+      .intro { color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.88rem; line-height: 1.75; max-width: 64ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--a); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .fighters { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: end; }
+      .fighter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .fighter-field label { font-size: 0.76rem; color: var(--muted); }
+      .fighter-field.left label { color: var(--a); }
+      .fighter-field.right label { color: var(--b); }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: #0e0910; color: var(--ink); border-radius: 6px;
+      }
+      input[type="text"]::placeholder { color: #59485b; }
+      .fighter-field.left input:focus { border-color: var(--a); outline: none; }
+      .fighter-field.right input:focus { border-color: var(--b); outline: none; }
+      .vs-glyph { font-weight: 700; color: var(--gold); padding-bottom: 0.6rem; text-align: center; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--border); background: var(--ink); color: #17101a;
+        border-radius: 6px; cursor: pointer; font-weight: 700;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #241c05; width: 100%; margin-top: 1rem; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.6rem; }
+
+      .status { font-size: 0.82rem; color: var(--muted); min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: #ff8a6a; }
+
+      #arena { display: none; }
+      .competitors { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: center; margin-bottom: 1rem; }
+      .competitor { display: flex; align-items: center; gap: 0.6rem; }
+      .competitor.right { flex-direction: row-reverse; text-align: right; }
+      .competitor img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: var(--faint); flex: none; }
+      .competitor .handle { font-weight: 700; font-size: 0.82rem; word-break: break-word; }
+      .competitor.left .handle { color: var(--a); }
+      .competitor.right .handle { color: var(--b); }
+
+      .scoreboard {
+        text-align: center; font-size: 1.5rem; font-weight: 800; color: var(--gold);
+        letter-spacing: 0.02em;
+      }
+      .scoreboard .of5 { display: block; font-size: 0.68rem; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 0.15rem; }
+
+      .status-line { text-align: center; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.6rem; }
+
+      #criteria { margin: 1.2rem 0; }
+      .crit-card {
+        border: 1px solid var(--border); border-radius: 8px; background: var(--faint);
+        padding: 0.8rem 0.9rem; margin-bottom: 0.6rem;
+        opacity: 0; transform: translateY(6px); transition: opacity 0.35s, transform 0.35s;
+      }
+      .crit-card.show { opacity: 1; transform: translateY(0); }
+      .crit-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+      .crit-head .icon { font-size: 1.1rem; }
+      .crit-head .name { font-weight: 700; font-size: 0.85rem; }
+      .crit-head .badge {
+        margin-left: auto; font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+        font-weight: 700; letter-spacing: 0.03em;
+      }
+      .crit-head .badge.a { background: rgba(79, 209, 197, 0.16); color: var(--a); }
+      .crit-head .badge.b { background: rgba(255, 111, 161, 0.16); color: var(--b); }
+      .crit-blurb { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.5rem; }
+      .crit-score-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+      .bar-wrap { flex: 1; height: 9px; border-radius: 999px; background: #0e0910; overflow: hidden; position: relative; }
+      .bar-wrap.right { transform: scaleX(-1); }
+      .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.7s cubic-bezier(.2,.8,.2,1); }
+      .bar-fill.a { background: linear-gradient(90deg, #4fd1c5, #9be9e0); }
+      .bar-fill.b { background: linear-gradient(90deg, #ff6fa1, #ffa7c8); }
+      .crit-score-val { font-size: 0.72rem; color: var(--muted); width: 5.6em; text-align: center; flex: none; }
+      .crit-line { font-size: 0.8rem; color: var(--ink); margin-bottom: 0.5rem; }
+
+      .detail-empty { font-size: 0.75rem; color: var(--muted); font-style: italic; }
+      .cat-strip { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .cat-strip a { display: block; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+      .cat-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .bio-quotes { display: flex; flex-direction: column; gap: 0.4rem; }
+      .bio-quotes blockquote { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--border); font-size: 0.76rem; color: var(--muted); font-style: italic; }
+      .bio-quotes blockquote.a { border-color: var(--a); }
+      .bio-quotes blockquote.b { border-color: var(--b); }
+      .chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+      .chip { font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: #0e0910; border: 1px solid var(--border); }
+      .chip.a { color: var(--a); border-color: var(--a); }
+      .chip.b { color: var(--b); border-color: var(--b); }
+
+      #result { margin-top: 1.2rem; opacity: 0; transform: translateY(6px); transition: opacity 0.4s, transform 0.4s; }
+      #result.show { opacity: 1; transform: translateY(0); }
+      .banner {
+        border-radius: 10px; padding: 1.1rem 1.2rem; text-align: center;
+        border: 1px solid var(--gold); background: linear-gradient(155deg, rgba(255,206,84,0.14), rgba(255,111,161,0.06));
+      }
+      .banner h2 { margin: 0 0 0.3rem; font-size: 1.25rem; }
+      .banner p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+      canvas#share-canvas { display: none; }
+
+      .howitworks summary { cursor: pointer; color: var(--a); font-size: 0.85rem; }
+      .howitworks p, .howitworks ul { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+      .howitworks ul { padding-left: 1.2rem; margin: 0.5rem 0; }
+
+      footer { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--a); }
+
+      @media (max-width: 520px) {
+        .competitors { grid-template-columns: 1fr; justify-items: center; }
+        .competitor.right { flex-direction: row; text-align: left; }
+        .scoreboard { order: -1; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/"><span class="glove">🥊</span>profile brawl</a></h1>
+      </header>
+      <p class="intro">
+        Enter two atproto handles. They're judged on five real, actually-read
+        criteria: <b>most cat pictures</b>, <b>most creative bio</b>,
+        <b>wildest emoji rotation</b>, <b>hashtag hoarding</b>, and
+        <b>longest-winded posting</b> — every score comes from their real bio
+        and their last 100 posts, not follower counts or dice rolls. Whoever
+        wins the most criteria wins the brawl.
+      </p>
+
+      <div class="card">
+        <div class="label">enter the brawl</div>
+        <div class="fighters">
+          <div class="fighter-field left">
+            <label for="handle-a">competitor one</label>
+            <input type="text" id="handle-a" placeholder="you.bsky.social" />
+          </div>
+          <div class="vs-glyph">VS</div>
+          <div class="fighter-field right">
+            <label for="handle-b">competitor two</label>
+            <input type="text" id="handle-b" placeholder="a.rival.bsky.social" />
+          </div>
+        </div>
+        <button class="primary" id="go">START THE BRAWL</button>
+        <div class="status" id="status"></div>
+      </div>
+
+      <div id="arena" class="card">
+        <div class="competitors">
+          <div class="competitor left">
+            <img id="av-a" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-a">—</div>
+          </div>
+          <div class="scoreboard" id="scoreboard">0 — 0<span class="of5">criteria decided</span></div>
+          <div class="competitor right">
+            <img id="av-b" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="handle" id="h-b">—</div>
+          </div>
+        </div>
+
+        <div id="criteria"></div>
+
+        <div id="result">
+          <div class="banner" id="banner">
+            <h2 id="banner-title">—</h2>
+            <p id="banner-sub"></p>
+          </div>
+          <div class="row" style="margin-top: 1rem">
+            <a id="share-result" target="_blank" rel="noopener" href="#">
+              <button class="tiny">share the brawl</button>
+            </a>
+            <button class="tiny ghost" id="share-download">download card</button>
+            <button class="tiny ghost" id="share-native" style="display: none">share card</button>
+            <button class="tiny ghost" id="rematch">new brawl</button>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+      <details class="howitworks">
+        <summary>how does this work?</summary>
+        <p>
+          Each handle's public profile and last 100 posts
+          (<code>app.bsky.actor.getProfile</code> +
+          <code>app.bsky.feed.getAuthorFeed</code>) feed five criteria:
+        </p>
+        <ul>
+          <li><b>🐱 most cat pictures</b> — images whose alt text or caption is unmistakably about a cat</li>
+          <li><b>✨ most creative bio</b> — word variety, length, emoji flair, punctuation in the bio text</li>
+          <li><b>🎭 wildest emoji rotation</b> — how many different emoji show up in recent posts</li>
+          <li><b>#️⃣ hashtag hoarding</b> — how many different hashtags show up in recent posts</li>
+          <li><b>📏 longest-winded</b> — average post length</li>
+        </ul>
+        <p>
+          Every score is read straight off real content — no follower-count
+          formulas, no luck rolls, except to break an exact tie. Same two
+          handles, same content, always the same result — a rematch is a
+          replay, not a reroll, unless one of them has posted again since.
+        </p>
+      </details>
+
+      <footer>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a>. every score is read off
+        real public bios and posts — nothing here is made up except who wins ties.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { getProfile, getAuthorFeed } from "./lib/atproto.js";
+      import { runBrawl, postUrl } from "./lib/brawl.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const SITE_URL = "https://profilebrawl.bisks.net";
+
+      if (window.attachHandleTypeahead) {
+        attachHandleTypeahead($("#handle-a"));
+        attachHandleTypeahead($("#handle-b"));
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        }[c]));
+      }
+      function truncate(s, n) {
+        return s.length > n ? s.slice(0, n - 1) + "…" : s;
+      }
+
+      function setStatus(msg, isErr) {
+        const el = $("#status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      function updateScoreboard(winsA, winsB, decided) {
+        $("#scoreboard").innerHTML = `${winsA} — ${winsB}<span class="of5">${decided} of 5 decided</span>`;
+      }
+
+      function renderDetail(r) {
+        const key = r.criterion.key;
+        if (key === "catpics") {
+          const imgs = [...r.a.examples, ...r.b.examples].slice(0, 6);
+          if (!imgs.length) return `<div class="detail-empty">no unmistakable cat pictures from either account. sad.</div>`;
+          return (
+            `<div class="cat-strip">` +
+            imgs
+              .map(
+                (h) =>
+                  `<a href="${postUrl(h.post)}" target="_blank" rel="noopener"><img src="${h.image.thumb}" alt="${escapeHtml(h.image.alt || "cat picture")}" loading="lazy" /></a>`
+              )
+              .join("") +
+            `</div>`
+          );
+        }
+        if (key === "bio") {
+          const parts = [];
+          if (r.a.bio) parts.push(`<blockquote class="a">“${escapeHtml(truncate(r.a.bio, 160))}”</blockquote>`);
+          if (r.b.bio) parts.push(`<blockquote class="b">“${escapeHtml(truncate(r.b.bio, 160))}”</blockquote>`);
+          return parts.length ? `<div class="bio-quotes">${parts.join("")}</div>` : `<div class="detail-empty">neither account has a bio. blank canvases, both of them.</div>`;
+        }
+        if (key === "emoji" || key === "hashtags") {
+          const chip = (side, entries) =>
+            entries.top.map(([label, count]) => `<span class="chip ${side}">${escapeHtml(String(label))}×${count}</span>`).join("");
+          const html = chip("a", r.a) + chip("b", r.b);
+          return html ? `<div class="chip-row">${html}</div>` : `<div class="detail-empty">nothing to show off here.</div>`;
+        }
+        if (key === "wordy") {
+          const parts = [];
+          if (r.a.longest) parts.push(`<blockquote class="a">“${escapeHtml(truncate(r.a.longest, 160))}”</blockquote>`);
+          if (r.b.longest) parts.push(`<blockquote class="b">“${escapeHtml(truncate(r.b.longest, 160))}”</blockquote>`);
+          return parts.length ? `<div class="bio-quotes">${parts.join("")}</div>` : `<div class="detail-empty">nobody wrote anything worth quoting.</div>`;
+        }
+        return "";
+      }
+
+      function renderCritCard(r) {
+        const div = document.createElement("div");
+        div.className = "crit-card";
+        const maxScore = Math.max(r.a.score, r.b.score, 1);
+        const pctA = Math.round((r.a.score / maxScore) * 100);
+        const pctB = Math.round((r.b.score / maxScore) * 100);
+        const winnerName = r.winner === "a" ? $("#h-a").textContent : $("#h-b").textContent;
+        const loserName = r.winner === "a" ? $("#h-b").textContent : $("#h-a").textContent;
+        const winnerScore = r.winner === "a" ? r.a.score : r.b.score;
+        const loserScore = r.winner === "a" ? r.b.score : r.a.score;
+        div.innerHTML = `
+          <div class="crit-head">
+            <span class="icon">${r.criterion.icon}</span>
+            <span class="name">${r.criterion.name}</span>
+            <span class="badge ${r.winner}">${r.winner === "a" ? $("#h-a").textContent : $("#h-b").textContent} +1</span>
+          </div>
+          <div class="crit-blurb">${r.criterion.blurb}</div>
+          <div class="crit-score-row">
+            <span class="crit-score-val">${r.a.score} ${r.criterion.unit}</span>
+            <div class="bar-wrap"><div class="bar-fill a" style="width:0%"></div></div>
+            <div class="bar-wrap right"><div class="bar-fill b" style="width:0%"></div></div>
+            <span class="crit-score-val">${r.b.score} ${r.criterion.unit}</span>
+          </div>
+          <div class="crit-line">${escapeHtml(r.criterion.line(winnerName, winnerScore, loserName, loserScore))}</div>
+          ${renderDetail(r)}
+        `;
+        $("#criteria").appendChild(div);
+        requestAnimationFrame(() => {
+          div.classList.add("show");
+          const barA = div.querySelector(".bar-fill.a");
+          const barB = div.querySelector(".bar-fill.b");
+          requestAnimationFrame(() => {
+            barA.style.width = `${pctA}%`;
+            barB.style.width = `${pctB}%`;
+          });
+        });
+      }
+
+      function playCriteria(results) {
+        $("#criteria").innerHTML = "";
+        return new Promise((resolve) => {
+          let winsA = 0, winsB = 0;
+          results.forEach((r, i) => {
+            setTimeout(() => {
+              renderCritCard(r);
+              if (r.winner === "a") winsA++; else winsB++;
+              updateScoreboard(winsA, winsB, i + 1);
+              if (i === results.length - 1) setTimeout(resolve, 500);
+            }, i * 850);
+          });
+        });
+      }
+
+      function buildShareText(game, a, b) {
+        const champ = game.champion === "a" ? a : b;
+        const other = game.champion === "a" ? b : a;
+        const winsW = game.champion === "a" ? game.winsA : game.winsB;
+        const winsL = game.champion === "a" ? game.winsB : game.winsA;
+        return (
+          `profile brawl: @${champ.profile.handle} beat @${other.profile.handle} ${winsW}-${winsL} on cat pics, ` +
+          `bio creativity, emoji rotation, hashtag hoarding, and wordiness: ${SITE_URL}`
+        );
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(game, a, b) {
+        const canvas = $("#share-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const winnerSide = game.champion === "a" ? a : b;
+        const loserSide = game.champion === "a" ? b : a;
+        const winsW = game.champion === "a" ? game.winsA : game.winsB;
+        const winsL = game.champion === "a" ? game.winsB : game.winsA;
+        const [avatarW, avatarL] = await Promise.all([loadImg(winnerSide.profile.avatar), loadImg(loserSide.profile.avatar)]);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#120c14";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, H * 0.1, 0, W * 0.5, H * 0.1, W * 0.7);
+        glow.addColorStop(0, "#301a2a");
+        glow.addColorStop(1, "rgba(18,12,20,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffce54";
+        ctx.font = `800 52px ${mono}`;
+        ctx.fillText("🥊 profile brawl", W / 2, 90);
+
+        const cardX = 70, cardY = 130, cardW = W - 140, cardH = H - 200;
+        ctx.strokeStyle = "#33243a";
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = "#1a121d";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        function drawSide(side, avatar, cx, color) {
+          if (avatar) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cardY + 90, 48, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(avatar, cx - 48, cardY + 42, 96, 96);
+            ctx.restore();
+          }
+          ctx.fillStyle = color;
+          ctx.font = `700 22px ${mono}`;
+          ctx.fillText("@" + side.profile.handle, cx, cardY + 168);
+        }
+
+        drawSide(winnerSide, avatarW, W / 2 - cardW / 4, "#ffce54");
+        drawSide(loserSide, avatarL, W / 2 + cardW / 4, "#a395a3");
+
+        ctx.fillStyle = "#ffce54";
+        ctx.font = `700 40px ${mono}`;
+        ctx.fillText("VS", W / 2, cardY + 105);
+
+        ctx.fillStyle = "#f5eef2";
+        ctx.font = `700 26px ${mono}`;
+        ctx.fillText(`🏆 @${winnerSide.profile.handle} wins the brawl, ${winsW}-${winsL}`, W / 2, cardY + 290);
+
+        ctx.fillStyle = "#a395a3";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText("cat pics · bio creativity · emoji rotation · hashtag hoarding · wordiness", W / 2, cardY + 322);
+
+        const bestLine = (game.results.find((r) => r.winner === game.champion) || game.results[0]).criterion.line(
+          "@" + winnerSide.profile.handle,
+          game.champion === "a"
+            ? game.results.find((r) => r.winner === game.champion)?.a.score
+            : game.results.find((r) => r.winner === game.champion)?.b.score,
+          "@" + loserSide.profile.handle,
+          game.champion === "a"
+            ? game.results.find((r) => r.winner === game.champion)?.b.score
+            : game.results.find((r) => r.winner === game.champion)?.a.score
+        );
+        ctx.fillStyle = "#f5eef2";
+        ctx.font = `400 16px ${mono}`;
+        ctx.fillText(bestLine.length > 74 ? bestLine.slice(0, 71) + "…" : bestLine, W / 2, cardY + 360);
+
+        ctx.fillStyle = "#4fd1c5";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("profilebrawl.bisks.net", W / 2, cardY + cardH - 24);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        $("#share-native").style.display = "";
+        $("#share-native").addEventListener("click", () => {
+          $("#share-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "profilebrawl.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "profile brawl" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      $("#share-download").addEventListener("click", () => {
+        $("#share-canvas").toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "profilebrawl.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run() {
+        const rawA = $("#handle-a").value.trim();
+        const rawB = $("#handle-b").value.trim();
+        if (!rawA || !rawB) return setStatus("enter both handles.", true);
+
+        const btn = $("#go");
+        btn.disabled = true;
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        $("#criteria").innerHTML = "";
+        setStatus("checking in both competitors…");
+
+        try {
+          const [profileA, profileB] = await Promise.all([getProfile(rawA), getProfile(rawB)]);
+          if (profileA.did === profileB.did) {
+            setStatus("that's the same account twice — pick a real opponent.", true);
+            btn.disabled = false;
+            return;
+          }
+          setStatus("reading their last 100 posts each…");
+
+          const [postsA, postsB] = await Promise.all([getAuthorFeed(profileA.did, 100), getAuthorFeed(profileB.did, 100)]);
+          setStatus("");
+
+          const a = { profile: profileA };
+          const b = { profile: profileB };
+
+          $("#av-a").src = a.profile.avatar || "";
+          $("#av-b").src = b.profile.avatar || "";
+          $("#h-a").textContent = `@${a.profile.handle}`;
+          $("#h-b").textContent = `@${b.profile.handle}`;
+          updateScoreboard(0, 0, 0);
+
+          $("#arena").style.display = "";
+
+          const game = runBrawl(profileA, postsA, profileB, postsB);
+          await playCriteria(game.results);
+
+          const champSide = game.champion === "a" ? a : b;
+          const otherSide = game.champion === "a" ? b : a;
+          const winsW = game.champion === "a" ? game.winsA : game.winsB;
+          const winsL = game.champion === "a" ? game.winsB : game.winsA;
+
+          $("#banner-title").textContent = `🏆 @${champSide.profile.handle} wins the brawl, ${winsW}-${winsL}`;
+          $("#banner-sub").textContent = `beat @${otherSide.profile.handle} across five real criteria — see the breakdown above.`;
+          $("#result").classList.add("show");
+
+          lastShareText = buildShareText(game, a, b);
+          $("#share-result").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(lastShareText)}`;
+          await buildShareCard(game, a, b);
+        } catch (e) {
+          setStatus(e.message || "couldn't resolve one of those handles.", true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("#go").addEventListener("click", run);
+      [$("#handle-a"), $("#handle-b")].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") run();
+        }),
+      );
+      $("#rematch").addEventListener("click", () => {
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        setStatus("");
+      });
+    </script>
+  </body>
+</html>
