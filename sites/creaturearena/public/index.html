@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>creature arena — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter two atproto handles. Each becomes a mythical creature — dragon, unicorn, kraken, phoenix, and more — stats pulled from their real public profile. An HP-based arena battle decides the winner."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="creature arena — two handles enter, one creature wins" />
+    <meta
+      property="og:description"
+      content="Two atproto accounts become mythical creatures — species and stats from real profile numbers — and fight it out in the arena until one runs out of HP."
+    />
+    <meta property="og:image" content="https://creaturearena.bisks.net/og.png" />
+    <meta property="og:url" content="https://creaturearena.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="creature arena — two handles enter, one creature wins" />
+    <meta
+      name="twitter:description"
+      content="Two atproto accounts become mythical creatures and fight it out — real profile stats decide power, speed, and HP."
+    />
+    <meta name="twitter:image" content="https://creaturearena.bisks.net/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --bg: #0c1210; --ink: #eaf3ec; --muted: #91a89c; --faint: #101a17; --card: #121d19;
+        --border: #24382f; --a: #7fe0a8; --b: #ff9d6b; --gold: #ffd166; --red: #ff6b6b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      header { margin-bottom: 0.6rem; }
+      h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .vs { color: var(--gold); }
+      .intro { color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.88rem; line-height: 1.75; max-width: 64ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--b); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.2rem 1.3rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .fighters { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: end; }
+      .fighter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .fighter-field label { font-size: 0.76rem; color: var(--muted); }
+      .fighter-field.left label { color: var(--a); }
+      .fighter-field.right label { color: var(--b); }
+      input[type="text"] {
+        font-family: inherit; font-size: 0.9rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: var(--faint); color: var(--ink); border-radius: 6px;
+      }
+      input[type="text"]::placeholder { color: #52685c; }
+      .fighter-field.left input:focus { border-color: var(--a); outline: none; }
+      .fighter-field.right input:focus { border-color: var(--b); outline: none; }
+      .vs-glyph { font-weight: 700; color: var(--gold); padding-bottom: 0.6rem; text-align: center; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: inherit; font-size: 0.85rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--border); background: var(--ink); color: #0e1613;
+        border-radius: 6px; cursor: pointer; font-weight: 700;
+      }
+      button:hover { filter: brightness(1.08); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--gold); border-color: var(--gold); color: #291d09; width: 100%; margin-top: 1rem; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--faint); }
+      button.tiny { font-size: 0.72rem; padding: 0.3rem 0.6rem; }
+
+      .status { font-size: 0.82rem; color: var(--muted); min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: var(--red); }
+
+      #arena { display: none; }
+      .sheets { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; margin-bottom: 1.1rem; }
+      .sheet { border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; background: var(--faint); text-align: center; }
+      .sheet.left { border-top: 3px solid var(--a); }
+      .sheet.right { border-top: 3px solid var(--b); }
+      .sheet .emoji { font-size: 2.6rem; line-height: 1; }
+      .sheet .species { font-size: 1.02rem; font-weight: 700; color: var(--ink); margin-top: 0.2rem; }
+      .sheet .avrow { display: flex; align-items: center; justify-content: center; gap: 0.4rem; margin-top: 0.35rem; }
+      .sheet img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; background: var(--card); }
+      .sheet .handle { font-weight: 700; font-size: 0.78rem; word-break: break-word; }
+      .sheet.left .handle { color: var(--a); }
+      .sheet.right .handle { color: var(--b); }
+
+      .hp-row { margin-top: 0.7rem; }
+      .hp-label { display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 0.25rem; }
+      .hp-track { height: 12px; border-radius: 999px; background: var(--card); overflow: hidden; border: 1px solid var(--border); }
+      .hp-fill { height: 100%; width: 100%; border-radius: 999px; transition: width 0.5s ease-out, background 0.3s; }
+      .hp-fill.a { background: linear-gradient(90deg, #7fe0a8, #b6f5cf); }
+      .hp-fill.b { background: linear-gradient(90deg, #ff9d6b, #ffc59a); }
+      .hp-fill.low { background: linear-gradient(90deg, #ff6b6b, #ff9a9a) !important; }
+
+      .stat-row { margin-bottom: 0.7rem; }
+      .stat-row .stat-label {
+        display: flex; justify-content: space-between; font-size: 0.72rem;
+        color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 0.3rem;
+      }
+      .stat-track { display: flex; align-items: center; gap: 0.5rem; }
+      .bar-wrap { flex: 1; height: 8px; border-radius: 999px; background: var(--faint); overflow: hidden; position: relative; }
+      .bar-wrap.right { transform: scaleX(-1); }
+      .bar-fill { height: 100%; width: 0%; border-radius: 999px; transition: width 0.9s cubic-bezier(.2,.8,.2,1); }
+      .bar-fill.a { background: linear-gradient(90deg, #7fe0a8, #b6f5cf); }
+      .bar-fill.b { background: linear-gradient(90deg, #ff9d6b, #ffc59a); }
+      .stat-val { font-size: 0.7rem; color: var(--muted); width: 2.4em; text-align: center; flex: none; }
+
+      #battle-log { margin: 1.2rem 0; }
+      #battle-log .log-line {
+        padding: 0.5rem 0.7rem; border-left: 3px solid var(--border); margin-bottom: 0.4rem;
+        font-size: 0.85rem; color: var(--ink); background: var(--faint); border-radius: 0 6px 6px 0;
+        opacity: 0; transform: translateX(-6px); transition: opacity 0.3s, transform 0.3s;
+      }
+      #battle-log .log-line.show { opacity: 1; transform: translateX(0); }
+      #battle-log .log-line.a { border-left-color: var(--a); }
+      #battle-log .log-line.b { border-left-color: var(--b); }
+
+      #result { margin-top: 1.2rem; opacity: 0; transform: translateY(6px); transition: opacity 0.4s, transform 0.4s; }
+      #result.show { opacity: 1; transform: translateY(0); }
+      .banner {
+        border-radius: 10px; padding: 1.1rem 1.2rem; text-align: center;
+        border: 1px solid var(--gold); background: linear-gradient(155deg, rgba(255,209,102,0.16), rgba(127,224,168,0.08));
+      }
+      .banner h2 { margin: 0 0 0.3rem; font-size: 1.25rem; }
+      .banner p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+      canvas#share-canvas { display: none; }
+
+      .howitworks summary { cursor: pointer; color: var(--b); font-size: 0.85rem; }
+      .howitworks p { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+
+      footer { margin-top: 2rem; font-size: 0.78rem; color: var(--muted); }
+      footer a { color: var(--b); }
+
+      @media (max-width: 520px) {
+        .sheets { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">creature<span class="vs"> ⚔ </span>arena</a></h1>
+      </header>
+      <p class="intro">
+        Enter two atproto handles. Each becomes a mythical creature — a
+        <b>Dragon</b>, <b>Unicorn</b>, <b>Kraken</b>, <b>Phoenix</b>, and eight
+        more besides — chosen from stats pulled off their real public
+        profile: <b>Roar Power</b> (post frequency), <b>Wingspeed</b>
+        (follower/follow ratio), <b>Cunning</b> (bio and profile flair), and
+        <b>Aura</b> (follower count, which also sets max HP). An HP-based
+        arena battle, round by round, decides who's left standing. Same two
+        handles always get the same fight — it's a battle, not a coin flip.
+      </p>
+
+      <div class="card">
+        <div class="label">choose your combatants</div>
+        <div class="fighters">
+          <div class="fighter-field left">
+            <label for="handle-a">combatant one</label>
+            <input type="text" id="handle-a" placeholder="you.bsky.social" />
+          </div>
+          <div class="vs-glyph">VS</div>
+          <div class="fighter-field right">
+            <label for="handle-b">combatant two</label>
+            <input type="text" id="handle-b" placeholder="a.rival.bsky.social" />
+          </div>
+        </div>
+        <button class="primary" id="duel-go">SUMMON &amp; FIGHT</button>
+        <div class="status" id="duel-status"></div>
+      </div>
+
+      <div id="arena" class="card">
+        <div class="sheets">
+          <div class="sheet left">
+            <div class="emoji" id="em-a">—</div>
+            <div class="species" id="sp-a"></div>
+            <div class="avrow">
+              <img id="av-a" alt="" onerror="this.style.visibility='hidden'" />
+              <div class="handle" id="h-a">—</div>
+            </div>
+            <div class="hp-row">
+              <div class="hp-label"><span>HP</span><span id="hp-val-a"></span></div>
+              <div class="hp-track"><div class="hp-fill a" id="hp-bar-a"></div></div>
+            </div>
+          </div>
+          <div class="sheet right">
+            <div class="emoji" id="em-b">—</div>
+            <div class="species" id="sp-b"></div>
+            <div class="avrow">
+              <img id="av-b" alt="" onerror="this.style.visibility='hidden'" />
+              <div class="handle" id="h-b">—</div>
+            </div>
+            <div class="hp-row">
+              <div class="hp-label"><span>HP</span><span id="hp-val-b"></span></div>
+              <div class="hp-track"><div class="hp-fill b" id="hp-bar-b"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stat-rows"></div>
+
+        <div id="battle-log"></div>
+
+        <div id="result">
+          <div class="banner" id="banner">
+            <h2 id="banner-title">—</h2>
+            <p id="banner-sub"></p>
+          </div>
+          <div class="row" style="margin-top: 1rem">
+            <a id="share-result" target="_blank" rel="noopener" href="#">
+              <button class="tiny">share this battle</button>
+            </a>
+            <button class="tiny ghost" id="share-download">download card</button>
+            <button class="tiny ghost" id="share-native" style="display: none">share card</button>
+            <button class="tiny ghost" id="rematch">new battle</button>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+      <details class="howitworks">
+        <summary>how does this work?</summary>
+        <p>
+          Each handle's public profile (<code>app.bsky.actor.getProfile</code>)
+          feeds four stats: <b>Roar Power</b> from post count, <b>Wingspeed</b>
+          from follower/follow ratio, <b>Cunning</b> from bio length and
+          profile polish, <b>Aura</b> from raw follower count. Whichever stat
+          is highest picks a species pool — high Roar Power summons a Dragon,
+          Kraken, or Chimera; high Wingspeed a Griffin, Wyvern, or Jackalope;
+          high Cunning a Sphinx, Basilisk, or Manticore; high Aura a Unicorn,
+          Phoenix, or Yeti — and a seeded roll on the account's own DID picks
+          the exact species from that pool, so a creature looks the same no
+          matter who it's matched against. Aura also sets max HP, Roar Power
+          sets attack damage, Wingspeed sets turn order and dodge chance, and
+          Cunning sets crit chance. The fight itself adds a couple more seeded
+          rolls, then plays out turn by turn until someone's HP hits zero (or
+          12 rounds pass, in which case the creature with more HP left wins).
+          The whole thing is seeded off a hash of both DIDs together, so a
+          rematch between the same two handles always plays out the same way.
+        </p>
+      </details>
+
+      <footer>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a>. every creature and every
+        swing is entirely made up — nobody's actual posts got hurt.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { getProfile } from "./lib/atproto.js";
+      import { arenaBattle } from "./lib/arena.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const SITE_URL = "https://creaturearena.bisks.net";
+
+      if (window.attachHandleTypeahead) {
+        attachHandleTypeahead($("#handle-a"));
+        attachHandleTypeahead($("#handle-b"));
+      }
+
+      function setStatus(msg, isErr) {
+        const el = $("#duel-status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      const STAT_LABELS = { pow: "roar power", spd: "wingspeed", cun: "cunning", aura: "aura" };
+
+      function renderStatRows(a, b) {
+        const rows = Object.keys(STAT_LABELS)
+          .map((key) => {
+            const va = a.stats[key];
+            const vb = b.stats[key];
+            return `
+          <div class="stat-row">
+            <div class="stat-label"><span>${STAT_LABELS[key]}</span><span>${STAT_LABELS[key]}</span></div>
+            <div class="stat-track">
+              <span class="stat-val">${Math.round(va)}</span>
+              <div class="bar-wrap"><div class="bar-fill a" data-stat="${key}" data-side="a"></div></div>
+              <div class="bar-wrap right"><div class="bar-fill b" data-stat="${key}" data-side="b"></div></div>
+              <span class="stat-val">${Math.round(vb)}</span>
+            </div>
+          </div>`;
+          })
+          .join("");
+        $("#stat-rows").innerHTML = rows;
+      }
+
+      function animateStatBars(a, b) {
+        requestAnimationFrame(() => {
+          Object.keys(STAT_LABELS).forEach((key) => {
+            const va = a.stats[key];
+            const vb = b.stats[key];
+            const barA = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="a"]`);
+            const barB = document.querySelector(`.bar-fill[data-stat="${key}"][data-side="b"]`);
+            if (barA) barA.style.width = `${va}%`;
+            if (barB) barB.style.width = `${vb}%`;
+          });
+        });
+      }
+
+      function setHp(side, hp, maxHp) {
+        const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+        $(`#hp-bar-${side}`).style.width = `${pct}%`;
+        $(`#hp-bar-${side}`).classList.toggle("low", pct <= 25);
+        $(`#hp-val-${side}`).textContent = `${Math.max(0, Math.round(hp))} / ${maxHp}`;
+      }
+
+      function playLog(lines) {
+        const container = $("#battle-log");
+        container.innerHTML = "";
+        return new Promise((resolve) => {
+          lines.forEach((line, i) => {
+            setTimeout(() => {
+              const div = document.createElement("div");
+              div.className = `log-line ${line.side}`;
+              div.textContent = `${i + 1}. ${line.text}`;
+              container.appendChild(div);
+              requestAnimationFrame(() => div.classList.add("show"));
+              setHp(line.defenderSide, line.hp, line.maxHp);
+              if (i === lines.length - 1) setTimeout(resolve, 500);
+            }, i * 700);
+          });
+          if (!lines.length) resolve();
+        });
+      }
+
+      function buildShareText(result, a, b) {
+        const winnerSide = result.winner === "a" ? a : b;
+        const loserSide = result.winner === "a" ? b : a;
+        return (
+          `creature arena: ${winnerSide.emoji} ${winnerSide.species} @${winnerSide.profile.handle} beat ` +
+          `${loserSide.emoji} ${loserSide.species} @${loserSide.profile.handle}, left standing with ` +
+          `${Math.round(winnerSide.hp)} HP: ${SITE_URL}`
+        );
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (maxLines && lines >= maxLines) return cy;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      async function buildShareCard(result, a, b) {
+        const canvas = $("#share-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const winnerSide = result.winner === "a" ? a : b;
+        const loserSide = result.winner === "a" ? b : a;
+        const [avatarW, avatarL] = await Promise.all([loadImg(winnerSide.profile.avatar), loadImg(loserSide.profile.avatar)]);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#0c1210";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W * 0.5, H * 0.1, 0, W * 0.5, H * 0.1, W * 0.7);
+        glow.addColorStop(0, "#1a2b22");
+        glow.addColorStop(1, "rgba(12,18,16,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `800 52px ${mono}`;
+        ctx.fillText("creature arena", W / 2, 90);
+
+        const cardX = 70, cardY = 130, cardW = W - 140, cardH = H - 200;
+        ctx.strokeStyle = "#24382f";
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = "#121d19";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        function drawSide(side, avatar, cx, color) {
+          ctx.font = `72px "Noto Color Emoji", ${mono}`;
+          ctx.fillStyle = "#eaf3ec";
+          ctx.fillText(side.emoji, cx, cardY + 90);
+          if (avatar) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cardY + 130, 26, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(avatar, cx - 26, cardY + 104, 52, 52);
+            ctx.restore();
+          }
+          ctx.fillStyle = color;
+          ctx.font = `700 20px ${mono}`;
+          ctx.fillText("@" + side.profile.handle, cx, cardY + 172);
+          ctx.fillStyle = "#eaf3ec";
+          ctx.font = `800 26px ${mono}`;
+          ctx.fillText(side.species, cx, cardY + 202);
+        }
+
+        drawSide(winnerSide, avatarW, W / 2 - cardW / 4, "#ffd166");
+        drawSide(loserSide, avatarL, W / 2 + cardW / 4, "#91a89c");
+
+        ctx.fillStyle = "#ffd166";
+        ctx.font = `700 40px ${mono}`;
+        ctx.fillText("VS", W / 2, cardY + 105);
+
+        ctx.fillStyle = "#eaf3ec";
+        ctx.font = `700 24px ${mono}`;
+        ctx.fillText(`🏆 ${winnerSide.emoji} @${winnerSide.profile.handle} wins`, W / 2, cardY + 290);
+
+        ctx.fillStyle = "#91a89c";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText(`left standing with ${Math.round(winnerSide.hp)} / ${winnerSide.maxHp} HP`, W / 2, cardY + 320);
+
+        ctx.fillStyle = "#eaf3ec";
+        ctx.font = `400 16px ${mono}`;
+        const lastLine = (result.log[result.log.length - 1] || {}).text || "";
+        wrapCanvasText(ctx, lastLine, W / 2 - (cardW / 2 - 40), cardY + 360, cardW - 80, 24, 2);
+
+        ctx.fillStyle = "#ff9d6b";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("creaturearena.bisks.net", W / 2, cardY + cardH - 24);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        $("#share-native").style.display = "";
+        $("#share-native").addEventListener("click", () => {
+          $("#share-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "creaturearena.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "creature arena" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      async function run() {
+        const rawA = $("#handle-a").value.trim();
+        const rawB = $("#handle-b").value.trim();
+        if (!rawA || !rawB) return setStatus("enter both handles.", true);
+
+        const btn = $("#duel-go");
+        btn.disabled = true;
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        $("#battle-log").innerHTML = "";
+        setStatus("summoning combatants…");
+
+        try {
+          const [profileA, profileB] = await Promise.all([getProfile(rawA), getProfile(rawB)]);
+          if (profileA.did === profileB.did) {
+            setStatus("that's the same account twice — pick a real opponent.", true);
+            btn.disabled = false;
+            return;
+          }
+          setStatus("");
+
+          const result = arenaBattle(profileA, profileB);
+          const a = result.a, b = result.b;
+
+          $("#av-a").src = a.profile.avatar || "";
+          $("#av-b").src = b.profile.avatar || "";
+          $("#h-a").textContent = `@${a.profile.handle}`;
+          $("#h-b").textContent = `@${b.profile.handle}`;
+          $("#em-a").textContent = a.emoji;
+          $("#em-b").textContent = b.emoji;
+          $("#sp-a").textContent = a.species;
+          $("#sp-b").textContent = b.species;
+          setHp("a", a.maxHp, a.maxHp);
+          setHp("b", b.maxHp, b.maxHp);
+
+          renderStatRows(a, b);
+          $("#arena").style.display = "";
+          requestAnimationFrame(() => animateStatBars(a, b));
+
+          await playLog(result.log);
+
+          const winnerSide = result.winner === "a" ? a : b;
+          const loserSide = result.winner === "a" ? b : a;
+
+          $("#banner-title").textContent = `🏆 ${winnerSide.emoji} ${winnerSide.species} @${winnerSide.profile.handle} wins`;
+          $("#banner-sub").textContent = `left standing with ${Math.round(winnerSide.hp)} / ${winnerSide.maxHp} HP after ${result.rounds} round${result.rounds === 1 ? "" : "s"}.`;
+          $("#result").classList.add("show");
+
+          lastShareText = buildShareText(result, a, b);
+          $("#share-result").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(lastShareText)}`;
+          await buildShareCard(result, a, b);
+        } catch (e) {
+          setStatus(e.message || "couldn't resolve one of those handles.", true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("#share-download").addEventListener("click", () => {
+        $("#share-canvas").toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "creaturearena.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      $("#duel-go").addEventListener("click", run);
+      [$("#handle-a"), $("#handle-b")].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") run();
+        }),
+      );
+      $("#rematch").addEventListener("click", () => {
+        $("#arena").style.display = "none";
+        $("#result").classList.remove("show");
+        setStatus("");
+      });
+    </script>
+  </body>
+</html>
