@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>simcluster: twin &amp; anti-twin</title>
+<meta name="description" content="reads every post from your SimCluster and scores each mutual against you on vocabulary, hashtags, posting style, and time-of-day rhythm — then crowns your closest match (your twin) and your most opposite match (your anti-twin)." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="simcluster: twin &amp; anti-twin" />
+<meta property="og:description" content="ADVANCED ALGORITHMS (word-frequency cosine similarity, honestly) find who in your SimCluster posts the most like you, and who posts the least like you." />
+<meta property="og:url" content="https://simcluster-twin.bisks.net/" />
+<meta property="og:image" content="https://simcluster-twin.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="two profile cards, one glowing green labeled TWIN with a high match score, one glowing red labeled ANTI-TWIN with a low match score." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="simcluster: twin &amp; anti-twin" />
+<meta name="twitter:description" content="who in your SimCluster posts the most like you — and the least. real math, modest model." />
+<meta name="twitter:image" content="https://simcluster-twin.bisks.net/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🫂</text></svg>" />
+<style>
+  :root {
+    --bg: #0b0710;
+    --fg: #f2e9ff;
+    --dim: #a996c4;
+    --card: #1c1128;
+    --border: #3a2650;
+    --purple: #c084fc;
+    --blue: #4ea1ff;
+    --green: #6ef2c9;
+    --red: #ff6b6b;
+    --gold: #f4c76a;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(60% 40% at 15% -5%, #3a1a52 0%, transparent 60%),
+                radial-gradient(50% 35% at 100% 0%, #0f2a26 0%, transparent 55%),
+                var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+
+  header { text-align: center; margin-bottom: 24px; }
+  h1 {
+    font-size: clamp(26px, 5.5vw, 38px);
+    font-weight: 800;
+    margin: 0 0 8px;
+    background: linear-gradient(90deg, var(--green), var(--red));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .tagline { color: var(--dim); font-size: 14px; max-width: 580px; margin: 0 auto; }
+  .tagline b { color: var(--fg); }
+
+  form.search { display: flex; gap: 8px; margin: 24px auto 8px; max-width: 480px; }
+  input[type="text"] {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--purple); }
+  button {
+    font-family: var(--mono);
+    font-weight: 700;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: transform 0.1s ease, filter 0.15s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.45; cursor: default; transform: none; }
+  .btn-primary {
+    background: linear-gradient(90deg, var(--green), var(--red));
+    color: #0b0710;
+    padding: 12px 20px;
+    font-size: 15px;
+    border: none;
+  }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+  #status { text-align: center; color: var(--dim); font-size: 13px; min-height: 20px; margin: 4px 0 4px; white-space: pre-line; }
+  #status.err { color: #ff8a8a; }
+
+  #results { display: none; margin-top: 20px; }
+  #results.show { display: block; }
+
+  .clustermeta { text-align: center; color: var(--dim); font-size: 13px; margin-bottom: 20px; }
+  .clustermeta b { color: var(--fg); }
+
+  .matchgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  @media (max-width: 620px) { .matchgrid { grid-template-columns: 1fr; } }
+
+  .matchcard {
+    border-radius: 16px; padding: 20px; border: 1px solid var(--border);
+    background: var(--card); position: relative; overflow: hidden;
+  }
+  .matchcard.twin { border-color: #2c8c6a; box-shadow: 0 0 0 1px rgba(110,242,201,0.15), 0 0 40px -20px rgba(110,242,201,0.5); }
+  .matchcard.anti { border-color: #8c2c3a; box-shadow: 0 0 0 1px rgba(255,107,107,0.15), 0 0 40px -20px rgba(255,107,107,0.5); }
+  .matchcard .kicker {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .matchcard.twin .kicker { color: var(--green); }
+  .matchcard.anti .kicker { color: var(--red); }
+  .matchcard .who { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .matchcard .av {
+    width: 44px; height: 44px; border-radius: 50%; flex: none;
+    background: #3a2650 center/cover no-repeat;
+    display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff;
+  }
+  .matchcard .whotext { min-width: 0; }
+  .matchcard .dn { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .matchcard .hn { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .matchcard .score { font-size: 34px; font-weight: 800; margin-bottom: 2px; }
+  .matchcard.twin .score { color: var(--green); }
+  .matchcard.anti .score { color: var(--red); }
+  .matchcard .scorelbl { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+
+  .axisrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); margin: 5px 0; }
+  .axisrow .lbl { width: 70px; flex: none; text-transform: uppercase; letter-spacing: 0.04em; }
+  .axisbar { flex: 1; height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .axisbar > div { height: 100%; border-radius: 4px; }
+  .matchcard.twin .axisbar > div { background: var(--green); }
+  .matchcard.anti .axisbar > div { background: var(--red); }
+  .axisrow .val { width: 34px; text-align: right; flex: none; }
+  .axisrow.na { opacity: 0.4; }
+
+  .chipnote { margin-top: 12px; font-size: 12px; color: var(--dim); line-height: 1.6; }
+  .chipnote b { color: var(--fg); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .chip { background: rgba(255,255,255,0.06); border-radius: 6px; padding: 2px 7px; font-size: 11px; }
+
+  details.leaderboard { margin: 20px 0; border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px; background: rgba(255,255,255,0.02); }
+  details.leaderboard summary { cursor: pointer; padding: 10px 0; font-size: 13px; color: var(--dim); }
+  details.leaderboard summary b { color: var(--fg); }
+  .lbrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.06); font-size: 12.5px; }
+  .lbrow .rank { width: 22px; color: var(--dim); flex: none; }
+  .lbrow .avmini { width: 22px; height: 22px; border-radius: 50%; background: #3a2650 center/cover no-repeat; flex: none; }
+  .lbrow .h { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+  .lbrow .sc { width: 40px; text-align: right; flex: none; font-weight: 700; }
+  .lbrow.skip { opacity: 0.4; font-style: italic; }
+
+  #graphicWrap { display: none; margin-top: 20px; }
+  #graphicWrap.show { display: block; }
+  #graphic { width: 100%; height: auto; border-radius: 16px; border: 1px solid var(--border); display: block; }
+
+  .share-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 16px 0 8px; }
+  .btn-ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+    padding: 10px 16px; font-size: 13px;
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--purple); }
+
+  .howwrap { margin-top: 28px; border: 1px solid var(--border); border-radius: 12px; padding: 4px 16px; background: rgba(255,255,255,0.02); }
+  .howwrap summary { cursor: pointer; padding: 10px 0; font-size: 13px; color: var(--dim); }
+  .howwrap summary b { color: var(--fg); }
+  .howwrap p { font-size: 12.5px; color: var(--dim); line-height: 1.7; }
+  .howwrap code { color: var(--gold); }
+
+  footer { text-align: center; margin-top: 50px; color: var(--dim); font-size: 12px; }
+  footer a { color: var(--green); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>twin &amp; anti-twin</h1>
+    <p class="tagline">reads every recent post from you and everyone in your <b>SimCluster</b>, then runs it through <b>ADVANCED ALGORITHMS</b> (vocabulary, hashtags, posting style, time-of-day rhythm) to find your closest match — your <b>twin</b> — and your most opposite match — your <b>anti-twin</b>.</p>
+  </header>
+
+  <form class="search" id="searchForm">
+    <input type="text" id="handleInput" placeholder="norvid-studies.bsky.social" autocomplete="off" />
+    <button type="submit" class="btn-primary" id="genBtn">find them</button>
+  </form>
+  <div id="status"></div>
+
+  <div id="results">
+    <div class="clustermeta" id="clusterMeta"></div>
+
+    <div class="matchgrid">
+      <div class="matchcard twin">
+        <div class="kicker">🧬 your twin</div>
+        <div class="who" id="twinWho"></div>
+        <div class="score" id="twinScore"></div>
+        <div class="scorelbl">compatibility</div>
+        <div id="twinAxes"></div>
+        <div class="chipnote" id="twinNote"></div>
+      </div>
+      <div class="matchcard anti">
+        <div class="kicker">🪞 your anti-twin</div>
+        <div class="who" id="antiWho"></div>
+        <div class="score" id="antiScore"></div>
+        <div class="scorelbl">compatibility</div>
+        <div id="antiAxes"></div>
+        <div class="chipnote" id="antiNote"></div>
+      </div>
+    </div>
+
+    <details class="leaderboard">
+      <summary><b>full leaderboard</b> — everyone scored, most-like-you first</summary>
+      <div id="leaderboard"></div>
+    </details>
+
+    <div id="graphicWrap">
+      <canvas id="graphic" width="1200" height="1350"></canvas>
+      <div class="share-row" id="shareRow" style="display:none">
+        <a id="shareBluesky" class="btn-ghost" target="_blank" rel="noopener">🦋 share</a>
+        <button class="btn-ghost" id="shareDownload">⬇ save graphic</button>
+        <button class="btn-ghost" id="shareNative" style="display:none">📤 share</button>
+      </div>
+    </div>
+
+    <details class="howwrap">
+      <summary><b>how "ADVANCED ALGORITHMS" actually works</b></summary>
+      <p>
+        every account's recent posts get turned into a word-frequency vector
+        (stopwords stripped), a hashtag set, an average post length / reply
+        ratio / emoji rate, and a 24-bucket UTC hour-of-day histogram. your
+        vector gets compared against each mutual's with cosine similarity on
+        vocabulary and rhythm, Jaccard overlap on hashtags, and a normalized
+        distance on posting style — weighted average of whichever of those
+        four have enough data, 0–100. highest score is your twin, lowest is
+        your anti-twin. it's real math. it is not a very deep model — two
+        people who both post a lot about the same show will out-score two
+        people who share a soul but never say <code>#bluesky</code>.
+      </p>
+    </details>
+  </div>
+
+  <footer>
+    a <a href="https://bisks.net/">bisks.net</a> experiment · siblings:
+    <a href="https://simcluster.bisks.net/">simcluster</a> ·
+    <a href="https://simcluster-samesame.bisks.net/">simcluster samesame</a> ·
+    <a href="https://simcluster-atlas.bisks.net/">simcluster atlas</a> ·
+    <a href="https://beefcheck.bisks.net/">beefcheck</a>
+  </footer>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
