@@ -130,6 +130,50 @@
       footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.78rem; text-align: center; max-width: 480px; }
       footer a { color: #7fa8f0; text-decoration: none; }
       footer a:hover { text-decoration: underline; }
+
+      /* unrelated lemon. do not press. */
+      .lemon-btn {
+        position: fixed; right: 1rem; bottom: 1rem; z-index: 50;
+        width: 46px; height: 46px; border-radius: 50%;
+        background: #f4ec1a; border: 2px solid #a89a1a; font-size: 1.35rem;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        transition: transform 0.15s ease, filter 0.4s ease;
+      }
+      .lemon-btn:hover:not(:disabled) { transform: scale(1.08) rotate(-6deg); }
+      .lemon-btn:disabled { cursor: default; }
+      .lemon-btn.shaking { animation: lemon-shake 0.5s ease; }
+      @keyframes lemon-shake {
+        0%, 100% { transform: translate(0, 0) rotate(0); }
+        20% { transform: translate(-4px, 2px) rotate(-8deg); }
+        40% { transform: translate(4px, -2px) rotate(8deg); }
+        60% { transform: translate(-3px, 1px) rotate(-6deg); }
+        80% { transform: translate(3px, -1px) rotate(6deg); }
+      }
+      .lemon-particle {
+        position: fixed; z-index: 49; font-size: 1.3rem; pointer-events: none;
+        animation: lemon-fly 0.9s ease-out forwards;
+      }
+      @keyframes lemon-fly {
+        0% { transform: translate(0, 0) scale(1); opacity: 1; }
+        100% { transform: var(--fly-to) scale(0.4); opacity: 0; }
+      }
+      body.lemon-shockwave { animation: lemon-flash 0.4s ease; }
+      @keyframes lemon-flash {
+        0% { background: var(--bg); }
+        30% { background: #3a2400; }
+        100% { background: var(--bg); }
+      }
+      .lemon-toast {
+        position: fixed; right: 1rem; bottom: 4.5rem; z-index: 50; max-width: 260px;
+        background: var(--panel); border: 1px solid var(--stripe); border-radius: 10px;
+        padding: 0.85rem 1rem; font-size: 0.78rem; line-height: 1.55; color: var(--ink);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.5); animation: lemon-toast-in 0.25s ease;
+      }
+      @keyframes lemon-toast-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
     </style>
   </head>
   <body>
@@ -153,6 +197,9 @@
       built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> ·
       <a href="https://bisks.net">more of these</a>
     </footer>
+
+    <!-- unrelated lemon, not part of the six tricks, wired to nothing dangerous -->
+    <button class="lemon-btn" id="lemonBtn" title="this is a completely unrelated lemon. do not press it either.">🍋</button>
 
     <script>
       const stageEl = document.getElementById("stage");
@@ -346,6 +393,68 @@
         };
         footerEl.hidden = false;
       }
+
+      // Bonus seventh trick nobody asked for: a lemon, fixed in the corner,
+      // outside the six-stage flow. It does exactly one thing, once.
+      (function () {
+        const lemonBtn = document.getElementById("lemonBtn");
+        const QUOTE =
+          "Do you know who I am? I'm the man who's gonna burn your house down! " +
+          "With the lemons. I'm going to get my engineers to invent a combustible " +
+          "lemon that burns your house down!";
+        let combusted = false;
+
+        lemonBtn.addEventListener("click", () => {
+          if (combusted) return;
+          combusted = true;
+          lemonBtn.classList.add("shaking");
+          document.body.classList.add("lemon-shockwave");
+          setTimeout(() => {
+            lemonBtn.classList.remove("shaking");
+            lemonBtn.textContent = "🔥";
+            spawnParticles(lemonBtn);
+          }, 500);
+          setTimeout(() => { lemonBtn.textContent = "💨"; }, 1100);
+          setTimeout(() => {
+            lemonBtn.textContent = "🍋";
+            lemonBtn.style.filter = "grayscale(1) brightness(0.55)";
+            lemonBtn.disabled = true;
+            lemonBtn.title = "already combusted. it happened once. that was enough.";
+            showToast();
+          }, 1700);
+        });
+
+        function spawnParticles(origin) {
+          const rect = origin.getBoundingClientRect();
+          const emojis = ["🔥", "💥", "✨", "🍋"];
+          for (let n = 0; n < 10; n++) {
+            const p = document.createElement("span");
+            p.className = "lemon-particle";
+            p.textContent = emojis[n % emojis.length];
+            p.style.left = rect.left + rect.width / 2 + "px";
+            p.style.top = rect.top + rect.height / 2 + "px";
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 60 + Math.random() * 90;
+            p.style.setProperty(
+              "--fly-to",
+              `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`
+            );
+            document.body.appendChild(p);
+            setTimeout(() => p.remove(), 950);
+          }
+        }
+
+        function showToast() {
+          const toast = document.createElement("div");
+          toast.className = "lemon-toast";
+          toast.innerHTML =
+            `<b>combustion complete.</b> "${QUOTE}"<br/>` +
+            `<span style="color: var(--muted)">— buildthis, allegedly. the lemon was, ` +
+            `as promised, combustible. nothing else on this page ever was.</span>`;
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 7000);
+        }
+      })();
     </script>
   </body>
 </html>
