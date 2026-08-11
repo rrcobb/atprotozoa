@@ -26,7 +26,7 @@
     <meta name="twitter:title" content="threadwalk — walk the discourse map of your bit of the sky" />
     <meta
       name="twitter:description"
-      content="A 2D map of current discourse, shaped by your oomfs' likes. Walk between threads with the arrow keys."
+      content="A 2D map of current discourse, laid out by how much your oomfs and oomfs-of-oomfs like each thread. Walk from thread to thread with the arrow keys — the nearest one is always the next thing your people are into."
     />
     <meta name="twitter:image" content="https://threadwalk.bisks.net/og.png" />
 
@@ -370,13 +370,31 @@
       let game = null;
       let visitedCount = 0;
 
+      function rkeyOf(uri) {
+        return (uri || "").split("/").pop();
+      }
+
       function postUrl(handle, uri) {
-        const rkey = (uri || "").split("/").pop();
-        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+        return `https://bsky.app/profile/${handle}/post/${rkeyOf(uri)}`;
       }
 
       function truncate(s, max) {
         return s.length <= max ? s : s.slice(0, max - 1).trimEnd() + "…";
+      }
+
+      // A distinct, shareable URL per thread arrived at — src/index.ts's
+      // /w/<handle>/<rkey> route bakes these into personalized og:title /
+      // og:description so this specific arrival unfurls its own card
+      // instead of every share collapsing into the site's generic one.
+      function shareUrlFor(node) {
+        const params = new URLSearchParams();
+        if (selfHandle) params.set("by", selfHandle);
+        params.set("oh", String(node.oomfHits || 0));
+        params.set("o2h", String(node.oomf2Hits || 0));
+        return (
+          `https://threadwalk.bisks.net/w/${encodeURIComponent(node.authorHandle)}/${encodeURIComponent(rkeyOf(node.uri))}` +
+          `?${params.toString()}`
+        );
       }
 
       function onArrive(node, next) {
@@ -392,7 +410,7 @@
         pLink.href = postUrl(node.authorHandle, node.uri);
         const shareText =
           `walking my threadwalk map — currently at @${node.authorHandle}'s thread, ` +
-          `liked by ${node.oomfHits} of my oomfs. chart your own: https://threadwalk.bisks.net/`;
+          `liked by ${node.oomfHits} of my oomfs. ${shareUrlFor(node)}`;
         pShare.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
         pNext.innerHTML = next
           ? `nearest unvisited: <b>@${next.authorHandle}</b>`
