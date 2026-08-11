@@ -1,4 +1,4 @@
-// Generates public/og.png — the Open Graph preview card for styletwin, so a
+// Generates public/og.png — the Open Graph preview card for ceemilarity, so a
 // shared link auto-renders a picture of the score in Bluesky / other
 // unfurlers. Hand-drawn SVG at the canonical OG size, matching the live
 // page's dark teal/violet look, rasterised with @resvg/resvg-js (pure native
@@ -75,11 +75,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
-  <text x="60" y="100" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="url(#title)">styletwin</text>
+  <text x="60" y="100" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="url(#title)">ceemilarity</text>
   <text x="60" y="150" font-family="JetBrains Mono" font-size="21" fill="${DIM}">how close is your posting style</text>
   <text x="60" y="178" font-family="JetBrains Mono" font-size="21" fill="${DIM}">to cee.wtf's?</text>
 
-  <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">styletwin.bisks.net</text>
+  <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">ceemilarity.bisks.net</text>
 
   <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="18" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
 

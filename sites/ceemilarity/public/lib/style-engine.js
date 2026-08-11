@@ -1,4 +1,4 @@
-// styletwin's analysis engine — styletwin.bisks.net
+// ceemilarity's analysis engine — ceemilarity.bisks.net
 //
 // Built for @cee.wtf, who asked for a page that analyzes their posting habits,
 // writing style, and grammar quirks, then lets anyone check how close their
@@ -300,6 +300,20 @@
     return rawVal.toFixed(2);
   }
 
+  // Raw per-feature match (1 - normalized delta) turned out to cluster
+  // everyone in the 80-95% band, even total strangers — most FEATURES scales
+  // saturate well past the range real accounts actually spread across, so a
+  // meaningful gap shows up as only a small normalized delta. Sampled a few
+  // real accounts against cee's baseline (@bisks.net's "tune your heuristics"
+  // ask) and found three unrelated people landing at 86-90% overall —
+  // "Basically the Same Person" territory for accounts that don't actually
+  // read alike. MATCH_STEEPNESS pushes match^p before weighting: p=1 leaves
+  // the raw clustering; higher p leaves near-identical features (match
+  // near 1) mostly alone while pulling genuinely-different ones (match
+  // solidly below 1) down harder, so the same three accounts land at a more
+  // honest ~70-76% and self-comparison still hits exactly 100%.
+  const MATCH_STEEPNESS = 3;
+
   // Compares two profiles (from analyze()) into an overall similarity score
   // and a per-feature breakdown, most-different features first (that's the
   // interesting part of a report like this).
@@ -317,6 +331,7 @@
         youDisplay = fmtFeature(f, you.raw[f.key]);
         themDisplay = fmtFeature(f, them.raw[f.key]);
       }
+      match = Math.pow(match, MATCH_STEEPNESS);
       return { key: f.key, label: f.label, weight: f.weight, matchPct: match * 100, you: youDisplay, them: themDisplay };
     });
 

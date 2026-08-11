@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>styletwin — how close is your posting style to cee.wtf's?</title>
+<title>ceemilarity — how close is your posting style to cee.wtf's?</title>
 <meta name="description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
-<meta property="og:title" content="styletwin — how close is your posting style to cee.wtf's?" />
+<meta property="og:title" content="ceemilarity — how close is your posting style to cee.wtf's?" />
 <meta property="og:description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
-<meta property="og:url" content="https://styletwin.bisks.net/" />
+<meta property="og:url" content="https://ceemilarity.bisks.net/" />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="https://styletwin.bisks.net/og.png" />
+<meta property="og:image" content="https://ceemilarity.bisks.net/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="styletwin: a similarity score comparing a Bluesky account's writing style against cee.wtf's." />
+<meta property="og:image:alt" content="ceemilarity: a similarity score comparing a Bluesky account's writing style against cee.wtf's." />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="styletwin — how close is your posting style to cee.wtf's?" />
+<meta name="twitter:title" content="ceemilarity — how close is your posting style to cee.wtf's?" />
 <meta name="twitter:description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
-<meta name="twitter:image" content="https://styletwin.bisks.net/og.png" />
+<meta name="twitter:image" content="https://ceemilarity.bisks.net/og.png" />
 <style>
   :root {
     --bg: #070a12;
@@ -181,7 +181,7 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>styletwin</h1>
+    <h1>ceemilarity</h1>
     <p class="tag">
       <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>'s
       writing style, measured into heuristics — post length, capitalization, punctuation, emoji, posting
@@ -280,7 +280,10 @@
 
 <script src="lib/handle-typeahead.js"></script>
 <script src="lib/style-engine.js"></script>
-<script>
+<script type="module">
+import { fetchRepoRecords } from "./lib/car.js";
+import { resolvePds } from "./lib/identity.js";
+
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 const API = "https://public.api.bsky.app/xrpc/";
 const MAX_PAGES = 20; // 20 * 100 = up to 2000 posts — a safety cap, not a real limit for most accounts
@@ -304,7 +307,30 @@ function cleanHandle(raw) {
   return h;
 }
 
+// Prefers the account's whole repo as one CAR download (com.atproto.sync.getRepo)
+// over paginating app.bsky.feed.getAuthorFeed — one request instead of up to
+// MAX_PAGES round trips, and no repost/reason filtering needed since a CAR's
+// app.bsky.feed.post records are only ever the account's own words. Falls
+// back to the old feed walk if the PDS can't be resolved, doesn't allow CORS,
+// or the repo is too large to parse in-tab.
 async function fetchPosts(did, onStep) {
+  onStep && onStep("resolving PDS…");
+  const pds = await resolvePds(did);
+  if (pds) {
+    try {
+      const { records } = await fetchRepoRecords(pds, did, "app.bsky.feed.post", onStep);
+      const out = records
+        .map((r) => ({ text: r.text || "", createdAt: r.createdAt, isReply: !!r.reply }))
+        .filter((p) => p.text);
+      if (out.length) return out;
+    } catch (err) {
+      onStep && onStep(`repo CAR unavailable (${err.message}) — falling back to a feed walk…`);
+    }
+  }
+  return fetchPostsViaFeed(did, onStep);
+}
+
+async function fetchPostsViaFeed(did, onStep) {
   const out = [];
   let cursor;
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -561,7 +587,7 @@ async function buildShareCard({ profile, overall, verdict }) {
   ctx.textAlign = "left";
   ctx.fillStyle = "#2dd4bf";
   ctx.font = `800 52px ${mono}`;
-  ctx.fillText("styletwin", 60, 100);
+  ctx.fillText("ceemilarity", 60, 100);
 
   const who = "@" + profile.handle;
   ctx.fillStyle = "#eef3fb";
@@ -624,16 +650,16 @@ async function buildShareCard({ profile, overall, verdict }) {
   ctx.textAlign = "left";
   ctx.fillStyle = "#2dd4bf";
   ctx.font = `700 20px ${mono}`;
-  ctx.fillText("styletwin.bisks.net", 60, H - 40);
+  ctx.fillText("ceemilarity.bisks.net", 60, H - 40);
 }
 
 function shareUrlFor(handle) {
-  return "https://styletwin.bisks.net/s/" + encodeURIComponent(handle);
+  return "https://ceemilarity.bisks.net/s/" + encodeURIComponent(handle);
 }
 
 function shareText(profile, overall, verdict) {
   return (
-    `I'm a ${Math.round(overall)}% style match with @cee.wtf on styletwin — ${verdict.label}. ` +
+    `I'm a ${Math.round(overall)}% style match with @cee.wtf on ceemilarity — ${verdict.label}. ` +
     `${verdict.blurb}\n\n` +
     `check yours → ${shareUrlFor(profile.handle)}`
   );
@@ -710,7 +736,7 @@ els.shareDownload.addEventListener("click", () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
-    a.download = "styletwin-" + who + ".png";
+    a.download = "ceemilarity-" + who + ".png";
     a.click();
     URL.revokeObjectURL(a.href);
   }, "image/png");
@@ -731,9 +757,9 @@ if (canShareFiles()) {
     els.shareCanvas.toBlob(async (blob) => {
       if (!blob) return;
       const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
-      const file = new File([blob], "styletwin-" + who + ".png", { type: "image/png" });
+      const file = new File([blob], "ceemilarity-" + who + ".png", { type: "image/png" });
       try {
-        await navigator.share({ files: [file], text: lastShareText, title: "styletwin" });
+        await navigator.share({ files: [file], text: lastShareText, title: "ceemilarity" });
       } catch (_) {
         // user cancelled the share sheet, or it failed silently — no-op
       }
