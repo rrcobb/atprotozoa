@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>styletwin — how close is your posting style to cee.wtf's?</title>
+<meta name="description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
+<meta property="og:title" content="styletwin — how close is your posting style to cee.wtf's?" />
+<meta property="og:description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
+<meta property="og:url" content="https://styletwin.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://styletwin.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="styletwin: a similarity score comparing a Bluesky account's writing style against cee.wtf's." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="styletwin — how close is your posting style to cee.wtf's?" />
+<meta name="twitter:description" content="cee.wtf's own writing style, broken into heuristics — sentence length, punctuation, capitalization, emoji, posting rhythm — then compare your Bluesky account against it." />
+<meta name="twitter:image" content="https://styletwin.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070a12;
+    --bg2: #0d1420;
+    --fg: #eef3fb;
+    --dim: #98a5bd;
+    --muted: #616f88;
+    --accent: #2dd4bf;
+    --accent-dim: #14746a;
+    --highlight: #a78bfa;
+    --highlight-dim: #6249ab;
+    --card: #101828;
+    --border: #223049;
+    --grid: #1b2740;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #123a36 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 0%, #2f2050 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "JetBrains Mono", monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 720px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; }
+  .tag code { color: var(--accent); }
+  .tag a { color: var(--highlight); }
+
+  .section { margin-bottom: 2.75rem; }
+  .section-h {
+    display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 1rem;
+  }
+  .section-h .n { color: var(--muted); font-size: 0.75rem; }
+  .section-h h2 { font-size: 1.05rem; margin: 0; color: var(--fg); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; }
+  .card.result { box-shadow: 0 0 60px -24px var(--highlight); }
+  .card.hidden { display: none; }
+  .card.show { animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.3rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); flex: none; }
+  .who .handle { font-weight: 700; }
+  .who .meta { color: var(--muted); font-size: 0.72rem; }
+
+  .narrative { color: var(--dim); font-size: 0.9rem; line-height: 1.6; margin-bottom: 1.6rem; }
+  .narrative strong { color: var(--fg); }
+
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.7rem; margin-bottom: 1.6rem;
+  }
+  .stat { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 0.65rem 0.8rem; }
+  .stat .val { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 1.35rem; font-weight: 700; color: var(--fg); line-height: 1.1; }
+  .stat .val.hl { color: var(--highlight); }
+  .stat .val.ac { color: var(--accent); }
+  .stat .lbl { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+
+  .subhead { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin: 0 0 0.7rem; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.5rem; }
+  .chip { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 999px; padding: 0.28rem 0.65rem; font-size: 0.76rem; color: var(--dim); }
+  .chip b { color: var(--fg); font-weight: 600; }
+  .chip .n { color: var(--muted); font-size: 0.68rem; margin-left: 0.3em; }
+
+  .hourchart { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin-bottom: 0.4rem; }
+  .hourchart .hc-col { flex: 1; display: flex; flex-direction: column-reverse; align-items: center; height: 100%; gap: 1px; }
+  .hourchart .hc-bar { width: 100%; border-radius: 2px 2px 0 0; min-height: 2px; }
+  .hourchart .hc-bar.ac { background: var(--accent); }
+  .hourchart .hc-bar.hl { background: var(--highlight); }
+  .hour-x { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.6rem; margin-bottom: 1.6rem; }
+  .legend { display: flex; gap: 1.1rem; font-size: 0.72rem; color: var(--dim); margin-bottom: 0.6rem; }
+  .legend .sw { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .legend .dot.ac { background: var(--accent); }
+  .legend .dot.hl { background: var(--highlight); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    color: #04110e;
+    border: none; border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin: 0 0 1.4rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; white-space: pre-line; }
+  .status.err { color: #ff8a8a; }
+
+  .score-wrap { text-align: center; margin-bottom: 1.7rem; }
+  .score-num {
+    font-size: 3.2rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .score-lbl { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.3rem; }
+  .meter { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); overflow: hidden; margin: 0.9rem auto 1rem; max-width: 420px; }
+  .meter-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--highlight)); border-radius: 999px; transition: width 0.6s ease; }
+  .verdict-name { font-size: 1.3rem; font-weight: 800; color: var(--fg); margin-bottom: 0.3rem; }
+  .verdict-blurb { color: var(--dim); font-size: 0.88rem; line-height: 1.5; max-width: 46ch; margin: 0 auto; }
+
+  .callouts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.7rem; }
+  @media (max-width: 520px) { .callouts { grid-template-columns: 1fr; } }
+  .callout-box { border: 1px dashed var(--border); border-radius: 10px; padding: 0.8rem 0.9rem; }
+  .callout-box .subhead { margin-bottom: 0.5rem; }
+  .callout-row { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.2rem 0; color: var(--dim); }
+  .callout-row b { color: var(--fg); font-weight: 600; }
+
+  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-bottom: 1.7rem; }
+  table.breakdown th { text-align: left; color: var(--muted); font-weight: 600; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border); }
+  table.breakdown td { padding: 0.42rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.breakdown td.lbl { color: var(--dim); }
+  table.breakdown td.num { color: var(--fg); white-space: nowrap; font-size: 0.76rem; }
+  table.breakdown td.bar-td { width: 34%; }
+  .mbar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .mbar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--highlight)); }
+  .mbar-pct { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+
+  .compare-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 1.2rem; margin-bottom: 1.6rem; }
+  .compare-cols .col-h { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.3rem; }
+  .compare-cols .col-h.ac { color: var(--accent); }
+  .compare-cols .col-h.hl { color: var(--highlight); }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--highlight)); color: #04110e; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 1rem; color: var(--muted); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>styletwin</h1>
+    <p class="tag">
+      <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>'s
+      writing style, measured into heuristics — post length, capitalization, punctuation, emoji, posting
+      rhythm, vocabulary. Then enter <em>your</em> Bluesky handle and see how close your style lands to
+      theirs, feature by feature.
+    </p>
+
+    <div class="section">
+      <div class="section-h"><span class="n">01</span><h2>cee's style, measured</h2></div>
+      <div id="ceeCard" class="card">
+        <p class="narrative">loading cee's style profile…</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-h"><span class="n">02</span><h2>check your own</h2></div>
+      <form id="f">
+        <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="go" type="submit">compare</button>
+      </form>
+      <p class="hint">works on any handle, including custom PDSes. yours, a friend's, anyone's.</p>
+      <p id="status" class="status"></p>
+
+      <div id="card" class="card result hidden">
+        <div class="who">
+          <img id="avatar" alt="" />
+          <div>
+            <div class="handle" id="handleOut"></div>
+            <div class="meta" id="metaOut"></div>
+          </div>
+        </div>
+
+        <div class="score-wrap">
+          <div class="score-num" id="scoreNum">0%</div>
+          <div class="score-lbl">style match with cee.wtf</div>
+          <div class="meter"><div class="meter-fill" id="meterFill" style="width:0%"></div></div>
+          <div class="verdict-name" id="verdictName"></div>
+          <div class="verdict-blurb" id="verdictBlurb"></div>
+        </div>
+
+        <p class="narrative" id="youNarrative"></p>
+
+        <div class="callouts">
+          <div class="callout-box">
+            <div class="subhead">most alike</div>
+            <div id="mostAlike"></div>
+          </div>
+          <div class="callout-box">
+            <div class="subhead">most different</div>
+            <div id="mostDifferent"></div>
+          </div>
+        </div>
+
+        <div class="subhead">full breakdown</div>
+        <table class="breakdown">
+          <thead><tr><th>heuristic</th><th>you</th><th>cee</th><th>match</th></tr></thead>
+          <tbody id="breakdownBody"></tbody>
+        </table>
+
+        <div class="subhead">posting-hour rhythm (UTC)</div>
+        <div class="legend">
+          <span class="sw"><span class="dot ac"></span> you</span>
+          <span class="sw"><span class="dot hl"></span> cee</span>
+        </div>
+        <div class="hourchart" id="hourCompareChart"></div>
+        <div class="hour-x"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+
+        <div class="subhead">common words</div>
+        <div class="compare-cols">
+          <div><div class="col-h ac">you</div><div class="chips" id="youWords"></div></div>
+          <div><div class="col-h hl">cee</div><div class="chips" id="ceeWordsCmp"></div></div>
+        </div>
+
+        <div class="subhead">emoji</div>
+        <div class="compare-cols">
+          <div><div class="col-h ac">you</div><div class="chips" id="youEmoji"></div></div>
+          <div><div class="col-h hl">cee</div><div class="chips" id="ceeEmojiCmp"></div></div>
+        </div>
+
+        <div class="share">
+          <canvas id="shareCanvas" width="1200" height="630"></canvas>
+          <div class="share-actions">
+            <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+            <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your score</a>
+            <button id="shareDownload" type="button">⬇ download card</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/style-engine.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_PAGES = 20; // 20 * 100 = up to 2000 posts — a safety cap, not a real limit for most accounts
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""), { cache: "no-store" });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+async function fetchPosts(did, onStep) {
+  const out = [];
+  let cursor;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    onStep && onStep(`reading feed (page ${page + 1}, ${out.length} posts so far)…`);
+    const params = { actor: did, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const data = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    for (const item of data.feed || []) {
+      if (item.reason) continue; // a repost, not their own words
+      const post = item.post;
+      if (!post || !post.record || post.author?.did !== did) continue;
+      out.push({
+        text: post.record.text || "",
+        createdAt: post.record.createdAt || post.indexedAt,
+        isReply: !!post.record.reply,
+      });
+    }
+    cursor = data.cursor;
+    if (!cursor || !data.feed || !data.feed.length) break;
+  }
+  return out;
+}
+
+function fmtNum(n) { return Math.round(n).toLocaleString(); }
+function fmtPct(n) { return (Math.round(n * 10) / 10).toFixed(1) + "%"; }
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
+// A generated few-sentence writeup of a style profile — used both for cee's
+// static section and for whoever you type in, so "your posts run short and
+// rarely end with punctuation" and "cee's posts run short and rarely end
+// with punctuation" come out of the exact same branching logic.
+function describeStyle(p, poss, subj) {
+  const r = p.raw, t = p.terminalPct;
+  const lenWord = r.avgLength < 70 ? "short and clipped" : r.avgLength < 150 ? "medium-length" : "long and sprawling";
+  const startWord = r.lowercaseStartRatio > 0.6 ? "almost always lowercase" : r.lowercaseStartRatio > 0.35 ? "a mix of upper- and lowercase" : "almost always capitalized";
+  const endWord = t.none > 55 ? "rarely ends with any punctuation at all" : t.exclaim > 20 ? "often ends on an exclamation point" : t.question > 20 ? "often ends on a question" : "usually closes out with a period";
+  const replyWord = r.replyRatio > 0.55 ? "spends more time replying than posting fresh" : r.replyRatio > 0.3 ? "splits fairly evenly between replies and fresh posts" : "mostly posts fresh rather than replying";
+  const emojiWord = r.emojiPerPost > 0.5 ? "leans on emoji a lot" : r.emojiPerPost > 0.15 ? "reaches for an emoji now and then" : "almost never uses emoji";
+  const vocabWord = r.typeTokenRatio > 0.32 ? "wide, varied vocabulary" : r.typeTokenRatio > 0.2 ? "moderately varied vocabulary" : "tight, repeating vocabulary";
+  const topWords = (p.quirks.topWords || []).slice(0, 5).map((w) => w.word).join(", ") || "—";
+  return (
+    `${cap(poss)} posts run ${lenWord} — about ${Math.round(r.avgLength)} characters on average. ` +
+    `Capitalization is ${startWord}, and the average post ${endWord}. ${cap(subj)} ${replyWord}, ${emojiWord}, ` +
+    `and writes with a ${vocabWord} (frequent words: ${topWords}).`
+  );
+}
+
+function renderStatsGrid(el, p) {
+  const r = p.raw, t = p.terminalPct;
+  const items = [
+    { val: fmtNum(r.totalPosts), lbl: "posts analyzed" },
+    { val: Math.round(r.avgLength), lbl: "avg length (chars)" },
+    { val: Math.round(r.medianLength), lbl: "median length" },
+    { val: fmtPct(r.lowercaseStartRatio * 100), lbl: "starts lowercase", hl: true },
+    { val: fmtPct(t.none), lbl: "ends w/ no punctuation", hl: true },
+    { val: fmtPct(r.replyRatio * 100), lbl: "are replies" },
+    { val: r.emojiPerPost.toFixed(2), lbl: "emoji per post" },
+    { val: r.typeTokenRatio.toFixed(2), lbl: "vocab richness" },
+  ];
+  el.innerHTML = items
+    .map((it) => `<div class="stat"><div class="val${it.hl ? " hl" : ""}">${it.val}</div><div class="lbl">${it.lbl}</div></div>`)
+    .join("");
+}
+
+function renderChips(el, list, kind) {
+  if (!list || !list.length) { el.innerHTML = '<span class="chip">—</span>'; return; }
+  el.innerHTML = list
+    .slice(0, 10)
+    .map((it) => {
+      const label = kind === "emoji" ? it.emoji : it.word;
+      return `<span class="chip"><b>${label}</b><span class="n">×${it.count}</span></span>`;
+    })
+    .join("");
+}
+
+function renderHourChart(el, distA, distB) {
+  const maxV = Math.max(0.001, ...distA, ...(distB || []));
+  el.innerHTML = distA
+    .map((v, i) => {
+      const b = (distB && distB[i]) || 0;
+      const hA = Math.max(0, Math.round((v / maxV) * 100));
+      const hB = Math.max(0, Math.round((b / maxV) * 100));
+      return `<div class="hc-col" title="${i}:00 UTC">
+        <div class="hc-bar hl" style="height:${hB}%"></div>
+        <div class="hc-bar ac" style="height:${hA}%"></div>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderHourChartSolo(el, dist) {
+  const maxV = Math.max(0.001, ...dist);
+  el.innerHTML = dist
+    .map((v, i) => {
+      const h = Math.max(0, Math.round((v / maxV) * 100));
+      return `<div class="hc-col" title="${i}:00 UTC"><div class="hc-bar hl" style="height:${h}%"></div></div>`;
+    })
+    .join("");
+}
+
+// ---- section 1: cee's own profile, always rendered from the baked baseline ----
+let CEE = null;
+
+async function loadCee() {
+  const res = await fetch("data/cee-profile.json", { cache: "no-store" });
+  const data = await res.json();
+  CEE = data;
+
+  const el = document.getElementById("ceeCard");
+  el.innerHTML = `
+    <div class="who">
+      <img id="ceeAvatar" alt="" src="${data.avatar || ""}" style="${data.avatar ? "" : "visibility:hidden"}" />
+      <div>
+        <div class="handle">@${data.handle}</div>
+        <div class="meta" id="ceeMeta"></div>
+      </div>
+    </div>
+    <p class="narrative" id="ceeNarrative"></p>
+    <div class="stats-grid" id="ceeStatsGrid"></div>
+    <div class="subhead">posting-hour rhythm (UTC)</div>
+    <div class="hourchart" id="ceeHourChart"></div>
+    <div class="hour-x"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+    <div class="subhead">frequent words</div>
+    <div class="chips" id="ceeWords"></div>
+    <div class="subhead">emoji</div>
+    <div class="chips" id="ceeEmoji"></div>
+    <div class="subhead">common openers</div>
+    <div class="chips" id="ceeStarters"></div>
+  `;
+
+  document.getElementById("ceeMeta").textContent =
+    `${fmtNum(data.sampleSize)} posts analyzed · profile last built ${new Date(data.generatedAt).toISOString().slice(0, 10)}`;
+  document.getElementById("ceeNarrative").innerHTML = describeStyle(data, "cee's", "cee");
+  renderStatsGrid(document.getElementById("ceeStatsGrid"), data);
+  renderHourChartSolo(document.getElementById("ceeHourChart"), data.hourDist);
+  renderChips(document.getElementById("ceeWords"), data.quirks.topWords, "word");
+  renderChips(document.getElementById("ceeEmoji"), data.quirks.topEmoji, "emoji");
+  renderChips(document.getElementById("ceeStarters"), data.quirks.topStarters, "word");
+}
+loadCee().catch((err) => {
+  document.getElementById("ceeCard").innerHTML = `<p class="narrative">couldn't load cee's baseline profile: ${err.message}</p>`;
+});
+
+// ---- section 2: compare a visitor's handle against cee's baseline ----
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  metaOut: document.getElementById("metaOut"),
+  scoreNum: document.getElementById("scoreNum"),
+  meterFill: document.getElementById("meterFill"),
+  verdictName: document.getElementById("verdictName"),
+  verdictBlurb: document.getElementById("verdictBlurb"),
+  youNarrative: document.getElementById("youNarrative"),
+  mostAlike: document.getElementById("mostAlike"),
+  mostDifferent: document.getElementById("mostDifferent"),
+  breakdownBody: document.getElementById("breakdownBody"),
+  hourCompareChart: document.getElementById("hourCompareChart"),
+  youWords: document.getElementById("youWords"),
+  ceeWordsCmp: document.getElementById("ceeWordsCmp"),
+  youEmoji: document.getElementById("youEmoji"),
+  ceeEmojiCmp: document.getElementById("ceeEmojiCmp"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function renderCallouts(el, rows) {
+  el.innerHTML = rows
+    .map((r) => `<div class="callout-row"><span>${r.label}</span><b>${Math.round(r.matchPct)}%</b></div>`)
+    .join("");
+}
+
+function renderBreakdown(rows) {
+  els.breakdownBody.innerHTML = rows
+    .map((r) => `
+      <tr>
+        <td class="lbl">${r.label}</td>
+        <td class="num">${r.you}</td>
+        <td class="num">${r.them}</td>
+        <td class="bar-td">
+          <div class="mbar"><div class="mbar-fill" style="width:${Math.round(r.matchPct)}%"></div></div>
+          <div class="mbar-pct">${Math.round(r.matchPct)}%</div>
+        </td>
+      </tr>`)
+    .join("");
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines - 1) { line = line + "…"; break; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, overall, verdict }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#070a12";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.12, -H * 0.1, 0, W * 0.12, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#123a36");
+  glow.addColorStop(1, "rgba(7,10,18,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+  const glow2 = ctx.createRadialGradient(W * 0.92, 0, 0, W * 0.92, 0, W * 0.5);
+  glow2.addColorStop(0, "#2f2050");
+  glow2.addColorStop(1, "rgba(7,10,18,0)");
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#2dd4bf";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("styletwin", 60, 100);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#eef3fb";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who + " vs @cee.wtf", textX, 162);
+
+  ctx.strokeStyle = "#223049";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#101828";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  const grad = ctx.createLinearGradient(cardX, 0, cardX + cardW, 0);
+  grad.addColorStop(0, "#2dd4bf");
+  grad.addColorStop(1, "#a78bfa");
+  ctx.fillStyle = grad;
+  ctx.font = `800 96px ${mono}`;
+  ctx.fillText(Math.round(overall) + "%", cardX + cardW / 2, cardY + 130);
+  ctx.fillStyle = "#98a5bd";
+  ctx.font = `400 17px ${mono}`;
+  ctx.fillText("style match with cee.wtf", cardX + cardW / 2, cardY + 162);
+
+  // meter
+  const meterX = cardX + 60, meterY = cardY + 200, meterW = cardW - 120, meterH = 14;
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.beginPath();
+  ctx.roundRect(meterX, meterY, meterW, meterH, 7);
+  ctx.fill();
+  const fillGrad = ctx.createLinearGradient(meterX, 0, meterX + meterW, 0);
+  fillGrad.addColorStop(0, "#2dd4bf");
+  fillGrad.addColorStop(1, "#a78bfa");
+  ctx.fillStyle = fillGrad;
+  ctx.beginPath();
+  ctx.roundRect(meterX, meterY, meterW * Math.max(0.03, overall / 100), meterH, 7);
+  ctx.fill();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#eef3fb";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText(verdict.label, cardX + 48, cardY + 270);
+  ctx.fillStyle = "#98a5bd";
+  ctx.font = `400 16px ${mono}`;
+  wrapCanvasText(ctx, verdict.blurb, cardX + 48, cardY + 300, cardW - 96, 24, 3);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#2dd4bf";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("styletwin.bisks.net", 60, H - 40);
+}
+
+function shareUrlFor(handle) {
+  return "https://styletwin.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, overall, verdict) {
+  return (
+    `I'm a ${Math.round(overall)}% style match with @cee.wtf on styletwin — ${verdict.label}. ` +
+    `${verdict.blurb}\n\n` +
+    `check yours → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+async function compareHandle(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+  if (!CEE) { setStatus("still loading cee's baseline, try again in a second.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  els.card.classList.add("hidden");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did;
+    if (handle.startsWith("did:")) did = handle;
+    else did = (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+
+    const posts = await fetchPosts(did, (msg) => setStatus(msg));
+    if (!posts.length) throw new Error("no posts found for this account");
+
+    const you = StyleEngine.analyze(posts);
+    const result = StyleEngine.compare(you, CEE);
+    const verdict = StyleEngine.verdictFor(result.overall);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.metaOut.textContent = `${fmtNum(you.raw.totalPosts)} posts analyzed`;
+
+    els.scoreNum.textContent = Math.round(result.overall) + "%";
+    els.meterFill.style.width = Math.max(2, result.overall) + "%";
+    els.verdictName.textContent = verdict.label;
+    els.verdictBlurb.textContent = verdict.blurb;
+
+    els.youNarrative.innerHTML = describeStyle(you, "your", "you");
+
+    renderCallouts(els.mostAlike, result.mostAlike);
+    renderCallouts(els.mostDifferent, result.mostDifferent);
+    renderBreakdown(result.rows);
+
+    renderHourChart(els.hourCompareChart, you.hourDist, CEE.hourDist);
+
+    renderChips(els.youWords, you.quirks.topWords, "word");
+    renderChips(els.ceeWordsCmp, CEE.quirks.topWords, "word");
+    renderChips(els.youEmoji, you.quirks.topEmoji, "emoji");
+    renderChips(els.ceeEmojiCmp, CEE.quirks.topEmoji, "emoji");
+
+    setStatus("");
+    els.card.classList.remove("hidden");
+    els.card.classList.add("show");
+
+    lastShareText = shareText(profile, result.overall, verdict);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    buildShareCard({ profile, overall: result.overall, verdict });
+  } catch (err) {
+    setStatus("couldn't compare that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  compareHandle(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "styletwin-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "styletwin-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "styletwin" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or ?h=<handle> both auto-compare on load, once
+// cee's baseline has loaded.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  loadCee().then(() => compareHandle(sharedHandle)).catch(() => {});
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
