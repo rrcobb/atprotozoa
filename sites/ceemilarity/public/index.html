@@ -261,6 +261,12 @@
           <div><div class="col-h hl">cee</div><div class="chips" id="ceeEmojiCmp"></div></div>
         </div>
 
+        <div class="subhead">signature phrases</div>
+        <div class="compare-cols">
+          <div><div class="col-h ac">you</div><div class="chips" id="youPhrases"></div></div>
+          <div><div class="col-h hl">cee</div><div class="chips" id="ceePhrasesCmp"></div></div>
+        </div>
+
         <div class="share">
           <canvas id="shareCanvas" width="1200" height="630"></canvas>
           <div class="share-actions">
@@ -371,10 +377,16 @@ function describeStyle(p, poss, subj) {
   const emojiWord = r.emojiPerPost > 0.5 ? "leans on emoji a lot" : r.emojiPerPost > 0.15 ? "reaches for an emoji now and then" : "almost never uses emoji";
   const vocabWord = r.typeTokenRatio > 0.32 ? "wide, varied vocabulary" : r.typeTokenRatio > 0.2 ? "moderately varied vocabulary" : "tight, repeating vocabulary";
   const topWords = (p.quirks.topWords || []).slice(0, 5).map((w) => w.word).join(", ") || "—";
+  const grammarBits = [];
+  if (r.runOnRatio > 0.12) grammarBits.push("lets sentences run on rather than breaking them up");
+  if (r.semicolonPer100Posts > 3) grammarBits.push("actually uses semicolons");
+  if (r.curlyQuoteRatio > 0.4) grammarBits.push("types with curly quotes/apostrophes, not straight ones");
+  if (r.doubleSpacePer100Posts > 15) grammarBits.push("double-spaces");
+  const grammarSentence = grammarBits.length ? ` One grammar quirk: ${cap(subj)} ${grammarBits.join(", and ")}.` : "";
   return (
     `${cap(poss)} posts run ${lenWord} — about ${Math.round(r.avgLength)} characters on average. ` +
     `Capitalization is ${startWord}, and the average post ${endWord}. ${cap(subj)} ${replyWord}, ${emojiWord}, ` +
-    `and writes with a ${vocabWord} (frequent words: ${topWords}).`
+    `and writes with a ${vocabWord} (frequent words: ${topWords}).${grammarSentence}`
   );
 }
 
@@ -400,7 +412,7 @@ function renderChips(el, list, kind) {
   el.innerHTML = list
     .slice(0, 10)
     .map((it) => {
-      const label = kind === "emoji" ? it.emoji : it.word;
+      const label = kind === "emoji" ? it.emoji : kind === "phrase" ? `"${it.phrase}"` : it.word;
       return `<span class="chip"><b>${label}</b><span class="n">×${it.count}</span></span>`;
     })
     .join("");
@@ -459,6 +471,8 @@ async function loadCee() {
     <div class="chips" id="ceeEmoji"></div>
     <div class="subhead">common openers</div>
     <div class="chips" id="ceeStarters"></div>
+    <div class="subhead">signature phrases</div>
+    <div class="chips" id="ceePhrases"></div>
   `;
 
   document.getElementById("ceeMeta").textContent =
@@ -469,6 +483,7 @@ async function loadCee() {
   renderChips(document.getElementById("ceeWords"), data.quirks.topWords, "word");
   renderChips(document.getElementById("ceeEmoji"), data.quirks.topEmoji, "emoji");
   renderChips(document.getElementById("ceeStarters"), data.quirks.topStarters, "word");
+  renderChips(document.getElementById("ceePhrases"), data.quirks.topBigrams, "phrase");
 }
 loadCee().catch((err) => {
   document.getElementById("ceeCard").innerHTML = `<p class="narrative">couldn't load cee's baseline profile: ${err.message}</p>`;
@@ -497,6 +512,8 @@ const els = {
   ceeWordsCmp: document.getElementById("ceeWordsCmp"),
   youEmoji: document.getElementById("youEmoji"),
   ceeEmojiCmp: document.getElementById("ceeEmojiCmp"),
+  youPhrases: document.getElementById("youPhrases"),
+  ceePhrasesCmp: document.getElementById("ceePhrasesCmp"),
   shareCanvas: document.getElementById("shareCanvas"),
   shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
@@ -710,6 +727,8 @@ async function compareHandle(rawHandle) {
     renderChips(els.ceeWordsCmp, CEE.quirks.topWords, "word");
     renderChips(els.youEmoji, you.quirks.topEmoji, "emoji");
     renderChips(els.ceeEmojiCmp, CEE.quirks.topEmoji, "emoji");
+    renderChips(els.youPhrases, you.quirks.topBigrams, "phrase");
+    renderChips(els.ceePhrasesCmp, CEE.quirks.topBigrams, "phrase");
 
     setStatus("");
     els.card.classList.remove("hidden");

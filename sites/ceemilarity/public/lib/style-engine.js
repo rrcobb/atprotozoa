@@ -34,6 +34,9 @@
   const ELLIPSIS_RE = /\.\.\.|…/g;
   const EMDASH_RE = /[—–]|--/g;
   const SENTENCE_SPLIT_RE = /[.!?…]+(?:\s+|$)/gu;
+  const SEMICOLON_RE = /;/g;
+  const DOUBLE_SPACE_RE = /[^\S\n]{2,}/g;
+  const CURLY_RE = /[’‘“”]/;
 
   function stripLinks(text) {
     return text.replace(URL_RE, " ");
@@ -74,6 +77,15 @@
     return ws.length ? ws[0].toLowerCase() : null;
   }
 
+  // Adjacent lowercase word pairs — surfaces recurring signature phrases
+  // ("no thoughts head", "kind of just") that single-word frequency misses,
+  // since a catchphrase's individual words are often too common on their own.
+  function bigramsOf(lowerWords) {
+    const out = [];
+    for (let i = 0; i < lowerWords.length - 1; i++) out.push(lowerWords[i] + " " + lowerWords[i + 1]);
+    return out;
+  }
+
   const STOPWORDS = new Set(
     "the a an and or but so if of to in on for with at by from is are was were be been being this that it i you he she we they my your his her its our their as not no do does did have has had just like it's im i'm dont don't its it's".split(
       " "
@@ -88,6 +100,7 @@
     const s = sentences(text);
     const fl = firstLetter(text);
     const created = p.createdAt ? new Date(p.createdAt) : null;
+    const lower = w.map((x) => x.toLowerCase());
     return {
       length: graphemeLength(text),
       wordCount: w.length,
@@ -103,11 +116,16 @@
       mentionCount: (text.match(MENTION_RE) || []).length,
       contractionCount: (text.match(CONTRACTION_RE) || []).length,
       slangCount: (text.match(SLANG_RE) || []).length,
+      semicolonCount: (text.match(SEMICOLON_RE) || []).length,
+      doubleSpaceCount: (text.match(DOUBLE_SPACE_RE) || []).length,
+      hasCurlyQuote: CURLY_RE.test(text),
+      runOn: w.length >= 30 && (s.length || 0) <= 1,
       hasParens: /\([^)]*\)/.test(text),
       hasNewline: /\n/.test(text),
       terminal: terminalPunct(text),
       firstWord: firstWord(text),
-      words: w.map((x) => x.toLowerCase()),
+      words: lower,
+      bigrams: bigramsOf(lower),
       isReply: !!p.isReply,
       hour: created ? created.getUTCHours() : null,
       weekday: created ? created.getUTCDay() : null,
@@ -161,6 +179,10 @@
     const parensRatio = posts.filter((p) => p.hasParens).length / n;
     const multiLineRatio = posts.filter((p) => p.hasNewline).length / n;
     const replyRatio = posts.filter((p) => p.isReply).length / n;
+    const semicolonPer100Posts = (sum((p) => p.semicolonCount) / n) * 100;
+    const doubleSpacePer100Posts = (sum((p) => p.doubleSpaceCount) / n) * 100;
+    const curlyQuoteRatio = posts.filter((p) => p.hasCurlyQuote).length / n;
+    const runOnRatio = posts.filter((p) => p.runOn).length / n;
 
     const typeTokenSample = posts.flatMap((p) => p.words).slice(0, 20000);
     const uniqueWords = new Set(typeTokenSample);
@@ -217,6 +239,23 @@
       .slice(0, 6)
       .map(([word, count]) => ({ word, count }));
 
+    // Signature phrases — a bigram needs to recur at least 3 times to count
+    // as a "quirk" rather than coincidence, and single-stopword pairs like
+    // "of the" are excluded so what surfaces is closer to a real catchphrase.
+    const bigramFreq = new Map();
+    posts.forEach((p) =>
+      p.bigrams.forEach((bg) => {
+        const [w1, w2] = bg.split(" ");
+        if (STOPWORDS.has(w1) && STOPWORDS.has(w2)) return;
+        bigramFreq.set(bg, (bigramFreq.get(bg) || 0) + 1);
+      })
+    );
+    const topBigrams = [...bigramFreq.entries()]
+      .filter(([, count]) => count >= 3)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([phrase, count]) => ({ phrase, count }));
+
     const raw = {
       totalPosts,
       avgLength,
@@ -238,6 +277,10 @@
       multiLineRatio,
       replyRatio,
       typeTokenRatio,
+      semicolonPer100Posts,
+      doubleSpacePer100Posts,
+      curlyQuoteRatio,
+      runOnRatio,
     };
 
     // Normalized 0..1 vector — scales picked from a broad read of real
@@ -255,7 +298,7 @@
       hourDist,
       weekdayDist,
       terminalPct,
-      quirks: { topWords, topEmoji, topStarters },
+      quirks: { topWords, topEmoji, topStarters, topBigrams },
     };
   }
 
@@ -281,6 +324,10 @@
     { key: "multiLineRatio", kind: "scalar", label: "multi-line posts", unit: "%", scale: 0.5, weight: 0.6, pct: true },
     { key: "replyRatio", kind: "scalar", label: "replies vs top-level", unit: "%", scale: 1, weight: 0.7, pct: true },
     { key: "typeTokenRatio", kind: "scalar", label: "vocabulary richness", unit: "", scale: 0.5, weight: 0.8 },
+    { key: "semicolonPer100Posts", kind: "scalar", label: "semicolons", unit: "/100 posts", scale: 8, weight: 0.4 },
+    { key: "doubleSpacePer100Posts", kind: "scalar", label: "double spacing", unit: "/100 posts", scale: 30, weight: 0.3 },
+    { key: "curlyQuoteRatio", kind: "scalar", label: "curly quotes/apostrophes", unit: "%", scale: 1, weight: 0.4, pct: true },
+    { key: "runOnRatio", kind: "scalar", label: "run-on posts", unit: "%", scale: 0.3, weight: 0.5, pct: true },
     { key: "schedule", kind: "dist", label: "posting-hour rhythm", unit: "", weight: 0.9 },
   ];
 
