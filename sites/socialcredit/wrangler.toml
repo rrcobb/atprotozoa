@@ -1,0 +1,46 @@
+name = "atprotozoa-socialcredit"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @fromthewestmeadow.com asked for a Bluesky Social Credit leaderboard: sign
+# in, +1/-1 any handle, scores persist globally and are tied to DIDs. A
+# follow-up reply (same thread) laid out anti-abuse requirements: OAuth
+# required to vote, no self-voting, a server-enforced 1h cooldown per voter,
+# rate-limiting, DID identity, and a transparent vote history.
+#
+# Votes are written by the browser straight to the voter's OWN PDS as a
+# net.bisks.socialcredit.vote record (same OAuth-write shape as
+# sites/quadrants/sites/memex) — that's the part no one but the voter's own
+# PDS needs to authenticate. The score, cooldown enforcement and self-vote
+# check all live server-side in the CreditBoard Durable Object, which watches
+# Jetstream for that collection across the whole network (same
+# "one DO, one Jetstream subscription filtered to our own custom NSID" shape
+# as sites/quadrants' QuadrantHub / sites/memex's GlobalTracker). Because the
+# relay already verified each commit's signature before Jetstream re-emits
+# it, the `did` on every event is real — a vote's identity can't be spoofed
+# by a client that skips the DO's cooldown/self-vote checks; a rule-breaking
+# write still lands in the voter's own repo, but the DO just never counts it.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+routes = [
+  { pattern = "socialcredit.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/* is the live DO-backed leaderboard/profile API, and
+# /p/<handle> stamps per-profile OG tags onto the static shell — the Worker
+# must run before the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "BOARD"
+class_name = "CreditBoard"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See notes/20-deploy.md.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CreditBoard"]

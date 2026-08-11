@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Social Credit — the Bluesky reputation leaderboard</title>
+    <meta
+      name="description"
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per account per hour, enforced server-side."
+    />
+    <meta property="og:title" content="Social Credit — the Bluesky reputation leaderboard" />
+    <meta
+      property="og:description"
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per account per hour, enforced server-side."
+    />
+    <meta property="og:image" content="https://socialcredit.bisks.net/og.png" />
+    <meta property="og:url" content="https://socialcredit.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>Social Credit</h1>
+        <p class="tag">
+          a separate reputation layer from likes and reposts. sign in with Bluesky,
+          paste anyone's handle, and give them a +1 or a -1 for their takes, their
+          actions, their posts, their behavior — whatever. scores persist globally,
+          keyed to DIDs so a handle change never loses history.
+        </p>
+        <nav class="tabs">
+          <a class="active" href="/">vote</a>
+          <a href="/leaderboard/">leaderboard</a>
+        </nav>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">cast a vote</h2>
+        <label for="f-target">handle to vote on</label>
+        <input id="f-target" type="text" placeholder="@handle.bsky.social" autocomplete="off" />
+        <p class="status" id="lookup-status"></p>
+
+        <div class="vote-card" id="vote-card" style="display: none">
+          <div class="vote-target">
+            <img class="avatar" id="t-avatar" alt="" />
+            <div class="vote-target-meta">
+              <div class="vote-target-name" id="t-name"></div>
+              <div class="vote-target-handle" id="t-handle"></div>
+            </div>
+            <div class="vote-target-score">
+              <span class="score-pill zero" id="t-score">0</span>
+            </div>
+          </div>
+
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-up" type="button">+1</button>
+            <button class="btn-down" id="btn-down" type="button">−1</button>
+          </div>
+
+          <div class="vote-extra">
+            <input id="f-reason" type="text" maxlength="280" placeholder="reason (optional) — why?" />
+            <input id="f-posturl" type="text" placeholder="bsky.app post link for context (optional)" />
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">top of the leaderboard</h2>
+        <div id="mini-board"><p class="empty">loading…</p></div>
+        <p class="share-row"><a href="/leaderboard/">see the full leaderboard →</a></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">recent activity</h2>
+        <div id="mini-feed"><p class="empty">loading…</p></div>
+      </section>
+
+      <footer>
+        votes are written as a <code>net.bisks.socialcredit.vote</code> record straight to your
+        own PDS, then picked up live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        firehose — the score, the one-vote-per-hour cooldown, and the no-self-voting rule are all
+        enforced here, not trusted from the client.
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, resolveHandle } from "/lib/oauth.js";
+      import { getProfile } from "/lib/atproto.js";
+      import "/lib/handle-typeahead.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.socialcredit.vote";
+
+      let session = null;
+      let target = null; // { did, handle, displayName, avatar }
+      let targetBoard = null; // { score, ... } from our own leaderboard, if known
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function fmtScore(n) {
+        return n > 0 ? `+${n}` : `${n}`;
+      }
+      function scoreClass(n) {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero";
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderVoteButtons();
+      }
+
+      let cooldownRemainingMs = 0;
+      async function refreshCooldown() {
+        if (!session) {
+          cooldownRemainingMs = 0;
+          return;
+        }
+        try {
+          const r = await fetch(`/api/cooldown?did=${encodeURIComponent(session.did)}`);
+          const data = await r.json();
+          cooldownRemainingMs = data.remainingMs || 0;
+        } catch {
+          cooldownRemainingMs = 0;
+        }
+      }
+
+      function fmtMs(ms) {
+        const totalMin = Math.ceil(ms / 60000);
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+      }
+
+      function renderVoteButtons() {
+        const note = $("#cooldown-note");
+        const up = $("#btn-up");
+        const down = $("#btn-down");
+        if (!target) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to vote.";
+        } else if (target.did === session.did) {
+          disabled = true;
+          msg = "no self-voting.";
+        } else if (cooldownRemainingMs > 0) {
+          disabled = true;
+          msg = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+        } else {
+          msg = "one vote per account per hour, so make it count.";
+        }
+        up.disabled = disabled;
+        down.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      // --- auth ---------------------------------------------------------------
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      // --- target lookup --------------------------------------------------------
+
+      attachHandleTypeahead($("#f-target"), { onSelect: (actor) => lookupTarget(actor.did) });
+
+      $("#f-target").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          lookupTargetFromInput();
+        }
+      });
+
+      async function lookupTargetFromInput() {
+        const raw = $("#f-target").value.trim().replace(/^@/, "");
+        if (!raw) return;
+        const status = $("#lookup-status");
+        status.textContent = "looking up…";
+        status.className = "status";
+        try {
+          const did = raw.startsWith("did:") ? raw : await resolveHandle(raw);
+          if (!did) throw new Error("couldn't resolve that handle");
+          await lookupTarget(did);
+        } catch (e) {
+          status.textContent = e.message;
+          status.className = "status err";
+          $("#vote-card").style.display = "none";
+        }
+      }
+
+      async function lookupTarget(did) {
+        const status = $("#lookup-status");
+        status.textContent = "looking up…";
+        status.className = "status";
+        const profile = await getProfile(did);
+        if (!profile) {
+          status.textContent = "couldn't find that account.";
+          status.className = "status err";
+          $("#vote-card").style.display = "none";
+          return;
+        }
+        target = {
+          did,
+          handle: profile.handle && profile.handle !== "handle.invalid" ? profile.handle : did,
+          displayName: profile.displayName || profile.handle || did,
+          avatar: profile.avatar || "",
+        };
+        status.textContent = "";
+
+        $("#t-avatar").src = target.avatar || "";
+        $("#t-name").textContent = target.displayName;
+        $("#t-handle").textContent = "@" + target.handle;
+        $("#vote-card").style.display = "block";
+        $("#vote-status").textContent = "";
+
+        try {
+          const r = await fetch(`/api/profile?actor=${encodeURIComponent(did)}`);
+          const data = await r.json();
+          targetBoard = data.profile;
+        } catch {
+          targetBoard = null;
+        }
+        const score = targetBoard ? targetBoard.score : 0;
+        const pill = $("#t-score");
+        pill.textContent = fmtScore(score);
+        pill.className = `score-pill ${scoreClass(score)}`;
+
+        await refreshCooldown();
+        renderVoteButtons();
+      }
+
+      // --- casting a vote --------------------------------------------------------
+
+      async function castVote(delta) {
+        if (!session || !target) return;
+        const status = $("#vote-status");
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-up").disabled = true;
+        $("#btn-down").disabled = true;
+        try {
+          const reason = $("#f-reason").value.trim().slice(0, 280);
+          let postUrl = $("#f-posturl").value.trim();
+          if (postUrl && !/^https:\/\/bsky\.app\/profile\/[^/]+\/post\/[A-Za-z0-9]+$/.test(postUrl)) {
+            postUrl = ""; // silently drop anything that isn't a real post link
+          }
+          const record = {
+            $type: COLLECTION,
+            target: target.did,
+            delta,
+            createdAt: new Date().toISOString(),
+          };
+          if (reason) record.reason = reason;
+          if (postUrl) record.postUrl = postUrl;
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = `vote written — it'll land on the leaderboard in a few seconds once the firehose picks it up.`;
+          status.className = "status ok";
+          $("#f-reason").value = "";
+          $("#f-posturl").value = "";
+          cooldownRemainingMs = 60 * 60 * 1000;
+          renderVoteButtons();
+
+          setTimeout(() => {
+            lookupTarget(target.did);
+            loadMiniBoard();
+            loadMiniFeed();
+          }, 4000);
+        } catch (e) {
+          status.textContent = `couldn't cast that vote: ${e.message}`;
+          status.className = "status err";
+          renderVoteButtons();
+        }
+      }
+      $("#btn-up").addEventListener("click", () => castVote(1));
+      $("#btn-down").addEventListener("click", () => castVote(-1));
+
+      // --- mini board + feed -------------------------------------------------
+
+      async function loadMiniBoard() {
+        const el = $("#mini-board");
+        try {
+          const r = await fetch("/api/leaderboard?sort=top&limit=5");
+          const data = await r.json();
+          const board = data.board || [];
+          if (!board.length) {
+            el.innerHTML = `<p class="empty">no votes yet — be the first.</p>`;
+            return;
+          }
+          el.innerHTML = board
+            .map(
+              (p) => `
+              <a class="board-row" href="/p/${encodeURIComponent(p.handle)}">
+                <span class="board-rank">#${p.rank}</span>
+                <img class="avatar sm" src="${esc(p.avatar || "")}" alt="" />
+                <span class="board-meta">
+                  <div class="board-name">${esc(p.displayName)}</div>
+                  <div class="board-handle">@${esc(p.handle)}</div>
+                </span>
+                <span class="board-score ${scoreClass(p.score)}">${fmtScore(p.score)}</span>
+              </a>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load the leaderboard right now.</p>`;
+        }
+      }
+
+      async function loadMiniFeed() {
+        const el = $("#mini-feed");
+        try {
+          const r = await fetch("/api/activity?limit=8");
+          const data = await r.json();
+          const votes = data.votes || [];
+          if (!votes.length) {
+            el.innerHTML = `<p class="empty">nothing yet.</p>`;
+            return;
+          }
+          el.innerHTML = votes
+            .map(
+              (v) => `
+              <div class="feed-item">
+                <div class="feed-line">
+                  <a href="/p/${encodeURIComponent(v.voterHandle)}">@${esc(v.voterHandle)}</a>
+                  <span class="feed-delta ${v.delta > 0 ? "pos" : "neg"}">${v.delta > 0 ? "+1" : "−1"}</span>
+                  <a href="/p/${encodeURIComponent(v.targetHandle)}">@${esc(v.targetHandle)}</a>
+                </div>
+                ${v.reason ? `<div class="feed-reason">${esc(v.reason)}</div>` : ""}
+                <div class="feed-time">${timeAgo(v.createdAt)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load activity right now.</p>`;
+        }
+      }
+
+      // --- boot -----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await refreshCooldown();
+        renderVoteButtons();
+        await Promise.all([loadMiniBoard(), loadMiniFeed()]);
+
+        setInterval(() => {
+          if (document.visibilityState === "visible") {
+            loadMiniBoard();
+            loadMiniFeed();
+          }
+        }, 15000);
+      }
+      boot();
+    </script>
+  </body>
+</html>

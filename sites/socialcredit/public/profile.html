@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Social Credit profile — bisks.net</title>
+    <meta
+      name="description"
+      content="See anyone's Social Credit score, rank, and full vote history — then sign in with Bluesky to give them a +1 or -1 yourself."
+    />
+    <meta property="og:title" content="Social Credit profile — bisks.net" />
+    <meta
+      property="og:description"
+      content="See anyone's Social Credit score, rank, and full vote history — then sign in with Bluesky to give them a +1 or -1 yourself."
+    />
+    <meta property="og:image" content="https://socialcredit.bisks.net/og.png" />
+    <meta property="og:url" content="https://socialcredit.bisks.net/p/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>Social Credit</h1>
+        <nav class="tabs">
+          <a href="/">vote</a>
+          <a href="/leaderboard/">leaderboard</a>
+        </nav>
+      </header>
+
+      <section id="not-found" style="display: none">
+        <p class="empty">couldn't find that account, or nobody's voted on them yet.</p>
+      </section>
+
+      <section id="profile-section" style="display: none">
+        <div class="profile-head">
+          <img class="avatar" id="p-avatar" alt="" />
+          <div>
+            <div class="profile-name" id="p-name"></div>
+            <div class="profile-handle" id="p-handle"></div>
+          </div>
+          <div class="vote-target-score" style="margin-left: auto">
+            <span class="score-pill zero" id="p-score">0</span>
+          </div>
+        </div>
+
+        <div class="profile-stats">
+          <div><div class="profile-stat-num" id="s-rank">—</div><div class="profile-stat-label">rank</div></div>
+          <div><div class="profile-stat-num" id="s-up">0</div><div class="profile-stat-label">upvotes</div></div>
+          <div><div class="profile-stat-num" id="s-down">0</div><div class="profile-stat-label">downvotes</div></div>
+          <div><div class="profile-stat-num" id="s-cast">0</div><div class="profile-stat-label">votes cast</div></div>
+        </div>
+
+        <div class="share-row">
+          <a id="btn-share" href="#" target="_blank" rel="noopener" class="secondary" style="display: inline-block; padding: 0.55rem 1rem; border: 1px solid #e2ddd0; border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share this profile
+          </a>
+        </div>
+
+        <section id="session-section" style="margin-top: 1.6rem">
+          <div class="session-row" id="signed-out-row">
+            <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+            <button id="btn-signin">sign in with bluesky</button>
+          </div>
+          <div class="session-row" id="signed-in-row" style="display: none">
+            <span>signed in as <strong id="who"></strong></span>
+            <button class="secondary" id="btn-signout">sign out</button>
+          </div>
+          <p class="status" id="auth-status"></p>
+        </section>
+
+        <div class="vote-card">
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-up" type="button">+1</button>
+            <button class="btn-down" id="btn-down" type="button">−1</button>
+          </div>
+          <div class="vote-extra">
+            <input id="f-reason" type="text" maxlength="280" placeholder="reason (optional) — why?" />
+            <input id="f-posturl" type="text" placeholder="bsky.app post link for context (optional)" />
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+
+        <section>
+          <h2 class="section-title">votes received — who voted</h2>
+          <div id="received-list"><p class="empty">loading…</p></div>
+        </section>
+
+        <section>
+          <h2 class="section-title">votes cast by this account</h2>
+          <div id="cast-list"><p class="empty">loading…</p></div>
+        </section>
+      </section>
+
+      <footer>
+        every vote here is a <code>net.bisks.socialcredit.vote</code> record picked up live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose.
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.socialcredit.vote";
+
+      const m = location.pathname.match(/^\/p\/([^/]+)\/?$/);
+      const actor = m ? decodeURIComponent(m[1]) : "";
+
+      let session = null;
+      let profile = null;
+      let cooldownRemainingMs = 0;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function fmtScore(n) {
+        return n > 0 ? `+${n}` : `${n}`;
+      }
+      function scoreClass(n) {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero";
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const mi = Math.floor(s / 60);
+        if (mi < 60) return `${mi}m ago`;
+        const h = Math.floor(mi / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+      function fmtMs(ms) {
+        const totalMin = Math.ceil(ms / 60000);
+        const h = Math.floor(totalMin / 60);
+        const mi = totalMin % 60;
+        if (h > 0) return `${h}h ${mi}m`;
+        return `${mi}m`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderVoteButtons();
+      }
+
+      function renderVoteButtons() {
+        const note = $("#cooldown-note");
+        const up = $("#btn-up");
+        const down = $("#btn-down");
+        if (!profile) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to vote.";
+        } else if (profile.did === session.did) {
+          disabled = true;
+          msg = "no self-voting.";
+        } else if (cooldownRemainingMs > 0) {
+          disabled = true;
+          msg = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+        } else {
+          msg = "one vote per account per hour, so make it count.";
+        }
+        up.disabled = disabled;
+        down.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      async function refreshCooldown() {
+        if (!session) {
+          cooldownRemainingMs = 0;
+          return;
+        }
+        try {
+          const r = await fetch(`/api/cooldown?did=${encodeURIComponent(session.did)}`);
+          const data = await r.json();
+          cooldownRemainingMs = data.remainingMs || 0;
+        } catch {
+          cooldownRemainingMs = 0;
+        }
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      async function castVote(delta) {
+        if (!session || !profile) return;
+        const status = $("#vote-status");
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-up").disabled = true;
+        $("#btn-down").disabled = true;
+        try {
+          const reason = $("#f-reason").value.trim().slice(0, 280);
+          let postUrl = $("#f-posturl").value.trim();
+          if (postUrl && !/^https:\/\/bsky\.app\/profile\/[^/]+\/post\/[A-Za-z0-9]+$/.test(postUrl)) postUrl = "";
+          const record = { $type: COLLECTION, target: profile.did, delta, createdAt: new Date().toISOString() };
+          if (reason) record.reason = reason;
+          if (postUrl) record.postUrl = postUrl;
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = "vote written — refreshing in a few seconds…";
+          status.className = "status ok";
+          $("#f-reason").value = "";
+          $("#f-posturl").value = "";
+          cooldownRemainingMs = 60 * 60 * 1000;
+          renderVoteButtons();
+          setTimeout(loadProfile, 4000);
+        } catch (e) {
+          status.textContent = `couldn't cast that vote: ${e.message}`;
+          status.className = "status err";
+          renderVoteButtons();
+        }
+      }
+      $("#btn-up").addEventListener("click", () => castVote(1));
+      $("#btn-down").addEventListener("click", () => castVote(-1));
+
+      function renderVoteRow(v, mode) {
+        const other = mode === "received" ? v.voterHandle : v.targetHandle;
+        return `
+          <div class="feed-item">
+            <div class="feed-line">
+              <span class="feed-delta ${v.delta > 0 ? "pos" : "neg"}">${v.delta > 0 ? "+1" : "−1"}</span>
+              ${mode === "received" ? "from" : "to"}
+              <a href="/p/${encodeURIComponent(other)}">@${esc(other)}</a>
+              ${v.postUrl ? `— <a href="${esc(v.postUrl)}" target="_blank" rel="noopener">context</a>` : ""}
+            </div>
+            ${v.reason ? `<div class="feed-reason">${esc(v.reason)}</div>` : ""}
+            <div class="feed-time">${timeAgo(v.createdAt)}</div>
+          </div>`;
+      }
+
+      async function loadProfile() {
+        if (!actor) {
+          $("#not-found").style.display = "block";
+          return;
+        }
+        try {
+          const r = await fetch(`/api/profile?actor=${encodeURIComponent(actor)}`);
+          const data = await r.json();
+          profile = data.profile;
+          if (!profile) throw new Error("not found");
+
+          $("#profile-section").style.display = "block";
+          $("#not-found").style.display = "none";
+          document.title = `${profile.displayName} — Social Credit ${fmtScore(profile.score)}`;
+
+          $("#p-avatar").src = profile.avatar || "";
+          $("#p-name").textContent = profile.displayName;
+          $("#p-handle").textContent = "@" + profile.handle;
+          const pill = $("#p-score");
+          pill.textContent = fmtScore(profile.score);
+          pill.className = `score-pill ${scoreClass(profile.score)}`;
+
+          $("#s-rank").textContent = profile.rank ? "#" + profile.rank : "unranked";
+          $("#s-up").textContent = profile.upvotes;
+          $("#s-down").textContent = profile.downvotes;
+          $("#s-cast").textContent = profile.votesCast;
+
+          const shareUrl = `https://socialcredit.bisks.net/p/${encodeURIComponent(profile.handle)}`;
+          const shareText = `@${profile.handle}'s Social Credit score: ${fmtScore(profile.score)}. vote for yourself at ${shareUrl}`;
+          $("#btn-share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+          const received = data.received || [];
+          $("#received-list").innerHTML = received.length
+            ? received.map((v) => renderVoteRow(v, "received")).join("")
+            : `<p class="empty">no votes yet.</p>`;
+
+          const cast = data.cast || [];
+          $("#cast-list").innerHTML = cast.length
+            ? cast.map((v) => renderVoteRow(v, "cast")).join("")
+            : `<p class="empty">hasn't voted on anyone yet.</p>`;
+
+          await refreshCooldown();
+          renderVoteButtons();
+        } catch {
+          $("#not-found").style.display = "block";
+          $("#profile-section").style.display = "none";
+        }
+      }
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await loadProfile();
+      }
+      boot();
+    </script>
+  </body>
+</html>
