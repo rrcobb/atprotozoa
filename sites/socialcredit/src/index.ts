@@ -6,7 +6,9 @@
 // A follow-up reply in the same thread laid out the anti-abuse shape: OAuth
 // required to vote, no self-voting, a server-enforced 1h cooldown per voter,
 // rate-limiting, DID identity throughout, and a transparent public vote
-// history. Browsing needs no login.
+// history. Browsing needs no login. (An even later reply in the same thread
+// asked to allow self-voting, then immediately retracted it with "wait
+// CAN'T" — self-voting stays blocked per that retraction.)
 //
 // The write happens where every other OAuth site in this repo puts a write:
 // straight from the browser to the voter's OWN PDS, as a
@@ -26,6 +28,16 @@
 // can't move anyone's score or reset anyone's cooldown. That's the actual
 // enforcement boundary: not "can you write the record" but "does the score
 // ever move because of it."
+//
+// The `profiles` map holds an entry for every DID that's ever cast OR
+// received a vote (a voter-only entry exists so /api/profile can show their
+// own votesCast even before anyone's voted on them). The public leaderboard
+// must only ever surface accounts that have actually RECEIVED a vote —
+// rankedProfiles() below filters on that, and every "totalRanked"/count the
+// API reports is derived from it, not from profiles.size. (Bug fixed
+// 2026-08-11: the leaderboard was built straight off profiles.size/values(),
+// so anyone who'd ever cast a vote — even with zero votes received — showed
+// up ranked on the public board next to real score-0 targets.)
 
 export interface DurableObjectId {
   toString(): string;
@@ -431,8 +443,13 @@ export class CreditBoard {
 
   // ---- derived views ------------------------------------------------------
 
+  // Only accounts that have actually received a vote belong on the public
+  // leaderboard — a profile entry can also exist purely because its DID has
+  // cast votes (see the comment at the top of this file).
   private rankedProfiles(): Profile[] {
-    return [...this.profiles.values()].sort((a, b) => b.score - a.score || a.did.localeCompare(b.did));
+    return [...this.profiles.values()]
+      .filter((p) => p.upvotes + p.downvotes > 0)
+      .sort((a, b) => b.score - a.score || a.did.localeCompare(b.did));
   }
 
   private profileCard(p: Profile, rank: number | null, totalRanked: number): any {
@@ -504,9 +521,9 @@ export class CreditBoard {
       } else if (sort === "bottom") {
         rows = this.rankedProfiles().reverse();
       } else if (sort === "voted") {
-        rows = [...this.profiles.values()].sort(
-          (a, b) => b.upvotes + b.downvotes - (a.upvotes + a.downvotes) || b.score - a.score,
-        );
+        rows = [...this.profiles.values()]
+          .filter((p) => p.upvotes + p.downvotes > 0)
+          .sort((a, b) => b.upvotes + b.downvotes - (a.upvotes + a.downvotes) || b.score - a.score);
       } else {
         rows = this.rankedProfiles(); // "top" (default)
       }
@@ -517,7 +534,7 @@ export class CreditBoard {
         );
       }
 
-      const totalRanked = this.profiles.size;
+      const totalRanked = this.rankedProfiles().length;
       const rankOf = new Map(this.rankedProfiles().map((p, i) => [p.did, i + 1]));
       const page = rows.slice(0, limit).map((p) => {
         const card = this.profileCard(p, rankOf.get(p.did) ?? null, totalRanked);
@@ -563,10 +580,11 @@ export class CreditBoard {
       }
 
       const ranked = this.rankedProfiles();
+      const totalRanked = ranked.length;
       const rank = p ? ranked.findIndex((x) => x.did === did) + 1 || null : null;
 
       const card = p
-        ? this.profileCard(p, rank, this.profiles.size)
+        ? this.profileCard(p, rank, totalRanked)
         : {
             did,
             handle: display.handle,
@@ -578,13 +596,13 @@ export class CreditBoard {
             votesReceived: 0,
             votesCast: 0,
             rank: null,
-            totalRanked: this.profiles.size,
+            totalRanked,
           };
 
       const received = this.votes.filter((v) => v.targetDid === did).slice(0, 50);
       const cast = this.votes.filter((v) => v.voterDid === did).slice(0, 50);
 
-      return json({ profile: card, rank, totalRanked: this.profiles.size, received, cast });
+      return json({ profile: card, rank, totalRanked, received, cast });
     }
 
     if (url.pathname === "/api/cooldown" && request.method === "GET") {
