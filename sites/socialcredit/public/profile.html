@@ -163,22 +163,26 @@
           msg = "no self-voting.";
         } else if (cooldownRemainingMs > 0) {
           disabled = true;
-          msg = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          msg = `you've already voted on them this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
         } else {
-          msg = "one vote per account per hour, so make it count.";
+          msg = "one vote per person per hour, so make it count.";
         }
         up.disabled = disabled;
         down.disabled = disabled;
         note.textContent = msg;
       }
 
+      // Cooldown is per (voter, target) pair — you can vote on someone else
+      // right away, just not this same profile twice in an hour.
       async function refreshCooldown() {
-        if (!session) {
+        if (!session || !profile) {
           cooldownRemainingMs = 0;
           return;
         }
         try {
-          const r = await fetch(`/api/cooldown?did=${encodeURIComponent(session.did)}`);
+          const r = await fetch(
+            `/api/cooldown?did=${encodeURIComponent(session.did)}&target=${encodeURIComponent(profile.did)}`,
+          );
           const data = await r.json();
           cooldownRemainingMs = data.remainingMs || 0;
         } catch {
@@ -238,7 +242,7 @@
           }
         }
         status.textContent =
-          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown from another vote this hour, or the firehose is catching up. check back in a bit.";
+          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown for this person, or the firehose is catching up. check back in a bit.";
         status.className = "status warn";
         await refreshCooldown();
         renderVoteButtons();
@@ -256,7 +260,7 @@
         await refreshCooldown();
         renderVoteButtons();
         if (cooldownRemainingMs > 0) {
-          status.textContent = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          status.textContent = `you've already voted on them this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
           status.className = "status err";
           return;
         }

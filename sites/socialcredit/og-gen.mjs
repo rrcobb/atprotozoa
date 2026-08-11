@@ -48,8 +48,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="64" y="260" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">sign in with Bluesky, paste a handle,</text>
   <text x="64" y="286" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">give them <tspan fill="${UP}" font-weight="700">+1</tspan> or <tspan fill="${DOWN}" font-weight="700">−1</tspan>. scores persist globally,</text>
-  <text x="64" y="312" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">tied to DIDs. one vote per hour,</text>
-  <text x="64" y="338" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">enforced server-side. no self-voting.</text>
+  <text x="64" y="312" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">tied to DIDs. one vote per person,</text>
+  <text x="64" y="338" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">per hour, server-side. no self-voting.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">socialcredit.bisks.net</text>
 

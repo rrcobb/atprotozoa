@@ -10,6 +10,13 @@
 // asked to allow self-voting, then immediately retracted it with "wait
 // CAN'T" — self-voting stays blocked per that retraction.)
 //
+// The cooldown is per (voter, target) pair, not a single global per-voter
+// lock — a later reply in the thread asked for exactly this: "make it so
+// you can vote once an hour for a given person not just a single vote once
+// an hour." So an account can vote on as many different people as it likes
+// within an hour, but voting on the SAME target again has to wait out the
+// hour. See COOLDOWN_MS and the cooldowns map below.
+//
 // The write happens where every other OAuth site in this repo puts a write:
 // straight from the browser to the voter's OWN PDS, as a
 // net.bisks.socialcredit.vote record (see public/lib/oauth.js). That's the
@@ -189,7 +196,7 @@ const ALARM_MS = 20 * 1000; // reconnect heartbeat, same cadence as sites/quadra
 const APPVIEW = "https://public.api.bsky.app/xrpc";
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 
-const COOLDOWN_MS = 60 * 60 * 1000; // one vote per account per hour, server-enforced
+const COOLDOWN_MS = 60 * 60 * 1000; // one vote per (voter, target) pair per hour, server-enforced
 const MAX_REASON = 280;
 const MAX_VOTES_STORED = 20_000;
 const RECENT_SEEN_CAP = 2_000; // defensive de-dupe only; no cursor replay in normal operation
@@ -234,6 +241,12 @@ function json(data: unknown, status = 200): Response {
 
 function isDid(s: unknown): s is string {
   return typeof s === "string" && /^did:[a-z0-9]+:[A-Za-z0-9._:%-]{1,180}$/.test(s);
+}
+
+// Cooldown is per (voter, target) pair — an account can vote on as many
+// different people as it likes within an hour, just not the same one twice.
+function cooldownKey(voterDid: string, targetDid: string): string {
+  return `${voterDid}::${targetDid}`;
 }
 
 const POST_URL_RE = /^https:\/\/bsky\.app\/profile\/[^/]+\/post\/[A-Za-z0-9]+$/;
@@ -404,10 +417,13 @@ export class CreditBoard {
     await this.ready;
     const now = Date.now();
 
-    // Server-enforced cooldown: one counted vote per voter DID per hour.
-    // A vote written outside the window is simply never scored — it doesn't
-    // consume or reset the cooldown, so spamming writes can't game it.
-    const last = this.cooldowns.get(did) || 0;
+    // Server-enforced cooldown: one counted vote per (voter, target) pair
+    // per hour. A vote written outside the window is simply never scored —
+    // it doesn't consume or reset the cooldown, so spamming writes can't
+    // game it. A voter can still vote on a DIFFERENT target immediately;
+    // only re-voting the same target is gated.
+    const ckey = cooldownKey(did, target);
+    const last = this.cooldowns.get(ckey) || 0;
     if (now - last < COOLDOWN_MS) return;
 
     const reason = typeof rec.reason === "string" && rec.reason.trim() ? rec.reason.trim().slice(0, MAX_REASON) : null;
@@ -442,7 +458,7 @@ export class CreditBoard {
     });
     if (this.votes.length > MAX_VOTES_STORED) this.votes.length = MAX_VOTES_STORED;
 
-    this.cooldowns.set(did, now);
+    this.cooldowns.set(ckey, now);
     await this.persist();
   }
 
@@ -619,8 +635,10 @@ export class CreditBoard {
 
     if (url.pathname === "/api/cooldown" && request.method === "GET") {
       const did = url.searchParams.get("did") || "";
+      const target = url.searchParams.get("target") || "";
       if (!isDid(did)) return json({ error: "missing/bad did" }, 400);
-      const last = this.cooldowns.get(did) || 0;
+      if (!isDid(target)) return json({ error: "missing/bad target" }, 400);
+      const last = this.cooldowns.get(cooldownKey(did, target)) || 0;
       const nextEligibleAt = last ? last + COOLDOWN_MS : 0;
       const remainingMs = Math.max(0, nextEligibleAt - Date.now());
       return json({ lastVoteAt: last || null, nextEligibleAt: nextEligibleAt || null, remainingMs });

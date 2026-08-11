@@ -6,12 +6,12 @@
     <title>Social Credit — the Bluesky reputation leaderboard</title>
     <meta
       name="description"
-      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per account per hour, enforced server-side."
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced server-side."
     />
     <meta property="og:title" content="Social Credit — the Bluesky reputation leaderboard" />
     <meta
       property="og:description"
-      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per account per hour, enforced server-side."
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced server-side."
     />
     <meta property="og:image" content="https://socialcredit.bisks.net/og.png" />
     <meta property="og:url" content="https://socialcredit.bisks.net/" />
@@ -95,8 +95,8 @@
         votes are written as a <code>net.bisks.socialcredit.vote</code> record straight to your
         own PDS, then picked up live off the
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-        firehose — the score, the one-vote-per-hour cooldown, and the no-self-voting rule are all
-        enforced here, not trusted from the client.
+        firehose — the score, the one-vote-per-person-per-hour cooldown, and the no-self-voting rule
+        are all enforced here, not trusted from the client.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
@@ -139,14 +139,20 @@
         renderVoteButtons();
       }
 
+      // Cooldown is per (voter, target) pair now — you can vote on a
+      // different person right away, just not the same one twice in an
+      // hour. So this always needs the CURRENT target, not just the
+      // session.
       let cooldownRemainingMs = 0;
       async function refreshCooldown() {
-        if (!session) {
+        if (!session || !target) {
           cooldownRemainingMs = 0;
           return;
         }
         try {
-          const r = await fetch(`/api/cooldown?did=${encodeURIComponent(session.did)}`);
+          const r = await fetch(
+            `/api/cooldown?did=${encodeURIComponent(session.did)}&target=${encodeURIComponent(target.did)}`,
+          );
           const data = await r.json();
           cooldownRemainingMs = data.remainingMs || 0;
         } catch {
@@ -179,9 +185,9 @@
           msg = "no self-voting.";
         } else if (cooldownRemainingMs > 0) {
           disabled = true;
-          msg = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          msg = `you've already voted on them this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
         } else {
-          msg = "one vote per account per hour, so make it count.";
+          msg = "one vote per person per hour, so make it count.";
         }
         up.disabled = disabled;
         down.disabled = disabled;
@@ -313,7 +319,7 @@
           }
         }
         status.textContent =
-          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown from another vote this hour, or the firehose is catching up. check back in a bit.";
+          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown for this person, or the firehose is catching up. check back in a bit.";
         status.className = "status warn";
         await refreshCooldown();
         renderVoteButtons();
@@ -331,7 +337,7 @@
         await refreshCooldown();
         renderVoteButtons();
         if (cooldownRemainingMs > 0) {
-          status.textContent = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          status.textContent = `you've already voted on them this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
           status.className = "status err";
           return;
         }
@@ -450,8 +456,6 @@
           $("#auth-status").className = "status err";
         }
         renderAuthUI();
-        await refreshCooldown();
-        renderVoteButtons();
         await Promise.all([loadMiniBoard(), loadMiniFeed()]);
 
         setInterval(() => {
