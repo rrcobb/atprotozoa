@@ -75,7 +75,8 @@ Rules:
 - runnerUp: the second-closest character, or null if nothing else is close.
 - evidence: up to 3 of the posts that best support the verdict. "i" must be an integer actually present in the input array. note is one short clause on why that post fits.
 - Never fabricate a quote — you only ever cite by "i", never repeat post text back.
-- If the sample is too thin or generic to tell much, still pick the closest fit and say so plainly in reasoning rather than refusing.`;
+- If the sample is too thin or generic to tell much, still pick the closest fit and say so plainly in reasoning rather than refusing.
+- Kramer is the easy, crowd-pleasing pick and models over-reach for it — most accounts are not Kramer. Only choose him when the posts genuinely show wild schemes, physical/chaotic flair, and unbothered-by-norms energy; if it's a close call, prefer whichever other character fits the specific, mundane texture of these posts better.`;
 
 function extractJson(text: string): unknown {
   const start = text.indexOf("{");
@@ -178,6 +179,7 @@ interface Card {
   runnerUp: string | null;
   evidence: Evidence[];
   generatedAt: string;
+  flipped?: boolean;
 }
 
 function fromBase64Url(s: string): Uint8Array {
@@ -189,9 +191,19 @@ function fromBase64Url(s: string): Uint8Array {
   return bytes;
 }
 
+function toBase64Url(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 function decodeCard(code: string): Card {
   const json = new TextDecoder().decode(fromBase64Url(code));
   return JSON.parse(json);
+}
+
+function encodeCard(card: Card): string {
+  return toBase64Url(new TextEncoder().encode(JSON.stringify(card)));
 }
 
 function esc(s: string): string {
@@ -227,6 +239,23 @@ function renderCardHtml(card: Card, canonicalUrl: string): string {
 
   const genDate = card.generatedAt ? new Date(card.generatedAt).toISOString().slice(0, 10) : "";
 
+  // "everyone is just getting Kramer, maybe the runner-up should be number
+  // 1?" — a flip swaps the two, client-independent: the AI never re-runs,
+  // the flipped card just relabels its runner-up as the headline. Only
+  // offered once (no flip link on an already-flipped card) so it can't
+  // ping-pong forever.
+  const swapLink =
+    card.runnerUp && !card.flipped
+      ? (() => {
+          const swapped: Card = { ...card, character: card.runnerUp!, runnerUp: card.character, flipped: true };
+          const swapCode = encodeCard(swapped);
+          return `<a class="flip-link" href="/c/${swapCode}">not buying it? make ${esc(card.runnerUp!)} the headline instead →</a>`;
+        })()
+      : "";
+  const flippedNote = card.flipped
+    ? `<p class="flip-note">(you asked for the runner-up — this is that verdict promoted to #1; the reasoning below is the AI's original case, not a re-run)</p>`
+    : "";
+
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -255,7 +284,9 @@ function renderCardHtml(card: Card, canonicalUrl: string): string {
   <h1 class="verdict">${esc(card.character)}</h1>
   <p class="tagline-big">${esc(card.tagline)}</p>
   <p class="reasoning">${esc(card.reasoning)}</p>
+  ${flippedNote}
   ${card.runnerUp ? `<p class="runner-up">runner-up: <strong>${esc(card.runnerUp)}</strong></p>` : ""}
+  ${swapLink ? `<p class="runner-up">${swapLink}</p>` : ""}
   ${evidenceHtmlBlock}
   <p class="meta">scanned ${esc(scanNote)}${genDate ? ` · judged ${genDate}` : ""}</p>
   <footer>

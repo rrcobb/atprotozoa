@@ -55,13 +55,27 @@ function renderResult(card, shareUrl) {
   const text = shareTextFor(card, shareUrl);
   const blueskyHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text.slice(0, 300));
 
+  // "everyone is just getting Kramer, maybe the runner-up should be number
+  // 1?" — offer a one-click flip that relabels the runner-up as the
+  // headline. No re-run: the AI already named both, this just promotes the
+  // second choice. Only offered once per card so it can't ping-pong.
+  const flippedNote = card.flipped
+    ? `<p class="flip-note">(you asked for the runner-up — this is that verdict promoted to #1; the reasoning above is the AI's original case, not a re-run)</p>`
+    : "";
+  const swapLink =
+    card.runnerUp && !card.flipped
+      ? `<p class="runner-up"><a class="flip-link" href="/c/${encodeCard({ ...card, character: card.runnerUp, runnerUp: card.character, flipped: true })}">not buying it? make ${esc(card.runnerUp)} the headline instead →</a></p>`
+      : "";
+
   els.result.innerHTML = `
     <div class="verdict-card" style="--accent: ${meta.color}">
       <p class="verdict-label">the verdict for @${esc(card.handle)}</p>
       <h1 class="verdict">${meta.emoji} ${esc(card.character)}</h1>
       <p class="tagline-big">${esc(card.tagline)}</p>
       <p class="reasoning">${esc(card.reasoning)}</p>
+      ${flippedNote}
       ${card.runnerUp ? `<p class="runner-up">runner-up: <strong>${esc(card.runnerUp)}</strong></p>` : ""}
+      ${swapLink}
     </div>
     ${evidenceBlock}
     <p class="meta">scanned ${esc(scanNote)}</p>
