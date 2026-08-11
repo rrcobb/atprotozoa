@@ -150,7 +150,9 @@
           const data = await r.json();
           cooldownRemainingMs = data.remainingMs || 0;
         } catch {
-          cooldownRemainingMs = 0;
+          // leave cooldownRemainingMs as-is on a transient fetch failure —
+          // resetting it to 0 would flip an active cooldown back to "clear
+          // to vote" and let a doomed write through.
         }
       }
 
@@ -281,9 +283,59 @@
 
       // --- casting a vote --------------------------------------------------------
 
+      // The write only proves the record landed on the voter's own PDS — it
+      // says nothing about whether the DO actually counted it (cooldown,
+      // self-vote, and malformed records are all silently dropped server-side,
+      // see src/index.ts handleMessage). So after writing, poll /api/activity
+      // for the matching vote and only report success once it's actually
+      // visible there; otherwise say so honestly instead of a false "done".
+      async function confirmVote(voterDid, targetDid, delta, votedAt, status) {
+        const ATTEMPTS = 6;
+        const GAP_MS = 2500;
+        for (let i = 0; i < ATTEMPTS; i++) {
+          await new Promise((r) => setTimeout(r, GAP_MS));
+          try {
+            const r = await fetch(
+              `/api/activity?voter=${encodeURIComponent(voterDid)}&target=${encodeURIComponent(targetDid)}&limit=5`,
+            );
+            const data = await r.json();
+            const hit = (data.votes || []).find((v) => v.delta === delta && v.createdAt >= votedAt - 3000);
+            if (hit) {
+              status.textContent = "vote counted — leaderboard's up to date.";
+              status.className = "status ok";
+              lookupTarget(targetDid);
+              loadMiniBoard();
+              loadMiniFeed();
+              return;
+            }
+          } catch {
+            // keep polling — a transient read failure isn't the final word
+          }
+        }
+        status.textContent =
+          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown from another vote this hour, or the firehose is catching up. check back in a bit.";
+        status.className = "status warn";
+        await refreshCooldown();
+        renderVoteButtons();
+      }
+
       async function castVote(delta) {
         if (!session || !target) return;
         const status = $("#vote-status");
+
+        // Re-check the cooldown against the server right before writing —
+        // the buttons' enabled state reflects whatever was last fetched,
+        // which can be stale (page open a while, or a prior refreshCooldown()
+        // failed and left the old value). Catching a real cooldown here
+        // avoids writing a vote the DO is just going to drop.
+        await refreshCooldown();
+        renderVoteButtons();
+        if (cooldownRemainingMs > 0) {
+          status.textContent = `you've already voted this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          status.className = "status err";
+          return;
+        }
+
         status.textContent = "writing to your PDS…";
         status.className = "status";
         $("#btn-up").disabled = true;
@@ -311,18 +363,14 @@
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-          status.textContent = `vote written — it'll land on the leaderboard in a few seconds once the firehose picks it up.`;
+          status.textContent = "vote written — waiting for it to be counted…";
           status.className = "status ok";
           $("#f-reason").value = "";
           $("#f-posturl").value = "";
           cooldownRemainingMs = 60 * 60 * 1000;
           renderVoteButtons();
 
-          setTimeout(() => {
-            lookupTarget(target.did);
-            loadMiniBoard();
-            loadMiniFeed();
-          }, 4000);
+          confirmVote(session.did, target.did, delta, Date.now(), status);
         } catch (e) {
           status.textContent = `couldn't cast that vote: ${e.message}`;
           status.className = "status err";

@@ -38,6 +38,18 @@
 // 2026-08-11: the leaderboard was built straight off profiles.size/values(),
 // so anyone who'd ever cast a vote — even with zero votes received — showed
 // up ranked on the public board next to real score-0 targets.)
+//
+// Because the DO can silently drop a written vote (cooldown, self-vote, a
+// malformed record), a successful com.atproto.repo.createRecord response
+// alone never proves a vote counted. (Bug fixed 2026-08-11: the client took
+// that write as success and just showed an optimistic "vote written" —
+// someone whose write landed after the DO had already dropped it for a
+// server-side reason saw a cheerful success message and a target score that
+// never moved. public/index.html and public/profile.html now poll
+// /api/activity?voter=&target= after writing and only report success once
+// the vote is actually visible there, re-check /api/cooldown before writing
+// too, and no longer reset a fetch-failed cooldown read back to "clear to
+// vote".)
 
 export interface DurableObjectId {
   toString(): string;
