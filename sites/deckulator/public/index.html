@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>deckulator — Residential Decking Materials Estimation &amp; Structural Advisory Terminal</title>
+    <meta
+      name="description"
+      content="A residential decking takeoff calculator with joist-span advisory, fastener scheduling, hygroscopic equilibrium modeling, and a quantum board-packing optimizer. Enter your deck dimensions to receive a materials manifest."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://deckulator.bisks.net/" />
+    <meta property="og:title" content="deckulator — Residential Decking Estimation &amp; Structural Advisory Terminal" />
+    <meta
+      property="og:description"
+      content="42 inputs. 6 subsystems. One deck. Enter your dimensions and deckulator will compute a full materials takeoff, a joist-span structural advisory, and a hygroscopic equilibrium correction you did not ask for."
+    />
+    <meta property="og:image" content="https://deckulator.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="deckulator: a dense control panel of decking inputs beside a scrolling telemetry readout." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="deckulator — Residential Decking Estimation &amp; Structural Advisory Terminal" />
+    <meta
+      name="twitter:description"
+      content="42 inputs. One deck. A materials takeoff buried under a joist-span advisory, a hygroscopic equilibrium correction, and a quantum board-packing optimizer."
+    />
+    <meta name="twitter:image" content="https://deckulator.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #0a0e13;
+        --bg2: #060a0e;
+        --panel: #10161f;
+        --panel2: #0c1119;
+        --border: #223046;
+        --border-hi: #33465f;
+        --text: #dbe4ee;
+        --muted: #7c8ba1;
+        --dim: #4c5b70;
+        --accent: #33d17a;
+        --accent-dim: #1b7a48;
+        --amber: #ffb020;
+        --red: #ff5c72;
+        --blue: #4fa8ff;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      body {
+        background-image:
+          linear-gradient(180deg, var(--bg2), var(--bg) 220px);
+      }
+      a { color: var(--blue); }
+
+      .topbar {
+        border-bottom: 1px solid var(--border);
+        padding: 14px 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 24px;
+        align-items: baseline;
+        justify-content: space-between;
+        background: linear-gradient(180deg, #0d1420, #0a0e13);
+      }
+      .wordmark {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--text);
+      }
+      .wordmark span { color: var(--accent); }
+      .subtitle { color: var(--muted); font-size: 11.5px; }
+      .buildinfo { color: var(--dim); font-size: 10.5px; text-align: right; }
+
+      .disclaimer {
+        border-bottom: 1px solid var(--border);
+        background: var(--panel2);
+        color: var(--muted);
+        font-size: 10.5px;
+        padding: 7px 18px;
+      }
+      .disclaimer b { color: var(--amber); font-weight: 700; }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 16px;
+        padding: 16px;
+        max-width: 1440px;
+        margin: 0 auto;
+        align-items: start;
+      }
+      @media (max-width: 980px) {
+        .layout { grid-template-columns: 1fr; }
+      }
+
+      .panels {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 12px;
+        align-content: start;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .panel > header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: var(--panel2);
+        border-bottom: 1px solid var(--border);
+      }
+      .panel > header h2 {
+        margin: 0;
+        font-size: 11.5px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .panel > header .tag {
+        font-size: 9.5px;
+        color: var(--dim);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 1px 5px;
+      }
+      .panel .body { padding: 10px 12px; display: grid; gap: 9px; }
+
+      .field { display: grid; gap: 3px; }
+      .field label {
+        font-size: 10.5px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .field label .unit { color: var(--dim); }
+      .field label .hint {
+        color: var(--dim);
+        cursor: help;
+        border-bottom: 1px dotted var(--dim);
+      }
+      input[type="number"], select, input[type="text"] {
+        width: 100%;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        padding: 6px 7px;
+        border-radius: 4px;
+      }
+      input[type="number"]:focus, select:focus, input[type="text"]:focus {
+        outline: none;
+        border-color: var(--accent-dim);
+      }
+      .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+      .checkrow {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .checkrow input { accent-color: var(--accent); }
+      .segrow {
+        display: flex;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .segrow button {
+        flex: 1;
+        background: var(--bg2);
+        border: none;
+        border-right: 1px solid var(--border);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10.5px;
+        padding: 6px 4px;
+        cursor: pointer;
+      }
+      .segrow button:last-child { border-right: none; }
+      .segrow button.active { background: var(--accent-dim); color: #eafff2; }
+
+      /* readout / telemetry */
+      .telemetry {
+        position: sticky;
+        top: 16px;
+        border: 1px solid var(--border-hi);
+        background: var(--panel);
+        border-radius: 6px;
+        max-height: calc(100vh - 32px);
+        overflow: auto;
+      }
+      .telemetry > header {
+        padding: 9px 12px;
+        background: var(--panel2);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .telemetry > header h2 {
+        margin: 0;
+        font-size: 11.5px;
+        color: var(--accent);
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+      }
+      .pulse {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 6px var(--accent);
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      .stat-group { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+      .stat-group h3 {
+        margin: 0 0 6px;
+        font-size: 9.5px;
+        letter-spacing: 0.7px;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 2.5px 0;
+        font-size: 11px;
+      }
+      .stat .k { color: var(--muted); }
+      .stat .v { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+      .stat .v.accent { color: var(--accent); }
+      .stat .v.amber { color: var(--amber); }
+      .stat .v.red { color: var(--red); }
+
+      .badge {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 3px 7px;
+        border-radius: 3px;
+        letter-spacing: 0.3px;
+      }
+      .badge.ok { background: rgba(51,209,122,0.15); color: var(--accent); border: 1px solid var(--accent-dim); }
+      .badge.warn { background: rgba(255,92,114,0.15); color: var(--red); border: 1px solid #7a2130; }
+
+      .manifest {
+        margin: 10px 12px 12px;
+        border: 1px solid var(--accent-dim);
+        background: linear-gradient(180deg, rgba(51,209,122,0.08), transparent);
+        border-radius: 6px;
+        padding: 12px;
+      }
+      .manifest h3 {
+        margin: 0 0 8px;
+        font-size: 10.5px;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .manifest .headline {
+        font-size: 17px;
+        font-weight: 700;
+        color: #eafff2;
+        margin-bottom: 4px;
+      }
+      .manifest .sub { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+      .manifest .line { display: flex; justify-content: space-between; font-size: 11.5px; padding: 2px 0; }
+      .manifest .line .k { color: var(--muted); }
+
+      .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+      .actions a, .actions button {
+        display: block;
+        text-align: center;
+        text-decoration: none;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 9px 8px;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        background: var(--panel2);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .actions .primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #eafff2; grid-column: 1 / -1; }
+      .actions a:hover, .actions button:hover { border-color: var(--border-hi); }
+
+      .assistant {
+        margin: 0 12px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel2);
+        padding: 10px;
+      }
+      .assistant h3 {
+        margin: 0 0 6px;
+        font-size: 9.5px;
+        letter-spacing: 0.7px;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      #assistantOut {
+        font-size: 11px;
+        color: var(--muted);
+        min-height: 32px;
+        border-left: 2px solid var(--accent-dim);
+        padding-left: 8px;
+        margin-bottom: 8px;
+      }
+      .assistant button {
+        width: 100%;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        padding: 7px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        background: var(--bg2);
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      footer {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 8px 18px 28px;
+        color: var(--dim);
+        font-size: 10.5px;
+      }
+      footer a { color: var(--dim); }
+
+      @media print {
+        .topbar, .disclaimer, .panels, .assistant, .actions, footer { display: none !important; }
+        body { background: #fff; color: #000; }
+        .layout { display: block; padding: 0; }
+        .telemetry { position: static; border: none; max-height: none; overflow: visible; }
+        .manifest { border: 1px solid #000; background: #fff; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div>
+        <div class="wordmark">DECKULATOR<span>_</span></div>
+        <div class="subtitle">Residential Decking Materials Estimation &amp; Structural Advisory Terminal — rev 4.7.2</div>
+      </div>
+      <div class="buildinfo">
+        build 20260811.a44f19 · session DK-<span id="sessionId">773281</span><br />
+        engine: joist-span advisory / hygroscopic model / quantum packer
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      <b>Advisory:</b> All spans, loads, and footing figures are planning-stage estimates derived from generalized
+      span tables and are <b>not</b> a substitute for a stamped engineering plan, a permit, or your local building
+      code. Verify frost depth, setback, and ledger attachment requirements with your jurisdiction before
+      construction begins.
+    </div>
+
+    <div class="layout">
+      <div class="panels">
+        <!-- GEOMETRY -->
+        <section class="panel" style="grid-column: span 2;">
+          <header><h2>01 · Deck Geometry &amp; Decking Layout</h2><span class="tag">required</span></header>
+          <div class="body">
+            <div class="row3">
+              <div class="field">
+                <label>Deck length <span class="unit">ft</span></label>
+                <input type="number" id="lengthFt" value="16" min="1" step="0.25" />
+              </div>
+              <div class="field">
+                <label>Deck width <span class="unit">ft</span></label>
+                <input type="number" id="widthFt" value="12" min="1" step="0.25" />
+              </div>
+              <div class="field">
+                <label>Board run direction</label>
+                <select id="runDirection">
+                  <option value="along-length" selected>Parallel to length</option>
+                  <option value="along-width">Parallel to width</option>
+                </select>
+              </div>
+            </div>
+            <div class="row2">
+              <div class="field">
+                <label>Decking pattern</label>
+                <select id="pattern">
+                  <option value="straight" selected>Straight / linear</option>
+                  <option value="diagonal">Diagonal 45°</option>
+                  <option value="herringbone">Herringbone</option>
+                  <option value="picture-frame">Picture-frame border</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Board profile</label>
+                <select id="boardProfile"></select>
+              </div>
+            </div>
+            <div class="row3">
+              <div class="field">
+                <label>Board gap <span class="unit">in</span></label>
+                <input type="number" id="gapIn" value="0.1875" min="0" step="0.0625" />
+              </div>
+              <div class="field">
+                <label>Stock length <span class="unit">ft</span></label>
+                <select id="stockLengthFt">
+                  <option value="12">12</option>
+                  <option value="16" selected>16</option>
+                  <option value="20">20</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Waste factor <span class="unit hint" title="Auto-set by pattern; override if your cutter is unusually efficient or unusually not.">override %</span></label>
+                <input type="number" id="wasteOverride" placeholder="auto" min="0" max="60" step="0.5" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- LUMBER -->
+        <section class="panel">
+          <header><h2>02 · Decking Material</h2><span class="tag">required</span></header>
+          <div class="body">
+            <div class="field">
+              <label>Species / product</label>
+              <select id="species"></select>
+            </div>
+            <div class="stat"><span class="k">Modulus of elasticity (E)</span><span class="v" id="specE">—</span></div>
+            <div class="stat"><span class="k">Target moisture content</span><span class="v" id="specMC">—</span></div>
+            <div class="field">
+              <label>Price <span class="unit">$ / board-ft</span></label>
+              <input type="number" id="priceOverride" step="0.05" min="0" />
+            </div>
+          </div>
+        </section>
+
+        <!-- SUBSTRUCTURE -->
+        <section class="panel">
+          <header><h2>03 · Substructure &amp; Load</h2><span class="tag">advisory</span></header>
+          <div class="body">
+            <div class="row2">
+              <div class="field">
+                <label>Joist/framing species</label>
+                <select id="joistSpecies"></select>
+              </div>
+              <div class="field">
+                <label>Joist spacing</label>
+                <select id="joistSpacingIn">
+                  <option value="12">12" o.c.</option>
+                  <option value="16" selected>16" o.c.</option>
+                  <option value="24">24" o.c.</option>
+                </select>
+              </div>
+            </div>
+            <div class="row3">
+              <div class="field">
+                <label>Live load <span class="unit">psf</span></label>
+                <input type="number" id="liveLoad" value="40" min="0" />
+              </div>
+              <div class="field">
+                <label>Dead load <span class="unit">psf</span></label>
+                <input type="number" id="deadLoad" value="10" min="0" />
+              </div>
+              <div class="field">
+                <label>Deflection limit</label>
+                <select id="deflLimit">
+                  <option value="360" selected>L/360</option>
+                  <option value="480">L/480 (stiffer)</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Frost line depth <span class="unit">in</span></label>
+              <input type="number" id="frostLineIn" value="24" min="0" />
+            </div>
+          </div>
+        </section>
+
+        <!-- FASTENERS -->
+        <section class="panel">
+          <header><h2>04 · Fastener Schedule</h2><span class="tag">advisory</span></header>
+          <div class="body">
+            <div class="field">
+              <label>Fastener system</label>
+              <select id="fastenerSystem">
+                <option value="hidden">Hidden clips (grooved-edge, 2/crossing)</option>
+                <option value="face2" selected>Face screws, 2 per joist crossing</option>
+                <option value="face3">Face screws, 3 per joist crossing (picture-frame perimeter)</option>
+              </select>
+            </div>
+            <div class="row2">
+              <div class="field">
+                <label>Fastener length <span class="unit">in</span></label>
+                <select id="screwLength">
+                  <option value="2.5">2.5</option>
+                  <option value="3" selected>3.0</option>
+                  <option value="3.5">3.5</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Drive type</label>
+                <select id="driveType">
+                  <option value="star" selected>Star / Torx</option>
+                  <option value="square">Square</option>
+                  <option value="phillips">Phillips</option>
+                </select>
+              </div>
+            </div>
+            <div class="checkrow">
+              <input type="checkbox" id="preDrill" />
+              <label for="preDrill">Pre-drill starter holes (recommended for hardwood/composite)</label>
+            </div>
+            <div class="stat"><span class="k">Recommended driver torque</span><span class="v" id="torqueOut">—</span></div>
+          </div>
+        </section>
+
+        <!-- ENVIRONMENTAL -->
+        <section class="panel">
+          <header><h2>05 · Environmental Compensation</h2><span class="tag">model</span></header>
+          <div class="body">
+            <div class="row3">
+              <div class="field">
+                <label>Ambient temp <span class="unit">°F</span></label>
+                <input type="number" id="tempF" value="70" />
+              </div>
+              <div class="field">
+                <label>Rel. humidity <span class="unit">%</span></label>
+                <input type="number" id="humidityPct" value="50" min="0" max="100" />
+              </div>
+              <div class="field">
+                <label>Barometric pressure <span class="unit">inHg</span></label>
+                <input type="number" id="pressureInHg" value="29.92" step="0.01" />
+              </div>
+            </div>
+            <div class="row2">
+              <div class="field">
+                <label>Board acclimation period <span class="unit">days on-site</span></label>
+                <input type="number" id="acclimationDays" value="3" min="0" />
+              </div>
+              <div class="field">
+                <label>Lunar phase at install</label>
+                <select id="lunarPhase">
+                  <option>New Moon</option>
+                  <option>Waxing Crescent</option>
+                  <option>First Quarter</option>
+                  <option>Waxing Gibbous</option>
+                  <option selected>Full Moon</option>
+                  <option>Waning Gibbous</option>
+                  <option>Last Quarter</option>
+                  <option>Waning Crescent</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- QUANTUM -->
+        <section class="panel">
+          <header><h2>06 · Optimization Subsystems</h2><span class="tag">experimental</span></header>
+          <div class="body">
+            <div class="checkrow">
+              <input type="checkbox" id="quantumOpt" checked />
+              <label for="quantumOpt">Enable quantum board-packing optimizer</label>
+            </div>
+            <div class="checkrow">
+              <input type="checkbox" id="blockchainVerify" />
+              <label for="blockchainVerify">Blockchain-verify cut list</label>
+            </div>
+            <div class="field">
+              <label>Manifest export format</label>
+              <select id="exportFormat">
+                <option>PDF</option>
+                <option>CSV</option>
+                <option>Cuneiform tablet</option>
+                <option>Carrier-pigeon manifest</option>
+              </select>
+            </div>
+            <div class="stat"><span class="k">Realities evaluated</span><span class="v accent" id="realitiesOut">—</span></div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="telemetry">
+        <header><h2>Live Telemetry</h2><span class="pulse"></span></header>
+
+        <div class="stat-group">
+          <h3>Coverage</h3>
+          <div class="stat"><span class="k">Deck area</span><span class="v" id="tArea">—</span></div>
+          <div class="stat"><span class="k">Perimeter</span><span class="v" id="tPerimeter">—</span></div>
+          <div class="stat"><span class="k">Board pitch (width + gap)</span><span class="v" id="tPitch">—</span></div>
+          <div class="stat"><span class="k">Rows required</span><span class="v" id="tRows">—</span></div>
+          <div class="stat"><span class="k">Pattern waste multiplier</span><span class="v" id="tPatternMult">—</span></div>
+          <div class="stat"><span class="k">Waste factor applied</span><span class="v" id="tWaste">—</span></div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Takeoff</h3>
+          <div class="stat"><span class="k">Field boards</span><span class="v" id="tFieldBoards">—</span></div>
+          <div class="stat"><span class="k">Border/frame boards</span><span class="v" id="tBorderBoards">—</span></div>
+          <div class="stat"><span class="k">Total boards (pre-spares)</span><span class="v" id="tTotalBoards">—</span></div>
+          <div class="stat"><span class="k">Linear feet, decking</span><span class="v" id="tLinearFt">—</span></div>
+          <div class="stat"><span class="k">Board feet (nominal, BF)</span><span class="v" id="tBoardFeet">—</span></div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Substructure advisory</h3>
+          <div class="stat"><span class="k">Joist span (single-span assumption)</span><span class="v" id="tJoistSpan">—</span></div>
+          <div class="stat"><span class="k">Joist count</span><span class="v" id="tJoistCount">—</span></div>
+          <div class="stat"><span class="k">Recommended joist size</span><span class="v" id="tJoistSize">—</span></div>
+          <div class="stat"><span class="k">Span table status</span><span id="tJoistBadge">—</span></div>
+          <div class="stat"><span class="k">Footing depth (frost + 6")</span><span class="v" id="tFooting">—</span></div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Fasteners</h3>
+          <div class="stat"><span class="k">Crossings per board</span><span class="v" id="tCrossings">—</span></div>
+          <div class="stat"><span class="k">Fasteners, total</span><span class="v" id="tFastenerCount">—</span></div>
+          <div class="stat"><span class="k">Fastener material cost</span><span class="v" id="tFastenerCost">—</span></div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Environmental model</h3>
+          <div class="stat"><span class="k">Hygroscopic equilibrium index</span><span class="v" id="tHygro">—</span></div>
+          <div class="stat"><span class="k">Grain alignment confidence</span><span class="v" id="tLunar">—</span></div>
+          <div class="stat"><span class="k">Acclimation status</span><span class="v" id="tAcclim">—</span></div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Cost model</h3>
+          <div class="stat"><span class="k">Decking material</span><span class="v" id="tCostDecking">—</span></div>
+          <div class="stat"><span class="k">Fastener material</span><span class="v" id="tCostFasteners">—</span></div>
+          <div class="stat"><span class="k">Estimated subtotal</span><span class="v accent" id="tCostSubtotal">—</span></div>
+          <div class="stat"><span class="k">Confidence interval</span><span class="v amber" id="tCostBand">—</span></div>
+        </div>
+
+        <div class="manifest">
+          <h3>Materials to purchase</h3>
+          <div class="headline" id="mHeadline">—</div>
+          <div class="sub" id="mSub">—</div>
+          <div class="line"><span class="k">Fasteners</span><span id="mFasteners">—</span></div>
+          <div class="line"><span class="k">Estimated material cost</span><span id="mCost">—</span></div>
+          <div class="line"><span class="k">Footing depth</span><span id="mFooting">—</span></div>
+        </div>
+
+        <div class="assistant">
+          <h3>Structural advisory assistant</h3>
+          <div id="assistantOut">Ask for a plain-language read on the current configuration.</div>
+          <button id="assistantBtn" type="button">Ask the assistant</button>
+        </div>
+
+        <div class="actions" style="margin: 0 12px 14px;">
+          <button id="printBtn" type="button">Print manifest</button>
+          <button id="copyBtn" type="button">Copy summary</button>
+          <a id="shareBtn" class="primary" href="#" target="_blank" rel="noopener">Share to Bluesky</a>
+        </div>
+      </aside>
+    </div>
+
+    <footer>
+      deckulator — built for fromthewestmeadow.com by the buildthis bot ·
+      <a href="https://bisks.net/">bisks.net</a> ·
+      planning-stage estimates only, not a stamped engineering plan.
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
