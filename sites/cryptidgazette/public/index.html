@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Cryptid Gazette — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter two atproto handles. Each is investigated, dossiered, and printed as a cryptid — Mothman, Sasquatch, Skinwalker, and nine more besides — then the Gazette reports on the clash between them, real profile stats and all."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="The Cryptid Gazette — two handles enter, one legend gets the byline" />
+    <meta
+      property="og:description"
+      content="Two atproto accounts get dossiered as cryptids off their real public stats, then the Gazette reports on the clash — headline, quotes, and a verdict."
+    />
+    <meta property="og:image" content="https://cryptidgazette.bisks.net/og.png" />
+    <meta property="og:url" content="https://cryptidgazette.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="The Cryptid Gazette — two handles enter, one legend gets the byline" />
+    <meta
+      name="twitter:description"
+      content="Two atproto accounts get dossiered as cryptids off real profile stats, then the Gazette reports on the clash."
+    />
+    <meta name="twitter:image" content="https://cryptidgazette.bisks.net/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --paper: #f3efe4; --paper2: #ece5d3; --ink: #1c1a16; --muted: #5d5648;
+        --rule: #1c1a16; --accent: #a3231f; --card: #fbf9f2; --border: #c9bfa4;
+        --serif: Georgia, "Times New Roman", "DejaVu Serif", serif;
+        --sans: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--paper); color: var(--ink);
+        font-family: var(--serif); font-size: 16px; line-height: 1.5;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 1.4rem 1.1rem 6rem; }
+
+      .masthead { text-align: center; border-bottom: 4px double var(--rule); padding-bottom: 0.7rem; margin-bottom: 0.5rem; }
+      .masthead .kicker { font-family: var(--sans); font-size: 0.66rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+      .masthead h1 { font-size: 2.6rem; margin: 0.15rem 0 0.2rem; letter-spacing: 0.02em; }
+      .masthead h1 a { color: inherit; text-decoration: none; }
+      .masthead .dateline { display: flex; justify-content: space-between; font-family: var(--sans); font-size: 0.68rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 0.4rem; margin-top: 0.3rem; }
+
+      .intro { color: var(--muted); font-size: 0.92rem; line-height: 1.7; margin: 1.1rem 0 1.4rem; text-align: center; }
+      .intro b { color: var(--ink); }
+
+      .card {
+        border: 1px solid var(--rule); background: var(--card);
+        padding: 1.1rem 1.2rem; margin-bottom: 1.1rem;
+      }
+      .label {
+        font-family: var(--sans); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .fighters { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0.7rem; align-items: end; }
+      .fighter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+      .fighter-field label { font-family: var(--sans); font-size: 0.7rem; color: var(--muted); }
+      input[type="text"] {
+        font-family: var(--serif); font-size: 0.95rem; width: 100%;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--border);
+        background: var(--paper); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: #9c9380; }
+      input[type="text"]:focus { border-color: var(--accent); outline: none; }
+      .vs-glyph { font-family: var(--sans); font-weight: 700; color: var(--accent); padding-bottom: 0.6rem; text-align: center; }
+
+      .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      button {
+        font-family: var(--sans); font-size: 0.8rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--rule); background: var(--ink); color: var(--paper);
+        cursor: pointer; font-weight: 700;
+      }
+      button:hover { filter: brightness(1.15); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fbf9f2; width: 100%; margin-top: 1rem; letter-spacing: 0.04em; }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 400; }
+      button.ghost:hover { background: var(--paper2); }
+      button.tiny { font-size: 0.7rem; padding: 0.32rem 0.6rem; }
+
+      .status { font-family: var(--sans); font-size: 0.78rem; color: var(--muted); min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: var(--accent); }
+
+      #front-page { display: none; }
+      .banner-strip { text-align: center; margin-bottom: 0.5rem; }
+      .banner-strip .devel { font-family: var(--sans); font-size: 0.66rem; letter-spacing: 0.14em; color: var(--accent); border: 1px solid var(--accent); display: inline-block; padding: 0.15rem 0.6rem; transform: rotate(-1.5deg); }
+
+      .headline { font-size: 1.7rem; font-weight: 700; text-align: center; line-height: 1.22; margin: 0.5rem 0 0.3rem; }
+      .byline { font-family: var(--sans); font-size: 0.68rem; color: var(--muted); text-align: center; margin-bottom: 1rem; }
+
+      .mugshots { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; margin-bottom: 1rem; }
+      .mug { border: 1px solid var(--rule); padding: 0.8rem; text-align: center; background: var(--paper); }
+      .mug .frame { font-size: 3rem; line-height: 1; border: 3px solid var(--ink); display: inline-block; padding: 0.4rem 0.6rem; background: var(--card); }
+      .mug .species { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; }
+      .mug .avrow { display: flex; align-items: center; justify-content: center; gap: 0.35rem; margin-top: 0.3rem; }
+      .mug img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; background: var(--card); }
+      .mug .handle { font-family: var(--sans); font-weight: 700; font-size: 0.72rem; word-break: break-word; color: var(--accent); }
+      .mug .marks { font-size: 0.76rem; color: var(--muted); margin-top: 0.5rem; font-style: italic; }
+      .mug .score { font-family: var(--sans); font-size: 0.68rem; color: var(--muted); margin-top: 0.5rem; }
+
+      .article { columns: 1; font-size: 0.94rem; line-height: 1.75; }
+      .article p { margin: 0 0 0.85rem; }
+      .article p.dropcap::first-letter {
+        font-size: 2.6rem; font-weight: 700; float: left; line-height: 0.85;
+        margin: 0.05rem 0.15rem 0 0; color: var(--accent);
+      }
+      .pull-quote {
+        border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+        padding: 0.7rem 0; margin: 1rem 0; font-style: italic; font-size: 1.02rem; text-align: center;
+      }
+
+      .verdict { border: 2px solid var(--ink); padding: 0.9rem 1rem; margin-top: 1rem; text-align: center; background: var(--paper2); }
+      .verdict .win-line { font-size: 1.1rem; font-weight: 700; }
+      .verdict .sub { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
+
+      canvas#share-canvas { display: none; }
+
+      .howitworks summary { cursor: pointer; color: var(--accent); font-size: 0.85rem; font-family: var(--sans); }
+      .howitworks p { color: var(--muted); font-size: 0.83rem; line-height: 1.7; }
+
+      footer { margin-top: 2rem; font-family: var(--sans); font-size: 0.72rem; color: var(--muted); text-align: center; }
+      footer a { color: var(--accent); }
+
+      @media (max-width: 520px) {
+        .mugshots { grid-template-columns: 1fr; }
+        .headline { font-size: 1.4rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="masthead">
+        <div class="kicker">est. today · circulation: whoever clicks the link</div>
+        <h1><a href="/">The Cryptid Gazette</a></h1>
+        <div class="dateline">
+          <span>ALL THE LEGENDS FIT TO PRINT</span>
+          <span id="today"></span>
+        </div>
+      </header>
+
+      <p class="intro">
+        Enter two atproto handles. Each gets dossiered as a cryptid —
+        <b>Mothman</b>, <b>Sasquatch</b>, <b>Skinwalker</b>, and nine more
+        besides — species picked from stats pulled off their real public
+        profile: <b>Sightings</b> (post count), <b>Believers</b> (follower
+        count), <b>Skepticism</b> (follower/follow ratio), and <b>Lore</b>
+        (bio and profile flair). Then the Gazette reports on what happened
+        when the two crossed paths. Same two handles, same story, every time
+        — this paper doesn't run corrections.
+      </p>
+
+      <div class="card">
+        <div class="label">submit a tip to the newsdesk</div>
+        <div class="fighters">
+          <div class="fighter-field">
+            <label for="handle-a">first sighting</label>
+            <input type="text" id="handle-a" placeholder="you.bsky.social" />
+          </div>
+          <div class="vs-glyph">VS</div>
+          <div class="fighter-field">
+            <label for="handle-b">second sighting</label>
+            <input type="text" id="handle-b" placeholder="a.rival.bsky.social" />
+          </div>
+        </div>
+        <button class="primary" id="clash-go">RUN THE STORY</button>
+        <div class="status" id="clash-status"></div>
+      </div>
+
+      <div id="front-page" class="card">
+        <div class="banner-strip"><span class="devel">DEVELOPING STORY</span></div>
+        <div class="headline" id="headline">—</div>
+        <div class="byline" id="byline"></div>
+
+        <div class="mugshots">
+          <div class="mug">
+            <div class="frame" id="em-a">—</div>
+            <div class="species" id="sp-a"></div>
+            <div class="avrow">
+              <img id="av-a" alt="" onerror="this.style.visibility='hidden'" />
+              <div class="handle" id="h-a">—</div>
+            </div>
+            <div class="marks" id="marks-a"></div>
+            <div class="score" id="score-a"></div>
+          </div>
+          <div class="mug">
+            <div class="frame" id="em-b">—</div>
+            <div class="species" id="sp-b"></div>
+            <div class="avrow">
+              <img id="av-b" alt="" onerror="this.style.visibility='hidden'" />
+              <div class="handle" id="h-b">—</div>
+            </div>
+            <div class="marks" id="marks-b"></div>
+            <div class="score" id="score-b"></div>
+          </div>
+        </div>
+
+        <div class="article">
+          <p class="dropcap" id="p-opener"></p>
+          <p id="p-clash"></p>
+          <div class="pull-quote" id="p-quote"></div>
+          <p id="p-closer"></p>
+        </div>
+
+        <div class="verdict">
+          <div class="win-line" id="verdict-title">—</div>
+          <div class="sub" id="verdict-sub"></div>
+        </div>
+
+        <div class="row" style="margin-top: 1rem; justify-content: center">
+          <a id="share-result" target="_blank" rel="noopener" href="#">
+            <button class="tiny">share this issue</button>
+          </a>
+          <button class="tiny ghost" id="share-download">download front page</button>
+          <button class="tiny ghost" id="share-native" style="display: none">share front page</button>
+          <button class="tiny ghost" id="rematch">file a new story</button>
+        </div>
+      </div>
+
+      <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+      <details class="howitworks">
+        <summary>how does this work?</summary>
+        <p>
+          Each handle's public profile (<code>app.bsky.actor.getProfile</code>)
+          feeds four stats: <b>Sightings</b> from post count, <b>Believers</b>
+          from raw follower count, <b>Skepticism</b> from follower/follow
+          ratio, <b>Lore</b> from bio length and profile polish. Whichever
+          stat is highest picks a cryptid pool — high Sightings summons a
+          Mothman, Thunderbird, or Flatwoods Monster; high Believers a
+          Sasquatch, Nessie, or Champ; high Skepticism a Skinwalker, Dogman,
+          or Fresno Nightcrawler; high Lore a Jersey Devil, Chupacabra, or
+          Wendigo — and a seeded roll on the account's own DID picks the
+          exact cryptid from that pool, so a dossier looks the same no matter
+          who it's matched against. A clash score combines each cryptid's
+          stats with a couple more seeded rolls to decide the winner and how
+          the writeup reads. The whole thing is seeded off a hash of both
+          DIDs together, so the same two handles always get the same front
+          page.
+        </p>
+      </details>
+
+      <footer>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        for <a href="https://bisks.net">bisks.net</a>. every cryptid, quote,
+        and dateline is entirely made up — this paper has never once been
+        fact-checked.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { getProfile } from "./lib/atproto.js";
+      import { runClash } from "./lib/clash.js";
+
+      const $ = (sel) => document.querySelector(sel);
+      const SITE_URL = "https://cryptidgazette.bisks.net";
+
+      $("#today").textContent = new Date().toLocaleDateString(undefined, {
+        year: "numeric", month: "long", day: "numeric",
+      });
+
+      if (window.attachHandleTypeahead) {
+        attachHandleTypeahead($("#handle-a"));
+        attachHandleTypeahead($("#handle-b"));
+      }
+
+      function setStatus(msg, isErr) {
+        const el = $("#clash-status");
+        el.textContent = msg || "";
+        el.classList.toggle("err", !!isErr);
+      }
+
+      function buildShareText(result) {
+        const winnerSide = result.winner === "a" ? result.a : result.b;
+        const loserSide = result.winner === "a" ? result.b : result.a;
+        return (
+          `THE CRYPTID GAZETTE: ${winnerSide.emoji} ${winnerSide.species} (@${winnerSide.profile.handle}) beat ` +
+          `${loserSide.emoji} ${loserSide.species} (@${loserSide.profile.handle}) ${result.verdict}: ${SITE_URL}`
+        );
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (maxLines && lines >= maxLines) return cy;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      async function buildShareCard(result) {
+        const canvas = $("#share-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const serif = "Georgia, 'Times New Roman', serif";
+        const winnerSide = result.winner === "a" ? result.a : result.b;
+        const loserSide = result.winner === "a" ? result.b : result.a;
+        const [avatarW, avatarL] = await Promise.all([loadImg(winnerSide.profile.avatar), loadImg(loserSide.profile.avatar)]);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#f3efe4";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#1c1a16";
+        ctx.font = `700 46px ${serif}`;
+        ctx.fillText("The Cryptid Gazette", W / 2, 78);
+        ctx.strokeStyle = "#1c1a16";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(90, 100);
+        ctx.lineTo(W - 90, 100);
+        ctx.stroke();
+
+        const cardX = 70, cardY = 130, cardW = W - 140, cardH = H - 200;
+        ctx.strokeStyle = "#1c1a16";
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "#fbf9f2";
+        ctx.fillRect(cardX, cardY, cardW, cardH);
+        ctx.strokeRect(cardX, cardY, cardW, cardH);
+
+        function drawSide(side, avatar, cx) {
+          ctx.font = `72px "Noto Color Emoji", ${serif}`;
+          ctx.fillStyle = "#1c1a16";
+          ctx.fillText(side.emoji, cx, cardY + 90);
+          if (avatar) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cardY + 130, 24, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(avatar, cx - 24, cardY + 106, 48, 48);
+            ctx.restore();
+          }
+          ctx.fillStyle = "#a3231f";
+          ctx.font = `700 19px ${serif}`;
+          ctx.fillText("@" + side.profile.handle, cx, cardY + 168);
+          ctx.fillStyle = "#1c1a16";
+          ctx.font = `700 25px ${serif}`;
+          ctx.fillText(side.species, cx, cardY + 198);
+        }
+
+        drawSide(winnerSide, avatarW, W / 2 - cardW / 4);
+        drawSide(loserSide, avatarL, W / 2 + cardW / 4);
+
+        ctx.fillStyle = "#a3231f";
+        ctx.font = `700 36px ${serif}`;
+        ctx.fillText("VS", W / 2, cardY + 100);
+
+        ctx.fillStyle = "#1c1a16";
+        ctx.font = `700 26px ${serif}`;
+        ctx.fillText(`${winnerSide.species} wins`, W / 2, cardY + 280);
+
+        ctx.fillStyle = "#5d5648";
+        ctx.font = `italic 18px ${serif}`;
+        ctx.fillText(result.verdict, W / 2, cardY + 310);
+
+        ctx.fillStyle = "#1c1a16";
+        ctx.font = `18px ${serif}`;
+        wrapCanvasText(ctx, result.clashLine, W / 2 - (cardW / 2 - 40), cardY + 350, cardW - 80, 24, 2);
+
+        ctx.fillStyle = "#a3231f";
+        ctx.font = `700 20px ${serif}`;
+        ctx.fillText("cryptidgazette.bisks.net", W / 2, cardY + cardH - 24);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        $("#share-native").style.display = "";
+        $("#share-native").addEventListener("click", () => {
+          $("#share-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "cryptidgazette.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "The Cryptid Gazette" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      async function run() {
+        const rawA = $("#handle-a").value.trim();
+        const rawB = $("#handle-b").value.trim();
+        if (!rawA || !rawB) return setStatus("the newsdesk needs both handles.", true);
+
+        const btn = $("#clash-go");
+        btn.disabled = true;
+        $("#front-page").style.display = "none";
+        setStatus("dispatching a reporter…");
+
+        try {
+          const [profileA, profileB] = await Promise.all([getProfile(rawA), getProfile(rawB)]);
+          if (profileA.did === profileB.did) {
+            setStatus("that's the same account twice — this paper doesn't run a cryptid against itself.", true);
+            btn.disabled = false;
+            return;
+          }
+          setStatus("");
+
+          const result = runClash(profileA, profileB);
+          const { a, b } = result;
+
+          $("#headline").textContent = result.headline;
+          $("#byline").textContent = `By the Cryptid Gazette Newsdesk · filed on deadline`;
+
+          $("#av-a").src = a.profile.avatar || "";
+          $("#av-b").src = b.profile.avatar || "";
+          $("#h-a").textContent = `@${a.profile.handle}`;
+          $("#h-b").textContent = `@${b.profile.handle}`;
+          $("#em-a").textContent = a.emoji;
+          $("#em-b").textContent = b.emoji;
+          $("#sp-a").textContent = a.species;
+          $("#sp-b").textContent = b.species;
+          $("#marks-a").textContent = a.fieldMarks;
+          $("#marks-b").textContent = b.fieldMarks;
+          $("#score-a").textContent = `clash score: ${result.scoreA}`;
+          $("#score-b").textContent = `clash score: ${result.scoreB}`;
+
+          $("#p-opener").textContent = result.opener;
+          $("#p-clash").textContent = result.clashLine;
+          $("#p-quote").textContent = result.quote;
+          $("#p-closer").textContent = result.closer;
+
+          const winnerSide = result.winner === "a" ? a : b;
+          $("#verdict-title").textContent = `VERDICT: ${winnerSide.emoji} ${winnerSide.species} (@${winnerSide.profile.handle}) wins`;
+          $("#verdict-sub").textContent = `${result.verdict} — clash score ${result.scoreA} to ${result.scoreB}.`;
+
+          $("#front-page").style.display = "block";
+
+          lastShareText = buildShareText(result);
+          $("#share-result").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(lastShareText)}`;
+          await buildShareCard(result);
+        } catch (e) {
+          setStatus(e.message || "couldn't track down one of those handles.", true);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      $("#share-download").addEventListener("click", () => {
+        $("#share-canvas").toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "cryptidgazette.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      $("#clash-go").addEventListener("click", run);
+      [$("#handle-a"), $("#handle-b")].forEach((el) =>
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") run();
+        }),
+      );
+      $("#rematch").addEventListener("click", () => {
+        $("#front-page").style.display = "none";
+        setStatus("");
+      });
+    </script>
+  </body>
+</html>
