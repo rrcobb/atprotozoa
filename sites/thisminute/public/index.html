@@ -123,6 +123,31 @@
         white-space: pre-wrap;
       }
       .card .body.waiting { color: var(--muted); font-size: 0.95rem; font-style: italic; }
+      .card .body .w { color: inherit; }
+      .card .body.colorized .w {
+        color: var(--wc, inherit);
+        border-bottom: 1px dotted currentColor;
+        cursor: help;
+        border-radius: 2px;
+      }
+      .card .body.colorized .w:hover,
+      .card .body.colorized .w:focus {
+        background: rgba(0, 0, 0, 0.05);
+        outline: none;
+      }
+      #colorToggle.on { border-color: var(--accent); color: var(--accent); background: #eef3fc; }
+      .wordtip {
+        position: fixed; z-index: 10000; max-width: 320px;
+        background: var(--ink); color: #fff; font-size: 0.72rem; line-height: 1.45;
+        padding: 0.55rem 0.7rem; border-radius: 6px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+        pointer-events: none; display: none;
+      }
+      .wordtip.show { display: block; }
+      .wordtip .tiplabel {
+        display: block; font-size: 0.6rem; text-transform: uppercase;
+        letter-spacing: 0.06em; color: #999; margin-bottom: 0.3rem;
+      }
       .card .meta {
         margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--faint);
         font-size: 0.72rem; color: var(--muted);
@@ -185,6 +210,7 @@
           <button data-mode="simcluster" title="only posts from @bisks.net's simcluster — their moots (mutual follows)">simcluster</button>
         </div>
         <button id="pauseBtn" title="freeze the window (the firehose keeps flowing underneath)">pause</button>
+        <button id="colorToggle" title="color each word by the real post it came from — hover or tap a word to see the source">colorize</button>
         <span class="spacer"></span>
         <span class="countdown" id="countdown"></span>
         <button id="genNow">make one now</button>
@@ -211,6 +237,8 @@
         <ol id="historyList" reversed></ol>
       </details>
 
+      <div class="wordtip" id="wordTip"></div>
+
       <footer>
         firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
         · simcluster = <a href="https://simcluster.bisks.net">@bisks.net</a>'s moots
@@ -234,6 +262,12 @@
       const HISTORY_CAP = 12;
       const MAX_GEN_ATTEMPTS = 8; // re-rolls before giving up on dodging a verbatim source post
 
+      // colors cycled by source-post index when "colorize" is on — legible on white
+      const WORD_COLORS = [
+        "#1a5fd0", "#c0392b", "#1f8a4c", "#8e44ad",
+        "#c26b00", "#0e7c86", "#b5306b", "#4a5568",
+      ];
+
       // ---- DOM -----------------------------------------------------------
       const dot = document.getElementById("dot");
       const statusText = document.getElementById("statusText");
@@ -248,6 +282,8 @@
       const cardBadge = document.getElementById("cardBadge");
       const shareBtn = document.getElementById("shareBtn");
       const historyList = document.getElementById("historyList");
+      const colorToggle = document.getElementById("colorToggle");
+      const wordTip = document.getElementById("wordTip");
 
       // ---- state -----------------------------------------------------------
       let mode = "global"; // "global" | "simcluster"
@@ -256,6 +292,11 @@
       let simclusterLoading = false;
       const window_ = []; // { text, did, ts }, newest last
       let currentText = "";
+      let colorize = false;
+      // provenance of the currently rendered card: sources[i] = index into
+      // currentPosts that word i's Markov transition came from, or null
+      let currentSources = null;
+      let currentPosts = null;
 
       // ---- text handling ---------------------------------------------------
       const URL_RE = /https?:\/\/\S+/g;
@@ -356,38 +397,45 @@
       }
 
       // ---- Markov chain (order 2, word-level) ---------------------------
+      // Each transition remembers which post (index into `posts`) it came
+      // from, so a generated word can be traced back to its source for the
+      // colorize toggle.
       function buildModel(posts) {
-        const chain = new Map(); // "w1 w2" -> [nextWord | null, ...]
-        const starts = [];
-        for (const p of posts) {
+        const chain = new Map(); // "w1 w2" -> [{ next: word | null, src: postIdx }, ...]
+        const starts = []; // { w0, w1, src: postIdx }
+        posts.forEach((p, idx) => {
           const words = tokenize(p.text);
-          if (words.length < 2) continue;
-          starts.push([words[0], words[1]]);
+          if (words.length < 2) return;
+          starts.push({ w0: words[0], w1: words[1], src: idx });
           for (let i = 0; i + 1 < words.length; i++) {
-            const key = words[i] + " " + words[i + 1];
+            const key = words[i] + " " + words[i + 1];
             const next = i + 2 < words.length ? words[i + 2] : null;
             let arr = chain.get(key);
             if (!arr) chain.set(key, (arr = []));
-            arr.push(next);
+            arr.push({ next, src: idx });
           }
-        }
+        });
         return { chain, starts };
       }
 
+      // Returns { text, sources } where sources[i] is the post-index that
+      // contributed word i (via its starting bigram or a chain transition).
       function generate(model) {
         if (!model.starts.length) return null;
-        const [w0, w1] = model.starts[Math.floor(Math.random() * model.starts.length)];
-        const out = [w0, w1];
+        const start = model.starts[Math.floor(Math.random() * model.starts.length)];
+        const out = [start.w0, start.w1];
+        const sources = [start.src, start.src];
         for (let i = 0; i < MAX_GEN_WORDS - 2; i++) {
-          const key = out[out.length - 2] + " " + out[out.length - 1];
+          const key = out[out.length - 2] + " " + out[out.length - 1];
           const options = model.chain.get(key);
           if (!options || !options.length) break;
-          const next = options[Math.floor(Math.random() * options.length)];
-          if (next == null) break;
-          out.push(next);
-          if (out.length >= MIN_GEN_WORDS && /[.!?]["')\]]?$/.test(next) && Math.random() < 0.35) break;
+          const pick = options[Math.floor(Math.random() * options.length)];
+          if (pick.next == null) break;
+          out.push(pick.next);
+          sources.push(pick.src);
+          if (out.length >= MIN_GEN_WORDS && /[.!?]["')\]]?$/.test(pick.next) && Math.random() < 0.35) break;
         }
-        return out.join(" ");
+        return { text: out.join(" "), sources };
       }
 
       // ---- rendering -------------------------------------------------------
@@ -451,10 +499,37 @@
         return { text, cls, title };
       }
 
-      function renderPost({ text, count, words, auto, match }) {
+      // Renders cardBody either as plain text or, when colorize is on, as
+      // one <span> per word colored by which source post it came from —
+      // hover/tap a span to see that post via the #wordTip element.
+      function renderCardBody() {
+        cardBody.classList.toggle("colorized", colorize && !!currentSources && !!currentPosts);
+        if (!colorize || !currentSources || !currentPosts) {
+          cardBody.textContent = currentText;
+          return;
+        }
+        const words = currentText.split(" ");
+        cardBody.innerHTML = words
+          .map((w, i) => {
+            const srcIdx = currentSources[i];
+            const post = srcIdx != null ? currentPosts[srcIdx] : null;
+            if (!post) return escapeHtml(w);
+            const color = WORD_COLORS[srcIdx % WORD_COLORS.length];
+            const preview = post.text.length > 220 ? post.text.slice(0, 220).trimEnd() + "…" : post.text;
+            return (
+              `<span class="w" style="--wc:${color}" tabindex="0" ` +
+              `data-tip="${escapeHtml(preview)}">${escapeHtml(w)}</span>`
+            );
+          })
+          .join(" ");
+      }
+
+      function renderPost({ text, count, words, auto, match, sources, posts }) {
         currentText = text;
+        currentSources = sources || null;
+        currentPosts = posts || null;
         cardBody.classList.remove("waiting");
-        cardBody.textContent = text;
+        renderCardBody();
         cardBadge.textContent = mode === "simcluster" ? "this minute · simcluster" : "this minute";
         const when = new Date().toLocaleTimeString();
         const src = `from ${count} post${count === 1 ? "" : "s"} / ${words} words · ${auto ? "auto" : "manual"} · ${when}`;
@@ -469,6 +544,10 @@
 
       function renderWaiting(msg) {
         currentText = "";
+        currentSources = null;
+        currentPosts = null;
+        hideTip();
+        cardBody.classList.remove("colorized");
         cardBody.classList.add("waiting");
         cardBody.textContent = msg;
         cardMeta.textContent = "";
@@ -480,7 +559,9 @@
 
       function tryGenerate(auto) {
         if (paused) return;
-        const posts = windowPosts();
+        // snapshot so this card's word→source mapping stays correct even
+        // after the rolling window later prunes or mutates window_
+        const posts = windowPosts().slice();
         if (posts.length < MIN_POSTS_TO_GENERATE) {
           if (mode === "simcluster" && simclusterDids) {
             renderWaiting(
@@ -498,11 +579,13 @@
         // before giving up.
         const existing = new Set(posts.map((p) => normalizeForCompare(p.text)));
         let text = null;
+        let sources = null;
         for (let i = 0; i < MAX_GEN_ATTEMPTS; i++) {
           const candidate = generate(model);
           if (!candidate) break;
-          if (!existing.has(candidate)) {
-            text = candidate;
+          if (!existing.has(candidate.text)) {
+            text = candidate.text;
+            sources = candidate.sources;
             break;
           }
         }
@@ -511,7 +594,7 @@
           return;
         }
         const match = closestMatch(tokenize(text), posts);
-        renderPost({ text, count: posts.length, words: wordCount(posts), auto, match });
+        renderPost({ text, count: posts.length, words: wordCount(posts), auto, match, sources, posts });
       }
 
       // ---- mode switching ---------------------------------------------------
@@ -553,6 +636,61 @@
         pauseBtn.classList.toggle("on", paused);
         pauseBtn.textContent = paused ? "resume" : "pause";
       });
+
+      colorToggle.addEventListener("click", () => {
+        colorize = !colorize;
+        colorToggle.classList.toggle("on", colorize);
+        if (!colorize) hideTip();
+        renderCardBody();
+      });
+
+      // ---- word tooltip: hover on desktop, tap on touch, dismiss on outside tap
+      let tipTarget = null;
+      function positionTip(target) {
+        const r = target.getBoundingClientRect();
+        const tw = wordTip.offsetWidth || 260;
+        const th = wordTip.offsetHeight || 40;
+        let left = r.left + r.width / 2 - tw / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+        let top = r.top - th - 8;
+        if (top < 8) top = r.bottom + 8;
+        wordTip.style.left = left + "px";
+        wordTip.style.top = top + "px";
+      }
+      function showTip(target) {
+        const tip = target.dataset.tip;
+        if (!tip) return;
+        tipTarget = target;
+        wordTip.innerHTML = '<span class="tiplabel">source post</span>' + escapeHtml(tip);
+        wordTip.classList.add("show");
+        positionTip(target);
+      }
+      function hideTip() {
+        tipTarget = null;
+        wordTip.classList.remove("show");
+      }
+      cardBody.addEventListener("mouseover", (e) => {
+        const w = e.target.closest(".w");
+        if (w && cardBody.contains(w)) showTip(w);
+      });
+      cardBody.addEventListener("mouseout", (e) => {
+        if (e.target.closest(".w")) hideTip();
+      });
+      cardBody.addEventListener("focusin", (e) => {
+        const w = e.target.closest(".w");
+        if (w) showTip(w);
+      });
+      cardBody.addEventListener("focusout", (e) => {
+        if (e.target.closest(".w")) hideTip();
+      });
+      cardBody.addEventListener("click", (e) => {
+        const w = e.target.closest(".w");
+        if (!w) return;
+        e.stopPropagation();
+        if (tipTarget === w) hideTip();
+        else showTip(w);
+      });
+      document.addEventListener("click", () => hideTip());
 
       genNowBtn.addEventListener("click", () => tryGenerate(false));
 
