@@ -3,12 +3,16 @@
 // <script src> tag; also require()-able from node for a quick correctness
 // check (see test.mjs) via the module.exports guard at the bottom.
 //
-// Two modes:
+// Three modes:
 //  - arithmetic: no "=", reduces one operator at a time following PEMDAS
 //    (innermost parens first, then ^, then * /, then + -, left to right).
 //  - linear equation: one "=", both sides restricted to sums of plain numbers
 //    and "x" terms (no parens, no x^2) — solved by combining like terms, then
 //    moving x-terms and constants across the "=", then dividing.
+//  - word problem: real English sentences ("Sam has 3 apples and buys 4
+//    more"), no "=". A "reader bee" extracts the quantities and the
+//    operations between them into a plain arithmetic expression, then the
+//    rest of the swarm solves that expression exactly as above.
 
 const MathHive = (() => {
   class SolveError extends Error {}
@@ -265,6 +269,142 @@ const MathHive = (() => {
     return { steps, answer: fmtNum(answer) };
   }
 
+  // ---------- word problems ("Sam has 3 apples and buys 4 more") ----------
+
+  // Deliberately excludes "a"/"an": as indefinite articles ("a wire", "a
+  // baker") they vastly outnumber their rare use as the number one, so
+  // treating them as digits produces more false quantities than real ones.
+  const WORD_NUMS = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+    dozen: 12,
+  };
+
+  // Multi-word phrases checked before single words so e.g. "divided by"
+  // wins over a lone "by". Order within a category doesn't matter; order
+  // across categories does — division/multiplication read as tighter
+  // groupings than a bare "and", so they're checked first. A phrase only
+  // needs its words to appear IN ORDER within the gap, not adjacently —
+  // "divided them among" still matches "divided among" (see hasPhrase).
+  const OP_PHRASES = [
+    ["/", ["divided by", "divided among", "divided between", "split evenly among", "split among", "split between", "shared equally among", "shared among", "shared between"]],
+    ["*", ["multiplied by", "groups of", "sets of", "times", "each"]],
+    ["-", ["subtracted from", "subtract", "minus", "fewer than", "fewer", "less than", "less", "gave away", "gives away", "took away", "takes away", "lost", "spent", "ate", "eaten", "eats", "eat", "sold", "used up", "used", "away", "absent", "missing"]],
+    ["+", ["plus", "gained", "received", "found", "more", "added", "and"]],
+  ];
+
+  // gapWords: lowercased, punctuation-stripped words between two quantities.
+  function findOpKeyword(gapWords) {
+    const hasPhrase = (phraseWords) => {
+      let pos = 0;
+      for (const w of gapWords) {
+        if (w === phraseWords[pos]) {
+          pos++;
+          if (pos === phraseWords.length) return true;
+        }
+      }
+      return false;
+    };
+    for (const [op, phrases] of OP_PHRASES) {
+      for (const phrase of phrases) {
+        if (hasPhrase(phrase.split(" "))) return op;
+      }
+    }
+    return null; // no signal — caller decides the default
+  }
+
+  const MULT_PREFIX = { half: 0.5, double: 2, twice: 2, triple: 3 };
+
+  // Look 1-2 words back for a "half of"/"double"/"twice"/"triple" prefix,
+  // skipping a single filler "of" ("half of 10" — "of" sits between the
+  // prefix word and the number it modifies).
+  function multiplierPrefixFor(words, i) {
+    if (i < 1) return null;
+    let j = i - 1;
+    if (bareLower(words[j]) === "of" && j > 0) j--;
+    const w = bareLower(words[j]);
+    return Object.prototype.hasOwnProperty.call(MULT_PREFIX, w) ? w : null;
+  }
+
+  function bareLower(w) {
+    return w.replace(/[.,!?;:]+$/, "").toLowerCase();
+  }
+
+  // Word-index positions of every quantity mentioned, with any multiplier
+  // prefix folded straight into the value.
+  function extractQuantities(words) {
+    const found = [];
+    for (let i = 0; i < words.length; i++) {
+      const bare = words[i].replace(/[.,!?;:]+$/, "");
+      const lower = bare.toLowerCase();
+      let value = null;
+      if (/^-?[0-9]+(\.[0-9]+)?$/.test(bare)) value = parseFloat(bare);
+      else if (Object.prototype.hasOwnProperty.call(WORD_NUMS, lower)) value = WORD_NUMS[lower];
+      if (value === null) continue;
+      let note = null;
+      const prefix = multiplierPrefixFor(words, i);
+      if (prefix) {
+        const factor = MULT_PREFIX[prefix];
+        note = `${prefix} ${fmtNum(value)} is ${fmtNum(value * factor)}`;
+        value = value * factor;
+      }
+      found.push({ idx: i, value, note });
+    }
+    return found;
+  }
+
+  function solveWordProblem(raw) {
+    const words = raw.split(/\s+/).filter(Boolean);
+    const quantities = extractQuantities(words);
+    if (quantities.length === 0) {
+      throw new SolveError("couldn't find any numbers in that problem for the bees to carry");
+    }
+    if (quantities.length === 1) {
+      throw new SolveError("only found one amount — give the swarm a full problem with at least two to combine");
+    }
+
+    const parts = [quantities[0].value < 0 ? `(${fmtNum(quantities[0].value)})` : fmtNum(quantities[0].value)];
+    for (let i = 1; i < quantities.length; i++) {
+      const rawGap = words.slice(quantities[i - 1].idx + 1, quantities[i].idx);
+      // Only search the CURRENT clause: a keyword trailing the previous
+      // number ("2 were eaten, and 6 more...") belongs to that number's own
+      // pair (handled by the post-window below), not to this one, so drop
+      // everything up through the last clause boundary before this gap.
+      let clauseStart = 0;
+      for (let k = 0; k < rawGap.length; k++) {
+        if (/[.,;!?]$/.test(rawGap[k])) clauseStart = k + 1;
+      }
+      const gapWords = rawGap.slice(clauseStart).map(bareLower);
+      // The operation word usually sits before this quantity ("gave away
+      // 3"), but plenty of phrasing puts it right after instead ("5 flew
+      // away"). Only look past the number if the gap itself had no signal —
+      // and stop at the next clause boundary (or the next quantity) so that
+      // window can't bleed into the following pair's own operator.
+      let op = findOpKeyword(gapWords);
+      if (!op) {
+        const nextIdx = i + 1 < quantities.length ? quantities[i + 1].idx : words.length;
+        const windowEnd = Math.min(nextIdx, quantities[i].idx + 7);
+        const postWords = [];
+        for (let k = quantities[i].idx + 1; k < windowEnd; k++) {
+          postWords.push(bareLower(words[k]));
+          if (/[.,;!?]$/.test(words[k])) break;
+        }
+        op = findOpKeyword(postWords);
+      }
+      op = op || "+"; // still nothing — word problems mostly accumulate
+      parts.push(op);
+      const v = quantities[i].value;
+      parts.push(v < 0 ? `(${fmtNum(v)})` : fmtNum(v));
+    }
+    const expr = parts.join(" ");
+
+    const arith = solveArithmetic(expr);
+    const readLabel = raw.length > 70 ? raw.slice(0, 70) + "…" : raw;
+    arith.steps.unshift({ expr: readLabel, note: "the reader bee scans the problem" });
+    arith.steps[1] = { expr: arith.steps[1].expr, note: `reading gives: ${arith.steps[1].expr}` };
+    return { steps: arith.steps, answer: arith.answer, expr: arith.steps[1].expr };
+  }
+
   function solve(input) {
     const raw = String(input || "").trim();
     if (!raw) throw new SolveError("type something for the bees to work on");
@@ -273,6 +413,9 @@ const MathHive = (() => {
       return { mode: "equation", ...solveLinearEquation(eqParts[0], eqParts[1]) };
     }
     if (eqParts.length > 2) throw new SolveError("only one \"=\" is supported");
+    if (/[a-wyzA-WYZ]/.test(raw)) {
+      return { mode: "word", ...solveWordProblem(raw) };
+    }
     if (/x/i.test(raw)) throw new SolveError('found an "x" but no "="  — is this meant to be an equation?');
     return { mode: "arithmetic", ...solveArithmetic(raw) };
   }
