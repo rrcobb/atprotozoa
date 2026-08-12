@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>antecedent — a system for discovering what "this" you should build — bisks.net</title>
+    <meta
+      name="description"
+      content="'build this' has no antecedent until something points at a noun. Reroll a combinatorial idea generator until one lands, then one-tap it straight into a Bluesky post at @buildthis.bisks.net — the 'this' finally has something to point at."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://antecedent.bisks.net/" />
+    <meta property="og:title" content="antecedent — a system for discovering what &quot;this&quot; you should build" />
+    <meta
+      property="og:description"
+      content="'build this' is doing a lot of work with no 'this' attached. Reroll until an idea lands, then one-tap it into a post @buildthis.bisks.net can actually build."
+    />
+    <meta property="og:image" content="https://antecedent.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="antecedent — a system for discovering what &quot;this&quot; you should build" />
+    <meta
+      name="twitter:description"
+      content="'build this' is doing a lot of work with no 'this' attached. Reroll until an idea lands, then one-tap it into a post @buildthis.bisks.net can actually build."
+    />
+    <meta name="twitter:image" content="https://antecedent.bisks.net/og.png" />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. Same palette as trigrams / abstractodo / apex. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .topicrow { margin-bottom: 1.5rem; }
+      .topicrow label {
+        display: block; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.5rem;
+      }
+      .topicrow input[type="text"] {
+        width: 100%; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 4px; background: var(--faintbg); color: var(--ink);
+      }
+      .topicrow input[type="text"]:focus { outline: 2px solid var(--accent); background: var(--bg); }
+
+      /* ── idea card ─────────────────────────────────────────────────── */
+      .card {
+        border: 1px solid var(--ink); border-radius: 6px;
+        padding: 1.4rem 1.4rem 1.2rem; margin-bottom: 1.25rem;
+      }
+      .card .cap {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 0.5rem; flex-wrap: wrap;
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+        color: var(--muted); margin-bottom: 0.6rem;
+      }
+      .card .tag { color: var(--accent); }
+      .card .name {
+        font-size: 1.5rem; font-weight: 700; margin: 0 0 0.55rem;
+        word-break: break-word;
+      }
+      .card .name .dot { color: var(--muted); font-weight: 400; }
+      .card .pitch { font-size: 1.02rem; line-height: 1.55; margin: 0 0 1.15rem; }
+      .btnrow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+      button, a.btn {
+        font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+        border-radius: 3px; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem; line-height: 1;
+      }
+      button:hover, a.btn:hover { background: #000; }
+      button.ghost, a.btn.ghost { background: var(--bg); color: var(--ink); }
+      button.ghost:hover, a.btn.ghost:hover { background: var(--faintbg); }
+      button.big { font-size: 1rem; padding: 0.75rem 1.1rem; }
+      .copied { color: var(--good); font-size: 0.8rem; opacity: 0; transition: opacity .15s; }
+      .copied.show { opacity: 1; }
+
+      /* ── stats strip ───────────────────────────────────────────────── */
+      .stats {
+        display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2.25rem;
+        font-size: 0.82rem; color: var(--muted);
+      }
+      .stats b { color: var(--ink); font-weight: 600; }
+
+      /* ── the log ──────────────────────────────────────────────────── */
+      .feedhead {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.4rem;
+      }
+      .feedhead h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+      .feedhead .sub { color: var(--muted); font-size: 0.8rem; }
+
+      #log { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+      #log li {
+        border-top: 1px solid var(--faint); padding: 0.85rem 0;
+        display: flex; gap: 0.8rem; align-items: flex-start;
+      }
+      #log li:first-child { border-top: 1px solid var(--ink); }
+      #log .body { flex: 1; min-width: 0; }
+      #log .txt { margin: 0 0 0.3rem; }
+      #log .txt b { font-weight: 700; }
+      #log .when { color: var(--muted); font-size: 0.72rem; }
+      #log .empty { color: var(--muted); font-size: 0.85rem; }
+      #log .rebuild {
+        flex: none; font-size: 0.75rem; padding: 0.35rem 0.55rem;
+      }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0 0 0.6rem; }
+
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>antecedent <span class="slash">· a system for discovering what "this" you should build</span></h1>
+      <p class="intro">
+        "build this" is doing a lot of work with no "this" attached — no
+        thread, no idea, no noun for the pronoun to point at.
+        <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a>
+        said as much,
+        <a href="https://bsky.app/profile/words.bsky.social" target="_blank" rel="noopener">@words.bsky.social</a>
+        asked for a system instead of an idea, so here's the system:
+        <b>a generator that finds the "this" for you.</b> Reroll until one
+        lands, then hit <b>build this</b> to send it straight back at the
+        bot — a self-service antecedent.
+      </p>
+
+      <div class="topicrow">
+        <label for="topicInput">got a word in mind? (optional — it'll get woven in sometimes)</label>
+        <input type="text" id="topicInput" placeholder="e.g. chickens, your ex, the algorithm" maxlength="60" autocomplete="off" />
+      </div>
+
+      <section class="card" id="ideaCard">
+        <div class="cap">
+          <span>this</span>
+          <span class="tag" id="ideaTag">—</span>
+        </div>
+        <p class="name" id="ideaName">…</p>
+        <p class="pitch" id="ideaPitch">…</p>
+        <div class="btnrow">
+          <button class="big" id="rerollBtn">🎲 reroll</button>
+          <a class="btn" id="buildBtn" target="_blank" rel="noopener">🐦 build this</a>
+          <button class="ghost" id="copyBtn">copy</button>
+          <button class="ghost" id="permalinkBtn">🔗 link to this idea</button>
+          <span class="copied" id="copied">copied</span>
+        </div>
+      </section>
+
+      <div class="stats">
+        <span><b id="statCount">0</b> ideas rolled this session</span>
+        <span><b id="statSaved">0</b> saved in this browser, all time</span>
+      </div>
+
+      <div class="feedhead">
+        <h2>the log</h2>
+        <span class="sub">everything you've rolled here, most recent first</span>
+      </div>
+      <ul id="log"></ul>
+
+      <footer>
+        <p>
+          Every idea is deterministic from a seed, so "link to this idea"
+          gives back exactly what you saw — reroll for a new one, the link
+          never silently changes under you. Nothing here leaves your
+          browser except what you choose to post.
+        </p>
+        <p>
+          reply to a build request without one and this is what the bot
+          points you at. sibling of
+          <a href="https://buildthis.bisks.net">buildthis</a> and
+          <a href="https://bisks.net">bisks.net</a>.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { generate, buildPrompt, newSeed } from "./lib/generator.js";
+
+      const SITE_URL = "https://antecedent.bisks.net/";
+      const BOT = "@buildthis.bisks.net";
+      const LOG_KEY = "antecedent:log";
+      const ALLTIME_KEY = "antecedent:alltime";
+
+      const els = {
+        topicInput: document.getElementById("topicInput"),
+        ideaTag: document.getElementById("ideaTag"),
+        ideaName: document.getElementById("ideaName"),
+        ideaPitch: document.getElementById("ideaPitch"),
+        rerollBtn: document.getElementById("rerollBtn"),
+        buildBtn: document.getElementById("buildBtn"),
+        copyBtn: document.getElementById("copyBtn"),
+        permalinkBtn: document.getElementById("permalinkBtn"),
+        copied: document.getElementById("copied"),
+        statCount: document.getElementById("statCount"),
+        statSaved: document.getElementById("statSaved"),
+        log: document.getElementById("log"),
+      };
+
+      let sessionCount = 0;
+      let current = null;
+
+      function loadLog() {
+        try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); }
+        catch { return []; }
+      }
+      function saveLog(list) {
+        try { localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, 40))); } catch {}
+      }
+      function bumpAllTime() {
+        try {
+          const n = (parseInt(localStorage.getItem(ALLTIME_KEY) || "0", 10) || 0) + 1;
+          localStorage.setItem(ALLTIME_KEY, String(n));
+          return n;
+        } catch { return 0; }
+      }
+      function loadAllTime() {
+        try { return parseInt(localStorage.getItem(ALLTIME_KEY) || "0", 10) || 0; } catch { return 0; }
+      }
+
+      function composeUrl(text) {
+        return "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      function ideaUrl(idea) {
+        const u = new URL(SITE_URL);
+        u.searchParams.set("s", idea.seed);
+        if (idea.topic) u.searchParams.set("t", idea.topic);
+        return u.toString();
+      }
+
+      function relTime(ms) {
+        const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+        if (s < 60) return "just now";
+        const m = Math.round(s / 60);
+        if (m < 60) return m + "m ago";
+        const h = Math.round(m / 60);
+        if (h < 24) return h + "h ago";
+        return Math.round(h / 24) + "d ago";
+      }
+
+      function renderLog() {
+        const items = loadLog();
+        els.log.innerHTML = "";
+        if (!items.length) {
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = "nothing rolled yet.";
+          els.log.appendChild(li);
+          return;
+        }
+        for (const item of items) {
+          const li = document.createElement("li");
+          const body = document.createElement("div");
+          body.className = "body";
+          const txt = document.createElement("p");
+          txt.className = "txt";
+          txt.innerHTML = "<b>" + escapeHtml(item.name) + "</b>: " + escapeHtml(item.pitch);
+          const when = document.createElement("div");
+          when.className = "when";
+          when.textContent = relTime(item.at);
+          body.append(txt, when);
+          const rebuild = document.createElement("a");
+          rebuild.className = "btn ghost rebuild";
+          rebuild.target = "_blank";
+          rebuild.rel = "noopener";
+          rebuild.textContent = "🐦 build";
+          rebuild.href = composeUrl(BOT + " build " + item.name + ": " + item.pitch + " — " + SITE_URL + "?s=" + item.seed + (item.topic ? "&t=" + encodeURIComponent(item.topic) : ""));
+          li.append(body, rebuild);
+          els.log.appendChild(li);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        }[c]));
+      }
+
+      function logIdea(idea) {
+        const list = loadLog();
+        list.unshift({ seed: idea.seed, topic: idea.topic, name: idea.name, pitch: idea.pitch, at: Date.now() });
+        saveLog(list);
+        renderLog();
+        els.statSaved.textContent = bumpAllTime();
+      }
+
+      function render(idea) {
+        current = idea;
+        els.ideaTag.textContent = idea.tag;
+        els.ideaName.textContent = idea.name;
+        els.ideaPitch.textContent = idea.pitch;
+
+        const promptText = buildPrompt(idea);
+        els.buildBtn.href = composeUrl(BOT + " build " + promptText + " — " + ideaUrl(idea));
+
+        const url = new URL(location.href);
+        url.searchParams.set("s", idea.seed);
+        if (idea.topic) url.searchParams.set("t", idea.topic);
+        else url.searchParams.delete("t");
+        history.replaceState(null, "", url.toString());
+      }
+
+      function roll(seed) {
+        const topic = els.topicInput.value.trim();
+        const idea = generate(seed ?? newSeed(), topic);
+        render(idea);
+        sessionCount += 1;
+        els.statCount.textContent = sessionCount;
+        logIdea(idea);
+        els.copied.classList.remove("show");
+      }
+
+      // ── wiring ────────────────────────────────────────────────────────
+      els.rerollBtn.addEventListener("click", () => roll());
+      els.topicInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") roll();
+      });
+
+      els.copyBtn.addEventListener("click", async () => {
+        if (!current) return;
+        try { await navigator.clipboard.writeText(buildPrompt(current) + " — " + SITE_URL); }
+        catch { /* clipboard blocked — share still works */ }
+        els.copied.classList.add("show");
+        setTimeout(() => els.copied.classList.remove("show"), 1200);
+      });
+
+      els.permalinkBtn.addEventListener("click", async () => {
+        if (!current) return;
+        try { await navigator.clipboard.writeText(ideaUrl(current)); }
+        catch { /* clipboard blocked */ }
+        els.copied.classList.add("show");
+        setTimeout(() => els.copied.classList.remove("show"), 1200);
+      });
+
+      // ── boot: reproduce a shared idea from ?s=&t=, or roll a fresh one ──
+      els.statSaved.textContent = loadAllTime();
+      renderLog();
+      const params = new URL(location.href).searchParams;
+      const sParam = params.get("s");
+      const tParam = params.get("t") || "";
+      if (tParam) els.topicInput.value = tParam;
+      if (sParam && /^\d+$/.test(sParam)) {
+        render(generate(parseInt(sParam, 10), tParam));
+        sessionCount = 1;
+        els.statCount.textContent = sessionCount;
+      } else {
+        roll();
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
