@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>this minute's post — bisks.net</title>
+    <meta
+      name="description"
+      content="Watches the live Bluesky firehose, keeps the last 60 seconds of it, and knits a brand new 'post' out of it with a word-level Markov chain — the whole network's last minute, remixed. Filter to just @bisks.net's simcluster, or leave it global."
+    />
+    <meta property="og:title" content="this minute's post — bisks.net" />
+    <meta
+      property="og:description"
+      content="The live Bluesky firehose's last 60 seconds, remixed into one new post by a Markov chain. Global, or just @bisks.net's simcluster."
+    />
+    <meta property="og:url" content="https://thisminute.bisks.net/" />
+    <meta property="og:image" content="https://thisminute.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="this minute's post — a generated post card over a faint stream of scrolling words."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="this minute's post — bisks.net" />
+    <meta
+      name="twitter:description"
+      content="The live Bluesky firehose's last 60 seconds, remixed into one new post by a Markov chain."
+    />
+    <meta name="twitter:image" content="https://thisminute.bisks.net/og.png" />
+    <!-- bisks.net house style: plain, black on white, one readable mono,
+         hairline-separated blocks, blue accent for links + the live dot.
+         Palette + card shape copied from trigrams/simcluster (siblings). -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      header h1 a { color: inherit; text-decoration: none; }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: #ccc; transition: background 0.3s;
+      }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 58ch;
+      }
+      .intro b { color: var(--ink); }
+
+      /* controls */
+      .controls {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        margin: 0 0 0.75rem; font-size: 0.78rem;
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.3rem 0.65rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+      }
+      .controls button:hover:not(:disabled) { border-color: var(--muted); }
+      .controls button:disabled { opacity: 0.4; cursor: default; }
+      .modegrp { display: inline-flex; gap: 0.3rem; }
+      .modegrp button.on { border-color: var(--accent); color: var(--accent); background: #eef3fc; }
+      #genNow { border-color: var(--ink); }
+      #genNow:hover:not(:disabled) { background: var(--faintbg); }
+      #pauseBtn.on { border-color: var(--gold); color: #7a5b00; background: #fff8e6; }
+      .spacer { flex: 1 1 auto; }
+      .countdown { color: var(--muted); white-space: nowrap; }
+      .countdown b { color: var(--ink); }
+
+      .stats {
+        color: var(--muted); font-size: 0.76rem; margin: 0 0 1.4rem;
+        padding-bottom: 1.1rem; border-bottom: 1px solid var(--faint);
+      }
+      .stats b { color: var(--ink); font-weight: 600; }
+
+      /* the generated post card */
+      .card {
+        border: 1px solid var(--ink); border-radius: 10px;
+        padding: 1.4rem 1.5rem; margin-bottom: 1rem; position: relative;
+        min-height: 7rem; display: flex; flex-direction: column; justify-content: center;
+      }
+      .card .badge {
+        position: absolute; top: -0.6rem; left: 1rem;
+        background: var(--bg); padding: 0 0.5rem;
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--accent); font-weight: 600;
+      }
+      .card .body {
+        font-size: 1.12rem; line-height: 1.6; word-break: break-word;
+        white-space: pre-wrap;
+      }
+      .card .body.waiting { color: var(--muted); font-size: 0.95rem; font-style: italic; }
+      .card .meta {
+        margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--faint);
+        font-size: 0.72rem; color: var(--muted);
+        display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+      }
+      .card .meta .src { }
+      .card .actions { display: flex; gap: 0.5rem; }
+      .card .actions button, .card .actions a {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--accent);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.55rem; cursor: pointer; text-decoration: none;
+        line-height: 1.3;
+      }
+      .card .actions button:hover, .card .actions a:hover { border-color: var(--accent); }
+
+      .history { font-size: 0.76rem; color: var(--muted); margin: 0 0 2.5rem; }
+      .history summary { cursor: pointer; color: var(--ink); }
+      .history ol { margin: 0.6rem 0 0; padding-left: 1.4rem; }
+      .history li { margin-bottom: 0.6rem; line-height: 1.55; }
+      .history .t { color: var(--muted); font-size: 0.68rem; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">this minute's post</a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        This reads the live Bluesky firehose and keeps only the last
+        <b>60 seconds</b> of it. Every minute — or whenever you hit
+        <b>make one now</b> — it treats that window as raw material and knits
+        a brand new "post" out of it with a word-level Markov chain: given
+        the last two words, what tends to come next, judged purely by what
+        just flew past. It's not anyone's post. It's everyone's, averaged
+        over sixty seconds.
+      </p>
+
+      <div class="controls">
+        <div class="modegrp" id="modeGrp">
+          <button data-mode="global" class="on" title="every public post on the firehose">global</button>
+          <button data-mode="simcluster" title="only posts from @bisks.net's simcluster — their moots (mutual follows)">simcluster</button>
+        </div>
+        <button id="pauseBtn" title="freeze the window (the firehose keeps flowing underneath)">pause</button>
+        <span class="spacer"></span>
+        <span class="countdown" id="countdown"></span>
+        <button id="genNow">make one now</button>
+      </div>
+
+      <p class="stats" id="stats">warming up…</p>
+
+      <div class="card">
+        <span class="badge" id="cardBadge">this minute</span>
+        <div class="body waiting" id="cardBody">reading the firehose…</div>
+        <div class="meta">
+          <span class="src" id="cardMeta"></span>
+          <span class="actions">
+            <button id="shareBtn" title="compose a Bluesky post with this text">share</button>
+          </span>
+        </div>
+      </div>
+
+      <details class="history">
+        <summary>earlier ones this session</summary>
+        <ol id="historyList" reversed></ol>
+      </details>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · simcluster = <a href="https://simcluster.bisks.net">@bisks.net</a>'s moots
+        (see <a href="https://clusterpedia.bisks.net/wiki/simcluster">clusterpedia</a>)
+        · sibling of <a href="https://trigrams.bisks.net">trigrams</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script type="module">
+      import { loadSimcluster } from "./lib/simcluster.js";
+
+      // ---- config ------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const WINDOW_MS = 60_000; // "this minute" — the literal corpus window
+      const MAX_WINDOW_POSTS = 4000; // safety cap so global mode can't balloon memory
+      const MIN_POSTS_TO_GENERATE = 4;
+      const MAX_GEN_WORDS = 44;
+      const MIN_GEN_WORDS = 6;
+      const HISTORY_CAP = 12;
+
+      // ---- DOM -----------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const modeGrp = document.getElementById("modeGrp");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const genNowBtn = document.getElementById("genNow");
+      const countdownEl = document.getElementById("countdown");
+      const statsEl = document.getElementById("stats");
+      const cardBody = document.getElementById("cardBody");
+      const cardMeta = document.getElementById("cardMeta");
+      const cardBadge = document.getElementById("cardBadge");
+      const shareBtn = document.getElementById("shareBtn");
+      const historyList = document.getElementById("historyList");
+
+      // ---- state -----------------------------------------------------------
+      let mode = "global"; // "global" | "simcluster"
+      let paused = false;
+      let simclusterDids = null; // Set<did> once loaded
+      let simclusterLoading = false;
+      const window_ = []; // { text, did, ts }, newest last
+      let currentText = "";
+
+      // ---- text handling ---------------------------------------------------
+      const URL_RE = /https?:\/\/\S+/g;
+      function tokenize(text) {
+        return text
+          .replace(URL_RE, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .split(" ")
+          .filter(Boolean);
+      }
+
+      // Cheap gate for obviously automated / spammy posts — copied from
+      // trigrams' looksLikeSpam, trims the loudest bot noise from the corpus.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/🛒|shop now|buy now|↗️ ?buy/i.test(text)) return true;
+        if (/prime members|\$\d+\.\d{2}\b|amzn\.to/i.test(text)) return true;
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true;
+        return false;
+      }
+
+      function escapeHtml(s) {
+        return s.replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+
+      // ---- rolling window ----------------------------------------------
+      function pruneWindow() {
+        const cutoff = Date.now() - WINDOW_MS;
+        let i = 0;
+        while (i < window_.length && window_[i].ts < cutoff) i++;
+        if (i > 0) window_.splice(0, i);
+        if (window_.length > MAX_WINDOW_POSTS) {
+          window_.splice(0, window_.length - MAX_WINDOW_POSTS);
+        }
+      }
+
+      function windowPosts() {
+        if (mode === "simcluster") {
+          if (!simclusterDids) return [];
+          return window_.filter((p) => simclusterDids.has(p.did));
+        }
+        return window_;
+      }
+
+      // ---- Markov chain (order 2, word-level) ---------------------------
+      function buildModel(posts) {
+        const chain = new Map(); // "w1 w2" -> [nextWord | null, ...]
+        const starts = [];
+        for (const p of posts) {
+          const words = tokenize(p.text);
+          if (words.length < 2) continue;
+          starts.push([words[0], words[1]]);
+          for (let i = 0; i + 1 < words.length; i++) {
+            const key = words[i] + " " + words[i + 1];
+            const next = i + 2 < words.length ? words[i + 2] : null;
+            let arr = chain.get(key);
+            if (!arr) chain.set(key, (arr = []));
+            arr.push(next);
+          }
+        }
+        return { chain, starts };
+      }
+
+      function generate(model) {
+        if (!model.starts.length) return null;
+        const [w0, w1] = model.starts[Math.floor(Math.random() * model.starts.length)];
+        const out = [w0, w1];
+        for (let i = 0; i < MAX_GEN_WORDS - 2; i++) {
+          const key = out[out.length - 2] + " " + out[out.length - 1];
+          const options = model.chain.get(key);
+          if (!options || !options.length) break;
+          const next = options[Math.floor(Math.random() * options.length)];
+          if (next == null) break;
+          out.push(next);
+          if (out.length >= MIN_GEN_WORDS && /[.!?]["')\]]?$/.test(next) && Math.random() < 0.35) break;
+        }
+        return out.join(" ");
+      }
+
+      // ---- rendering -------------------------------------------------------
+      function wordCount(posts) {
+        let n = 0;
+        for (const p of posts) n += tokenize(p.text).length;
+        return n;
+      }
+
+      function updateStats() {
+        const posts = windowPosts();
+        const words = wordCount(posts);
+        const label = mode === "simcluster" ? "simcluster" : "global";
+        if (mode === "simcluster" && simclusterLoading) {
+          statsEl.textContent = "loading @bisks.net's simcluster…";
+          return;
+        }
+        if (mode === "simcluster" && !simclusterDids) {
+          statsEl.textContent = "simcluster not loaded yet";
+          return;
+        }
+        statsEl.innerHTML =
+          `<b>${posts.length}</b> post${posts.length === 1 ? "" : "s"} · ` +
+          `<b>${words}</b> word${words === 1 ? "" : "s"} in the last 60s · ${label}` +
+          (mode === "simcluster" ? ` (${simclusterDids.size} accounts)` : "");
+      }
+
+      function pushHistory(text, meta) {
+        const li = document.createElement("li");
+        const t = document.createElement("div");
+        t.className = "t";
+        t.textContent = meta;
+        const b = document.createElement("div");
+        b.textContent = text;
+        li.append(b, t);
+        historyList.insertBefore(li, historyList.firstChild);
+        while (historyList.children.length > HISTORY_CAP) {
+          historyList.removeChild(historyList.lastElementChild);
+        }
+      }
+
+      function buildShareText(text) {
+        const url = "https://thisminute.bisks.net/";
+        const prefix = "this minute's post: “";
+        const suffix = `” ${url}`;
+        const budget = 300 - prefix.length - suffix.length;
+        const body = text.length > budget ? text.slice(0, Math.max(0, budget - 1)).trimEnd() + "…" : text;
+        return prefix + body + suffix;
+      }
+
+      function renderPost({ text, count, words, auto }) {
+        currentText = text;
+        cardBody.classList.remove("waiting");
+        cardBody.textContent = text;
+        cardBadge.textContent = mode === "simcluster" ? "this minute · simcluster" : "this minute";
+        const when = new Date().toLocaleTimeString();
+        const src = `from ${count} post${count === 1 ? "" : "s"} / ${words} words · ${auto ? "auto" : "manual"} · ${when}`;
+        cardMeta.textContent = src;
+        shareBtn.disabled = false;
+        pushHistory(text, src);
+      }
+
+      function renderWaiting(msg) {
+        currentText = "";
+        cardBody.classList.add("waiting");
+        cardBody.textContent = msg;
+        cardMeta.textContent = "";
+        shareBtn.disabled = true;
+      }
+
+      function tryGenerate(auto) {
+        if (paused) return;
+        const posts = windowPosts();
+        if (posts.length < MIN_POSTS_TO_GENERATE) {
+          if (mode === "simcluster" && simclusterDids) {
+            renderWaiting(
+              `not enough of @bisks.net's simcluster has posted in the last minute yet (${posts.length} so far) — hang on, or switch to global.`,
+            );
+          } else if (mode === "global") {
+            renderWaiting("reading the firehose…");
+          }
+          return;
+        }
+        const model = buildModel(posts);
+        const text = generate(model);
+        if (!text) {
+          renderWaiting("couldn't knit a sentence out of that minute — try again.");
+          return;
+        }
+        renderPost({ text, count: posts.length, words: wordCount(posts), auto });
+      }
+
+      // ---- mode switching ---------------------------------------------------
+      async function ensureSimcluster() {
+        if (simclusterDids || simclusterLoading) return;
+        simclusterLoading = true;
+        updateStats();
+        try {
+          const res = await loadSimcluster({
+            onStep: (s) => {
+              statsEl.textContent = s;
+            },
+          });
+          simclusterDids = res.dids;
+        } catch (e) {
+          renderWaiting("couldn't load @bisks.net's simcluster — try again, or switch to global.");
+        } finally {
+          simclusterLoading = false;
+          updateStats();
+          tryGenerate(false);
+        }
+      }
+
+      modeGrp.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-mode]");
+        if (!b) return;
+        mode = b.dataset.mode;
+        for (const btn of modeGrp.querySelectorAll("button")) btn.classList.toggle("on", btn === b);
+        updateStats();
+        if (mode === "simcluster") {
+          ensureSimcluster();
+        } else {
+          tryGenerate(false);
+        }
+      });
+
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.classList.toggle("on", paused);
+        pauseBtn.textContent = paused ? "resume" : "pause";
+      });
+
+      genNowBtn.addEventListener("click", () => tryGenerate(false));
+
+      shareBtn.addEventListener("click", () => {
+        if (!currentText) return;
+        const text = buildShareText(currentText);
+        window.open(
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(text),
+          "_blank",
+          "noopener",
+        );
+      });
+
+      // ---- firehose --------------------------------------------------------
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text) return;
+        if (looksLikeSpam(text)) return;
+        window_.push({ text, did: evt.did, ts: Date.now() });
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          setStatus(true, "live");
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+      connect();
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      // ---- the clock: prune every second, regenerate at each minute mark ---
+      let lastMinuteKey = null;
+      let firstGenDone = false;
+      setInterval(() => {
+        pruneWindow();
+        updateStats();
+        const now = new Date();
+        const key = `${now.getHours()}:${now.getMinutes()}`;
+        if (lastMinuteKey === null) {
+          lastMinuteKey = key;
+        } else if (key !== lastMinuteKey) {
+          lastMinuteKey = key;
+          tryGenerate(true);
+        }
+        // one automatic first pass once there's something to chew on, so the
+        // page doesn't sit idle for up to 60s on a fresh load
+        if (!firstGenDone && windowPosts().length >= MIN_POSTS_TO_GENERATE) {
+          firstGenDone = true;
+          tryGenerate(true);
+        }
+        const secsLeft = 60 - now.getSeconds();
+        countdownEl.innerHTML = `next auto <b>${secsLeft}s</b>`;
+      }, 1000);
+
+      updateStats();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
