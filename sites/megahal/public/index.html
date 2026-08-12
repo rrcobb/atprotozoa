@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>megahal — bisks.net</title>
+    <meta
+      name="description"
+      content="Talk to MegaHAL — a from-scratch, in-browser reimplementation of Jason Hutchens' classic learning chatterbot, walked as a second-order Markov chain. Pick a brain (default, aliens, ferris, pepys, pulp, sherlock, startrek, starwars) and it learns from you as you go."
+    />
+    <meta property="og:title" content="megahal — bisks.net" />
+    <meta
+      property="og:description"
+      content="A MegaHAL-style learning chatterbot, entirely in your browser. Eight brains to pick from, and it learns from what you type as the conversation goes."
+    />
+    <meta property="og:url" content="https://megahal.bisks.net/" />
+    <meta property="og:image" content="https://megahal.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="megahal — a chat window with a brain dropdown, mid-conversation with a Markov-chain chatterbot." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="megahal — bisks.net" />
+    <meta
+      name="twitter:description"
+      content="A MegaHAL-style learning chatterbot, entirely in your browser. Eight brains to pick from."
+    />
+    <meta name="twitter:image" content="https://megahal.bisks.net/og.png" />
+    <!-- bisks.net house style: plain, black on white, one readable mono,
+         hairline-separated blocks, blue accent. Palette copied from
+         trigrams/thisminute (siblings). -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --good: #1f8a4c;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 .brand-brain { color: var(--accent); }
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 58ch;
+      }
+      .intro b { color: var(--ink); }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* brain picker */
+      .brainrow {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        margin: 0 0 0.5rem; font-size: 0.82rem;
+      }
+      .brainrow label { color: var(--muted); }
+      #brainSelect {
+        font-family: var(--mono); font-size: 0.82rem; color: var(--ink);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.32rem 0.5rem; cursor: pointer;
+      }
+      #brainSelect:hover { border-color: var(--muted); }
+      #resetBtn {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.28rem 0.55rem; cursor: pointer;
+      }
+      #resetBtn:hover { border-color: var(--muted); color: var(--ink); }
+      .brainblurb {
+        color: var(--muted); font-size: 0.78rem; margin: 0 0 1.1rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+
+      .learnrow {
+        display: flex; align-items: center; gap: 0.4rem; margin-left: auto;
+        font-size: 0.72rem; color: var(--muted);
+      }
+      .learnrow input { accent-color: var(--accent); }
+
+      /* chat */
+      .chat {
+        border: 1px solid var(--ink); border-radius: 10px;
+        padding: 1rem 1.1rem; margin-bottom: 0.9rem;
+        min-height: 20rem; max-height: 26rem; overflow-y: auto;
+        display: flex; flex-direction: column; gap: 0.65rem;
+      }
+      .msg { display: flex; flex-direction: column; max-width: 88%; }
+      .msg.user { align-self: flex-end; align-items: flex-end; }
+      .msg.bot { align-self: flex-start; align-items: flex-start; }
+      .bubble {
+        padding: 0.5rem 0.75rem; border-radius: 10px; font-size: 0.92rem;
+        line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+      }
+      .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 3px; }
+      .msg.bot .bubble { background: var(--faintbg); color: var(--ink); border: 1px solid var(--faint); border-bottom-left-radius: 3px; }
+      .msg .meta {
+        font-size: 0.65rem; color: var(--muted); margin-top: 0.22rem;
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .msg .meta button {
+        font-family: var(--mono); font-size: 0.65rem; color: var(--accent);
+        background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline;
+      }
+      .msg.empty { align-self: center; color: var(--muted); font-size: 0.82rem; font-style: italic; }
+
+      form#composer { display: flex; gap: 0.5rem; margin-bottom: 2.5rem; }
+      #inputText {
+        flex: 1 1 auto; font-family: var(--mono); font-size: 0.92rem;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--faint); border-radius: 6px;
+        color: var(--ink); background: var(--bg);
+      }
+      #inputText:focus { outline: none; border-color: var(--accent); }
+      #sendBtn {
+        font-family: var(--mono); font-size: 0.88rem; font-weight: 600; color: #fff;
+        background: var(--accent); border: none; border-radius: 6px;
+        padding: 0.55rem 1.1rem; cursor: pointer;
+      }
+      #sendBtn:hover { background: #1450b0; }
+      #sendBtn:disabled { opacity: 0.5; cursor: default; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">megahal<span class="brand-brain" id="brandBrain"></span></a></h1>
+      </header>
+
+      <p class="intro">
+        A <b>learning chatterbot</b>, in the tradition of Jason Hutchens'
+        <a href="https://github.com/kranzky/megahal" target="_blank" rel="noopener">MegaHAL</a> —
+        no server, no external model, just a second-order Markov chain built
+        and walked right here in your browser. Pick a <b>brain</b> below, say
+        anything, and it will pull out a keyword, generate a few candidate
+        replies by walking its chain forward and backward from that word, and
+        keep the most "interesting" one. It also <b>learns from you</b> as
+        you talk — for this browser tab only, nothing is saved anywhere.
+      </p>
+
+      <div class="brainrow">
+        <label for="brainSelect">brain</label>
+        <select id="brainSelect"></select>
+        <button id="resetBtn" title="wipe this brain's session learning, back to its trained default">reset brain</button>
+        <span class="learnrow">
+          <input type="checkbox" id="learnToggle" checked />
+          <label for="learnToggle">learn from me</label>
+        </span>
+      </div>
+      <p class="brainblurb" id="brainBlurb"></p>
+
+      <div class="chat" id="chat">
+        <div class="msg empty" id="emptyState">say something to get started</div>
+      </div>
+
+      <form id="composer">
+        <input id="inputText" type="text" placeholder="type something…" autocomplete="off" maxlength="240" />
+        <button id="sendBtn" type="submit">send</button>
+      </form>
+
+      <footer>
+        brains are original pastiche text, not the real scripts/books — the
+        engine is a fresh reimplementation, not a port, of
+        <a href="https://github.com/kranzky/megahal" target="_blank" rel="noopener">kranzky/megahal</a>
+        (Jason Hutchens' 1998 Loebner-winning chatterbot, rewritten in Ruby in 2014)
+        · sibling of <a href="https://thisminute.bisks.net">this minute's post</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script type="module">
+      import { buildBrain, learn, reply } from "./lib/megahal.js";
+      import { BRAINS } from "./lib/brains.js";
+
+      const brainSelect = document.getElementById("brainSelect");
+      const brainBlurb = document.getElementById("brainBlurb");
+      const brandBrain = document.getElementById("brandBrain");
+      const resetBtn = document.getElementById("resetBtn");
+      const learnToggle = document.getElementById("learnToggle");
+      const chat = document.getElementById("chat");
+      const emptyState = document.getElementById("emptyState");
+      const composer = document.getElementById("composer");
+      const inputText = document.getElementById("inputText");
+      const sendBtn = document.getElementById("sendBtn");
+
+      // one built (and possibly session-learned-on) model per brain key,
+      // built lazily and cached so switching brains mid-conversation doesn't
+      // lose what each one has picked up from you
+      const models = new Map();
+      function modelFor(key) {
+        if (!models.has(key)) models.set(key, buildBrain(BRAINS[key].lines));
+        return models.get(key);
+      }
+
+      for (const key of Object.keys(BRAINS)) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = BRAINS[key].label;
+        brainSelect.appendChild(opt);
+      }
+
+      let currentBrain = "default";
+
+      function renderBrainInfo() {
+        brandBrain.textContent = " · " + BRAINS[currentBrain].label;
+        brainBlurb.textContent = BRAINS[currentBrain].blurb;
+      }
+
+      function appendMessage(role, text, meta) {
+        emptyState.remove();
+        const msg = document.createElement("div");
+        msg.className = "msg " + role;
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = text;
+        msg.appendChild(bubble);
+        if (meta) {
+          const metaEl = document.createElement("div");
+          metaEl.className = "meta";
+          metaEl.appendChild(document.createTextNode(meta));
+          if (role === "bot") {
+            const shareBtn = document.createElement("button");
+            shareBtn.type = "button";
+            shareBtn.textContent = "share";
+            shareBtn.addEventListener("click", () => shareReply(text));
+            metaEl.appendChild(document.createTextNode(" · "));
+            metaEl.appendChild(shareBtn);
+          }
+          msg.appendChild(metaEl);
+        }
+        chat.appendChild(msg);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      function buildShareText(text) {
+        const url = "https://megahal.bisks.net/";
+        const prefix = `megahal (${BRAINS[currentBrain].label}) said: “`;
+        const suffix = `” ${url}`;
+        const budget = 300 - prefix.length - suffix.length;
+        const body = text.length > budget ? text.slice(0, Math.max(0, budget - 1)).trimEnd() + "…" : text;
+        return prefix + body + suffix;
+      }
+
+      function shareReply(text) {
+        const shareText = buildShareText(text);
+        window.open(
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText),
+          "_blank",
+          "noopener",
+        );
+      }
+
+      function respond(userText) {
+        const brain = modelFor(currentBrain);
+        if (learnToggle.checked) learn(brain, userText);
+        const { text } = reply(brain, userText);
+        appendMessage("bot", text, BRAINS[currentBrain].label);
+      }
+
+      brainSelect.addEventListener("change", () => {
+        currentBrain = brainSelect.value;
+        renderBrainInfo();
+      });
+
+      resetBtn.addEventListener("click", () => {
+        models.set(currentBrain, buildBrain(BRAINS[currentBrain].lines));
+        chat.innerHTML = "";
+        const msg = document.createElement("div");
+        msg.className = "msg empty";
+        msg.textContent = BRAINS[currentBrain].label + "'s brain has been reset — say something to get started";
+        chat.appendChild(msg);
+      });
+
+      composer.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = inputText.value.trim();
+        if (!text) return;
+        appendMessage("user", text);
+        inputText.value = "";
+        sendBtn.disabled = true;
+        // a tiny delay makes the "thinking" feel real, and keeps the UI from
+        // flashing user+bot messages in as a single frame
+        setTimeout(() => {
+          respond(text);
+          sendBtn.disabled = false;
+          inputText.focus();
+        }, 220);
+      });
+
+      brainSelect.value = currentBrain;
+      renderBrainInfo();
+      inputText.focus();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
