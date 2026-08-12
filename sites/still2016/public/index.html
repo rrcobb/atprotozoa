@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>still2016 — the bsky firehose, filtered for the last ten years</title>
+<meta name="description" content="Watches the live Bluesky firehose for posts with no mention of anything from the ten years since 2016 — no covid, no ChatGPT, no Elon buying Twitter, no explicit later year. What's left could conceivably have been written back then." />
+<meta property="og:title" content="still2016 — the bsky firehose, filtered for the last ten years" />
+<meta property="og:description" content="Watches the live Bluesky firehose for posts with no mention of anything from the ten years since 2016. What's left could conceivably have been written back then." />
+<meta property="og:url" content="https://still2016.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://still2016.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="still2016: a live log of bsky posts with no reference to anything from the last ten years." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="still2016 — the bsky firehose, filtered for the last ten years" />
+<meta name="twitter:description" content="Watches the live Bluesky firehose for posts with no mention of anything from the ten years since 2016. What's left could conceivably have been written back then." />
+<meta name="twitter:image" content="https://still2016.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #f4ead9;
+    --fg: #2e2118;
+    --dim: #8a7663;
+    --accent: #d4622f;
+    --accent2: #2a7a6b;
+    --card: #fffaf0;
+    --border: #e0cfad;
+    --glow: rgba(212, 98, 47, 0.25);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #fbe4c4 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #dcefe6 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .badge {
+    display: inline-block; background: var(--accent2); color: #fffaf0; font-weight: 800;
+    font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.2rem 0.5rem; border-radius: 5px; transform: rotate(-2deg); margin-bottom: 0.6rem;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.75rem; line-height: 1.5; }
+  .tag a { color: var(--accent); }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 0 var(--border);
+  }
+
+  .statsRow { display: flex; justify-content: space-between; gap: 0.75rem; text-align: center; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 90px; }
+  .statNum { font-size: 1.7rem; font-weight: 800; color: var(--accent); text-shadow: 0 0 14px var(--glow); }
+  .statLabel { color: var(--dim); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 0.15rem; }
+
+  .meta { color: var(--dim); font-size: 0.78rem; text-align: center; margin-top: 1rem; line-height: 1.6; }
+
+  .controls { display: flex; justify-content: center; gap: 0.5rem; margin-top: 1.1rem; flex-wrap: wrap; }
+  button, .btnLink {
+    background: transparent; color: var(--accent); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.55rem 0.9rem; font: inherit; font-size: 0.82rem;
+    font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap;
+  }
+  button.primary, .btnLink.primary {
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fffaf0; border: none;
+  }
+  button:hover, .btnLink:hover { filter: brightness(1.05); }
+
+  h2 { font-size: 1.05rem; margin: 0 0 0.2rem; color: var(--fg); }
+  .sectionHint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1rem; line-height: 1.5; }
+
+  .entry { border-top: 1px dashed var(--border); padding: 0.9rem 0; }
+  .entry:first-child { border-top: none; }
+  .entryText { font-size: 0.9rem; color: var(--fg); line-height: 1.5; margin: 0 0 0.4rem; }
+  .entryText::before { content: "\201C"; color: var(--accent); font-weight: 800; }
+  .entryText::after { content: "\201D"; color: var(--accent); font-weight: 800; }
+  .entryMeta { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; }
+  .entryWhen { color: var(--dim); font-size: 0.72rem; }
+  .entryLink { color: var(--accent2); font-size: 0.72rem; text-decoration: none; font-weight: 700; }
+
+  .empty { color: var(--dim); font-size: 0.85rem; text-align: center; padding: 1.1rem 0; }
+
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 2.5rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="badge">certified pre-2017*</span>
+  <h1>🕰️ still2016</h1>
+  <p class="tag">Live posts from the <a href="https://bsky.app/" target="_blank" rel="noopener">Bluesky</a> firehose that make no mention of anything from the ten years since 2016 — no COVID, no ChatGPT, no Elon buying Twitter, no explicit later year, nothing checked against a blocklist of ~150 post-2016 markers. What's left is a post that *could* have been written back then. Not proof — just nothing here rules it out.</p>
+
+  <div class="panel">
+    <div class="statsRow">
+      <div class="stat"><div class="statNum" id="matchedNum">0</div><div class="statLabel">flagged</div></div>
+      <div class="stat"><div class="statNum" id="rateNum">0</div><div class="statLabel">per minute</div></div>
+      <div class="stat"><div class="statNum" id="pctNum">0%</div><div class="statLabel">of eligible posts</div></div>
+    </div>
+    <p class="meta" id="scanLine">connecting…</p>
+    <div class="controls">
+      <a class="btnLink primary" id="shareBluesky" href="#" target="_blank" rel="noopener">share the latest find</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>time capsule log</h2>
+    <p class="sectionHint">newest first. re-derived live from the open firehose — nothing here is stored beyond the post text and a link back to it.</p>
+    <div id="entryList"><div class="empty">watching the firehose…</div></div>
+  </div>
+
+  <footer>
+    * not actually certified. a wordlist can't prove a post is from 2016, only that it isn't obviously <em>not</em>.<br>
+    built for <a href="https://bsky.app/profile/mfzx.net" target="_blank" rel="noopener">@mfzx.net</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    · <a href="https://bisks.net/">bisks.net</a>
+  </footer>
+</div>
+
+<script>
+const POLL_MS = 5000;
+
+const els = {
+  matchedNum: document.getElementById("matchedNum"),
+  rateNum: document.getElementById("rateNum"),
+  pctNum: document.getElementById("pctNum"),
+  scanLine: document.getElementById("scanLine"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  entryList: document.getElementById("entryList"),
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function timeAgo(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return s + "s ago";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60);
+  return h + "h ago";
+}
+
+function buildShareText(data) {
+  const url = "https://still2016.bisks.net/";
+  const top = (data.entries || [])[0];
+  if (top) {
+    const snippet = top.text.length > 140 ? top.text.slice(0, 139).trimEnd() + "…" : top.text;
+    return "🕰️ still2016 just flagged a bsky post with no reference to anything from the last ten years: \"" + snippet + "\" " + url;
+  }
+  return "🕰️ still2016 is watching the firehose for posts that could still be from 2016. " + url;
+}
+
+function entryHtml(e) {
+  return (
+    '<div class="entry">' +
+    '<p class="entryText">' + escapeHtml(e.text) + '</p>' +
+    '<div class="entryMeta"><span class="entryWhen">' + timeAgo(e.matchedAt) + '</span>' +
+    '<a class="entryLink" href="' + e.url + '" target="_blank" rel="noopener">view post ↗</a></div>' +
+    '</div>'
+  );
+}
+
+function renderFeed(data) {
+  els.matchedNum.textContent = Number(data.totalMatched || 0).toLocaleString();
+  els.rateNum.textContent = Number(data.perMinute || 0).toLocaleString();
+  els.pctNum.textContent = (data.matchRatePct || 0) + "%";
+
+  const since = data.since ? new Date(data.since) : null;
+  els.scanLine.textContent = Number(data.totalScanned || 0).toLocaleString() + " posts scanned" +
+    (since ? ", watching since " + since.toLocaleTimeString() : "");
+
+  const entries = data.entries || [];
+  els.entryList.innerHTML = entries.length
+    ? entries.map(entryHtml).join("")
+    : '<div class="empty">nothing flagged yet — the firehose is talkative about the present. hang tight.</div>';
+
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data));
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/feed");
+    const data = await res.json();
+    renderFeed(data);
+  } catch (_) {
+    els.scanLine.textContent = "couldn't reach the firehose — retrying…";
+  }
+}
+
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

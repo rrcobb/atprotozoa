@@ -1,0 +1,39 @@
+# mfzx.net asked for "something that listens to the firehose for posts that
+# could have conceivably originated 10 years ago" — i.e. posts with no
+# reference to contemporary (post-2016) events/culture/people. A single
+# Durable Object holds one persistent outbound Jetstream WebSocket (the
+# fetch()-with-Upgrade-header pattern from sites/dosimeter / sites/ratioed /
+# sites/thrashradar), subscribed to just app.bsky.feed.post. Every post's
+# text is checked against a blocklist of post-2016 markers (named people,
+# events, tech, slang, explicit years) plus a light "is this real prose"
+# quality bar; anything clean gets logged as a time-capsule candidate. Only
+# the derived candidate log + scan counters are persisted — see
+# notes/ideas/store-ours-rederive-theirs.md.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+name = "atprotozoa-still2016"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+routes = [
+  { pattern = "still2016.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/feed is dynamic (the live candidate log Durable
+# Object), so the Worker must run BEFORE the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "CAPSULE"
+class_name = "Capsule"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Capsule"]
