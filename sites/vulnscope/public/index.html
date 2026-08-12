@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>vulnscope — what vulnerability are you?</title>
+<meta name="description" content="Enter a Bluesky handle. vulnscope reads their posts and outgoing follows off their real atproto repo and files a CVE for the software vulnerability that matches their personality." />
+<meta property="og:title" content="vulnscope — what vulnerability are you?" />
+<meta property="og:description" content="Enter a Bluesky handle. vulnscope reads their posts and outgoing follows off their real atproto repo and files a CVE for the software vulnerability that matches their personality." />
+<meta property="og:url" content="https://vulnscope.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://vulnscope.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="vulnscope: a CVE-style advisory card matching a Bluesky handle to a software vulnerability." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="vulnscope — what vulnerability are you?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. vulnscope reads their posts and outgoing follows off their real atproto repo and files a CVE for the software vulnerability that matches their personality." />
+<meta name="twitter:image" content="https://vulnscope.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0e0d;
+    --bg2: #0f1614;
+    --fg: #e7f3ec;
+    --dim: #7f978f;
+    --accent: #ff5c5c;
+    --accent2: #43ffa0;
+    --amber: #ffb454;
+    --card: #101815;
+    --border: #24332e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #1a3a2c 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #3a1414 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.1rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  .brand { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.35rem; }
+  h1 {
+    font-size: 1.85rem;
+    margin: 0;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand .blip { color: var(--accent); animation: blink 1.4s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; }
+  .tag code { color: var(--accent2); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent2); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent2), #17c97c);
+    color: #04170e;
+    border: none; border-radius: 8px;
+    padding: 0.75rem 1.15rem;
+    font: inherit; font-weight: 700; font-size: 0.88rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1rem; white-space: pre-wrap; }
+  .status.err { color: var(--accent); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.6rem;
+    box-shadow: 0 0 70px -25px var(--accent2);
+  }
+  .card.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.1rem; }
+  .who img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.68rem; word-break: break-all; }
+
+  .badgerow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .badge {
+    font-size: 0.68rem; letter-spacing: 0.03em; font-weight: 700;
+    padding: 0.28rem 0.55rem; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--dim);
+  }
+  .badge.cve { color: var(--accent2); border-color: var(--accent2); }
+  .badge.sev-critical { color: #ff4d4d; border-color: #ff4d4d; background: rgba(255,77,77,0.08); }
+  .badge.sev-high { color: var(--accent); border-color: var(--accent); background: rgba(255,92,92,0.08); }
+  .badge.sev-medium { color: var(--amber); border-color: var(--amber); background: rgba(255,180,84,0.08); }
+  .badge.sev-low { color: var(--accent2); border-color: var(--accent2); background: rgba(67,255,160,0.08); }
+
+  .vulnhead { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.15rem; }
+  .vulnhead .emoji { font-size: 1.9rem; }
+  .vulnname { font-size: 1.4rem; font-weight: 800; }
+  .cwe { color: var(--dim); font-size: 0.72rem; margin-bottom: 0.9rem; }
+  .tagline { color: var(--accent2); font-style: italic; font-size: 0.92rem; margin-bottom: 1rem; }
+
+  .cvssbar-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1.1rem; }
+  .cvssbar { flex: 1; height: 8px; border-radius: 4px; background: #1c2925; overflow: hidden; }
+  .cvssbar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--amber), var(--accent)); }
+  .cvssnum { font-size: 0.8rem; font-weight: 700; color: var(--dim); white-space: nowrap; }
+
+  .desc { font-size: 0.92rem; line-height: 1.6; margin-bottom: 1.2rem; }
+
+  .section-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--accent2); margin-bottom: 0.5rem;
+  }
+  .evidence { list-style: none; margin: 0 0 1.2rem; padding: 0; font-size: 0.84rem; color: var(--fg); }
+  .evidence li { padding: 0.2rem 0; }
+  .evidence li::before { content: "[+] "; color: var(--accent2); }
+
+  .footerline {
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    color: var(--dim); font-size: 0.72rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 0.8rem; margin-bottom: 1.3rem;
+  }
+  .footerline b { color: var(--fg); }
+
+  .sharebar { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .sharebar a, .sharebar button {
+    text-decoration: none;
+    font: inherit; font-size: 0.82rem; font-weight: 700;
+    padding: 0.55rem 0.85rem; border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg2); color: var(--fg);
+    cursor: pointer;
+  }
+  .sharebar a.primary { background: linear-gradient(90deg, #17c97c, var(--accent2)); color: #04170e; border: none; }
+  #shareNative { display: none; }
+
+  #shareCanvas { display: none; }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.72rem; text-align: center; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><h1>vulnscope</h1><span class="blip">_</span></div>
+    <p class="tag">
+      Point it at a Bluesky handle. It reads their posts and outgoing follows —
+      the actual <code>app.bsky.feed.post</code> / <code>app.bsky.graph.follow</code>
+      records in their real atproto repo — and files a CVE for whichever
+      software vulnerability their personality most resembles.
+    </p>
+
+    <form id="scanForm">
+      <input id="handleInput" type="text" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="scanBtn" type="submit">scan repo &gt;</button>
+    </form>
+    <p class="hint">reads public data only — no login, nothing written anywhere.</p>
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut">@handle</div>
+          <div class="did" id="didOut">did:...</div>
+        </div>
+      </div>
+
+      <div class="badgerow">
+        <span class="badge cve" id="cveId">CVE-2026-00000</span>
+        <span class="badge" id="sevBadge">Severity</span>
+        <span class="badge" id="cweBadge">CWE-000</span>
+      </div>
+
+      <div class="vulnhead">
+        <span class="emoji" id="vulnEmoji">🐛</span>
+        <span class="vulnname" id="vulnName">Vulnerability</span>
+      </div>
+      <div class="cwe" id="affected">affected component: @handle</div>
+      <div class="tagline" id="tagline">tagline goes here</div>
+
+      <div class="cvssbar-row">
+        <div class="cvssbar"><i id="cvssFill" style="width:0%"></i></div>
+        <span class="cvssnum" id="cvssNum">0.0 / 10</span>
+      </div>
+
+      <p class="desc" id="desc"></p>
+
+      <div class="section-label">scan findings</div>
+      <ul class="evidence" id="evidence"></ul>
+
+      <div class="footerline">
+        <span>patch status: <b id="patchStatus">—</b></span>
+        <span>exploit maturity: <b id="exploitMaturity">—</b></span>
+      </div>
+
+      <div class="sharebar">
+        <a id="shareBluesky" class="primary" target="_blank" rel="noopener">🦋 disclose on Bluesky</a>
+        <button id="shareDownload" type="button">save card</button>
+        <button id="shareNative" type="button">share…</button>
+      </div>
+    </div>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <footer>a small, unserious security audit by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a></footer>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
