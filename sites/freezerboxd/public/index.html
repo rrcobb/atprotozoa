@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>freezerboxd — log every dig to the back of the freezer</title>
+<meta name="description" content="a letterboxd for eating the food in the back of your freezer. rate the mystery meat in ice crystals, write a review, keep a diary of every dig." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="freezerboxd — log every dig to the back of the freezer" />
+<meta property="og:description" content="rate the mystery meat in ice crystals, review the wedding cake top tier, keep a diary of every excavation." />
+<meta property="og:image" content="https://freezerboxd.bisks.net/og.png" />
+<meta property="og:url" content="https://freezerboxd.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="freezerboxd — log every dig to the back of the freezer" />
+<meta name="twitter:description" content="rate the mystery meat in ice crystals, review the wedding cake top tier, keep a diary of every excavation." />
+<meta name="twitter:image" content="https://freezerboxd.bisks.net/og.png" />
+
+<style>
+  :root{
+    --bg:#eaf3f9; --bg2:#d3e4ee; --ink:#12293a; --muted:#54718a;
+    --frost:#7fb8d9; --frost-dark:#2f6690; --frost-glow:#bfe1f2;
+    --card:#f6fbfd; --line:#c3d8e3; --accent:#2f6690; --burn:#a9784f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    background:
+      radial-gradient(ellipse at 20% -10%, #f3f9fc 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg), var(--bg2) 80%);
+    color:var(--ink);
+    min-height:100vh;
+    line-height:1.5;
+  }
+  a{color:var(--accent)}
+  header{
+    padding:2.4rem 1.2rem 1.4rem;
+    text-align:center;
+    border-bottom:1px solid var(--line);
+    position:relative;
+    overflow:hidden;
+  }
+  header::before{
+    content:"";
+    position:absolute; inset:0;
+    background:
+      radial-gradient(circle at 12% 30%, rgba(127,184,217,.35), transparent 40%),
+      radial-gradient(circle at 85% 70%, rgba(127,184,217,.25), transparent 45%);
+    pointer-events:none;
+    animation: frostshift 14s ease-in-out infinite alternate;
+  }
+  @keyframes frostshift{
+    from{ transform: translateY(-6px) scale(1); }
+    to{ transform: translateY(6px) scale(1.03); }
+  }
+  h1{
+    margin:0; font-size:2.4rem; letter-spacing:-0.02em; position:relative;
+  }
+  h1 .freezer{ color:var(--frost-dark); }
+  h1 .boxd{ color:var(--accent); }
+  header p.tag{
+    margin:.5rem auto 0; max-width:38rem; color:var(--muted); font-size:.95rem;
+    position:relative;
+  }
+  header p.sub{
+    margin:.4rem 0 0; font-size:.8rem; color:var(--muted); opacity:.8; position:relative;
+  }
+
+  main{ max-width:780px; margin:0 auto; padding:1.6rem 1.1rem 5rem; }
+
+  h3.section{ font-size:1rem; margin:2.2rem 0 .8rem; color:var(--frost-dark); }
+
+  .dig-stats{
+    display:flex; gap:.6rem; flex-wrap:wrap; justify-content:center;
+    margin: 1.4rem 0 2rem; font-size:.78rem; color:var(--muted);
+  }
+  .dig-stats span{
+    border:1px solid var(--line); border-radius:999px; padding:.25rem .7rem;
+    background:var(--card);
+  }
+
+  .find{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:1.2rem;
+    margin-bottom:1.2rem;
+    display:grid;
+    grid-template-columns:88px 1fr;
+    gap:1rem;
+    position:relative;
+  }
+  .cover{
+    width:88px; height:132px; border-radius:4px; position:relative;
+    display:flex; align-items:center; justify-content:center;
+    padding:.5rem;
+    text-align:center;
+    font-size:.62rem;
+    font-weight:700;
+    color:#f2f8fb;
+    line-height:1.25;
+    box-shadow: inset 0 0 18px rgba(0,0,0,.3), 0 3px 8px rgba(0,0,0,.16);
+    overflow:hidden;
+  }
+  .cover::after{
+    content:""; position:absolute; left:0; right:0; bottom:0; height:34%;
+    background:linear-gradient(180deg, transparent, rgba(10,26,38,.5));
+  }
+  .cover .frost-crystal{
+    position:absolute; font-size:.7rem; opacity:.55;
+    animation: drift 6s ease-in-out infinite;
+  }
+  @keyframes drift{
+    0%,100%{ transform: translateY(0) rotate(0deg); }
+    50%{ transform: translateY(4px) rotate(12deg); }
+  }
+
+  .find h2{ margin:.1rem 0 .2rem; font-size:1.05rem; }
+  .find .meta{ font-size:.75rem; color:var(--muted); margin-bottom:.5rem; }
+  .rating{ display:flex; align-items:center; gap:.35rem; margin-bottom:.5rem; }
+  .crystal{ font-size:1rem; filter: grayscale(0) saturate(1.4); }
+  .crystal.off{ filter: grayscale(1) opacity(.25); }
+  .rating small{ color:var(--muted); font-size:.72rem; margin-left:.25rem; }
+
+  blockquote.review{
+    margin:.5rem 0; padding:.55rem .7rem;
+    border-left:3px solid var(--frost);
+    background:rgba(127,184,217,.1);
+    font-size:.85rem; font-style:italic; color:#1c3648;
+  }
+  blockquote.review cite{
+    display:block; margin-top:.3rem; font-style:normal; font-size:.7rem; color:var(--muted);
+  }
+
+  .actions{ display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.6rem; }
+  button, .btn{
+    font-family:inherit; font-size:.75rem; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    border-radius:999px; padding:.35rem .8rem;
+    transition:.15s;
+  }
+  button:hover, .btn:hover{ background:var(--frost); color:#fff; border-color:var(--frost); }
+  button.logged{ background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  .dig-panel{
+    display:none; margin-top:.9rem; padding-top:.8rem; border-top:1px dashed var(--line);
+  }
+  .dig-panel.open{ display:block; }
+  .dig-panel label{ font-size:.72rem; color:var(--muted); display:block; margin-bottom:.3rem; }
+  .pick-crystals{ display:flex; gap:.3rem; margin-bottom:.7rem; }
+  .pick-crystals button{ border-radius:6px; padding:.3rem .5rem; }
+  .pick-crystals button.active{ background:var(--frost); border-color:var(--frost); }
+  textarea, input[type="text"]{
+    width:100%; font-family:inherit; font-size:.82rem; border:1px solid var(--line);
+    border-radius:6px; padding:.5rem; resize:vertical; min-height:3.2rem;
+    background:#fcfeff;
+  }
+  input[type="text"]{ min-height:auto; }
+  .panel-actions{ display:flex; gap:.5rem; margin-top:.6rem; align-items:center; flex-wrap:wrap; }
+
+  section.new-find{
+    margin-top:2.2rem; padding:1.2rem;
+    background:var(--card); border:1px dashed var(--line); border-radius:10px;
+  }
+  section.new-find h3{ margin-top:0; }
+  section.new-find .field{ margin-bottom:.7rem; }
+
+  section.diary{
+    margin-top:2.4rem; padding-top:1.4rem; border-top:1px solid var(--line);
+  }
+  section.diary h3{ font-size:1rem; margin-bottom:.6rem; }
+  .empty-diary{ color:var(--muted); font-size:.85rem; }
+  .diary-row{
+    display:flex; justify-content:space-between; gap:.5rem;
+    font-size:.82rem; padding:.5rem 0; border-bottom:1px solid var(--line);
+    align-items:baseline;
+  }
+  .diary-row .who{ color:var(--muted); text-align:right; }
+  .diary-row .date{ color:var(--burn); font-size:.72rem; }
+
+  footer{
+    text-align:center; padding:2rem 1rem 3rem; font-size:.78rem; color:var(--muted);
+  }
+  footer a{ color:var(--accent); }
+
+  /* share card modal */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(10,26,38,.55);
+    display:none; align-items:center; justify-content:center; padding:1rem; z-index:20;
+  }
+  .modal-backdrop.open{ display:flex; }
+  .modal{
+    background:var(--card); border-radius:12px; padding:1.2rem;
+    max-width:420px; width:100%; text-align:center;
+  }
+  .modal canvas{ width:100%; height:auto; border-radius:8px; border:1px solid var(--line); }
+  .modal .modal-actions{ display:flex; gap:.5rem; justify-content:center; margin-top:.8rem; flex-wrap:wrap; }
+  .modal .close{ margin-top:.6rem; background:none; border:none; color:var(--muted); text-decoration:underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="freezer">freezer</span><span class="boxd">boxd</span></h1>
+  <p class="tag">a letterboxd for eating the food in the back of your freezer. rate every dig in ice crystals, write the review, keep the diary.</p>
+  <p class="sub">@slop.guru's idea, built for @tachikoma.elsewhereunbound.com</p>
+</header>
+
+<main>
+  <div class="dig-stats" id="digStats"></div>
+
+  <h3 class="section">the freezer canon</h3>
+  <div id="finds"></div>
+
+  <section class="new-find">
+    <h3>log a find of your own</h3>
+    <div class="field">
+      <label for="customTitle">what did you excavate?</label>
+      <input type="text" id="customTitle" placeholder="e.g. unlabeled ziploc, soup? 2022?" maxlength="80" />
+    </div>
+    <div class="field">
+      <label>how many ice crystals does it deserve?</label>
+      <div class="pick-crystals" id="customCrystals"></div>
+    </div>
+    <div class="field">
+      <label>verdict</label>
+      <div class="actions" id="customVerdicts"></div>
+    </div>
+    <div class="field">
+      <label for="customReview">your review</label>
+      <textarea id="customReview" placeholder="one line on what happened when you opened it"></textarea>
+    </div>
+    <div class="panel-actions">
+      <button id="logCustom">log it + get share card</button>
+    </div>
+  </section>
+
+  <section class="diary">
+    <h3>your dig log</h3>
+    <div id="diary"><p class="empty-diary">nothing logged yet — rate something from the canon or log your own find above.</p></div>
+  </section>
+</main>
+
+<footer>
+  no leftovers were consumed in the making of this site · a
+  <a href="https://bisks.net/">bisks.net</a> joint ·
+  <a href="https://bsky.app/intent/compose?text=%40buildthis.bisks.net" target="_blank" rel="noopener">tag @buildthis.bisks.net</a> for your own
+</footer>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <canvas id="shareCanvas" width="1000" height="600"></canvas>
+    <div class="modal-actions">
+      <a class="btn" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
+      <button id="downloadCard">download card</button>
+    </div>
+    <button class="close" id="closeModal">close</button>
+  </div>
+</div>
+
+<script>
+const CANON = [
+  {
+    id: "mystery-meat",
+    title: "Mystery Meat, Vintage Unknown",
+    subtitle: "Genre: Thriller",
+    year: "frozen ~2019",
+    gradient: "linear-gradient(160deg,#3a5b6f,#1c3648)",
+    frost: 5,
+    review: "no label, no shape you recognize, welded to the shelf by frost. you will never know what this was. that's the whole movie.",
+    reviewer: "an anonymous excavator"
+  },
+  {
+    id: "last-popsicle",
+    title: "The Last Popsicle",
+    subtitle: "Genre: Survival Horror",
+    year: "frozen ~2023",
+    gradient: "linear-gradient(160deg,#5c9fc7,#2f6690)",
+    frost: 2,
+    review: "fused to the wall of the freezer since before the last defrost. removing it intact is the real achievement here.",
+    reviewer: "a determined six-year-old"
+  },
+  {
+    id: "grandmas-chili",
+    title: "Grandma's Chili (2021 Batch)",
+    subtitle: "Genre: Family Drama",
+    year: "frozen 2021",
+    gradient: "linear-gradient(160deg,#a9784f,#6e4d30)",
+    frost: 4,
+    review: "the masking tape label has smudged into hieroglyphics. could be chili. could be something else entirely. we ate it anyway and it slapped.",
+    reviewer: "someone who trusts grandma"
+  },
+  {
+    id: "wedding-cake",
+    title: "Wedding Cake, Top Tier",
+    subtitle: "Genre: Tragedy",
+    year: "frozen at the reception",
+    gradient: "linear-gradient(160deg,#bfe1f2,#7fb8d9)",
+    frost: 1,
+    review: "tradition says eat it on the first anniversary. tradition did not account for three more moves and a broken freezer. it is now a glacier.",
+    reviewer: "the anniversary that never happened"
+  },
+  {
+    id: "just-ice-now",
+    title: "Gallon of Ice Cream That's Just Ice Now",
+    subtitle: "Genre: Body Horror",
+    year: "frozen indeterminate",
+    gradient: "linear-gradient(160deg,#dfeef6,#a9c8dc)",
+    frost: 3,
+    review: "was Rocky Road once. sublimation took the cream and left a hollow, crystalline husk of its former self. still finished the tub.",
+    reviewer: "a person with nothing else in the house"
+  },
+  {
+    id: "one-pea",
+    title: "Single Frozen Pea, Loose",
+    subtitle: "Genre: Minimalism",
+    year: "since time immemorial",
+    gradient: "linear-gradient(160deg,#6fae6f,#3f7a3f)",
+    frost: 1,
+    review: "rolls around the bottom drawer. has survived every cleanout. we respect it too much to throw it away now.",
+    reviewer: "the last pea standing"
+  },
+  {
+    id: "breakup-lasagna",
+    title: "Homemade Lasagna from the Breakup",
+    subtitle: "Genre: Romance (Ended)",
+    year: "frozen right after",
+    gradient: "linear-gradient(160deg,#c96b4f,#7a3f2f)",
+    frost: 4,
+    review: "still has a strip of masking tape that says 'DO NOT EAT — JORDAN.' Jordan does not live here anymore. we ate it. it was, unfortunately, great.",
+    reviewer: "closure, served hot"
+  },
+  {
+    id: "mystery-fish",
+    title: "Fish Someone Caught That One Summer",
+    subtitle: "Genre: Nautical Mystery",
+    year: "frozen after a fishing trip nobody remembers",
+    gradient: "linear-gradient(160deg,#4a7ea3,#274a63)",
+    frost: 5,
+    review: "vacuum-sealed, unlabeled, ominously shaped. nobody in the house has ever been fishing. we do not ask questions anymore.",
+    reviewer: "whoever inherited this freezer"
+  }
+];
+
+const DIG_KEY = "freezerboxd_digs_v1";
+function loadDigs(){ try{ return JSON.parse(localStorage.getItem(DIG_KEY)) || {}; }catch(e){ return {}; } }
+function saveDigs(d){ localStorage.setItem(DIG_KEY, JSON.stringify(d)); }
+let digs = loadDigs();
+
+function crystalRow(n, interactive, onPick){
+  const wrap = document.createElement("div");
+  wrap.className = interactive ? "pick-crystals" : "rating";
+  for(let i=1;i<=5;i++){
+    if(interactive){
+      const b = document.createElement("button");
+      b.textContent = "❄️";
+      b.type = "button";
+      b.dataset.val = i;
+      if(i<=n) b.classList.add("active");
+      b.addEventListener("click", ()=>{
+        wrap.querySelectorAll("button").forEach(x=>x.classList.toggle("active", +x.dataset.val<=i));
+        wrap.dataset.value = i;
+        if(onPick) onPick(i);
+      });
+      wrap.appendChild(b);
+    } else {
+      const s = document.createElement("span");
+      s.className = "crystal" + (i<=n ? "" : " off");
+      s.textContent = "❄️";
+      wrap.appendChild(s);
+    }
+  }
+  if(!interactive){
+    const small = document.createElement("small");
+    small.textContent = n + "/5 ice crystals";
+    wrap.appendChild(small);
+  }
+  return wrap;
+}
+
+const DIG_LABELS = {
+  "buried": "still buried in the back",
+  "thawing": "currently thawing (proceed with caution)",
+  "survived": "excavated — survived",
+  "binned": "excavated — binned it"
+};
+
+function verdictButtons(container, current, onPick){
+  Object.keys(DIG_LABELS).forEach(key=>{
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = DIG_LABELS[key];
+    btn.dataset.key = key;
+    if(current === key) btn.classList.add("logged");
+    btn.addEventListener("click", ()=>{
+      container.querySelectorAll("button").forEach(x=>x.classList.remove("logged"));
+      btn.classList.add("logged");
+      container.dataset.value = key;
+      if(onPick) onPick(key);
+    });
+    container.appendChild(btn);
+  });
+}
+
+function renderFinds(){
+  const container = document.getElementById("finds");
+  container.innerHTML = "";
+  CANON.forEach(find=>{
+    const mine = digs[find.id];
+    const el = document.createElement("article");
+    el.className = "find";
+
+    const cover = document.createElement("div");
+    cover.className = "cover";
+    cover.style.background = find.gradient;
+    cover.innerHTML = '<span class="frost-crystal" style="left:14%;top:10%;animation-delay:0s">❄</span><span class="frost-crystal" style="right:12%;bottom:14%;animation-delay:2s">❄</span>' + find.title;
+    el.appendChild(cover);
+
+    const body = document.createElement("div");
+
+    const h2 = document.createElement("h2");
+    h2.textContent = find.title;
+    body.appendChild(h2);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = find.subtitle + " · " + find.year;
+    body.appendChild(meta);
+
+    body.appendChild(crystalRow(find.frost, false));
+
+    const rev = document.createElement("blockquote");
+    rev.className = "review";
+    rev.textContent = "“" + find.review + "”";
+    const cite = document.createElement("cite");
+    cite.textContent = "— " + find.reviewer;
+    rev.appendChild(cite);
+    body.appendChild(rev);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    verdictButtons(actions, mine && mine.verdict, (key)=>{
+      digs[find.id] = Object.assign({}, digs[find.id], { verdict: key, title: find.title, loggedAt: Date.now() });
+      saveDigs(digs);
+      renderDiary();
+      renderStats();
+    });
+    body.appendChild(actions);
+
+    const toggle = document.createElement("button");
+    toggle.textContent = "rate & review ▾";
+    const panel = document.createElement("div");
+    panel.className = "dig-panel";
+
+    const label = document.createElement("label");
+    label.textContent = "your ice crystals (more = worse condition)";
+    panel.appendChild(label);
+
+    let pickedVal = mine && mine.rating ? mine.rating : 0;
+    const picker = crystalRow(pickedVal, true, (v)=>{ pickedVal = v; });
+    panel.appendChild(picker);
+
+    const ta = document.createElement("textarea");
+    ta.placeholder = "your one-line review, e.g. \"defrosted it and immediately regretted it\"";
+    ta.value = mine && mine.text ? mine.text : "";
+    panel.appendChild(ta);
+
+    const panelActions = document.createElement("div");
+    panelActions.className = "panel-actions";
+    const save = document.createElement("button");
+    save.textContent = "save + get share card";
+    save.addEventListener("click", ()=>{
+      digs[find.id] = Object.assign({}, digs[find.id], {
+        title: find.title, rating: pickedVal || 0, text: ta.value.trim(), loggedAt: Date.now()
+      });
+      saveDigs(digs);
+      renderDiary();
+      renderStats();
+      openShareModal(find.title, digs[find.id]);
+    });
+    panelActions.appendChild(save);
+    panel.appendChild(panelActions);
+
+    toggle.addEventListener("click", ()=>{
+      panel.classList.toggle("open");
+    });
+    body.appendChild(toggle);
+    body.appendChild(panel);
+
+    el.appendChild(body);
+    container.appendChild(el);
+  });
+}
+
+// --- log a find of your own ---
+let customRating = 0;
+let customVerdict = null;
+const customCrystalsEl = document.getElementById("customCrystals");
+const customPicker = crystalRow(0, true, (v)=>{ customRating = v; });
+customPicker.id = "customCrystals";
+customCrystalsEl.replaceWith(customPicker);
+
+const customVerdictsEl = document.getElementById("customVerdicts");
+verdictButtons(customVerdictsEl, null, (key)=>{ customVerdict = key; });
+
+document.getElementById("logCustom").addEventListener("click", ()=>{
+  const title = document.getElementById("customTitle").value.trim();
+  if(!title){ document.getElementById("customTitle").focus(); return; }
+  const text = document.getElementById("customReview").value.trim();
+  const id = "custom-" + Date.now();
+  digs[id] = { title: title, rating: customRating || 0, verdict: customVerdict, text: text, loggedAt: Date.now(), custom: true };
+  saveDigs(digs);
+  renderDiary();
+  renderStats();
+  openShareModal(title, digs[id]);
+  document.getElementById("customTitle").value = "";
+  document.getElementById("customReview").value = "";
+});
+
+function renderDiary(){
+  const wrap = document.getElementById("diary");
+  const entries = Object.entries(digs).filter(([,v])=>v.verdict || v.rating).sort((a,b)=> (b[1].loggedAt||0) - (a[1].loggedAt||0));
+  if(!entries.length){
+    wrap.innerHTML = '<p class="empty-diary">nothing logged yet — rate something from the canon or log your own find above.</p>';
+    return;
+  }
+  wrap.innerHTML = "";
+  entries.forEach(([id, v])=>{
+    const row = document.createElement("div");
+    row.className = "diary-row";
+    const left = document.createElement("span");
+    const ratingStr = v.rating ? " — " + v.rating + "/5 ❄️" : "";
+    left.textContent = v.title + ratingStr;
+    const right = document.createElement("span");
+    right.className = "who";
+    const verdictSpan = document.createElement("div");
+    verdictSpan.textContent = v.verdict ? DIG_LABELS[v.verdict] : "";
+    const dateSpan = document.createElement("div");
+    dateSpan.className = "date";
+    dateSpan.textContent = v.loggedAt ? new Date(v.loggedAt).toLocaleDateString() : "";
+    right.appendChild(verdictSpan);
+    right.appendChild(dateSpan);
+    row.appendChild(left);
+    row.appendChild(right);
+    wrap.appendChild(row);
+  });
+}
+
+function renderStats(){
+  const wrap = document.getElementById("digStats");
+  const counts = { buried:0, thawing:0, survived:0, binned:0 };
+  Object.values(digs).forEach(v=>{ if(v.verdict && counts[v.verdict] !== undefined) counts[v.verdict]++; });
+  wrap.innerHTML = "";
+  Object.entries(DIG_LABELS).forEach(([key,label])=>{
+    const span = document.createElement("span");
+    span.textContent = label + ": " + counts[key];
+    wrap.appendChild(span);
+  });
+}
+
+// --- share card ---
+const modalBackdrop = document.getElementById("modalBackdrop");
+const canvas = document.getElementById("shareCanvas");
+const ctx = canvas.getContext("2d");
+let lastShareText = "";
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+  const words = text.split(" ");
+  let line = "";
+  let lines = [];
+  for(let w of words){
+    const test = line + w + " ";
+    if(ctx.measureText(test).width > maxWidth && line){
+      lines.push(line);
+      line = w + " ";
+    } else {
+      line = test;
+    }
+  }
+  lines.push(line);
+  lines.forEach((l,i)=> ctx.fillText(l.trim(), x, y + i*lineHeight));
+  return lines.length;
+}
+
+function drawCard(title, entry){
+  const W = canvas.width, H = canvas.height;
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"#eef7fb");
+  g.addColorStop(1,"#c3d8e3");
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+
+  // frost crystal decoration
+  ctx.font = "34px sans-serif";
+  ctx.fillStyle = "rgba(47,102,144,.3)";
+  for(let i=0;i<7;i++){
+    ctx.fillText("❄", 60 + i*150, 40 + (i%2)*520);
+  }
+
+  ctx.fillStyle = "#12293a";
+  ctx.font = "700 44px 'JetBrains Mono', monospace";
+  ctx.fillText("freezerboxd", 50, 90);
+
+  ctx.font = "italic 16px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#54718a";
+  ctx.fillText("a dig log for the back of the freezer", 50, 118);
+
+  ctx.fillStyle = "#12293a";
+  ctx.font = "700 32px 'JetBrains Mono', monospace";
+  wrapText(ctx, title, 50, 200, W-100, 42);
+
+  const rating = entry.rating || 0;
+  ctx.font = "40px sans-serif";
+  ctx.fillStyle = "#12293a";
+  let crystals = "";
+  for(let i=0;i<5;i++) crystals += i < rating ? "❄️ " : "○ ";
+  ctx.fillText(crystals, 50, 300);
+  ctx.font = "16px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#54718a";
+  ctx.fillText(rating ? rating + "/5 ice crystals" : "unrated", 50, 330);
+
+  ctx.font = "700 18px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#2f6690";
+  ctx.fillText(entry.verdict ? DIG_LABELS[entry.verdict] : "", 50, 365);
+
+  ctx.font = "italic 22px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#1c3648";
+  const reviewText = entry.text ? ('“' + entry.text + '”') : "no review left";
+  wrapText(ctx, reviewText, 50, 430, W-100, 30);
+
+  ctx.font = "700 20px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#2f6690";
+  ctx.fillText("freezerboxd.bisks.net", 50, H-40);
+}
+
+function openShareModal(title, entry){
+  drawCard(title, entry);
+  const url = "https://freezerboxd.bisks.net/";
+  const bits = [];
+  bits.push("logged “" + title + "” on freezerboxd");
+  if(entry.rating) bits.push(entry.rating + "/5 ice crystals");
+  if(entry.text) bits.push('"' + entry.text + '"');
+  bits.push(url);
+  lastShareText = bits.join(" — ").slice(0, 290);
+  document.getElementById("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  modalBackdrop.classList.add("open");
+}
+
+document.getElementById("closeModal").addEventListener("click", ()=> modalBackdrop.classList.remove("open"));
+modalBackdrop.addEventListener("click", (e)=>{ if(e.target === modalBackdrop) modalBackdrop.classList.remove("open"); });
+document.getElementById("downloadCard").addEventListener("click", ()=>{
+  const a = document.createElement("a");
+  a.download = "freezerboxd-dig.png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+});
+
+renderFinds();
+renderDiary();
+renderStats();
+</script>
+</body>
+</html>
