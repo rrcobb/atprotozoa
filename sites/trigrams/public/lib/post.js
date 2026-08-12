@@ -86,7 +86,7 @@ export async function resolvePostRef(urlOrUri) {
 //   text        — the post text (e.g. the trigram)
 //   linkText    — substring of text to hyperlink (optional)
 //   linkUri     — the URL the link points to (e.g. the coining post)
-//   image       — { blob, alt } from uploadImage (optional)
+//   image       — { blob, alt, width, height } from uploadImage + makeCard (optional)
 //   replyRef    — { root, parent } from resolvePostRef (optional; omit = top-level)
 // Returns the created record { uri, cid }.
 export async function firePost(session, opts) {
@@ -104,7 +104,17 @@ export async function firePost(session, opts) {
   if (image?.blob) {
     record.embed = {
       $type: "app.bsky.embed.images",
-      images: [{ image: image.blob, alt: image.alt || text }],
+      images: [
+        {
+          image: image.blob,
+          alt: image.alt || text,
+          // Without this Bluesky has to guess the shape before the blob is
+          // fetched, and guesses wrong for a wide card — tell it up front.
+          ...(image.width && image.height
+            ? { aspectRatio: { width: image.width, height: image.height } }
+            : {}),
+        },
+      ],
     };
   }
   if (replyRef?.root && replyRef?.parent) {

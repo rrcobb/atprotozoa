@@ -8,13 +8,20 @@ function esc(s) {
   );
 }
 
-// Wrap text into lines of at most `max` chars (rough — mono font, so char count
-// tracks width well). Returns array of lines.
-function wrap(text, max) {
-  const words = String(text).split(/\s+/);
+// Wrap a single line (no newlines in it) into lines of at most `max` chars
+// (rough — mono font, so char count tracks width well). Hard-breaks any
+// single word longer than `max` (e.g. a long URL) so it can't overflow the
+// card edge.
+function wrapLine(text, max) {
+  const words = String(text).split(/\s+/).filter(Boolean);
   const lines = [];
   let line = "";
-  for (const w of words) {
+  for (let w of words) {
+    while (w.length > max) {
+      if (line) { lines.push(line); line = ""; }
+      lines.push(w.slice(0, max));
+      w = w.slice(max);
+    }
     if ((line + " " + w).trim().length > max && line) {
       lines.push(line);
       line = w;
@@ -24,6 +31,15 @@ function wrap(text, max) {
   }
   if (line) lines.push(line);
   return lines;
+}
+
+// Wrap text into lines of at most `max` chars. Explicit newlines in the
+// source (a post quoted verbatim often has them) are honored as real line
+// breaks instead of being collapsed into spaces like ordinary whitespace.
+function wrap(text, max) {
+  return String(text)
+    .split(/\r\n|\r|\n/)
+    .flatMap((para) => (para.trim() ? wrapLine(para, max) : [""]));
 }
 
 // Build the SVG string. 1200x630-ish social card ratio, but tuned for a phrase.
@@ -50,9 +66,25 @@ function cardSvg({ trigram, post, byline }) {
   const titleLH = titleSize * 1.12;
   const titleY = pad + titleSize;
 
-  // Post excerpt: a few lines of serif under a rule.
-  const postLines = wrap(post || "", 58).slice(0, 3);
+  // Post excerpt: a few lines of serif under a rule. Bound the line count by
+  // the room actually left above the byline watermark — a long, multi-line
+  // trigram pushes the rule down, and without this the excerpt used to run
+  // straight into (or past) the byline text at the bottom of the card.
   const ruleY = titleY + (titleLines.length - 1) * titleLH + 44;
+  const postLineH = 34;
+  const postFirstY = ruleY + 46;
+  const bylineY = H - 40;
+  const safeGap = 30; // clear air the excerpt must leave above the byline
+  const maxPostLines = Math.min(
+    4,
+    Math.max(0, Math.floor((bylineY - safeGap - postFirstY) / postLineH) + 1),
+  );
+  const wrappedPost = wrap(post || "", 58);
+  const postLines = wrappedPost.slice(0, maxPostLines);
+  if (wrappedPost.length > postLines.length && postLines.length) {
+    const last = postLines[postLines.length - 1];
+    postLines[postLines.length - 1] = last.length > 55 ? last.slice(0, 55) + "…" : last + " …";
+  }
 
   const titleSpans = titleLines
     .map(
@@ -63,7 +95,7 @@ function cardSvg({ trigram, post, byline }) {
   const postSpans = postLines
     .map(
       (l, i) =>
-        `<text x="${pad}" y="${ruleY + 46 + i * 34}" font-family="${serif}" font-size="25" fill="#5a5a5a">${esc(l)}</text>`,
+        `<text x="${pad}" y="${postFirstY + i * postLineH}" font-family="${serif}" font-size="25" fill="#5a5a5a">${esc(l)}</text>`,
     )
     .join("");
 
@@ -115,6 +147,8 @@ export async function makeCard({ trigram, post, byline }) {
   return {
     bytes,
     dataUrl,
+    width: W,
+    height: H,
     alt: `A card reading "${trigram}" — a three-word phrase unique to this account on Bluesky.`,
   };
 }
