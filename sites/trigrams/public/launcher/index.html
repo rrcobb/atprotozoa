@@ -173,7 +173,7 @@
     <script src="../lib/handle-typeahead.js"></script>
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, SCOPE_FULL, SCOPE_MINIMAL } from "../lib/oauth.js";
-      import { scan, verify, resolveActorFull, richness, surprise } from "../lib/unique.js";
+      import { scan, verify, resolveActorFull, richness, surpriseAll } from "../lib/unique.js";
       import { makeCard } from "../lib/card.js";
       import { resolvePostRef, uploadImage, firePost } from "../lib/post.js";
 
@@ -370,13 +370,14 @@
         }});
 
         const uniques = [...byPost.values()];
-        const items = [];
+        const toScore = uniques.slice(0, 120);
         let i = 0;
-        for (const v of uniques.slice(0, 120)) {
-          const s = await surprise(v.g);
-          items.push({ g: v.g, postUri: v.post.uri, postDid: v.post.did, postText: v.post.text, score: s.score, spent: false });
-          if (qs()) qs().textContent = `ranking by surprise… ${++i}/${Math.min(uniques.length,120)}`;
-        }
+        const scores = await surpriseAll(toScore.map((v) => v.g), {
+          onScore: () => {
+            if (qs()) qs().textContent = `ranking by surprise… ${++i}/${toScore.length}`;
+          },
+        });
+        const items = toScore.map((v) => ({ g: v.g, postUri: v.post.uri, postDid: v.post.did, postText: v.post.text, score: scores.get(v.g).score, spent: false }));
         for (const v of uniques.slice(120)) items.push({ g: v.g, postUri: v.post.uri, postDid: v.post.did, postText: v.post.text, score: null, spent: false });
         items.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
         quiver = items;

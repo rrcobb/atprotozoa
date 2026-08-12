@@ -185,22 +185,56 @@ async function phraseHits(phrase) {
 // high MAX freq (one very common part is enough to make uniqueness surprising)
 // plus a nudge from the MIN (both parts real, not two coinages). Higher = more
 // surprising that this is globally unique. Returns { score, bigrams, freqs }.
+// The bigram lookups run concurrently (a trigram only has two) rather than
+// serially with a pacing sleep between them — see surpriseAll() below for why
+// serial-per-gram used to be the real bottleneck.
 export async function surprise(gram) {
   const w = String(gram).split(" ").filter(Boolean);
   const bigrams = [];
   for (let i = 0; i + 1 < w.length; i++) bigrams.push(w[i] + " " + w[i + 1]);
 
-  const freqs = [];
-  for (const b of bigrams) {
-    freqs.push(await phraseHits(b));
-    await new Promise((res) => setTimeout(res, 120)); // gentle pacing
-  }
+  const freqs = await Promise.all(bigrams.map((b) => phraseHits(b)));
   const valid = freqs.filter((x) => x != null).map((x) => Math.min(x, SEARCH_CAP_HITS));
   if (valid.length === 0) return { score: 0, bigrams, freqs };
   const maxF = Math.max(...valid);
   const minF = Math.min(...valid);
   const score = Math.log10(maxF + 1) + 0.5 * Math.log10(minF + 1);
   return { score, bigrams, freqs };
+}
+
+const SURPRISE_CONC = 6; // same fan-out budget as verify()'s SEARCH_CONC
+
+// surpriseAll(grams): score a whole list of grams with a worker pool instead
+// of one gram at a time. Callers used to `for (const v of list) await
+// surprise(v.g)` — fully serial, and each surprise() call cost two round
+// trips plus a 120ms pacing sleep, so ranking ~120 candidates could take over
+// a minute. searchGet() already retries 429/403 with backoff, same as
+// verify(), so fanning this out is exactly as safe as the verify pass already
+// is. Calls onScore(gram, result) as each resolves; returns a gram -> result
+// Map (gram order matches whichever call wins the race, use the map to look
+// up by gram string rather than relying on array order).
+export async function surpriseAll(grams, { onScore, shouldStop } = {}) {
+  const list = grams.slice();
+  const results = new Map();
+  let idx = 0;
+  async function worker() {
+    while (idx < list.length) {
+      if (shouldStop && shouldStop()) return;
+      const g = list[idx++];
+      let res;
+      try {
+        res = await surprise(g);
+      } catch {
+        res = { score: 0, bigrams: [], freqs: [] };
+      }
+      results.set(g, res);
+      if (onScore) onScore(g, res);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(SURPRISE_CONC, list.length || 1) }, worker),
+  );
+  return results;
 }
 
 // Tokenize one post's text into bigrams/trigrams, tallying into c2/c3.
