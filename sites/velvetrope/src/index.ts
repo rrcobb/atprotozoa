@@ -28,6 +28,15 @@
 //     app.bsky.graph.listitem records) — this Worker never touches that, it
 //     only tracks which requests are pending/approved/denied so the queue UI
 //     has something to show.
+//   - A list owner can also opt a list into auto-approve for removals: one
+//     net.bisks.velvetrope.policy record on the owner's own PDS
+//     (`{list, autoApproveRemove: true}`). This Worker just stores the flag;
+//     it still can't write anyone's repo. What it buys the requester is that
+//     the *owner's own browser* clears pending removals automatically next
+//     time they're signed in anywhere on velvetrope, with no manual review —
+//     as close to "remove yourself, no request" as atproto's per-repo write
+//     authority allows, since only the owner's own credentials can ever
+//     delete a record from the owner's own repo.
 //
 // Also server-renders per-list OG tags for GET /list/<did>/<rkey>, so a
 // shared list link unfurls with the list's real name instead of one generic
@@ -260,6 +269,7 @@ async function verifyRecordGone(uri: string): Promise<boolean> {
 
 const REQUEST_COLLECTION = "net.bisks.velvetrope.request";
 const DECISION_COLLECTION = "net.bisks.velvetrope.decision";
+const POLICY_COLLECTION = "net.bisks.velvetrope.policy";
 const MAX_RECORD_AGE_MS = 15 * 60 * 1000;
 const MAX_BATCH = 200;
 
@@ -278,6 +288,13 @@ interface RequestRow {
   resolvedAt?: string;
   decisionUri?: string;
   reason?: string;
+}
+
+interface PolicyRow {
+  listUri: string;
+  ownerDid: string;
+  autoApproveRemove: boolean;
+  updatedAt: string;
 }
 
 const MAX_REASON_LEN = 500;
@@ -311,6 +328,12 @@ export class Rope {
         const owner = url.searchParams.get("owner") || "";
         return json({ counts: await this.countsFor(owner) });
       }
+      if (path === "/policy" && method === "GET") {
+        const list = url.searchParams.get("list") || "";
+        const row = await this.storage.get<PolicyRow>(`policy:${list}`);
+        return json({ policy: row ? { autoApproveRemove: row.autoApproveRemove } : null });
+      }
+      if (path === "/policy" && method === "POST") return this.handleSetPolicy(request);
     } catch (e: any) {
       return json({ error: e?.message || "internal error" }, 500);
     }
@@ -442,5 +465,34 @@ export class Rope {
     }
     await this.storage.put(`seen:${body.uri}`, true);
     return json({ ok: true, decision, applied, skipped });
+  }
+
+  private async handleSetPolicy(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as { uri?: string } | null;
+    if (!body?.uri) return json({ error: "missing uri" }, 400);
+    if (await this.storage.get(`seen:${body.uri}`)) return json({ error: "already applied" }, 409);
+
+    const verified = await verifyOwnRecord(body.uri, POLICY_COLLECTION);
+    if ("error" in verified) return json(verified, verified.status);
+    const { did: ownerDid, value: v } = verified;
+
+    const listUri = String(v.list || "");
+    const parsed = parseListUri(listUri);
+    if (!parsed || parsed.ownerDid !== ownerDid)
+      return json({ error: "you don't own that list" }, 403);
+
+    const validAt = freshAt(v.createdAt);
+    if (Date.now() - validAt > MAX_RECORD_AGE_MS)
+      return json({ error: "that record is too old to apply — write a fresh one" }, 400);
+
+    const row: PolicyRow = {
+      listUri,
+      ownerDid,
+      autoApproveRemove: v.autoApproveRemove === true,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.storage.put(`policy:${listUri}`, row);
+    await this.storage.put(`seen:${body.uri}`, true);
+    return json({ ok: true, policy: { autoApproveRemove: row.autoApproveRemove } });
   }
 }

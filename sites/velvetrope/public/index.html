@@ -169,6 +169,7 @@
 
       const REQUEST_COLLECTION = "net.bisks.velvetrope.request";
       const DECISION_COLLECTION = "net.bisks.velvetrope.decision";
+      const POLICY_COLLECTION = "net.bisks.velvetrope.policy";
 
       function esc(s) {
         return String(s ?? "")
@@ -188,6 +189,17 @@
         return url ? `background-image:url('${esc(url)}')` : "";
       }
       function rkeyOf(uri) { return String(uri).split("/").pop(); }
+
+      function showToast(msg) {
+        const t = document.createElement("div");
+        t.textContent = msg;
+        t.style.cssText =
+          "position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);" +
+          "background:var(--ink);color:var(--bg);padding:0.6rem 1rem;border-radius:4px;" +
+          "font-size:0.85rem;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.25);max-width:90vw;";
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 6000);
+      }
 
       async function fetchJson(url, opts) {
         const r = await fetch(url, opts);
@@ -310,7 +322,10 @@
           <h1>velvetrope</h1>
           <p class="meta">sign in, then look up any Bluesky account to see the moderation lists they run.
             request to be added or removed — the list's owner sees every request in one queue and can
-            bulk-approve or bulk-deny with a single click.</p>
+            bulk-approve or bulk-deny with a single click. owners can also flip a list to
+            <b>auto-approve removals</b>, which clears "remove me" requests automatically with no manual
+            review at all — the closest thing to free self-removal that atproto's per-repo write rules
+            allow, since only the owner's own credentials can ever touch their own list.</p>
           <h2 class="section">look someone up</h2>
           <form id="lookupForm" class="actions">
             <input type="text" id="lookupInput" placeholder="a handle, e.g. bisks.net" autocomplete="off"
@@ -479,6 +494,9 @@
         }
         const isOwner = session && session.did === ownerDid;
         const isMember = session && items.some((it) => it.subject?.did === session.did);
+        const policy = await fetchJson(`/api/policy?list=${encodeURIComponent(listUri)}`)
+          .then((d) => d.policy)
+          .catch(() => null);
         const shareUrl = `https://velvetrope.bisks.net/list/${encodeURIComponent(ownerDid)}/${encodeURIComponent(rkey)}`;
         const shareText = `"${list.name}" is a public moderation list on velvetrope — request to be added or removed: ${shareUrl}`;
 
@@ -502,7 +520,7 @@
         `;
 
         renderMembers(items);
-        await renderActionArea(listUri, ownerDid, isOwner, isMember);
+        await renderActionArea(listUri, ownerDid, isOwner, isMember, policy);
         if (isOwner) await renderQueue(listUri, ownerDid, items);
       }
 
@@ -537,10 +555,49 @@
         }
       }
 
-      async function renderActionArea(listUri, ownerDid, isOwner, isMember) {
+      async function renderActionArea(listUri, ownerDid, isOwner, isMember, policy) {
         const box = $("actionArea");
         if (isOwner) {
-          box.innerHTML = `<div class="banner">this is your list — the request queue below is your bulk approve/deny tool.</div>`;
+          box.innerHTML = `
+            <div class="banner">this is your list — the request queue below is your bulk approve/deny tool.</div>
+            <div class="banner" style="margin-top:0.5rem">
+              <label style="display:flex; align-items:flex-start; gap:0.5rem; cursor:pointer;">
+                <input type="checkbox" id="autoApproveToggle" ${policy?.autoApproveRemove ? "checked" : ""} style="margin-top:0.2rem" />
+                <span>auto-approve removal requests — no manual review, they clear automatically next time
+                  you're signed in anywhere on velvetrope. (additions still need your review in the queue below.)</span>
+              </label>
+              <span id="autoApproveStatus" class="meta"></span>
+            </div>`;
+          $("autoApproveToggle").addEventListener("change", async (e) => {
+            const on = e.target.checked;
+            const status = $("autoApproveStatus");
+            e.target.disabled = true;
+            status.textContent = "writing to your PDS…";
+            try {
+              const record = {
+                $type: POLICY_COLLECTION,
+                list: listUri,
+                autoApproveRemove: on,
+                createdAt: new Date().toISOString(),
+              };
+              const uri = await writeOwnRecord(POLICY_COLLECTION, record);
+              await fetchJson("/api/policy", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ uri }),
+              });
+              status.textContent = on ? "on — clearing pending removals now…" : "off";
+              e.target.disabled = false;
+              if (on) {
+                await runAutoApprovalSweep(ownerDid);
+                await viewList(ownerDid, rkeyOf(listUri));
+              }
+            } catch (err) {
+              e.target.checked = !on;
+              e.target.disabled = false;
+              status.textContent = "failed: " + err.message;
+            }
+          });
           return;
         }
         if (!session) {
@@ -572,7 +629,7 @@
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({ uri: pending.uri }),
               });
-              await renderActionArea(listUri, ownerDid, isOwner, isMember);
+              await renderActionArea(listUri, ownerDid, isOwner, isMember, policy);
             } catch (e) {
               btn.disabled = false;
               status.textContent = "failed: " + e.message;
@@ -585,7 +642,10 @@
         box.innerHTML = `
           <div class="actions">
             <span class="badge ${isMember ? "member" : ""}">${isMember ? "you're a member" : "you're not a member"}</span>
+            ${isMember && policy?.autoApproveRemove ? `<span class="badge approved">auto-approves removals</span>` : ""}
           </div>
+          ${isMember && policy?.autoApproveRemove ? `<p class="meta">this list's owner auto-approves removal requests — yours clears with no
+            manual review, next time they're signed in on velvetrope (usually fast).</p>` : ""}
           <textarea id="reasonInput" maxlength="500" rows="2" placeholder="reason (optional) — the list owner will see this"
             style="width:100%; font-family:inherit; font-size:0.85rem; padding:0.5rem 0.6rem; border:1px solid var(--ink); border-radius:3px; background:var(--bg); color:var(--ink); resize:vertical;"></textarea>
           <div class="actions">
@@ -622,6 +682,99 @@
       }
 
       // --- owner queue: view + bulk approve/deny -----------------------------
+      //
+      // The actual repo write (applyListWrites) always runs against
+      // `session` — nobody but the signed-in owner's own credentials can
+      // touch their repo — so this only ever runs meaningfully when the
+      // owner themself is signed in, whether that's a manual click in the
+      // queue UI or the background auto-approve sweep on boot().
+
+      async function executeDecision(listUri, rows, decisionWord) {
+        if (decisionWord === "approve") {
+          const { items } = await getListFull(listUri);
+          const bySubject = new Map(items.map((it) => [it.subject?.did, it.uri]));
+          const writes = [];
+          for (const r of rows) {
+            if (r.action === "add") {
+              if (!bySubject.has(r.requesterDid)) {
+                writes.push({
+                  $type: "com.atproto.repo.applyWrites#create",
+                  collection: "app.bsky.graph.listitem",
+                  value: {
+                    $type: "app.bsky.graph.listitem",
+                    subject: r.requesterDid,
+                    list: listUri,
+                    createdAt: new Date().toISOString(),
+                  },
+                });
+              }
+            } else {
+              const itemUri = bySubject.get(r.requesterDid);
+              if (itemUri) {
+                writes.push({
+                  $type: "com.atproto.repo.applyWrites#delete",
+                  collection: "app.bsky.graph.listitem",
+                  rkey: rkeyOf(itemUri),
+                });
+              }
+            }
+          }
+          if (writes.length) await applyListWrites(session, writes, dpopFetch);
+        }
+        const record = {
+          $type: DECISION_COLLECTION,
+          list: listUri,
+          decision: decisionWord,
+          requests: rows.map((r) => r.uri),
+          createdAt: new Date().toISOString(),
+        };
+        const uri = await writeOwnRecord(DECISION_COLLECTION, record);
+        await fetchJson("/api/resolve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ uri }),
+        });
+      }
+
+      // Runs once per boot for a signed-in user: clears pending removal
+      // requests on any of their lists marked auto-approve, with no manual
+      // review. Best-effort and silent on failure — the manual queue is
+      // always there as a fallback.
+      async function runAutoApprovalSweep(selfDid) {
+        let lists;
+        try {
+          lists = await getModLists(selfDid);
+        } catch {
+          return;
+        }
+        let total = 0;
+        for (const l of lists) {
+          let policy;
+          try {
+            ({ policy } = await fetchJson(`/api/policy?list=${encodeURIComponent(l.uri)}`));
+          } catch {
+            continue;
+          }
+          if (!policy?.autoApproveRemove) continue;
+          let requests;
+          try {
+            ({ requests } = await fetchJson(`/api/queue?list=${encodeURIComponent(l.uri)}`));
+          } catch {
+            continue;
+          }
+          const rows = requests.filter((r) => r.status === "pending" && r.action === "remove");
+          if (!rows.length) continue;
+          try {
+            await executeDecision(l.uri, rows, "approve");
+            total += rows.length;
+          } catch (e) {
+            console.warn("auto-approve sweep failed for", l.uri, e.message);
+          }
+        }
+        if (total) {
+          showToast(`velvetrope auto-cleared ${total} pending removal request${total === 1 ? "" : "s"} for you`);
+        }
+      }
 
       async function renderQueue(listUri, ownerDid, currentItems) {
         const box = $("queueArea");
@@ -694,55 +847,8 @@
           $("approveBtn").disabled = true;
           $("denyBtn").disabled = true;
           try {
-            if (decisionWord === "approve") {
-              status.textContent = "reading current membership…";
-              const { items } = await getListFull(listUri);
-              const bySubject = new Map(items.map((it) => [it.subject?.did, it.uri]));
-              const writes = [];
-              for (const r of rows) {
-                if (r.action === "add") {
-                  if (!bySubject.has(r.requesterDid)) {
-                    writes.push({
-                      $type: "com.atproto.repo.applyWrites#create",
-                      collection: "app.bsky.graph.listitem",
-                      value: {
-                        $type: "app.bsky.graph.listitem",
-                        subject: r.requesterDid,
-                        list: listUri,
-                        createdAt: new Date().toISOString(),
-                      },
-                    });
-                  }
-                } else {
-                  const itemUri = bySubject.get(r.requesterDid);
-                  if (itemUri) {
-                    writes.push({
-                      $type: "com.atproto.repo.applyWrites#delete",
-                      collection: "app.bsky.graph.listitem",
-                      rkey: rkeyOf(itemUri),
-                    });
-                  }
-                }
-              }
-              if (writes.length) {
-                status.textContent = `writing ${writes.length} change${writes.length === 1 ? "" : "s"} to your list…`;
-                await applyListWrites(session, writes, dpopFetch);
-              }
-            }
-            status.textContent = "recording the decision…";
-            const record = {
-              $type: DECISION_COLLECTION,
-              list: listUri,
-              decision: decisionWord,
-              requests: rows.map((r) => r.uri),
-              createdAt: new Date().toISOString(),
-            };
-            const uri = await writeOwnRecord(DECISION_COLLECTION, record);
-            await fetchJson("/api/resolve", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ uri }),
-            });
+            status.textContent = decisionWord === "approve" ? "writing changes to your list…" : "recording the decision…";
+            await executeDecision(listUri, rows, decisionWord);
             await viewList(ownerDid, rkeyOf(listUri));
           } catch (e) {
             status.textContent = "failed: " + e.message;
@@ -764,6 +870,7 @@
         if (!session) session = await getSession();
         renderSessionBox();
         route();
+        if (session) runAutoApprovalSweep(session.did);
       })();
     </script>
 
