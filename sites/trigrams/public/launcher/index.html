@@ -105,6 +105,40 @@
       .modal .actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 
       footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+
+      /* incoming strike: crash-in */
+      @keyframes strike-fly-in {
+        0% { transform: translate(140vw, -70vh) rotate(-35deg) scale(0.4); opacity: 0; }
+        55% { opacity: 1; }
+        70% { transform: translate(-2vw, 1vh) rotate(4deg) scale(1.08); }
+        85% { transform: translate(1vw, -0.5vh) rotate(-2deg) scale(0.97); }
+        100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+      }
+      @keyframes strike-shake {
+        0%, 100% { transform: translate(0, 0); }
+        10% { transform: translate(-8px, 4px) rotate(-0.5deg); }
+        20% { transform: translate(7px, -5px) rotate(0.5deg); }
+        30% { transform: translate(-6px, 6px) rotate(-0.4deg); }
+        40% { transform: translate(8px, -3px) rotate(0.5deg); }
+        50% { transform: translate(-5px, 3px) rotate(-0.3deg); }
+        60% { transform: translate(6px, -4px) rotate(0.3deg); }
+        70% { transform: translate(-4px, 2px); }
+        80% { transform: translate(3px, -2px); }
+        90% { transform: translate(-2px, 1px); }
+      }
+      body.strike-shaking { animation: strike-shake 0.5s ease-in-out; }
+      .strike-overlay {
+        position: fixed; inset: 0; z-index: 999999;
+        display: flex; align-items: center; justify-content: center;
+        padding: 1rem; pointer-events: none;
+      }
+      .strike-overlay .strike-bolt {
+        font-family: var(--mono); font-size: clamp(1.3rem, 5vw, 2.4rem); font-weight: 700;
+        background: var(--ink); color: var(--bg); padding: 0.7em 1em; border-radius: 8px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); text-align: center; max-width: 80vw;
+        animation: strike-fly-in 0.65s cubic-bezier(.2,.9,.3,1.2) forwards;
+      }
+      .strike-overlay .modal { pointer-events: auto; }
       .signin { max-width: 30rem; }
       .signin .bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
       .signin input { flex: 1; }
@@ -118,10 +152,13 @@
       </header>
       <p class="intro">
         Load the <b>trebuchet</b> with a phrase from your quiver — one of the
-        three-word phrases <b>only you</b> have ever posted, finite ammo. Aim at a
-        bisk to launch a <b>reply</b>, or lob it into the open as a <b>standalone
-        post</b>. Either way it posts the phrase (with a card + a link to where you
-        coined it) and <b>spends</b> it — used twice, it's no longer yours alone.
+        three-word phrases <b>only you</b> have ever posted, finite ammo. Paste a
+        post URL to launch a <b>reply</b>, type a handle to launch a
+        <b>strike</b> at a poster (they'll see it crash into their view next
+        time they sign in here), or leave it empty and lob it into the open as
+        a <b>standalone post</b>. Either way it posts the phrase (with a card +
+        a link to where you coined it) and <b>spends</b> it — used twice, it's
+        no longer yours alone.
       </p>
 
       <div id="app"></div>
@@ -149,7 +186,7 @@
       const postUrl = (did, uri) => `https://bsky.app/profile/${did}/post/${uri.split("/").pop()}`;
 
       let session = null;
-      let target = null;     // { display, root, parent } or null (top-level)
+      let target = null;     // { kind: "reply", display, root, parent } | { kind: "strike", display, did } | null
       let quiver = [];       // [{ g, postUri, postDid, postText, score, spent }]
       let filter = "";
 
@@ -210,7 +247,7 @@
             <section>
               <p class="panel-label">target — aim (optional)</p>
               <div class="aimbar">
-                <input id="url" type="text" placeholder="paste a bsky.app post URL, or leave empty" />
+                <input id="url" type="text" placeholder="post URL to reply, handle to strike, or leave empty" />
                 <button id="load" class="tiny">aim</button>
                 <button id="clear" class="ghost tiny">clear</button>
               </div>
@@ -220,35 +257,61 @@
           </div>`;
         document.getElementById("load").onclick = loadTarget;
         document.getElementById("clear").onclick = () => { target = null; document.getElementById("url").value=""; renderTarget(); };
-        document.getElementById("url").addEventListener("keydown", (e) => { if (e.key === "Enter") loadTarget(); });
+        const urlInput = document.getElementById("url");
+        urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") loadTarget(); });
+        if (window.attachHandleTypeahead) window.attachHandleTypeahead(urlInput);
         bootQuiver();
       }
 
+      // The aim field does double duty: a bsky.app post URL/at:// uri aims a
+      // reply; anything else is treated as a handle to aim a standalone-post
+      // strike at (no reply, just a marker they'll see next time they sign in).
+      function looksLikePostRef(s) {
+        return /bsky\.app\/profile\//.test(s) || s.startsWith("at://");
+      }
       async function loadTarget() {
-        const url = document.getElementById("url").value.trim();
-        if (!url) { target = null; renderTarget(); return; }
+        const raw = document.getElementById("url").value.trim();
+        if (!raw) { target = null; renderTarget(); return; }
         const box = document.getElementById("targetBox");
-        box.innerHTML = `<p class="status">loading post…</p>`;
-        try { target = await resolvePostRef(url); }
+        box.innerHTML = `<p class="status">aiming…</p>`;
+        try {
+          if (looksLikePostRef(raw)) {
+            const ref = await resolvePostRef(raw);
+            target = { kind: "reply", display: ref.display, root: ref.root, parent: ref.parent };
+          } else {
+            const actor = await resolveActorFull(raw);
+            if (actor.did === session.did) throw new Error("can't strike yourself");
+            target = { kind: "strike", display: { handle: actor.handle }, did: actor.did };
+          }
+        }
         catch (e) { target = null; box.innerHTML = `<p class="err">${esc(e.message)}</p>`; renderMode(); return; }
         renderTarget();
       }
       function renderTarget() {
         const box = document.getElementById("targetBox");
         if (!target) { box.innerHTML = ""; renderMode(); return; }
-        box.innerHTML = `
-          <div class="target">
-            <div class="who2">@${esc(target.display.handle || "")}</div>
-            <div class="txt">${esc(target.display.text)}</div>
-          </div>`;
+        if (target.kind === "reply") {
+          box.innerHTML = `
+            <div class="target">
+              <div class="who2">@${esc(target.display.handle || "")}</div>
+              <div class="txt">${esc(target.display.text)}</div>
+            </div>`;
+        } else {
+          box.innerHTML = `
+            <div class="target">
+              <div class="who2">strike target</div>
+              <div class="txt">@${esc(target.display.handle || "")} — no reply, just a trebuchet strike aimed their way</div>
+            </div>`;
+        }
         renderMode();
       }
       function renderMode() {
         const m = document.getElementById("mode");
         if (!m) return;
-        m.innerHTML = target
+        if (!target) { m.innerHTML = `firing mode: <b>standalone post</b> (no target aimed)`; return; }
+        m.innerHTML = target.kind === "reply"
           ? `firing mode: <b>reply</b> to @${esc(target.display.handle || "")}`
-          : `firing mode: <b>standalone post</b> (no target aimed)`;
+          : `firing mode: <b>standalone post</b>, aimed as a <b>strike</b> at @${esc(target.display.handle || "")} — crashes into their view next time they sign in`;
       }
 
       // ---- quiver: load from cache instantly, or compute ------------------
@@ -335,9 +398,11 @@
         const linkText = "(coined here)";
         const text = `${q.g} ${linkText}`;
         const coinUrl = postUrl(q.postDid || session.did, q.postUri);
-        const aimline = target
-          ? `firing as a <b>reply</b> to @${esc(target.display.handle || "")}`
-          : `firing as a <b>standalone post</b>`;
+        const aimline = !target
+          ? `firing as a <b>standalone post</b>`
+          : target.kind === "reply"
+            ? `firing as a <b>reply</b> to @${esc(target.display.handle || "")}`
+            : `firing as a <b>standalone post</b>, aimed as a <b>strike</b> at @${esc(target.display.handle || "")}`;
 
         const bg = document.createElement("div");
         bg.className = "modal-bg";
@@ -348,7 +413,11 @@
             <div class="preview-text">${esc(q.g)} <a href="${coinUrl}" target="_blank">${esc(linkText)}</a></div>
             <p class="status" id="cardStatus">rendering card…</p>
             <p class="warn">firing posts this publicly and <b>spends</b>
-              &ldquo;${esc(q.g)}&rdquo; — it won't be yours alone anymore.</p>
+              &ldquo;${esc(q.g)}&rdquo; — it won't be yours alone anymore.${
+                target && target.kind === "strike"
+                  ? ` @${esc(target.display.handle || "")} will see it crash into their view next time they sign in here.`
+                  : ""
+              }</p>
             <div class="actions">
               <button class="ghost" id="cancel">cancel</button>
               <button id="confirm" disabled>fire</button>
@@ -379,16 +448,31 @@
             if (card) { const blob = await uploadImage(session, card.bytes, "image/png"); image = { blob, alt: card.alt }; }
             const res = await firePost(session, {
               text, linkText, linkUri: coinUrl, image,
-              replyRef: target ? { root: target.root, parent: target.parent } : null,
+              replyRef: target && target.kind === "reply" ? { root: target.root, parent: target.parent } : null,
             });
             q.spent = true;
             markSpentInCache(session.did, q.g);
+            const done = postUrl(session.did, res.uri);
+            if (target && target.kind === "strike") {
+              fetch("/api/strike", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  targetDid: target.did,
+                  targetHandle: target.display.handle,
+                  g: q.g,
+                  byDid: session.did,
+                  byHandle: session.handle,
+                  postUri: done,
+                }),
+              }).catch(() => {});
+            }
             close();
             renderQuiver("just now");
-            const done = postUrl(session.did, res.uri);
             const note = document.createElement("p");
             note.className = "status";
-            note.innerHTML = `fired &ldquo;${esc(q.g)}&rdquo; → <a href="${done}" target="_blank">see it →</a>`;
+            note.innerHTML = `fired &ldquo;${esc(q.g)}&rdquo; → <a href="${done}" target="_blank">see it →</a>` +
+              (target && target.kind === "strike" ? ` · strike aimed at @${esc(target.display.handle || "")}` : "");
             document.getElementById("quiverPanel").prepend(note);
           } catch (e) {
             btn.disabled = false; btn.textContent = "fire";
@@ -397,11 +481,82 @@
         };
       }
 
+      // ---- incoming strikes: crash-in on login -----------------------------
+      // Fired at us from another session (see the "aim at a handle" flow
+      // above). Ack immediately so a page refresh doesn't replay it, then
+      // play the impact.
+      async function checkIncomingStrikes() {
+        let strikes;
+        try {
+          const r = await fetch(`/api/strike?did=${encodeURIComponent(session.did)}`);
+          if (!r.ok) return;
+          strikes = (await r.json()).strikes || [];
+        } catch { return; }
+        if (!strikes.length) return;
+        fetch("/api/strike/ack", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ did: session.did, ids: strikes.map((s) => s.id) }),
+        }).catch(() => {});
+        playCrash(strikes);
+      }
+
+      function playCrash(strikes) {
+        const first = strikes[0];
+        const overlay = document.createElement("div");
+        overlay.className = "strike-overlay";
+        overlay.innerHTML = `<div class="strike-bolt">💥 ${esc(first.g)}</div>`;
+        document.body.appendChild(overlay);
+
+        // impact ~650ms into the fly-in: shake the screen and send everything
+        // in the page flying outward, then let it all settle back.
+        setTimeout(() => {
+          document.body.classList.add("strike-shaking");
+          setTimeout(() => document.body.classList.remove("strike-shaking"), 500);
+
+          const flying = document.querySelectorAll(".wrap > *, .system > section, .shot");
+          flying.forEach((el) => {
+            const dx = (Math.random() * 2 - 1) * 240;
+            const dy = (Math.random() * 2 - 1) * 160 - 30;
+            const rot = (Math.random() * 2 - 1) * 40;
+            el.style.transition = "transform 0.5s cubic-bezier(.3,.9,.4,1), opacity 0.5s";
+            el.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
+            el.style.opacity = "0.15";
+          });
+          setTimeout(() => {
+            flying.forEach((el) => {
+              el.style.transition = "transform 0.6s cubic-bezier(.2,.7,.3,1.15), opacity 0.6s";
+              el.style.transform = "";
+              el.style.opacity = "";
+            });
+            setTimeout(() => {
+              flying.forEach((el) => { el.style.transition = ""; });
+            }, 650);
+          }, 480);
+        }, 650);
+
+        // swap the bolt for a summary card once the dust settles.
+        setTimeout(() => {
+          overlay.innerHTML = `
+            <div class="modal" style="pointer-events:auto;">
+              <h3>incoming</h3>
+              ${strikes.map((s) => `
+                <p class="status">
+                  <b>@${esc(s.byHandle || "someone")}</b> launched
+                  &ldquo;${esc(s.g)}&rdquo; at you
+                  ${s.postUri ? `— <a href="${esc(s.postUri)}" target="_blank">see it →</a>` : ""}
+                </p>`).join("")}
+              <div class="actions"><button id="strikeDismiss">brace taken</button></div>
+            </div>`;
+          overlay.querySelector("#strikeDismiss").onclick = () => overlay.remove();
+        }, 1500);
+      }
+
       // ---- boot ------------------------------------------------------------
       (async () => {
         try { session = (await completeLoginIfCallback()) || (await getSession()); }
         catch (e) { loginView(e.message); return; }
-        if (session) systemView();
+        if (session) { systemView(); checkIncomingStrikes(); }
         else loginView();
       })();
     </script>

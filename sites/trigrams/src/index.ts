@@ -9,10 +9,17 @@
 //     buildthis bot credential), exactly how mino does it. Keeps /rich open-read:
 //     visitors don't log in; the Worker holds the one credential.
 
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
 interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   BOT_IDENTIFIER: string; // the bot DID/handle for createSession
   BOT_APP_PASSWORD: string; // app-password (wrangler secret)
+  STRIKES: KVNamespace; // pending trebuchet strikes, keyed by target DID
 }
 
 const PDS = "https://bsky.social";
@@ -99,6 +106,83 @@ async function handleSearch(url: URL, env: Env): Promise<Response> {
   });
 }
 
+// ---- /api/strike — /launcher's "aim at a poster" mode -----------------------
+// A strike is a fire-and-forget marker: "@byHandle launched a trigram at you."
+// Written when the trebuchet fires with a handle-only target (no specific post
+// to reply to). /launcher polls for it on login and plays the crash-in
+// animation, then acks it so it doesn't replay. Keyed by target DID in KV, not
+// verified against the poster's PDS — it's a cosmetic notification, not a
+// record of anything that needs to be trustworthy beyond "don't let it grow
+// unbounded" (capped list, ack clears it).
+
+const MAX_STRIKES_PER_TARGET = 15;
+
+function strikeKey(did: string): string {
+  return `strike:${did}`;
+}
+
+async function handleStrikeGet(url: URL, env: Env): Promise<Response> {
+  const did = url.searchParams.get("did");
+  if (!did) return json({ error: "missing did" }, 400);
+  const raw = await env.STRIKES.get(strikeKey(did));
+  const strikes = raw ? JSON.parse(raw) : [];
+  return json({ strikes });
+}
+
+async function handleStrikePost(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "bad json" }, 400);
+  }
+  const { targetDid, targetHandle, g, byDid, byHandle, postUri } = body || {};
+  if (!targetDid || !g || !byDid || !postUri) {
+    return json({ error: "missing fields" }, 400);
+  }
+  if (targetDid === byDid) return json({ error: "can't strike yourself" }, 400);
+
+  const key = strikeKey(String(targetDid));
+  const raw = await env.STRIKES.get(key);
+  const list = raw ? JSON.parse(raw) : [];
+  list.push({
+    id: crypto.randomUUID(),
+    g: String(g).slice(0, 200),
+    byDid: String(byDid),
+    byHandle: String(byHandle || "").slice(0, 200),
+    targetHandle: String(targetHandle || "").slice(0, 200),
+    postUri: String(postUri).slice(0, 500),
+    at: Date.now(),
+  });
+  while (list.length > MAX_STRIKES_PER_TARGET) list.shift();
+  await env.STRIKES.put(key, JSON.stringify(list));
+  return json({ ok: true });
+}
+
+async function handleStrikeAck(request: Request, env: Env): Promise<Response> {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "bad json" }, 400);
+  }
+  const { did, ids } = body || {};
+  if (!did) return json({ error: "missing did" }, 400);
+
+  const key = strikeKey(String(did));
+  if (!Array.isArray(ids) || ids.length === 0) {
+    await env.STRIKES.delete(key);
+    return json({ ok: true });
+  }
+  const raw = await env.STRIKES.get(key);
+  const list = raw ? JSON.parse(raw) : [];
+  const ackSet = new Set(ids);
+  const remaining = list.filter((s: any) => !ackSet.has(s.id));
+  if (remaining.length) await env.STRIKES.put(key, JSON.stringify(remaining));
+  else await env.STRIKES.delete(key);
+  return json({ ok: true });
+}
+
 function json(obj: unknown, status = 200): Response {
   return new Response(JSON.stringify(obj), {
     status,
@@ -119,6 +203,27 @@ export default {
       } catch (e) {
         return json({ error: String((e as Error)?.message || e) }, 502);
       }
+    }
+
+    if (url.pathname === "/api/strike") {
+      if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+      try {
+        if (request.method === "GET") return await handleStrikeGet(url, env);
+        if (request.method === "POST") return await handleStrikePost(request, env);
+      } catch (e) {
+        return json({ error: String((e as Error)?.message || e) }, 502);
+      }
+      return json({ error: "method not allowed" }, 405);
+    }
+
+    if (url.pathname === "/api/strike/ack") {
+      if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
+      try {
+        if (request.method === "POST") return await handleStrikeAck(request, env);
+      } catch (e) {
+        return json({ error: String((e as Error)?.message || e) }, 502);
+      }
+      return json({ error: "method not allowed" }, 405);
     }
 
     if (url.pathname === "/") {
