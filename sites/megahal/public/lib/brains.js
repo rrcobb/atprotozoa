@@ -8,6 +8,13 @@
 // . ! or ? — the chain does the rest.
 
 export const BRAINS = {
+  you: {
+    label: "you (bluesky)",
+    blurb: "type a Bluesky handle below and load it — trains the chain on that account's real posts instead of pastiche.",
+    lines: [],
+    dynamic: true,
+  },
+
   default: {
     label: "default",
     blurb: "the classic MegaHAL grab-bag — whatever a chatterbot picks up from talking to everyone at once.",
