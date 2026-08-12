@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>logitlens — what's the very next token, really?</title>
+<meta name="description" content="Type a prompt, pick a small language model, and see its actual next-token probability distribution — computed by a real forward pass, running entirely in your browser via transformers.js. No server inference." />
+<meta property="og:title" content="logitlens — what's the very next token, really?" />
+<meta property="og:description" content="Type a prompt, pick a small language model, and see its actual next-token probability distribution — computed by a real forward pass, running entirely in your browser via transformers.js." />
+<meta property="og:url" content="https://logitlens.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://logitlens.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="logitlens: a bar chart of next-token probabilities, most of the mass piled onto one token." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="logitlens — what's the very next token, really?" />
+<meta name="twitter:description" content="Type a prompt, pick a small language model, and see its actual next-token probability distribution, computed live in your browser." />
+<meta name="twitter:image" content="https://logitlens.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070a10;
+    --fg: #e9f3f5;
+    --dim: #7d93a0;
+    --dim2: #526270;
+    --accent: #5eead4;
+    --accent2: #2dd4bf;
+    --warn: #fbbf6a;
+    --card: #0e141c;
+    --border: #1c2733;
+    --border2: #24313f;
+    --bar: #133029;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #0d2b28 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 5%, #1a2038 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 720px; }
+  h1 {
+    font-size: 1.8rem;
+    line-height: 1.25;
+    margin: 0 0 0.4rem;
+    color: var(--fg);
+  }
+  h1 .lens { color: var(--accent); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 1.75rem;
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+  .tag code { color: var(--accent); }
+  .tag a { color: var(--accent2); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.25rem 1.4rem;
+    margin-bottom: 1.1rem;
+  }
+
+  label.field-label {
+    display: block;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 0.5rem;
+  }
+
+  .models {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.1rem;
+  }
+  .model-btn {
+    background: #0b1219;
+    border: 1px solid var(--border2);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.35;
+  }
+  .model-btn .size { display: block; font-size: 0.72rem; color: var(--dim2); }
+  .model-btn:hover { border-color: var(--accent2); color: var(--fg); }
+  .model-btn.active {
+    border-color: var(--accent);
+    color: var(--fg);
+    background: #0c1c1a;
+    box-shadow: 0 0 0 1px var(--accent) inset;
+  }
+  .model-btn.active .size { color: var(--accent); }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 5.5rem;
+    background: #0b1219;
+    border: 1px solid var(--border2);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  textarea:focus, .model-btn:focus, button:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.6rem 0 0;
+  }
+  .preset-btn {
+    background: none;
+    border: 1px dashed var(--border2);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.28rem 0.7rem;
+    font: inherit;
+    font-size: 0.74rem;
+    cursor: pointer;
+  }
+  .preset-btn:hover { color: var(--accent2); border-color: var(--accent2); }
+
+  .run-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1rem;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #06201b;
+    border: none;
+    border-radius: 8px;
+    padding: 0.72rem 1.2rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button.primary:hover { background: var(--accent2); }
+  button.primary:disabled { background: var(--border2); color: var(--dim2); cursor: default; }
+
+  .status {
+    font-size: 0.82rem;
+    color: var(--dim);
+    min-height: 1.2em;
+  }
+  .status.err { color: #ff8a8a; }
+
+  .progress-track {
+    height: 4px;
+    background: var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+    display: none;
+  }
+  .progress-track.show { display: block; }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.15s ease;
+  }
+
+  .results { display: none; }
+  .results.show { display: block; }
+
+  .stat-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .stat {
+    flex: 1;
+    min-width: 130px;
+    background: #0b1219;
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+  }
+  .stat .k { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); }
+  .stat .v { font-size: 1.15rem; font-weight: 700; color: var(--fg); margin-top: 0.15rem; }
+  .stat .v.hot { color: var(--warn); }
+  .stat .sub { font-size: 0.72rem; color: var(--dim2); margin-top: 0.1rem; }
+
+  .verdict {
+    font-size: 0.85rem;
+    color: var(--dim);
+    margin-bottom: 1.1rem;
+    line-height: 1.5;
+  }
+  .verdict b { color: var(--fg); }
+
+  .bar-list { display: flex; flex-direction: column; gap: 0.34rem; }
+  .bar-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3.6rem;
+    align-items: center;
+    gap: 0.6rem;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+  }
+  .bar-row:hover .tok { border-color: var(--accent2); }
+  .bar-track {
+    position: relative;
+    height: 1.7rem;
+    background: #0b1219;
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, var(--bar), var(--accent2));
+    width: 0%;
+  }
+  .tok {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 0.55rem;
+    font-size: 0.84rem;
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 2px solid transparent;
+  }
+  .tok .ws { color: var(--dim2); }
+  .pct { font-size: 0.78rem; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+  .bar-row.top .pct { color: var(--accent); font-weight: 700; }
+
+  .hint {
+    font-size: 0.74rem;
+    color: var(--dim2);
+    margin-top: 0.8rem;
+    line-height: 1.5;
+  }
+
+  .share-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.1rem;
+  }
+  a.share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #0b1219;
+    border: 1px solid var(--border2);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.55rem 0.9rem;
+    font: inherit;
+    font-size: 0.82rem;
+    text-decoration: none;
+  }
+  a.share-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  footer {
+    color: var(--dim2);
+    font-size: 0.76rem;
+    line-height: 1.7;
+    margin-top: 1.5rem;
+    max-width: 62ch;
+  }
+  footer a { color: var(--dim); }
+  footer code { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>logit<span class="lens">lens</span></h1>
+  <p class="tag">
+    Type a prompt, pick a small language model, run one real forward pass — entirely
+    in your browser, via <code>transformers.js</code> (WASM/ONNX), no server
+    inference — and see the actual probability distribution the model puts over
+    every possible next token. Prompted by a thread asking whether next-token
+    logits get "absurdly skewed" when a model is mid-way through repeating text
+    verbatim. Now you can just check.
+  </p>
+
+  <div class="card">
+    <label class="field-label">model</label>
+    <div class="models" id="models"></div>
+
+    <label class="field-label" for="prompt">prompt</label>
+    <textarea id="prompt" spellcheck="false"></textarea>
+    <div class="presets" id="presets"></div>
+
+    <div class="run-row">
+      <button class="primary" id="run">compute distribution</button>
+      <div style="flex:1">
+        <div class="status" id="status"></div>
+        <div class="progress-track" id="progressTrack"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card results" id="results">
+    <div class="stat-row">
+      <div class="stat">
+        <div class="k">top token</div>
+        <div class="v" id="statTopProb">—</div>
+        <div class="sub" id="statTopTok">&nbsp;</div>
+      </div>
+      <div class="stat">
+        <div class="k">entropy</div>
+        <div class="v" id="statEntropy">—</div>
+        <div class="sub">bits over the full vocab</div>
+      </div>
+      <div class="stat">
+        <div class="k">effective choices</div>
+        <div class="v" id="statPerplexity">—</div>
+        <div class="sub">2^entropy — a "how many tokens feel live" count</div>
+      </div>
+    </div>
+    <div class="verdict" id="verdict"></div>
+    <div class="bar-list" id="barList"></div>
+    <div class="hint">Click any token to append it to the prompt and step forward one token — a quick way to watch the distribution stay skewed (or not) across a run.</div>
+    <div class="share-row" id="shareRow" style="display:none">
+      <a class="share-btn" id="shareBluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+    </div>
+  </div>
+
+  <footer>
+    Method: the prompt is tokenized, run through one real forward pass of the chosen
+    model, and the logits at the final position are softmaxed into a probability
+    over the whole vocabulary — the same distribution a model actually samples
+    from at generation time. This is the model's raw next-token call, not a
+    per-layer "logit lens" trace through the network. Models load from the
+    Hugging Face CDN on first use (tens of MB, cached by your browser after
+    that) and everything after that runs on your device — nothing you type is
+    sent anywhere. Models via <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener">transformers.js</a>:
+    <a href="https://huggingface.co/Xenova/gpt2" target="_blank" rel="noopener">GPT-2</a>,
+    <a href="https://huggingface.co/Xenova/distilgpt2" target="_blank" rel="noopener">DistilGPT-2</a>,
+    <a href="https://huggingface.co/Xenova/gpt-neo-125M" target="_blank" rel="noopener">GPT-Neo 125M</a>,
+    <a href="https://huggingface.co/Xenova/pythia-70m-deduped" target="_blank" rel="noopener">Pythia-70M</a>.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const MODEL_CDN = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm";
+  const TOP_K = 16;
+
+  const MODELS = [
+    { id: "Xenova/gpt2", label: "GPT-2", size: "124M params" },
+    { id: "Xenova/distilgpt2", label: "DistilGPT-2", size: "82M params" },
+    { id: "Xenova/gpt-neo-125M", label: "GPT-Neo", size: "125M params" },
+    { id: "Xenova/pythia-70m-deduped", label: "Pythia", size: "70M params" },
+  ];
+
+  const PRESETS = [
+    {
+      label: "verbatim repeat",
+      text: "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy",
+    },
+    {
+      label: "open-ended",
+      text: "My favorite thing about weekends is",
+    },
+    {
+      label: "code",
+      text: "def fibonacci(n):\n    if n <= 1:\n        return",
+    },
+    {
+      label: "arithmetic",
+      text: "2 + 2 =",
+    },
+  ];
+
+  const els = {
+    models: document.getElementById("models"),
+    prompt: document.getElementById("prompt"),
+    presets: document.getElementById("presets"),
+    run: document.getElementById("run"),
+    status: document.getElementById("status"),
+    progressTrack: document.getElementById("progressTrack"),
+    progressFill: document.getElementById("progressFill"),
+    results: document.getElementById("results"),
+    statTopProb: document.getElementById("statTopProb"),
+    statTopTok: document.getElementById("statTopTok"),
+    statEntropy: document.getElementById("statEntropy"),
+    statPerplexity: document.getElementById("statPerplexity"),
+    verdict: document.getElementById("verdict"),
+    barList: document.getElementById("barList"),
+    shareRow: document.getElementById("shareRow"),
+    shareBluesky: document.getElementById("shareBluesky"),
+  };
+
+  let selectedModel = MODELS[0].id;
+  const cache = new Map(); // modelId -> Promise<{tokenizer, model}>
+  let running = false;
+
+  // ---- UI: model picker -----------------------------------------------------
+
+  function renderModels() {
+    els.models.innerHTML = "";
+    for (const m of MODELS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "model-btn" + (m.id === selectedModel ? " active" : "");
+      btn.innerHTML = esc(m.label) + '<span class="size">' + esc(m.size) + "</span>";
+      btn.addEventListener("click", () => {
+        selectedModel = m.id;
+        renderModels();
+      });
+      els.models.appendChild(btn);
+    }
+  }
+
+  function renderPresets() {
+    els.presets.innerHTML = "";
+    for (const p of PRESETS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "preset-btn";
+      btn.textContent = p.label;
+      btn.addEventListener("click", () => {
+        els.prompt.value = p.text;
+        els.prompt.focus();
+      });
+      els.presets.appendChild(btn);
+    }
+  }
+
+  renderModels();
+  renderPresets();
+  els.prompt.value = PRESETS[0].text;
+
+  // ---- status / progress -----------------------------------------------------
+
+  function setStatus(msg, isErr) {
+    els.status.textContent = msg || "";
+    els.status.className = "status" + (isErr ? " err" : "");
+  }
+
+  function setProgress(pct) {
+    if (pct == null) {
+      els.progressTrack.className = "progress-track";
+      return;
+    }
+    els.progressTrack.className = "progress-track show";
+    els.progressFill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+  }
+
+  // ---- transformers.js model loading -----------------------------------------
+
+  function makeProgressHandler(modelId) {
+    const seen = {};
+    return function onProgress(e) {
+      if (e.status === "initiate") {
+        setStatus("loading " + modelId + "…");
+      } else if (e.status === "progress" && typeof e.progress === "number") {
+        seen[e.file] = e.progress;
+        const vals = Object.values(seen);
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        setStatus("loading " + modelId + "… " + Math.round(avg) + "%");
+        setProgress(avg);
+      } else if (e.status === "ready" || e.status === "done") {
+        setStatus("running " + modelId + "…");
+      }
+    };
+  }
+
+  async function getModel(modelId) {
+    if (!cache.has(modelId)) {
+      cache.set(
+        modelId,
+        (async () => {
+          const mod = await import(/* webpackIgnore: true */ MODEL_CDN);
+          mod.env.allowLocalModels = false;
+          const onProgress = makeProgressHandler(modelId);
+          const tokenizer = await mod.AutoTokenizer.from_pretrained(modelId, { progress_callback: onProgress });
+          const model = await mod.AutoModelForCausalLM.from_pretrained(modelId, {
+            quantized: true,
+            progress_callback: onProgress,
+          });
+          return { tokenizer, model };
+        })()
+      );
+    }
+    return cache.get(modelId);
+  }
+
+  // ---- inference: one forward pass -> next-token distribution ----------------
+
+  async function nextTokenDistribution(modelId, text) {
+    const { tokenizer, model } = await getModel(modelId);
+    setStatus("running " + modelId + "…");
+    setProgress(null);
+
+    const inputs = await tokenizer(text);
+    const output = await model(inputs);
+    const logitsTensor = output.logits;
+    const dims = logitsTensor.dims; // [batch, seqLen, vocab]
+    const vocabSize = dims[dims.length - 1];
+    const seqLen = dims[dims.length - 2];
+    const data = logitsTensor.data;
+    const lastStart = (seqLen - 1) * vocabSize;
+
+    let max = -Infinity;
+    for (let i = 0; i < vocabSize; i++) {
+      const v = data[lastStart + i];
+      if (v > max) max = v;
+    }
+    let sum = 0;
+    const probs = new Float64Array(vocabSize);
+    for (let i = 0; i < vocabSize; i++) {
+      const e = Math.exp(data[lastStart + i] - max);
+      probs[i] = e;
+      sum += e;
+    }
+    for (let i = 0; i < vocabSize; i++) probs[i] /= sum;
+
+    let entropy = 0;
+    for (let i = 0; i < vocabSize; i++) {
+      const p = probs[i];
+      if (p > 1e-12) entropy -= p * Math.log2(p);
+    }
+
+    const idx = new Array(vocabSize);
+    for (let i = 0; i < vocabSize; i++) idx[i] = i;
+    idx.sort((a, b) => probs[b] - probs[a]);
+    const top = idx.slice(0, TOP_K).map((id) => ({
+      id,
+      prob: probs[id],
+      text: decodeToken(tokenizer, id),
+    }));
+
+    return { top, entropy, vocabSize };
+  }
+
+  function decodeToken(tokenizer, id) {
+    try {
+      const s = tokenizer.decode([id], { skip_special_tokens: false });
+      return s;
+    } catch (_) {
+      return "<" + id + ">";
+    }
+  }
+
+  // ---- rendering ---------------------------------------------------------
+
+  function fmtPct(p) {
+    const pct = p * 100;
+    if (pct >= 10) return pct.toFixed(1) + "%";
+    if (pct >= 1) return pct.toFixed(2) + "%";
+    if (pct >= 0.01) return pct.toFixed(3) + "%";
+    return "<0.01%";
+  }
+
+  function displayToken(raw) {
+    if (raw === "") return { html: '<span class="ws">(empty)</span>', plain: "" };
+    let out = "";
+    let i = 0;
+    // Surface leading whitespace visibly; leave the rest of the token as-is.
+    while (i < raw.length && (raw[i] === " " || raw[i] === "\n" || raw[i] === "\t")) {
+      const c = raw[i];
+      out += '<span class="ws">' + (c === "\n" ? "↵" : c === "\t" ? "→" : "·") + "</span>";
+      i++;
+    }
+    out += esc(raw.slice(i)).replace(/\n/g, '<span class="ws">↵</span>');
+    return { html: out || '<span class="ws">(ws)</span>', plain: raw };
+  }
+
+  function verdictFor(entropy, topProb) {
+    if (topProb >= 0.9) {
+      return "Almost entirely determined — the model is effectively certain what comes next.";
+    }
+    if (topProb >= 0.5) {
+      return "Fairly skewed — one token dominates, but there's real competition.";
+    }
+    if (entropy <= 4) {
+      return "A handful of tokens are plausible; nothing is close to certain.";
+    }
+    return "Wide open — probability mass is spread thin across the vocabulary.";
+  }
+
+  function render(result, modelLabel, promptText) {
+    const top = result.top;
+    const topProb = top[0].prob;
+
+    els.statTopProb.textContent = fmtPct(topProb);
+    els.statTopProb.className = "v" + (topProb >= 0.9 ? " hot" : "");
+    els.statTopTok.textContent = JSON.stringify(top[0].text);
+    els.statEntropy.textContent = result.entropy.toFixed(2);
+    els.statPerplexity.textContent = Math.pow(2, result.entropy).toFixed(1);
+    els.verdict.innerHTML =
+      verdictFor(result.entropy, topProb) +
+      ' <b>' + esc(modelLabel) + "</b> over a " + result.vocabSize.toLocaleString() + "-token vocabulary.";
+
+    els.barList.innerHTML = "";
+    top.forEach((t, i) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "bar-row" + (i === 0 ? " top" : "");
+      row.title = "click to append this token and step forward";
+
+      const track = document.createElement("div");
+      track.className = "bar-track";
+      const fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = Math.max(0.4, t.prob * 100) + "%";
+      const tok = document.createElement("div");
+      tok.className = "tok";
+      tok.innerHTML = displayToken(t.text).html;
+      track.appendChild(fill);
+      track.appendChild(tok);
+
+      const pct = document.createElement("div");
+      pct.className = "pct";
+      pct.textContent = fmtPct(t.prob);
+
+      row.appendChild(track);
+      row.appendChild(pct);
+      row.addEventListener("click", () => {
+        els.prompt.value = promptText + t.text;
+        run();
+      });
+      els.barList.appendChild(row);
+    });
+
+    els.results.className = "card results show";
+
+    const modelInfo = MODELS.find((m) => m.id === selectedModel);
+    const shareText =
+      "logitlens: with " + (modelInfo ? modelInfo.label : selectedModel) + ", the top next token after \"" +
+      truncate(promptText, 80) + "\" is " + JSON.stringify(top[0].text) + " at " + fmtPct(topProb) +
+      " (entropy " + result.entropy.toFixed(2) + " bits). https://logitlens.bisks.net/";
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    els.shareRow.style.display = "flex";
+  }
+
+  function truncate(s, max) {
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1).trimEnd() + "…";
+  }
+
+  function esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ---- run ---------------------------------------------------------------
+
+  async function run() {
+    if (running) return;
+    const text = els.prompt.value;
+    if (!text.trim()) {
+      setStatus("type a prompt first.", true);
+      return;
+    }
+    running = true;
+    els.run.disabled = true;
+    setStatus("loading " + selectedModel + "…");
+    try {
+      const modelInfo = MODELS.find((m) => m.id === selectedModel);
+      const result = await nextTokenDistribution(selectedModel, text);
+      setStatus("done — " + result.vocabSize.toLocaleString() + " tokens scored.");
+      setProgress(null);
+      render(result, modelInfo ? modelInfo.label : selectedModel, text);
+    } catch (err) {
+      console.error(err);
+      setStatus("couldn't compute that: " + (err && err.message ? err.message : String(err)), true);
+      setProgress(null);
+    } finally {
+      running = false;
+      els.run.disabled = false;
+    }
+  }
+
+  els.run.addEventListener("click", run);
+  els.prompt.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run();
+  });
+})();
+</script>
+</body>
+</html>
