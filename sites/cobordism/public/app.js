@@ -122,13 +122,21 @@ function radialGradientRing(innerR, outerR, y, colorInner, colorOuter, segments,
   return mesh;
 }
 
+function smoothstep01(x) {
+  return x * x * (3 - 2 * x);
+}
+
 function neckMesh(holeR, waist, separation, curve, colorBottom, colorTop, segments, wireframe) {
   const steps = Math.max(8, Math.round(segments / 2));
   const points = [];
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * 2 - 1; // -1 .. 1
     const y = (t * separation) / 2;
-    const r = waist + (holeR - waist) * Math.pow(Math.abs(t), curve);
+    // smoothstep of the power curve keeps the tangent flat at both the
+    // waist (t=0) and the seam (|t|=1), so the tube meets the flat disk
+    // without a crease instead of arriving at some fixed nonzero slope.
+    const a = smoothstep01(Math.pow(Math.abs(t), curve));
+    const r = waist + (holeR - waist) * a;
     points.push(new THREE.Vector2(Math.max(r, 0.01), y));
   }
   const geo = new THREE.LatheGeometry(points, segments);
@@ -431,13 +439,18 @@ function radialGradientRing(innerR, outerR, y, colorInner, colorOuter, segments,
   return mesh;
 }
 
+function smoothstep01(x) {
+  return x * x * (3 - 2 * x);
+}
+
 function neckMesh(holeR, waist, separation, curve, colorBottom, colorTop, segments) {
   const steps = Math.max(8, Math.round(segments / 2));
   const points = [];
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * 2 - 1;
     const y = (t * separation) / 2;
-    const r = waist + (holeR - waist) * Math.pow(Math.abs(t), curve);
+    const a = smoothstep01(Math.pow(Math.abs(t), curve));
+    const r = waist + (holeR - waist) * a;
     points.push(new THREE.Vector2(Math.max(r, 0.01), y));
   }
   const geo = new THREE.LatheGeometry(points, segments);
