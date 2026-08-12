@@ -79,6 +79,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="366" font-family="JetBrains Mono" font-size="17" fill="${DIM}">a random turn at every real</text>
   <text x="64" y="392" font-family="JetBrains Mono" font-size="17" fill="${DIM}">intersection, no plan at all.</text>
 
+  <text x="64" y="440" font-family="JetBrains Mono" font-weight="700" font-size="17" fill="${ACCENT}">now with wumbo mode: 20,000 guys, 50&#215; speed.</text>
+
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">littleguys.bisks.net</text>
 
   <!-- street grid card -->

@@ -163,6 +163,8 @@
     turns down a random direction, no plan, no destination. asked for by
     <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a> —
     bonus points meant dropping up to 500 of them at once, so that's the max here.
+    then they came back asking to ramp the count and the sim speed higher than
+    should reasonably be possible, so there's a <b>wumbo mode</b> for that now too.
   </p>
 
   <form id="search-form">
@@ -178,12 +180,24 @@
     <div class="control">
       <label for="count">how many <span class="val" id="count-val">1</span></label>
       <input type="range" id="count" min="1" max="500" step="1" value="1" />
-      <div class="hint">one gets a face and a running commentary on which street he's on. more than a handful and it's dots — up to 500 of them.</div>
+      <div class="hint" id="count-hint">one gets a face and a running commentary on which street he's on. more than a handful and it's dots — up to 500 of them, or more with wumbo mode below.</div>
     </div>
     <div class="control">
       <label for="distance">how far they wander <span class="val" id="distance-val">700 m</span></label>
       <input type="range" id="distance" min="200" max="3000" step="50" value="700" />
       <div class="hint">rough target distance before each one calls it a day — real ones vary a bit so they don't all stop in lockstep.</div>
+    </div>
+    <div class="control">
+      <label for="wumbo-toggle">wumbo mode <span class="val" id="wumbo-state">off</span></label>
+      <div class="row" style="margin-top: 0;">
+        <button class="ghost" type="button" id="wumbo-toggle" aria-pressed="false">🔵 make it wumbo</button>
+      </div>
+      <div class="hint">unlocks up to 20,000 little guys and up to 50&times; sim speed. higher than you think should be possible. turn it off and both snap back to sane.</div>
+    </div>
+    <div class="control" id="wumbo-speed-control" style="display: none;">
+      <label for="speed-mult">sim speed <span class="val" id="speed-mult-val">10&times;</span></label>
+      <input type="range" id="speed-mult" min="1" max="50" step="1" value="10" />
+      <div class="hint">multiplier on the base walking pace — at 50&times; they're basically teleporting between intersections.</div>
     </div>
   </fieldset>
 
@@ -230,10 +244,49 @@
   const countVal = document.getElementById("count-val");
   const distanceInput = document.getElementById("distance");
   const distanceVal = document.getElementById("distance-val");
+  const wumboToggle = document.getElementById("wumbo-toggle");
+  const wumboState = document.getElementById("wumbo-state");
+  const wumboSpeedControl = document.getElementById("wumbo-speed-control");
+  const speedMultInput = document.getElementById("speed-mult");
+  const speedMultVal = document.getElementById("speed-mult-val");
+
+  const NORMAL_COUNT_MAX = 500;
+  const WUMBO_COUNT_MAX = 20000;
+  const WUMBO_DEFAULT_COUNT = 5000;
+  let wumboOn = false;
+  let speedMultiplier = 1;
 
   countInput.addEventListener("input", () => { countVal.textContent = countInput.value; });
   function fmtM(m) { return m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(m < 10000 ? 1 : 0) + " km"; }
   distanceInput.addEventListener("input", () => { distanceVal.textContent = fmtM(parseFloat(distanceInput.value)); });
+
+  wumboToggle.addEventListener("click", () => {
+    wumboOn = !wumboOn;
+    wumboToggle.setAttribute("aria-pressed", String(wumboOn));
+    wumboToggle.textContent = wumboOn ? "🔵 wumbo!" : "🔵 make it wumbo";
+    wumboState.textContent = wumboOn ? "on" : "off";
+    wumboSpeedControl.style.display = wumboOn ? "" : "none";
+    if (wumboOn) {
+      countInput.max = String(WUMBO_COUNT_MAX);
+      if (parseInt(countInput.value, 10) < WUMBO_DEFAULT_COUNT) {
+        countInput.value = String(WUMBO_DEFAULT_COUNT);
+        countVal.textContent = countInput.value;
+      }
+      speedMultiplier = parseInt(speedMultInput.value, 10);
+    } else {
+      countInput.max = String(NORMAL_COUNT_MAX);
+      if (parseInt(countInput.value, 10) > NORMAL_COUNT_MAX) {
+        countInput.value = String(NORMAL_COUNT_MAX);
+        countVal.textContent = countInput.value;
+      }
+      speedMultiplier = 1;
+    }
+  });
+
+  speedMultInput.addEventListener("input", () => {
+    speedMultVal.innerHTML = speedMultInput.value + "&times;";
+    if (wumboOn) speedMultiplier = parseInt(speedMultInput.value, 10);
+  });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -285,10 +338,12 @@
       const ctx = this._canvas.getContext("2d");
       ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
       if (!walkers.length) return;
-      const single = walkers.length === 1;
-      const r = single ? 7 : walkers.length <= 25 ? 4.5 : walkers.length <= 100 ? 3 : 1.8;
+      const n = walkers.length;
+      const single = n === 1;
+      const r = single ? 7 : n <= 25 ? 4.5 : n <= 100 ? 3 : n <= 1000 ? 1.8 : n <= 5000 ? 1.1 : 0.8;
+      const drawTrails = n <= 2000; // wumbo-scale counts skip trails, dots only — keeps it at 60fps
       for (const w of walkers) {
-        if (w.trail.length > 1) {
+        if (drawTrails && w.trail.length > 1) {
           ctx.beginPath();
           ctx.strokeStyle = w.color;
           ctx.globalAlpha = 0.35;
@@ -382,7 +437,7 @@
       w.currentStreet = next.street;
       if (next.street) w.streets.add(next.street);
     }
-    let move = SPEED_MPS * dtSec;
+    let move = SPEED_MPS * speedMultiplier * dtSec;
     let guard = 0;
     while (move > 0 && w.edge && guard < 200) {
       guard++;
@@ -476,7 +531,7 @@
 
     const headline = n === 1
       ? "wandered " + fmtM(walkers[0].traveled) + " across " + walkers[0].streets.size + " street" + (walkers[0].streets.size === 1 ? "" : "s")
-      : n + " little guys wandered " + fmtM(totalM) + " combined";
+      : (n > NORMAL_COUNT_MAX ? "🔵 WUMBO — " : "") + n + " little guys wandered " + fmtM(totalM) + " combined";
     const subParts = [];
     if (n > 1) {
       subParts.push("averaging " + fmtM(avgM) + " each");
@@ -502,6 +557,10 @@
     let body;
     if (lastStats.n === 1) {
       body = "🚶 dropped a little guy near " + place + " and let him wander real streets — he covered " + fmtM(lastStats.totalM) + " before calling it a day.";
+    } else if (lastStats.n > NORMAL_COUNT_MAX) {
+      body = "🔵 WUMBO MODE: dropped " + lastStats.n + " little guys near " + place +
+        " and watched them wander real streets — " + fmtM(lastStats.totalM) + " combined, " +
+        lastStats.allStreetsCount + " different streets crossed.";
     } else {
       body = "🚶🚶🚶 dropped " + lastStats.n + " little guys near " + place +
         " and watched them wander real streets — " + fmtM(lastStats.totalM) + " combined, " +
