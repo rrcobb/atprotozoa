@@ -10,7 +10,11 @@
 //
 // The client_id is the URL of our static client-metadata.json. Scope is
 // narrowed to create-only on app.bsky.feed.post plus image blob uploads — no
-// account-wide access. Must stay in lockstep with client-metadata.json.
+// account-wide access. SCOPE_FULL must stay in lockstep with
+// client-metadata.json's declared `scope` (the maximum this client can ever
+// ask for). login() can also request SCOPE_MINIMAL ("atproto" alone, no
+// write grants) — a subset of the declared scope, for someone who wants to
+// sign in without granting posting permission. The launcher offers both.
 
 import {
   generateDPoPKeyPair,
@@ -26,7 +30,9 @@ import {
 const ORIGIN = location.origin; // https://trigrams.bisks.net (or localhost in dev)
 export const CLIENT_ID = `${ORIGIN}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}/launcher/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:app.bsky.feed.post?action=create blob:image/*";
+export const SCOPE_FULL = "atproto repo:app.bsky.feed.post?action=create blob:image/*";
+export const SCOPE_MINIMAL = "atproto";
+const SCOPE = SCOPE_FULL; // default for any caller that doesn't pick explicitly
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
@@ -151,7 +157,7 @@ export async function clearSession() {
 
 // --- login: start the flow ---------------------------------------------------
 
-export async function login(handleOrDid) {
+export async function login(handleOrDid, scope = SCOPE_FULL) {
   const did = handleOrDid.startsWith("did:")
     ? handleOrDid
     : await resolveHandle(handleOrDid);
@@ -176,7 +182,7 @@ export async function login(handleOrDid) {
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,
-    scope: SCOPE,
+    scope,
     login_hint: handleOrDid,
   });
 
@@ -217,6 +223,7 @@ export async function login(handleOrDid) {
       tokenEndpoint: metadata.token_endpoint,
       issuer: metadata.issuer,
       dpopNonce: dpopNonce || null,
+      scope,
     }),
   );
 
@@ -304,7 +311,7 @@ export async function completeLoginIfCallback() {
       Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600),
     dpop: s.dpop,
     dpopNonce: finalNonce,
-    scope: tokens.scope || SCOPE,
+    scope: tokens.scope || s.scope || SCOPE,
   };
   await idbSet("current", session);
   cleanUrl();

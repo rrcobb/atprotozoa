@@ -172,7 +172,7 @@
 
     <script src="../lib/handle-typeahead.js"></script>
     <script type="module">
-      import { login, completeLoginIfCallback, getSession, clearSession } from "../lib/oauth.js";
+      import { login, completeLoginIfCallback, getSession, clearSession, SCOPE_FULL, SCOPE_MINIMAL } from "../lib/oauth.js";
       import { scan, verify, resolveActorFull, richness, surprise } from "../lib/unique.js";
       import { makeCard } from "../lib/card.js";
       import { resolvePostRef, uploadImage, firePost } from "../lib/post.js";
@@ -213,6 +213,9 @@
       }
 
       // ---- login gate ------------------------------------------------------
+      function hasWriteScope(s) {
+        return /repo:app\.bsky\.feed\.post/.test(s?.scope || "");
+      }
       function loginView(msg) {
         who.textContent = "";
         app.innerHTML = `
@@ -220,19 +223,36 @@
             ${msg ? `<p class="err">${esc(msg)}</p>` : ""}
             <div class="bar">
               <input id="handle" type="text" placeholder="your bluesky handle" value="bisks.net" />
-              <button id="go">sign in with bluesky</button>
             </div>
-            <p class="status">the weapon system posts on your behalf, so it needs you signed in.
-            just browsing? <a href="/quiver/">see any quiver read-only →</a></p>
+            <p class="status">firing posts to Bluesky on your behalf and uploads a card image —
+            that needs its own permission. grant it now, or sign in read-only and
+            decide later (you can still browse your quiver, just not fire).</p>
+            <div class="bar">
+              <button id="goFull">grant posting &amp; sign in</button>
+              <button id="goReadonly" class="ghost">sign in read-only</button>
+            </div>
+            <p class="status">just browsing? <a href="/quiver/">see any quiver read-only →</a></p>
           </div>`;
-        document.getElementById("go").onclick = async () => {
+        document.getElementById("goFull").onclick = async () => {
           const h = document.getElementById("handle").value.trim();
-          if (h) try { await login(h); } catch (e) { loginView(e.message); }
+          if (h) try { await login(h, SCOPE_FULL); } catch (e) { loginView(e.message); }
+        };
+        document.getElementById("goReadonly").onclick = async () => {
+          const h = document.getElementById("handle").value.trim();
+          if (h) try { await login(h, SCOPE_MINIMAL); } catch (e) { loginView(e.message); }
         };
       }
+      async function regrant() {
+        try { await login(session.handle, SCOPE_FULL); } catch (e) { alert(e.message); }
+      }
       function signedInHeader() {
-        who.innerHTML = `@${esc(session.handle)} · <a id="out">sign out</a>`;
+        const perm = hasWriteScope(session)
+          ? ""
+          : ` · <span class="status">read-only, no posting</span> · <a id="grant">grant posting →</a>`;
+        who.innerHTML = `@${esc(session.handle)}${perm} · <a id="out">sign out</a>`;
         document.getElementById("out").onclick = async () => { await clearSession(); session = null; loginView(); };
+        const g = document.getElementById("grant");
+        if (g) g.onclick = regrant;
       }
 
       // ---- the weapon system (two panels) ----------------------------------
@@ -385,9 +405,17 @@
             const el = document.createElement("div");
             el.className = "shot" + (q.spent ? " spent" : "");
             const sc = q.score != null ? `<span class="sc">surprise ${q.score.toFixed(1)}</span>` : "";
+            const canFire = hasWriteScope(session);
             el.innerHTML = `<div class="g">${esc(q.g)}${sc}</div>` +
-              (q.spent ? `<span class="spent-tag">spent</span>` : `<button class="fire ghost tiny">fire →</button>`);
-            if (!q.spent) el.querySelector(".fire").onclick = () => openPreview(q);
+              (q.spent
+                ? `<span class="spent-tag">spent</span>`
+                : canFire
+                  ? `<button class="fire ghost tiny">fire →</button>`
+                  : `<button class="grant ghost tiny">grant to fire →</button>`);
+            if (!q.spent) {
+              if (canFire) el.querySelector(".fire").onclick = () => openPreview(q);
+              else el.querySelector(".grant").onclick = regrant;
+            }
             shots.appendChild(el);
           }
         }
