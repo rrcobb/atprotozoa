@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mathhive — a swarm solves your math problem</title>
+    <meta
+      name="description"
+      content="Type a math problem. A swarm of bees works it step by step, one bee per step, honeycomb cell by honeycomb cell, until the queen cell holds the answer."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="mathhive — a swarm solves your math problem" />
+    <meta
+      property="og:description"
+      content="Give the hive a math problem. Each bee carries one step of the solution into a honeycomb cell, in order, until the queen cell holds the answer."
+    />
+    <meta property="og:image" content="https://mathhive.bisks.net/og.png" />
+    <meta property="og:url" content="https://mathhive.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mathhive — a swarm solves your math problem" />
+    <meta
+      name="twitter:description"
+      content="Give the hive a math problem. Each bee carries one step of the solution into a honeycomb cell until the queen cell holds the answer."
+    />
+    <meta name="twitter:image" content="https://mathhive.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #120d05;
+        --ink: #fff4dc;
+        --muted: #c9a96b;
+        --card: #1c1408;
+        --border: #4a3616;
+        --honey: #f4a300;
+        --honey2: #ffd166;
+        --gold: #ffe08a;
+        --err: #ff8a7a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 50% -10%, #2e2007 0%, var(--bg) 60%);
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.1rem 1.1rem 6rem; }
+      header { margin-bottom: 0.4rem; text-align: center; }
+      h1 { font-size: 1.9rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .bee { display: inline-block; }
+      .intro {
+        color: var(--muted); margin: 0.5rem auto 1.6rem; font-size: 0.88rem;
+        line-height: 1.7; max-width: 54ch; text-align: center;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      form.problem {
+        display: flex; gap: 0.5rem; margin: 0 auto 0.6rem; max-width: 560px;
+      }
+      input#problem {
+        flex: 1; background: var(--card); border: 1px solid var(--border);
+        color: var(--ink); font-family: var(--mono); font-size: 1rem;
+        padding: 0.7rem 0.85rem; border-radius: 8px;
+      }
+      input#problem:focus { outline: 2px solid var(--honey); outline-offset: 1px; }
+      button {
+        font-family: var(--mono); font-size: 0.92rem; font-weight: 600;
+        border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
+        padding: 0.7rem 1.1rem; background: var(--honey); color: #241a08;
+      }
+      button:hover { background: var(--honey2); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.ghost { background: transparent; color: var(--ink); }
+      button.ghost:hover { background: var(--card); }
+
+      .examples {
+        display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center;
+        margin: 0 auto 1.6rem; max-width: 560px;
+      }
+      .examples button {
+        background: var(--card); color: var(--muted); font-weight: 400;
+        font-size: 0.8rem; padding: 0.35rem 0.65rem;
+      }
+      .examples button:hover { color: var(--ink); border-color: var(--honey); }
+
+      .status { text-align: center; min-height: 1.4em; margin-bottom: 0.8rem; font-size: 0.88rem; }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--honey2); }
+
+      #hiveCanvas {
+        display: block; width: 100%; height: 360px; margin: 0 auto 1.2rem;
+        background: radial-gradient(ellipse at 50% 40%, #2a1e08 0%, #150f04 75%);
+        border: 1px solid var(--border); border-radius: 14px;
+      }
+
+      .steps { max-width: 560px; margin: 0 auto 1.6rem; }
+      .steps ol { padding-left: 1.4rem; margin: 0; }
+      .steps li { margin-bottom: 0.35rem; opacity: 0.35; transition: opacity 0.3s; }
+      .steps li.landed { opacity: 1; }
+      .steps .expr { color: var(--gold); font-weight: 600; }
+      .steps .note { color: var(--muted); font-size: 0.85rem; }
+      .answer {
+        text-align: center; margin: 1rem auto 1.6rem; font-size: 1.3rem; font-weight: 700;
+        color: var(--gold); min-height: 1.6em;
+      }
+
+      .share {
+        display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+        margin: 0 auto 1.4rem; max-width: 560px;
+      }
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+      .share-post {
+        display: inline-block; text-decoration: none; font-weight: 600;
+        border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
+        padding: 0.6rem 1rem; background: var(--card); color: var(--ink);
+        font-family: var(--mono); font-size: 0.88rem;
+      }
+      .share-post:hover { border-color: var(--honey); }
+      #shareCanvas { display: none; }
+      #shareCard { max-width: 100%; border-radius: 12px; border: 1px solid var(--border); display: none; }
+      .share[hidden] { display: none; }
+
+      footer {
+        text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 2rem;
+      }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">🐝 mathhive</a></h1>
+      </header>
+      <p class="intro">
+        Give the hive a math problem. <b>Each bee carries one step</b> of the
+        solution into a honeycomb cell — order of operations, one operator at a
+        time — until the queen cell in the middle holds the answer. Arithmetic
+        (<code>3 + 4 * 2</code>) or a simple linear equation
+        (<code>2x + 3 = 11</code>) both work.
+      </p>
+
+      <form class="problem" id="problemForm">
+        <input id="problem" type="text" autocomplete="off" spellcheck="false"
+          placeholder="e.g. (5 - 2)^2 + 1  or  3x + 2 = x + 10" />
+        <button type="submit" id="solveBtn">send the bees</button>
+      </form>
+      <div class="examples" id="examples"></div>
+      <div class="status" id="status"></div>
+
+      <canvas id="hiveCanvas"></canvas>
+
+      <div class="answer" id="answer"></div>
+
+      <div class="steps" id="stepsWrap" hidden>
+        <ol id="stepsList"></ol>
+      </div>
+
+      <div class="share" id="share" hidden>
+        <div class="share-row">
+          <a class="share-post" id="shareBluesky" target="_blank" rel="noopener">🦋 share on Bluesky</a>
+          <button class="share-post" id="shareDownload" type="button">⬇ download card</button>
+          <button class="share-post" id="shareNative" type="button" style="display: none">📤 share</button>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <img id="shareCard" alt="share card preview" />
+      </div>
+
+      <footer>
+        part of <a href="https://bisks.net">atprotozoa</a> ·
+        built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="solver.js"></script>
+    <script src="hive.js"></script>
+    <script>
+      const els = {
+        form: document.getElementById("problemForm"),
+        input: document.getElementById("problem"),
+        solveBtn: document.getElementById("solveBtn"),
+        examples: document.getElementById("examples"),
+        status: document.getElementById("status"),
+        canvas: document.getElementById("hiveCanvas"),
+        answer: document.getElementById("answer"),
+        stepsWrap: document.getElementById("stepsWrap"),
+        stepsList: document.getElementById("stepsList"),
+        share: document.getElementById("share"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareDownload: document.getElementById("shareDownload"),
+        shareNative: document.getElementById("shareNative"),
+        shareCanvas: document.getElementById("shareCanvas"),
+        shareCard: document.getElementById("shareCard"),
+      };
+
+      const EXAMPLES = ["3 + 4 * 2", "(5 - 2)^2 + 1", "2x + 3 = 11", "3x + 2 = x + 10", "10 / 2 / 5 - 1"];
+      for (const ex of EXAMPLES) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = ex;
+        b.addEventListener("click", () => {
+          els.input.value = ex;
+          runSolve();
+        });
+        els.examples.appendChild(b);
+      }
+
+      const scene = new Hive.HiveScene(els.canvas);
+      let running = false;
+
+      function setStatus(msg, kind) {
+        els.status.textContent = msg || "";
+        els.status.className = "status" + (kind ? " " + kind : "");
+      }
+
+      function delayFor(stepCount) {
+        // More steps -> a bit snappier per-bee, so a 10-step problem doesn't
+        // take forever, but a 2-step one still feels like a real flight.
+        return Math.max(420, 950 - stepCount * 45);
+      }
+
+      async function runSolve() {
+        if (running) return;
+        const raw = els.input.value;
+        let result;
+        try {
+          result = MathHive.solve(raw);
+        } catch (e) {
+          setStatus("🐝 " + e.message, "err");
+          els.answer.textContent = "";
+          els.stepsWrap.hidden = true;
+          els.share.hidden = true;
+          return;
+        }
+
+        running = true;
+        els.solveBtn.disabled = true;
+        setStatus("the swarm is on it...", "");
+        els.answer.textContent = "";
+        els.stepsList.innerHTML = "";
+        els.stepsWrap.hidden = false;
+        els.share.hidden = true;
+
+        scene.setSteps(result.steps.length);
+
+        const dur = delayFor(result.steps.length);
+        for (let i = 0; i < result.steps.length; i++) {
+          const step = result.steps[i];
+          const li = document.createElement("li");
+          li.innerHTML = `<span class="expr"></span><br><span class="note"></span>`;
+          li.querySelector(".expr").textContent = step.expr;
+          li.querySelector(".note").textContent = step.note;
+          els.stepsList.appendChild(li);
+
+          await new Promise((resolve) => {
+            scene.flyTo(i, i === result.steps.length - 1 ? String(result.answer) : step.expr, dur, resolve);
+          });
+          li.classList.add("landed");
+          // small gap so bees read as a sequence, not a single blur
+          await new Promise((r) => setTimeout(r, 90));
+        }
+
+        els.answer.textContent = `answer: ${result.answer}`;
+        setStatus("the hive is finished. 🍯", "ok");
+        buildShareCard(raw, result);
+        els.share.hidden = false;
+        running = false;
+        els.solveBtn.disabled = false;
+      }
+
+      els.form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        runSolve();
+      });
+
+      // ---------- sharing ----------
+
+      function buildShareText(problem, result) {
+        const url = "https://mathhive.bisks.net/";
+        let text = `I sent the hive "${problem}" and ${result.steps.length} bees worked it out: ${result.answer}. ${url}`;
+        if (text.length > 280) {
+          text = `I sent the hive "${problem}" -> ${result.answer}. ${url}`;
+        }
+        return text;
+      }
+
+      function buildShareCard(problem, result) {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.fillStyle = "#120d05";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W / 2, H * 0.35, 0, W / 2, H * 0.35, W * 0.55);
+        glow.addColorStop(0, "rgba(244,163,0,0.28)");
+        glow.addColorStop(1, "rgba(18,13,5,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffe08a";
+        ctx.font = `800 54px ${mono}`;
+        ctx.fillText("🐝 mathhive", W / 2, 110);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `24px ${mono}`;
+        ctx.fillText(`${result.steps.length} bee${result.steps.length === 1 ? "" : "s"} solved:`, W / 2, 200);
+
+        ctx.fillStyle = "#fff4dc";
+        ctx.font = `700 44px ${mono}`;
+        const problemLine = problem.length > 34 ? problem.slice(0, 34) + "…" : problem;
+        ctx.fillText(problemLine, W / 2, 280);
+
+        ctx.strokeStyle = "#4a3616";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 220, 330);
+        ctx.lineTo(W / 2 + 220, 330);
+        ctx.stroke();
+
+        ctx.fillStyle = "#f4a300";
+        ctx.font = `800 70px ${mono}`;
+        ctx.fillText(String(result.answer), W / 2, 440);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `22px ${mono}`;
+        ctx.fillText("mathhive.bisks.net", W / 2, 560);
+
+        els.shareCard.src = canvas.toDataURL("image/png");
+        els.shareCard.style.display = "block";
+
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(problem, result));
+
+        els.shareDownload.onclick = () => {
+          canvas.toBlob((blob) => {
+            if (!blob) return;
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "mathhive.png";
+            a.click();
+          }, "image/png");
+        };
+
+        if (canShareFiles()) {
+          els.shareNative.style.display = "";
+          els.shareNative.onclick = () => {
+            canvas.toBlob(async (blob) => {
+              if (!blob) return;
+              const file = new File([blob], "mathhive.png", { type: "image/png" });
+              try {
+                await navigator.share({ files: [file], text: buildShareText(problem, result), title: "mathhive" });
+              } catch (_) {
+                // cancelled or unsupported — no-op
+              }
+            }, "image/png");
+          };
+        }
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      // start with a friendly default so the hive isn't empty on first load
+      els.input.value = EXAMPLES[0];
+      scene.setSteps(1);
+    </script>
+  </body>
+</html>
