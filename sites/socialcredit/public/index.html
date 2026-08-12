@@ -28,7 +28,9 @@
           a separate reputation layer from likes and reposts. sign in with Bluesky,
           paste anyone's handle, and give them a +1 or a -1 for their takes, their
           actions, their posts, their behavior — whatever. scores persist globally,
-          keyed to DIDs so a handle change never loses history.
+          keyed to DIDs so a handle change never loses history. or skip this site
+          entirely — reply to their post with "socialcredit +1" or "socialcredit -1"
+          and it counts the same vote, no sign-in here needed.
         </p>
         <nav class="tabs">
           <a class="active" href="/">vote</a>
@@ -93,8 +95,8 @@
 
       <footer>
         votes are written as a <code>net.bisks.socialcredit.vote</code> record straight to your
-        own PDS, then picked up live off the
-        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        own PDS — or just posted as a reply saying "socialcredit +1"/"-1" — then picked up live off
+        the <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
         firehose — the score, the one-vote-per-person-per-hour cooldown, and the no-self-voting rule
         are all enforced here, not trusted from the client.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
@@ -287,6 +289,35 @@
         renderVoteButtons();
       }
 
+      // Bumps the score pill the instant a vote write succeeds, before the
+      // slower confirm-it-counted poll below finishes — the actual "feels
+      // slow" complaint was the up-to-15s gap where nothing visibly moved.
+      function applyOptimisticScore(delta) {
+        const score = (targetBoard ? targetBoard.score : 0) + delta;
+        targetBoard = targetBoard ? { ...targetBoard, score } : { score };
+        const pill = $("#t-score");
+        pill.textContent = fmtScore(score);
+        pill.className = `score-pill ${scoreClass(score)}`;
+      }
+
+      // Re-fetches the real score for whatever's currently looked up —
+      // used to correct the pill (quietly, no status text touched) if a
+      // vote we optimistically applied turns out to have never counted.
+      async function refreshTargetScore() {
+        if (!target) return;
+        try {
+          const r = await fetch(`/api/profile?actor=${encodeURIComponent(target.did)}`);
+          const data = await r.json();
+          targetBoard = data.profile;
+          const score = targetBoard ? targetBoard.score : 0;
+          const pill = $("#t-score");
+          pill.textContent = fmtScore(score);
+          pill.className = `score-pill ${scoreClass(score)}`;
+        } catch {
+          // leave the pill as-is on a transient fetch failure
+        }
+      }
+
       // --- casting a vote --------------------------------------------------------
 
       // The write only proves the record landed on the voter's own PDS — it
@@ -323,6 +354,7 @@
         status.className = "status warn";
         await refreshCooldown();
         renderVoteButtons();
+        refreshTargetScore(); // undo the optimistic bump if the vote never actually counted
       }
 
       async function castVote(delta) {
@@ -369,12 +401,13 @@
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-          status.textContent = "vote written — waiting for it to be counted…";
+          status.textContent = "vote written — score updated, confirming it counted…";
           status.className = "status ok";
           $("#f-reason").value = "";
           $("#f-posturl").value = "";
           cooldownRemainingMs = 60 * 60 * 1000;
           renderVoteButtons();
+          applyOptimisticScore(delta);
 
           confirmVote(session.did, target.did, delta, Date.now(), status);
         } catch (e) {

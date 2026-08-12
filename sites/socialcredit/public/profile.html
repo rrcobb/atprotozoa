@@ -96,7 +96,8 @@
       </section>
 
       <footer>
-        every vote here is a <code>net.bisks.socialcredit.vote</code> record picked up live off the
+        every vote here is a <code>net.bisks.socialcredit.vote</code> record — or a reply saying
+        "socialcredit +1"/"-1" — picked up live off the
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
@@ -170,6 +171,35 @@
         up.disabled = disabled;
         down.disabled = disabled;
         note.textContent = msg;
+      }
+
+      // Bumps the score pill the instant a vote write succeeds, before the
+      // slower confirm-it-counted poll below finishes — the actual "feels
+      // slow" complaint was the up-to-15s gap where nothing visibly moved.
+      function applyOptimisticScore(delta) {
+        if (!profile) return;
+        profile = { ...profile, score: profile.score + delta };
+        const pill = $("#p-score");
+        pill.textContent = fmtScore(profile.score);
+        pill.className = `score-pill ${scoreClass(profile.score)}`;
+      }
+
+      // Re-fetches the real score for this profile — used to correct the
+      // pill (quietly, no status text touched) if a vote we optimistically
+      // applied turns out to have never counted.
+      async function refreshProfileScore() {
+        if (!actor) return;
+        try {
+          const r = await fetch(`/api/profile?actor=${encodeURIComponent(actor)}`);
+          const data = await r.json();
+          if (!data.profile) return;
+          profile = data.profile;
+          const pill = $("#p-score");
+          pill.textContent = fmtScore(profile.score);
+          pill.className = `score-pill ${scoreClass(profile.score)}`;
+        } catch {
+          // leave the pill as-is on a transient fetch failure
+        }
       }
 
       // Cooldown is per (voter, target) pair — you can vote on someone else
@@ -246,6 +276,7 @@
         status.className = "status warn";
         await refreshCooldown();
         renderVoteButtons();
+        refreshProfileScore(); // undo the optimistic bump if the vote never actually counted
       }
 
       async function castVote(delta) {
@@ -285,12 +316,13 @@
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-          status.textContent = "vote written — waiting for it to be counted…";
+          status.textContent = "vote written — score updated, confirming it counted…";
           status.className = "status ok";
           $("#f-reason").value = "";
           $("#f-posturl").value = "";
           cooldownRemainingMs = 60 * 60 * 1000;
           renderVoteButtons();
+          applyOptimisticScore(delta);
           confirmVote(session.did, profile.did, delta, Date.now(), status);
         } catch (e) {
           status.textContent = `couldn't cast that vote: ${e.message}`;

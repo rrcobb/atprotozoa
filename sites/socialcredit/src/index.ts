@@ -56,7 +56,25 @@
 // /api/activity?voter=&target= after writing and only report success once
 // the vote is actually visible there, re-check /api/cooldown before writing
 // too, and no longer reset a fetch-failed cooldown read back to "clear to
-// vote".)
+// vote". The score PILL now updates optimistically the instant the PDS
+// write succeeds — see applyOptimisticScore() in both HTML files — with the
+// poll above still the source of truth: it corrects the pill to the real
+// value on success, and rolls it back with a plain re-fetch if the vote
+// never actually counted, so the optimism never lies for long.)
+//
+// A vote can ALSO be cast as a plain reply — post "socialcredit +1" or
+// "socialcredit -1" as a reply to someone's post and it counts the same as
+// a signed vote record. This works because Jetstream already re-verifies
+// every commit's signature, so a reply's `did` is exactly as trustworthy as
+// a net.bisks.socialcredit.vote record's — the CreditBoard just also
+// subscribes to app.bsky.feed.post (see JETSTREAM_URL/POST_COLLECTION
+// below), and for a reply whose text matches SOCIALCREDIT_RE, treats the
+// replier as voter and the parent post's author (read straight off
+// reply.parent.uri — an at:// URI embeds its author's DID, no extra lookup
+// needed) as target. Same rules apply either way: no self-voting, one
+// counted vote per (voter, target) pair per hour — both paths funnel
+// through the same castVote() below, so there's exactly one enforcement
+// point, not two to keep in sync.
 
 export interface DurableObjectId {
   toString(): string;
@@ -191,7 +209,10 @@ export default {
 // ---------------------------------------------------------------------------
 
 const COLLECTION = "net.bisks.socialcredit.vote";
-const JETSTREAM_URL = `https://jetstream2.us-east.bsky.network/subscribe?wantedCollections=${COLLECTION}`;
+const POST_COLLECTION = "app.bsky.feed.post"; // reply-vote trigger: "socialcredit +1" / "socialcredit -1"
+const JETSTREAM_URL =
+  "https://jetstream2.us-east.bsky.network/subscribe?" +
+  [COLLECTION, POST_COLLECTION].map((c) => "wantedCollections=" + encodeURIComponent(c)).join("&");
 const ALARM_MS = 20 * 1000; // reconnect heartbeat, same cadence as sites/quadrants
 const APPVIEW = "https://public.api.bsky.app/xrpc";
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -243,6 +264,14 @@ function isDid(s: unknown): s is string {
   return typeof s === "string" && /^did:[a-z0-9]+:[A-Za-z0-9._:%-]{1,180}$/.test(s);
 }
 
+// An at:// record URI embeds its author's DID as the first path segment —
+// at://did:plc:xyz/app.bsky.feed.post/rkey — so a reply's parent author is
+// readable straight off reply.parent.uri, no extra AppView lookup needed.
+function authorFromUri(uri: string | undefined): string | null {
+  const m = /^at:\/\/([^/]+)\//.exec(uri || "");
+  return m ? m[1] : null;
+}
+
 // Cooldown is per (voter, target) pair — an account can vote on as many
 // different people as it likes within an hour, just not the same one twice.
 function cooldownKey(voterDid: string, targetDid: string): string {
@@ -250,6 +279,13 @@ function cooldownKey(voterDid: string, targetDid: string): string {
 }
 
 const POST_URL_RE = /^https:\/\/bsky\.app\/profile\/[^/]+\/post\/[A-Za-z0-9]+$/;
+
+// "socialcredit +1" / "socialcredit -1" as a reply — allows a colon and/or
+// whitespace between the word and the sign ("socialcredit: +1",
+// "socialcredit+1"), but nothing else, so a reply that just happens to
+// mention "socialcredit" and "+1" separately (e.g. "love socialcredit, +1
+// for effort") doesn't accidentally trigger a vote.
+const SOCIALCREDIT_RE = /\bsocialcredit\s*:?\s*([+-])\s*1\b/i;
 
 export class CreditBoard {
   private state: DurableObjectState;
@@ -386,19 +422,20 @@ export class CreditBoard {
     }
     if (evt.kind !== "commit") return;
     const commit = evt.commit;
-    if (!commit || commit.collection !== COLLECTION) return;
-    // Votes are create-only (client-metadata.json only grants action=create) —
-    // updates/deletes to this collection should never occur; ignore defensively.
-    if (commit.operation !== "create") return;
+    if (!commit || commit.operation !== "create") return;
+    // Both collections here are effectively create-only for our purposes:
+    // client-metadata.json only grants action=create for the vote record,
+    // and a later edit/delete of a reply shouldn't retroactively cast or
+    // uncast a reply-vote — so updates/deletes are ignored defensively.
 
     const did = evt.did;
     if (typeof did !== "string" || !did.startsWith("did:")) return;
     const rkey = commit.rkey;
     if (typeof rkey !== "string") return;
 
-    const voteId = `${did}::${rkey}`;
-    if (this.recentlySeen.has(voteId)) return;
-    this.recentlySeen.add(voteId);
+    const seenId = `${commit.collection}::${did}::${rkey}`;
+    if (this.recentlySeen.has(seenId)) return;
+    this.recentlySeen.add(seenId);
     if (this.recentlySeen.size > RECENT_SEEN_CAP) {
       const first = this.recentlySeen.values().next().value;
       if (first !== undefined) this.recentlySeen.delete(first);
@@ -407,12 +444,49 @@ export class CreditBoard {
     const rec = commit.record;
     if (!rec || typeof rec !== "object") return;
 
-    const target = isDid(rec.target) ? rec.target : null;
-    if (!target) return;
-    if (target === did) return; // no self-voting — silently dropped, never counted
+    if (commit.collection === COLLECTION) {
+      const target = isDid(rec.target) ? rec.target : null;
+      if (!target) return;
+      const delta: 1 | -1 | null = rec.delta === 1 ? 1 : rec.delta === -1 ? -1 : null;
+      if (delta === null) return;
+      const reason = typeof rec.reason === "string" && rec.reason.trim() ? rec.reason.trim().slice(0, MAX_REASON) : null;
+      const postUrl = typeof rec.postUrl === "string" && POST_URL_RE.test(rec.postUrl) ? rec.postUrl : null;
+      const recordCreatedAt = typeof rec.createdAt === "string" ? rec.createdAt : null;
+      await this.castVote(did, rkey, target, delta, reason, postUrl, recordCreatedAt);
+      return;
+    }
 
-    const delta: 1 | -1 | null = rec.delta === 1 ? 1 : rec.delta === -1 ? -1 : null;
-    if (delta === null) return;
+    if (commit.collection === POST_COLLECTION) {
+      const text = typeof rec.text === "string" ? rec.text : "";
+      if (!text) return;
+      const parentUri = rec.reply && rec.reply.parent ? rec.reply.parent.uri : undefined;
+      if (typeof parentUri !== "string") return; // reply-votes only — a root post can't target anyone
+      const target = authorFromUri(parentUri);
+      if (!target || !isDid(target)) return;
+      const m = SOCIALCREDIT_RE.exec(text);
+      if (!m) return;
+      const delta: 1 | -1 = m[1] === "+" ? 1 : -1;
+      const reason = text.replace(SOCIALCREDIT_RE, "").trim().slice(0, MAX_REASON) || null;
+      const postUrl = `https://bsky.app/profile/${did}/post/${rkey}`; // the reply itself, as context
+      const recordCreatedAt = typeof rec.createdAt === "string" ? rec.createdAt : null;
+      await this.castVote(did, rkey, target, delta, reason, postUrl, recordCreatedAt);
+    }
+  }
+
+  // Shared counting path for both a direct net.bisks.socialcredit.vote
+  // record and a "socialcredit +1"/"-1" reply — same rules either way, and
+  // a vote that fails either check is silently dropped: never scored, never
+  // touches the cooldown.
+  private async castVote(
+    voterDid: string,
+    rkey: string,
+    target: string,
+    delta: 1 | -1,
+    reason: string | null,
+    postUrl: string | null,
+    recordCreatedAt: string | null,
+  ): Promise<void> {
+    if (target === voterDid) return; // no self-voting — silently dropped, never counted
 
     await this.ready;
     const now = Date.now();
@@ -422,16 +496,12 @@ export class CreditBoard {
     // it doesn't consume or reset the cooldown, so spamming writes can't
     // game it. A voter can still vote on a DIFFERENT target immediately;
     // only re-voting the same target is gated.
-    const ckey = cooldownKey(did, target);
+    const ckey = cooldownKey(voterDid, target);
     const last = this.cooldowns.get(ckey) || 0;
     if (now - last < COOLDOWN_MS) return;
 
-    const reason = typeof rec.reason === "string" && rec.reason.trim() ? rec.reason.trim().slice(0, MAX_REASON) : null;
-    const postUrl = typeof rec.postUrl === "string" && POST_URL_RE.test(rec.postUrl) ? rec.postUrl : null;
-    const recordCreatedAt = typeof rec.createdAt === "string" ? rec.createdAt : null;
-
-    const [voterDisplay, targetDisplay] = await Promise.all([this.resolveDisplay(did), this.resolveDisplay(target)]);
-    const voterProfile = this.ensureProfile(did, voterDisplay, now);
+    const [voterDisplay, targetDisplay] = await Promise.all([this.resolveDisplay(voterDid), this.resolveDisplay(target)]);
+    const voterProfile = this.ensureProfile(voterDid, voterDisplay, now);
     const targetProfile = this.ensureProfile(target, targetDisplay, now);
 
     voterProfile.votesCast += 1;
@@ -443,8 +513,8 @@ export class CreditBoard {
     targetProfile.updatedAt = now;
 
     this.votes.unshift({
-      id: voteId,
-      voterDid: did,
+      id: `${voterDid}::${rkey}`,
+      voterDid,
       voterHandle: voterDisplay.handle,
       voterAvatar: voterDisplay.avatar,
       targetDid: target,
