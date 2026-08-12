@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>beehive — solve math, grow your bee colony</title>
+    <meta
+      name="description"
+      content="Answer a math problem, feed the hive, watch it grow one honeycomb cell at a time. Questions get harder as the colony expands — how big can you build it?"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="beehive — solve math, grow your bee colony" />
+    <meta
+      property="og:description"
+      content="Every right answer builds another honeycomb cell. Get it wrong and the bees just wait — but the problems only get harder as the hive expands."
+    />
+    <meta property="og:image" content="https://beehive.bisks.net/og.png" />
+    <meta property="og:url" content="https://beehive.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="beehive — solve math, grow your bee colony" />
+    <meta
+      name="twitter:description"
+      content="Every right answer builds another honeycomb cell. The problems only get harder as the hive expands."
+    />
+    <meta name="twitter:image" content="https://beehive.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #120d05;
+        --ink: #fff4dc;
+        --muted: #c9a96b;
+        --card: #1c1408;
+        --border: #4a3616;
+        --honey: #f4a300;
+        --honey2: #ffd166;
+        --gold: #ffe08a;
+        --err: #ff8a7a;
+        --ok: #8fdc9a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 50% -10%, #2e2007 0%, var(--bg) 60%);
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.1rem 1.1rem 6rem; }
+      header { margin-bottom: 0.3rem; text-align: center; }
+      h1 { font-size: 1.9rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+      h1 a { color: inherit; text-decoration: none; }
+      .intro {
+        color: var(--muted); margin: 0.5rem auto 1.4rem; font-size: 0.88rem;
+        line-height: 1.7; max-width: 52ch; text-align: center;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      .stats {
+        display: flex; justify-content: center; gap: 1.4rem; flex-wrap: wrap;
+        margin: 0 auto 1rem; text-align: center;
+      }
+      .stat .n { font-size: 1.4rem; font-weight: 700; color: var(--gold); display: block; }
+      .stat .l { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+      .level-banner {
+        text-align: center; color: var(--honey2); font-weight: 600;
+        font-size: 0.9rem; margin-bottom: 0.9rem;
+      }
+
+      #hiveCanvas {
+        display: block; width: 100%; height: 260px; margin: 0 auto 1.2rem;
+        background: radial-gradient(ellipse at 50% 40%, #2a1e08 0%, #150f04 75%);
+        border: 1px solid var(--border); border-radius: 14px;
+      }
+
+      .quiz {
+        max-width: 440px; margin: 0 auto 0.6rem; text-align: center;
+      }
+      .problem {
+        font-size: 2.1rem; font-weight: 700; color: var(--ink);
+        margin-bottom: 0.9rem; letter-spacing: 0.02em;
+      }
+      form.answer-form {
+        display: flex; gap: 0.5rem; justify-content: center;
+      }
+      input#answer {
+        width: 140px; background: var(--card); border: 1px solid var(--border);
+        color: var(--ink); font-family: var(--mono); font-size: 1.2rem;
+        padding: 0.6rem 0.7rem; border-radius: 8px; text-align: center;
+      }
+      input#answer:focus { outline: 2px solid var(--honey); outline-offset: 1px; }
+      button {
+        font-family: var(--mono); font-size: 0.92rem; font-weight: 600;
+        border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
+        padding: 0.65rem 1.1rem; background: var(--honey); color: #241a08;
+      }
+      button:hover { background: var(--honey2); }
+      button.ghost { background: transparent; color: var(--muted); font-weight: 400; font-size: 0.8rem; padding: 0.4rem 0.7rem; }
+      button.ghost:hover { color: var(--ink); border-color: var(--honey); }
+
+      .row-links { text-align: center; margin: 0.7rem 0 1.4rem; }
+
+      .status { text-align: center; min-height: 1.4em; margin: 0.8rem 0 1.2rem; font-size: 0.92rem; font-weight: 600; }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--ok); }
+
+      .share {
+        display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+        margin: 0 auto 1.4rem; max-width: 560px;
+      }
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+      .share-post {
+        display: inline-block; text-decoration: none; font-weight: 600;
+        border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
+        padding: 0.6rem 1rem; background: var(--card); color: var(--ink);
+        font-family: var(--mono); font-size: 0.88rem;
+      }
+      .share-post:hover { border-color: var(--honey); }
+      #shareCanvas { display: none; }
+      #shareCard { max-width: 100%; border-radius: 12px; border: 1px solid var(--border); display: none; }
+
+      footer {
+        text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 2rem;
+      }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">🐝 beehive</a></h1>
+      </header>
+      <p class="intro">
+        Solve the problem, feed the hive. Every right answer builds one more
+        <b>honeycomb cell</b> and the colony grows — get five right and the
+        questions level up, from simple sums to times tables, division, and
+        multi-step problems. Your hive is saved right here in the browser, so
+        it keeps growing every time you come back.
+      </p>
+
+      <div class="stats">
+        <div class="stat"><span class="n" id="statFilled">0</span><span class="l">colony size</span></div>
+        <div class="stat"><span class="n" id="statStreak">0</span><span class="l">streak</span></div>
+        <div class="stat"><span class="n" id="statBest">0</span><span class="l">best streak</span></div>
+      </div>
+      <div class="level-banner" id="levelBanner"></div>
+
+      <canvas id="hiveCanvas"></canvas>
+
+      <div class="quiz">
+        <div class="problem" id="problemText">–</div>
+        <form class="answer-form" id="answerForm">
+          <input id="answer" type="text" inputmode="numeric" autocomplete="off" placeholder="?" />
+          <button type="submit">feed the hive</button>
+        </form>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="row-links">
+        <button class="ghost" type="button" id="skipBtn">skip this one →</button>
+        <button class="ghost" type="button" id="resetBtn">reset hive</button>
+      </div>
+
+      <div class="share" id="share">
+        <div class="share-row">
+          <a class="share-post" id="shareBluesky" target="_blank" rel="noopener">🦋 share on Bluesky</a>
+          <button class="share-post" id="shareDownload" type="button">⬇ download card</button>
+          <button class="share-post" id="shareNative" type="button" style="display: none">📤 share</button>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <img id="shareCard" alt="share card preview" />
+      </div>
+
+      <footer>
+        part of <a href="https://bisks.net">atprotozoa</a> ·
+        built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="hive.js"></script>
+    <script src="game.js"></script>
+    <script>
+      const STORE_KEY = "beehive.state";
+
+      function loadState() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(STORE_KEY));
+          if (raw && typeof raw.filled === "number") return raw;
+        } catch (_) {}
+        return { filled: 0, streak: 0, best: 0, problem: null };
+      }
+      function saveState() {
+        localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      }
+
+      const state = loadState();
+
+      const els = {
+        canvas: document.getElementById("hiveCanvas"),
+        statFilled: document.getElementById("statFilled"),
+        statStreak: document.getElementById("statStreak"),
+        statBest: document.getElementById("statBest"),
+        levelBanner: document.getElementById("levelBanner"),
+        problemText: document.getElementById("problemText"),
+        form: document.getElementById("answerForm"),
+        answer: document.getElementById("answer"),
+        status: document.getElementById("status"),
+        skipBtn: document.getElementById("skipBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+        share: document.getElementById("share"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareDownload: document.getElementById("shareDownload"),
+        shareNative: document.getElementById("shareNative"),
+        shareCanvas: document.getElementById("shareCanvas"),
+        shareCard: document.getElementById("shareCard"),
+      };
+
+      const scene = new Hive.HiveScene(els.canvas);
+      scene.setFilled(state.filled);
+
+      function currentLevel() {
+        return Beehive.levelFor(state.filled);
+      }
+
+      function ensureProblem() {
+        if (!state.problem || state.problem.level !== currentLevel()) {
+          const p = Beehive.generateProblem(currentLevel());
+          state.problem = { ...p, level: currentLevel() };
+          saveState();
+        }
+      }
+
+      function render() {
+        els.statFilled.textContent = state.filled;
+        els.statStreak.textContent = state.streak;
+        els.statBest.textContent = state.best;
+        els.levelBanner.textContent = Beehive.labelFor(currentLevel());
+        els.problemText.textContent = state.problem.text + " = ?";
+        els.share.hidden = state.filled === 0;
+      }
+
+      function setStatus(msg, kind) {
+        els.status.textContent = msg || "";
+        els.status.className = "status" + (kind ? " " + kind : "");
+      }
+
+      let busy = false;
+
+      function newProblem() {
+        const p = Beehive.generateProblem(currentLevel());
+        state.problem = { ...p, level: currentLevel() };
+        saveState();
+        render();
+      }
+
+      els.form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (busy) return;
+        const raw = els.answer.value.trim();
+        if (raw === "") return;
+        const guess = Number(raw);
+        if (!Number.isFinite(guess)) {
+          setStatus("🐝 that's not a number the bees understand", "err");
+          return;
+        }
+        if (guess === state.problem.answer) {
+          busy = true;
+          state.streak++;
+          state.best = Math.max(state.best, state.streak);
+          const leveledUp = Beehive.levelFor(state.filled + 1) > currentLevel();
+          setStatus("🍯 sweet! the hive grows.", "ok");
+          els.answer.value = "";
+          scene.growOne(() => {
+            state.filled++;
+            state.problem = null;
+            saveState();
+            ensureProblem();
+            render();
+            if (leveledUp) {
+              setStatus(`🍯 sweet! level up — ${Beehive.labelFor(currentLevel())}`, "ok");
+            }
+            buildShareCard();
+            busy = false;
+            els.answer.focus();
+          });
+        } else {
+          state.streak = 0;
+          saveState();
+          render();
+          setStatus("🐝 bzzt, not quite — try again", "err");
+          els.answer.value = "";
+          els.answer.focus();
+        }
+      });
+
+      els.skipBtn.addEventListener("click", () => {
+        if (busy) return;
+        newProblem();
+        setStatus("skipped — here's another one", "");
+        els.answer.value = "";
+        els.answer.focus();
+      });
+
+      els.resetBtn.addEventListener("click", () => {
+        if (busy) return;
+        if (!confirm("Reset your hive back to zero? This can't be undone.")) return;
+        state.filled = 0;
+        state.streak = 0;
+        state.best = 0;
+        state.problem = null;
+        saveState();
+        scene.setFilled(0);
+        ensureProblem();
+        render();
+        setStatus("the hive is empty again — start feeding it", "");
+      });
+
+      // ---------- sharing ----------
+
+      function buildShareText() {
+        const url = "https://beehive.bisks.net/";
+        const level = Beehive.labelFor(currentLevel());
+        let text = `My beehive has ${state.filled} cell${state.filled === 1 ? "" : "s"} (${level}), best streak ${state.best}. ${url}`;
+        if (text.length > 280) {
+          text = `My beehive: ${state.filled} cells, best streak ${state.best}. ${url}`;
+        }
+        return text;
+      }
+
+      function buildShareCard() {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.fillStyle = "#120d05";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W / 2, H * 0.35, 0, W / 2, H * 0.35, W * 0.55);
+        glow.addColorStop(0, "rgba(244,163,0,0.28)");
+        glow.addColorStop(1, "rgba(18,13,5,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffe08a";
+        ctx.font = `800 54px ${mono}`;
+        ctx.fillText("🐝 beehive", W / 2, 110);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `24px ${mono}`;
+        ctx.fillText(Beehive.labelFor(currentLevel()), W / 2, 190);
+
+        ctx.fillStyle = "#f4a300";
+        ctx.font = `800 100px ${mono}`;
+        ctx.fillText(String(state.filled), W / 2, 330);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `22px ${mono}`;
+        ctx.fillText("honeycomb cells", W / 2, 370);
+
+        ctx.strokeStyle = "#4a3616";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 220, 410);
+        ctx.lineTo(W / 2 + 220, 410);
+        ctx.stroke();
+
+        ctx.fillStyle = "#fff4dc";
+        ctx.font = `700 34px ${mono}`;
+        ctx.fillText(`best streak: ${state.best}`, W / 2, 470);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `22px ${mono}`;
+        ctx.fillText("beehive.bisks.net", W / 2, 560);
+
+        finalizeShareCard(canvas, buildShareText());
+      }
+
+      function finalizeShareCard(canvas, shareText) {
+        els.shareCard.src = canvas.toDataURL("image/png");
+        els.shareCard.style.display = "block";
+
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        els.shareDownload.onclick = () => {
+          canvas.toBlob((blob) => {
+            if (!blob) return;
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "beehive.png";
+            a.click();
+          }, "image/png");
+        };
+
+        if (canShareFiles()) {
+          els.shareNative.style.display = "";
+          els.shareNative.onclick = () => {
+            canvas.toBlob(async (blob) => {
+              if (!blob) return;
+              const file = new File([blob], "beehive.png", { type: "image/png" });
+              try {
+                await navigator.share({ files: [file], text: shareText, title: "beehive" });
+              } catch (_) {
+                // cancelled or unsupported — no-op
+              }
+            }, "image/png");
+          };
+        } else {
+          els.shareNative.style.display = "none";
+        }
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+
+      // ---------- boot ----------
+      ensureProblem();
+      render();
+      if (state.filled > 0) buildShareCard();
+      els.answer.focus();
+    </script>
+  </body>
+</html>
