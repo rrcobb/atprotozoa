@@ -221,6 +221,7 @@
       const MAX_GEN_WORDS = 44;
       const MIN_GEN_WORDS = 6;
       const HISTORY_CAP = 12;
+      const MAX_GEN_ATTEMPTS = 8; // re-rolls before giving up on dodging a verbatim source post
 
       // ---- DOM -----------------------------------------------------------
       const dot = document.getElementById("dot");
@@ -271,6 +272,13 @@
           /[&<>"']/g,
           (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
         );
+      }
+
+      // Same normalization generate() output goes through (tokenize + single
+      // spaces), so a straight string comparison catches "the chain just
+      // replayed one source post verbatim" without a fuzzy-match pass.
+      function normalizeForCompare(text) {
+        return tokenize(text).join(" ");
       }
 
       // ---- rolling window ----------------------------------------------
@@ -409,9 +417,22 @@
           return;
         }
         const model = buildModel(posts);
-        const text = generate(model);
+        // Guard: never hand back someone's post verbatim — the chain is
+        // supposed to be a remix, not a reprint. A short/sparse window can
+        // make the walk retrace one post exactly, so re-roll a few times
+        // before giving up.
+        const existing = new Set(posts.map((p) => normalizeForCompare(p.text)));
+        let text = null;
+        for (let i = 0; i < MAX_GEN_ATTEMPTS; i++) {
+          const candidate = generate(model);
+          if (!candidate) break;
+          if (!existing.has(candidate)) {
+            text = candidate;
+            break;
+          }
+        }
         if (!text) {
-          renderWaiting("couldn't knit a sentence out of that minute — try again.");
+          renderWaiting("couldn't knit a sentence that wasn't just someone's post, verbatim — try again.");
           return;
         }
         renderPost({ text, count: posts.length, words: wordCount(posts), auto });
