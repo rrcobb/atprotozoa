@@ -199,6 +199,9 @@ const Hive = (() => {
 
     // Fly a bee from the previous cell (or the flower, for the first step) to
     // cell[index], landing after durationMs, then mark it filled with label.
+    // The bee doesn't vanish on landing — it perches on top of its cell and
+    // stays there, so by the last step the whole hive shows one bee per
+    // solved step, all present together: a literal swarm, not a relay.
     flyTo(index, label, durationMs, onLand) {
       const target = this.cells[index];
       const from = index === 0 ? this.flower : this.cells[index - 1];
@@ -211,6 +214,8 @@ const Hive = (() => {
         duration: durationMs,
         wobbleSeed: Math.random() * 1000,
         done: false,
+        perched: false,
+        cellIndex: index,
       };
       this.bees.push(bee);
       this._ensureLoop();
@@ -218,9 +223,9 @@ const Hive = (() => {
         const t = (performance.now() - bee.start) / bee.duration;
         if (t >= 1) {
           bee.done = true;
+          bee.perched = true;
           target.filled = true;
           target.text = label;
-          this.bees = this.bees.filter((b) => b !== bee);
           onLand && onLand();
           return;
         }
@@ -275,9 +280,8 @@ const Hive = (() => {
 
       const now = performance.now();
 
-      // ambient helper swarm — small bees looping near the flower to sell
-      // "the colony is working," even though only one bee carries cargo
-      // at a time
+      // ambient helper swarm — small bees looping near the flower so the
+      // colony reads as alive even before the first step lands
       for (const helper of this.ambient) {
         const t = now * helper.speed + helper.phase;
         const hx = this.flower.x + Math.cos(t) * helper.radius;
@@ -286,8 +290,20 @@ const Hive = (() => {
         drawCartoonBee(ctx, hx, hy, angle, now / 60 + helper.wingSeed, 0.55);
       }
 
+      // bees perched on their solved cell — one per finished step, drawn
+      // first so the actively-flying bee (below) renders on top of them
+      for (const bee of this.bees) {
+        if (!bee.perched) continue;
+        const cell = this.cells[bee.cellIndex];
+        const bob = Math.sin(now / 340 + bee.wobbleSeed) * 1.6;
+        const x = cell.x + Math.cos(bee.wobbleSeed) * (this.cellSize * 0.3);
+        const y = cell.y - this.cellSize * 0.62 + bob;
+        drawCartoonBee(ctx, x, y, -Math.PI / 2, now / 220 + bee.wobbleSeed, 0.62);
+      }
+
       // the bee actually carrying the current step's cargo
       for (const bee of this.bees) {
+        if (bee.perched) continue;
         const t = Math.min(1, (now - bee.start) / bee.duration);
         const e = easeInOutCubic(t);
         const arc = Math.sin(t * Math.PI) * -26;
