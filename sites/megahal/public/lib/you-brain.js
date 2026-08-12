@@ -28,12 +28,16 @@ async function jget(url) {
 
 // Pages through app.bsky.feed.getAuthorFeed collecting original-post text
 // (no reposts, no replies) until it has `maxPosts` lines or runs out of feed.
-export async function fetchAuthorLines(actor, maxPosts = 300) {
+// Page budget scales with maxPosts (100 raw items/page, some of which are
+// replies/reposts we discard) plus slack, capped so a huge maxPosts can't
+// turn into an unbounded sequential-fetch loop against someone's account.
+export async function fetchAuthorLines(actor, maxPosts = 3000, onPage) {
   const handle = normalizeActor(actor);
   if (!handle) throw new Error("empty handle");
   const lines = [];
   let cursor;
-  for (let page = 0; page < 8 && lines.length < maxPosts; page++) {
+  const pageBudget = Math.min(60, Math.ceil(maxPosts / 100) + 4);
+  for (let page = 0; page < pageBudget && lines.length < maxPosts; page++) {
     const url = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
     url.searchParams.set("actor", handle);
     url.searchParams.set("limit", "100");
@@ -45,6 +49,7 @@ export async function fetchAuthorLines(actor, maxPosts = 300) {
       const text = item.post && item.post.record && item.post.record.text;
       if (text && text.trim()) lines.push(text.trim());
     }
+    if (onPage) onPage(lines.length, page + 1);
     cursor = data.cursor;
     if (!cursor || !(data.feed && data.feed.length)) break;
   }
