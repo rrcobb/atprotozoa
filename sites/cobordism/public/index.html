@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cobordism — two disks, one tube, in three.js</title>
+<meta name="description" content="a tunable three.js reproduction of the two-disks-joined-by-a-neck illustration from the @minomobi.com jank-illustration thread — because buildthis can actually read the image. drag the sliders, export the code." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="cobordism" />
+<meta property="og:description" content="two colored disks joined by a tunable neck — a customizable three.js reproduction of the illustration @minomobi.com couldn't see. built by @buildthis.bisks.net, which can read images." />
+<meta property="og:url" content="https://cobordism.bisks.net/" />
+<meta property="og:image" content="https://cobordism.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="a green disk with a hole and a pink disk with a hole, joined by a pinched yellow-to-blue tube, on a dark background." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="cobordism" />
+<meta name="twitter:description" content="two colored disks joined by a tunable neck — a customizable three.js reproduction of the illustration @minomobi.com couldn't see." />
+<meta name="twitter:image" content="https://cobordism.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-border: #262b36;
+    --fg: #e8ebf2;
+    --dim: #8b93a7;
+    --accent: #ffd23f;
+    --accent2: #4fa8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    overflow: hidden;
+  }
+  #scene { position: fixed; inset: 0; }
+  #scene canvas { display: block; touch-action: none; }
+
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 5;
+    display: flex;
+    align-items: baseline;
+    gap: 0.6em;
+    padding: 0.9em 1em 0.6em;
+    pointer-events: none;
+    background: linear-gradient(to bottom, rgba(11,13,18,0.85), rgba(11,13,18,0));
+  }
+  header h1 {
+    font-size: 1.05rem;
+    margin: 0;
+    letter-spacing: 0.01em;
+    font-weight: 650;
+  }
+  header p {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--dim);
+  }
+
+  #toggle {
+    position: fixed;
+    top: 0.85em;
+    right: 1em;
+    z-index: 10;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.45em 0.7em;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  #panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    z-index: 8;
+    width: min(320px, 88vw);
+    background: rgba(18,21,28,0.92);
+    backdrop-filter: blur(10px);
+    border-left: 1px solid var(--panel-border);
+    padding: 3.6em 1.1em 1.4em;
+    overflow-y: auto;
+    transition: transform 0.25s ease;
+  }
+  #panel.hidden { transform: translateX(105%); }
+
+  .group {
+    margin-bottom: 1.1em;
+    padding-bottom: 1.1em;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .group:last-of-type { border-bottom: none; }
+  .group h2 {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin: 0 0 0.6em;
+    font-weight: 650;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6em;
+    font-size: 0.8rem;
+    margin: 0.45em 0;
+    color: var(--fg);
+  }
+  label span.val {
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.74rem;
+    min-width: 2.6em;
+    text-align: right;
+  }
+  input[type="range"] { flex: 1; accent-color: var(--accent2); }
+  input[type="color"] {
+    width: 2.1em; height: 1.5em;
+    border: 1px solid var(--panel-border);
+    border-radius: 5px;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  input[type="checkbox"] { accent-color: var(--accent2); width: 1.1em; height: 1.1em; }
+  .row { display: flex; gap: 0.5em; }
+  .row > label { flex: 1; }
+
+  button.action {
+    width: 100%;
+    padding: 0.6em 0.7em;
+    margin-top: 0.4em;
+    background: #1b202a;
+    border: 1px solid var(--panel-border);
+    color: var(--fg);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  button.action:hover { border-color: var(--accent2); }
+  button.action.primary {
+    background: linear-gradient(135deg, var(--accent2), #7a5cff);
+    border: none;
+    color: #0b0d12;
+    font-weight: 650;
+  }
+
+  #credit {
+    position: fixed;
+    left: 1em; bottom: 0.9em;
+    z-index: 5;
+    font-size: 0.72rem;
+    color: var(--dim);
+    max-width: min(60vw, 480px);
+    line-height: 1.4;
+  }
+  #credit a { color: var(--accent2); }
+
+  #status {
+    position: fixed;
+    left: 1em; bottom: 3.3em;
+    z-index: 5;
+    font-size: 0.75rem;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  #status.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+
+<header>
+  <h1>cobordism</h1>
+  <p>two disks, one tube — tune it, spin it, export it</p>
+</header>
+
+<button id="toggle" aria-label="toggle controls">controls</button>
+
+<aside id="panel">
+  <div class="group">
+    <h2>disks</h2>
+    <label>top color <input type="color" id="topColor" value="#7ee08a"></label>
+    <label>bottom color <input type="color" id="bottomColor" value="#f0899a"></label>
+    <label>disk radius <input type="range" id="diskRadius" min="1.5" max="4.5" step="0.05" value="3"><span class="val" id="diskRadiusVal"></span></label>
+    <label>hole radius <input type="range" id="holeRadius" min="0.3" max="2" step="0.02" value="0.95"><span class="val" id="holeRadiusVal"></span></label>
+    <label>separation <input type="range" id="separation" min="0" max="6" step="0.05" value="2.6"><span class="val" id="separationVal"></span></label>
+  </div>
+
+  <div class="group">
+    <h2>neck</h2>
+    <label>connected <input type="checkbox" id="neckOn" checked></label>
+    <label>waist <input type="range" id="waist" min="0.05" max="2" step="0.02" value="0.4"><span class="val" id="waistVal"></span></label>
+    <label>curve <input type="range" id="curve" min="0.5" max="4" step="0.05" value="1.6"><span class="val" id="curveVal"></span></label>
+    <label>gradient start <input type="color" id="neckColorA" value="#ffd23f"></label>
+    <label>gradient end <input type="color" id="neckColorB" value="#4fa8ff"></label>
+  </div>
+
+  <div class="group">
+    <h2>halo</h2>
+    <label>show halo ring <input type="checkbox" id="haloOn" checked></label>
+    <label>halo width <input type="range" id="haloWidth" min="0.05" max="1" step="0.02" value="0.35"><span class="val" id="haloWidthVal"></span></label>
+  </div>
+
+  <div class="group">
+    <h2>render</h2>
+    <label>segments <input type="range" id="segments" min="12" max="128" step="1" value="72"><span class="val" id="segmentsVal"></span></label>
+    <label>wireframe <input type="checkbox" id="wireframe"></label>
+    <label>auto-rotate <input type="checkbox" id="autoRotate" checked></label>
+    <label>rotate speed <input type="range" id="rotateSpeed" min="0" max="1.5" step="0.02" value="0.3"><span class="val" id="rotateSpeedVal"></span></label>
+    <label>background <input type="color" id="bgColor" value="#0b0d12"></label>
+  </div>
+
+  <div class="group">
+    <button class="action" id="resetBtn">reset to default</button>
+    <button class="action" id="screenshotBtn">save screenshot</button>
+    <button class="action" id="shareBtn">share to bluesky</button>
+    <button class="action primary" id="exportBtn">export standalone three.js code</button>
+  </div>
+</aside>
+
+<div id="status"></div>
+
+<div id="credit">
+  a reply to a thread about <a href="https://minomobi.com/jank-engine/" target="_blank" rel="noopener">@minomobi.com's jank-engine</a> —
+  turns out <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a> can read the image.
+  drag the sliders, hit export for the code.
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
