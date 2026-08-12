@@ -128,7 +128,12 @@
         font-size: 0.72rem; color: var(--muted);
         display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
       }
+      .card .meta .info { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
       .card .meta .src { }
+      .card .orig { font-weight: 600; cursor: help; }
+      .card .orig.good { color: var(--good); }
+      .card .orig.gold { color: #7a5b00; }
+      .card .orig.bad { color: var(--bad); }
       .card .actions { display: flex; gap: 0.5rem; }
       .card .actions button, .card .actions a {
         font-family: var(--mono); font-size: 0.72rem; color: var(--accent);
@@ -168,7 +173,10 @@
         a brand new "post" out of it with a word-level Markov chain: given
         the last two words, what tends to come next, judged purely by what
         just flew past. It's not anyone's post. It's everyone's, averaged
-        over sixty seconds.
+        over sixty seconds. Each result carries an <b>originality</b> score —
+        how many word-swaps it'd take to turn it back into the single closest
+        real post in that minute's window, so a lucky one-word-off remix
+        doesn't get to call itself original.
       </p>
 
       <div class="controls">
@@ -188,7 +196,10 @@
         <span class="badge" id="cardBadge">this minute</span>
         <div class="body waiting" id="cardBody">reading the firehose…</div>
         <div class="meta">
-          <span class="src" id="cardMeta"></span>
+          <span class="info">
+            <span class="src" id="cardMeta"></span>
+            <span class="orig" id="cardOrig"></span>
+          </span>
           <span class="actions">
             <button id="shareBtn" title="compose a Bluesky post with this text">share</button>
           </span>
@@ -233,6 +244,7 @@
       const statsEl = document.getElementById("stats");
       const cardBody = document.getElementById("cardBody");
       const cardMeta = document.getElementById("cardMeta");
+      const cardOrig = document.getElementById("cardOrig");
       const cardBadge = document.getElementById("cardBadge");
       const shareBtn = document.getElementById("shareBtn");
       const historyList = document.getElementById("historyList");
@@ -279,6 +291,49 @@
       // replayed one source post verbatim" without a fuzzy-match pass.
       function normalizeForCompare(text) {
         return tokenize(text).join(" ");
+      }
+
+      // Word-level Levenshtein distance — how many word insert/delete/swaps
+      // turn one token sequence into the other.
+      function levenshteinWords(a, b) {
+        const m = a.length, n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        let prev = new Array(n + 1);
+        let curr = new Array(n + 1);
+        for (let j = 0; j <= n; j++) prev[j] = j;
+        for (let i = 1; i <= m; i++) {
+          curr[0] = i;
+          for (let j = 1; j <= n; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+          }
+          [prev, curr] = [curr, prev];
+        }
+        return prev[n];
+      }
+
+      // Originality check cee.wtf asked for: the verbatim guard above only
+      // catches an exact replay, but a chain that's just a one-word swap from
+      // a real post isn't "original" either. Find the single closest source
+      // post by word-edit distance and turn that into a 0-100% score.
+      function closestMatch(genWords, posts) {
+        let best = null;
+        for (const p of posts) {
+          const words = tokenize(p.text);
+          if (!words.length) continue;
+          const maxLen = Math.max(genWords.length, words.length);
+          if (!maxLen) continue;
+          const dist = levenshteinWords(genWords, words);
+          // pct here is "how different from THIS post" — low means near-identical.
+          // The overall score is the minimum across posts: the single closest
+          // real post sets the ceiling on how original the result can claim to be.
+          const pct = 100 * dist / maxLen;
+          if (!best || pct < best.pct) best = { pct, dist, maxLen, post: p };
+        }
+        if (!best) return null;
+        best.pct = Math.round(best.pct);
+        return best;
       }
 
       // ---- rolling window ----------------------------------------------
@@ -383,7 +438,20 @@
         return prefix + body + suffix;
       }
 
-      function renderPost({ text, count, words, auto }) {
+      function originalityLabel(match) {
+        if (!match) return { text: "", cls: "", title: "" };
+        const pct = match.pct;
+        const cls = pct >= 85 ? "good" : pct >= 60 ? "gold" : "bad";
+        const text = `${pct}% original`;
+        const closestPreview = match.post.text.length > 90
+          ? match.post.text.slice(0, 90).trimEnd() + "…"
+          : match.post.text;
+        const title = `closest real post in this window (${match.dist} word${match.dist === 1 ? "" : "s"} ` +
+          `different, out of ${match.maxLen}): “${closestPreview}”`;
+        return { text, cls, title };
+      }
+
+      function renderPost({ text, count, words, auto, match }) {
         currentText = text;
         cardBody.classList.remove("waiting");
         cardBody.textContent = text;
@@ -391,8 +459,12 @@
         const when = new Date().toLocaleTimeString();
         const src = `from ${count} post${count === 1 ? "" : "s"} / ${words} words · ${auto ? "auto" : "manual"} · ${when}`;
         cardMeta.textContent = src;
+        const orig = originalityLabel(match);
+        cardOrig.textContent = orig.text;
+        cardOrig.className = "orig" + (orig.cls ? " " + orig.cls : "");
+        cardOrig.title = orig.title;
         shareBtn.disabled = false;
-        pushHistory(text, src);
+        pushHistory(text, orig.text ? `${src} · ${orig.text}` : src);
       }
 
       function renderWaiting(msg) {
@@ -400,6 +472,9 @@
         cardBody.classList.add("waiting");
         cardBody.textContent = msg;
         cardMeta.textContent = "";
+        cardOrig.textContent = "";
+        cardOrig.className = "orig";
+        cardOrig.title = "";
         shareBtn.disabled = true;
       }
 
@@ -435,7 +510,8 @@
           renderWaiting("couldn't knit a sentence that wasn't just someone's post, verbatim — try again.");
           return;
         }
-        renderPost({ text, count: posts.length, words: wordCount(posts), auto });
+        const match = closestMatch(tokenize(text), posts);
+        renderPost({ text, count: posts.length, words: wordCount(posts), auto, match });
       }
 
       // ---- mode switching ---------------------------------------------------
