@@ -54,15 +54,34 @@
       }
       .intro b { color: var(--ink); font-weight: 600; }
 
+      .mode-toggle {
+        display: flex; justify-content: center; gap: 0.4rem; margin: 0 auto 0.9rem;
+      }
+      .mode-btn {
+        background: transparent; color: var(--muted); border: 1px solid var(--border);
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+        padding: 0.4rem 0.9rem; border-radius: 999px; cursor: pointer;
+      }
+      .mode-btn:hover { color: var(--ink); border-color: var(--honey); }
+      .mode-btn.active { background: var(--honey); color: #241a08; border-color: var(--honey); }
+
       form.problem {
         display: flex; gap: 0.5rem; margin: 0 auto 0.6rem; max-width: 560px;
       }
+      form.problem.homework { flex-direction: column; }
       input#problem {
         flex: 1; background: var(--card); border: 1px solid var(--border);
         color: var(--ink); font-family: var(--mono); font-size: 1rem;
         padding: 0.7rem 0.85rem; border-radius: 8px;
       }
       input#problem:focus { outline: 2px solid var(--honey); outline-offset: 1px; }
+      textarea#homeworkInput {
+        background: var(--card); border: 1px solid var(--border);
+        color: var(--ink); font-family: var(--mono); font-size: 0.92rem;
+        padding: 0.7rem 0.85rem; border-radius: 8px; resize: vertical;
+      }
+      textarea#homeworkInput:focus { outline: 2px solid var(--honey); outline-offset: 1px; }
+      form.problem.homework button { align-self: flex-end; }
       button {
         font-family: var(--mono); font-size: 0.92rem; font-weight: 600;
         border-radius: 8px; border: 1px solid var(--border); cursor: pointer;
@@ -104,6 +123,20 @@
         color: var(--gold); min-height: 1.6em;
       }
 
+      .worksheet { max-width: 560px; margin: 0 auto 1.6rem; }
+      .worksheet ol { padding-left: 1.4rem; margin: 0 0 1rem; }
+      .worksheet li { margin-bottom: 0.4rem; opacity: 0.35; transition: opacity 0.3s; }
+      .worksheet li.landed { opacity: 1; }
+      .worksheet li.err { color: var(--err); }
+      .worksheet .q { color: var(--ink); }
+      .worksheet .a { color: var(--gold); font-weight: 600; }
+      .worksheet .a::before { content: " → "; color: var(--muted); font-weight: 400; }
+      .report-card {
+        text-align: center; font-size: 1.15rem; font-weight: 700; color: var(--gold);
+        border: 1px dashed var(--border); border-radius: 10px; padding: 0.9rem;
+      }
+      .report-card .grade { font-size: 1.6rem; }
+
       .share {
         display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
         margin: 0 auto 1.4rem; max-width: 560px;
@@ -139,12 +172,20 @@
         (<code>2x + 3 = 11</code>), or a plain-English <b>word problem</b>
         ("Sam has 3 apples and buys 4 more") all work — for a word problem, a
         reader bee flies in first to translate the sentence into a sum before
-        the rest of the swarm solves it.
+        the rest of the swarm solves it. Or switch to <b>homework set</b> and
+        hand the swarm a whole worksheet at once.
       </p>
+
+      <div class="mode-toggle" id="modeToggle">
+        <button type="button" class="mode-btn active" data-mode="single">single problem</button>
+        <button type="button" class="mode-btn" data-mode="homework">homework set</button>
+      </div>
 
       <form class="problem" id="problemForm">
         <input id="problem" type="text" autocomplete="off" spellcheck="false"
           placeholder="e.g. (5 - 2)^2 + 1  or  Sam had 10 stickers and gave away 3" />
+        <textarea id="homeworkInput" hidden rows="5" spellcheck="false"
+          placeholder="one problem per line, e.g.&#10;3 + 4 * 2&#10;2x + 3 = 11&#10;Sam has 3 apples and buys 4 more"></textarea>
         <button type="submit" id="solveBtn">send the bees</button>
       </form>
       <div class="examples" id="examples"></div>
@@ -156,6 +197,11 @@
 
       <div class="steps" id="stepsWrap" hidden>
         <ol id="stepsList"></ol>
+      </div>
+
+      <div class="worksheet" id="worksheetWrap" hidden>
+        <ol id="worksheetList"></ol>
+        <div class="report-card" id="reportCard"></div>
       </div>
 
       <div class="share" id="share" hidden>
@@ -180,6 +226,7 @@
       const els = {
         form: document.getElementById("problemForm"),
         input: document.getElementById("problem"),
+        homeworkInput: document.getElementById("homeworkInput"),
         solveBtn: document.getElementById("solveBtn"),
         examples: document.getElementById("examples"),
         status: document.getElementById("status"),
@@ -187,6 +234,10 @@
         answer: document.getElementById("answer"),
         stepsWrap: document.getElementById("stepsWrap"),
         stepsList: document.getElementById("stepsList"),
+        worksheetWrap: document.getElementById("worksheetWrap"),
+        worksheetList: document.getElementById("worksheetList"),
+        reportCard: document.getElementById("reportCard"),
+        modeBtns: document.querySelectorAll(".mode-btn"),
         share: document.getElementById("share"),
         shareBluesky: document.getElementById("shareBluesky"),
         shareDownload: document.getElementById("shareDownload"),
@@ -202,15 +253,66 @@
         "Sam had 10 stickers but gave away 3, how many are left?",
         "A baker made 20 cookies and divided them among 4 friends",
       ];
-      for (const ex of EXAMPLES) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = ex;
-        b.addEventListener("click", () => {
-          els.input.value = ex;
-          runSolve();
-        });
-        els.examples.appendChild(b);
+      const HOMEWORK_EXAMPLES = [
+        {
+          label: "try an example worksheet",
+          text: [
+            "3 + 4 * 2",
+            "2x + 3 = 11",
+            "Sam had 10 stickers and gave away 3",
+            "just vibes, no numbers here",
+          ].join("\n"),
+        },
+      ];
+
+      let mode = "single";
+
+      function renderExamples() {
+        els.examples.innerHTML = "";
+        if (mode === "single") {
+          for (const ex of EXAMPLES) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.textContent = ex;
+            b.addEventListener("click", () => {
+              els.input.value = ex;
+              runSolve();
+            });
+            els.examples.appendChild(b);
+          }
+        } else {
+          for (const ex of HOMEWORK_EXAMPLES) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.textContent = ex.label;
+            b.addEventListener("click", () => {
+              els.homeworkInput.value = ex.text;
+              runHomework();
+            });
+            els.examples.appendChild(b);
+          }
+        }
+      }
+      renderExamples();
+
+      function setMode(next) {
+        if (running || mode === next) return;
+        mode = next;
+        for (const btn of els.modeBtns) btn.classList.toggle("active", btn.dataset.mode === mode);
+        els.input.hidden = mode !== "single";
+        els.homeworkInput.hidden = mode !== "homework";
+        els.form.classList.toggle("homework", mode === "homework");
+        els.solveBtn.textContent = mode === "single" ? "send the bees" : "send the swarm to work";
+        setStatus("", "");
+        els.answer.textContent = "";
+        els.stepsWrap.hidden = true;
+        els.worksheetWrap.hidden = true;
+        els.share.hidden = true;
+        scene.setSteps(1);
+        renderExamples();
+      }
+      for (const btn of els.modeBtns) {
+        btn.addEventListener("click", () => setMode(btn.dataset.mode));
       }
 
       const scene = new Hive.HiveScene(els.canvas);
@@ -276,9 +378,85 @@
         els.solveBtn.disabled = false;
       }
 
+      function gradeFor(pct) {
+        if (pct === 1) return "A+";
+        if (pct >= 0.9) return "A";
+        if (pct >= 0.8) return "B";
+        if (pct >= 0.7) return "C";
+        if (pct >= 0.5) return "D";
+        return "F";
+      }
+
+      async function runHomework() {
+        if (running) return;
+        const lines = els.homeworkInput.value.split("\n").map((l) => l.trim()).filter(Boolean);
+        if (lines.length === 0) {
+          setStatus("🐝 give the swarm at least one line of homework", "err");
+          return;
+        }
+
+        running = true;
+        els.solveBtn.disabled = true;
+        els.answer.textContent = "";
+        els.stepsWrap.hidden = true;
+        els.share.hidden = true;
+        els.worksheetWrap.hidden = false;
+        els.worksheetList.innerHTML = "";
+        els.reportCard.textContent = "";
+
+        const results = [];
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          setStatus(`problem ${i + 1} of ${lines.length}: the swarm is on it...`, "");
+
+          const li = document.createElement("li");
+          li.innerHTML = `<span class="q"></span><span class="a"></span>`;
+          li.querySelector(".q").textContent = raw;
+          els.worksheetList.appendChild(li);
+
+          let result, error;
+          try {
+            result = MathHive.solve(raw);
+          } catch (e) {
+            error = e;
+          }
+
+          if (error) {
+            li.classList.add("err", "landed");
+            li.querySelector(".a").textContent = error.message;
+            results.push({ raw, ok: false });
+            await new Promise((r) => setTimeout(r, 260));
+            continue;
+          }
+
+          scene.setSteps(result.steps.length);
+          const dur = delayFor(result.steps.length);
+          for (let s = 0; s < result.steps.length; s++) {
+            await new Promise((resolve) => {
+              scene.flyTo(s, s === result.steps.length - 1 ? String(result.answer) : result.steps[s].expr, dur, resolve);
+            });
+          }
+          li.classList.add("landed");
+          li.querySelector(".a").textContent = String(result.answer);
+          results.push({ raw, ok: true, answer: result.answer });
+          await new Promise((r) => setTimeout(r, 180));
+        }
+
+        const solved = results.filter((r) => r.ok).length;
+        const pct = solved / results.length;
+        const grade = gradeFor(pct);
+        els.reportCard.innerHTML = `🎓 homework complete — <span class="grade">${grade}</span><br>${solved}/${results.length} problems solved`;
+        setStatus("the whole worksheet is done. 🍯", "ok");
+        buildHomeworkShareCard(results, grade);
+        els.share.hidden = false;
+        running = false;
+        els.solveBtn.disabled = false;
+      }
+
       els.form.addEventListener("submit", (e) => {
         e.preventDefault();
-        runSolve();
+        if (mode === "single") runSolve();
+        else runHomework();
       });
 
       // ---------- sharing ----------
@@ -335,10 +513,66 @@
         ctx.font = `22px ${mono}`;
         ctx.fillText("mathhive.bisks.net", W / 2, 560);
 
+        finalizeShareCard(canvas, buildShareText(problem, result));
+      }
+
+      function buildHomeworkText(results, grade) {
+        const url = "https://mathhive.bisks.net/";
+        const solved = results.filter((r) => r.ok).length;
+        return `I handed the hive a ${results.length}-problem worksheet and they scored ${grade} (${solved}/${results.length}). ${url}`;
+      }
+
+      function buildHomeworkShareCard(results, grade) {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const solved = results.filter((r) => r.ok).length;
+
+        ctx.fillStyle = "#120d05";
+        ctx.fillRect(0, 0, W, H);
+        const glow = ctx.createRadialGradient(W / 2, H * 0.35, 0, W / 2, H * 0.35, W * 0.55);
+        glow.addColorStop(0, "rgba(244,163,0,0.28)");
+        glow.addColorStop(1, "rgba(18,13,5,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#ffe08a";
+        ctx.font = `800 54px ${mono}`;
+        ctx.fillText("🐝 mathhive homework", W / 2, 110);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `24px ${mono}`;
+        ctx.fillText(`${results.length} problem${results.length === 1 ? "" : "s"} on the worksheet`, W / 2, 200);
+
+        ctx.fillStyle = "#fff4dc";
+        ctx.font = `700 40px ${mono}`;
+        ctx.fillText(`${solved}/${results.length} solved`, W / 2, 280);
+
+        ctx.strokeStyle = "#4a3616";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - 220, 330);
+        ctx.lineTo(W / 2 + 220, 330);
+        ctx.stroke();
+
+        ctx.fillStyle = "#f4a300";
+        ctx.font = `800 90px ${mono}`;
+        ctx.fillText(grade, W / 2, 450);
+
+        ctx.fillStyle = "#c9a96b";
+        ctx.font = `22px ${mono}`;
+        ctx.fillText("mathhive.bisks.net", W / 2, 560);
+
+        finalizeShareCard(canvas, buildHomeworkText(results, grade));
+      }
+
+      function finalizeShareCard(canvas, shareText) {
         els.shareCard.src = canvas.toDataURL("image/png");
         els.shareCard.style.display = "block";
 
-        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(problem, result));
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
         els.shareDownload.onclick = () => {
           canvas.toBlob((blob) => {
@@ -357,12 +591,14 @@
               if (!blob) return;
               const file = new File([blob], "mathhive.png", { type: "image/png" });
               try {
-                await navigator.share({ files: [file], text: buildShareText(problem, result), title: "mathhive" });
+                await navigator.share({ files: [file], text: shareText, title: "mathhive" });
               } catch (_) {
                 // cancelled or unsupported — no-op
               }
             }, "image/png");
           };
+        } else {
+          els.shareNative.style.display = "none";
         }
       }
 
