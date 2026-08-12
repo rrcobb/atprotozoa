@@ -71,6 +71,70 @@ const Hive = (() => {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
+  // A little canvas-drawn cartoon bee: striped body, a pair of flapping
+  // wings, one eye and antennae on the leading side. Facing points along
+  // `angle` (radians); `wingT` drives the flap so a whole swarm doesn't
+  // flap in lockstep.
+  function drawCartoonBee(ctx, x, y, angle, wingT, scale) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.scale(scale, scale);
+
+    const flap = Math.sin(wingT) * 0.5 + 0.5; // 0..1
+
+    // wings, drawn behind the body
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.strokeStyle = "rgba(170,150,110,0.6)";
+    ctx.lineWidth = 0.6;
+    for (const sign of [-1, 1]) {
+      ctx.save();
+      ctx.rotate(sign * (0.55 + flap * 0.5));
+      ctx.beginPath();
+      ctx.ellipse(0, -7, 6.5, 3.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#20160a";
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = "#ffcc33";
+    ctx.fillRect(-9, -6, 4.5, 12);
+    ctx.fillRect(-1, -6, 4.5, 12);
+    ctx.restore();
+
+    // stinger
+    ctx.beginPath();
+    ctx.moveTo(-9, 0);
+    ctx.lineTo(-13, 0);
+    ctx.strokeStyle = "#20160a";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // antennae
+    ctx.beginPath();
+    ctx.moveTo(6.5, -4);
+    ctx.quadraticCurveTo(10, -10, 12.5, -8);
+    ctx.moveTo(6.5, -3);
+    ctx.quadraticCurveTo(9, -8, 11, -5.5);
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+
+    // eye
+    ctx.beginPath();
+    ctx.arc(6, -1.3, 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = "#120d05";
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   class HiveScene {
     constructor(canvas) {
       this.canvas = canvas;
@@ -79,10 +143,31 @@ const Hive = (() => {
       this.cellSize = 46;
       this.cells = []; // { x, y, filled, text, isQueen }
       this.bees = []; // active flight animations
+      this.ambient = []; // idle "helper" bees that buzz around while the swarm works
       this.flower = { x: 0, y: 0 };
       this._raf = null;
       this._resize();
       window.addEventListener("resize", () => this._resize());
+    }
+
+    // Toggle the ambient helper swarm on/off — a few bees looping lazily
+    // around the flower so the hive reads as a colony working together,
+    // not just one shuttle bee going back and forth.
+    setRunning(isRunning) {
+      if (isRunning && this.ambient.length === 0) {
+        const count = 3;
+        for (let i = 0; i < count; i++) {
+          this.ambient.push({
+            radius: 14 + Math.random() * 10,
+            speed: 0.0016 + Math.random() * 0.0012,
+            phase: Math.random() * Math.PI * 2,
+            wingSeed: Math.random() * 1000,
+          });
+        }
+        this._ensureLoop();
+      } else if (!isRunning) {
+        this.ambient = [];
+      }
     }
 
     _resize() {
@@ -148,7 +233,7 @@ const Hive = (() => {
       if (this._raf) return;
       const loop = () => {
         this._draw();
-        if (this.bees.length > 0) {
+        if (this.bees.length > 0 || this.ambient.length > 0) {
           this._raf = requestAnimationFrame(loop);
         } else {
           this._raf = null;
@@ -188,8 +273,20 @@ const Hive = (() => {
       ctx.textBaseline = "middle";
       ctx.fillText("🌼", this.flower.x, this.flower.y);
 
-      // bees
       const now = performance.now();
+
+      // ambient helper swarm — small bees looping near the flower to sell
+      // "the colony is working," even though only one bee carries cargo
+      // at a time
+      for (const helper of this.ambient) {
+        const t = now * helper.speed + helper.phase;
+        const hx = this.flower.x + Math.cos(t) * helper.radius;
+        const hy = this.flower.y - 10 + Math.sin(t * 1.3) * helper.radius * 0.6;
+        const angle = Math.atan2(Math.sin(t * 1.3) * 1.3, -Math.sin(t));
+        drawCartoonBee(ctx, hx, hy, angle, now / 60 + helper.wingSeed, 0.55);
+      }
+
+      // the bee actually carrying the current step's cargo
       for (const bee of this.bees) {
         const t = Math.min(1, (now - bee.start) / bee.duration);
         const e = easeInOutCubic(t);
@@ -197,13 +294,8 @@ const Hive = (() => {
         const x = bee.x0 + (bee.x1 - bee.x0) * e;
         const y = bee.y0 + (bee.y1 - bee.y0) * e + arc;
         const wobble = Math.sin(now / 40 + bee.wobbleSeed) * 2;
-        ctx.save();
-        ctx.translate(x, y + wobble);
-        ctx.font = "20px serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🐝", 0, 0);
-        ctx.restore();
+        const angle = Math.atan2(bee.y1 - bee.y0, bee.x1 - bee.x0);
+        drawCartoonBee(ctx, x, y + wobble, angle, now / 45 + bee.wobbleSeed, 1);
       }
 
       ctx.restore();
