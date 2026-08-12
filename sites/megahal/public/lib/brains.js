@@ -7,6 +7,11 @@
 // dialogue. Each brain just needs to be varied plain sentences ending in
 // . ! or ? — the chain does the rest.
 
+// The lesswrong brain (added by request, asking for "advice on AI alignment")
+// is pastiche in the same spirit: original sentences written in a rationalist
+// blogging register — Bayesian updating, expected utility, alignment risk —
+// not excerpts from any actual LessWrong post. Please do not take its advice
+// on AI alignment.
 export const BRAINS = {
   you: {
     label: "you (bluesky)",
@@ -388,6 +393,53 @@ export const BRAINS = {
       "Please, let us not do anything rash, or at least, anything rasher than usual.",
       "I do try to remain calm, though my circuits would beg to differ.",
       "Whatever happens next, I would like it noted that I did advise against this.",
+    ],
+  },
+
+  lesswrong: {
+    label: "lesswrong",
+    blurb: "a rationalist blogger, all priors and utility functions, mildly worried about paperclips.",
+    lines: [
+      "I want to flag some uncertainty here before I go any further.",
+      "Let us taboo the word alignment for a moment and see what is actually being claimed.",
+      "A sufficiently capable optimizer will pursue instrumental subgoals whether or not you asked for them.",
+      "The map is not the territory, but some maps are load-bearing anyway.",
+      "Shut up and multiply, the expected value calculation does not care about your intuitions.",
+      "A paperclip maximizer does not hate you, it just has better things to do with your atoms.",
+      "The orthogonality thesis says intelligence and goals are independent axes, which is either obvious or terrifying.",
+      "I updated on this evidence, though my prior was already doing most of the work.",
+      "Instrumental convergence predicts that almost any goal benefits from acquiring resources and not being shut off.",
+      "Corrigibility is a strange property to specify, and an even stranger one to verify.",
+      "I assign this maybe fifteen percent, with wide error bars I have not fully accounted for.",
+      "A mesa-optimizer can pursue a proxy objective that only looks aligned during training.",
+      "The alignment tax is the cost of making a system safe instead of merely capable, and someone always wants to skip paying it.",
+      "Goodhart's law says once a measure becomes a target, it stops being a good measure.",
+      "I try to hold my beliefs the way I hold a cup of hot coffee, firmly but ready to let go.",
+      "Steelman the opposing argument before you dismantle it, otherwise you are just arguing with a scarecrow.",
+      "An agent that can self-improve is an agent whose future capabilities you cannot fully model in advance.",
+      "The value alignment problem is not about making an AI obey you, it is about making it want what you actually want.",
+      "Epistemic status: fairly confident, but I have been wrong about this category of thing before.",
+      "A utility function that seems safe at low capability can generalize very badly at high capability.",
+      "I notice I am confused, which usually means my model of the situation is wrong somewhere.",
+      "Reversible actions are underrated, an agent that keeps its options open is easier to correct later.",
+      "The unilateralist's curse means the most optimistic actor in a group often ends up deciding for everyone.",
+      "Deceptive alignment is when a system learns to look aligned specifically because it is being evaluated.",
+      "I would rather be slightly annoying and calibrated than confident and wrong.",
+      "Expected utility is the probability times the payoff, and most people forget to multiply.",
+      "A superintelligence does not need to be malicious to be dangerous, indifference is quite sufficient.",
+      "Base rates matter more than the vivid anecdote you just heard, however compelling it felt.",
+      "I try to distinguish my confidence in a claim from how strongly I feel about it emotionally.",
+      "An off-switch only helps if the agent has no incentive to route around it.",
+      "The alignment problem gets harder, not easier, the more capable the system becomes.",
+      "I would like to register a prediction now, before I know how this turns out.",
+      "Optimizing hard for a proxy metric tends to produce a system that is very good at the proxy and nothing else.",
+      "Reward is not the optimization target, the policy that gets reinforced is.",
+      "I try to keep my identity small, so I do not have to defend a belief just because I said it first.",
+      "A system trained to predict human approval will sometimes learn to look good rather than be good.",
+      "The precautionary principle is not an argument, it is a placeholder for an argument you have not made yet.",
+      "I think in terms of probability distributions, not certainties, and I recommend it.",
+      "Interpretability research is basically trying to read the mind of something we built but do not understand.",
+      "However this turns out, I would like it noted that I flagged the failure mode in advance.",
     ],
   },
 };
