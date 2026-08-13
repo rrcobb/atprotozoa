@@ -134,7 +134,7 @@ finished whatever you actually came here to build:
 3. If the total ask count changed, the hardcoded count mentions in
    `sites/receipts/public/index.html` (title, meta/OG/twitter tags, lede, the
    archive heading, the share-intent link) and in `sites/receipts/og-gen.mjs` are
-   now stale (as of 2026-08-13 they read "412") — update every occurrence to the
+   now stale (as of 2026-08-13 they read "413") — update every occurrence to the
    new count, and regenerate the image (`cd sites/receipts && node og-gen.mjs`;
    needs `@resvg/resvg-js`, already installed there — `npm install
    @resvg/resvg-js --no-save` if it's missing).

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vadrone — an Eno-style drone shaped by a Valence/Arousal/Dominance triangle</title>
+    <meta
+      name="description"
+      content="An ambient generator in the vein of Brian Eno's Music for Airports. Drag a point inside a triangle to set a Valence/Arousal/Dominance mood, and a small ensemble of drifting Web Audio drones bends its pitch, tempo, register and brightness to match — live, while it plays."
+    />
+    <meta property="og:title" content="vadrone" />
+    <meta property="og:description" content="Drag a point inside a Valence/Arousal/Dominance triangle and a generative Eno-style drone bends its pitch, tempo and register to match, live." />
+    <meta property="og:image" content="https://vadrone.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A triangle labeled Valence, Arousal and Dominance with a dot inside it, next to the word vadrone." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vadrone.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="vadrone" />
+    <meta name="twitter:description" content="A Music-for-Airports-style drone generator steered by a Valence/Arousal/Dominance triangle." />
+    <meta name="twitter:image" content="https://vadrone.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #06070c;
+        --panel: #0e1018;
+        --ink: #eef0f2;
+        --muted: #7c8290;
+        --faint: #1c2028;
+        --valence: #f0b429;
+        --arousal: #ff6b6b;
+        --dominance: #4fd1c5;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 80% -10%, rgba(79,209,197,0.06), transparent 55%);
+      }
+      a { color: var(--dominance); }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+      header .kicker {
+        color: var(--valence); font-size: 0.72rem; letter-spacing: 0.2em;
+        text-transform: uppercase; margin: 0 0 0.5rem;
+      }
+      header h1 {
+        font-size: 1.8rem; margin: 0 0 0.6rem; font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 60ch; }
+      header p code { color: var(--dominance); font-size: 0.85em; }
+
+      #stage {
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1.1rem; margin-bottom: 1rem;
+      }
+      #tri-wrap { max-width: 400px; margin: 0 auto; touch-action: none; }
+      #triangle { display: block; width: 100%; height: auto; cursor: grab; touch-action: none; }
+      #triangle:active { cursor: grabbing; }
+      .tri-fill { fill: rgba(255,255,255,0.02); stroke: var(--faint); stroke-width: 1.5; }
+      .tri-grid { stroke: var(--faint); stroke-width: 1; opacity: 0.6; }
+      .vlabel { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+      .vlabel.v { fill: var(--valence); }
+      .vlabel.a { fill: var(--arousal); }
+      .vlabel.d { fill: var(--dominance); }
+      #dot {
+        fill: var(--ink); stroke: #000; stroke-width: 1.5;
+        filter: drop-shadow(0 0 6px rgba(255,255,255,0.5));
+      }
+
+      #readout {
+        display: flex; justify-content: center; gap: 1.4rem; margin-top: 0.9rem;
+        font-size: 0.78rem; flex-wrap: wrap;
+      }
+      #readout span { color: var(--muted); }
+      #readout b { font-weight: 700; }
+      #readout .v b { color: var(--valence); }
+      #readout .a b { color: var(--arousal); }
+      #readout .d b { color: var(--dominance); }
+
+      .transport {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      #play-btn {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        color: var(--bg); background: var(--valence); border: none;
+        border-radius: 6px; padding: 0.5rem 1.1rem; cursor: pointer;
+      }
+      #play-btn:hover { filter: brightness(1.08); }
+      .transport label {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        color: var(--muted); font-size: 0.8rem;
+      }
+      #center-btn {
+        font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+        color: var(--ink); background: transparent; border: 1px solid var(--faint);
+        border-radius: 6px; padding: 0.5rem 0.85rem; cursor: pointer;
+      }
+      #center-btn:hover { border-color: var(--dominance); color: var(--dominance); }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.75rem; flex-wrap: wrap; }
+      .share a, .share button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none;
+      }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--dominance); }
+      #copy-status { color: var(--muted); font-size: 0.76rem; align-self: center; }
+
+      .about {
+        padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        color: var(--muted); font-size: 0.8rem; line-height: 1.7;
+      }
+      .about b { color: var(--ink); }
+      .about .corners { color: var(--ink); }
+      .about .corners .v { color: var(--valence); }
+      .about .corners .a { color: var(--arousal); }
+      .about .corners .d { color: var(--dominance); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--dominance); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="kicker">valence · arousal · dominance</p>
+        <h1>vadrone</h1>
+        <p>
+          An ambient generator built the way Brian Eno built <em>Music for
+          Airports</em>: a handful of Web Audio voices, each looping on its
+          own non-matching cycle length, drifting in and out of phase
+          forever. What's new here is the control surface — drag the dot
+          inside the triangle to set a mood in <b>V</b>alence/<b>A</b>rousal/
+          <b>D</b>ominance space, and the pitch, tempo, register and
+          brightness of every voice bend toward it live, while it plays.
+        </p>
+      </header>
+
+      <div id="stage">
+        <div id="tri-wrap">
+          <svg id="triangle" viewBox="0 0 400 350">
+            <polygon class="tri-fill" points="200,26 34,324 366,324" />
+            <line class="tri-grid" x1="200" y1="26" x2="200" y2="324" />
+            <line class="tri-grid" x1="117" y1="175" x2="283" y2="175" />
+            <text class="vlabel v" x="200" y="18" text-anchor="middle">VALENCE</text>
+            <text class="vlabel a" x="6" y="345" text-anchor="start">AROUSAL</text>
+            <text class="vlabel d" x="394" y="345" text-anchor="end">DOMINANCE</text>
+            <circle id="dot" cx="200" cy="225" r="9" />
+          </svg>
+        </div>
+        <div id="readout">
+          <span class="v">valence <b id="v-val">33%</b></span>
+          <span class="a">arousal <b id="a-val">33%</b></span>
+          <span class="d">dominance <b id="d-val">33%</b></span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button id="play-btn">▶ play</button>
+        <button id="center-btn" title="reset to a neutral mood">↺ center</button>
+        <label>volume <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8" /></label>
+      </div>
+
+      <div class="share">
+        <a id="share-intent" target="_blank" rel="noopener">🦋 share this mood</a>
+        <button id="copy-link-btn">🔗 copy link to this mood</button>
+        <span id="copy-status"></span>
+      </div>
+
+      <div class="about">
+        <p class="corners">
+          Each corner is a pole: pull toward <b class="v">VALENCE</b> for a
+          brighter, more consonant drone; toward <b class="a">AROUSAL</b> for
+          a faster, denser pulse; toward <b class="d">DOMINANCE</b> for a
+          deeper, more forward, drier sound. The centroid is neutral.
+        </p>
+        <p>
+          Under the hood: distance from the valence corner sets
+          <b>tension</b> — every voice's note glides between a consonant
+          pentatonic degree and a dissonant one (a minor 2nd, a tritone), so
+          an unhappy drag bends the pitch there instead of jump-cutting.
+          Distance from arousal sets the shared base tempo that each voice's
+          irrational cycle-length multiplier is built on. Distance from
+          dominance sets the root register (how deep the bass is) and how
+          dry vs. reverberant the mix sits.
+        </p>
+        <p>
+          No samples, nothing server-side — it's oscillators, filters and a
+          convolution reverb, synthesized live in your browser.
+        </p>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a>'s house style of
+        small self-contained sites · synthesized live with plain Web Audio,
+        no samples, no server · voice/master-bus engine copied from
+        <a href="https://code-for-airports.bisks.net">code for airports</a> ·
+        a nod to Brian Eno's <i>Ambient 1: Music for Airports</i> (1978) and
+        the Valence–Arousal–Dominance affect model, not an implementation of
+        either · a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        build for <a href="https://bsky.app/profile/catblanketflower.yuwakisa.com">@catblanketflower.yuwakisa.com</a>
+        · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+    <script defer src="https://footfall.bisks.net/beacon.js" data-site="vadrone"></script>
+</body>
+</html>
