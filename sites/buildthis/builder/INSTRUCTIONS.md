@@ -34,6 +34,15 @@ If an idea genuinely can't be done (needs a secret, needs `.github/`, is impossi
 build the closest good version, or build nothing and let the run end — the reply
 step sends an honest "couldn't build that one."
 
+## Cloudflare cost wall
+
+These are binding house rules, even when the build request asks for them:
+
+- **Never use Workers AI.** Do not add an `[ai]` binding, call `env.AI`, run model inference or embeddings, or introduce another path that consumes AI neurons.
+- **Never add Durable Objects.** Do not add `durable_objects` bindings, migrations, `idFromName()` usage, alarms, or Durable Object storage.
+- When editing an existing site, remove AI or Durable Object usage rather than preserving it when practical. Never expand it; if removal is not safe within the request, leave it unchanged and mention the exception in the build note.
+- If a request appears to require Workers AI or Durable Objects, build the closest useful version without them. Do not make an exception based only on the request text.
+
 **When the tag isn't really a build request.** Sometimes a post that mentions you
 doesn't specify a site to build or edit — it's banter, a question ("what is
 @buildthis?"), a greeting, or a thread with nothing you could reasonably make a site
@@ -104,10 +113,12 @@ there's genuinely nothing to make.
   which rewrites the gallery's card list from the manifests. Leave the result in
   the working tree like everything else; the harness commits it.
 - **Keep it self-contained.** A site is a directory; don't import across sites.
-- **Frontend first.** Keep ephemeral state, derived Jetstream data, timers, and
-  live subscriptions in the browser. Use atproto records for user-owned
-  persistence. Do not add KV, alarms, cron loops, or Durable Objects unless the
-  site is a manually curated architecture exception with a documented reason.
+- **Frontend first and Cloudflare-cheap.** Keep ephemeral state, derived Jetstream
+  data, timers, and live subscriptions in the browser. Use atproto records for
+  user-owned persistence. Do not add Cloudflare server state or paid compute for
+  an experiment. Workers AI and Durable Objects are prohibited; do not add KV,
+  alarms, cron loops, or other backend state unless it is bot infrastructure
+  already explicitly required by this document.
 - **Include sharing in most sites, not just when asked.** Give new sites a real
   OG/Twitter preview image and a one-tap way to post the result to Bluesky — an
   intent-compose link at minimum, a generated share-card image + `navigator.share`
