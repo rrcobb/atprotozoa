@@ -42,9 +42,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect x="700" y="350" width="300" height="46" rx="12" fill="#f6f6f6" stroke="${FAINT}" stroke-width="1"/>
   <text x="722" y="378" font-family="JetBrains Mono" font-size="16" fill="${INK}">that's fair, respect.</text>
 
-  <line x1="700" y1="430" x2="1080" y2="430" stroke="${FAINT}" stroke-width="1"/>
-  <text x="700" y="460" font-family="JetBrains Mono" font-size="14" fill="${MUTED}">default · aliens · ferris · pepys · pulp</text>
-  <text x="700" y="482" font-family="JetBrains Mono" font-size="14" fill="${MUTED}">sherlock · startrek · starwars · lesswrong</text>
+  <line x1="700" y1="420" x2="1080" y2="420" stroke="${FAINT}" stroke-width="1"/>
+  <text x="700" y="448" font-family="JetBrains Mono" font-size="14" fill="${MUTED}">default · aliens · ferris · pepys</text>
+  <text x="700" y="470" font-family="JetBrains Mono" font-size="14" fill="${MUTED}">pulp · sherlock · startrek · starwars</text>
+  <text x="700" y="492" font-family="JetBrains Mono" font-size="14" fill="${MUTED}">lesswrong · wyldstallyns</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));
