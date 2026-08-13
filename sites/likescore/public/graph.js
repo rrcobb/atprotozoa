@@ -18,6 +18,12 @@ let nodes = []; // {id, handle, avatar, status, score, x, y, vx, vy, fixed} — 
 let edges = []; // {from, to, weight, reciprocal} — filtered set
 let byId = new Map();
 let view = { scale: 1, ox: 0, oy: 0 };
+// 15% used to be the floor here, which clipped "fit view" (and the minus
+// button) on any graph spread out enough to need a smaller scale to fit the
+// canvas. Zoom is capped by node/canvas geometry anyway, so let it go much
+// lower — down to 1% — and cap zoom-in at the old 4x.
+const MIN_SCALE = 0.01;
+const MAX_SCALE = 4;
 let dragging = null; // node being dragged
 let panPointer = null; // {id, lastX, lastY}
 let selected = null;
@@ -106,7 +112,7 @@ function fitView() {
   const pad = 60;
   const w = Math.max(1, bounds.maxX - bounds.minX);
   const h = Math.max(1, bounds.maxY - bounds.minY);
-  const scale = clamp(Math.min((rect.width - pad * 2) / w, (rect.height - pad * 2) / h), 0.15, 4);
+  const scale = clamp(Math.min((rect.width - pad * 2) / w, (rect.height - pad * 2) / h), MIN_SCALE, MAX_SCALE);
   view = {
     scale,
     ox: -(bounds.minX + bounds.maxX) / 2,
@@ -453,7 +459,7 @@ canvas.addEventListener("pointermove", (e) => {
   if (pinch && pointers.size === 2) {
     const pts = [...pointers.values()];
     const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    view.scale = clamp(pinch.startScale * (dist / pinch.startDist), 0.15, 4);
+    view.scale = clamp(pinch.startScale * (dist / pinch.startDist), MIN_SCALE, MAX_SCALE);
     draw();
     return;
   }
@@ -516,7 +522,7 @@ canvas.addEventListener(
   (e) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    view.scale = clamp(view.scale * factor, 0.15, 4);
+    view.scale = clamp(view.scale * factor, MIN_SCALE, MAX_SCALE);
     draw();
   },
   { passive: false }
@@ -527,11 +533,11 @@ function clamp(v, lo, hi) {
 }
 
 document.getElementById("zoom-in").addEventListener("click", () => {
-  view.scale = clamp(view.scale * 1.2, 0.15, 4);
+  view.scale = clamp(view.scale * 1.2, MIN_SCALE, MAX_SCALE);
   draw();
 });
 document.getElementById("zoom-out").addEventListener("click", () => {
-  view.scale = clamp(view.scale / 1.2, 0.15, 4);
+  view.scale = clamp(view.scale / 1.2, MIN_SCALE, MAX_SCALE);
   draw();
 });
 document.getElementById("reset-view").addEventListener("click", () => {
