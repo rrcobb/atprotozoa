@@ -2,11 +2,11 @@
 //
 // Static physics toy: a ragdoll wearing @mfzx.net's real avatar as its head,
 // standing on a weighted base, that wobbles, dances, and cries out one of
-// their real posts every time you land a hit. Went generic for a while
-// after @mfzx.net said they weren't sure how they felt about it and a
-// third party's claim of consent on their behalf wasn't good enough to
+// her real posts every time you land a hit. Went generic for a while
+// after @mfzx.net said she wasn't sure how she felt about it and a
+// third party's claim of consent on her behalf wasn't good enough to
 // bring it back — but @mfzx.net has since tagged the bot directly, more
-// than once, stating their own enthusiastic consent, so the real avatar
+// than once, stating her own enthusiastic consent, so the real avatar
 // and posts are back. All the game logic and the AppView fetches (avatar +
 // recent posts) happen client-side in public/game.js — this Worker's only
 // job is the personalized share unfurl at /s/<hits>, same trick as
@@ -30,7 +30,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "beat up buddy — @mfzx.net is standing there and it's your fault";
 const GENERIC_DESC =
-  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, swing, watch them wobble and cry out their own posts.";
+  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, swing, watch her wobble and cry out her own posts.";
 const GENERIC_OG_URL = "https://beatupbuddy.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHits: string): Promise<Response> {
@@ -41,7 +41,7 @@ async function renderShare(env: Env, request: Request, rawHits: string): Promise
   if (!hits) return new Response(html, { headers: base.headers });
 
   const title = `beat up buddy: @mfzx.net took ${hits} hit${hits === 1 ? "" : "s"} today`;
-  const desc = `I hit @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} and they cried out their own posts every time. your turn.`;
+  const desc = `I hit @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} and she cried out her own posts every time. your turn.`;
   const ogUrl = `https://beatupbuddy.bisks.net/s/${hits}`;
 
   html = html

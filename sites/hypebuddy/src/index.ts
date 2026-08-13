@@ -3,7 +3,7 @@
 // Static physics toy: a ragdoll wearing @mfzx.net's real avatar as its head,
 // standing on a weighted base, that wobbles, dances, and lights up with
 // confetti every time you land a hit. Was originally a "beat up a buddy"
-// game living at beatupbuddy.bisks.net; @mfzx.net said they weren't thrilled
+// game living at beatupbuddy.bisks.net; @mfzx.net said she wasn't thrilled
 // once it was built, so @bisks.net asked for a turn toward something
 // positive — same ragdoll toy, but tools are now celebratory and a "hype"
 // meter climbs instead of an hp bar draining. Later split out to its own
@@ -31,7 +31,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "hype up buddy — @mfzx.net is standing there and today's a good day";
 const GENERIC_DESC =
-  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, shower them in confetti and love, watch them light up and dance.";
+  "a physics ragdoll wearing @mfzx.net's real face. pick a tool, shower her in confetti and love, watch her light up and dance.";
 const GENERIC_OG_URL = "https://hypebuddy.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHits: string): Promise<Response> {
@@ -42,7 +42,7 @@ async function renderShare(env: Env, request: Request, rawHits: string): Promise
   if (!hits) return new Response(html, { headers: base.headers });
 
   const title = `hype up buddy: @mfzx.net got ${hits} cheer${hits === 1 ? "" : "s"} today`;
-  const desc = `I cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} and gave them a great day. your turn.`;
+  const desc = `I cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} and gave her a great day. your turn.`;
   const ogUrl = `https://hypebuddy.bisks.net/s/${hits}`;
 
   html = html

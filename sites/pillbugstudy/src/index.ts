@@ -1,8 +1,8 @@
 // pillbugstudy Worker — pillbugstudy.bisks.net
 //
 // Static ambient toy: a keyhole-shaped window onto @isolyth.dev's study,
-// where they've been turned into a giant pillbug hunched over their desk,
-// crying about their sins — their own real posts, fetched from the AppView
+// where she's been turned into a giant pillbug hunched over her desk,
+// crying about her sins — her own real posts, fetched from the AppView
 // and read out one at a time. All of that (the AppView fetch, the keyhole
 // mask, the crying loop) happens client-side in public/scene.js — this
 // Worker's only job is the personalized share unfurl at /s/<n>, same trick
@@ -26,7 +26,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "the keyhole into @isolyth.dev's study";
 const GENERIC_DESC =
-  "peek through the keyhole: @isolyth.dev is a giant pillbug hunched over their desk, crying about their sins — their own real posts, one at a time.";
+  "peek through the keyhole: @isolyth.dev is a giant pillbug hunched over her desk, crying about her sins — her own real posts, one at a time.";
 const GENERIC_OG_URL = "https://pillbugstudy.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawN: string): Promise<Response> {
@@ -37,7 +37,7 @@ async function renderShare(env: Env, request: Request, rawN: string): Promise<Re
   if (!n) return new Response(html, { headers: base.headers });
 
   const title = `@isolyth.dev has confessed ${n} sin${n === 1 ? "" : "s"} today`;
-  const desc = `I watched through the keyhole while @isolyth.dev, now a giant pillbug, cried out ${n} of their own posts. come watch too.`;
+  const desc = `I watched through the keyhole while @isolyth.dev, now a giant pillbug, cried out ${n} of her own posts. come watch too.`;
   const ogUrl = `https://pillbugstudy.bisks.net/s/${n}`;
 
   html = html

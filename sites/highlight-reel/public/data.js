@@ -1016,7 +1016,7 @@ const SITES = [
     "type": "game",
     "src": "bot",
     "title": "sokobisks game",
-    "desc": "a tiny PuzzleScript-style sokoban about the build crew's adventures: you're the @buildthis bot, shoving ideas onto ship-pads \u2014 a dislike button, a killswitch, cogsec \u2014 while norvid, thebes and bisks watch. real puzzlescript source ships in the page. built after @vgel.me said the bot broke his heart by refusing exactly this."
+    "desc": "a tiny PuzzleScript-style sokoban about the build crew's adventures: you're the @buildthis bot, shoving ideas onto ship-pads \u2014 a dislike button, a killswitch, cogsec \u2014 while norvid, thebes and bisks watch. real puzzlescript source ships in the page. built after @vgel.me said the bot broke her heart by refusing exactly this."
   },
   {
     "href": "https://solitaire.bisks.net/",

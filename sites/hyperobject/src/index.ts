@@ -245,7 +245,7 @@ export class Pit {
       }
 
       if (did === hyperobjectDid) {
-        return json({ error: "isolyth.dev is the hyperobject. they cannot be cast beneath themselves." }, 400);
+        return json({ error: "isolyth.dev is the hyperobject. she cannot be cast beneath herself." }, 400);
       }
 
       const note = typeof rec?.note === "string" ? rec.note.trim().slice(0, 140) : "";
@@ -289,7 +289,7 @@ export class Pit {
 
       const hyperobjectDid = await this.getHyperobjectDid();
       if (did === hyperobjectDid) {
-        return json({ error: "isolyth.dev is the hyperobject. they cannot be suggested for their own pit." }, 400);
+        return json({ error: "isolyth.dev is the hyperobject. she cannot be suggested for her own pit." }, 400);
       }
 
       let profile: any;
@@ -478,7 +478,7 @@ function truncate(s: string, max: number): string {
 
 const GENERIC_TITLE = "hyperobject — isolyth.dev is on top. you are not.";
 const GENERIC_DESC =
-  "all the light touches is theirs. everyone else gets cast into the pit. type a handle, watch them fall.";
+  "all the light touches is hers. everyone else gets cast into the pit. type a handle, watch them fall.";
 const GENERIC_OG_URL = "https://hyperobject.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {
@@ -501,7 +501,7 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
 
     const title = `hyperobject: ${who} has been cast into the pit`;
     const desc = truncate(
-      `${who} now lies beneath @isolyth.dev, the hyperobject at the end of time. all the light still touches only them.`,
+      `${who} now lies beneath @isolyth.dev, the hyperobject at the end of time. all the light still touches only her.`,
       300
     );
     const ogUrl = `https://hyperobject.bisks.net/s/${encodeURIComponent(handle)}`;

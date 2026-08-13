@@ -1,19 +1,19 @@
 // beat up buddy — ragdoll physics toy.
 //
-// Went generic for a stretch after @mfzx.net said they weren't sure how
-// they felt about being the buddy, and a friend's claim of consent on
-// their behalf (correctly) wasn't treated as good enough to undo that.
+// Went generic for a stretch after @mfzx.net said she wasn't sure how
+// she felt about being the buddy, and a friend's claim of consent on
+// her behalf (correctly) wasn't treated as good enough to undo that.
 // @mfzx.net has since tagged the bot directly, more than once, stating
-// their own enthusiastic consent — so their real avatar is back as the
+// her own enthusiastic consent — so her real avatar is back as the
 // ragdoll's head (fetched client-side straight from the public AppView,
 // same as sites/skyclone / didscope — no server round trip needed for
 // read-only app.bsky.* calls) and every hit pops a speech bubble quoting
-// one of their real recent posts, pulled from getAuthorFeed. Physics is
+// one of her real recent posts, pulled from getAuthorFeed. Physics is
 // Matter.js (CDN, physics-only — rendering is a hand-rolled canvas loop
 // below so the head can be a clipped avatar image instead of a sprite
 // texture). The ragdoll's whole "canvas dummy" material is a deliberately
 // neutral tan/stitched color, not a skin tone — only the head is really
-// them, the body is a punching-bag prop.
+// her, the body is a punching-bag prop.
 (function () {
   "use strict";
 
@@ -23,7 +23,7 @@
   const ENOUGH_HITS = 5; // eris' law of fives: five is always enough
 
   // ---- O2 safety-stop ------------------------------------------------------
-  // @mfzx.net asked for this themselves (on-record, same thread, after the
+  // @mfzx.net asked for this herself (on-record, same thread, after the
   // original ask came from someone else and got skipped for exactly that
   // reason). Rope hits to the head read as choking and drain O2; O2 recovers
   // on its own if you stop. Crossing the floor isn't a game-over screen —
@@ -773,7 +773,7 @@
 
   function buildShareText(hits, seconds) {
     return (
-      `I beat up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and they cried out their own posts every single hit.\n\n` +
+      `I beat up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and she cried out her own posts every single hit.\n\n` +
       `your turn → ${shareUrlFor(hits)}`
     );
   }

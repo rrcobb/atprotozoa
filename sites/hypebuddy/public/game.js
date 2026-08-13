@@ -2,12 +2,12 @@
 //
 // Formerly "beat up buddy" living at beatupbuddy.bisks.net: @isolyth.dev
 // asked for a beat-up-a-buddy game with @mfzx.net's real face on it, we
-// built it, and once it was live @mfzx.net said they weren't sure how they
+// built it, and once it was live @mfzx.net said she wasn't sure how she
 // felt about it — @bisks.net then asked us to turn it into something more
-// positive. So: no more damage, no more pain cries quoting their real
+// positive. So: no more damage, no more pain cries quoting her real
 // posts, no more choke mechanic. Same ragdoll physics toy, but every tool
 // now showers buddy in confetti and love, a "hype" meter climbs instead of
-// hp draining, and the reaction bubbles are canned warm lines — not their
+// hp draining, and the reaction bubbles are canned warm lines — not her
 // own words repurposed as suffering. Later split out to its own hostname
 // (this site) once beatupbuddy.bisks.net went back to being a beat-up game.
 //
@@ -17,7 +17,7 @@
 // Matter.js (CDN, physics-only — rendering is a hand-rolled canvas loop
 // below so the head can be a clipped avatar image instead of a sprite
 // texture). The ragdoll's body is a neutral tan/stitched dummy, not a skin
-// tone — only the head is really them.
+// tone — only the head is really her.
 (function () {
   "use strict";
 
@@ -748,14 +748,14 @@
 
   function buildShareText(hits, seconds) {
     return (
-      `I hyped up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and gave them the best day.\n\n` +
+      `I hyped up @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} in ${seconds}s and gave her the best day.\n\n` +
       `your turn → ${shareUrlFor(hits)}`
     );
   }
 
   function buildProgressShareText(hits) {
     return (
-      `I've cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far and they're having a great time.\n\n` +
+      `I've cheered on @mfzx.net's ragdoll ${hits} time${hits === 1 ? "" : "s"} so far and she's having a great time.\n\n` +
       `pick up a tool → ${shareUrlFor(hits)}`
     );
   }

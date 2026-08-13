@@ -101,7 +101,7 @@ export class Podium {
 
       const silverDid = await this.getSilverDid();
       if (did === silverDid) {
-        return json({ error: "mfzx.net doesn't need to climb. they're already locked into 2nd, forever." }, 400);
+        return json({ error: "mfzx.net doesn't need to climb. she's already locked into 2nd, forever." }, 400);
       }
 
       let profile: any;
