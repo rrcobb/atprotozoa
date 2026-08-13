@@ -16,8 +16,21 @@ const els = {
   stats: document.getElementById("stats-row"),
   board: document.getElementById("leaderboard-body"),
   mathBody: document.getElementById("math-body"),
+  mathDetails: document.getElementById("math-details"),
+  mathNavLink: document.getElementById("math-nav-link"),
   share: document.getElementById("share-link"),
 };
+
+// "show the math" in the nav is a same-page anchor to a <details> panel —
+// the browser scrolls to it, but a same-page anchor click doesn't open a
+// closed <details>, so clicking landed on a collapsed panel that looked
+// broken. Open it explicitly, both on click and if the page loads with
+// #math already in the URL (e.g. a shared link).
+function openMathPanel() {
+  if (els.mathDetails) els.mathDetails.open = true;
+}
+els.mathNavLink?.addEventListener("click", openMathPanel);
+if (location.hash === "#math") openMathPanel();
 
 function logStep(text, kind = "") {
   els.log.hidden = false;
