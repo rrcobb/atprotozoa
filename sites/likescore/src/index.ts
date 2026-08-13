@@ -3,7 +3,7 @@
 // engine.ts); everything else is static ASSETS. The DO class must be
 // exported from the module wrangler.toml points `main` at, so it's
 // re-exported here.
-import { LikeScoreEngine, type Env } from "./engine";
+import { LikeScoreEngine, type Env } from "./engine.ts";
 
 export { LikeScoreEngine };
 export type { Env };

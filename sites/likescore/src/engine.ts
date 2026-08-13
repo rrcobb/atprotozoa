@@ -36,7 +36,7 @@ import {
   isValidSubject,
   toPrestigeIndex,
   type RawEdge,
-} from "./formulas";
+} from "./formulas.ts";
 import {
   AppViewError,
   boundedMap,
@@ -44,7 +44,7 @@ import {
   getProfile,
   getRecentPosts,
   resolveHandle,
-} from "./bsky";
+} from "./bsky.ts";
 
 // ---- minimal Workers/DO type shims (no @cloudflare/workers-types dep in this repo) --
 interface SqlStorageCursor<T> {
@@ -487,7 +487,7 @@ export class LikeScoreEngine {
 
     let profile;
     try {
-      profile = await getProfile(did);
+      profile = await getProfile(did, isValidDid(subject) ? undefined : subject);
     } catch (err) {
       await send("error", {
         message: `couldn't load profile: ${

@@ -3,17 +3,17 @@
 // what keeps likescore's storage to "public records and aggregates" (see
 // notes/00-vision.md's atproto building-blocks section) rather than an
 // archive of anything.
-import { CONSTANTS, isValidCursor } from "./formulas";
+import { CONSTANTS, isValidCursor } from "./formulas.ts";
 
 const APPVIEW = "https://public.api.bsky.app";
 
 export class AppViewError extends Error {
-  constructor(
-    message: string,
-    public status?: number,
-    public retryable = false
-  ) {
+  status?: number;
+  retryable: boolean;
+  constructor(message: string, status?: number, retryable = false) {
     super(message);
+    this.status = status;
+    this.retryable = retryable;
   }
 }
 
@@ -94,7 +94,16 @@ export interface Profile {
   avatar?: string;
   deactivated: boolean;
 }
-export async function getProfile(actor: string): Promise<Profile> {
+// fallbackHandle: when the caller already resolved a handle to `actor`
+// (a DID) before calling this, pass the handle here so a deactivated-account
+// fallback can still record the real handle instead of the DID — the
+// AppView won't hand back a handle for a deactivated actor, so without this
+// the account row's handle would permanently be its own DID (breaks
+// handle-based lookup and shows the DID everywhere a handle should).
+export async function getProfile(
+  actor: string,
+  fallbackHandle?: string
+): Promise<Profile> {
   try {
     const data = await fetchRetried(
       `${APPVIEW}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(
@@ -113,7 +122,7 @@ export async function getProfile(actor: string): Promise<Profile> {
       err instanceof AppViewError &&
       /deactivat/i.test(err.message)
     ) {
-      return { did: actor, handle: actor, deactivated: true };
+      return { did: actor, handle: fallbackHandle || actor, deactivated: true };
     }
     throw err;
   }
