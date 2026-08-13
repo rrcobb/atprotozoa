@@ -10,9 +10,12 @@ const emptyEl = document.getElementById("empty");
 const loadingEl = document.getElementById("loading");
 const searchEl = document.getElementById("search");
 const tabsEl = document.getElementById("tabs");
+const rangeEl = document.getElementById("range");
+const worstFirstEl = document.getElementById("worstFirst");
 
 let view = "sites-visits";
 let query = "";
+let worstFirst = false;
 let siteRows = [];   // from /api/leaderboard, keyed by site
 let manifests = [];  // from data/manifests.json: {name, url, title, by, type}
 let manifestBySite = new Map();
@@ -77,11 +80,12 @@ function prompterRows() {
 
 function currentRows() {
   const q = query.trim().toLowerCase();
+  const dir = worstFirst ? -1 : 1; // flips b-a (descending/best-first) into a-b (ascending/worst-first)
 
   if (view.startsWith("prompters-")) {
     let rows = prompterRows().filter((r) => r.visits > 0 || r.dwellMs > 0);
     if (q) rows = rows.filter((r) => r.by.toLowerCase().includes(q));
-    rows.sort((a, b) => (view === "prompters-time" ? b.dwellMs - a.dwellMs : b.visits - a.visits));
+    rows.sort((a, b) => dir * ((view === "prompters-time" ? b.dwellMs - a.dwellMs : b.visits - a.visits)));
     return { kind: "prompters", rows };
   }
 
@@ -91,9 +95,9 @@ function currentRows() {
       (r) => r.site.toLowerCase().includes(q) || (r.by || "").toLowerCase().includes(q) || (r.title || "").toLowerCase().includes(q),
     );
   }
-  if (view === "sites-time") rows = [...rows].sort((a, b) => b.dwellMs - a.dwellMs);
-  else if (view === "sites-avg") rows = [...rows].filter((r) => r.dwellSamples > 0).sort((a, b) => b.avgDwellMs - a.avgDwellMs);
-  else rows = [...rows].sort((a, b) => b.visits - a.visits);
+  if (view === "sites-time") rows = [...rows].sort((a, b) => dir * (b.dwellMs - a.dwellMs));
+  else if (view === "sites-avg") rows = [...rows].filter((r) => r.dwellSamples > 0).sort((a, b) => dir * (b.avgDwellMs - a.avgDwellMs));
+  else rows = [...rows].sort((a, b) => dir * (b.visits - a.visits));
   return { kind: "sites", rows };
 }
 
@@ -150,6 +154,19 @@ tabsEl.addEventListener("click", (e) => {
 searchEl.addEventListener("input", () => {
   query = searchEl.value;
   render();
+});
+
+worstFirstEl.addEventListener("change", () => {
+  worstFirst = worstFirstEl.checked;
+  render();
+});
+
+// Only "all-time" is a real option — every other value is disabled in the
+// markup because the board never stored per-visit timestamps, just a running
+// total per site. Nothing to wire up here; this listener exists so a future
+// per-period data source has a single place to plug in.
+rangeEl.addEventListener("change", () => {
+  rangeEl.value = "all";
 });
 
 loadData();
