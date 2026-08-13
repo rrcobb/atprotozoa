@@ -9,9 +9,12 @@ const tooltip = document.getElementById("tooltip");
 const heading = document.getElementById("graph-heading");
 const wholeLink = document.getElementById("whole-network-link");
 const edgeTableBody = document.getElementById("edge-table-body");
+const mutualsCheckbox = document.getElementById("mutuals-only");
 
-let nodes = []; // {id, handle, avatar, status, score, x, y, vx, vy, fixed}
-let edges = []; // {from, to, weight, reciprocal}
+let rawNodes = []; // full data from the API, before the mutuals-only filter
+let rawEdges = [];
+let nodes = []; // {id, handle, avatar, status, score, x, y, vx, vy, fixed} — filtered, laid-out set
+let edges = []; // {from, to, weight, reciprocal} — filtered set
 let byId = new Map();
 let view = { scale: 1, ox: 0, oy: 0 };
 let dragging = null; // node being dragged
@@ -28,7 +31,20 @@ function resizeCanvas() {
   canvas.height = Math.max(1, Math.round(rect.height * dpr));
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-window.addEventListener("resize", resizeCanvas);
+// Resizing a <canvas> clears its pixels. Mobile browsers fire "resize" as the
+// address bar collapses/expands mid-scroll (the canvas is sized in vh), which
+// was wiping the graph to blank until the next interaction. Redraw right after
+// every resize so the graph survives scrolling instead of vanishing.
+let resizeRaf = null;
+function scheduleResize() {
+  if (resizeRaf) return;
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = null;
+    resizeCanvas();
+    draw();
+  });
+}
+window.addEventListener("resize", scheduleResize);
 
 function scoreRadius(score) {
   return 5 + Math.sqrt(Math.max(score, 1)) * 1.7;
@@ -111,22 +127,59 @@ async function load() {
     heading.textContent = `couldn't load graph: ${err.message}`;
     return;
   }
-  nodes = data.nodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, fixed: false }));
+  rawNodes = data.nodes;
+  rawEdges = data.edges;
+  applyFilter(true);
+}
+
+// ---- mutuals-only filter: rebuilds the laid-out `nodes`/`edges` from the
+// raw API data. "mutuals only" keeps just reciprocal-liked pairs (and drops
+// anyone left with no mutual edge), so the graph reads as who actually likes
+// each other back rather than every one-way like too.
+function applyFilter(autoFit) {
+  const didSet = new Set(rawNodes.map((n) => n.did));
+  const validEdges = rawEdges.filter((e) => didSet.has(e.from) && didSet.has(e.to));
+  let filteredNodes;
+  let filteredEdges;
+  if (mutualsCheckbox.checked) {
+    filteredEdges = validEdges.filter((e) => e.reciprocal);
+    const keep = new Set();
+    for (const e of filteredEdges) {
+      keep.add(e.from);
+      keep.add(e.to);
+    }
+    if (focusSubject) keep.add(focusSubject); // keep the focused account even if it has no mutual
+    filteredNodes = rawNodes.filter((n) => keep.has(n.did));
+  } else {
+    filteredEdges = validEdges;
+    filteredNodes = rawNodes;
+  }
+
+  nodes = filteredNodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, fixed: false }));
   scatterCircular(nodes);
   byId = new Map(nodes.map((n) => [n.did, n]));
-  edges = data.edges.filter((e) => byId.has(e.from) && byId.has(e.to));
+  edges = filteredEdges;
+  selected = null;
+  hovered = null;
+  hideTooltip();
 
   renderEdgeTable();
   if (!nodes.length) {
+    draw();
     return;
   }
   resizeCanvas();
-  runSimulation(true);
+  runSimulation(autoFit);
 }
+mutualsCheckbox.addEventListener("change", () => applyFilter(true));
 
 function renderEdgeTable() {
   if (!edges.length) {
-    edgeTableBody.innerHTML = `<tr><td colspan="4" class="empty">no edges in this graph yet.</td></tr>`;
+    const msg =
+      mutualsCheckbox.checked && rawEdges.length
+        ? `no reciprocal (mutual) likes in this graph — untick "mutuals only" to see one-way likes too.`
+        : "no edges in this graph yet.";
+    edgeTableBody.innerHTML = `<tr><td colspan="4" class="empty">${msg}</td></tr>`;
     return;
   }
   edgeTableBody.innerHTML = edges
