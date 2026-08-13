@@ -46,6 +46,7 @@ interface Env {
 
 const PDS = "https://bsky.social";
 const APPVIEW = "https://public.api.bsky.app";
+const DAILY_TICK_CRON = "0 5 * * *";
 
 // --- Theme box ---------------------------------------------------------
 //
@@ -194,10 +195,15 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  // Cron entrypoint. The only active trigger is the mention watcher.
+  // Cron entrypoint. The mention watcher handles tags; the daily slot adds one
+  // optional, queue-backed autonomous job without using Workers AI.
   // Wrapped so a thrown error is logged, not swallowed — a failed tick should
   // be visible in `wrangler tail`, and the next tick retries.
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === DAILY_TICK_CRON) {
+      ctx.waitUntil(runDailyTick(env));
+      return;
+    }
     ctx.waitUntil(runWatcher(env));
     // Piggybacks on the same 2-min cron rather than adding a second trigger;
     // maybeRefreshDirectory no-ops unless the cached snapshot is >24h old.
@@ -206,6 +212,45 @@ export default {
     ctx.waitUntil(recordUptimeSample(env));
   },
 };
+
+// Once per day, put one broad creative-maintenance brief through the same queue
+// as a real tag. Sonnet can choose to build, edit, prank, improve, or do nothing;
+// the point is the cadence, not an artificially narrow task. The announcement
+// gives the build a real atproto URI, so the existing outcome/reply machinery and
+// provenance remain unchanged.
+async function runDailyTick(env: Env): Promise<void> {
+  try {
+    const session = await login(env);
+    const post = await createPost(
+      session,
+      "☀️ daily slot: taking one quiet pass through the garden — no promises, just seeing what wants to happen.",
+    );
+    const brief = `This is the daily autonomous slot for atprotozoa. Take a broad, playful pass through the repository and decide what would be fun or worthwhile to do today. You can build a new small site, improve or combine existing sites, make a harmless prank-like edit, develop a theme idea, update an explanation, or do several related things in one coherent pass. Use your judgment and the repository's existing history; do not force work just to say something happened. If there is nothing compelling, leave the repo unchanged and explain that briefly in BUILD_NOTE.
+
+This is not a user request and does not need to be interpreted narrowly. You have the same normal build permissions and house rules as a tagged job. Keep the result small enough for one Sonnet run, but you may touch multiple related files or sites when that makes sense. Do not modify .github or read secrets.`;
+    const payload: BuildPayload = {
+      brief,
+      authorHandle: "daily-slot",
+      mentionUri: post.uri,
+      replyRootUri: post.uri,
+      replyRootCid: post.cid,
+      replyParentUri: post.uri,
+      replyParentCid: post.cid,
+    };
+    await recordEvent(env, post.uri, {
+      mentionUri: post.uri,
+      authorHandle: "daily-slot",
+      text: "daily autonomous slot",
+      isReply: false,
+      mutual: true,
+    });
+    if (!(await enqueueJob(env, payload))) {
+      console.error("daily tick: failed to enqueue job");
+    }
+  } catch (err) {
+    console.error(`daily tick failed: ${err}`);
+  }
+}
 
 async function runWatcher(env: Env): Promise<void> {
   const session = await login(env);
