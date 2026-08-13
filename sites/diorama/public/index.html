@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>diorama — tell it what to stage</title>
+<meta name="description" content="a little shoebox theater: describe a web page, it builds a one-off paper-craft scene for it on the spot and hands you a link to the finished set." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="diorama — tell it what to stage" />
+<meta property="og:description" content="a little shoebox theater: describe a web page, it builds a one-off paper-craft scene for it on the spot and hands you a link to the finished set." />
+<meta property="og:url" content="https://diorama.bisks.net/" />
+<meta property="og:image" content="https://diorama.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="diorama: a paper-craft shoebox scene assembling itself from a typed prompt." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="diorama — tell it what to stage" />
+<meta name="twitter:description" content="a little shoebox theater: describe a web page, it builds a one-off paper-craft scene for it on the spot and hands you a link to the finished set." />
+<meta name="twitter:image" content="https://diorama.bisks.net/og.png" />
+<style>
+  :root{
+    --bg:#1b120c; --panel:#241a12; --line:#3a2a1c;
+    --fg:#f3e9da; --muted:#b89b7a; --accent:#e8b34c; --accent2:#e8b34c;
+    --danger:#ff6f5e;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding:28px 16px 60px;
+  }
+  header{ width:100%; max-width:820px; margin-bottom:18px; }
+  h1{ font-size:clamp(28px,5vw,40px); margin:0 0 6px; color:var(--accent); letter-spacing:-0.5px; }
+  .tagline{ color:var(--muted); font-size:14px; line-height:1.55; max-width:640px; }
+  .tagline b{ color:var(--fg); }
+
+  main{ width:100%; max-width:820px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+
+  /* --- compose box: styled like a Bluesky mention --- */
+  .compose{ display:flex; gap:12px; align-items:flex-start; }
+  .avatar{
+    flex:none; width:40px; height:40px; border-radius:50%;
+    background:linear-gradient(135deg,var(--accent),#c96f3e);
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+  }
+  .compose-body{ flex:1; min-width:0; }
+  .handle{ font-size:13px; color:var(--muted); margin-bottom:6px; }
+  .handle b{ color:var(--fg); }
+  textarea{
+    width:100%; min-height:64px; resize:vertical;
+    background:#150e08; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; font-family:inherit; font-size:14px; line-height:1.5;
+  }
+  textarea:focus{ outline:none; border-color:var(--accent); }
+  .compose-row{ display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:10px; flex-wrap:wrap; }
+  .hint{ font-size:11px; color:var(--muted); }
+
+  button{
+    font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;
+    border-radius:7px; border:1px solid var(--line); padding:9px 16px;
+    background:#2c2015; color:var(--fg); transition:transform 0.06s ease;
+  }
+  button:hover{ border-color:var(--accent); }
+  button:active{ transform:scale(0.97); }
+  button.primary{ background:var(--accent); color:#241605; border-color:var(--accent); }
+  button.primary:hover{ filter:brightness(1.1); }
+  button:disabled{ opacity:0.5; cursor:default; }
+
+  /* --- diorama box --- */
+  #box-wrap{ position:relative; }
+  #box{
+    border:10px solid #3a2a1c; border-image: linear-gradient(135deg,#4a3625,#2b1d12) 1;
+    border-radius:6px; padding:0; position:relative; overflow:hidden;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.5);
+  }
+  .lineage{ font-size:11px; color:var(--muted); margin-bottom:10px; }
+  .lineage a{ color:var(--accent); text-decoration:none; }
+  .lineage a:hover{ text-decoration:underline; }
+
+  #stage{
+    position:relative; width:100%; aspect-ratio:16/9; overflow:hidden;
+  }
+  #stage-sky{ position:absolute; inset:0 0 42% 0; transition:background 0.4s ease; }
+  #stage-ground{ position:absolute; left:0; right:0; bottom:0; height:42%; background:linear-gradient(#5a4530,#3a2a1c); }
+  #stage-ground::before{ content:""; position:absolute; top:0; left:0; right:0; height:2px; background:rgba(255,255,255,0.15); }
+  .prop{
+    position:absolute; font-size:28px; transform-origin:center bottom;
+    animation:propBob 3.4s ease-in-out infinite; filter:drop-shadow(0 3px 3px rgba(0,0,0,0.4));
+  }
+  @keyframes propBob{
+    0%,100%{ transform:translateY(0) rotate(var(--rot,0deg)); }
+    50%{ transform:translateY(-4px) rotate(var(--rot,0deg)); }
+  }
+  .stage-caption{
+    position:absolute; left:10px; bottom:8px; font-size:11px; color:#f3e9da;
+    background:rgba(0,0,0,0.45); border-radius:5px; padding:4px 8px;
+  }
+
+  .sheet-body{ padding:16px 18px; }
+  .sheet-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; border-bottom:1px dashed var(--line); padding-bottom:12px; margin-bottom:14px; }
+  .box-no{ font-size:11px; color:var(--muted); letter-spacing:0.06em; }
+  .box-no b{ color:var(--accent); }
+  .sheet-title{ font-size:22px; font-weight:800; margin:4px 0 0; color:var(--fg); }
+  .rev{ font-size:11px; color:var(--muted); text-align:right; }
+
+  .request{ font-size:13px; color:var(--muted); margin-bottom:16px; line-height:1.5; }
+  .request b{ color:var(--fg); font-weight:700; }
+  .request q{ color:var(--fg); }
+
+  .section-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); margin:0 0 8px; }
+  .notes{ margin:0 0 16px; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px; }
+  .notes li{ font-size:13px; color:var(--fg); line-height:1.5; padding-left:16px; position:relative; }
+  .notes li::before{ content:"—"; position:absolute; left:0; color:var(--muted); }
+
+  .cast{ margin:0 0 16px; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
+  .cast li{ font-size:13px; color:var(--muted); }
+  .cast li b{ color:var(--fg); font-weight:700; }
+
+  .parts{ margin:0; padding:0; list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:6px 18px; }
+  .parts li{ font-size:12.5px; color:var(--muted); }
+
+  [data-fade]{ opacity:0; animation:sheetFadeIn 0.5s ease forwards; }
+  @keyframes sheetFadeIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:translateY(0); } }
+
+  .actions{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:6px; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#241605; background:var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ filter:brightness(1.1); }
+
+  footer{ margin-top:28px; font-size:11px; color:var(--muted); text-align:center; max-width:620px; line-height:1.6; }
+  footer a{ color:var(--accent); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>diorama</h1>
+  <p class="tagline">
+    a little <b>shoebox theater</b>: tell it what to stage, the same shape
+    as tagging a build bot on Bluesky, and it builds a one-off paper-craft
+    scene on the spot — a backdrop, a cast, a props list — and hands back a
+    real link to the finished set. every scene can <b>spawn a sequel</b>: a
+    mutated staging of itself, built the same way. sets building sets,
+    von Neumann style.
+  </p>
+</header>
+
+<main>
+  <div class="panel compose">
+    <div class="avatar">🎬</div>
+    <div class="compose-body">
+      <div class="handle"><b>@you</b> mentioned <b>@diorama.bisks.net</b></div>
+      <textarea id="prompt-input" placeholder="stage me a lighthouse that texts you when it's foggy" maxlength="220"></textarea>
+      <div class="compose-row">
+        <span class="hint">describe a neat little page. that's the whole brief.</span>
+        <button class="primary" id="btn-build">stage it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="box-wrap">
+    <div class="lineage" id="lineage" style="display:none;"></div>
+    <div id="box">
+      <div id="stage">
+        <div id="stage-sky"></div>
+        <div id="stage-ground"></div>
+        <div id="props-layer"></div>
+        <div class="stage-caption" id="stage-caption"></div>
+      </div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="actions">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-copy">copy link</button>
+      <button id="btn-spawn">spawn a sequel</button>
+      <button id="btn-download">download postcard</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  no real Bluesky bot behind this one — it can't watch mentions or post
+  replies without credentials this build agent doesn't have. what it can do
+  is the honest part: take a prompt and actually stage something from it,
+  live, in your browser, with a real link at the end. its twin,
+  <a href="https://constructor.bisks.net/">constructor</a>, builds
+  blueprints instead of scenes. named after the shoebox kind, in the spirit
+  of von Neumann's universal constructor: a machine general enough to
+  build other machines, including copies of itself. · part of the
+  <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- deterministic PRNG ----------
+  function fnv1a(str){
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pick(rng, arr){ return arr[Math.floor(rng() * arr.length)]; }
+  function pickN(rng, arr, n){
+    var copy = arr.slice(), out = [];
+    for (var i = 0; i < n && copy.length; i++){
+      out.push(copy.splice(Math.floor(rng() * copy.length), 1)[0]);
+    }
+    return out;
+  }
+
+  // ---------- prompt -> slug ----------
+  function slugify(raw){
+    var t = String(raw || "").toLowerCase();
+    t = t.replace(/^@?diorama(\.bisks\.net)?[,:]?\s*/, "");
+    t = t.replace(/^(hey|hi|yo)[,!]?\s*/, "");
+    t = t.replace(/^(please\s+)?(stage|build|make|show)\s+(me\s+)?(a|an|the)?\s*/, "");
+    t = t.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (t.length > 60) t = t.slice(0, 60).replace(/-[^-]*$/, "");
+    return t || "an-unspecified-scene";
+  }
+  function titleCase(words){
+    return words.map(function(w){ return w.length ? w[0].toUpperCase() + w.slice(1) : w; }).join(" ");
+  }
+
+  // ---------- mood table: keys -> accent/icon/word banks ----------
+  var MOODS = [
+    { keys:["space","star","planet","moon","rocket","cosmic","galaxy","astronaut"], name:"orbital", accent:"#8fd0ff", sky:"linear-gradient(#0c1233,#2a3a6b)", icon:"🚀",
+      nouns:["foil-star backdrop","cotton-ball nebula","toothpick antenna","marble planet","glitter comet trail","cardboard rocket fin","string-light constellation","pipe-cleaner satellite"],
+      adjs:["glitter-dusted","foil-wrapped","hand-cut","carefully balanced","glued-just-right","slightly lopsided"] },
+    { keys:["ocean","sea","wave","fish","coral","tide","boat","submarine"], name:"maritime", accent:"#6fd6d1", sky:"linear-gradient(#123a4a,#2e6a72)", icon:"🌊",
+      nouns:["cellophane wave","seashell pile","blue-tissue current","cork buoy","yarn seaweed","paper-plate coral","glass-bead bubbles","popsicle-stick pier"],
+      adjs:["hand-painted","sun-faded","carefully layered","gently curling","salt-and-pepper-shaded","waterlogged-looking"] },
+    { keys:["forest","tree","garden","leaf","moss","woods","plant","flower"], name:"botanical", accent:"#9bd66a", sky:"linear-gradient(#1c3a1a,#3f6b2e)", icon:"🌲",
+      nouns:["moss patch","twig fence","felt mushroom","pinecone tree","paper leaf canopy","pebble path","birdhouse cutout","dried-flower hedge"],
+      adjs:["hand-gathered","moss-glued","sun-dried","leaf-flecked","gently overgrown","freshly trimmed"] },
+    { keys:["cat","kitten","dog","puppy","pet","animal"], name:"companion", accent:"#f2b56b", sky:"linear-gradient(#3a2a12,#6b4a24)", icon:"🐾",
+      nouns:["yarn-ball prop","popsicle-stick doghouse","felt paw print","cotton-tail tuft","cardboard food bowl","ribbon leash","button collar","cushion nap-spot"],
+      adjs:["extra-soft","well-loved","slightly chewed","carefully stitched","freshly fluffed","paw-approved"] },
+    { keys:["ghost","spooky","haunt","halloween","skeleton","witch","cursed"], name:"haunted", accent:"#b98cf2", sky:"linear-gradient(#120c1e,#2a1a3a)", icon:"👻",
+      nouns:["cotton-web strand","paper bat cutout","tea-light jack-o-lantern","cardboard tombstone","black-tissue cape","wire spider","foil moon","dried-leaf pile"],
+      adjs:["cobweb-dusted","candle-lit","slightly crooked","hand-torn","moonlit","creaking-on-purpose"] },
+    { keys:["robot","machine","gear","circuit","tech","cyborg","android"], name:"mechanical", accent:"#8fe0e6", sky:"linear-gradient(#141c22,#2a3a42)", icon:"🤖",
+      nouns:["bottle-cap gear","foil circuit board","cardboard antenna","LED eye","button switch","straw piston","tin-can chassis","wire coil"],
+      adjs:["hand-soldered","blinking","held-with-tape","carefully wired","faintly humming","freshly oiled"] },
+    { keys:["party","birthday","cake","balloon","celebrat"], name:"festive", accent:"#ff8fb3", sky:"linear-gradient(#2e1030,#5a2050)", icon:"🎉",
+      nouns:["paper streamer","mini balloon","glitter confetti","cupcake topper","string-light garland","tissue pompom","ribbon banner","matchbox gift"],
+      adjs:["extra sparkly","hand-strung","freshly blown-up","glitter-bombed","perfectly timed","still warm from the oven"] },
+    { keys:["love","heart","romance","date","crush","valentine"], name:"romantic", accent:"#ff9fc0", sky:"linear-gradient(#2a1420,#5a2a3a)", icon:"💌",
+      nouns:["paper heart garland","pressed flower","ribbon-tied note","tea-light candle","lace doily","tiny gift box","string-light canopy","folded love note"],
+      adjs:["hand-written","gently pressed","carefully folded","softly lit","heirloom-styled","tied-with-ribbon"] },
+    { keys:["food","cafe","coffee","pizza","kitchen","recipe","snack","bakery"], name:"kitchen", accent:"#f2c14e", sky:"linear-gradient(#2a1e0c,#5a3e18)", icon:"☕",
+      nouns:["clay-dough pastry","felt coffee cup","popsicle-stick menu board","cotton steam wisp","bead sugar bowl","paper napkin fold","tiny sugar packet","felt croissant"],
+      adjs:["still warm","freshly baked","hand-lettered","extra buttery","carefully plated","slightly crumbly"] },
+    { keys:["music","song","band","guitar","beat","concert","piano"], name:"acoustic", accent:"#c98cf2", sky:"linear-gradient(#1c1230,#3a2456)", icon:"🎸",
+      nouns:["matchstick guitar","bottle-cap cymbal","string-light stage lights","paper amp cutout","ribbon microphone cord","felt speaker","ticket-stub confetti","cardboard drum kit"],
+      adjs:["hand-tuned","freshly strung","slightly out of tune","road-worn-on-purpose","glued-mid-riff","extra loud"] },
+    { keys:["winter","snow","ice","cold","frost","blizzard"], name:"arctic", accent:"#bfe4ff", sky:"linear-gradient(#182838,#3a5a72)", icon:"❄️",
+      nouns:["cotton snowdrift","foil icicle","felt mitten","twig sled","glitter frost","paper snowflake garland","tea-light fireplace glow","yarn scarf"],
+      adjs:["freshly fallen","hand-cut","frost-dusted","cozy-looking","carefully bundled","slightly melting"] },
+    { keys:["city","night","neon","street","urban","skyline"], name:"nocturnal", accent:"#ffd23f", sky:"linear-gradient(#0e0e1a,#2a2440)", icon:"🌃",
+      nouns:["foil skyline","LED window light","cardboard fire escape","string-light marquee","bead traffic light","tissue-paper smog","matchbox taxi","glitter puddle reflection"],
+      adjs:["neon-lit","rain-slicked","hand-cut","still buzzing","freshly painted","slightly crooked"] },
+    { keys:["dragon","castle","wizard","magic","fantasy","sword","knight"], name:"mythic", accent:"#d9a441", sky:"linear-gradient(#1a1408,#3a2c10)", icon:"🐉",
+      nouns:["cardboard turret","foil dragon scale","felt banner","glitter spellbook","twig staff","bead crown","ribbon cape","popsicle-stick drawbridge"],
+      adjs:["hand-forged-looking","enchanted-on-a-budget","glitter-dusted","hand-painted","slightly crooked","dragon-proofed"] },
+    { keys:["rain","cozy","blanket","tea","quiet","hygge"], name:"cozy", accent:"#c8a4f0", sky:"linear-gradient(#1a1622,#342a44)", icon:"🌧️",
+      nouns:["felt blanket fold","tea-light lamp glow","paper raindrop garland","yarn cushion","popsicle-stick bookshelf","cotton steam wisp","twig umbrella","felt teapot"],
+      adjs:["hand-knit","softly-lit","slow-brewed","well-worn","quietly rustling","gently steaming"] },
+    { keys:["arcade","retro","pixel","8bit","8-bit","console","joystick"], name:"cabinet", accent:"#ff8fe0", sky:"linear-gradient(#1a0e22,#3a1c44)", icon:"🕹️",
+      nouns:["cardboard cabinet","bead joystick","LED marquee light","ticket-stub confetti","felt speaker grille","matchbox high-score board","foil coin slot","string-light glow"],
+      adjs:["pixel-cut","hand-painted","quarter-fed","glitch-charming","freshly waxed","cabinet-original"] },
+    { keys:[], name:"unspecified", accent:"#e8b34c", sky:"linear-gradient(#241a12,#4a3625)", icon:"📦",
+      nouns:["mystery prop","spare paper scrap","unlabeled box","backup glue stick","catch-all bin","generic cutout","placeholder figure","miscellany drawer"],
+      adjs:["unspecified","provisional","slightly mysterious","factory-standard","off-catalog","held together with tape"] }
+  ];
+
+  function moodFor(words, rng){
+    var joined = " " + words.join(" ") + " ";
+    for (var i = 0; i < MOODS.length; i++){
+      var m = MOODS[i];
+      if (!m.keys.length) continue;
+      for (var k = 0; k < m.keys.length; k++){
+        if (joined.indexOf(m.keys[k]) !== -1) return m;
+      }
+    }
+    return pick(rng, MOODS);
+  }
+
+  var TEMPLATES = [
+    "the {adj} {noun} keeps sliding out of place; it's held down with a dab of glue anyway.",
+    "nobody budgeted for the {noun}, but the scene didn't feel finished without it.",
+    "the {adj} {noun} was cut from an old cereal box. don't tell the judges.",
+    "lighting hits the {noun} just right at exactly one angle. don't move the box.",
+    "the {noun} got knocked over twice during setup. it's {adj} now, and staying that way.",
+    "two versions of the {noun} were auditioned. the {adj} one won.",
+    "the {adj} {noun} is doing a lot of narrative work for one popsicle stick.",
+    "set dressing note: the {noun} should look {adj}, not perfect."
+  ];
+  function fillTemplate(t, mood, rng){
+    return t
+      .replace(/\{adj\}/g, function(){ return pick(rng, mood.adjs); })
+      .replace(/\{noun\}/g, function(){ return pick(rng, mood.nouns); });
+  }
+
+  var FIRST_NAMES = ["Pip","Marigold","Gus","Nell","Otto","Wren","Baxter","Junie","Reg","Toodle","Fern","Wick","Biddy","Sal","Miffy","Corky","Bram","Tansy","Pockets","Noodle"];
+
+  var MUTATIONS = [
+    "but underwater", "but on the moon", "but it's the size of a postage stamp",
+    "but everything on it is on fire", "but nobody's allowed to look at it directly",
+    "but it only works at night", "but it's held together with tape",
+    "but it's classified", "but it's for houseplants now", "but upside down",
+    "but it hums a tune when idle", "but it's a hundred years old",
+    "but nobody asked for a sequel", "but twice as loud"
+  ];
+
+  function generate(rawPrompt){
+    var slug = slugify(rawPrompt);
+    var words = slug.split("-").filter(Boolean);
+    var seed = fnv1a(slug);
+    var rng = mulberry32(seed);
+    var mood = moodFor(words, rng);
+    var title = titleCase(words);
+    var boxNo = (seed % 0xFFFFFF).toString(36).toUpperCase();
+    while (boxNo.length < 5) boxNo = "0" + boxNo;
+    var notes = pickN(rng, TEMPLATES, 3).map(function(t){ return fillTemplate(t, mood, rng); });
+    var cast = [];
+    for (var c = 0; c < 2; c++){
+      cast.push({ name: pick(rng, FIRST_NAMES), role: pick(rng, mood.adjs) + " " + pick(rng, mood.nouns) });
+    }
+    var props = [];
+    for (var i = 0; i < 5; i++){
+      props.push(pick(rng, mood.adjs) + " " + pick(rng, mood.nouns));
+    }
+    var nodes = [];
+    for (var n = 0; n < 5; n++){
+      nodes.push({
+        left: 6 + rng() * 84,
+        bottom: 4 + rng() * 30,
+        rot: (rng() * 16 - 8).toFixed(1),
+        delay: (rng() * 2).toFixed(2),
+        size: 20 + rng() * 18
+      });
+    }
+    return { prompt: String(rawPrompt || "").trim(), slug: slug, words: words, title: title, mood: mood, boxNo: boxNo, notes: notes, cast: cast, props: props, nodes: nodes };
+  }
+
+  // ---------- render ----------
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  var els = {
+    input: document.getElementById("prompt-input"),
+    build: document.getElementById("btn-build"),
+    stageSky: document.getElementById("stage-sky"),
+    propsLayer: document.getElementById("props-layer"),
+    stageCaption: document.getElementById("stage-caption"),
+    sheetBody: document.getElementById("sheet-body"),
+    lineage: document.getElementById("lineage"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnCopy: document.getElementById("btn-copy"),
+    btnSpawn: document.getElementById("btn-spawn"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share")
+  };
+
+  var currentGen = null;
+
+  function renderStage(gen){
+    els.stageSky.style.background = gen.mood.sky;
+    els.propsLayer.innerHTML = "";
+    gen.nodes.forEach(function(node){
+      var span = document.createElement("span");
+      span.className = "prop";
+      span.textContent = gen.mood.icon;
+      span.style.left = node.left.toFixed(1) + "%";
+      span.style.bottom = node.bottom.toFixed(1) + "%";
+      span.style.fontSize = node.size.toFixed(0) + "px";
+      span.style.animationDelay = node.delay + "s";
+      span.style.setProperty("--rot", node.rot + "deg");
+      els.propsLayer.appendChild(span);
+    });
+    els.stageCaption.textContent = gen.mood.icon + " " + gen.mood.name + " set";
+  }
+
+  function render(gen, opts){
+    opts = opts || {};
+    currentGen = gen;
+    document.documentElement.style.setProperty("--accent", gen.mood.accent);
+
+    renderStage(gen);
+
+    var body = els.sheetBody;
+    body.innerHTML = "";
+
+    var head = document.createElement("div");
+    head.className = "sheet-head";
+    head.setAttribute("data-fade", "");
+    var boxDiv = document.createElement("div");
+    boxDiv.innerHTML = '<div class="box-no">BOX NO. <b>' + esc(gen.boxNo) + "</b> &middot; " + esc(gen.mood.icon) + " " + esc(gen.mood.name) + '</div><div class="sheet-title">' + esc(gen.title) + "</div>";
+    var revDiv = document.createElement("div");
+    revDiv.className = "rev";
+    revDiv.textContent = "TAKE 1 · GEN " + (opts.parentSlug ? "N+1" : "0");
+    head.appendChild(boxDiv);
+    head.appendChild(revDiv);
+    body.appendChild(head);
+
+    var req = document.createElement("div");
+    req.className = "request";
+    req.setAttribute("data-fade", "");
+    req.style.animationDelay = "0.06s";
+    var reqLabel = document.createElement("b");
+    reqLabel.textContent = "the ask: ";
+    var reqText = document.createElement("q");
+    reqText.textContent = gen.prompt || gen.title;
+    req.appendChild(reqLabel);
+    req.appendChild(reqText);
+    body.appendChild(req);
+
+    var castTitle = document.createElement("p");
+    castTitle.className = "section-title";
+    castTitle.setAttribute("data-fade", "");
+    castTitle.style.animationDelay = "0.12s";
+    castTitle.textContent = "the cast";
+    body.appendChild(castTitle);
+
+    var castList = document.createElement("ul");
+    castList.className = "cast";
+    castList.setAttribute("data-fade", "");
+    castList.style.animationDelay = "0.16s";
+    gen.cast.forEach(function(c){
+      var li = document.createElement("li");
+      var b = document.createElement("b");
+      b.textContent = c.name + ": ";
+      li.appendChild(b);
+      li.appendChild(document.createTextNode("the " + c.role));
+      castList.appendChild(li);
+    });
+    body.appendChild(castList);
+
+    var notesTitle = document.createElement("p");
+    notesTitle.className = "section-title";
+    notesTitle.setAttribute("data-fade", "");
+    notesTitle.style.animationDelay = "0.22s";
+    notesTitle.textContent = "director's notes";
+    body.appendChild(notesTitle);
+
+    var notesList = document.createElement("ul");
+    notesList.className = "notes";
+    notesList.setAttribute("data-fade", "");
+    notesList.style.animationDelay = "0.26s";
+    gen.notes.forEach(function(n){
+      var li = document.createElement("li");
+      li.textContent = n;
+      notesList.appendChild(li);
+    });
+    body.appendChild(notesList);
+
+    var propsTitle = document.createElement("p");
+    propsTitle.className = "section-title";
+    propsTitle.setAttribute("data-fade", "");
+    propsTitle.style.animationDelay = "0.3s";
+    propsTitle.textContent = "props & set dressing";
+    body.appendChild(propsTitle);
+
+    var propsList = document.createElement("ul");
+    propsList.className = "parts";
+    propsList.setAttribute("data-fade", "");
+    propsList.style.animationDelay = "0.34s";
+    gen.props.forEach(function(p){
+      var li = document.createElement("li");
+      li.textContent = "· " + p;
+      propsList.appendChild(li);
+    });
+    body.appendChild(propsList);
+
+    var stamp = document.createElement("p");
+    stamp.style.cssText = "font-size:11px;color:var(--muted);margin:14px 0 0;";
+    stamp.setAttribute("data-fade", "");
+    stamp.style.animationDelay = "0.38s";
+    stamp.textContent = "staged by diorama.bisks.net · box " + gen.boxNo;
+    body.appendChild(stamp);
+
+    // lineage breadcrumb
+    if (opts.parentSlug){
+      els.lineage.style.display = "";
+      els.lineage.innerHTML = "sequel to: <a href=\"/b/" + encodeURIComponent(opts.parentSlug) + "\">" + esc(titleCase(opts.parentSlug.split("-"))) + "</a>";
+    } else {
+      els.lineage.style.display = "none";
+      els.lineage.innerHTML = "";
+    }
+
+    // url + title
+    if (opts.pushUrl){
+      var url = "/b/" + encodeURIComponent(gen.slug) + (opts.parentSlug ? "?from=" + encodeURIComponent(opts.parentSlug) : "");
+      history.pushState({}, "", url);
+    }
+    document.title = "diorama: " + gen.title;
+
+    updateShare(gen);
+  }
+
+  function updateShare(gen){
+    var url = "https://diorama.bisks.net/b/" + encodeURIComponent(gen.slug);
+    var text = 'staged: "' + gen.title + '" — diorama.bisks.net built a little scene for it: ' + url;
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // ---------- controls ----------
+  els.build.addEventListener("click", function(){
+    var val = els.input.value.trim();
+    if (!val) { els.input.focus(); return; }
+    render(generate(val), { pushUrl: true });
+  });
+  els.input.addEventListener("keydown", function(e){
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") els.build.click();
+  });
+
+  els.btnSpawn.addEventListener("click", function(){
+    if (!currentGen) return;
+    var mutation = MUTATIONS[Math.floor(Math.random() * MUTATIONS.length)];
+    var base = currentGen.prompt || currentGen.title;
+    var child = base + " " + mutation;
+    els.input.value = child;
+    render(generate(child), { pushUrl: true, parentSlug: currentGen.slug });
+  });
+
+  els.btnCopy.addEventListener("click", function(){
+    if (!currentGen) return;
+    var url = "https://diorama.bisks.net/b/" + encodeURIComponent(currentGen.slug);
+    var done = function(){ els.btnCopy.textContent = "copied!"; setTimeout(function(){ els.btnCopy.textContent = "copy link"; }, 1400); };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done).catch(done);
+    } else { done(); }
+  });
+
+  // ---------- share card ----------
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(gen){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#1b120c"; sc.fillRect(0, 0, w, h);
+    sc.fillStyle = "#3a2a1c";
+    sc.fillRect(50, 40, w - 100, h - 160);
+
+    sc.fillStyle = gen.mood.accent;
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText("diorama", 90, 130);
+    sc.fillStyle = "#b89b7a";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("BOX NO. " + gen.boxNo + " · " + gen.mood.icon + " " + gen.mood.name, 90, 165);
+
+    sc.fillStyle = "#f3e9da";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    wrapText(sc, gen.title, 90, 260, 1020, 48);
+
+    sc.fillStyle = "#b89b7a";
+    sc.font = "18px 'JetBrains Mono', monospace";
+    wrapText(sc, gen.notes[0] || "", 90, 360, 1020, 28);
+
+    sc.fillStyle = gen.mood.accent;
+    sc.font = "700 16px 'JetBrains Mono', monospace";
+    sc.fillText("diorama.bisks.net/b/" + gen.slug, 90, h - 60);
+  }
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+    var words = String(text).split(" "), line = "", cy = y;
+    for (var i = 0; i < words.length; i++){
+      var test = line + words[i] + " ";
+      if (ctx.measureText(test).width > maxWidth && line){
+        ctx.fillText(line, x, cy); line = words[i] + " "; cy += lineHeight;
+      } else line = test;
+    }
+    ctx.fillText(line, x, cy);
+  }
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try { return navigator.canShare({ files: [new File([""], "p.png", { type: "image/png" })] }); }
+    catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    if (!currentGen) return;
+    buildShareCard(currentGen);
+    var a = document.createElement("a");
+    a.download = "diorama-" + currentGen.slug + ".png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    if (!currentGen) return;
+    buildShareCard(currentGen);
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "diorama.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "diorama.bisks.net";
+      navigator.share({ files: [file], text: text, title: "diorama" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // ---------- routing ----------
+  function pathSlug(){
+    var m = location.pathname.match(/^\/b\/([a-z0-9-]+)\/?$/);
+    return m ? m[1] : null;
+  }
+  function fromParam(){
+    return new URLSearchParams(location.search).get("from");
+  }
+  function loadFromLocation(){
+    var slug = pathSlug();
+    if (slug){
+      var words = slug.split("-").filter(Boolean);
+      var reconstructed = words.join(" ");
+      els.input.value = reconstructed;
+      var gen = generate(reconstructed);
+      var parent = fromParam();
+      render(gen, { pushUrl: false, parentSlug: parent || null });
+    } else {
+      var examples = [
+        "a lighthouse that texts you when it's foggy",
+        "a haunted vending machine that only sells apologies",
+        "a garden shed that files its own maintenance requests",
+        "a jukebox for a spaceship that only plays one song",
+        "a doorbell for a castle that's mostly gone to ruin"
+      ];
+      var ex = examples[Math.floor(Math.random() * examples.length)];
+      var gen2 = generate(ex);
+      render(gen2, { pushUrl: false });
+      els.input.value = "";
+    }
+  }
+  window.addEventListener("popstate", loadFromLocation);
+  loadFromLocation();
+})();
+</script>
+</body>
+</html>

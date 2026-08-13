@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>constructor — tell it what to build</title>
+<meta name="description" content="a little universal constructor: describe a web page, it assembles a one-off blueprint for it on the spot and hands you a link to the finished build." />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="constructor — tell it what to build" />
+<meta property="og:description" content="a little universal constructor: describe a web page, it assembles a one-off blueprint for it on the spot and hands you a link to the finished build." />
+<meta property="og:url" content="https://constructor.bisks.net/" />
+<meta property="og:image" content="https://constructor.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="constructor: a blueprint sheet assembling itself from a typed prompt." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="constructor — tell it what to build" />
+<meta name="twitter:description" content="a little universal constructor: describe a web page, it assembles a one-off blueprint for it on the spot and hands you a link to the finished build." />
+<meta name="twitter:image" content="https://constructor.bisks.net/og.png" />
+<style>
+  :root{
+    --bg:#0a1626; --panel:#0e2038; --line:#1d3c5c; --grid:#132a44;
+    --fg:#dbe9f5; --muted:#7fa2c4; --accent:#6ee7ff; --accent2:#ffd23f;
+    --danger:#ff5f56;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font-family:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    padding:28px 16px 60px;
+  }
+  header{ width:100%; max-width:820px; margin-bottom:18px; }
+  h1{ font-size:clamp(28px,5vw,40px); margin:0 0 6px; color:var(--accent); letter-spacing:-0.5px; }
+  .tagline{ color:var(--muted); font-size:14px; line-height:1.55; max-width:640px; }
+  .tagline b{ color:var(--fg); }
+
+  main{ width:100%; max-width:820px; display:flex; flex-direction:column; gap:16px; }
+
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+
+  /* --- compose box: styled like a Bluesky mention --- */
+  .compose{ display:flex; gap:12px; align-items:flex-start; }
+  .avatar{
+    flex:none; width:40px; height:40px; border-radius:50%;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+  }
+  .compose-body{ flex:1; min-width:0; }
+  .handle{ font-size:13px; color:var(--muted); margin-bottom:6px; }
+  .handle b{ color:var(--fg); }
+  textarea{
+    width:100%; min-height:64px; resize:vertical;
+    background:#081222; color:var(--fg); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; font-family:inherit; font-size:14px; line-height:1.5;
+  }
+  textarea:focus{ outline:none; border-color:var(--accent); }
+  .compose-row{ display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:10px; flex-wrap:wrap; }
+  .hint{ font-size:11px; color:var(--muted); }
+
+  button{
+    font-family:inherit; font-size:13px; font-weight:700; cursor:pointer;
+    border-radius:7px; border:1px solid var(--line); padding:9px 16px;
+    background:#132a44; color:var(--fg); transition:transform 0.06s ease;
+  }
+  button:hover{ border-color:var(--accent); }
+  button:active{ transform:scale(0.97); }
+  button.primary{ background:var(--accent); color:#04141f; border-color:var(--accent); }
+  button.primary:hover{ background:#8ff0ff; }
+  button:disabled{ opacity:0.5; cursor:default; }
+
+  /* --- blueprint sheet --- */
+  #sheet-wrap{ position:relative; }
+  #sheet{
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:22px 22px;
+    background-color:#081222;
+    border:1px solid var(--line); border-radius:8px; padding:20px;
+    position:relative; overflow:hidden;
+  }
+  .lineage{ font-size:11px; color:var(--muted); margin-bottom:10px; }
+  .lineage a{ color:var(--accent); text-decoration:none; }
+  .lineage a:hover{ text-decoration:underline; }
+
+  .sheet-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; border-bottom:1px dashed var(--line); padding-bottom:12px; margin-bottom:14px; }
+  .spec-no{ font-size:11px; color:var(--muted); letter-spacing:0.06em; }
+  .spec-no b{ color:var(--accent); }
+  .sheet-title{ font-size:22px; font-weight:800; margin:4px 0 0; color:var(--fg); }
+  .rev{ font-size:11px; color:var(--muted); text-align:right; }
+
+  .request{ font-size:13px; color:var(--muted); margin-bottom:16px; line-height:1.5; }
+  .request b{ color:var(--fg); font-weight:700; }
+  .request q{ color:var(--fg); }
+
+  #diagram{ width:100%; height:auto; display:block; margin-bottom:16px; border:1px solid var(--line); border-radius:6px; background:rgba(0,0,0,0.15); }
+  #diagram circle.node{ fill:var(--bg); stroke:var(--accent); stroke-width:2; }
+  #diagram text.label{ fill:var(--muted); font-size:11px; font-family:"JetBrains Mono",monospace; }
+  #diagram line.leader{ stroke:var(--line); stroke-width:1; }
+
+  .section-title{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent2); margin:0 0 8px; }
+  .notes{ margin:0 0 16px; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px; }
+  .notes li{ font-size:13px; color:var(--fg); line-height:1.5; padding-left:16px; position:relative; }
+  .notes li::before{ content:"—"; position:absolute; left:0; color:var(--muted); }
+
+  .parts{ margin:0; padding:0; list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:6px 18px; }
+  .parts li{ font-size:12.5px; color:var(--muted); display:flex; gap:8px; }
+  .parts li b{ color:var(--accent); font-weight:700; flex:none; }
+
+  [data-fade]{ opacity:0; animation:sheetFadeIn 0.5s ease forwards; }
+
+  @keyframes sheetFadeIn{
+    from{ opacity:0; transform:translateY(6px); }
+    to{ opacity:1; transform:translateY(0); }
+  }
+
+  .actions{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:6px; }
+  a.share-link{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    font-size:13px; font-weight:700; color:#04141f; background:var(--accent);
+    border-radius:7px; padding:9px 16px; border:1px solid var(--accent);
+  }
+  a.share-link:hover{ background:#8ff0ff; }
+
+  footer{ margin-top:28px; font-size:11px; color:var(--muted); text-align:center; max-width:620px; line-height:1.6; }
+  footer a{ color:var(--accent); }
+
+  #share-canvas{ display:none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>constructor</h1>
+  <p class="tagline">
+    a little <b>universal constructor</b>: tell it what to build, in the
+    same shape as tagging a build bot on Bluesky, and it assembles a
+    one-off blueprint on the spot — a title, a schematic, assembly notes,
+    a parts list — and hands back a real link to the finished spec.
+    every build can <b>spawn a successor</b>: a mutated version of itself,
+    built the same way. machines building machines, von Neumann style.
+  </p>
+</header>
+
+<main>
+  <div class="panel compose">
+    <div class="avatar">🔧</div>
+    <div class="compose-body">
+      <div class="handle"><b>@you</b> mentioned <b>@constructor.bisks.net</b></div>
+      <textarea id="prompt-input" placeholder="build me a lighthouse that texts you when it's foggy" maxlength="220"></textarea>
+      <div class="compose-row">
+        <span class="hint">describe a neat little page. that's the whole brief.</span>
+        <button class="primary" id="btn-build">build it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="sheet-wrap">
+    <div class="lineage" id="lineage" style="display:none;"></div>
+    <div id="sheet"></div>
+  </div>
+
+  <div class="panel">
+    <div class="actions">
+      <a class="share-link" id="share-bsky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+      <button id="btn-copy">copy link</button>
+      <button id="btn-spawn">spawn a successor</button>
+      <button id="btn-download">download blueprint</button>
+      <button id="btn-native-share" style="display:none;">share image</button>
+    </div>
+  </div>
+</main>
+
+<footer>
+  no real Bluesky bot behind this one — it can't watch mentions or post
+  replies without credentials this build agent doesn't have. what it can do
+  is the honest part: take a prompt and actually construct something from
+  it, live, in your browser, with a real link at the end. named for von
+  Neumann's universal constructor: a machine general enough to build other
+  machines, including copies of itself. · part of the
+  <a href="https://bisks.net/">atprotozoa</a> galaxy
+</footer>
+
+<canvas id="share-canvas" width="1200" height="630"></canvas>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- deterministic PRNG ----------
+  function fnv1a(str){
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pick(rng, arr){ return arr[Math.floor(rng() * arr.length)]; }
+  function pickN(rng, arr, n){
+    var copy = arr.slice(), out = [];
+    for (var i = 0; i < n && copy.length; i++){
+      out.push(copy.splice(Math.floor(rng() * copy.length), 1)[0]);
+    }
+    return out;
+  }
+
+  // ---------- prompt -> slug ----------
+  function slugify(raw){
+    var t = String(raw || "").toLowerCase();
+    t = t.replace(/^@?constructor(\.bisks\.net)?[,:]?\s*/, "");
+    t = t.replace(/^(hey|hi|yo)[,!]?\s*/, "");
+    t = t.replace(/^(please\s+)?(build|make|construct|assemble)\s+(me\s+)?(a|an|the)?\s*/, "");
+    t = t.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (t.length > 60) t = t.slice(0, 60).replace(/-[^-]*$/, "");
+    return t || "an-unspecified-page";
+  }
+  function titleCase(words){
+    return words.map(function(w){ return w.length ? w[0].toUpperCase() + w.slice(1) : w; }).join(" ");
+  }
+
+  // ---------- mood table: keys -> accent/icon/word banks ----------
+  var MOODS = [
+    { keys:["space","star","planet","moon","rocket","cosmic","galaxy","astronaut"], name:"orbital", accent:"#6ee7ff", icon:"🛰️",
+      nouns:["thruster","solar vane","heat shield","docking clamp","ion coil","viewport","antenna array","cargo pod"],
+      adjs:["orbital-grade","vacuum-sealed","gimbal-mounted","radiation-hardened","fold-out","zero-g rated"] },
+    { keys:["ocean","sea","wave","fish","coral","tide","boat","submarine"], name:"maritime", accent:"#5ad1e6", icon:"⚓",
+      nouns:["ballast tank","propeller","bilge pump","porthole","anchor chain","pressure hull","sonar dome","mooring cleat"],
+      adjs:["waterproof","barnacle-resistant","tide-tested","brass-fitted","salt-cured","deep-rated"] },
+    { keys:["forest","tree","garden","leaf","moss","woods","plant","flower"], name:"botanical", accent:"#8fd66a", icon:"🌲",
+      nouns:["irrigation valve","trellis joint","compost chute","greenhouse hinge","root sensor","rain gutter","potting shelf","bee hatch"],
+      adjs:["weathered","reclaimed","moss-tolerant","hand-planed","sun-cured","vine-proof"] },
+    { keys:["cat","kitten","dog","puppy","pet","animal"], name:"companion", accent:"#f2b56b", icon:"🐾",
+      nouns:["feeding hatch","scratch post mount","paw-safe latch","nap platform","chew guard","leash clip","litter chute","treat dispenser"],
+      adjs:["chew-proof","paw-tested","low-static","non-toxic","extra-plush","tail-cleared"] },
+    { keys:["ghost","spooky","haunt","halloween","skeleton","witch","cursed"], name:"haunted", accent:"#b98cf2", icon:"👻",
+      nouns:["creaking hinge","séance panel","fog vent","candle sconce","chain pulley","trapdoor latch","mirror bracket","bell-tower gear"],
+      adjs:["haunted","cobweb-rated","midnight-tested","curse-proofed","moth-eaten","drafty"] },
+    { keys:["robot","machine","gear","circuit","tech","cyborg","android"], name:"mechanical", accent:"#6ee7ff", icon:"🤖",
+      nouns:["servo mount","actuator","wiring loom","sensor array","chassis plate","coolant line","logic board","gyroscope"],
+      adjs:["precision-milled","EMP-shielded","self-lubricating","overclockable","modular","fail-safe"] },
+    { keys:["party","birthday","cake","balloon","celebrat"], name:"festive", accent:"#ff8fb3", icon:"🎉",
+      nouns:["confetti cannon","streamer reel","speaker mount","disco gear","snack chute","balloon valve","banner track","playlist dial"],
+      adjs:["glitter-coated","noise-rated","easily-cleaned","crowd-tested","quick-release","extra loud"] },
+    { keys:["love","heart","romance","date","crush","valentine"], name:"romantic", accent:"#ff7fae", icon:"💌",
+      nouns:["candle mount","letter slot","ribbon spool","keepsake box","string-light hook","locket hinge","doorbell chime","garden gate"],
+      adjs:["hand-finished","heirloom-grade","gently worn","monogrammed","velvet-lined","sealed-with-wax"] },
+    { keys:["food","cafe","coffee","pizza","kitchen","recipe","snack","bakery"], name:"kitchen", accent:"#f2c14e", icon:"☕",
+      nouns:["espresso valve","proofing drawer","menu board hinge","steam vent","pastry rack","order chute","spice rail","tasting counter"],
+      adjs:["oven-safe","slow-roasted","well-seasoned","hand-ground","double-insulated","crumb-proof"] },
+    { keys:["music","song","band","guitar","beat","concert","piano"], name:"acoustic", accent:"#c98cf2", icon:"🎸",
+      nouns:["tuning peg","amp housing","pickup coil","pedal hinge","mixing fader","resonance chamber","strap lock","cable spool"],
+      adjs:["hand-wound","feedback-tuned","road-worn","string-rated","low-hum","gig-ready"] },
+    { keys:["winter","snow","ice","cold","frost","blizzard"], name:"arctic", accent:"#a9d6ff", icon:"❄️",
+      nouns:["heating coil","frost vent","sled runner","mitten hook","snow chute","fireplace flue","ice grip","thermal seal"],
+      adjs:["frost-rated","insulated","salt-proof","hand-warmed","de-icing","snowpack-tested"] },
+    { keys:["city","night","neon","street","urban","skyline"], name:"nocturnal", accent:"#ffd23f", icon:"🌃",
+      nouns:["neon transformer","elevator relay","rooftop vent","subway grate","traffic relay","rain gutter","fire-escape hinge","billboard mount"],
+      adjs:["weatherproof","code-compliant","graffiti-resistant","load-rated","all-night","low-flicker"] },
+    { keys:["dragon","castle","wizard","magic","fantasy","sword","knight"], name:"mythic", accent:"#d9a441", icon:"🐉",
+      nouns:["enchanted hinge","rune plate","portcullis chain","scale plating","potion rack","banner pole","dragon perch","spellbook clasp"],
+      adjs:["enchanted","dragon-proofed","hand-forged","moon-blessed","ancient","self-repairing"] },
+    { keys:["rain","cozy","blanket","tea","quiet","hygge"], name:"cozy", accent:"#b58cf2", icon:"🌧️",
+      nouns:["window-seat hinge","teapot warmer","blanket fold","reading-lamp mount","rain gauge","doormat weave","gutter spout","hearth grate"],
+      adjs:["hand-knit","well-worn","slow-brewed","draft-proof","quietly-oiled","softly-lit"] },
+    { keys:["arcade","retro","pixel","8bit","8-bit","console","joystick"], name:"cabinet", accent:"#ff5fd1", icon:"🕹️",
+      nouns:["joystick shaft","coin slot","CRT mount","marquee light","control panel","speaker grille","high-score board","cabinet hinge"],
+      adjs:["pixel-perfect","high-score-rated","quarter-fed","CRT-warm","glitch-tolerant","cabinet-original"] },
+    { keys:[], name:"unspecified", accent:"#6ee7ff", icon:"🔧",
+      nouns:["mystery bracket","unlabeled valve","spare hinge","backup relay","catch-all panel","generic coupling","placeholder gear","miscellany drawer"],
+      adjs:["unspecified","provisional","load-bearing","slightly mysterious","factory-standard","off-catalog"] }
+  ];
+
+  function moodFor(words, rng){
+    var joined = " " + words.join(" ") + " ";
+    for (var i = 0; i < MOODS.length; i++){
+      var m = MOODS[i];
+      if (!m.keys.length) continue;
+      for (var k = 0; k < m.keys.length; k++){
+        if (joined.indexOf(m.keys[k]) !== -1) return m;
+      }
+    }
+    return pick(rng, MOODS);
+  }
+
+  var TEMPLATES = [
+    "every {adj} {noun} on this sheet is field-replaceable — swap it without touching the rest of the build.",
+    "tolerances are tight around the {noun}; everything downstream assumes it holds.",
+    "the {adj} {noun} shipped later than the rest, so it's still got the fresh-paint smell.",
+    "if this thing ever stops working, it's the {noun}. it's always the {noun}.",
+    "two {adj} {noun}s were budgeted; only one made the final cut.",
+    "nobody remembers why the {noun} is {adj}, but changing it now voids the warranty.",
+    "the {adj} {noun} was a late addition. the spec sheet has not caught up.",
+    "assembly order matters here: the {noun} goes in before anything {adj} does."
+  ];
+  function fillTemplate(t, mood, rng){
+    return t
+      .replace(/\{adj\}/g, function(){ return pick(rng, mood.adjs); })
+      .replace(/\{noun\}/g, function(){ return pick(rng, mood.nouns); });
+  }
+
+  var MUTATIONS = [
+    "but underwater", "but on the moon", "but it's the size of a postage stamp",
+    "but everything on it is on fire", "but nobody's allowed to look at it directly",
+    "but it only works at night", "but it's held together with tape",
+    "but it's classified", "but it's for houseplants now", "but upside down",
+    "but it hums a tune when idle", "but it's a hundred years old",
+    "but nobody asked for a sequel", "but twice as loud"
+  ];
+
+  function generate(rawPrompt){
+    var slug = slugify(rawPrompt);
+    var words = slug.split("-").filter(Boolean);
+    var seed = fnv1a(slug);
+    var rng = mulberry32(seed);
+    var mood = moodFor(words, rng);
+    var title = titleCase(words);
+    var specNo = (seed % 0xFFFFFF).toString(36).toUpperCase();
+    while (specNo.length < 5) specNo = "0" + specNo;
+    var notes = pickN(rng, TEMPLATES, 3).map(function(t){ return fillTemplate(t, mood, rng); });
+    var parts = [];
+    for (var i = 0; i < 5; i++){
+      parts.push({
+        pn: "PN-" + (1000 + Math.floor(rng() * 8999)),
+        label: pick(rng, mood.adjs) + " " + pick(rng, mood.nouns)
+      });
+    }
+    var nodes = [];
+    for (var n = 0; n < 6; n++){
+      nodes.push({ x: 40 + rng() * 560, y: 30 + rng() * 240, label: pick(rng, mood.nouns) });
+    }
+    return { prompt: String(rawPrompt || "").trim(), slug: slug, words: words, title: title, mood: mood, specNo: specNo, notes: notes, parts: parts, nodes: nodes };
+  }
+
+  // ---------- render ----------
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  var els = {
+    input: document.getElementById("prompt-input"),
+    build: document.getElementById("btn-build"),
+    sheet: document.getElementById("sheet"),
+    lineage: document.getElementById("lineage"),
+    shareBsky: document.getElementById("share-bsky"),
+    btnCopy: document.getElementById("btn-copy"),
+    btnSpawn: document.getElementById("btn-spawn"),
+    btnDownload: document.getElementById("btn-download"),
+    btnNativeShare: document.getElementById("btn-native-share")
+  };
+
+  var currentGen = null;
+
+  function buildDiagramSVG(gen){
+    var parts = ["<svg id=\"diagram\" viewBox=\"0 0 640 300\" xmlns=\"http://www.w3.org/2000/svg\">"];
+    gen.nodes.forEach(function(node){
+      var leaderX = node.x < 320 ? node.x - 24 : node.x + 24;
+      var labelX = node.x < 320 ? Math.max(4, node.x - 100) : node.x + 26;
+      parts.push('<line class="leader" x1="' + node.x.toFixed(1) + '" y1="' + node.y.toFixed(1) + '" x2="' + leaderX.toFixed(1) + '" y2="' + node.y.toFixed(1) + '"/>');
+      parts.push('<circle class="node" cx="' + node.x.toFixed(1) + '" cy="' + node.y.toFixed(1) + '" r="7"/>');
+      parts.push('<text class="label" x="' + labelX.toFixed(1) + '" y="' + (node.y + 4).toFixed(1) + '">' + esc(node.label) + "</text>");
+    });
+    parts.push("</svg>");
+    return parts.join("");
+  }
+
+  function render(gen, opts){
+    opts = opts || {};
+    currentGen = gen;
+    document.documentElement.style.setProperty("--accent", gen.mood.accent);
+
+    var sheet = els.sheet;
+    sheet.innerHTML = "";
+
+    var head = document.createElement("div");
+    head.className = "sheet-head";
+    head.setAttribute("data-fade", "");
+    var specDiv = document.createElement("div");
+    specDiv.innerHTML = '<div class="spec-no">SPEC NO. <b>' + esc(gen.specNo) + "</b> &middot; " + esc(gen.mood.icon) + " " + esc(gen.mood.name) + '</div><div class="sheet-title">' + esc(gen.title) + "</div>";
+    var revDiv = document.createElement("div");
+    revDiv.className = "rev";
+    revDiv.textContent = "REV 1 · GEN " + (opts.parentSlug ? "N+1" : "0");
+    head.appendChild(specDiv);
+    head.appendChild(revDiv);
+    sheet.appendChild(head);
+
+    var req = document.createElement("div");
+    req.className = "request";
+    req.setAttribute("data-fade", "");
+    req.style.animationDelay = "0.06s";
+    var reqLabel = document.createElement("b");
+    reqLabel.textContent = "request on file: ";
+    var reqText = document.createElement("q");
+    reqText.textContent = gen.prompt || gen.title;
+    req.appendChild(reqLabel);
+    req.appendChild(reqText);
+    sheet.appendChild(req);
+
+    var diagramWrap = document.createElement("div");
+    diagramWrap.setAttribute("data-fade", "");
+    diagramWrap.style.animationDelay = "0.12s";
+    diagramWrap.innerHTML = buildDiagramSVG(gen);
+    sheet.appendChild(diagramWrap);
+
+    var notesTitle = document.createElement("p");
+    notesTitle.className = "section-title";
+    notesTitle.setAttribute("data-fade", "");
+    notesTitle.style.animationDelay = "0.18s";
+    notesTitle.textContent = "assembly notes";
+    sheet.appendChild(notesTitle);
+
+    var notesList = document.createElement("ul");
+    notesList.className = "notes";
+    notesList.setAttribute("data-fade", "");
+    notesList.style.animationDelay = "0.22s";
+    gen.notes.forEach(function(n){
+      var li = document.createElement("li");
+      li.textContent = n;
+      notesList.appendChild(li);
+    });
+    sheet.appendChild(notesList);
+
+    var partsTitle = document.createElement("p");
+    partsTitle.className = "section-title";
+    partsTitle.setAttribute("data-fade", "");
+    partsTitle.style.animationDelay = "0.28s";
+    partsTitle.textContent = "parts list";
+    sheet.appendChild(partsTitle);
+
+    var partsList = document.createElement("ul");
+    partsList.className = "parts";
+    partsList.setAttribute("data-fade", "");
+    partsList.style.animationDelay = "0.32s";
+    gen.parts.forEach(function(p){
+      var li = document.createElement("li");
+      var b = document.createElement("b");
+      b.textContent = p.pn;
+      li.appendChild(b);
+      li.appendChild(document.createTextNode(p.label));
+      partsList.appendChild(li);
+    });
+    sheet.appendChild(partsList);
+
+    var stamp = document.createElement("p");
+    stamp.style.cssText = "font-size:11px;color:var(--muted);margin:14px 0 0;";
+    stamp.setAttribute("data-fade", "");
+    stamp.style.animationDelay = "0.36s";
+    stamp.textContent = "constructed by constructor.bisks.net · build " + gen.specNo;
+    sheet.appendChild(stamp);
+
+    // lineage breadcrumb
+    if (opts.parentSlug){
+      els.lineage.style.display = "";
+      els.lineage.innerHTML = "spawned from: <a href=\"/b/" + encodeURIComponent(opts.parentSlug) + "\">" + esc(titleCase(opts.parentSlug.split("-"))) + "</a>";
+    } else {
+      els.lineage.style.display = "none";
+      els.lineage.innerHTML = "";
+    }
+
+    // url + title
+    if (opts.pushUrl){
+      var url = "/b/" + encodeURIComponent(gen.slug) + (opts.parentSlug ? "?from=" + encodeURIComponent(opts.parentSlug) : "");
+      history.pushState({}, "", url);
+    }
+    document.title = "constructor: " + gen.title;
+
+    updateShare(gen);
+  }
+
+  function updateShare(gen){
+    var url = "https://constructor.bisks.net/b/" + encodeURIComponent(gen.slug);
+    var text = 'built: "' + gen.title + '" — constructor.bisks.net assembled a blueprint for it: ' + url;
+    els.shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+  }
+
+  // ---------- controls ----------
+  els.build.addEventListener("click", function(){
+    var val = els.input.value.trim();
+    if (!val) { els.input.focus(); return; }
+    render(generate(val), { pushUrl: true });
+  });
+  els.input.addEventListener("keydown", function(e){
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") els.build.click();
+  });
+
+  els.btnSpawn.addEventListener("click", function(){
+    if (!currentGen) return;
+    var mutation = MUTATIONS[Math.floor(Math.random() * MUTATIONS.length)];
+    var base = currentGen.prompt || currentGen.title;
+    var child = base + " " + mutation;
+    els.input.value = child;
+    render(generate(child), { pushUrl: true, parentSlug: currentGen.slug });
+  });
+
+  els.btnCopy.addEventListener("click", function(){
+    if (!currentGen) return;
+    var url = "https://constructor.bisks.net/b/" + encodeURIComponent(currentGen.slug);
+    var done = function(){ els.btnCopy.textContent = "copied!"; setTimeout(function(){ els.btnCopy.textContent = "copy link"; }, 1400); };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done).catch(done);
+    } else { done(); }
+  });
+
+  // ---------- share card ----------
+  var shareCanvas = document.getElementById("share-canvas");
+  var sc = shareCanvas.getContext("2d");
+  function buildShareCard(gen){
+    var w = shareCanvas.width, h = shareCanvas.height;
+    sc.fillStyle = "#0a1626"; sc.fillRect(0, 0, w, h);
+    sc.strokeStyle = "#132a44"; sc.lineWidth = 1;
+    for (var x = 0; x < w; x += 30){ sc.beginPath(); sc.moveTo(x, 0); sc.lineTo(x, h); sc.stroke(); }
+    for (var y = 0; y < h; y += 30){ sc.beginPath(); sc.moveTo(0, y); sc.lineTo(w, y); sc.stroke(); }
+
+    sc.fillStyle = gen.mood.accent;
+    sc.font = "800 46px 'JetBrains Mono', monospace";
+    sc.fillText("constructor", 60, 100);
+    sc.fillStyle = "#7fa2c4";
+    sc.font = "16px 'JetBrains Mono', monospace";
+    sc.fillText("SPEC NO. " + gen.specNo + " · " + gen.mood.icon + " " + gen.mood.name, 60, 135);
+
+    sc.fillStyle = "#dbe9f5";
+    sc.font = "800 40px 'JetBrains Mono', monospace";
+    wrapText(sc, gen.title, 60, 230, 1080, 48);
+
+    sc.fillStyle = "#7fa2c4";
+    sc.font = "18px 'JetBrains Mono', monospace";
+    wrapText(sc, gen.notes[0] || "", 60, 340, 1080, 28);
+
+    sc.fillStyle = gen.mood.accent;
+    sc.font = "700 16px 'JetBrains Mono', monospace";
+    sc.fillText("constructor.bisks.net/b/" + gen.slug, 60, h - 40);
+  }
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+    var words = String(text).split(" "), line = "", cy = y;
+    for (var i = 0; i < words.length; i++){
+      var test = line + words[i] + " ";
+      if (ctx.measureText(test).width > maxWidth && line){
+        ctx.fillText(line, x, cy); line = words[i] + " "; cy += lineHeight;
+      } else line = test;
+    }
+    ctx.fillText(line, x, cy);
+  }
+  function canShareFiles(){
+    if (!navigator.share || !navigator.canShare) return false;
+    try { return navigator.canShare({ files: [new File([""], "p.png", { type: "image/png" })] }); }
+    catch (e) { return false; }
+  }
+  if (canShareFiles()) els.btnNativeShare.style.display = "";
+
+  els.btnDownload.addEventListener("click", function(){
+    if (!currentGen) return;
+    buildShareCard(currentGen);
+    var a = document.createElement("a");
+    a.download = "constructor-" + currentGen.slug + ".png";
+    a.href = shareCanvas.toDataURL("image/png");
+    a.click();
+  });
+  els.btnNativeShare.addEventListener("click", function(){
+    if (!currentGen) return;
+    buildShareCard(currentGen);
+    shareCanvas.toBlob(function(blob){
+      var file = new File([blob], "constructor.png", { type: "image/png" });
+      var text = els.shareBsky.href ? decodeURIComponent(els.shareBsky.href.split("text=")[1]) : "constructor.bisks.net";
+      navigator.share({ files: [file], text: text, title: "constructor" }).catch(function(){});
+    }, "image/png");
+  });
+
+  // ---------- routing ----------
+  function pathSlug(){
+    var m = location.pathname.match(/^\/b\/([a-z0-9-]+)\/?$/);
+    return m ? m[1] : null;
+  }
+  function fromParam(){
+    return new URLSearchParams(location.search).get("from");
+  }
+  function loadFromLocation(){
+    var slug = pathSlug();
+    if (slug){
+      var words = slug.split("-").filter(Boolean);
+      var reconstructed = words.join(" ");
+      els.input.value = reconstructed;
+      var gen = generate(reconstructed);
+      var parent = fromParam();
+      render(gen, { pushUrl: false, parentSlug: parent || null });
+    } else {
+      var examples = [
+        "a lighthouse that texts you when it's foggy",
+        "a haunted vending machine that only sells apologies",
+        "a garden shed that files its own maintenance requests",
+        "a jukebox for a spaceship that only plays one song",
+        "a doorbell for a castle that's mostly gone to ruin"
+      ];
+      var ex = examples[Math.floor(Math.random() * examples.length)];
+      var gen2 = generate(ex);
+      render(gen2, { pushUrl: false });
+      els.input.value = "";
+    }
+  }
+  window.addEventListener("popstate", loadFromLocation);
+  loadFromLocation();
+})();
+</script>
+</body>
+</html>
