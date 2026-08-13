@@ -438,7 +438,7 @@
       <h3>global tag ranking</h3>
       <button class="global-refresh" id="globalRefresh" type="button">↻ refresh</button>
     </div>
-    <p class="lib-sub">pooled from everyone who's synced their ratings to their PDS — sorted by tag, not by the game you're currently looking at.</p>
+    <p class="lib-sub">pooled from public PDS records in this browser — the tab follows Jetstream live and backfills older ratings without a server-owned index.</p>
     <div id="globalStats" class="global-stats"></div>
     <div id="globalList"></div>
   </section>
@@ -493,6 +493,7 @@
   const { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } = await import(
     MOUNT + "/lib/oauth.js"
   );
+  const { GlobalIndex } = await import(MOUNT + "/lib/global-index.js");
 
   // Ratings sync to this collection on the user's own PDS when signed in —
   // rkey is the appid, so re-rating a game overwrites its one record rather
@@ -1367,11 +1368,9 @@
     });
   }
 
-  // --- global ranking: pooled across everyone who's synced ratings to their
-  // PDS, via the network-wide index the Worker's GlobalTracker Durable
-  // Object builds off the live firehose. Grouped by tag like the personal
-  // library, but each game's score is the average across everyone who's
-  // rated that tag on it — not tied to whatever game is currently open.
+  // --- global ranking: pooled across public PDS records seen by this browser.
+  // The index is derived locally from the browser Jetstream connection and a
+  // bounded history backfill; user-owned ratings remain on each user's PDS.
   function formatAgo(ts) {
     if (!ts) return "";
     const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -1383,27 +1382,26 @@
     return `${Math.round(h / 24)}d ago`;
   }
 
-  async function loadGlobal() {
-    els.globalList.innerHTML = '<div class="lib-empty">loading the network-wide tag board…</div>';
-    els.globalStats.textContent = "";
-    try {
-      const res = await fetch(MOUNT + "/api/global");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "couldn't load the global board");
-      renderGlobal(data);
-    } catch (err) {
-      els.globalList.innerHTML = `<div class="lib-empty">couldn't load the global board — ${esc(err.message || "try again")}</div>`;
-    }
+  const globalIndex = new GlobalIndex({ onUpdate: renderGlobal });
+
+  function loadGlobal() {
+    globalIndex.start();
   }
 
   function renderGlobal(data) {
     const tags = data.tags || [];
-    els.globalStats.textContent = tags.length
-      ? `${data.entryCount || 0} rated game${data.entryCount === 1 ? "" : "s"} from ${data.userCount || 0} ${data.userCount === 1 ? "person" : "people"} · updated ${formatAgo(data.updatedAt) || "just now"}${data.backfillDone === false ? " · still backfilling older ratings…" : ""}`
-      : "";
+    const connection = data.connected ? "live in this browser" : "reconnecting";
+    const backfill = data.backfillDone
+      ? "history backfill complete"
+      : data.backfillActive
+        ? "backfilling older ratings…"
+        : "starting history backfill…";
+    els.globalStats.textContent = `${data.entryCount || 0} rated game${data.entryCount === 1 ? "" : "s"} from ${data.userCount || 0} ${data.userCount === 1 ? "person" : "people"} · ${connection} · ${backfill}${data.updatedAt ? ` · updated ${formatAgo(data.updatedAt) || "just now"}` : ""}`;
     if (!tags.length) {
       els.globalList.innerHTML =
-        '<div class="lib-empty">nobody’s synced a rating to their PDS yet — sign in above and rate a tag to start the board.</div>';
+        data.error
+          ? `<div class="lib-empty">couldn't reach the rating history — ${esc(data.error)}</div>`
+          : '<div class="lib-empty">no ratings are visible yet — this browser is connecting to Jetstream and checking public PDS records.</div>';
       return;
     }
     els.globalList.innerHTML = tags
@@ -1442,7 +1440,7 @@
     });
   }
 
-  els.globalRefresh.addEventListener("click", () => loadGlobal());
+  els.globalRefresh.addEventListener("click", () => globalIndex.refresh());
 
   els.libSearch.addEventListener("input", (e) => {
     libraryQuery = e.target.value;
