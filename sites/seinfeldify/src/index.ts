@@ -112,7 +112,7 @@ async function handleAnalyze(request: Request, env: Env): Promise<Response> {
   }
   const posts = Array.isArray(body.posts) ? body.posts : [];
   if (!posts.length) return new Response("no posts", { status: 400 });
-  if (posts.length > 200) return new Response("sample too large", { status: 400 });
+  if (posts.length > 100) return new Response("sample too large", { status: 400 });
 
   const userContent = JSON.stringify(posts.map((p) => ({ i: p.i, text: p.text })));
 
@@ -123,7 +123,7 @@ async function handleAnalyze(request: Request, env: Env): Promise<Response> {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userContent },
       ],
-      max_tokens: 800,
+      max_tokens: 500,
       temperature: 0.6,
     });
   } catch (err) {
