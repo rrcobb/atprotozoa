@@ -113,7 +113,7 @@ export function paramsFromVAD(v, a, d) {
   };
 }
 
-function degreeFreq(rootFreq, degreeIdx, tension) {
+export function degreeFreq(rootFreq, degreeIdx, tension) {
   const semis = lerp(CONSONANT_DEGREES[degreeIdx], DISSONANT_DEGREES[degreeIdx], tension);
   return rootFreq * Math.pow(2, semis / 12);
 }
@@ -304,9 +304,9 @@ export function createVoice(ctx, master, opts) {
 // to each other (not clean small-integer ratios) so the voices, all driven
 // by the same arousal-derived base tempo, still drift in and out of phase.
 export const ENSEMBLE = [
-  { role: "pad", degreeIdx: 0, cycleMul: 1, octave: -1 },
-  { role: "pad", degreeIdx: 1, cycleMul: 1.37, octave: 0 },
-  { role: "bell", degreeIdx: 2, cycleMul: 0.71, octave: 1 },
-  { role: "bell", degreeIdx: 3, cycleMul: 1.93, octave: 1 },
-  { role: "hum", degreeIdx: 0, cycleMul: 2.6, octave: -2 },
+  { role: "pad", label: "low pad", degreeIdx: 0, cycleMul: 1, octave: -1 },
+  { role: "pad", label: "high pad", degreeIdx: 1, cycleMul: 1.37, octave: 0 },
+  { role: "bell", label: "bell", degreeIdx: 2, cycleMul: 0.71, octave: 1 },
+  { role: "bell", label: "chime", degreeIdx: 3, cycleMul: 1.93, octave: 1 },
+  { role: "hum", label: "hum", degreeIdx: 0, cycleMul: 2.6, octave: -2 },
 ];

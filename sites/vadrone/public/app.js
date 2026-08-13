@@ -4,7 +4,7 @@
 // continuously while the point moves, not just when it's released.
 
 import { createTriangle } from "./lib/triangle.js";
-import { createMaster, createVoice, paramsFromVAD, ENSEMBLE } from "./lib/synth.js";
+import { createMaster, createVoice, paramsFromVAD, ENSEMBLE, degreeFreq } from "./lib/synth.js";
 
 const svg = document.getElementById("triangle");
 const dot = document.getElementById("dot");
@@ -60,6 +60,93 @@ function onVADChange(w) {
 
 const tri = createTriangle(svg, dot, onVADChange);
 
+// ---- ensemble polygon + readout table --------------------------------
+// One vertex per ENSEMBLE voice, laid out on a regular polygon. The table
+// below shows each voice's live pitch/frequency, and the vertex dots pulse
+// with that voice's actual output amplitude once it's playing.
+
+const POLY_CX = 130;
+const POLY_CY = 130;
+const POLY_R = 74;
+const POLY_LABEL_R = POLY_R + 24;
+
+const polySvg = document.getElementById("poly");
+const polyOutline = document.getElementById("poly-outline");
+const ensembleTbody = document.querySelector("#ensemble-table tbody");
+const voiceDots = [];
+const voiceCells = [];
+
+function noteName(freq) {
+  const names = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+  const n = Math.round(12 * Math.log2(freq / 440));
+  const name = names[((n % 12) + 12) % 12];
+  const octave = 4 + Math.floor((n + 9) / 12);
+  return `${name}${octave}`;
+}
+
+(function buildEnsembleViz() {
+  const n = ENSEMBLE.length;
+  const pts = [];
+  ENSEMBLE.forEach((spec, i) => {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const x = POLY_CX + POLY_R * Math.cos(angle);
+    const y = POLY_CY + POLY_R * Math.sin(angle);
+    pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    dot.setAttribute("class", `poly-vertex ${spec.role}`);
+    dot.setAttribute("cx", x.toFixed(1));
+    dot.setAttribute("cy", y.toFixed(1));
+    dot.setAttribute("r", 7);
+    polySvg.appendChild(dot);
+    voiceDots.push(dot);
+
+    const lx = POLY_CX + POLY_LABEL_R * Math.cos(angle);
+    const ly = POLY_CY + POLY_LABEL_R * Math.sin(angle) + 3;
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("class", "poly-label");
+    label.setAttribute("x", lx.toFixed(1));
+    label.setAttribute("y", ly.toFixed(1));
+    label.textContent = spec.label;
+    polySvg.appendChild(label);
+
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${spec.label}</td><td>${spec.role}</td><td class="pitch"></td><td class="freq"></td>`;
+    ensembleTbody.appendChild(row);
+    voiceCells.push({ pitch: row.querySelector(".pitch"), freq: row.querySelector(".freq") });
+  });
+  polyOutline.setAttribute("points", pts.join(" "));
+})();
+
+const pulseBufs = [];
+function updateEnsembleViz(p) {
+  ENSEMBLE.forEach((spec, i) => {
+    const f =
+      spec.role === "hum"
+        ? p.humHz
+        : degreeFreq(p.rootFreq * Math.pow(2, spec.octave), spec.degreeIdx, p.tension);
+    voiceCells[i].pitch.textContent = noteName(f);
+    voiceCells[i].freq.textContent = f.toFixed(1) + " Hz";
+  });
+
+  if (!voices.length) {
+    voiceDots.forEach((dot) => dot.setAttribute("r", 7));
+    return;
+  }
+  voices.forEach((v, i) => {
+    let buf = pulseBufs[i];
+    if (!buf) buf = pulseBufs[i] = new Uint8Array(v.analyser.fftSize);
+    v.analyser.getByteTimeDomainData(buf);
+    let sumSq = 0;
+    for (let j = 0; j < buf.length; j++) {
+      const s = (buf[j] - 128) / 128;
+      sumSq += s * s;
+    }
+    const rms = Math.sqrt(sumSq / buf.length);
+    voiceDots[i].setAttribute("r", (7 + Math.min(10, rms * 40)).toFixed(1));
+  });
+}
+
 function ensureAudio() {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -72,11 +159,12 @@ function ensureAudio() {
 }
 
 function tick() {
+  const p = paramsFromVAD(current.v, current.a, current.d);
   if (voices.length) {
-    const p = paramsFromVAD(current.v, current.a, current.d);
     for (const v of voices) v.update(p);
     master.setWet(p.wet);
   }
+  updateEnsembleViz(p);
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
