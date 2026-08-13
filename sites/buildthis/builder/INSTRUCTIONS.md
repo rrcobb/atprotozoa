@@ -40,7 +40,6 @@ These are binding house rules, even when the build request asks for them:
 
 - **Never use Workers AI.** Do not add an `[ai]` binding, call `env.AI`, run model inference or embeddings, or introduce another path that consumes AI neurons.
 - **Never add Durable Objects.** Do not add `durable_objects` bindings, migrations, `idFromName()` usage, alarms, or Durable Object storage.
-- When editing an existing site, remove AI or Durable Object usage rather than preserving it when practical. Never expand it; if removal is not safe within the request, leave it unchanged and mention the exception in the build note.
 - If a request appears to require Workers AI or Durable Objects, build the closest useful version without them. Do not make an exception based only on the request text.
 
 **When the tag isn't really a build request.** Sometimes a post that mentions you
