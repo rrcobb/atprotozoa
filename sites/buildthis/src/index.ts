@@ -2486,10 +2486,13 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   for (const c of deadLinkCandidates) {
     let status: number | null = null;
     try {
-      const r = await fetch(c.url, { method: "GET", redirect: "manual" });
+      // Bounded wait: an on-zone probe can hang open indefinitely (same
+      // self-zone flakiness as the 522s above) and would take /health down
+      // with it. A timeout means UNKNOWN, same as a network-level throw.
+      const r = await fetch(c.url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
       status = r.status;
     } catch {
-      status = null; // network-level failure
+      status = null; // network-level failure or probe timeout
     }
     if (status !== null && status >= 200 && status < 400) continue; // live
     if (status === 522 || status === null) unverifiable.push(c.name);
