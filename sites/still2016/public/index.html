@@ -126,8 +126,8 @@
   </footer>
 </div>
 
-<script>
-const POLL_MS = 5000;
+<script type="module">
+import { CapsuleIndex } from "/capsule.js";
 
 const els = {
   matchedNum: document.getElementById("matchedNum"),
@@ -177,8 +177,9 @@ function renderFeed(data) {
   els.pctNum.textContent = (data.matchRatePct || 0) + "%";
 
   const since = data.since ? new Date(data.since) : null;
-  els.scanLine.textContent = Number(data.totalScanned || 0).toLocaleString() + " posts scanned" +
-    (since ? ", watching since " + since.toLocaleTimeString() : "");
+  els.scanLine.textContent = Number(data.totalScanned || 0).toLocaleString() + " posts scanned in this tab" +
+    (since ? ", watching since " + since.toLocaleTimeString() : "") +
+    (data.connected ? " · live" : " · reconnecting") + (data.error ? " · " + data.error : "");
 
   const entries = data.entries || [];
   els.entryList.innerHTML = entries.length
@@ -188,18 +189,8 @@ function renderFeed(data) {
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data));
 }
 
-async function poll() {
-  try {
-    const res = await fetch("/api/feed");
-    const data = await res.json();
-    renderFeed(data);
-  } catch (_) {
-    els.scanLine.textContent = "couldn't reach the firehose — retrying…";
-  }
-}
-
-poll();
-setInterval(poll, POLL_MS);
+const capsule = new CapsuleIndex({ onUpdate: renderFeed });
+capsule.start();
 </script>
 </body>
 </html>
