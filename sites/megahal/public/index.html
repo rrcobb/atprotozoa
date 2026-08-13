@@ -102,6 +102,13 @@
       #youStatus { color: var(--muted); font-size: 0.76rem; }
       #youStatus.bad { color: var(--bad); }
       #youStatus.good { color: var(--good); }
+      .wmKeyLabel { margin-left: auto; }
+      #wmKey {
+        font-family: var(--mono); font-size: 0.82rem; color: var(--ink);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.32rem 0.5rem; width: 11rem;
+      }
+      #wmKey:focus { outline: none; border-color: var(--accent); }
       .brainblurb {
         color: var(--muted); font-size: 0.78rem; margin: 0 0 1.1rem;
         padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
@@ -154,6 +161,37 @@
       #sendBtn:hover { background: #1450b0; }
       #sendBtn:disabled { opacity: 0.5; cursor: default; }
 
+      /* watermark checker */
+      details#wmCheck {
+        border: 1px solid var(--faint); border-radius: 8px;
+        padding: 0.7rem 0.9rem; margin: 0 0 2.5rem; font-size: 0.82rem;
+      }
+      details#wmCheck summary {
+        cursor: pointer; color: var(--muted); font-size: 0.8rem;
+        outline: none;
+      }
+      details#wmCheck summary:hover { color: var(--ink); }
+      details#wmCheck[open] summary { margin-bottom: 0.7rem; color: var(--ink); }
+      #wmCheckText {
+        width: 100%; min-height: 4.5rem; resize: vertical;
+        font-family: var(--mono); font-size: 0.85rem;
+        padding: 0.5rem 0.6rem; border: 1px solid var(--faint); border-radius: 6px;
+        color: var(--ink); background: var(--bg); box-sizing: border-box;
+      }
+      #wmCheckText:focus { outline: none; border-color: var(--accent); }
+      #wmCheckBtn {
+        font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: #fff;
+        background: var(--accent); border: none; border-radius: 6px;
+        padding: 0.4rem 0.9rem; cursor: pointer; margin: 0.55rem 0 0.2rem;
+      }
+      #wmCheckBtn:hover { background: #1450b0; }
+      #wmCheckResult {
+        white-space: pre-wrap; font-family: var(--mono); font-size: 0.78rem;
+        color: var(--ink); margin: 0.6rem 0 0; line-height: 1.6;
+      }
+      #wmCheckResult .hit { color: var(--good); }
+      #wmCheckResult .miss { color: var(--muted); }
+
       footer {
         margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
       }
@@ -198,6 +236,14 @@
         <span id="youStatus"></span>
       </div>
 
+      <div class="brainrow">
+        <label for="wmSelect">watermark</label>
+        <select id="wmSelect"></select>
+        <label for="wmKey" class="wmKeyLabel">key</label>
+        <input id="wmKey" type="text" value="megahal-bisks-net" autocomplete="off" spellcheck="false" />
+      </div>
+      <p class="brainblurb" id="wmBlurb"></p>
+
       <div class="chat" id="chat">
         <div class="msg empty" id="emptyState">say something to get started</div>
       </div>
@@ -207,6 +253,15 @@
         <button id="sendBtn" type="submit">send</button>
       </form>
 
+      <details id="wmCheck">
+        <summary>check any text for a megahal watermark</summary>
+        <textarea id="wmCheckText" placeholder="paste a reply (or anything else) here…"></textarea>
+        <div>
+          <button id="wmCheckBtn" type="button">check</button>
+        </div>
+        <div id="wmCheckResult"></div>
+      </details>
+
       <footer>
         the nine fixed brains are original pastiche text, not the real
         scripts/books/posts; the "you" brain is the one exception — it trains on an
@@ -214,7 +269,13 @@
         nothing stored server-side. the engine itself is a fresh
         reimplementation, not a port, of
         <a href="https://github.com/kranzky/megahal" target="_blank" rel="noopener">kranzky/megahal</a>
-        (Jason Hutchens' 1998 Loebner-winning chatterbot, rewritten in Ruby in 2014)
+        (Jason Hutchens' 1998 Loebner-winning chatterbot, rewritten in Ruby in 2014).
+        the <b>watermark</b> dropdown adds real (if toy-scale) versions of text
+        watermarking techniques surveyed in
+        <a href="https://dl.acm.org/doi/10.1145/3691626" target="_blank" rel="noopener">Liu, Pan et al.'s "A Survey of Text Watermarking in the Era of Large Language Models"</a> —
+        the <b>key</b> field is deliberately public, same as everything else in
+        this page's source, so it doubles as a demo of why every real
+        watermarking scheme needs to keep its key off the client.
         · sibling of <a href="https://thisminute.bisks.net">this minute's post</a>
         · a <a href="https://bisks.net">bisks.net</a> experiment
       </footer>
@@ -225,6 +286,9 @@
       import { buildBrain, learn, reply } from "./lib/megahal.js";
       import { BRAINS } from "./lib/brains.js";
       import { fetchAuthorLines } from "./lib/you-brain.js";
+      import {
+        WATERMARK_MODES, DEFAULT_KEY, pickBiased, invisibleEncode, lexicalEncode, detectAll,
+      } from "./lib/watermark.js";
 
       const brainSelect = document.getElementById("brainSelect");
       const brainBlurb = document.getElementById("brainBlurb");
@@ -240,6 +304,24 @@
       const youHandle = document.getElementById("youHandle");
       const youLoad = document.getElementById("youLoad");
       const youStatus = document.getElementById("youStatus");
+      const wmSelect = document.getElementById("wmSelect");
+      const wmBlurb = document.getElementById("wmBlurb");
+      const wmKey = document.getElementById("wmKey");
+      const wmCheckText = document.getElementById("wmCheckText");
+      const wmCheckBtn = document.getElementById("wmCheckBtn");
+      const wmCheckResult = document.getElementById("wmCheckResult");
+
+      for (const key of Object.keys(WATERMARK_MODES)) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = WATERMARK_MODES[key].label;
+        wmSelect.appendChild(opt);
+      }
+      function renderWmInfo() {
+        wmBlurb.textContent = WATERMARK_MODES[wmSelect.value].blurb;
+      }
+      wmSelect.addEventListener("change", renderWmInfo);
+      renderWmInfo();
 
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(youHandle);
 
@@ -326,7 +408,14 @@
           return;
         }
         if (learnToggle.checked) learn(brain, userText);
-        const { text } = reply(brain, userText);
+
+        const mode = wmSelect.value;
+        const key = wmKey.value.trim() || DEFAULT_KEY;
+        const pickFn = mode === "stat" ? (options, context) => pickBiased(options, key, context) : undefined;
+        let { text } = reply(brain, userText, pickFn);
+        if (mode === "invisible") text = invisibleEncode(text, "MHWM:" + currentBrain);
+        else if (mode === "lexical") text = lexicalEncode(text, key);
+
         appendMessage("bot", text, BRAINS[currentBrain].label);
       }
 
@@ -403,6 +492,36 @@
           sendBtn.disabled = false;
           inputText.focus();
         }, 220);
+      });
+
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[c]);
+      }
+
+      function fmtVerdict(label, r) {
+        const cls = r.detected ? "hit" : "miss";
+        const verdict = r.detected ? "likely watermarked" : "no confident signal";
+        return `${label}: ${r.n} checked, ${(r.fraction * 100).toFixed(0)}% matched, z=${r.z.toFixed(2)} — <span class="${cls}">${verdict}</span>`;
+      }
+
+      wmCheckBtn.addEventListener("click", () => {
+        const text = wmCheckText.value;
+        if (!text.trim()) {
+          wmCheckResult.textContent = "paste some text above first.";
+          return;
+        }
+        const key = wmKey.value.trim() || DEFAULT_KEY;
+        const result = detectAll(text, key);
+        const lines = [
+          fmtVerdict("statistical (green-list)", result.stat),
+          result.invisible
+            ? `invisible (zero-width): <span class="hit">found payload "${escapeHtml(result.invisible)}"</span>`
+            : `invisible (zero-width): <span class="miss">none found</span>`,
+          fmtVerdict("lexical (synonym)", result.lexical),
+        ];
+        wmCheckResult.innerHTML = lines.join("<br>");
       });
 
       brainSelect.value = currentBrain;

@@ -126,7 +126,10 @@ function extractKeywords(brain, text) {
   return words;
 }
 
-function walk(chain2, chain1, seed, maxWords) {
+// pickFn(options, context) defaults to a plain uniform pick; passing a
+// biased one (see watermark.js's pickBiased) is how the statistical
+// watermark mode nudges generation without changing this walk's shape.
+function walk(chain2, chain1, seed, maxWords, pickFn) {
   const out = [seed];
   const seenContexts = new Set(); // a revisited 2-word context means the walk looped — stop instead of repeating
   while (out.length < maxWords) {
@@ -139,7 +142,7 @@ function walk(chain2, chain1, seed, maxWords) {
     }
     if (!options || !options.length) options = chain1.get(out[out.length - 1]);
     if (!options || !options.length) break;
-    const next = pick(options);
+    const next = pickFn(options, out[out.length - 1]);
     if (next === BOUNDARY) break;
     out.push(next);
   }
@@ -148,9 +151,9 @@ function walk(chain2, chain1, seed, maxWords) {
 
 const MAX_HALF = 14; // words grown in each direction from the seed — bounds every walk, so generation always terminates
 
-function generateOnce(brain, seed) {
-  const forward = walk(brain.forward2, brain.forward1, seed, MAX_HALF);
-  const backwardWalk = walk(brain.backward2, brain.backward1, seed, MAX_HALF);
+function generateOnce(brain, seed, pickFn) {
+  const forward = walk(brain.forward2, brain.forward1, seed, MAX_HALF, pickFn);
+  const backwardWalk = walk(brain.backward2, brain.backward1, seed, MAX_HALF, pickFn);
   const before = backwardWalk.slice(1).reverse();
   return [...before, ...forward];
 }
@@ -174,20 +177,23 @@ const ATTEMPTS = 16;
 
 // Generates a reply to `text` from `brain`. Returns { text, seed } — `seed`
 // is the keyword the reply was built around, handy for a "why did it say
-// that" hint in the UI.
-export function reply(brain, text) {
+// that" hint in the UI. `pickFn`, if passed, replaces the uniform word pick
+// used while walking the chain — the statistical watermark mode (see
+// watermark.js) passes a biased one here so the bias lands in every reply.
+export function reply(brain, text, pickFn) {
   if (brain.dict.size === 0) return { text: "…", seed: null };
 
   const keywords = extractKeywords(brain, text);
   const dictWords = [...brain.dict.keys()].filter(isWordToken);
   if (!dictWords.length) return { text: "…", seed: null };
+  const walkPick = pickFn || ((options) => pick(options));
 
   let best = null;
   let bestScore = -Infinity;
   let bestSeed = null;
   for (let i = 0; i < ATTEMPTS; i++) {
     const seed = keywords.length ? pick(keywords.slice(0, Math.max(3, keywords.length))) : pick(dictWords);
-    const words = generateOnce(brain, seed);
+    const words = generateOnce(brain, seed, walkPick);
     const s = score(brain, words, keywords.length ? keywords : [seed]);
     if (s > bestScore) {
       bestScore = s;
