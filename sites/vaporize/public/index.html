@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vaporize — turn your moots to dust with a laser beam — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle, load its moots (mutuals), and vaporize them one by one — a laser beam sweeps across their avatar and disintegrates it into drifting dust."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vaporize.bisks.net/" />
+    <meta property="og:title" content="vaporize — turn your moots to dust with a laser beam" />
+    <meta
+      property="og:description"
+      content="Load a Bluesky handle's moots onto a grid, then vaporize them — a laser beam sweeps across each avatar and blows it apart into fading, drifting dust."
+    />
+    <meta property="og:image" content="https://vaporize.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A grid of avatar circles, one mid-disintegration behind a glowing laser beam, dust drifting away." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="vaporize — turn your moots to dust with a laser beam" />
+    <meta
+      name="twitter:description"
+      content="Load a Bluesky handle's moots, then vaporize them one by one with a laser beam and high-quality disintegration effects."
+    />
+    <meta name="twitter:image" content="https://vaporize.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --panel: #12151b;
+        --panel2: #171b22;
+        --ink: #e8edf2;
+        --muted: #8792a3;
+        --faint: #232833;
+        --accent: #6ff0ff;
+        --danger: #ff3b6b;
+        --good: #39f2a0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(circle at 15% 0%, rgba(111,240,255,0.06), transparent 45%),
+          radial-gradient(circle at 85% 20%, rgba(255,59,107,0.05), transparent 40%);
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.1rem; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.6rem 0 2rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl {
+        display: block; font-size: 0.78rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 4px; background: var(--panel); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: #4d5666; }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; color: var(--muted); }
+      .msg.err { color: var(--danger); }
+      .msg.ok { color: var(--good); }
+
+      button {
+        font-family: inherit; font-size: 0.88rem; padding: 0.6rem 0.9rem;
+        border: 1px solid var(--faint); background: var(--panel2); color: var(--ink);
+        border-radius: 4px; cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.go { background: var(--accent); color: #041014; border-color: var(--accent); font-weight: 700; }
+      button.go:hover:not(:disabled) { background: #8ff5ff; }
+      button.danger { background: var(--danger); color: #1a0308; border-color: var(--danger); font-weight: 700; }
+      button.danger:hover:not(:disabled) { background: #ff6b8f; }
+      button.ghost { background: transparent; }
+
+      #range { display: none; margin-top: 0.6rem; }
+      #range.on { display: block; }
+
+      .toolbar {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.2rem;
+        border-bottom: 1px dashed var(--faint); padding-bottom: 1rem;
+      }
+      .stat { font-size: 0.85rem; color: var(--muted); }
+      .stat b { color: var(--ink); }
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+      .grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 0.9rem;
+      }
+      .card {
+        position: relative; display: flex; flex-direction: column; align-items: center;
+        gap: 0.4rem; padding: 0.7rem 0.4rem 0.6rem; border: 1px solid var(--faint);
+        border-radius: 8px; background: var(--panel); text-align: center;
+      }
+      .card.done { border-color: rgba(255,59,107,0.35); }
+      .avwrap { position: relative; width: 68px; height: 68px; }
+      .ava {
+        width: 68px; height: 68px; border-radius: 50%; object-fit: cover;
+        background: var(--panel2); display: block;
+      }
+      .card .hn {
+        font-size: 0.68rem; color: var(--muted); max-width: 100%;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .raybtn {
+        padding: 0.3rem 0.55rem; font-size: 0.78rem; border-color: var(--danger);
+        color: var(--danger); background: transparent;
+      }
+      .raybtn:hover:not(:disabled) { background: var(--danger); color: #1a0308; }
+      .gone {
+        display: none; font-size: 0.68rem; color: var(--muted);
+        letter-spacing: 0.08em; text-transform: uppercase;
+      }
+      .card.busy .raybtn, .card.done .raybtn { display: none; }
+      .card.done .gone { display: block; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>vaporize <span class="slash">· turn your moots to dust with a laser beam</span></h1>
+      <p class="intro">
+        Type a Bluesky handle. Everyone it <b>follows back</b> — its
+        <b>moots</b> — gets loaded onto a grid. Hit the ray on anyone you'd
+        like gone: a beam sweeps across their avatar and disintegrates it,
+        tile by tile, into drifting dust. Purely cosmetic — nobody actually
+        gets unfollowed.
+      </p>
+
+      <form class="finder" id="form" autocomplete="off">
+        <label class="lbl" for="handle">a bluesky handle</label>
+        <div class="searchrow">
+          <input
+            type="text"
+            id="handle"
+            placeholder="e.g. cee.wtf"
+            spellcheck="false"
+          />
+          <button class="go" id="load" type="submit">load moots</button>
+        </div>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login, nothing saved.</p>
+
+      <section id="range">
+        <div class="toolbar">
+          <div class="stat" id="stat">0 / 0 vaporized</div>
+          <div class="actions">
+            <button class="danger" id="vapAll" type="button">⚡ vaporize all</button>
+            <button class="ghost" id="shareBtn" type="button" style="display:none">share the carnage</button>
+          </div>
+        </div>
+        <div class="grid" id="grid"></div>
+      </section>
+
+      <footer>
+        moots are mutuals — the follow-back set. the beam is entirely
+        client-side (canvas, no server round-trip) and never touches your
+        actual follows — this is a laser show, not a real unfollow button.
+        sibling of <a href="https://dial-a-mutual.bisks.net/">dial a mutual</a>
+        and <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { moots, cleanHandle } from "./lib/moots.js";
+      import { vaporize } from "./lib/vaporize-fx.js";
+
+      const form = document.getElementById("form");
+      const input = document.getElementById("handle");
+      const msg = document.getElementById("msg");
+      const loadBtn = document.getElementById("load");
+      const rangeSection = document.getElementById("range");
+      const grid = document.getElementById("grid");
+      const stat = document.getElementById("stat");
+      const vapAllBtn = document.getElementById("vapAll");
+      const shareBtn = document.getElementById("shareBtn");
+
+      const TINTS = ["#1a5fd0","#1f8a4c","#d81e6a","#e0a400","#8e44ad",
+        "#c0392b","#0f9b9b","#e2711d","#5566dd","#2c8c3c"];
+      function tintFor(did) {
+        let h = 0;
+        for (const c of did || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+      function initialsFor(p) {
+        const src = p.displayName || p.handle || "?";
+        return src.trim().slice(0, 2).toUpperCase();
+      }
+      function placeholderSrc(p) {
+        const bg = tintFor(p.did);
+        const label = initialsFor(p).replace(/[&<>"']/g, "");
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">
+          <rect width="120" height="120" rx="60" fill="${bg}"/>
+          <text x="60" y="76" font-family="monospace" font-weight="700" font-size="46"
+            fill="rgba(255,255,255,.92)" text-anchor="middle">${label}</text>
+        </svg>`;
+        return "data:image/svg+xml," + encodeURIComponent(svg);
+      }
+
+      let state = null; // { self, pool }
+      let vaporizedCount = 0;
+
+      function escapeHtml(s) {
+        return (s || "").replace(/[&<>"']/g, (c) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+        })[c]);
+      }
+
+      function updateStat() {
+        stat.innerHTML = `<b>${vaporizedCount}</b> / ${state.pool.length} vaporized`;
+        shareBtn.style.display = vaporizedCount > 0 ? "" : "none";
+      }
+
+      function renderGrid() {
+        grid.innerHTML = "";
+        for (const p of state.pool) {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.dataset.did = p.did;
+
+          const avwrap = document.createElement("div");
+          avwrap.className = "avwrap";
+          const img = document.createElement("img");
+          img.className = "ava";
+          img.loading = "lazy";
+          img.alt = "";
+          img.src = p.avatar || placeholderSrc(p);
+          img.addEventListener("error", () => { img.src = placeholderSrc(p); }, { once: true });
+          avwrap.appendChild(img);
+
+          const hn = document.createElement("div");
+          hn.className = "hn";
+          hn.textContent = "@" + p.handle.replace(/\.bsky\.social$/, "");
+
+          const ray = document.createElement("button");
+          ray.type = "button";
+          ray.className = "raybtn";
+          ray.textContent = "⚡ vaporize";
+          ray.addEventListener("click", () => vaporizeCard(card, img, ray));
+
+          const gone = document.createElement("div");
+          gone.className = "gone";
+          gone.textContent = "vaporized";
+
+          card.append(avwrap, hn, ray, gone);
+          grid.appendChild(card);
+        }
+      }
+
+      function waitForImage(img) {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise((resolve) => {
+          const done = () => resolve();
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+          setTimeout(done, 2500); // don't hang forever on a slow/broken load
+        });
+      }
+
+      async function vaporizeCard(card, img, ray) {
+        if (card.dataset.done) return;
+        card.dataset.done = "1";
+        ray.disabled = true;
+        card.classList.add("busy");
+        await waitForImage(img);
+        if (!(img.naturalWidth > 0)) {
+          // avatar truly failed to load even after the error fallback swap —
+          // nothing to disintegrate, just mark it gone.
+        } else {
+          await vaporize(img, {});
+        }
+        card.classList.add("done");
+        vaporizedCount++;
+        updateStat();
+      }
+
+      vapAllBtn.addEventListener("click", () => {
+        const cards = [...grid.querySelectorAll(".card")].filter((c) => !c.dataset.done);
+        cards.forEach((card, i) => {
+          setTimeout(() => {
+            const img = card.querySelector(".ava");
+            const ray = card.querySelector(".raybtn");
+            vaporizeCard(card, img, ray);
+          }, i * 110);
+        });
+      });
+
+      shareBtn.addEventListener("click", () => {
+        const text = `⚡ vaporized ${vaporizedCount} of @${state.handle}'s moots with a laser beam 💨 https://vaporize.bisks.net/`;
+        const url = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        window.open(url, "_blank", "noopener");
+      });
+
+      input.addEventListener("input", () => {
+        msg.className = "msg";
+        msg.textContent = "reads Bluesky's public graph in your browser — no login, nothing saved.";
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const h = input.value.trim();
+        if (!h) { input.focus(); return; }
+        loadBtn.disabled = true;
+        msg.className = "msg";
+        msg.textContent = "resolving @" + cleanHandle(h) + "…";
+        try {
+          const res = await moots(h, {
+            onStep: (s) => { msg.className = "msg"; msg.textContent = s; },
+          });
+          if (!res.pool.length) {
+            msg.className = "msg err";
+            msg.textContent = `@${res.handle} has no moots — nobody to vaporize.`;
+            loadBtn.disabled = false;
+            return;
+          }
+          state = res;
+          vaporizedCount = 0;
+          try { localStorage.setItem("vaporize:handle", h); } catch {}
+          msg.className = "msg ok";
+          msg.textContent = `loaded @${res.handle}'s moots — ${res.pool.length} in the blast radius.`;
+          renderGrid();
+          updateStat();
+          rangeSection.classList.add("on");
+          rangeSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          msg.className = "msg err";
+          msg.textContent =
+            err && err.status === 400
+              ? "couldn't find that handle. check the spelling?"
+              : "couldn't load that one — " + (err.message || "try again") + ".";
+        } finally {
+          loadBtn.disabled = false;
+        }
+      });
+
+      const initial = new URLSearchParams(location.search).get("h");
+      if (initial) {
+        input.value = initial;
+        form.requestSubmit();
+      } else {
+        try {
+          const saved = localStorage.getItem("vaporize:handle");
+          if (saved) input.value = saved;
+        } catch {}
+      }
+    </script>
+  </body>
+</html>
