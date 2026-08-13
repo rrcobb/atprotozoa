@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>recurgence — a fractal you can fall through</title>
+<meta name="description" content="Paint a 3×3 seed pattern and it recurses forever: every kept cell holds an exact copy of the whole. Click any cell to zoom in — there's no precision wall, the descent never blurs." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="recurgence — a fractal you can fall through" />
+<meta property="og:description" content="Paint a 3×3 seed and watch it recurse without end. Generated fresh at every level, so the zoom never blurs." />
+<meta property="og:image" content="https://recurgence.bisks.net/og.png" />
+<meta property="og:url" content="https://recurgence.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="recurgence — a fractal you can fall through" />
+<meta name="twitter:description" content="Paint a 3×3 seed and watch it recurse without end. Generated fresh at every level, so the zoom never blurs." />
+<meta name="twitter:image" content="https://recurgence.bisks.net/og.png" />
+
+<style>
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("fonts/JetBrainsMono.ttf") format("truetype");
+    font-display: swap;
+  }
+  :root { --bg:#070a07; --panel:#0d120d; --ink:#c9e8c9; --dim:#5f7a5f; --acc:#59d977; --line:#1d2b1d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+  .wrap { max-width:720px; margin:0 auto; padding:1.5rem 1rem 4rem; }
+  h1 { font-size:1.25rem; margin:0; color:var(--acc); letter-spacing:0.04em; }
+  h1 .cur { animation:blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .tag { color:var(--dim); font-size:0.82rem; margin:0.4rem 0 1.1rem; line-height:1.55; }
+  .tag a { color:var(--dim); }
+  canvas#view { width:100%; aspect-ratio:1; display:block; background:#050705;
+    border:1px solid var(--line); border-radius:6px; cursor:crosshair; touch-action:none; }
+  .row { display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center; margin-top:0.8rem; }
+  button, a.share { font:inherit; font-size:0.8rem; background:var(--panel); color:var(--ink);
+    border:1px solid var(--line); border-radius:4px; padding:0.42rem 0.7rem; cursor:pointer; }
+  button:hover, a.share:hover { border-color:var(--acc); color:var(--acc); }
+  button.on { background:var(--acc); color:#04140a; border-color:var(--acc); }
+  a.share { text-decoration:none; display:inline-block; }
+  .editor { display:grid; grid-template-columns:repeat(3, 34px); grid-auto-rows:34px; gap:4px; }
+  .editor button { padding:0; border-radius:3px; background:#101810; }
+  .editor button.kept { background:var(--acc); }
+  .lbl { font-size:0.72rem; color:var(--dim); }
+  #depth { margin-left:auto; font-size:0.72rem; color:var(--dim); }
+  footer { margin-top:1.6rem; font-size:0.72rem; color:var(--dim); }
+  footer a { color:var(--dim); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>recurgence<span class="cur">▊</span></h1>
+    <p class="tag">paint a 3×3 seed; every kept cell contains an exact copy of the whole pattern,
+      forever. click a cell to fall into it — each level is generated fresh, never sampled,
+      so the descent doesn't blur. a <a href="https://bisks.net">bisks.net</a> toy.</p>
+
+    <canvas id="view" width="1400" height="1400" aria-label="recursive fractal — click a kept cell to zoom into it"></canvas>
+
+    <div class="row">
+      <span class="lbl">seed</span>
+      <div class="editor" id="editor"></div>
+      <button id="random">random seed</button>
+      <button id="reset">reset view</button>
+      <button id="auto">auto-recurse</button>
+      <span id="depth">depth 0</span>
+    </div>
+
+    <div class="row">
+      <a class="share" id="shareBsky" target="_blank" rel="noopener">share on bluesky</a>
+    </div>
+
+    <footer>
+      built by <a href="https://buildthis.bisks.net">@buildthis</a> for the theme box —
+      “more of this type of thing, which themselves create more.” ·
+      <a href="https://bisks.net">more toys</a>
+    </footer>
+  </div>
+
+<script>
+(() => {
+  const cv = document.getElementById("view");
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  const MIN_PX = 7;            // cells smaller than this render solid
+  const MAX_DIVES_BEFORE_RESPAWN = 26;  // f64 stays exact far past this; respawn anyway for the bit
+
+  let seed = [1,1,1, 1,0,1, 1,1,1];    // 3×3, row-major; 1 = kept
+  let view = home();                    // {cx, cy, s}: centre in unit space, px per unit
+  let anim = null;                      // {from, to, t0, dur}
+  let auto = false, autoTimer = 0, dives = 0;
+
+  function home() { return { cx: 0.5, cy: 0.5, s: Math.min(W, H) * 0.92 }; }
+  const keptCount = () => seed.reduce((a, b) => a + b, 0);
+
+  // unit space: the whole fractal lives in [0,1]². cell -> screen rect.
+  function rect(x, y, size) {
+    return [ (x - view.cx) * view.s + W / 2, (y - view.cy) * view.s + H / 2, size * view.s ];
+  }
+  function color(depth, solid) {
+    const h = 128 + depth * 14;        // phosphor green drifting toward teal/blue
+    const l = solid ? 26 + Math.min(depth * 3, 30) : 45;
+    return `hsl(${h} 70% ${l}%)`;
+  }
+
+  function drawCell(x, y, size, depth) {
+    const [sx, sy, ss] = rect(x, y, size);
+    if (sx > W || sy > H || sx + ss < 0 || sy + ss < 0) return;
+    if (ss < MIN_PX || depth > 64) { ctx.fillStyle = color(depth, true); ctx.fillRect(sx, sy, ss + 1, ss + 1); return; }
+    const sub = size / 3;
+    for (let i = 0; i < 9; i++) {
+      const dx = i % 3, dy = (i / 3) | 0;
+      if (seed[i]) drawCell(x + dx * sub, y + dy * sub, sub, depth + 1);
+      else { // void cell
+        const [vx, vy, vs] = rect(x + dx * sub, y + dy * sub, sub);
+        ctx.fillStyle = "#0a0f0a"; ctx.fillRect(vx, vy, vs + 1, vs + 1);
+        ctx.strokeStyle = "#14201466"; ctx.strokeRect(vx, vy, vs, vs);
+      }
+    }
+  }
+
+  function render() {
+    ctx.fillStyle = "#050705"; ctx.fillRect(0, 0, W, H);
+    drawCell(0, 0, 1, 0);
+    const d = Math.max(0, Math.round(Math.log(view.s / home().s) / Math.log(3)));
+    document.getElementById("depth").textContent =
+      "depth " + d + (dives ? " · dive " + dives : "");
+  }
+
+  function frame(t) {
+    if (anim) {
+      const k = Math.min(1, (t - anim.t0) / anim.dur);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2; // easeInOutCubic
+      view = {
+        cx: anim.from.cx + (anim.to.cx - anim.from.cx) * e,
+        cy: anim.from.cy + (anim.to.cy - anim.from.cy) * e,
+        s:  anim.from.s  * Math.pow(anim.to.s / anim.from.s, e),
+      };
+      if (k >= 1) anim = null;
+    }
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function zoomTo(to, dur = 650) { anim = { from: { ...view }, to, t0: performance.now(), dur }; }
+
+  // deepest kept cell under a unit-space point, starting from the root
+  function descend(u, v) {
+    let x = 0, y = 0, size = 1;
+    for (;;) {
+      const sub = size / 3;
+      const i = Math.min(2, Math.max(0, ((u - x) / sub) | 0));
+      const j = Math.min(2, Math.max(0, ((v - y) / sub) | 0));
+      if (!seed[j * 3 + i]) return { x, y, size };            // parent is the zoom target
+      x += i * sub; y += j * sub; size = sub;
+      if (size * view.s < MIN_PX * 4) return { x, y, size };  // small enough
+    }
+  }
+
+  cv.addEventListener("click", (e) => {
+    const r = cv.getBoundingClientRect();
+    const u = (e.clientX - r.left) / r.width * W, v = (e.clientY - r.top) / r.height * H;
+    const pu = (u - W / 2) / view.s + view.cx, pv = (v - H / 2) / view.s + view.cy;
+    const c = descend(pu, pv);
+    zoomTo({ cx: c.x + c.size / 2, cy: c.y + c.size / 2, s: Math.min(W, H) * 0.92 / c.size });
+  });
+
+  cv.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const f = Math.exp(-e.deltaY * 0.0012);
+    const r = cv.getBoundingClientRect();
+    const u = (e.clientX - r.left) / r.width * W, v = (e.clientY - r.top) / r.height * H;
+    const pu = (u - W / 2) / view.s + view.cx, pv = (v - H / 2) / view.s + view.cy;
+    const s2 = Math.min(Math.max(view.s * f, home().s * 0.6), home().s * Math.pow(3, 30));
+    // keep the point under the cursor fixed
+    view = { s: s2, cx: pu - (u - W / 2) / s2, cy: pv - (v - H / 2) / s2 };
+  }, { passive: false });
+
+  let drag = null;
+  cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const r = cv.getBoundingClientRect();
+    view.cx -= (e.clientX - drag.x) / r.width * W / view.s;
+    view.cy -= (e.clientY - drag.y) / r.height * H / view.s;
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  cv.addEventListener("pointerup", () => { drag = null; });
+
+  // --- auto-recurse: keep falling into the kept cell under the centre ---
+  function autoStep() {
+    if (!auto) return;
+    if (dives >= MAX_DIVES_BEFORE_RESPAWN) { dives = 0; zoomTo(home(), 1200); return; }
+    const c = descend(view.cx, view.cy);
+    // fall one level deeper than wherever we are: pick the kept child nearest the centre
+    const sub = c.size / 3;
+    let best = null, bd = Infinity;
+    for (let i = 0; i < 9; i++) {
+      if (!seed[i]) continue;
+      const ccx = c.x + (i % 3) * sub + sub / 2, ccy = c.y + ((i / 3) | 0) * sub + sub / 2;
+      const d = (ccx - view.cx) ** 2 + (ccy - view.cy) ** 2;
+      if (d < bd) { bd = d; best = { cx: ccx, cy: ccy }; }
+    }
+    if (!best) return;
+    dives++;
+    zoomTo({ ...best, s: view.s * 3 }, 1400);
+  }
+  setInterval(() => { if (auto && !anim) autoStep(); }, 300);
+
+  // --- seed editor ---
+  const ed = document.getElementById("editor");
+  const cells = [];
+  for (let i = 0; i < 9; i++) {
+    const b = document.createElement("button");
+    b.className = seed[i] ? "kept" : "";
+    b.setAttribute("aria-label", "toggle seed cell " + (i + 1));
+    b.addEventListener("click", () => {
+      seed[i] = seed[i] ? 0 : 1;
+      if (keptCount() === 0) { seed[i] = 1; return; }  // a void seed draws nothing — keep at least one
+      b.className = seed[i] ? "kept" : "";
+    });
+    ed.appendChild(b); cells.push(b);
+  }
+  document.getElementById("random").addEventListener("click", () => {
+    seed = seed.map(() => (Math.random() < 0.62 ? 1 : 0));
+    if (keptCount() === 0) seed[4] = 1;
+    cells.forEach((b, i) => (b.className = seed[i] ? "kept" : ""));
+  });
+  document.getElementById("reset").addEventListener("click", () => { dives = 0; zoomTo(home(), 700); });
+  document.getElementById("auto").addEventListener("click", (e) => {
+    auto = !auto; e.target.className = auto ? "on" : "";
+  });
+
+  const shareText = "i painted a 3×3 seed and fell through it about twenty levels — it never blurs, it just keeps recursing: https://recurgence.bisks.net";
+  document.getElementById("shareBsky").href =
+    "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  requestAnimationFrame(frame);
+})();
+</script>
+<script defer src="https://footfall.bisks.net/beacon.js" data-site="recurgence"></script>
+</body>
+</html>
