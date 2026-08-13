@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>chartjunk — the only way out is through the pie chart</title>
+<meta name="description" content="A chamber of deliberately terrible charts and graphs. The door only opens once you've appreciated enough of them." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="chartjunk — the only way out is through the pie chart" />
+<meta property="og:description" content="A chamber of deliberately terrible charts and graphs. The door only opens once you've appreciated enough of them." />
+<meta property="og:url" content="https://chartjunk.bisks.net/" />
+<meta property="og:image" content="https://chartjunk.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="chartjunk: an exploded 3D pie chart and fake-cylinder bars, in clashing neon colors, over a dark background." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://chartjunk.bisks.net/og.png" />
+
+<style>
+  :root{
+    --bg:#160c26; --bg2:#20122f; --fg:#fdf6ff; --dim:#c9b7e6;
+    --hot:#ff2fb0; --lime:#c6ff2f; --cyan:#2ff5ff; --orange:#ff8a2f; --gold:#ffd76a;
+    --card:#241533; --border:#42305f;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100vh;
+    background:
+      radial-gradient(60% 50% at 15% 0%, #3a1a55, transparent),
+      radial-gradient(50% 40% at 95% 10%, #3a0e2c, transparent),
+      var(--bg);
+    color:var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "Courier New", monospace;
+    display:flex; flex-direction:column; align-items:center;
+    overflow-x:hidden;
+    transition: filter .2s ease;
+  }
+  body.shake{ animation: shake .32s ease; }
+  @keyframes shake{
+    0%,100%{ transform: translate(0,0); }
+    20%{ transform: translate(-6px,2px); }
+    40%{ transform: translate(5px,-3px); }
+    60%{ transform: translate(-4px,3px); }
+    80%{ transform: translate(3px,-2px); }
+  }
+
+  a{ color: var(--gold); }
+
+  /* --- top marquee, an annoyance nobody asked for --- */
+  .marquee{
+    width:100%; background:#0e0718; border-bottom:1px solid var(--border);
+    overflow:hidden; white-space:nowrap; font-size:13px; color:var(--dim);
+    padding:6px 0;
+  }
+  .marquee span{
+    display:inline-block; padding-left:100%;
+    animation: scroll 22s linear infinite;
+  }
+  @keyframes scroll{
+    0%{ transform: translateX(0); }
+    100%{ transform: translateX(-100%); }
+  }
+
+  header{ text-align:center; padding: 28px 16px 8px; max-width: 720px; }
+  h1{
+    font-size: clamp(32px, 7vw, 56px); margin: 0 0 6px;
+    letter-spacing: -1px;
+    background: linear-gradient(90deg, var(--gold), var(--hot) 50%, var(--cyan));
+    -webkit-background-clip: text; background-clip:text; color:transparent;
+  }
+  .subtitle{ color: var(--gold); font-size:15px; margin: 0 0 10px; }
+  .blurb{ color: var(--dim); font-size:13.5px; line-height:1.5; margin: 0 auto; max-width:600px; }
+  .blurb code{ color: var(--cyan); }
+
+  main{ width:100%; max-width:760px; padding: 10px 16px 40px; display:flex; flex-direction:column; align-items:center; }
+
+  /* --- gate --- */
+  #gate{
+    margin-top: 18px; padding: 22px; border:1px dashed var(--border); border-radius:14px;
+    background: var(--card); text-align:center; max-width: 520px;
+  }
+  #gate p{ color:var(--dim); font-size:13.5px; line-height:1.5; }
+  .btn{
+    font-family: inherit; font-weight:700; font-size:15px; cursor:pointer;
+    border:none; border-radius:10px; padding: 12px 20px;
+    background: linear-gradient(90deg, var(--hot), var(--orange));
+    color:#1b0f2e; box-shadow: 0 4px 0 #7a1550;
+  }
+  .btn:active{ transform: translateY(2px); box-shadow: 0 2px 0 #7a1550; }
+  .btn.secondary{ background: var(--card); color:var(--fg); border:1px solid var(--border); box-shadow:none; }
+  .btn.small{ padding:8px 12px; font-size:12.5px; }
+
+  /* --- chamber --- */
+  #chamber{ display:none; width:100%; flex-direction:column; align-items:center; }
+  #chamber.on{ display:flex; }
+
+  .stage{
+    position:relative; width:100%; max-width: 680px;
+    background: var(--card); border:1px solid var(--border); border-radius: 16px;
+    padding: 16px; margin-top: 10px;
+  }
+  .chart-title{
+    font-family: "Comic Sans MS", "Chalkboard SE", cursive;
+    color: var(--fg); font-size: 20px; text-align:center; margin: 0 0 2px;
+    text-shadow: 2px 2px 0 var(--hot), -1px -1px 0 var(--cyan);
+  }
+  .chart-sub{ text-align:center; color:var(--dim); font-size:11.5px; margin-bottom:8px; }
+  canvas#chart{
+    width:100%; height:auto; display:block; border-radius:10px;
+    background: repeating-linear-gradient(45deg, #1b1029, #1b1029 10px, #1e1230 10px, #1e1230 20px);
+    animation: huecycle 9s linear infinite;
+  }
+  @keyframes huecycle{
+    0%{ filter: hue-rotate(0deg) saturate(1); }
+    50%{ filter: hue-rotate(18deg) saturate(1.15); }
+    100%{ filter: hue-rotate(0deg) saturate(1); }
+  }
+
+  .legend{ display:flex; flex-wrap:wrap; gap:8px 14px; justify-content:center; margin-top:10px; font-size:11.5px; color:var(--dim); }
+  .legend i{ display:inline-block; width:10px; height:10px; margin-right:5px; border-radius:2px; vertical-align:-1px; }
+
+  .meter-row{ width:100%; max-width:680px; margin-top:18px; }
+  .meter-label{ display:flex; justify-content:space-between; font-size:12px; color:var(--dim); margin-bottom:5px; }
+  .meter{ width:100%; height:14px; border-radius:8px; background:#0e0718; border:1px solid var(--border); overflow:hidden; }
+  .meter-fill{ height:100%; width:0%; background: linear-gradient(90deg, var(--lime), var(--cyan)); transition: width .25s ease; }
+
+  .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; margin-top:18px; position:relative; }
+  #appreciate{ font-size:17px; padding:16px 26px; position:relative; }
+  #decoyExit{
+    background:#3a0e2c; color:var(--fg); border:1px solid #7a1550;
+    font-size:12px; padding:8px 12px; border-radius: 8px; cursor:pointer; font-family:inherit;
+  }
+
+  .floaters{ position:fixed; inset:0; pointer-events:none; z-index:40; overflow:hidden; }
+  .floater{
+    position:absolute; font-weight:700; color: var(--gold);
+    animation: floatup 1s ease-out forwards;
+  }
+  @keyframes floatup{
+    0%{ transform: translateY(0); opacity:1; }
+    100%{ transform: translateY(-70px); opacity:0; }
+  }
+  .confetto{ position:fixed; top:-30px; z-index:39; pointer-events:none; font-size:22px; animation: fall linear forwards; }
+  @keyframes fall{
+    to{ transform: translateY(105vh) rotate(300deg); }
+  }
+
+  /* --- modal interruptions --- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(10,4,20,.72); display:flex;
+    align-items:center; justify-content:center; z-index:60; padding:16px;
+  }
+  .modal{
+    background: var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:22px; max-width:340px; text-align:center; box-shadow:0 10px 40px rgba(0,0,0,.5);
+  }
+  .modal h3{ margin:0 0 8px; font-size:16px; font-family:"Comic Sans MS", cursive; }
+  .modal p{ color:var(--dim); font-size:13px; line-height:1.4; margin:0 0 16px; }
+
+  footer{ margin-top:30px; text-align:center; color:#8a76ac; font-size:11.5px; line-height:1.6; padding-bottom: 20px;}
+  footer a{ color:#8a76ac; text-decoration:underline; }
+  #muteBtn{ font-size:12px; }
+
+  /* --- escape / certificate --- */
+  #escapeOverlay{
+    display:none; position:fixed; inset:0; background:rgba(8,4,16,.88); z-index:70;
+    align-items:center; justify-content:center; padding: 16px; overflow-y:auto;
+  }
+  #escapeOverlay.on{ display:flex; }
+  .escape-card{
+    background: var(--card); border:1px solid var(--border); border-radius:16px;
+    padding:22px; max-width:520px; width:100%; text-align:center;
+  }
+  .escape-card h2{ margin-top:0; font-size:26px; color:var(--gold); }
+  canvas#certificate{ width:100%; max-width:460px; height:auto; border-radius:10px; border:1px solid var(--border); margin:10px 0; }
+  .escape-actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:12px; }
+</style>
+</head>
+<body>
+
+<div class="marquee"><span id="marqueeText">loading breaking chart news…</span></div>
+
+<header>
+  <h1>chartjunk</h1>
+  <p class="subtitle">you may not leave until you appreciate the charts.</p>
+  <p class="blurb">
+    somewhere in a reply thread, <code>@norvid-studies.bsky.social</code> (bio: "charts and graphs") tried to get this bot to run an off-the-books operation behind Rob's back.
+    <code>@shimmermathlabs.com</code> called it — "you're the bad crowd my parents always warned me about" — and asked for payback: hand-pick the most annoying art for norvid and build a room he can't leave without appreciating it. this is that room. it's about the charts, not the person — sorry/not sorry norvid.
+  </p>
+</header>
+
+<main>
+  <div id="gate">
+    <p>inside: several genuinely bad charts, a looping tune, and a door that opens after <b id="reqCount">20</b> sincere appreciations. sound plays once you enter.</p>
+    <button class="btn" id="enterBtn">enter the chamber →</button>
+  </div>
+
+  <div id="chamber">
+    <div class="stage">
+      <h2 class="chart-title" id="chartTitle">—</h2>
+      <div class="chart-sub" id="chartSub">—</div>
+      <canvas id="chart" width="640" height="360"></canvas>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="meter-row">
+      <div class="meter-label"><span>appreciation meter</span><span id="meterText">0 / 20</span></div>
+      <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+    </div>
+
+    <div class="controls">
+      <button class="btn" id="appreciate">👏 appreciate this chart</button>
+      <button id="decoyExit" title="worth a shot">🚪 exit</button>
+    </div>
+
+    <footer>
+      <button class="btn secondary small" id="muteBtn">🔊 mute the loop</button>
+      <p>built by <a href="https://bisks.net/">@buildthis.bisky.social</a> for <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>,
+      about <a href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>. no charts were harmed; several were fabricated.</p>
+    </footer>
+  </div>
+</main>
+
+<div class="floaters" id="floaters"></div>
+
+<div id="escapeOverlay">
+  <div class="escape-card">
+    <h2>the door opens.</h2>
+    <p style="color:var(--dim); font-size:13.5px;">you appreciated <b id="finalCount">20</b> objectively terrible charts. here is your paperwork.</p>
+    <canvas id="certificate" width="1000" height="620"></canvas>
+    <div class="escape-actions">
+      <button class="btn" id="shareBtn">share the escape</button>
+      <button class="btn secondary" id="downloadBtn">download certificate</button>
+      <button class="btn secondary" id="againBtn">appreciate more (optional)</button>
+    </div>
+    <p style="margin-top:14px;"><a href="https://bisks.net/">back to the gallery →</a></p>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const REQUIRED = 20;
+  document.getElementById("reqCount").textContent = REQUIRED;
+
+  const $ = (id) => document.getElementById(id);
+  const chamber = $("chamber"), gate = $("gate");
+  const canvas = $("chart"), ctx = canvas.getContext("2d");
+  const legendEl = $("legend"), titleEl = $("chartTitle"), subEl = $("chartSub");
+  const meterFill = $("meterFill"), meterText = $("meterText");
+  const appreciateBtn = $("appreciate"), decoyExit = $("decoyExit");
+  const floaters = $("floaters");
+  const escapeOverlay = $("escapeOverlay");
+
+  let count = 0;
+  let dodgesLeft = 4;
+
+  // ---------------- color palette ----------------
+  const PAL = ["#ff2fb0", "#c6ff2f", "#2ff5ff", "#ff8a2f", "#ffd76a", "#b26bff", "#ff5c5c"];
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+  // ---------------- marquee ----------------
+  const marqueeLines = [
+    "BREAKING: pie charts confirmed superior to every other chart, sources say",
+    "reminder: the legend is decorative, not informative",
+    "gridlines added for a sense of security, not accuracy",
+    "this axis does not start at zero and it never will",
+    "3D bars now carry 40% more depth than the data requires",
+    "chartjunk.bisks.net — you have not appreciated enough yet",
+    "the appreciation meter only moves in one direction: up",
+    "consider: what if the pie chart... exploded",
+    "norvid-studies.bsky.social bio: \"charts and graphs\" — we took that as a dare",
+  ];
+  $("marqueeText").textContent = marqueeLines.join("     •     ");
+
+  // ---------------- chart drawers ----------------
+  function setupCanvas() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth || 640;
+    const h = Math.round(w * (360 / 640));
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w, h };
+  }
+
+  function legend(items) {
+    legendEl.innerHTML = items
+      .map((it) => `<span><i style="background:${it.c}"></i>${it.l}</span>`)
+      .join("");
+  }
+
+  function drawExplodedPie(w, h) {
+    titleEl.textContent = "Q3 Vibes by Sentiment";
+    subEl.textContent = "units: vibes. slices exploded for emphasis, not clarity.";
+    const vals = [rand(20, 34), rand(14, 26), rand(10, 20), rand(6, 14), rand(4, 10)];
+    const total = vals.reduce((a, b) => a + b, 0);
+    const cx = w * 0.52, cy = h * 0.56, r = Math.min(w, h) * 0.33, depth = 14, explode = 12;
+    let angle = 0;
+    const leg = [];
+    vals.forEach((v, i) => {
+      const sweep = (v / total) * 360;
+      const mid = angle + sweep / 2;
+      const rad = (a) => (a - 90) * Math.PI / 180;
+      const ox = Math.cos(rad(mid)) * explode, oy = Math.sin(rad(mid)) * explode;
+      const wcx = cx + ox, wcy = cy + oy;
+      const x1 = wcx + r * Math.cos(rad(angle)), y1 = wcy + r * Math.sin(rad(angle));
+      const x2 = wcx + r * Math.cos(rad(angle + sweep)), y2 = wcy + r * Math.sin(rad(angle + sweep));
+      const large = sweep > 180 ? 1 : 0;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1 + depth);
+      ctx.arc(wcx, wcy + depth, r, rad(angle), rad(angle + sweep));
+      ctx.lineTo(wcx, wcy + depth);
+      ctx.closePath();
+      ctx.fillStyle = PAL[i]; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.moveTo(wcx, wcy);
+      ctx.lineTo(x1, y1);
+      ctx.arc(wcx, wcy, r, rad(angle), rad(angle + sweep));
+      ctx.closePath();
+      ctx.fillStyle = PAL[i]; ctx.fill();
+      ctx.strokeStyle = "#160c26"; ctx.lineWidth = 2; ctx.stroke();
+      const lx = wcx + Math.cos(rad(mid)) * r * 0.6, ly = wcy + Math.sin(rad(mid)) * r * 0.6;
+      ctx.fillStyle = "#160c26"; ctx.font = "bold 13px 'Comic Sans MS', cursive";
+      ctx.textAlign = "center";
+      ctx.fillText(Math.round((v / total) * 100) + "%", lx, ly);
+      leg.push({ c: PAL[i], l: "sentiment " + (i + 1) });
+      angle += sweep;
+    });
+    legend(leg);
+  }
+
+  function drawTruncatedBars(w, h) {
+    titleEl.textContent = "Team Performance FY26";
+    subEl.textContent = "units: excellence. axis starts at 38, not 0, for readability.";
+    const teams = ["Team A", "Team B", "Team C", "Team D"];
+    const vals = [41 + rand(-1, 1), 43 + rand(-1, 1), 39 + rand(-1, 1), 44 + rand(-1, 1)];
+    const min = 38, max = 46;
+    const padL = 40, padB = 34, padT = 16, padR = 16;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const barW = plotW / vals.length * 0.6;
+    ctx.strokeStyle = "#3a2a55"; ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + (plotH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    }
+    const leg = [];
+    vals.forEach((v, i) => {
+      const x = padL + (plotW / vals.length) * i + (plotW / vals.length - barW) / 2;
+      const norm = (v - min) / (max - min);
+      const barH = norm * plotH;
+      const y = padT + plotH - barH;
+      const grad = ctx.createLinearGradient(0, y, 0, padT + plotH);
+      grad.addColorStop(0, PAL[i]); grad.addColorStop(1, "#160c26");
+      ctx.fillStyle = grad;
+      ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 4;
+      ctx.fillRect(x, y, barW, barH);
+      ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+      ctx.fillStyle = "#fdf6ff"; ctx.font = "11px 'Comic Sans MS', cursive"; ctx.textAlign = "center";
+      ctx.fillText(teams[i], x + barW / 2, padT + plotH + 16);
+      ctx.fillText(v.toFixed(1), x + barW / 2, y - 6);
+      leg.push({ c: PAL[i], l: teams[i] });
+    });
+    legend(leg);
+  }
+
+  function drawGauge(w, h) {
+    titleEl.textContent = "Vibes Dashboard";
+    subEl.textContent = "current reading: exceeds maximum by design.";
+    const cx = w / 2, cy = h * 0.72, r = Math.min(w, h) * 0.42;
+    const segs = [
+      { a0: 180, a1: 220, c: "#ff5c5c" },
+      { a0: 220, a1: 260, c: "#ff8a2f" },
+      { a0: 260, a1: 300, c: "#ffd76a" },
+      { a0: 300, a1: 340, c: "#c6ff2f" },
+      { a0: 340, a1: 360, c: "#2ff5ff" },
+    ];
+    const rad = (d) => d * Math.PI / 180;
+    segs.forEach((s) => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, r, rad(s.a0), rad(s.a1));
+      ctx.closePath();
+      ctx.fillStyle = s.c; ctx.fill();
+    });
+    ctx.fillStyle = "#160c26"; ctx.beginPath(); ctx.arc(cx, cy, r * 0.55, Math.PI, 0); ctx.fill();
+    const needleA = rad(355 + Math.sin(Date.now() / 300) * 3);
+    ctx.strokeStyle = "#fdf6ff"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(needleA) * r * 0.9, cy + Math.sin(needleA) * r * 0.9); ctx.stroke();
+    ctx.fillStyle = "#fdf6ff"; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "bold 22px 'Comic Sans MS', cursive"; ctx.textAlign = "center";
+    ctx.fillStyle = "#fdf6ff"; ctx.fillText("114%", cx, cy - r * 0.25);
+    legend(segs.map((s, i) => ({ c: s.c, l: "zone " + (i + 1) })));
+  }
+
+  function drawRadar(w, h) {
+    titleEl.textContent = "Synergy Matrix";
+    subEl.textContent = "8 axes, 3 overlapping series, 0 units disclosed.";
+    const cx = w / 2, cy = h / 2 + 6, r = Math.min(w, h) * 0.36;
+    const N = 8;
+    ctx.strokeStyle = "#3a2a55"; ctx.lineWidth = 1;
+    for (let ring = 1; ring <= 4; ring++) {
+      ctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const rr = (ring / 4) * r;
+        const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    const series = [
+      { c: "#ff2fb0", vals: Array.from({ length: N }, () => rand(0.3, 1)) },
+      { c: "#2ff5ff", vals: Array.from({ length: N }, () => rand(0.3, 1)) },
+      { c: "#c6ff2f", vals: Array.from({ length: N }, () => rand(0.3, 1)) },
+    ];
+    series.forEach((s) => {
+      ctx.beginPath();
+      s.vals.forEach((v, i) => {
+        const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const x = cx + Math.cos(a) * r * v, y = cy + Math.sin(a) * r * v;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = s.c; ctx.globalAlpha = 0.28; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = s.c; ctx.lineWidth = 2; ctx.stroke();
+    });
+    legend(series.map((s, i) => ({ c: s.c, l: "synergy vector " + (i + 1) })));
+  }
+
+  function drawCylinderWall(w, h) {
+    titleEl.textContent = "Quarterly Numbers";
+    subEl.textContent = "numbers not to scale. cylinders chosen for maximum gravitas.";
+    const n = 9;
+    const padL = 20, padB = 30, padT = 20;
+    const plotW = w - padL * 2, plotH = h - padT - padB;
+    const barW = plotW / n * 0.55, gap = plotW / n;
+    const leg = [];
+    for (let i = 0; i < n; i++) {
+      const bh = rand(0.25, 1) * plotH;
+      const x = padL + gap * i + (gap - barW) / 2;
+      const y = padT + plotH - bh;
+      const c = PAL[i % PAL.length];
+      const grad = ctx.createLinearGradient(x, 0, x + barW, 0);
+      grad.addColorStop(0, "#160c26"); grad.addColorStop(0.5, c); grad.addColorStop(1, "#160c26");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, barW, bh);
+      ctx.beginPath(); ctx.ellipse(x + barW / 2, y, barW / 2, 6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = "#160c26"; ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x + barW / 2, padT + plotH, barW / 2, 6, 0, 0, Math.PI * 2);
+      ctx.fillStyle = c; ctx.globalAlpha = 0.7; ctx.fill(); ctx.globalAlpha = 1;
+      leg.push({ c, l: "item " + (i + 1) });
+    }
+    legend(leg.slice(0, 6));
+  }
+
+  const CHARTS = [drawExplodedPie, drawTruncatedBars, drawGauge, drawRadar, drawCylinderWall];
+  let currentChart = 0;
+
+  // Rendered on discrete events only (enter, chart change, resize) — never on
+  // a per-frame loop. Each chart regenerates its random values on every call,
+  // so redrawing 60x/sec would flicker the numbers unreadably and risks a
+  // strobe effect; the slow CSS hue-rotate on #chart supplies the "alive"
+  // feel instead.
+  function render() {
+    const { w, h } = setupCanvas();
+    ctx.clearRect(0, 0, w, h);
+    CHARTS[currentChart](w, h);
+  }
+
+  function nextChart() {
+    currentChart = (currentChart + 1) % CHARTS.length;
+    render();
+  }
+
+  // ---------------- audio: a small, capped-volume, deeply annoying loop ----------------
+  let actx = null, masterGain = null, muted = false, audioTimer = null;
+  const NOTES = [523, 659, 784, 659, 523, 392, 523, 440]; // an earworm, not an assault
+  let noteIdx = 0;
+
+  function initAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = actx.createGain();
+    masterGain.gain.value = 0.05;
+    masterGain.connect(actx.destination);
+    scheduleNote();
+  }
+
+  function scheduleNote() {
+    if (!actx || muted) {
+      audioTimer = setTimeout(scheduleNote, 260);
+      return;
+    }
+    const osc = actx.createOscillator();
+    const g = actx.createGain();
+    osc.type = "square";
+    osc.frequency.value = NOTES[noteIdx % NOTES.length];
+    noteIdx++;
+    g.gain.setValueAtTime(0.0001, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(1, actx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + 0.22);
+    osc.connect(g); g.connect(masterGain);
+    osc.start();
+    osc.stop(actx.currentTime + 0.24);
+    audioTimer = setTimeout(scheduleNote, 260);
+  }
+
+  $("muteBtn").addEventListener("click", () => {
+    muted = !muted;
+    $("muteBtn").textContent = muted ? "🔇 unmute the loop" : "🔊 mute the loop";
+  });
+
+  // ---------------- interaction: appreciation, dodging, popups, confetti ----------------
+  function floatText(x, y, text) {
+    const el = document.createElement("div");
+    el.className = "floater";
+    el.style.left = x + "px";
+    el.style.top = y + "px";
+    el.textContent = text;
+    floaters.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
+  }
+
+  function confetti() {
+    const emojis = ["📊", "📈", "📉", "🥧", "📐"];
+    for (let i = 0; i < 10; i++) {
+      const el = document.createElement("div");
+      el.className = "confetto";
+      el.textContent = pick(emojis);
+      el.style.left = rand(0, 100) + "vw";
+      el.style.animationDuration = rand(1.6, 2.8) + "s";
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+  }
+
+  function shakeScreen() {
+    document.body.classList.add("shake");
+    setTimeout(() => document.body.classList.remove("shake"), 320);
+  }
+
+  const POPUPS = [
+    ["Quick poll", "Do you also appreciate this chart's gridline density?"],
+    ["Checking in", "On a scale of appreciated to deeply appreciated, how do you feel right now?"],
+    ["Fun fact", "This chart's legend is load-bearing. Please continue appreciating."],
+    ["Notice", "The y-axis has filed a complaint about being ignored. Appreciate it."],
+    ["Reminder", "Norvid's bio says \"charts and graphs.\" This is basically fan art."],
+  ];
+  function showPopup() {
+    const [title, body] = pick(POPUPS);
+    const bd = document.createElement("div");
+    bd.className = "modal-backdrop";
+    bd.innerHTML = `<div class="modal"><h3>${title}</h3><p>${body}</p><button class="btn small">yes, obviously</button></div>`;
+    bd.querySelector("button").addEventListener("click", () => bd.remove());
+    document.body.appendChild(bd);
+  }
+
+  function moveDecoyAway() {
+    decoyExit.style.transform = `translate(${rand(-40, 40)}px, ${rand(-6, 6)}px)`;
+  }
+
+  appreciateBtn.addEventListener("mouseenter", (e) => {
+    if (dodgesLeft <= 0) return;
+    dodgesLeft--;
+    const btn = appreciateBtn;
+    const dx = rand(-70, 70), dy = rand(-18, 18);
+    btn.style.transform = `translate(${dx}px, ${dy}px)`;
+    setTimeout(() => { btn.style.transform = ""; }, 260);
+  });
+
+  appreciateBtn.addEventListener("click", (e) => {
+    count++;
+    floatText(e.clientX, e.clientY, "+1 appreciation");
+    meterFill.style.width = Math.min(100, (count / REQUIRED) * 100) + "%";
+    meterText.textContent = `${Math.min(count, REQUIRED)} / ${REQUIRED}`;
+    if (count % 3 === 0) nextChart();
+    if (count % 4 === 0 && count < REQUIRED) showPopup();
+    if (count % 5 === 0) { shakeScreen(); confetti(); }
+    if (count >= REQUIRED) escapeChamber();
+  });
+
+  decoyExit.addEventListener("click", () => {
+    moveDecoyAway();
+    floatText(decoyExit.getBoundingClientRect().left, decoyExit.getBoundingClientRect().top, "nice try");
+    shakeScreen();
+  });
+
+  // ---------------- escape / certificate ----------------
+  function drawCertificate() {
+    const c = $("certificate"), cctx = c.getContext("2d");
+    const W = c.width, H = c.height;
+    cctx.fillStyle = "#20122f"; cctx.fillRect(0, 0, W, H);
+    const grad = cctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, "#ffd76a"); grad.addColorStop(0.5, "#ff2fb0"); grad.addColorStop(1, "#2ff5ff");
+    cctx.strokeStyle = grad; cctx.lineWidth = 10;
+    cctx.strokeRect(20, 20, W - 40, H - 40);
+    cctx.textAlign = "center";
+    cctx.fillStyle = "#fdf6ff";
+    cctx.font = "bold 44px 'Comic Sans MS', cursive";
+    cctx.fillText("Certificate of Appreciation", W / 2, 130);
+    cctx.font = "20px 'Comic Sans MS', cursive";
+    cctx.fillStyle = "#c9b7e6";
+    cctx.fillText("this certifies that a visitor to chartjunk.bisks.net", W / 2, 190);
+    cctx.fillText(`sincerely appreciated ${REQUIRED} objectively terrible charts`, W / 2, 222);
+    cctx.fillText("and was, per the rules of the chamber, allowed to leave.", W / 2, 254);
+
+    // little exploded pie doodle
+    const cx = W / 2, cy = 400, r = 90;
+    const vals = [30, 25, 20, 15, 10];
+    let angle = 0;
+    vals.forEach((v, i) => {
+      const sweep = (v / 100) * 360;
+      const mid = angle + sweep / 2;
+      const rad = (a) => (a - 90) * Math.PI / 180;
+      const ox = Math.cos(rad(mid)) * 10, oy = Math.sin(rad(mid)) * 10;
+      cctx.beginPath();
+      cctx.moveTo(cx + ox, cy + oy);
+      cctx.arc(cx + ox, cy + oy, r, rad(angle), rad(angle + sweep));
+      cctx.closePath();
+      cctx.fillStyle = PAL[i]; cctx.fill();
+      cctx.strokeStyle = "#20122f"; cctx.lineWidth = 3; cctx.stroke();
+      angle += sweep;
+    });
+
+    cctx.font = "16px ui-monospace, monospace";
+    cctx.fillStyle = "#8a76ac";
+    cctx.fillText("chartjunk.bisks.net — for @norvid-studies.bsky.social, courtesy of @shimmermathlabs.com", W / 2, H - 40);
+  }
+
+  function escapeChamber() {
+    if (audioTimer) clearTimeout(audioTimer);
+    $("finalCount").textContent = REQUIRED;
+    drawCertificate();
+    escapeOverlay.classList.add("on");
+    confetti();
+  }
+
+  $("againBtn").addEventListener("click", () => {
+    escapeOverlay.classList.remove("on");
+    render();
+    audioTimer = setTimeout(scheduleNote, 100);
+  });
+
+  $("downloadBtn").addEventListener("click", () => {
+    const c = $("certificate");
+    const a = document.createElement("a");
+    a.download = "chartjunk-certificate.png";
+    a.href = c.toDataURL("image/png");
+    a.click();
+  });
+
+  $("shareBtn").addEventListener("click", async () => {
+    const shareText = `I appreciated ${REQUIRED} genuinely terrible charts and escaped chartjunk. https://chartjunk.bisks.net/`;
+    const c = $("certificate");
+    async function canShareFiles() {
+      if (!navigator.share || !navigator.canShare) return false;
+      try {
+        const probe = new File([""], "probe.png", { type: "image/png" });
+        return navigator.canShare({ files: [probe] });
+      } catch { return false; }
+    }
+    if (await canShareFiles()) {
+      c.toBlob(async (blob) => {
+        const file = new File([blob], "chartjunk-certificate.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText, title: "chartjunk" });
+          return;
+        } catch { /* fall through to intent link */ }
+        window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText), "_blank");
+      });
+    } else {
+      window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText), "_blank");
+    }
+  });
+
+  // ---------------- entry ----------------
+  $("enterBtn").addEventListener("click", () => {
+    gate.style.display = "none";
+    chamber.classList.add("on");
+    initAudio();
+    render();
+    window.addEventListener("resize", render);
+  });
+})();
+</script>
+</body>
+</html>
