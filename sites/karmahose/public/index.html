@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>karmahose — points for anything, forever</title>
+    <meta
+      name="description"
+      content="Post anything ending in `<name> +1` or `<name> -1` and it joins a running global tally. No signup, no target — any name at all. Watched live off the Bluesky firehose, scores persist forever."
+    />
+    <meta property="og:title" content="karmahose — points for anything, forever" />
+    <meta
+      property="og:description"
+      content="End a Bluesky post with `<name> +1` or `<name> -1` and it joins a persistent, public tally. Any name. No signup. Watched live off the firehose."
+    />
+    <meta property="og:image" content="https://karmahose.bisks.net/og.png" />
+    <meta property="og:url" content="https://karmahose.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://karmahose.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #fffdf8;
+        --ink: #14171a;
+        --muted: #6b6b6b;
+        --faint: #e2ddd0;
+        --panel: #f7f4ec;
+        --accent: #1a5fd0;
+        --up: #17795a;
+        --down: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--mono);
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--accent); }
+      a:hover { text-decoration: underline; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 { font-size: 1.85rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem; }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.65; max-width: 62ch; margin: 0 0 1rem; }
+      .rules {
+        font-size: 0.82rem; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 10px; padding: 0.8rem 1rem;
+        margin: 0 0 1.4rem; line-height: 1.75;
+      }
+      .rules b { color: var(--ink); }
+      .rules code {
+        background: #fff; border: 1px solid var(--faint); border-radius: 5px;
+        padding: 0.05rem 0.35rem; font-size: 0.85em; color: var(--ink);
+      }
+
+      .status {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        font-size: 0.78rem; color: var(--muted); margin-bottom: 1.6rem;
+        padding-bottom: 1rem; border-bottom: 1px solid var(--faint);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #c9c9c9; transition: background 0.3s; flex: none; }
+      .dot.live { background: #2ecc71; animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status .sep { color: #ccc; }
+
+      .search { display: flex; gap: 0.5rem; margin-bottom: 2rem; }
+      .search input {
+        flex: 1; min-width: 0; font-family: var(--mono); font-size: 0.9rem;
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        border-radius: 8px; padding: 0.6rem 0.8rem;
+      }
+      .search input:focus { outline: none; border-color: var(--accent); }
+      .search button {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        background: var(--ink); color: var(--bg); border: none; border-radius: 8px;
+        padding: 0.6rem 1.1rem; cursor: pointer;
+      }
+      .search button:hover { opacity: 0.85; }
+
+      .lookup {
+        display: none; margin: -1.1rem 0 2rem; padding: 0.9rem 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
+        font-size: 0.88rem;
+      }
+      .lookup .lname { font-weight: 800; font-size: 1.05rem; margin-bottom: 0.2rem; }
+      .lookup .lscore { font-weight: 800; font-size: 1.4rem; }
+      .lookup .lscore.up { color: var(--up); }
+      .lookup .lscore.down { color: var(--down); }
+      .lookup .lmeta { color: var(--muted); font-size: 0.78rem; margin-top: 0.2rem; }
+
+      .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.2rem; }
+      .tab {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        background: var(--bg); color: var(--muted); border: 1px solid var(--faint);
+        border-radius: 8px; padding: 0.5rem 0.9rem; cursor: pointer;
+      }
+      .tab.active { color: var(--ink); border-color: var(--ink); background: var(--panel); }
+
+      .board-title { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem; }
+
+      .empty {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        padding: 1.4rem 0; border-top: 1px solid var(--faint);
+      }
+
+      ol.board { list-style: none; margin: 0 0 2.5rem; padding: 0; }
+      .row {
+        display: flex; gap: 0.9rem; padding: 0.9rem 0; border-top: 1px solid var(--faint);
+        align-items: baseline; animation: rowIn 0.35s ease both;
+      }
+      .row:first-of-type { border-top: none; }
+      @keyframes rowIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .rank { font-weight: 800; font-size: 0.95rem; color: var(--muted); min-width: 1.7rem; flex: none; }
+      .rank.gold { color: #a5790a; }
+      .rname {
+        flex: 1; min-width: 0; overflow-wrap: break-word; word-break: break-word;
+        cursor: pointer;
+      }
+      .rname:hover { text-decoration: underline; }
+      .rmeta { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+      .rscore { font-weight: 800; font-size: 1.1rem; flex: none; font-variant-numeric: tabular-nums; }
+      .rscore.up { color: var(--up); }
+      .rscore.down { color: var(--down); }
+
+      .feed { list-style: none; margin: 0 0 2rem; padding: 0; }
+      .fitem {
+        display: flex; gap: 0.6rem; padding: 0.55rem 0; border-top: 1px solid var(--faint);
+        font-size: 0.82rem; align-items: baseline;
+      }
+      .fitem:first-of-type { border-top: none; }
+      .fitem .fdelta { font-weight: 800; flex: none; font-variant-numeric: tabular-nums; }
+      .fitem .fdelta.up { color: var(--up); }
+      .fitem .fdelta.down { color: var(--down); }
+      .fitem .fname { flex: 1; min-width: 0; overflow-wrap: break-word; word-break: break-word; }
+      .fitem .fwhen { color: var(--muted); flex: none; font-size: 0.72rem; }
+
+      .share { margin: 1.8rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted);
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--ink); }
+
+      footer { margin-top: 2.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>karmahose</h1>
+        <p class="sub">
+          A running, public, permanent tally for anything at all. No
+          accounts, no targets to register — post something on Bluesky that
+          ends in a name and a delta, and it joins the board.
+        </p>
+      </header>
+
+      <div class="rules">
+        <b>syntax:</b> end a post's last line with <code>&lt;name&gt; +1</code>,
+        <code>&lt;name&gt; -3</code>, <code>&lt;name&gt;++</code>, or
+        <code>&lt;name&gt;--</code>. <b>&lt;name&gt;</b> is anything —
+        a word, a phrase, a whole sentence. Case doesn't matter and scores
+        stack forever: <code>socialcredit +1</code> and
+        <code>SocialCredit +1</code> hit the same tally. Watched live off the
+        public firehose, no login required to add to it.
+      </div>
+
+      <div class="status">
+        <span class="dot" id="dot"></span>
+        <span id="statusText">connecting…</span>
+        <span class="sep">·</span>
+        <span id="totalsText"></span>
+      </div>
+
+      <form class="search" id="searchForm">
+        <input id="searchInput" type="text" placeholder="look up a name…" autocomplete="off" />
+        <button type="submit">check</button>
+      </form>
+      <div class="lookup" id="lookup"></div>
+
+      <div class="tabs">
+        <button class="tab active" id="tabTop" type="button">top</button>
+        <button class="tab" id="tabBottom" type="button">bottom</button>
+        <button class="tab" id="tabRecent" type="button">recent activity</button>
+      </div>
+
+      <div class="board-title" id="boardTitle">highest score</div>
+      <div class="empty" id="empty" style="display:none">
+        Nothing tracked yet — the syntax is narrow on purpose, so it takes a
+        moment to see a real post use it. Try it yourself:
+        <code>karmahose +1</code>.
+      </div>
+      <ol class="board" id="board"></ol>
+      <ol class="feed" id="feedList" style="display:none"></ol>
+
+      <div class="share">
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=karmahose.bisks.net" target="_blank" rel="noopener">share the board</a>
+      </div>
+
+      <footer>
+        Sampled live from the public firehose via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        — any post matching the syntax counts, from anyone, no target
+        validation. Scores are stored per name (case-folded) and persist
+        indefinitely. idea from
+        <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>,
+        tagged in and asked to run persistently and in the background by
+        <a href="https://bsky.app/profile/cee.wtf">@cee.wtf</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const totalsText = document.getElementById("totalsText");
+      const empty = document.getElementById("empty");
+      const board = document.getElementById("board");
+      const feedList = document.getElementById("feedList");
+      const boardTitle = document.getElementById("boardTitle");
+      const shareLink = document.getElementById("shareLink");
+      const tabTop = document.getElementById("tabTop");
+      const tabBottom = document.getElementById("tabBottom");
+      const tabRecent = document.getElementById("tabRecent");
+      const searchForm = document.getElementById("searchForm");
+      const searchInput = document.getElementById("searchInput");
+      const lookup = document.getElementById("lookup");
+
+      let mode = "top"; // top | bottom | recent
+      let lastData = null;
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function timeAgo(ms) {
+        if (!ms) return "";
+        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
+        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+        for (const [u, secs] of units) {
+          const v = Math.floor(s / secs);
+          if (v >= 1) return v + u + " ago";
+        }
+        return "just now";
+      }
+
+      function fmtScore(n) {
+        return (n > 0 ? "+" : "") + n.toLocaleString();
+      }
+
+      function who(e) {
+        return e.handle ? "@" + e.handle : (e.did || "").slice(0, 18) + "…";
+      }
+
+      function postUrl(e) {
+        if (!e.uri) return null;
+        const m = /^at:\/\/(did:[^/]+)\/[^/]+\/([^/]+)$/.exec(e.uri);
+        if (!m) return null;
+        return `https://bsky.app/profile/${e.handle || m[1]}/post/${m[2]}`;
+      }
+
+      function rowHTML(e, i) {
+        const rankClass = i === 0 ? "rank gold" : "rank";
+        const scoreClass = e.score > 0 ? "up" : e.score < 0 ? "down" : "";
+        const url = postUrl(e);
+        return `
+          <li class="row">
+            <div class="${rankClass}">${i + 1}</div>
+            <div class="rname" data-name="${esc(e.display)}">
+              ${esc(e.display)}
+              <div class="rmeta">${e.posts} post${e.posts === 1 ? "" : "s"} · last from ${who(e)}, ${timeAgo(e.lastAt)}${
+                url ? ` · <a href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">post ↗</a>` : ""
+              }</div>
+            </div>
+            <div class="rscore ${scoreClass}">${fmtScore(e.score)}</div>
+          </li>`;
+      }
+
+      function feedHTML(e) {
+        const deltaClass = e.delta > 0 ? "up" : "down";
+        const url = postUrl(e);
+        return `
+          <li class="fitem">
+            <span class="fdelta ${deltaClass}">${fmtScore(e.delta)}</span>
+            <span class="fname">${esc(e.display)} <span style="color:var(--muted)">→ ${fmtScore(e.newScore)}</span></span>
+            <span class="fwhen">${url ? `<a href="${url}" target="_blank" rel="noopener">${timeAgo(e.at)}</a>` : timeAgo(e.at)}</span>
+          </li>`;
+      }
+
+      function renderBoard() {
+        if (!lastData) return;
+        tabTop.classList.toggle("active", mode === "top");
+        tabBottom.classList.toggle("active", mode === "bottom");
+        tabRecent.classList.toggle("active", mode === "recent");
+
+        if (mode === "recent") {
+          board.style.display = "none";
+          feedList.style.display = "";
+          boardTitle.textContent = "recent activity";
+          const list = lastData.recent || [];
+          if (!list.length) {
+            empty.style.display = "";
+            feedList.innerHTML = "";
+          } else {
+            empty.style.display = "none";
+            feedList.innerHTML = list.map(feedHTML).join("");
+          }
+          return;
+        }
+
+        board.style.display = "";
+        feedList.style.display = "none";
+        boardTitle.textContent = mode === "top" ? "highest score" : "lowest score";
+        const list = mode === "top" ? lastData.top || [] : lastData.bottom || [];
+        if (!list.length) {
+          empty.style.display = "";
+          board.innerHTML = "";
+          return;
+        }
+        empty.style.display = "none";
+        board.innerHTML = list.map(rowHTML).join("");
+        board.querySelectorAll(".rname").forEach((el) => {
+          el.addEventListener("click", () => {
+            searchInput.value = el.dataset.name;
+            doSearch(el.dataset.name);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
+        });
+
+        const top = list[0];
+        const shareText =
+          mode === "top"
+            ? `"${top.display}" is winning karmahose right now at ${fmtScore(top.score)}. give anything points at karmahose.bisks.net`
+            : `"${top.display}" is losing karmahose right now at ${fmtScore(top.score)}. give anything points at karmahose.bisks.net`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      tabTop.addEventListener("click", () => { mode = "top"; renderBoard(); });
+      tabBottom.addEventListener("click", () => { mode = "bottom"; renderBoard(); });
+      tabRecent.addEventListener("click", () => { mode = "recent"; renderBoard(); });
+
+      function render(data) {
+        lastData = data;
+        totalsText.textContent = `${(data.totalNames || 0).toLocaleString()} names tracked · ${(data.totalPosts || 0).toLocaleString()} posts counted`;
+        renderBoard();
+      }
+
+      async function doSearch(q) {
+        if (!q.trim()) return;
+        lookup.style.display = "";
+        lookup.innerHTML = `<span style="color:var(--muted)">checking…</span>`;
+        try {
+          const r = await fetch("/api/name?q=" + encodeURIComponent(q), { cache: "no-store" });
+          const data = await r.json();
+          if (!data.found) {
+            lookup.innerHTML = `<div class="lname">${esc(q)}</div><div class="lmeta">no points yet — be the first: post something ending in "${esc(
+              q.trim(),
+            )} +1"</div>`;
+            return;
+          }
+          const e = data.entry;
+          const scoreClass = e.score > 0 ? "up" : e.score < 0 ? "down" : "";
+          lookup.innerHTML = `
+            <div class="lname">${esc(e.display)}</div>
+            <div class="lscore ${scoreClass}">${fmtScore(e.score)}</div>
+            <div class="lmeta">${e.posts} post${e.posts === 1 ? "" : "s"} · last touched ${timeAgo(e.lastAt)}</div>`;
+        } catch (err) {
+          lookup.innerHTML = `<span style="color:var(--muted)">couldn't reach the tracker, try again</span>`;
+        }
+      }
+
+      searchForm.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        doSearch(searchInput.value);
+      });
+
+      let failCount = 0;
+      async function poll() {
+        try {
+          const r = await fetch("/api/leaderboard", { cache: "no-store" });
+          if (!r.ok) throw new Error("http " + r.status);
+          const data = await r.json();
+          failCount = 0;
+          dot.classList.add("live");
+          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+          render(data);
+        } catch (e) {
+          failCount++;
+          if (failCount > 2) {
+            dot.classList.remove("live");
+            statusText.textContent = "having trouble reaching the tracker…";
+          }
+        }
+      }
+
+      poll();
+      setInterval(poll, 15000);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem; line-height: 1; background: rgba(20, 20, 20, 0.72);
+        color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+        padding: 0.45rem 0.6rem; cursor: pointer; -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear;
+        animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>

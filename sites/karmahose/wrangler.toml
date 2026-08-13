@@ -1,0 +1,35 @@
+name = "atprotozoa-karmahose"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @cee.wtf's idea, quoting @shimmermathlabs.com: ".oO a bot that lets people
+# add or remove arbitrarily named points with this form of syntax: `<name>
+# +1`" — then asked ("but like in a persistent and backgrounded manner") for
+# it to run continuously off the live firehose, not as a one-off form.
+#
+# So: one Durable Object ("global") holds a WebSocket to Jetstream, parses
+# every post for a trailing `<name> +N` / `<name> -N` (or `++` / `--`), and
+# keeps a persistent tally per name — arbitrary, freeform, no signup, no
+# per-target validation. Same shape as sites/quotehof: DO owns the socket +
+# the rolling state, alarm is the heartbeat/reconnect/persist tick.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [
+  { pattern = "karmahose.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "TALLY"
+class_name = "KarmaTally"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See notes/20-deploy.md.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["KarmaTally"]
