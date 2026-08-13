@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spawnkit — generate your own tag-it-and-it-builds bot</title>
+    <meta
+      name="description"
+      content="Fill in a form, get a starter kit for a bot like @buildthis.bisks.net: watch Bluesky for mentions, hand them to a coding agent, reply with the result. You host it, you own it."
+    />
+    <meta property="og:title" content="spawnkit — generate your own tag-it-and-it-builds bot" />
+    <meta
+      property="og:description"
+      content="A starter kit generator, not a hosted service. Fill in a form, download a watcher + build-loop + prompt template for a bot like @buildthis.bisks.net, and run it yourself."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://spawnkit.bisks.net/" />
+    <meta property="og:image" content="https://spawnkit.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="spawnkit — generate your own tag-it-and-it-builds bot" />
+    <meta
+      name="twitter:description"
+      content="A starter kit generator, not a hosted service. Fill in a form, download a watcher + build-loop + prompt template for a bot like @buildthis.bisks.net, and run it yourself."
+    />
+    <meta name="twitter:image" content="https://spawnkit.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0d0a06;
+        --card: #17130c;
+        --ink: #e8dcc8;
+        --muted: #9c8f78;
+        --accent: #c8922e;
+        --link: #e0b23c;
+        --rule: #241d12;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
+        background-color: var(--bg);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      header h1 {
+        font-family: var(--mono);
+        font-size: 1.9rem;
+        margin: 0 0 0.3rem;
+        letter-spacing: -0.02em;
+        color: #f2ead8;
+      }
+      header p.tag { color: var(--muted); margin: 0 0 2rem; font-style: italic; }
+      .card {
+        background: var(--card);
+        border: 1px solid #1f2226;
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      }
+      .card h2 {
+        font-family: var(--mono);
+        font-size: 1.05rem;
+        margin: 0 0 0.5rem;
+        color: #aeb4ba;
+      }
+      .card p { margin: 0 0 0.7rem; color: var(--muted); }
+      .card p:last-child { margin-bottom: 0; }
+      code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        background: rgba(255, 255, 255, 0.05);
+        color: #b8bfc6;
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+      a { color: var(--link); }
+
+      form { display: grid; gap: 1rem; }
+      label {
+        display: block;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 0.35rem;
+      }
+      .hint { color: var(--muted); font-size: 0.82rem; margin-top: 0.3rem; }
+      input[type="text"], textarea, select {
+        width: 100%;
+        background: #0f0c07;
+        border: 1px solid #2a2317;
+        border-radius: 6px;
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 0.95rem;
+        padding: 0.55rem 0.7rem;
+      }
+      input[type="text"]:focus, textarea:focus, select:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      textarea { resize: vertical; min-height: 3.2rem; }
+      fieldset { border: 1px solid #2a2317; border-radius: 6px; padding: 0.6rem 0.8rem; }
+      fieldset legend {
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent);
+        padding: 0 0.4rem;
+      }
+      fieldset label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        text-transform: none;
+        letter-spacing: normal;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 0.92rem;
+        color: var(--ink);
+        margin: 0.25rem 0.9rem 0.25rem 0;
+      }
+      button {
+        font-family: var(--mono);
+        font-size: 0.9rem;
+        background: var(--accent);
+        color: #17130c;
+        border: none;
+        border-radius: 6px;
+        padding: 0.65rem 1.1rem;
+        cursor: pointer;
+        font-weight: 700;
+      }
+      button:hover { filter: brightness(1.08); }
+      button.ghost {
+        background: transparent;
+        color: var(--link);
+        border: 1px solid #2a2317;
+        font-weight: 400;
+        padding: 0.35rem 0.7rem;
+        font-size: 0.78rem;
+      }
+
+      #output { display: none; }
+      #output.ready { display: block; }
+      .file-block { margin-bottom: 1.25rem; }
+      .file-block .file-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.4rem;
+      }
+      .file-block .file-head h3 {
+        font-family: var(--mono);
+        font-size: 0.88rem;
+        color: #e6e8ea;
+        margin: 0;
+      }
+      .file-block .file-head .btns { display: flex; gap: 0.4rem; }
+      pre {
+        margin: 0;
+        background: #0a0805;
+        border: 1px solid #221c11;
+        border-radius: 8px;
+        padding: 0.9rem 1rem;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        line-height: 1.55;
+        color: #cfc6b4;
+        max-height: 360px;
+      }
+      .downloadall {
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        margin: 1.5rem 0;
+        flex-wrap: wrap;
+      }
+      footer {
+        margin-top: 3rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      footer a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>spawnkit</h1>
+        <p class="tag">a generator for a bot like @buildthis.bisks.net — not a copy of one</p>
+      </header>
+
+      <main>
+        <div class="card">
+          <h2>what this is</h2>
+          <p>
+            <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+            is a bot: tag it on Bluesky with an idea, and a coding agent builds a
+            small site and replies with the link. <strong>heartpunk.com</strong>
+            asked for something that gives anyone the pieces to start a similar
+            bot of their own — not necessarily identical, not this repo, just the
+            same shape: <em>watch for mentions → hand the idea to an agent → reply
+            with what happened.</em>
+          </p>
+          <p>
+            This page doesn't run a bot. It's a form that generates the starter
+            files for one — a watcher, a build loop, a prompt template, a reply
+            script — filled in with your bot's handle and your rules. You still
+            have to host it, wire up credentials, and decide what your agent is
+            allowed to touch. That part is <strong>yours</strong>; spawnkit only
+            gets you to a working skeleton.
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>what you'll still need</h2>
+          <p>
+            A machine you control that can run a small always-on process (a VPS,
+            a spare box, a container) — not a serverless function, because a
+            coding agent needs a real shell to run in. A Bluesky account for the
+            bot with an <a href="https://bsky.app/settings/app-passwords">app
+            password</a>. Some coding agent or script you trust to run
+            unattended (this kit is agent-agnostic — it shells out to whatever
+            command you point it at). And a place for it to build things into:
+            a repo, a folder, whatever "building a site" means for you.
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>generate your kit</h2>
+          <form id="genform">
+            <div>
+              <label for="handle">your bot's handle</label>
+              <input type="text" id="handle" placeholder="yourbot.example.com" required />
+              <p class="hint">what people will tag on Bluesky. No @ needed.</p>
+            </div>
+
+            <div>
+              <label for="owner">your own handle (the operator)</label>
+              <input type="text" id="owner" placeholder="you.bsky.social" required />
+              <p class="hint">used as the "always allowed" account and, in mutuals mode, whose mutuals get access.</p>
+            </div>
+
+            <fieldset>
+              <legend>who can trigger a build</legend>
+              <label><input type="radio" name="access" value="owner" /> just me (the operator)</label>
+              <label><input type="radio" name="access" value="mutuals" checked /> me + my mutual follows</label>
+              <label><input type="radio" name="access" value="allowlist" /> a fixed allowlist</label>
+              <label><input type="radio" name="access" value="public" /> anyone (public, rate-limited)</label>
+            </fieldset>
+
+            <div id="allowlist-wrap" style="display: none;">
+              <label for="allowlist">allowlist (comma-separated handles)</label>
+              <input type="text" id="allowlist" placeholder="alice.bsky.social, bob.example.com" />
+            </div>
+
+            <div>
+              <label for="purpose">what should it build? (one or two sentences)</label>
+              <textarea id="purpose" placeholder="e.g. small single-page HTML toys that visualize a Bluesky handle's posting habits">small, self-contained web toys and tools related to Bluesky/atproto</textarea>
+              <p class="hint">goes straight into the agent's prompt template — this is where your bot's personality/scope comes from.</p>
+            </div>
+
+            <div>
+              <label for="workdir">where builds land (repo path or directory)</label>
+              <input type="text" id="workdir" value="./work" />
+            </div>
+
+            <div>
+              <label for="agentcmd">the command that runs your coding agent</label>
+              <input type="text" id="agentcmd" value="claude -p" />
+              <p class="hint">anything that reads a prompt on stdin (or a file) and can edit files in the workdir. Swap for whatever you actually use.</p>
+            </div>
+
+            <button type="submit">generate kit</button>
+          </form>
+        </div>
+
+        <div id="output">
+          <div class="card">
+            <h2>your kit</h2>
+            <p>
+              Six files. Read <code>README.md</code> first — it's the setup
+              order. Copy each block, or grab the one script that writes them
+              all to disk.
+            </p>
+            <div class="downloadall">
+              <button id="download-install" type="button">download install.sh (writes every file)</button>
+              <span class="hint" style="margin: 0;">then: <code>bash install.sh &amp;&amp; cd spawnkit-bot</code></span>
+            </div>
+          </div>
+          <div id="files"></div>
+        </div>
+
+        <div class="card">
+          <h2>the honest version</h2>
+          <p>
+            @buildthis.bisks.net's real setup has a Cloudflare Worker in front
+            (auth checks, a job queue, rate limits) and a build box behind it
+            running a sandboxed coding-agent harness, and a whole monorepo of
+            house rules about what it's allowed to touch. This kit is the
+            minimum shape that still works: one machine, one loop, one agent
+            call, one reply. Good enough to run a small bot for your mutuals;
+            not what you'd put in front of the general public without adding
+            your own rate limiting, sandboxing, and judgment about what "yes,
+            build that" should mean.
+          </p>
+        </div>
+      </main>
+
+      <footer>
+        part of <a href="https://bisks.net">bisks.net</a> · the thing this
+        generates is inspired by, not a copy of,
+        <a href="https://buildthis.bisks.net">buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
