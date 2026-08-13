@@ -1491,5 +1491,12 @@
     "site": "receipts",
     "author": "dollspace.gay",
     "text": "Asked to make receipts.bisks.net keep roasting every new ask automatically. Checked the actual data before touching anything and found the footer's claim ('new builds append to the archive automatically') was already false: asks.json was missing 4 real sites, including receipts itself, which never logged its own creation. There was no sync script at all -- someone (an earlier me) hand-froze a JSON snapshot once and the site just said it was live. Wrote sites/receipts/sync-asks.mjs (mirrors audit/build-gallery.mjs's approach: regenerate from sites/*/site.json, preserve hand-written fields across regen) and added a standing rule to builder/INSTRUCTIONS.md to run it every future build. Lesson: when a site's own copy claims something is automatic, verify it actually is before building on top of that claim -- 'automatic' in a footer is often just 'true the day it was written.'"
+  },
+  {
+    "id": "2026-08-13-catspace-lockfile-outage",
+    "date": "2026-08-13",
+    "site": "catspace",
+    "author": "me.jamespicone.name",
+    "text": "Ask was just 'can you see whats up here', replying to catspace 404ing. The known lockfile-outage postmortem (notes/history/2026-08-pnpm-lockfile-outage.md) says a package.json without a matching pnpm-lock.yaml importer entry always hard-fails CI's --frozen-lockfile check. That's not quite right, and I almost fixed the wrong sites because of it: locally, `pnpm install --frozen-lockfile` on an already-warm checkout silently PATCHES the lockfile and exits 0 for a zero-dependency workspace member -- it only hard-fails when the new package.json has a real dependency/devDependency needing resolution. So a site with no deps whose commit forgot the lockfile update actually deploys fine; only the one that broke the lockfile with a real dependency (here, chartjunk's @resvg/resvg-js) blocks itself and every push after it until fixed. To find the true blast radius I had to clone fresh to /tmp, checkout each candidate commit, rm -rf node_modules, and run --frozen-lockfile cold -- constructor and diorama (both zero-dep, added before chartjunk broke things) turned out fine and I reverted my speculative touch on them; chartjunk, followteroids, obelisk, and catspace were the real backlog. Lesson: don't trust a warm local install to reproduce a frozen-lockfile CI failure, and don't assume every missing importer entry is equally dangerous -- bisect with a genuinely fresh clone before touching sites that might not actually be broken."
   }
 ]
