@@ -1,4 +1,6 @@
-// giftlinks front end — polls /api/articles, renders cards, filters client-side.
+// giftlinks front end — renders the browser-owned Jetstream/AppView index and
+// filters the current tab's rolling list client-side.
+import { GiftIndex } from "./gift-index.js";
 const dot = document.getElementById("dot");
 const statusText = document.getElementById("statusText");
 const trackingText = document.getElementById("trackingText");
@@ -80,14 +82,14 @@ function renderList() {
   );
 
   countLine.textContent = filtered.length
-    ? `showing ${filtered.length} of ${lastData.articles.length} link${lastData.articles.length === 1 ? "" : "s"} from the last ${lastData.windowHours || 24}h`
+    ? `showing ${filtered.length} of ${lastData.articles.length} link${lastData.articles.length === 1 ? "" : "s"} from the last ${lastData.windowHours || 24}h in this browser`
     : "";
 
   if (!filtered.length) {
     empty.style.display = "";
     empty.textContent = lastData.articles.length
       ? "No links match that search/filter."
-      : "Nothing here yet. The tracker only sees links shared since it went live, confirmed a few minutes after posting — check back shortly, or once someone shares a gift link.";
+      : "Nothing here yet. This tab only sees links shared after it connects, confirmed a few minutes after posting — check back shortly, or once someone shares a gift link.";
     cardsEl.innerHTML = "";
     return;
   }
@@ -98,31 +100,23 @@ function renderList() {
 function render(data) {
   lastData = data;
   populateSources(data.sources);
-  trackingText.textContent = `tracking ${data.count || 0} gift link${data.count === 1 ? "" : "s"}, last ${data.windowHours || 24}h`;
+  trackingText.textContent = `tracking ${data.count || 0} gift link${data.count === 1 ? "" : "s"}, last ${data.windowHours || 24}h in this browser`;
   renderList();
 }
 
 searchInput.addEventListener("input", renderList);
 sourceFilter.addEventListener("change", renderList);
 
-let failCount = 0;
-async function poll() {
-  try {
-    const r = await fetch("/giftlinks/api/articles", { cache: "no-store" });
-    if (!r.ok) throw new Error("http " + r.status);
-    const data = await r.json();
-    failCount = 0;
-    dot.classList.add("live");
-    statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
+const giftIndex = new GiftIndex({
+  onUpdate(data) {
+    dot.classList.toggle("live", data.connected);
+    statusText.textContent = data.connected
+      ? data.processing
+        ? "live · checking recent links…"
+        : "live in this browser"
+      : data.error || "firehose reconnecting…";
     render(data);
-  } catch (e) {
-    failCount++;
-    if (failCount > 2) {
-      dot.classList.remove("live");
-      statusText.textContent = "having trouble reaching the tracker…";
-    }
-  }
-}
+  },
+});
 
-poll();
-setInterval(poll, 60000);
+giftIndex.start();
