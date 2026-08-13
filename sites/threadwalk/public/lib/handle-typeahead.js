@@ -55,8 +55,11 @@
     let debounceTimer = null;
     let abortCtrl = null;
     let dropdown = null;
+    let suppressNextInput = false;
 
     function closeDropdown() {
+      clearTimeout(debounceTimer);
+      if (abortCtrl) abortCtrl.abort();
       if (dropdown) { dropdown.remove(); dropdown = null; }
       items = [];
       activeIndex = -1;
@@ -103,6 +106,7 @@
 
     function select(actor) {
       input.value = actor.handle;
+      suppressNextInput = true;
       closeDropdown();
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -125,6 +129,12 @@
     }
 
     input.addEventListener("input", () => {
+      // select() sets input.value and dispatches its own synthetic "input"
+      // event so other listeners on the page pick up the change — without
+      // this guard that synthetic event re-enters here, re-searches for the
+      // handle that was JUST chosen, and pops the dropdown back open right
+      // after the user picked something from it.
+      if (suppressNextInput) { suppressNextInput = false; return; }
       const raw = input.value.trim().replace(/^@/, "");
       clearTimeout(debounceTimer);
       if (raw.length < MIN_LEN) { closeDropdown(); return; }
@@ -152,8 +162,11 @@
     });
 
     input.addEventListener("blur", () => setTimeout(closeDropdown, 120));
-    // A debounced search that resolves after blur (fast typers, or a
-    // programmatic form fill immediately followed by submit) can call
+    window.addEventListener("scroll", () => { if (dropdown) positionDropdown(); }, true);
+    window.addEventListener("resize", () => { if (dropdown) positionDropdown(); });
+
+    // Catch-all: a debounced search that resolves after blur (fast typers,
+    // or a programmatic form fill immediately followed by submit) can call
     // renderDropdown() after the blur-triggered close already ran, leaving
     // an orphaned dropdown with nothing left to close it — the input won't
     // blur again until it's refocused. A click anywhere outside the input
@@ -161,8 +174,6 @@
     document.addEventListener("mousedown", (e) => {
       if (dropdown && e.target !== input && !dropdown.contains(e.target)) closeDropdown();
     });
-    window.addEventListener("scroll", () => { if (dropdown) positionDropdown(); }, true);
-    window.addEventListener("resize", () => { if (dropdown) positionDropdown(); });
   }
 
   global.attachHandleTypeahead = attachHandleTypeahead;

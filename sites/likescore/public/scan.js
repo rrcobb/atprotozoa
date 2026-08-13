@@ -32,6 +32,12 @@ function openMathPanel() {
 els.mathNavLink?.addEventListener("click", openMathPanel);
 if (location.hash === "#math") openMathPanel();
 
+if (window.attachHandleTypeahead) {
+  window.attachHandleTypeahead(els.input, {
+    onSelect: (actor) => els.input.focus(),
+  });
+}
+
 function logStep(text, kind = "") {
   els.log.hidden = false;
   const row = document.createElement("div");
