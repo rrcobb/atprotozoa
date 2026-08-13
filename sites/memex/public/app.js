@@ -5,11 +5,12 @@
 //   2. your phrasebook — a personal list of phrases, always cached in
 //      localStorage so the page works instantly and anonymously; synced to
 //      net.bisks.memex.phrase records on your own PDS once you sign in.
-//   3. "what's atomic" — the network-wide adoption leaderboard, fetched from
-//      /api/atomic (a Durable Object watching the firehose — see src/index.ts).
+//   3. "what's atomic" — the network-wide adoption leaderboard, derived in
+//      this browser from Jetstream and public PDS records.
 
 import { CANON, THREAD_URL } from "/canon.js";
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+import { AtomicIndex } from "/lib/atomic-index.js";
 
 const COLLECTION = "net.bisks.memex.phrase";
 let session = null;
@@ -444,7 +445,7 @@ let deckItems = [];
 let deckOrder = [];
 let deckMode = "canon";
 let deckIndex = 0;
-let atomicCounts = new Map(); // normText(text) -> adopterCount, filled once /api/atomic loads
+let atomicCounts = new Map(); // normText(text) -> adopterCount, filled by the browser index
 
 function buildDeckItems() {
   const items = CANON.map((p) => ({
@@ -583,15 +584,10 @@ function formatAgo(ts) {
   return Math.round(h / 24) + "d ago";
 }
 
-async function loadAtomic() {
-  els.atomicStats.textContent = "loading…";
-  try {
-    const res = await fetch("/api/atomic");
-    const data = await res.json();
-    renderAtomic(data);
-  } catch (e) {
-    els.atomicStats.textContent = "couldn't load the leaderboard right now.";
-  }
+const atomicIndex = new AtomicIndex({ onUpdate: renderAtomic });
+
+function loadAtomic() {
+  atomicIndex.start();
 }
 
 function renderAtomic(data) {
@@ -600,12 +596,18 @@ function renderAtomic(data) {
   if (deckMode === "popular") rebuildDeck();
   const refresh = document.createElement("a");
   refresh.textContent = "refresh";
-  refresh.onclick = loadAtomic;
+  refresh.onclick = () => atomicIndex.refresh();
+  const connection = data.connected ? "live in this browser" : "reconnecting";
+  const backfill = data.backfillDone
+    ? "history backfill complete"
+    : data.backfillActive
+      ? "backfilling older phrases…"
+      : "starting history backfill…";
+  const phraseCount = data.phraseCount || phrases.length;
   els.atomicStats.innerHTML = "";
   els.atomicStats.append(
-    `${data.userCount || 0} people, ${phrases.length} distinct phrase${phrases.length === 1 ? "" : "s"}` +
-      (data.backfillDone ? "" : " (still backfilling history…)") +
-      ` · updated ${formatAgo(data.updatedAt)} · `,
+    `${data.userCount || 0} people, ${phraseCount} distinct phrase${phraseCount === 1 ? "" : "s"}` +
+      ` · ${connection} · ${backfill} · updated ${formatAgo(data.updatedAt)} · `,
     refresh,
   );
 
@@ -613,7 +615,9 @@ function renderAtomic(data) {
   if (!phrases.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "nobody's synced a phrase to their PDS yet — sign in and keep one to be first.";
+    empty.textContent = data.error
+      ? "couldn't reach phrase history yet — retry in a moment."
+      : "no phrases are visible yet — this browser is connecting to Jetstream and checking public PDS records.";
     els.atomicList.appendChild(empty);
     return;
   }
