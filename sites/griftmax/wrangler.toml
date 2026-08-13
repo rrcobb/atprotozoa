@@ -5,7 +5,7 @@ compatibility_date = "2025-01-01"
 # @antiali.as, replying in the thread where buildthis built griftindex (a
 # leaderboard that greps every site for six blunt "touches something real"
 # signals — live AppView fetch, firehose/Jetstream, full-repo CAR download,
-# real atproto OAuth, a Durable Object, KV/D1/R2 storage — and scores 0-6, no
+# real atproto OAuth, browser-owned ascensions, live Jetstream — and scores 0-6, no
 # LLM judgment), asked for "the worst possible website to get a perfect
 # griftindex score. Be excellent." So: the ugliest, gaudiest memecoin-grift
 # skin we could build ($GRIFT, "ascension," a fake presale that never ends),
@@ -21,33 +21,14 @@ routes = [
   { pattern = "griftmax.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* (the AscensionEngine Durable Object) is dynamic, so
-# the Worker must run BEFORE the static-asset router.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "ENGINE"
-class_name = "AscensionEngine"
-
-# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
-# Paid; this account is on Free. See notes/20-deploy.md.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AscensionEngine"]
 
-# The leaderboard's persistence layer — this is griftindex's "storage" signal
-# (kv_namespaces / d1_databases / r2_buckets), which nothing in the fleet had
-# hit before this site. Deliberately no `id =` here: this builder has no
-# Cloudflare credentials to run `wrangler kv namespace create` by hand, but
-# modern Wrangler (checked: 4.114-4.118, `--x-provision`/`--x-auto-create`,
-# both default true) auto-provisions a draft binding like this one on first
-# real `wrangler deploy` using CI's CLOUDFLARE_API_TOKEN, then writes the
-# real id back into this file. If a future deploy ever fails here, that
-# auto-provisioning assumption is the first thing to check — the fallback is
-# running `wrangler kv namespace create griftmax-ledger` by hand and pasting
-# the id in.
-[[kv_namespaces]]
-binding = "LEDGER"
+[[migrations]]
+tag = "v2"
+deleted_classes = ["AscensionEngine"]

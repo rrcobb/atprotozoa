@@ -2,49 +2,16 @@ name = "atprotozoa-revolver"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @fromthewestmeadow.com, in a thread about atproto novelty-account bots
-# ("machine you crank to spit out posts", "whack-a-mole that posts from your
-# account every time you miss"): "website that lets you live play Russian
-# roulette with another bluesky handle where if you agree to the round you
-# if you lose your account posts what the other person inputted... or is
-# this too dark atproto stuff." First build softened that (compose-intent
-# link, manual click). @fromthewestmeadow.com asked (2026-08-06) for an
-# explanation page before login and a real, no-click auto-post — this
-# version does exactly the original ask: each player OAuths in (scope:
-# create-only on app.bsky.feed.post) behind an explicit consent gate, and
-# the loser's account posts the winner's dare automatically the moment the
-# round resolves. See public/lib/oauth.js, public/lib/post.js, and the
-# commit-reveal fairness scheme in src/index.ts (the server commits to the
-# bullet's chamber before anyone pulls, and reveals the seed afterward so
-# neither player can accuse it of rigging the round mid-game).
-#
-# A brand-new site served at the root of its own subdomain — no bisks.net/
-# path route, no mount-prefix stripping.
+# A static, same-browser two-player toy. Round state is local to each browser;
+# there is no room server, leaderboard, polling, WebSocket, or Durable Object.
 routes = [
   { pattern = "revolver.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# The Worker runs first for everything: it serves personalized-OG /r/<id>
-# unfurl pages and forwards /api/round/<id> (including the WebSocket
-# upgrade) to the ROUND Durable Object — the ASSETS router can't do either.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "ROUND"
-class_name = "Round"
-
-# Singleton DO (always idFromName("global")) tallying survived rounds per
-# handle per chamber count, for /leaderboard. Round records a win into it
-# the instant a round resolves.
-[[durable_objects.bindings]]
-name = "LEADERBOARD"
-class_name = "Leaderboard"
-
-# new_sqlite_classes, not new_classes: legacy KV-backed DO storage needs
-# Workers Paid; this account is on Free. See notes/20-deploy.md.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Round"]
@@ -52,3 +19,7 @@ new_sqlite_classes = ["Round"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["Leaderboard"]
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["Round", "Leaderboard"]

@@ -1,579 +1,76 @@
-// gridlock client — landing form resolves a handle's moots (lib/cluster.js,
-// public AppView, no auth) and hands the room off to a WebSocket-backed
-// Durable Object (see src/index.ts's Jam class) for live presence, the CB
-// note thread, honks, and the co-op "spot it" board.
-
-import { resolveDid, moots, getProfiles } from "./lib/cluster.js";
+// gridlock is a static, browser-local jam. The public AppView supplies the
+// roster; notes, honks, mileage, and the checklist belong to this browser.
+import { moots, resolveDid, getProfiles } from "./lib/cluster.js";
 
 const LS_ME = "gridlock:me";
+const MAX_NOTES = 300;
+const CREEP_INTERVAL = 60000;
+const BOARD_ITEMS = ["someone singing along, badly", "brake lights ripple off into the distance", "a trucker gives the horn-pull signal back", "a dog with its head out the window", "someone lane-changes and gains nothing", "an ambulance threads through, everyone freezes", "the light turns green and nobody moves for 3 full seconds", "bumper sticker philosophy", "someone visibly mid-argument on a call", "a motorcycle splits the lane", "someone eating something they really shouldn't be", "a car with one working headlight"];
+const CREEP_LINES = ["the line inches forward", "everyone rolls up a few feet and stops again", "brake lights blink off, then right back on", "a gap opens up ahead — gone again in a second", "the whole jam exhales and creeps forward"];
+const SURGE_LINES = ["the light finally lets a few cars through", "someone up front actually gets somewhere", "the jam breaks loose for a second — real progress", "a lane opens up and everyone surges forward"];
+const els = Object.fromEntries(["landing jam startForm handleInput landingStatus jamOwnerName jamKind jamStatus meName meEdit shareBtn copyBtn cars road honkBtn honkTally mileage creepLine notesFeed noteForm noteInput boardList boardClears flyLayer"].map((key) => [key, document.getElementById(key)]));
+const room = { handle: "", owner: null, pool: [], kind: "moots", board: [], spotted: {}, clears: 0, honks: 0, lastHonkBy: "", mileageFt: 0, lastCreepLine: "", notes: [], me: null };
+let creepTimer = null;
 
-const els = {
-  landing: document.getElementById("landing"),
-  jam: document.getElementById("jam"),
-  startForm: document.getElementById("start-form"),
-  handleInput: document.getElementById("handle-input"),
-  landingStatus: document.getElementById("landing-status"),
-  jamOwnerName: document.getElementById("jam-owner-name"),
-  jamKind: document.getElementById("jam-kind"),
-  jamStatus: document.getElementById("jam-status"),
-  meName: document.getElementById("me-name"),
-  meEdit: document.getElementById("me-edit"),
-  shareBtn: document.getElementById("share-btn"),
-  copyBtn: document.getElementById("copy-btn"),
-  cars: document.getElementById("cars"),
-  road: document.getElementById("road"),
-  honkBtn: document.getElementById("honk-btn"),
-  honkTally: document.getElementById("honk-tally"),
-  mileage: document.getElementById("mileage"),
-  creepLine: document.getElementById("creep-line"),
-  notesFeed: document.getElementById("notes-feed"),
-  noteForm: document.getElementById("note-form"),
-  noteInput: document.getElementById("note-input"),
-  boardList: document.getElementById("board-list"),
-  boardClears: document.getElementById("board-clears"),
-  flyLayer: document.getElementById("note-fly-layer"),
-};
+function cleanHandle(raw) { return (raw || "").trim().replace(/^@/, "").replace(/^https?:\/\/(bsky\.app\/profile\/)?/, "").split(/[\/\s]/)[0].toLowerCase(); }
+function setStatus(el, text, error = false) { el.textContent = text || ""; el.classList.toggle("error", error); }
+function feetLabel(ft) { return ft < 5280 ? `${ft} ft` : `${(ft / 5280).toFixed(2)} mi`; }
+function key(kind) { return `gridlock:${room.handle}:${kind}`; }
+function read(kind, fallback) { try { return JSON.parse(localStorage.getItem(key(kind)) || JSON.stringify(fallback)); } catch { return fallback; } }
+function save(kind, value) { localStorage.setItem(key(kind), JSON.stringify(value)); }
+function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+function colorFor(id) { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return ["#ff7a3d", "#4dd6c0", "#f2c94c", "#bb86fc", "#6fcf97", "#56ccf2", "#eb5757", "#f2994a"][h % 8]; }
 
-const room = {
-  handle: "",
-  owner: null,
-  pool: [],
-  kind: "",
-  board: [],
-  spotted: {},
-  clears: 0,
-  honks: 0,
-  mileageFt: 0,
-  presence: [],
-  myId: null,
-  mySeat: null,
-  ws: null,
-  seenNoteIds: new Set(),
-};
-
-function feetLabel(ft) {
-  if (ft < 5280) return `${ft} ft`;
-  return `${(ft / 5280).toFixed(2)} mi`;
-}
-
-function cleanHandle(raw) {
-  return (raw || "")
-    .trim()
-    .replace(/^@/, "")
-    .replace(/^https?:\/\/(bsky\.app\/profile\/)?/, "")
-    .split(/[\/\s]/)[0]
-    .toLowerCase();
-}
-
-function setStatus(el, text, isError) {
-  el.textContent = text || "";
-  el.classList.toggle("error", !!isError);
-}
-
-// ---- routing ----
-
-function route() {
-  const m = location.pathname.match(/^\/j\/([^/]+)\/?$/);
-  if (m) {
-    startJam(decodeURIComponent(m[1]));
-  } else {
-    els.landing.hidden = false;
-    els.jam.hidden = true;
-  }
-}
-
-els.startForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const handle = cleanHandle(els.handleInput.value);
-  if (!handle) return;
-  localStorage.setItem(LS_ME, handle);
-  history.pushState({}, "", `/j/${encodeURIComponent(handle)}`);
-  route();
-});
-
-window.addEventListener("popstate", route);
-
-// ---- jam boot ----
+function route() { els.landing.hidden = false; els.jam.hidden = true; }
+els.startForm.addEventListener("submit", (event) => { event.preventDefault(); const handle = cleanHandle(els.handleInput.value); if (handle) { localStorage.setItem(LS_ME, handle); startJam(handle); } });
 
 async function startJam(handle) {
-  room.handle = handle;
-  els.landing.hidden = true;
-  els.jam.hidden = false;
-  els.jamOwnerName.textContent = handle;
-  setStatus(els.jamStatus, "pulling up to the jam…");
-  els.cars.innerHTML = "";
-  els.notesFeed.innerHTML = "";
-  els.boardList.innerHTML = "";
-
-  let snap;
+  clearInterval(creepTimer); room.handle = cleanHandle(handle); els.landing.hidden = true; els.jam.hidden = false;
+  els.jamOwnerName.textContent = room.handle; els.cars.innerHTML = ""; els.notesFeed.innerHTML = ""; els.boardList.innerHTML = "";
+  setStatus(els.jamStatus, `resolving @${room.handle}…`);
   try {
-    const res = await fetch(`/api/jam/${encodeURIComponent(handle)}`);
-    snap = await res.json();
-  } catch {
-    setStatus(els.jamStatus, "couldn't reach the jam. try again?", true);
-    return;
-  }
-
-  if (!snap.exists) {
-    try {
-      setStatus(els.jamStatus, `resolving @${handle}…`);
-      const result = await moots(handle, {
-        onStep: (s) => setStatus(els.jamStatus, s),
-      });
-      setStatus(els.jamStatus, "lining everyone up bumper to bumper…");
-      const seedRes = await fetch(`/api/jam/${encodeURIComponent(handle)}/seed`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner: result.self, pool: result.pool, kind: result.kind }),
-      });
-      snap = await seedRes.json();
-    } catch (err) {
-      setStatus(els.jamStatus, `couldn't find @${handle} — ${err.message || "check the handle"}`, true);
-      return;
-    }
-  }
-
-  room.owner = snap.owner;
-  room.pool = snap.pool || [];
-  room.kind = snap.kind || "moots";
-  room.board = snap.board || [];
-  room.spotted = snap.spotted || {};
-  room.clears = snap.clears || 0;
-  room.honks = snap.honks || 0;
-  room.mileageFt = snap.mileageFt || 0;
-  room.presence = snap.presence || [];
-
-  els.jamOwnerName.textContent = room.owner.displayName || room.owner.handle;
-  els.jamKind.textContent = room.pool.length
-    ? `${room.pool.length} ${room.kind === "moots" ? "moots" : "riders"} in the jam`
-    : "riding solo (for now)";
-  setStatus(els.jamStatus, "");
-
-  renderCars();
-  renderBoard();
-  renderHonkTally(snap.lastHonkBy);
-  renderMileage();
-  if (snap.lastCreepLine) setStatus(els.creepLine, snap.lastCreepLine);
-  renderInitialNotes(snap.notes || []);
-  connect(handle);
+    const result = await moots(room.handle, { onStep: (step) => setStatus(els.jamStatus, step) });
+    room.owner = result.self; room.pool = result.pool || []; room.kind = result.kind || "moots";
+    const saved = read("state", null);
+    room.board = saved?.board || BOARD_ITEMS.slice(); room.spotted = saved?.spotted || {}; room.clears = saved?.clears || 0;
+    room.honks = saved?.honks || 0; room.lastHonkBy = saved?.lastHonkBy || ""; room.mileageFt = saved?.mileageFt || 0;
+    room.lastCreepLine = saved?.lastCreepLine || ""; room.notes = Array.isArray(saved?.notes) ? saved.notes : [];
+    els.jamOwnerName.textContent = room.owner.displayName || room.owner.handle;
+    els.jamKind.textContent = room.pool.length ? `${room.pool.length} ${room.kind === "moots" ? "moots" : "riders"} in the jam` : "riding solo (for now)";
+    room.me = await resolveMe(); updateMeLabel(room.me.displayName); setStatus(els.jamStatus, "");
+    renderCars(); renderBoard(); renderHonkTally(); renderMileage(); renderNotes(); if (room.lastCreepLine) setStatus(els.creepLine, room.lastCreepLine); scheduleCreep();
+  } catch (error) { setStatus(els.jamStatus, `couldn't find @${room.handle} — ${error.message || "check the handle"}`, true); }
 }
+function persist() { save("state", { board: room.board, spotted: room.spotted, clears: room.clears, honks: room.honks, lastHonkBy: room.lastHonkBy, mileageFt: room.mileageFt, lastCreepLine: room.lastCreepLine, notes: room.notes }); }
+function scheduleCreep() { clearInterval(creepTimer); creepTimer = setInterval(() => { const surge = Math.random() < .2; room.mileageFt += surge ? 40 + Math.floor(Math.random() * 50) : 3 + Math.floor(Math.random() * 11); room.lastCreepLine = pick(surge ? SURGE_LINES : CREEP_LINES); persist(); renderMileage(); setStatus(els.creepLine, room.lastCreepLine); creepEffect(surge); }, CREEP_INTERVAL); }
 
-// ---- websocket ----
-
-function connect(handle) {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/api/jam/${encodeURIComponent(handle)}/ws`);
-  room.ws = ws;
-
-  ws.addEventListener("open", async () => {
-    const me = await resolveMe();
-    ws.send(JSON.stringify({ t: "hello", ...me }));
-  });
-
-  ws.addEventListener("message", (evt) => {
-    let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      return;
-    }
-    handleMessage(msg);
-  });
-
-  ws.addEventListener("close", () => {
-    setStatus(els.jamStatus, "disconnected — reconnecting…", true);
-    setTimeout(() => {
-      if (room.handle === handle) connect(handle);
-    }, 1500);
-  });
+function presenceFor(seat) { return room.me && room.me.seat === seat ? [room.me] : []; }
+function makeCar(seat, rider, color) {
+  const car = document.createElement("div"); car.className = "car"; car.dataset.seat = seat; car.style.background = color || "#c9c1d8";
+  const present = presenceFor(seat); if (present.length) car.classList.add("awake", "is-you"); else { const zzz = document.createElement("div"); zzz.className = "zzz"; zzz.textContent = "💤"; car.appendChild(zzz); }
+  if (present.length) { const flag = document.createElement("div"); flag.className = "you-flag"; flag.textContent = "YOU"; car.appendChild(flag); }
+  const win = document.createElement("div"); win.className = "window"; if (rider.avatar) { const img = document.createElement("img"); img.src = rider.avatar; img.alt = ""; img.loading = "lazy"; win.appendChild(img); } else win.textContent = "🙂"; car.appendChild(win);
+  const plate = document.createElement("div"); plate.className = "plate"; plate.textContent = `@${rider.handle || rider.displayName || "guest"}`; car.appendChild(plate); return car;
 }
+function renderCars() { els.cars.innerHTML = ""; if (room.owner) els.cars.appendChild(makeCar("owner", room.owner, "#ffd27a")); room.pool.forEach((rider) => els.cars.appendChild(makeCar(rider.did, rider, "#c9c1d8"))); if (room.me && !["owner", ...room.pool.map((r) => r.did)].includes(room.me.seat)) els.cars.appendChild(makeCar(room.me.seat, room.me, room.me.color)); }
+function renderHonkTally() { els.honkTally.textContent = room.honks ? `${room.honks} honk${room.honks === 1 ? "" : "s"} so far${room.lastHonkBy ? ` — last from ${room.lastHonkBy}` : ""}` : "no one's honked yet"; }
+function renderMileage() { els.mileage.textContent = room.mileageFt ? `crawled ${feetLabel(room.mileageFt)} together` : "hasn't moved an inch yet"; }
+function creepEffect(surge) { els.road.classList.remove("creeping", "surging"); void els.road.offsetWidth; els.road.classList.add(surge ? "surging" : "creeping"); }
+function timeAgo(ts) { const s = Math.max(0, Math.floor((Date.now() - ts) / 1000)); return s < 5 ? "now" : s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`; }
+function renderNotes() { els.notesFeed.innerHTML = ""; if (!room.notes.length) { const empty = document.createElement("div"); empty.className = "note-empty"; empty.textContent = "it's quiet on the CB. say something."; els.notesFeed.appendChild(empty); } room.notes.forEach((note) => { const line = document.createElement("div"); line.className = "note-line"; const who = document.createElement("span"); who.className = "who"; who.textContent = note.displayName; line.append(who, `: ${note.text}`); const when = document.createElement("span"); when.className = "when"; when.textContent = timeAgo(note.at); line.appendChild(when); els.notesFeed.appendChild(line); }); els.notesFeed.scrollTop = els.notesFeed.scrollHeight; }
 
-async function resolveMe() {
-  const stored = localStorage.getItem(LS_ME);
-  if (!stored) return { did: "", handle: "", displayName: "", avatar: "" };
-
-  if (room.owner && stored === room.owner.handle.toLowerCase()) {
-    updateMeLabel(room.owner.displayName || room.owner.handle);
-    return { did: room.owner.did, handle: room.owner.handle, displayName: room.owner.displayName, avatar: room.owner.avatar };
-  }
-  const poolMatch = room.pool.find((r) => r.handle.toLowerCase() === stored);
-  if (poolMatch) {
-    updateMeLabel(poolMatch.displayName || poolMatch.handle);
-    return { did: poolMatch.did, handle: poolMatch.handle, displayName: poolMatch.displayName, avatar: poolMatch.avatar };
-  }
-  try {
-    const did = await resolveDid(stored);
-    const profiles = await getProfiles([did]);
-    const p = profiles[0];
-    const me = {
-      did,
-      handle: p?.handle || stored,
-      displayName: p?.displayName || p?.handle || stored,
-      avatar: p?.avatar || "",
-    };
-    updateMeLabel(me.displayName);
-    return me;
-  } catch {
-    updateMeLabel(stored);
-    return { did: "", handle: stored, displayName: stored, avatar: "" };
-  }
-}
-
-function updateMeLabel(name) {
-  els.meName.textContent = name || "a passerby";
-}
-
-function handleMessage(msg) {
-  if (msg.t === "init") {
-    room.myId = msg.you.id;
-    room.mySeat = msg.you.seat;
-    room.presence = msg.presence || room.presence;
-    renderCars();
-    return;
-  }
-  if (msg.t === "seat") {
-    if (msg.id === room.myId) room.mySeat = msg.seat;
-    return;
-  }
-  if (msg.t === "presence") {
-    room.presence = msg.presence || [];
-    renderCars();
-    return;
-  }
-  if (msg.t === "note") {
-    addNote(msg.note, true);
-    return;
-  }
-  if (msg.t === "honk") {
-    room.honks = msg.honks;
-    renderHonkTally(msg.by);
-    honkEffect(msg.seat);
-    return;
-  }
-  if (msg.t === "creep") {
-    room.mileageFt = msg.mileageFt;
-    renderMileage();
-    setStatus(els.creepLine, msg.line);
-    creepEffect(msg.surge);
-    return;
-  }
-  if (msg.t === "spot") {
-    room.spotted[msg.i] = { by: msg.by, at: msg.at };
-    renderBoard();
-    if (msg.cleared) {
-      room.clears = msg.clears;
-      celebrateClear();
-      setTimeout(() => {
-        room.spotted = {};
-        renderBoard();
-      }, 1500);
-    }
-    return;
-  }
-}
-
-// ---- rendering: cars ----
-
-function seatKeyOf(rider, isOwner) {
-  return isOwner ? "owner" : rider.did;
-}
-
-function presenceFor(seatKey) {
-  return room.presence.filter((p) => p.seat === seatKey);
-}
-
-function makeCarEl(seatKey, name, handle, avatar, color) {
-  const car = document.createElement("div");
-  car.className = "car";
-  car.dataset.seat = seatKey;
-  car.style.background = color || "#c9c1d8";
-
-  const present = presenceFor(seatKey);
-  const isYou = present.some((p) => p.id === room.myId);
-  if (present.length) car.classList.add("awake");
-  if (isYou) car.classList.add("is-you");
-
-  if (isYou) {
-    const flag = document.createElement("div");
-    flag.className = "you-flag";
-    flag.textContent = "YOU";
-    car.appendChild(flag);
-  } else if (!present.length) {
-    const zzz = document.createElement("div");
-    zzz.className = "zzz";
-    zzz.textContent = "💤";
-    car.appendChild(zzz);
-  }
-
-  const win = document.createElement("div");
-  win.className = "window";
-  if (avatar) {
-    const img = document.createElement("img");
-    img.src = avatar;
-    img.alt = "";
-    img.loading = "lazy";
-    win.appendChild(img);
-  } else {
-    win.textContent = "🙂";
-  }
-  car.appendChild(win);
-
-  const plate = document.createElement("div");
-  plate.className = "plate";
-  plate.textContent = handle ? "@" + handle : name || "guest";
-  car.appendChild(plate);
-
-  return car;
-}
-
-function renderCars() {
-  els.cars.innerHTML = "";
-  if (room.owner) {
-    els.cars.appendChild(
-      makeCarEl("owner", room.owner.displayName, room.owner.handle, room.owner.avatar, "#ffd27a"),
-    );
-  }
-  for (const rider of room.pool) {
-    els.cars.appendChild(makeCarEl(rider.did, rider.displayName, rider.handle, rider.avatar, "#c9c1d8"));
-  }
-  const knownSeats = new Set(["owner", ...room.pool.map((r) => r.did)]);
-  const passersby = room.presence.filter((p) => !knownSeats.has(p.seat));
-  const uniqueSeats = new Map();
-  for (const p of passersby) {
-    if (!uniqueSeats.has(p.seat)) uniqueSeats.set(p.seat, p);
-  }
-  for (const p of uniqueSeats.values()) {
-    els.cars.appendChild(makeCarEl(p.seat, p.displayName, p.handle, p.avatar, p.color));
-  }
-}
-
-// ---- rendering: honk ----
-
-function renderHonkTally(lastBy) {
-  if (!room.honks) {
-    els.honkTally.textContent = "no one's honked yet";
-    return;
-  }
-  els.honkTally.textContent = `${room.honks} honk${room.honks === 1 ? "" : "s"} so far${lastBy ? ` — last from ${lastBy}` : ""}`;
-}
-
-function renderMileage() {
-  els.mileage.textContent = room.mileageFt
-    ? `crawled ${feetLabel(room.mileageFt)} together`
-    : "hasn't moved an inch yet";
-}
-
-function creepEffect(surge) {
-  if (!els.road) return;
-  els.road.classList.remove("creeping", "surging");
-  void els.road.offsetWidth;
-  els.road.classList.add(surge ? "surging" : "creeping");
-}
+function renderBoard() { els.boardList.innerHTML = ""; room.board.forEach((label, i) => { const li = document.createElement("li"); const btn = document.createElement("button"); btn.type = "button"; btn.className = "board-item"; btn.textContent = label; const spot = room.spotted[i]; if (spot) { btn.classList.add("spotted"); btn.disabled = true; const by = document.createElement("span"); by.className = "by"; by.textContent = `spotted by ${spot.by}`; btn.appendChild(by); } else btn.addEventListener("click", () => spotItem(i)); li.appendChild(btn); els.boardList.appendChild(li); }); els.boardClears.textContent = room.clears ? `the jam has broken up ${room.clears} time${room.clears === 1 ? "" : "s"} 🎉` : ""; }
+function spotItem(i) { const me = room.me?.displayName || "a passerby"; room.spotted[i] = { by: me, at: Date.now() }; if (Object.keys(room.spotted).length >= room.board.length) { room.clears++; room.spotted = {}; celebrateClear(); } persist(); renderBoard(); }
+function celebrateClear() { const banner = document.createElement("div"); banner.className = "jam-cleared-banner"; banner.textContent = "🎉 board cleared — the jam breaks up! fresh round incoming…"; document.body.appendChild(banner); setTimeout(() => banner.remove(), 3200); }
 
 let audioCtx = null;
-function beep() {
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "square";
-    osc.frequency.value = 220;
-    gain.gain.value = 0.05;
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
-    osc.stop(audioCtx.currentTime + 0.35);
-  } catch {}
-}
+function beep() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type = "square"; osc.frequency.value = 220; gain.gain.value = .05; osc.connect(gain).connect(audioCtx.destination); osc.start(); gain.gain.exponentialRampToValueAtTime(.0001, audioCtx.currentTime + .35); osc.stop(audioCtx.currentTime + .35); } catch {} }
+els.honkBtn.addEventListener("click", () => { room.honks++; room.lastHonkBy = room.me?.displayName || "a passerby"; persist(); renderHonkTally(); beep(); const seat = room.me?.seat; const car = seat && els.cars.querySelector(`[data-seat="${CSS.escape(seat)}"]`); if (car) { car.classList.add("honking"); setTimeout(() => car.classList.remove("honking"), 500); } });
+els.noteForm.addEventListener("submit", (event) => { event.preventDefault(); const text = els.noteInput.value.trim(); if (!text) return; const me = room.me || { displayName: "a passerby", seat: "passerby" }; room.notes.push({ id: crypto.randomUUID(), displayName: me.displayName, seat: me.seat, text: text.slice(0, 180), at: Date.now() }); room.notes = room.notes.slice(-MAX_NOTES); persist(); renderNotes(); els.noteInput.value = ""; });
 
-function honkEffect(seat) {
-  beep();
-  if (!seat) return;
-  const car = els.cars.querySelector(`[data-seat="${cssEscape(seat)}"]`);
-  if (!car) return;
-  car.classList.remove("honking");
-  void car.offsetWidth;
-  car.classList.add("honking");
-  const bubble = document.createElement("div");
-  bubble.className = "honk-bubble";
-  bubble.textContent = "HONK!";
-  car.appendChild(bubble);
-  setTimeout(() => bubble.remove(), 1100);
-}
-
-els.honkBtn.addEventListener("click", () => {
-  if (room.ws && room.ws.readyState === 1) room.ws.send(JSON.stringify({ t: "honk" }));
-});
-
-// ---- rendering: notes / CB ----
-
-function timeAgo(ts) {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 5) return "now";
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  return `${Math.floor(m / 60)}h ago`;
-}
-
-function noteLineEl(note) {
-  const line = document.createElement("div");
-  line.className = "note-line";
-  const who = document.createElement("span");
-  who.className = "who";
-  who.textContent = note.displayName || "a passerby";
-  const when = document.createElement("span");
-  when.className = "when";
-  when.textContent = timeAgo(note.at);
-  line.appendChild(who);
-  line.append(": " + note.text);
-  line.appendChild(when);
-  return line;
-}
-
-function renderInitialNotes(notes) {
-  els.notesFeed.innerHTML = "";
-  if (!notes.length) {
-    const empty = document.createElement("div");
-    empty.className = "note-empty";
-    empty.textContent = "it's quiet on the CB. say something.";
-    els.notesFeed.appendChild(empty);
-  }
-  for (const n of notes) {
-    room.seenNoteIds.add(n.id);
-    els.notesFeed.appendChild(noteLineEl(n));
-  }
-  els.notesFeed.scrollTop = els.notesFeed.scrollHeight;
-}
-
-function addNote(note, animate) {
-  if (room.seenNoteIds.has(note.id)) return;
-  room.seenNoteIds.add(note.id);
-  const empty = els.notesFeed.querySelector(".note-empty");
-  if (empty) empty.remove();
-  els.notesFeed.appendChild(noteLineEl(note));
-  els.notesFeed.scrollTop = els.notesFeed.scrollHeight;
-  if (animate) flyNote(note);
-}
-
-function flyNote(note) {
-  const car = els.cars.querySelector(`[data-seat="${cssEscape(note.seat)}"]`);
-  const target = els.notesFeed.getBoundingClientRect();
-  const start = car ? car.getBoundingClientRect() : target;
-
-  const chip = document.createElement("div");
-  chip.className = "note-fly";
-  chip.textContent = note.text.length > 28 ? note.text.slice(0, 27) + "…" : note.text;
-  chip.style.left = start.left + start.width / 2 + "px";
-  chip.style.top = start.top + "px";
-  els.flyLayer.appendChild(chip);
-
-  const anim = chip.animate(
-    [
-      { transform: "translate(-50%, 0) scale(1)", opacity: 1 },
-      {
-        transform: `translate(${target.left + target.width / 2 - (start.left + start.width / 2) - 20}px, ${target.top - start.top + 20}px) scale(0.85)`,
-        opacity: 0.15,
-      },
-    ],
-    { duration: 900, easing: "cubic-bezier(.2,.7,.3,1)" },
-  );
-  anim.onfinish = () => chip.remove();
-}
-
-els.noteForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = els.noteInput.value.trim();
-  if (!text || !room.ws || room.ws.readyState !== 1) return;
-  room.ws.send(JSON.stringify({ t: "note", text }));
-  els.noteInput.value = "";
-});
-
-// ---- rendering: board ----
-
-function cssEscape(s) {
-  return window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
-}
-
-function renderBoard() {
-  els.boardList.innerHTML = "";
-  room.board.forEach((label, i) => {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "board-item";
-    const spot = room.spotted[i];
-    btn.textContent = label;
-    if (spot) {
-      btn.classList.add("spotted");
-      btn.disabled = true;
-      const by = document.createElement("span");
-      by.className = "by";
-      by.textContent = `spotted by ${spot.by}`;
-      btn.appendChild(by);
-    } else {
-      btn.addEventListener("click", () => {
-        if (room.ws && room.ws.readyState === 1) room.ws.send(JSON.stringify({ t: "spot", i }));
-      });
-    }
-    li.appendChild(btn);
-    els.boardList.appendChild(li);
-  });
-  els.boardClears.textContent = room.clears
-    ? `the jam has broken up ${room.clears} time${room.clears === 1 ? "" : "s"} 🎉`
-    : "";
-}
-
-function celebrateClear() {
-  const banner = document.createElement("div");
-  banner.className = "jam-cleared-banner";
-  banner.textContent = "🎉 board cleared — the jam breaks up! fresh round incoming…";
-  document.body.appendChild(banner);
-  setTimeout(() => banner.remove(), 3200);
-}
-
-// ---- identity ----
-
-els.meEdit.addEventListener("click", async () => {
-  const current = localStorage.getItem(LS_ME) || "";
-  const next = window.prompt("your bluesky handle (leave blank to ride anonymous):", current);
-  if (next === null) return;
-  const cleaned = cleanHandle(next);
-  if (cleaned) localStorage.setItem(LS_ME, cleaned);
-  else localStorage.removeItem(LS_ME);
-  updateMeLabel(cleaned || "a passerby");
-  if (room.ws && room.ws.readyState === 1) {
-    const me = await resolveMe();
-    room.ws.send(JSON.stringify({ t: "hello", ...me }));
-  }
-});
-
-// ---- sharing ----
-
-els.shareBtn.addEventListener("click", () => {
-  const url = `${location.origin}/j/${encodeURIComponent(room.handle)}`;
-  const name = room.owner ? room.owner.displayName || room.owner.handle : room.handle;
-  const text = `stuck in traffic with ${name} and the moots 🚗🚦 hop in: ${url}`;
-  window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, "_blank", "noopener");
-});
-
-els.copyBtn.addEventListener("click", async () => {
-  const url = `${location.origin}/j/${encodeURIComponent(room.handle)}`;
-  try {
-    await navigator.clipboard.writeText(url);
-    els.copyBtn.textContent = "copied!";
-    els.copyBtn.classList.add("copied");
-  } catch {
-    window.prompt("copy this link:", url);
-  }
-  setTimeout(() => {
-    els.copyBtn.textContent = "copy link";
-    els.copyBtn.classList.remove("copied");
-  }, 1600);
-});
-
-// ---- boot ----
-
-const savedMe = localStorage.getItem(LS_ME);
-if (savedMe) els.handleInput.value = savedMe;
-route();
+async function resolveMe() { const stored = localStorage.getItem(LS_ME); if (!stored) return { displayName: "a passerby", handle: "", seat: `passerby:${crypto.randomUUID()}`, color: colorFor("guest") }; if (room.owner?.handle.toLowerCase() === stored) return { ...room.owner, seat: "owner", color: "#ffd27a" }; const pool = room.pool.find((r) => r.handle.toLowerCase() === stored); if (pool) return { ...pool, seat: pool.did, color: "#c9c1d8" }; try { const did = await resolveDid(stored); const p = (await getProfiles([did]))[0]; return { did, handle: p?.handle || stored, displayName: p?.displayName || p?.handle || stored, avatar: p?.avatar || "", seat: `passerby:${did}`, color: colorFor(did) }; } catch { return { displayName: stored, handle: stored, seat: `passerby:${stored}`, color: colorFor(stored) }; } }
+function updateMeLabel(name) { els.meName.textContent = name || "a passerby"; }
+els.meEdit.addEventListener("click", async () => { const next = prompt("your bluesky handle (leave blank to ride anonymous):", localStorage.getItem(LS_ME) || ""); if (next === null) return; const value = cleanHandle(next); value ? localStorage.setItem(LS_ME, value) : localStorage.removeItem(LS_ME); room.me = await resolveMe(); updateMeLabel(room.me.displayName); renderCars(); });
+els.shareBtn.addEventListener("click", () => { const url = location.origin + "/"; window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(`sit in a local gridlock jam with me: ${url}`)}`, "_blank", "noopener"); });
+els.copyBtn.addEventListener("click", async () => { const url = location.origin + "/"; try { await navigator.clipboard.writeText(url); els.copyBtn.textContent = "copied!"; } catch { prompt("copy this link:", url); } setTimeout(() => { els.copyBtn.textContent = "copy link"; }, 1600); });
+const savedMe = localStorage.getItem(LS_ME); if (savedMe) els.handleInput.value = savedMe; route();

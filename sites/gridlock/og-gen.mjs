@@ -63,7 +63,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="62" y="192" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">sit in traffic with your moots</text>
 
   <text x="62" y="252" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Type a handle, get stuck in a jam with your mutuals —</text>
-  <text x="62" y="278" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">pass notes on the CB, honk, spot it together. live.</text>
+  <text x="62" y="278" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">pass notes, honk, spot it together. local to your browser.</text>
 
   <text x="62" y="336" font-family="JetBrains Mono" font-size="16" fill="${ACCENT}">breaker breaker · honk · spot it</text>
 

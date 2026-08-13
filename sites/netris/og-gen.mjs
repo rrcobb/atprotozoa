@@ -22,7 +22,7 @@ const PIECE_COLORS = ["#4fd6f2", "#f2d94c", "#bb86fc", "#6fcf97", "#eb5757", "#5
 
 // Two small stacks of blocks, bottom-right, facing off — one leaning amber
 // (attacker), one leaning cool blue (defender), with a few "garbage" rows
-// (flat grey) near the bottom of the right stack to sell the battle.
+// (flat grey) near the bottom of the right stack to sell the challenge.
 function stack(ox, oy, cols, heights, colorAt) {
   const bs = 26;
   let out = "";
@@ -57,12 +57,12 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
 
   <text x="60" y="150" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="${INK}">net<tspan fill="${ACCENT}">ris</tspan></text>
-  <text x="62" y="192" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">battle tetris with your moots</text>
+  <text x="62" y="192" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">browser-local solo tetris</text>
 
-  <text x="62" y="256" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Type a handle, drop into live competitive Tetris —</text>
-  <text x="62" y="282" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">clear lines to send garbage at a random opponent.</text>
+  <text x="62" y="256" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Name a run, then play entirely in your browser —</text>
+  <text x="62" y="282" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">best scores and history stay on this device.</text>
 
-  <text x="62" y="340" font-family="JetBrains Mono" font-size="16" fill="${AMBER}">same pieces · clear lines · send garbage · last board standing</text>
+  <text x="62" y="340" font-family="JetBrains Mono" font-size="16" fill="${AMBER}">deterministic pieces · clear lines · chase your best</text>
 
   <text x="62" y="600" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">netris.bisks.net</text>
 

@@ -1,44 +1,9 @@
 name = "atprotozoa-likescore"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @fromthewestmeadow.com's 32-part thread (root: "build likescore, a public
-# social-credit leaderboard built from who repeatedly likes whom, live data
-# only, no mocks"), replied to by @fromthewestmeadow.com again with "ship a
-# functional site... no mocked final experience". This is that: a Durable
-# Object (SQLite-backed storage — see notes/20-deploy.md, this account is on
-# Workers Free so it's new_sqlite_classes not new_classes) is the persistent
-# database. A scan is a real, synchronous, streamed (SSE) walk of the public
-# AppView: resolveHandle -> getProfile -> getAuthorFeed (cursor-paginated,
-# capped) -> getLikes per post (bounded concurrency, cursor-paginated,
-# capped, retried with backoff). Every liker discovered becomes a real edge
-# (liker -> subject, weight = observed like count/streak/reciprocity in this
-# scan's window) persisted to the DO's own SQLite tables — no D1 (no
-# precedent/credentials to provision one; a SQLite DO is the established
-# pattern here, see sites/didrank). Prestige is a real recursive PageRank-
-# style computation (src/formulas.ts, unit-tested in tests/) over whatever's
-# actually in the graph, recomputed atomically after every scan. See
-# src/engine.ts for the whole thing.
-#
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table.
 routes = [
   { pattern = "likescore.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# /api/* is dynamic (the LikeScoreEngine Durable Object), so the Worker must
-# run BEFORE the static-asset router.
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-
-[[durable_objects.bindings]]
-name = "ENGINE"
-class_name = "LikeScoreEngine"
-
-# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
-# Paid; this account is on Free.
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["LikeScoreEngine"]

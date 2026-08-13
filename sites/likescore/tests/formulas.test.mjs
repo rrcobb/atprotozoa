@@ -1,4 +1,4 @@
-// Unit tests for the pure scoring/validation logic in ../src/formulas.ts.
+// Unit tests for the browser scoring module.
 // Run with `node --test tests/` (Node 22.18+/24 strips TS types for plain
 // annotation-only files like this one with no flag needed; older Node
 // needs `node --experimental-strip-types --test tests/`).
@@ -15,7 +15,7 @@ import {
   computeEdgeWeights,
   computePrestige,
   toPrestigeIndex,
-} from "../src/formulas.ts";
+} from "../public/formulas.mjs";
 
 // ---- validation --------------------------------------------------------------
 test("isValidHandle accepts real handles", () => {
@@ -179,6 +179,4 @@ test("toPrestigeIndex rescales score to a mean-100 display index", () => {
   assert.equal(toPrestigeIndex(scores.get("A")), 100);
 });
 
-// ---- partial scans / caching are exercised at the engine.ts level (Durable
-// Object + network I/O), not here — see notes/ comment in engine.ts. This
-// suite covers everything that's pure and network-free: the actual math.
+// Scan pagination and AppView I/O are intentionally browser-only.

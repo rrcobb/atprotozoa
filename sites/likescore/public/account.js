@@ -1,11 +1,11 @@
 import {
   escapeHtml,
-  fetchJSON,
   fmtTimeAgo,
   statusStamp,
   avatarOrInitial,
   shareIntentUrl,
 } from "./common.js";
+import { loadState, scoreState } from "./session.mjs";
 
 const params = new URLSearchParams(location.search);
 const subject = params.get("subject") || params.get("did") || params.get("handle") || "";
@@ -36,8 +36,13 @@ async function load() {
     return;
   }
   try {
-    const data = await fetchJSON(`/api/account?subject=${encodeURIComponent(subject)}`);
-    const a = data.account;
+    const state = loadState();
+    scoreState(state);
+    const a = state.accounts.find((x) => x.did === subject || x.handle === subject);
+    if (!a) throw new Error("this account is not in the current browser session");
+    const incoming = state.edges.filter((e) => e.to === a.did).sort((x, y) => y.likeCount - x.likeCount);
+    const outgoing = state.edges.filter((e) => e.from === a.did).sort((x, y) => y.likeCount - x.likeCount);
+    const data = { likedBy: incoming.map((e) => ({ ...state.accounts.find((x) => x.did === e.from), ...e, score: state.accounts.find((x) => x.did === e.from)?.score || 0, reciprocal: state.edges.some((x) => x.from === e.to && x.to === e.from) })), likes: outgoing.map((e) => ({ ...state.accounts.find((x) => x.did === e.to), ...e, score: state.accounts.find((x) => x.did === e.to)?.score || 0, reciprocal: state.edges.some((x) => x.from === e.to && x.to === e.from) })) };
     document.title = `@${a.handle} — likescore`;
     els.profile.innerHTML = `
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">

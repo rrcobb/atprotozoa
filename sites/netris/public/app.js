@@ -1,20 +1,13 @@
-// netris client — landing form resolves a handle's moots (lib/cluster.js,
-// public AppView, no auth) and hands the room off to a WebSocket-backed
-// Durable Object (see src/index.ts's Match class) for live presence and
-// battle relay. The Tetris engine itself — board, gravity, rotation, lock
-// delay, hold, line clears — runs entirely client-side; the only thing the
-// server does is broadcast a shared piece-bag seed at match start (so every
-// board deals the identical sequence) and relay attack garbage between
-// players.
+// netris client — a browser-local solo Tetris game. The board, deterministic
+// piece sequence, best score, and run history never leave this browser.
 //
 // Honest scope note: rotation uses a small fixed wall-kick offset list, not
 // the full per-state SRS kick tables, and garbage has no combo/back-to-back/
 // T-spin bonus. Plays like Tetris, isn't tournament-accurate Tetris — fine
-// for a "battle your moots" toy.
-
-import { resolveDid, moots, getProfiles } from "./lib/cluster.js";
+// for a small browser toy.
 
 const LS_ME = "netris:me";
+const LS_HISTORY = "netris:history";
 
 const els = {
   landing: document.getElementById("landing"),
@@ -110,9 +103,7 @@ function cellsOf(type, rot) {
   return out;
 }
 
-// Deterministic PRNG (mulberry32) — every client seeds this from the same
-// server-issued match seed, so the 7-bag sequence is bit-identical across
-// every board in the room. That's the whole "fair" trick.
+// Deterministic PRNG keeps a named run reproducible without a server seed.
 function mulberry32(a) {
   return function () {
     a |= 0;
@@ -355,7 +346,6 @@ function lockPiece(g) {
   if (cleared > 0) {
     g.lines += cleared;
     g.score += SCORE_TABLE[cleared];
-    sendMsg({ t: "lines", n: cleared });
   }
   if (g.garbagePending > 0) {
     const ok = applyGarbage(g, g.garbagePending);
@@ -365,12 +355,11 @@ function lockPiece(g) {
       return;
     }
   }
-  sendBoardSnapshot(g);
   spawnPiece(g);
 }
 
 // ---------------------------------------------------------------------
-// room / networking state
+// local run state
 // ---------------------------------------------------------------------
 
 const room = {
@@ -382,9 +371,7 @@ const room = {
   bestBy: "",
   history: [],
   presence: [],
-  myId: null,
-  mySeat: null,
-  ws: null,
+  mySeat: "local",
   match: { state: "lobby", startedAt: 0, seed: 0, players: [] },
 };
 
@@ -436,188 +423,58 @@ async function startRoom(handle) {
   els.landing.hidden = true;
   els.room.hidden = false;
   els.roomOwnerName.textContent = handle;
-  setStatus(els.roomStatus, "opening the room…");
+  setStatus(els.roomStatus, "ready for a local run");
   els.rosterList.innerHTML = "";
   els.historyList.innerHTML = "";
   els.opponentsList.innerHTML = "";
   opponentCanvases.clear();
 
-  let snap;
-  try {
-    const res = await fetch(`/api/netris/${encodeURIComponent(handle)}`);
-    snap = await res.json();
-  } catch {
-    setStatus(els.roomStatus, "couldn't reach the room. try again?", true);
-    return;
-  }
-
-  if (!snap.exists) {
-    try {
-      setStatus(els.roomStatus, `resolving @${handle}…`);
-      const result = await moots(handle, {
-        onStep: (s) => setStatus(els.roomStatus, s),
-      });
-      setStatus(els.roomStatus, "opening the room…");
-      const seedRes = await fetch(`/api/netris/${encodeURIComponent(handle)}/seed`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ owner: result.self, pool: result.pool, kind: result.kind }),
-      });
-      snap = await seedRes.json();
-    } catch (err) {
-      setStatus(els.roomStatus, `couldn't find @${handle} — ${err.message || "check the handle"}`, true);
-      return;
-    }
-  }
-
-  applySnapshot(snap);
-  els.roomOwnerName.textContent = room.owner.displayName || room.owner.handle;
-  els.roomKind.textContent = room.pool.length
-    ? `${room.pool.length} ${room.kind === "moots" ? "moots" : "players"} could join`
-    : "playing solo (for now)";
+  room.owner = { handle, displayName: handle };
+  room.pool = [];
+  room.kind = "local";
+  const history = readHistory();
+  room.bestScore = history.best;
+  room.history = history.runs;
+  room.match = { state: "lobby", startedAt: 0, seed: hashSeed(handle), players: [{ seat: "local", displayName: "you" }] };
+  els.roomOwnerName.textContent = handle;
+  els.roomKind.textContent = "solo · local storage";
   setStatus(els.roomStatus, "");
 
   renderRoster();
   renderRecord();
   renderHistory();
   renderIdleBoard();
-  connect(handle);
+  updateMeLabel(localStorage.getItem(LS_ME) || "you");
 }
 
-function applySnapshot(snap) {
-  room.owner = snap.owner;
-  room.pool = snap.pool || [];
-  room.kind = snap.kind || "moots";
-  room.bestScore = snap.bestScore ?? null;
-  room.bestBy = snap.bestBy || "";
-  room.history = snap.history || [];
-  room.presence = snap.presence || [];
-  room.match = snap.match || { state: "lobby", startedAt: 0, seed: 0, players: [] };
+function hashSeed(value) {
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
+  return h >>> 0;
 }
 
-// ---- websocket ----
-
-function connect(handle) {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/api/netris/${encodeURIComponent(handle)}/ws`);
-  room.ws = ws;
-
-  ws.addEventListener("open", async () => {
-    const me = await resolveMe();
-    ws.send(JSON.stringify({ t: "hello", ...me }));
-  });
-
-  ws.addEventListener("message", (evt) => {
-    let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      return;
-    }
-    handleMessage(msg);
-  });
-
-  ws.addEventListener("close", () => {
-    setStatus(els.roomStatus, "disconnected — reconnecting…", true);
-    setTimeout(() => {
-      if (room.handle === handle) connect(handle);
-    }, 1500);
-  });
-}
-
-function sendMsg(msg) {
-  if (room.ws && room.ws.readyState === 1) room.ws.send(JSON.stringify(msg));
-}
-
-async function resolveMe() {
-  const stored = localStorage.getItem(LS_ME);
-  if (!stored) return { did: "", handle: "", displayName: "", avatar: "" };
-
-  if (room.owner && stored === room.owner.handle.toLowerCase()) {
-    updateMeLabel(room.owner.displayName || room.owner.handle);
-    return { did: room.owner.did, handle: room.owner.handle, displayName: room.owner.displayName, avatar: room.owner.avatar };
-  }
-  const poolMatch = room.pool.find((r) => r.handle.toLowerCase() === stored);
-  if (poolMatch) {
-    updateMeLabel(poolMatch.displayName || poolMatch.handle);
-    return { did: poolMatch.did, handle: poolMatch.handle, displayName: poolMatch.displayName, avatar: poolMatch.avatar };
-  }
+function readHistory() {
   try {
-    const did = await resolveDid(stored);
-    const profiles = await getProfiles([did]);
-    const p = profiles[0];
-    const me = {
-      did,
-      handle: p?.handle || stored,
-      displayName: p?.displayName || p?.handle || stored,
-      avatar: p?.avatar || "",
-    };
-    updateMeLabel(me.displayName);
-    return me;
-  } catch {
-    updateMeLabel(stored);
-    return { did: "", handle: stored, displayName: stored, avatar: "" };
-  }
+    const data = JSON.parse(localStorage.getItem(LS_HISTORY) || "{}");
+    return { best: Number(data.best) || null, runs: Array.isArray(data.runs) ? data.runs.slice(0, 12) : [] };
+  } catch { return { best: null, runs: [] }; }
 }
+
+function saveRun() {
+  const previous = readHistory();
+  const entry = { at: Date.now(), winner: "you", winnerScore: game.score, players: 1 };
+  const runs = [entry, ...previous.runs].slice(0, 12);
+  const best = Math.max(previous.best || 0, game.score) || null;
+  localStorage.setItem(LS_HISTORY, JSON.stringify({ best, runs }));
+  room.bestScore = best;
+  room.bestBy = "you";
+  room.history = runs;
+}
+
+function sendMsg() {}
 
 function updateMeLabel(name) {
   els.meName.textContent = name || "a passerby";
-}
-
-function handleMessage(msg) {
-  if (msg.t === "init") {
-    room.myId = msg.you.id;
-    room.mySeat = msg.you.seat;
-    applySnapshot(msg);
-    renderRoster();
-    renderRecord();
-    renderHistory();
-    renderIdleBoard();
-    return;
-  }
-  if (msg.t === "seat") {
-    if (msg.id === room.myId) room.mySeat = msg.seat;
-    return;
-  }
-  if (msg.t === "presence") {
-    room.presence = msg.presence || [];
-    renderRoster();
-    return;
-  }
-  if (msg.t === "match_start") {
-    room.match = { state: "playing", startedAt: msg.startedAt, seed: msg.seed, players: msg.players || [] };
-    els.resultsPanel.hidden = true;
-    beginMatch();
-    return;
-  }
-  if (msg.t === "score") {
-    updateOpponentScore(msg.seat, msg.lines, msg.score);
-    return;
-  }
-  if (msg.t === "garbage") {
-    if (msg.from === room.mySeat) return;
-    if (game && !game.over) {
-      game.garbagePending += msg.amount;
-      flashGarbage();
-    }
-    return;
-  }
-  if (msg.t === "board") {
-    renderOpponentBoard(msg.seat, msg.cells);
-    return;
-  }
-  if (msg.t === "eliminated") {
-    markOpponentEliminated(msg.seat, msg.place);
-    return;
-  }
-  if (msg.t === "match_over") {
-    endMatch(msg);
-    return;
-  }
-  if (msg.t === "cheer") {
-    flyCheer(msg.emoji);
-    return;
-  }
 }
 
 // ---- rendering: roster (lobby) ----
@@ -665,19 +522,21 @@ function renderRoster() {
   els.startMatchBtn.hidden = playing;
   els.startMatchBtn.disabled = false;
   if (!playing) {
-    const passerby = !room.mySeat || room.mySeat.startsWith("passerby:");
-    els.matchStatusLine.textContent = passerby
-      ? "tap \"change\" above and enter your handle to join the match yourself"
-      : "hit start whenever — everyone connected drops in together";
+    els.matchStatusLine.textContent = "hit start whenever — this run stays on your device";
   }
 }
 
-els.startMatchBtn.addEventListener("click", () => sendMsg({ t: "start" }));
+els.startMatchBtn.addEventListener("click", () => {
+  room.match = { state: "playing", startedAt: Date.now() + 3000, seed: hashSeed(room.handle), players: [{ seat: "local", displayName: "you" }] };
+  els.resultsPanel.hidden = true;
+  beginMatch();
+});
 
 // ---- match lifecycle ----
 
 function beginMatch() {
   game = newGame(room.match.seed);
+  els.startMatchBtn.hidden = true;
   ensureQueue(game, 4);
   els.boardOverlay.hidden = true;
   els.garbageMeter.classList.remove("active");
@@ -706,7 +565,7 @@ function beginMatch() {
 
 function launchGame() {
   if (!game || game.over) return;
-  const amIPlaying = room.match.players.some((p) => p.seat === room.mySeat);
+  const amIPlaying = true;
   if (!amIPlaying) {
     els.boardOverlay.hidden = false;
     els.boardOverlay.innerHTML = `<div class="overlay-title">👀 spectating</div><div class="overlay-sub">not in this match — watch the boards below, or join next round</div>`;
@@ -772,9 +631,14 @@ function tickGame(g, dt) {
 }
 
 function handleTopout() {
-  sendMsg({ t: "topout" });
+  saveRun();
   els.boardOverlay.hidden = false;
-  els.boardOverlay.innerHTML = `<div class="overlay-title">💥 topped out</div><div class="overlay-sub">score ${game.score.toLocaleString()} · ${game.lines} lines — waiting for the match to finish</div>`;
+  els.boardOverlay.innerHTML = `<div class="overlay-title">💥 topped out</div><div class="overlay-sub">score ${game.score.toLocaleString()} · ${game.lines} lines</div>`;
+  room.match.state = "lobby";
+  els.startMatchBtn.hidden = false;
+  els.matchStatusLine.textContent = "start another local run whenever you are ready";
+  renderRecord();
+  renderHistory();
 }
 
 function endMatch(msg) {
@@ -1097,10 +961,7 @@ els.meEdit.addEventListener("click", async () => {
   if (cleaned) localStorage.setItem(LS_ME, cleaned);
   else localStorage.removeItem(LS_ME);
   updateMeLabel(cleaned || "a passerby");
-  if (room.ws && room.ws.readyState === 1) {
-    const me = await resolveMe();
-    room.ws.send(JSON.stringify({ t: "hello", ...me }));
-  }
+  updateMeLabel(cleaned || "you");
 });
 
 // ---- sharing ----
@@ -1108,7 +969,7 @@ els.meEdit.addEventListener("click", async () => {
 els.shareBtn.addEventListener("click", () => {
   const url = `${location.origin}/n/${encodeURIComponent(room.handle)}`;
   const name = room.owner ? room.owner.displayName || room.owner.handle : room.handle;
-  const text = `battling ${name} and the moots in netris 🧱⚔️ hop in: ${url}`;
+  const text = `playing a local netris run as ${name} 🧱 hop in: ${url}`;
   window.open(`https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`, "_blank", "noopener");
 });
 

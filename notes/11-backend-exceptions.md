@@ -4,28 +4,15 @@ The default site has no backend state. Browser state stays in `public/`, live
 atproto data comes from browser-side Jetstream or AppView requests, and durable
 user-owned results go to atproto records.
 
-The entries below are the current manually curated exceptions. Adding a new
-entry requires naming the invariant that cannot be enforced in the browser,
-the backend surface allowed, and the condition that lets it scale to zero.
+There are no permanent or provisional exceptions. Existing Durable Object
+sites are a finite retirement queue, including the formerly sanctioned
+coordination and temporary-computation sites listed below:
 
-## Provisionally Allowed
-
-| Site | Class | Reason | Allowed surface | Run condition |
-| --- | --- | --- | --- | --- |
-| `gridlock` | `Jam` | Live presence and room broadcast | One DO per room with a hibernatable WebSocket | Only while a room has connected editors |
-| `netris` | `Match` | Live multiplayer match coordination | One DO per room with a hibernatable WebSocket | Only while a match is active |
-| `revolver` | `Round` | Server-authoritative commit-reveal game state | One DO per round with a hibernatable WebSocket | Only for active or recently resolved rounds |
-
-These are exceptions for coordination, not a general license to put site data
-in a Durable Object. Their current standard WebSocket handlers still need a
-separate hibernation pass.
-
-## Temporary Exception
-
-| Site | Class | Reason | Exit path |
-| --- | --- | --- | --- |
-| `likescore` | `LikeScoreEngine` | Server-side graph expansion and SQLite-backed scoring are not a practical browser-only operation | Move the graph/scoring workload to a deliberately chosen database or remove the feature; do not add alarms or more DOs |
-| `griftmax` | `AscensionEngine` | Atomic rank assignment and duplicate-record verification for the deliberately shared ascension counter | Keep only the rare `/api/ascend` path; the live pulse now runs in the browser. Move ranking to atproto/KV or remove the counter before treating this as permanent |
+| Sites | Former classes | Migration direction |
+| --- | --- | --- |
+| `gridlock`, `netris`, `revolver` | `Jam`, `Match`, `Round` / `Leaderboard` | Convert to browser-owned experiences, using user-authorized atproto records for durable/shareable results where useful, or retire the server-coordination feature |
+| `likescore` | `LikeScoreEngine` | Move scanning and scoring into the browser; use public atproto data as input and optional user-owned records for durable results |
+| `griftmax` | `AscensionEngine` | Move the pulse and ascension state into the browser and the user's PDS; remove the shared rank counter |
 
 ## Infrastructure, Not Site State
 
@@ -36,7 +23,7 @@ to use backend state.
 
 ## Retirement Queue
 
-Every other Durable Object binding is a migration or retirement candidate. In
+Every Durable Object binding in an experiment site is a migration or retirement candidate. In
 particular, these patterns are not exceptions:
 
 - A global leaderboard, counter, tally, or guestbook.
