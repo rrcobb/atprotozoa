@@ -34,8 +34,8 @@ const signals = [
   "> firehose / Jetstream",
   "> full repo CAR export",
   "> real atproto OAuth",
-  "> Durable Object",
-  "> KV storage",
+  "> browser-owned ascensions",
+  "> live AppView profiles",
 ];
 const signalRows = signals
   .map(

@@ -1,21 +1,12 @@
 // Shared helpers for likescore's pages — plain vanilla JS, no bundler, no
 // framework (house style: a site is self-contained, no build step needed
-// beyond what wrangler already does for src/*.ts).
+// beyond what the static asset host serves.
 export function escapeHtml(s) {
   return String(s ?? "").replace(
     /[&<>"']/g,
     (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
   );
-}
-
-export async function fetchJSON(url, opts) {
-  const resp = await fetch(url, opts);
-  const data = await resp.json().catch(() => null);
-  if (!resp.ok) {
-    throw new Error(data?.error || `request failed (${resp.status})`);
-  }
-  return data;
 }
 
 export function fmtTimeAgo(ms) {
@@ -49,8 +40,7 @@ export function avatarOrInitial(handle, avatar) {
   return `<span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--panel-2);border:1px solid var(--border);text-align:center;line-height:18px;font-size:10px;vertical-align:middle;margin-right:6px">${escapeHtml(initial)}</span>`;
 }
 
-// Consumes a fetch Response's SSE body and calls onEvent(eventName, data)
-// per message. likescore's /api/scan endpoint streams exactly this shape.
+// Kept as a small general streaming helper for the site's browser modules.
 export async function readSSE(response, onEvent) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

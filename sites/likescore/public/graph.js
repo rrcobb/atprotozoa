@@ -1,4 +1,5 @@
-import { escapeHtml, fetchJSON } from "./common.js";
+import { escapeHtml } from "./common.js";
+import { loadState, scoreState } from "./session.mjs";
 
 const params = new URLSearchParams(location.search);
 const focusSubject = params.get("focus") || params.get("subject") || "";
@@ -115,20 +116,12 @@ function fitView() {
 }
 
 async function load() {
-  const url = focusSubject
-    ? `/api/graph?focus=${encodeURIComponent(focusSubject)}`
-    : `/api/graph`;
-  heading.textContent = focusSubject ? "account-focused graph" : "whole-network graph";
+  heading.textContent = focusSubject ? "account-focused session graph" : "this-session graph";
   if (focusSubject) wholeLink.hidden = false;
-  let data;
-  try {
-    data = await fetchJSON(url);
-  } catch (err) {
-    heading.textContent = `couldn't load graph: ${err.message}`;
-    return;
-  }
-  rawNodes = data.nodes;
-  rawEdges = data.edges;
+  const state = loadState(); scoreState(state);
+  rawNodes = state.accounts;
+  rawEdges = state.edges.map((e) => ({ from: e.from, to: e.to, weight: e.likeCount, reciprocal: state.edges.some((x) => x.from === e.to && x.to === e.from) }));
+  if (!rawNodes.length) heading.textContent = "no session data yet — scan an account first";
   applyFilter(true);
 }
 

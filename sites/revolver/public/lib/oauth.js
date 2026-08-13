@@ -222,8 +222,8 @@ export async function login(handleOrDid) {
 
   // Stash what the callback needs. sessionStorage is fine — it's short-lived and
   // same-origin; the redirect returns to this same tab. returnTo carries the
-  // exact path the user was on (e.g. "/r/<id>") back through the round trip,
-  // even though redirect_uri itself is fixed at the site root.
+  // exact path the user was on back through the round trip, even though
+  // redirect_uri itself is fixed at the site root.
   sessionStorage.setItem(
     `oauth:${state}`,
     JSON.stringify({

@@ -4,12 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>$GRIFT — Ascend Into Liquidity | griftmax</title>
-<meta name="description" content="the worst possible website, engineered to legitimately max out griftindex's 6-signal scan. real OAuth, real firehose, real CAR export, a real Durable Object, real live AppView whales, real storage. no actual money, ever." />
+<meta name="description" content="the worst possible website, engineered around real OAuth, a live firehose, a CAR export, browser-owned ascensions, and live AppView profiles. no actual money, ever." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>" />
 
 <meta property="og:type" content="website" />
 <meta property="og:title" content="$GRIFT — Ascend Into Liquidity" />
-<meta property="og:description" content="the worst possible website, built to legitimately max out griftindex's 6-signal scan. no fake signals — real OAuth, real firehose, real CAR export, a real Durable Object, real live whales, real storage." />
+<meta property="og:description" content="the worst possible website, built around real OAuth, a live firehose, a real CAR export, browser-owned ascensions, and live AppView profiles." />
 <meta property="og:image" content="https://griftmax.bisks.net/og.png" />
 <meta property="og:url" content="https://griftmax.bisks.net/" />
 <meta name="twitter:card" content="summary_large_image" />
@@ -311,8 +311,8 @@
       <span class="k">$GRIFT PRICE</span>
       <span class="v" id="stat-price">—</span>
     </div>
-    <div class="stat">
-      <span class="k">ASCENDED</span>
+     <div class="stat">
+       <span class="k">LOCAL ASCENSIONS</span>
       <span class="v" id="stat-ascended">—</span>
     </div>
     <div class="stat">
@@ -338,9 +338,9 @@
     <p class="status" id="authStatus"></p>
   </section>
 
-  <section class="panel">
-    <h2>🐋 whale leaderboard</h2>
-    <p class="sub">"bag size" = your real, current, live-fetched follower count. we don't know your actual bag size. nobody has a bag. re-fetched from the AppView on every load, not cached from ascension time.</p>
+   <section class="panel">
+     <h2>📒 your local ascension ledger</h2>
+     <p class="sub">this is deliberately not a global leaderboard. ascensions stay in this browser, while each profile's real follower count is fetched live from the public AppView.</p>
     <div id="boardWrap"><p class="empty-board">loading whales…</p></div>
   </section>
 
@@ -360,11 +360,10 @@
     <p class="sub">what griftindex greps for, and what actually does it here — no signal in this list is a string planted to trip the regex.</p>
     <div class="signals">
       <div class="signal"><b>🌐 AppView</b>whale board re-fetches live follower counts from public.api.bsky.app on every load</div>
-      <div class="signal"><b>🔥 firehose</b>the Durable Object below holds a live Jetstream socket — "$GRIFT price" is the real unfiltered commit rate</div>
+       <div class="signal"><b>🔥 firehose</b>this tab holds a live Jetstream socket — "$GRIFT price" is the real unfiltered commit rate</div>
       <div class="signal"><b>📦 CAR export</b>"audit my bag" downloads your actual signed repo via com.atproto.sync.getRepo</div>
       <div class="signal"><b>🔑 OAuth</b>"connect wallet" is real PKCE+DPoP atproto login, one narrow create-only scope</div>
-      <div class="signal"><b>🗄️ Durable Object</b>AscensionEngine holds the live pulse and assigns each ascension its rank atomically</div>
-      <div class="signal"><b>🗃️ storage</b>a real KV namespace persists the leaderboard — first site in the fleet to use one</div>
+       <div class="signal"><b>🧭 browser state</b>your local ascension list is stored in this browser, not presented as shared truth</div>
     </div>
   </section>
 
@@ -381,9 +380,11 @@
 </div>
 
 <script type="module">
-import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+ import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
 
 const ASCEND_COLLECTION = "net.bisks.griftmax.ascension";
+const ASCENSIONS_KEY = "griftmax-ascensions";
+const APPVIEW = "https://public.api.bsky.app/xrpc";
 let session = null;
 
 const els = {
@@ -425,15 +426,16 @@ let pulseReconnectDelay = 1000;
 let pulseEvents = 0;
 let pulseTotal = 0;
 
-async function loadCount() {
-  try {
-    const r = await fetch("/api/count", { cache: "no-store" });
-    if (!r.ok) throw new Error("count " + r.status);
-    const d = await r.json();
-    els.ascended.textContent = d.ascendedCount;
-  } catch {
-    els.ascended.textContent = "—";
-  }
+function readAscensions() {
+  try { return JSON.parse(localStorage.getItem(ASCENSIONS_KEY) || "[]"); } catch { return []; }
+}
+
+function saveAscensions(entries) {
+  localStorage.setItem(ASCENSIONS_KEY, JSON.stringify(entries.slice(0, 50)));
+}
+
+function loadCount() {
+  els.ascended.textContent = readAscensions().length;
 }
 
 function updatePulse() {
@@ -501,44 +503,46 @@ document.addEventListener("visibilitychange", () => {
   else startPulse();
 });
 
-// --- whale leaderboard (real: /api/leaderboard re-fetches follower counts
-// from public.api.bsky.app on every load) ------------------------------------
+// --- local ascension list; profile data is fetched live from the AppView -----
 
 async function loadBoard() {
   try {
-    const r = await fetch("/api/leaderboard");
-    if (!r.ok) throw new Error("leaderboard " + r.status);
-    const d = await r.json();
-    if (!d.whales || !d.whales.length) {
-      els.boardWrap.innerHTML = '<p class="empty-board">no whales yet. be the first to ascend.</p>';
+    const entries = readAscensions();
+    if (!entries.length) {
+      els.boardWrap.innerHTML = '<p class="empty-board">no local ascensions yet. be the first in this browser.</p>';
       return;
     }
-    const rows = d.whales
-      .map(
-        (w, i) => `
+    const profiles = await Promise.all(entries.map(async (entry) => {
+      try {
+        const r = await fetch(`${APPVIEW}/app.bsky.actor.getProfile?actor=${encodeURIComponent(entry.did)}`);
+        return r.ok ? await r.json() : {};
+      } catch { return {}; }
+    }));
+    const rows = entries.map((entry, i) => {
+      const profile = profiles[i];
+      return `
       <tr>
-        <td class="rankpill">#${i + 1}</td>
+        <td class="rankpill">local #${entry.rank}</td>
         <td>
           <div class="who">
-            ${w.avatar ? `<img src="${esc(w.avatar)}" alt="" onerror="this.style.visibility='hidden'" />` : `<img alt="" style="visibility:hidden" />`}
+            ${profile.avatar ? `<img src="${esc(profile.avatar)}" alt="" onerror="this.style.visibility='hidden'" />` : `<img alt="" style="visibility:hidden" />`}
             <div>
-              <div class="name">${esc(w.displayName || w.handle)}</div>
-              <div class="handle">@${esc(w.handle)}</div>
+              <div class="name">${esc(profile.displayName || entry.handle || entry.did)}</div>
+              <div class="handle">@${esc(profile.handle || entry.handle || entry.did)}</div>
             </div>
           </div>
         </td>
-        <td class="bag">${w.bagSize.toLocaleString()}</td>
-        <td>ascension #${w.rank}</td>
+        <td class="bag">${(profile.followersCount || 0).toLocaleString()}</td>
+        <td>${new Date(entry.ascendedAt).toLocaleString()}</td>
       </tr>`
-      )
-      .join("");
+    }).join("");
     els.boardWrap.innerHTML = `
       <table class="board">
-        <thead><tr><th></th><th>ascended</th><th>bag size</th><th>proof</th></tr></thead>
+       <thead><tr><th></th><th>ascended</th><th>live followers</th><th>recorded</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
   } catch {
-    els.boardWrap.innerHTML = '<p class="empty-board">leaderboard unreachable — try reloading in a moment.</p>';
+    els.boardWrap.innerHTML = '<p class="empty-board">local ledger unavailable — try reloading in a moment.</p>';
   }
 }
 loadBoard();
@@ -585,8 +589,7 @@ els.signoutBtn.addEventListener("click", async () => {
   setStatus("disconnected");
 });
 
-// --- ascend: write a real record to your own PDS, then hand its uri to the
-// Durable Object, which reads it back off your own PDS before it counts ------
+// --- ascend: write a real record to your own PDS, then remember it locally ---
 
 els.ascendBtn.addEventListener("click", async () => {
   if (!session) return;
@@ -605,19 +608,13 @@ els.ascendBtn.addEventListener("click", async () => {
     const written = await writeRes.json().catch(() => ({}));
     if (!writeRes.ok) throw new Error(written.message || "couldn't write that to your PDS");
 
-    setStatus("verifying and ascending...");
-    const res = await fetch("/api/ascend", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uri: written.uri }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't ascend");
-
-    setStatus(`ascended — you are grift rank #${data.entry.rank}. to the moon.`, "ok");
-    loadBoard();
-    loadCount();
-    lastAscendRank = data.entry.rank;
+     const entries = readAscensions();
+     const rank = entries.length + 1;
+     saveAscensions([{ rank, did: session.did, handle: session.handle, uri: written.uri, ascendedAt: Date.now() }, ...entries]);
+     setStatus(`ascended — local browser rank #${rank}. to the moon.`, "ok");
+     loadBoard();
+     loadCount();
+     lastAscendRank = rank;
   } catch (e) {
     setStatus(e.message, "err");
   } finally {
@@ -658,7 +655,7 @@ els.auditBtn.addEventListener("click", async () => {
 
 els.shareBtn.addEventListener("click", () => {
   const text = lastAscendRank
-    ? `i just ascended into $GRIFT at rank #${lastAscendRank}. the worst possible website, honestly engineered: https://griftmax.bisks.net/`
+     ? `i just ascended into $GRIFT at local browser rank #${lastAscendRank}. the worst possible website, honestly engineered: https://griftmax.bisks.net/`
     : `the worst possible website, engineered to legitimately max out griftindex's 6-signal scan: https://griftmax.bisks.net/`;
   window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
 });
