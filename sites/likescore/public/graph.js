@@ -206,6 +206,46 @@ const SPRING_LEN = 90;
 const CENTER_K = 0.004;
 const DAMPING = 0.82;
 const MAX_TICKS = 220;
+const NODE_PAD = 4; // minimum gap between circle edges once they're this close
+
+// The REPULSE_K/d^2 force above only knows the distance between node
+// *centers* — it has no idea how big either circle actually is. Node radius
+// scales with score (see scoreRadius), so a pair of high-score (big) nodes
+// can reach force equilibrium at a center distance that's still less than
+// the sum of their radii, leaving the circles visibly overlapping even once
+// the layout has "settled". Resolve that directly as a hard positional
+// constraint (like d3-force's forceCollide) rather than trying to tune a
+// distance-based force to imply it.
+function resolveCollisions() {
+  const n = nodes.length;
+  for (let i = 0; i < n; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = nodes[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = Math.max(Math.sqrt(dx * dx + dy * dy), 0.01);
+      const minDist = scoreRadius(a.score) + scoreRadius(b.score) + NODE_PAD;
+      if (d >= minDist) continue;
+      const overlap = minDist - d;
+      const ux = dx / d;
+      const uy = dy / d;
+      if (a.fixed && b.fixed) continue;
+      if (a.fixed) {
+        b.x += ux * overlap;
+        b.y += uy * overlap;
+      } else if (b.fixed) {
+        a.x -= ux * overlap;
+        a.y -= uy * overlap;
+      } else {
+        a.x -= ux * overlap * 0.5;
+        a.y -= uy * overlap * 0.5;
+        b.x += ux * overlap * 0.5;
+        b.y += uy * overlap * 0.5;
+      }
+    }
+  }
+}
 
 function tick() {
   const n = nodes.length;
@@ -255,6 +295,8 @@ function tick() {
     a.x += a.vx * 0.02;
     a.y += a.vy * 0.02;
   }
+  resolveCollisions();
+  resolveCollisions();
 }
 
 let simFrame = 0;
@@ -426,6 +468,7 @@ canvas.addEventListener("pointermove", (e) => {
     const [wx, wy] = screenToWorld(x, y);
     dragging.x = wx;
     dragging.y = wy;
+    resolveCollisions(); // push whatever's underneath out of the way as it drags
     draw();
     return;
   }
