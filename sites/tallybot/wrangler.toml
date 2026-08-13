@@ -1,0 +1,45 @@
+name = "atprotozoa-tallybot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @cee.wtf, riffing on a shimmermathlabs.com post that used socialcredit's
+# "socialcredit +1" reply syntax: ".oO a bot that lets people add or remove
+# arbitrarily named points with this form of syntax". So: not a leaderboard
+# of accounts (that's sites/socialcredit) — a leaderboard of arbitrary NAMED
+# points. Post "mormonism mentioned in a realistic context +1" anywhere on
+# Bluesky (top-level or reply — there's no target account to reply to) and
+# it creates/increments that exact tally. Or use the form on the site itself.
+#
+# Same architecture as sites/socialcredit: a vote is either a
+# net.bisks.tallybot.point record written straight to the voter's own PDS,
+# or a plain post whose ENTIRE trimmed text matches "<name> +1"/"<name> -1"
+# (anchored both ends — see TALLY_RE in src/index.ts — so a post that merely
+# mentions "+1" in passing doesn't spawn a tally by accident). Either path is
+# picked up live off a Jetstream subscription filtered to our own NSID plus
+# app.bsky.feed.post, and scored server-side in the TallyBoard Durable
+# Object — the client can write whatever it wants to its own repo, but the
+# score only moves if the DO counts it.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+routes = [
+  { pattern = "tallybot.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/* is the live DO-backed leaderboard/tally API, and
+# /t/<key> stamps per-tally OG tags onto the static shell — the Worker must
+# run before the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[durable_objects.bindings]]
+name = "BOARD"
+class_name = "TallyBoard"
+
+# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
+# Paid; this account is on Free. See notes/20-deploy.md.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TallyBoard"]

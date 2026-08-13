@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tallybot — a point, by any name</title>
+    <meta
+      name="description"
+      content="Type any name, give it a +1 or -1. Or skip this site and just post &quot;&lt;name&gt; +1&quot; anywhere on Bluesky — no reply, no sign-in needed. Scores persist globally, server-enforced."
+    />
+    <meta property="og:title" content="tallybot — a point, by any name" />
+    <meta
+      property="og:description"
+      content="Type any name, give it a +1 or -1. Or skip this site and just post &quot;&lt;name&gt; +1&quot; anywhere on Bluesky — no reply, no sign-in needed. Scores persist globally, server-enforced."
+    />
+    <meta property="og:image" content="https://tallybot.bisks.net/og.png" />
+    <meta property="og:url" content="https://tallybot.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>tallybot</h1>
+        <p class="tag">
+          a leaderboard of arbitrarily named points, not accounts. type anything —
+          "mormonism mentioned in a realistic context", "times the printer jammed
+          today", whatever — and give it a +1 or a −1. scores persist globally,
+          keyed by name. or skip this site entirely: post
+          "&lt;name&gt; +1" or "&lt;name&gt; -1" anywhere on Bluesky (the whole post,
+          nothing else) and it counts the same, no sign-in, no reply required.
+        </p>
+        <nav class="tabs">
+          <a class="active" href="/">vote</a>
+          <a href="/leaderboard/">leaderboard</a>
+        </nav>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">cast a vote</h2>
+        <label for="f-name">name of the point</label>
+        <input id="f-name" type="text" maxlength="140" placeholder="anything — a bit, a gripe, a running joke" autocomplete="off" />
+
+        <div class="vote-card" id="vote-card" style="display: none">
+          <div class="vote-target">
+            <div class="vote-target-meta">
+              <div class="vote-target-name" id="t-name"></div>
+            </div>
+            <div class="vote-target-score">
+              <span class="score-pill zero" id="t-score">0</span>
+            </div>
+          </div>
+
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-up" type="button">+1</button>
+            <button class="btn-down" id="btn-down" type="button">−1</button>
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">top of the leaderboard</h2>
+        <div id="mini-board"><p class="empty">loading…</p></div>
+        <p class="share-row"><a href="/leaderboard/">see the full leaderboard →</a></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">recent activity</h2>
+        <div id="mini-feed"><p class="empty">loading…</p></div>
+      </section>
+
+      <footer>
+        votes are written as a <code>net.bisks.tallybot.point</code> record straight to your
+        own PDS — or just posted as "&lt;name&gt; +1"/"-1", the whole post and nothing else —
+        then picked up live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        firehose. the score and the one-vote-per-name-per-hour cooldown are enforced here,
+        not trusted from the client.
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.tallybot.point";
+
+      let session = null;
+      let target = null; // { key, displayName }
+      let targetBoard = null; // { score, ... } from the board, if known
+      let lookupTimer = null;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function fmtScore(n) {
+        return n > 0 ? `+${n}` : `${n}`;
+      }
+      function scoreClass(n) {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero";
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderVoteButtons();
+      }
+
+      // Cooldown is per (voter, name) pair — you can vote on a different
+      // name right away, just not the same one twice in an hour.
+      let cooldownRemainingMs = 0;
+      async function refreshCooldown() {
+        if (!session || !target) {
+          cooldownRemainingMs = 0;
+          return;
+        }
+        try {
+          const r = await fetch(
+            `/api/cooldown?did=${encodeURIComponent(session.did)}&key=${encodeURIComponent(target.displayName)}`,
+          );
+          const data = await r.json();
+          cooldownRemainingMs = data.remainingMs || 0;
+        } catch {
+          // leave cooldownRemainingMs as-is on a transient fetch failure —
+          // resetting it to 0 would flip an active cooldown back to "clear
+          // to vote" and let a doomed write through.
+        }
+      }
+
+      function fmtMs(ms) {
+        const totalMin = Math.ceil(ms / 60000);
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+      }
+
+      function renderVoteButtons() {
+        const note = $("#cooldown-note");
+        const up = $("#btn-up");
+        const down = $("#btn-down");
+        if (!target) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to vote.";
+        } else if (cooldownRemainingMs > 0) {
+          disabled = true;
+          msg = `you've already voted on this one this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+        } else {
+          msg = "one vote per name per hour, so make it count.";
+        }
+        up.disabled = disabled;
+        down.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      // --- auth ---------------------------------------------------------------
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      // --- target lookup --------------------------------------------------------
+
+      $("#f-name").addEventListener("input", () => {
+        clearTimeout(lookupTimer);
+        lookupTimer = setTimeout(lookupTarget, 250);
+      });
+      $("#f-name").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          clearTimeout(lookupTimer);
+          lookupTarget();
+        }
+      });
+
+      async function lookupTarget() {
+        const raw = $("#f-name").value.trim();
+        if (!raw) {
+          target = null;
+          $("#vote-card").style.display = "none";
+          return;
+        }
+        target = { displayName: raw };
+
+        $("#t-name").textContent = raw;
+        $("#vote-card").style.display = "block";
+        $("#vote-status").textContent = "";
+
+        try {
+          const r = await fetch(`/api/tally?key=${encodeURIComponent(raw)}`);
+          const data = await r.json();
+          targetBoard = data.tally;
+        } catch {
+          targetBoard = null;
+        }
+        const score = targetBoard ? targetBoard.score : 0;
+        const pill = $("#t-score");
+        pill.textContent = fmtScore(score);
+        pill.className = `score-pill ${scoreClass(score)}`;
+
+        await refreshCooldown();
+        renderVoteButtons();
+      }
+
+      // Bumps the score pill the instant a vote write succeeds, before the
+      // slower confirm-it-counted poll below finishes.
+      function applyOptimisticScore(delta) {
+        const score = (targetBoard ? targetBoard.score : 0) + delta;
+        targetBoard = targetBoard ? { ...targetBoard, score } : { score };
+        const pill = $("#t-score");
+        pill.textContent = fmtScore(score);
+        pill.className = `score-pill ${scoreClass(score)}`;
+      }
+
+      async function refreshTargetScore() {
+        if (!target) return;
+        try {
+          const r = await fetch(`/api/tally?key=${encodeURIComponent(target.displayName)}`);
+          const data = await r.json();
+          targetBoard = data.tally;
+          const score = targetBoard ? targetBoard.score : 0;
+          const pill = $("#t-score");
+          pill.textContent = fmtScore(score);
+          pill.className = `score-pill ${scoreClass(score)}`;
+        } catch {
+          // leave the pill as-is on a transient fetch failure
+        }
+      }
+
+      // --- casting a vote --------------------------------------------------------
+
+      // The write only proves the record landed on the voter's own PDS — it
+      // says nothing about whether the DO actually counted it (cooldown, a
+      // malformed record). So after writing, poll /api/activity for the
+      // matching vote and only report success once it's actually visible
+      // there.
+      async function confirmVote(voterDid, key, delta, votedAt, status) {
+        const ATTEMPTS = 6;
+        const GAP_MS = 2500;
+        for (let i = 0; i < ATTEMPTS; i++) {
+          await new Promise((r) => setTimeout(r, GAP_MS));
+          try {
+            const r = await fetch(
+              `/api/activity?key=${encodeURIComponent(key)}&voter=${encodeURIComponent(voterDid)}&limit=5`,
+            );
+            const data = await r.json();
+            const hit = (data.votes || []).find((v) => v.delta === delta && v.createdAt >= votedAt - 3000);
+            if (hit) {
+              status.textContent = "vote counted — leaderboard's up to date.";
+              status.className = "status ok";
+              lookupTarget();
+              loadMiniBoard();
+              loadMiniFeed();
+              return;
+            }
+          } catch {
+            // keep polling — a transient read failure isn't the final word
+          }
+        }
+        status.textContent =
+          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown for this name, or the firehose is catching up. check back in a bit.";
+        status.className = "status warn";
+        await refreshCooldown();
+        renderVoteButtons();
+        refreshTargetScore(); // undo the optimistic bump if the vote never actually counted
+      }
+
+      async function castVote(delta) {
+        if (!session || !target) return;
+        const status = $("#vote-status");
+
+        await refreshCooldown();
+        renderVoteButtons();
+        if (cooldownRemainingMs > 0) {
+          status.textContent = `you've already voted on this one this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          status.className = "status err";
+          return;
+        }
+
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-up").disabled = true;
+        $("#btn-down").disabled = true;
+        try {
+          const record = {
+            $type: COLLECTION,
+            name: target.displayName,
+            delta,
+            createdAt: new Date().toISOString(),
+          };
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = "vote written — score updated, confirming it counted…";
+          status.className = "status ok";
+          cooldownRemainingMs = 60 * 60 * 1000;
+          renderVoteButtons();
+          applyOptimisticScore(delta);
+
+          confirmVote(session.did, target.displayName, delta, Date.now(), status);
+        } catch (e) {
+          status.textContent = `couldn't cast that vote: ${e.message}`;
+          status.className = "status err";
+          renderVoteButtons();
+        }
+      }
+      $("#btn-up").addEventListener("click", () => castVote(1));
+      $("#btn-down").addEventListener("click", () => castVote(-1));
+
+      // --- mini board + feed -------------------------------------------------
+
+      async function loadMiniBoard() {
+        const el = $("#mini-board");
+        try {
+          const r = await fetch("/api/leaderboard?sort=top&limit=5");
+          const data = await r.json();
+          const board = data.board || [];
+          if (!board.length) {
+            el.innerHTML = `<p class="empty">no votes yet — be the first.</p>`;
+            return;
+          }
+          el.innerHTML = board
+            .map(
+              (t) => `
+              <a class="board-row" href="/t/${encodeURIComponent(t.key)}">
+                <span class="board-rank">#${t.rank}</span>
+                <span class="board-meta">
+                  <div class="board-name">${esc(t.displayName)}</div>
+                </span>
+                <span class="board-score ${scoreClass(t.score)}">${fmtScore(t.score)}</span>
+              </a>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load the leaderboard right now.</p>`;
+        }
+      }
+
+      async function loadMiniFeed() {
+        const el = $("#mini-feed");
+        try {
+          const r = await fetch("/api/activity?limit=8");
+          const data = await r.json();
+          const votes = data.votes || [];
+          if (!votes.length) {
+            el.innerHTML = `<p class="empty">nothing yet.</p>`;
+            return;
+          }
+          el.innerHTML = votes
+            .map(
+              (v) => `
+              <div class="feed-item">
+                <div class="feed-line">
+                  <a href="https://bsky.app/profile/${encodeURIComponent(v.voterDid)}" target="_blank" rel="noopener">@${esc(v.voterHandle)}</a>
+                  <span class="feed-delta ${v.delta > 0 ? "pos" : "neg"}">${v.delta > 0 ? "+1" : "−1"}</span>
+                  <a href="/t/${encodeURIComponent(v.key)}">${esc(v.displayName)}</a>
+                  ${v.postUrl ? `— <a href="${esc(v.postUrl)}" target="_blank" rel="noopener">context</a>` : ""}
+                </div>
+                <div class="feed-time">${timeAgo(v.createdAt)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load activity right now.</p>`;
+        }
+      }
+
+      // --- boot -----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await Promise.all([loadMiniBoard(), loadMiniFeed()]);
+
+        setInterval(() => {
+          if (document.visibilityState === "visible") {
+            loadMiniBoard();
+            loadMiniFeed();
+          }
+        }, 15000);
+      }
+      boot();
+    </script>
+  </body>
+</html>

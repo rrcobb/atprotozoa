@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>leaderboard — tallybot</title>
+    <meta
+      name="description"
+      content="Every named point anyone's voted on: highest score, lowest score, biggest gainers and losers, most active, and the recent-votes feed. Search by name."
+    />
+    <meta property="og:title" content="leaderboard — tallybot" />
+    <meta
+      property="og:description"
+      content="Every named point anyone's voted on: highest score, lowest score, biggest gainers and losers, most active, and the recent-votes feed. Search by name."
+    />
+    <meta property="og:image" content="https://tallybot.bisks.net/og.png" />
+    <meta property="og:url" content="https://tallybot.bisks.net/leaderboard/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>tallybot</h1>
+        <p class="tag">the whole leaderboard — every named point anyone's ever voted on.</p>
+        <nav class="tabs">
+          <a href="/">vote</a>
+          <a class="active" href="/leaderboard/">leaderboard</a>
+        </nav>
+      </header>
+
+      <section>
+        <div class="lb-controls">
+          <input id="f-search" type="search" placeholder="search by name…" />
+        </div>
+        <div class="sort-tabs" id="sort-tabs">
+          <button data-sort="top" class="active">highest score</button>
+          <button data-sort="bottom">lowest score</button>
+          <button data-sort="gainers">biggest gainers</button>
+          <button data-sort="losers">biggest losers</button>
+          <button data-sort="active">most active</button>
+          <button data-sort="recent">recent votes</button>
+        </div>
+        <div class="window-tabs" id="window-tabs" style="display: none">
+          <button data-window="1h">1h</button>
+          <button data-window="24h" class="active">24h</button>
+          <button data-window="7d">7d</button>
+          <button data-window="30d">30d</button>
+          <button data-window="all">all-time</button>
+        </div>
+        <div id="board-list"><p class="empty">loading…</p></div>
+      </section>
+
+      <footer>
+        scores come from a live <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        subscription on <code>net.bisks.tallybot.point</code> records and "&lt;name&gt; +1"/"-1" posts
+        — recomputed server-side, not client-submitted.
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      const $ = (s) => document.querySelector(s);
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function fmtScore(n) {
+        return n > 0 ? `+${n}` : `${n}`;
+      }
+      function scoreClass(n) {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero";
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      let sort = "top";
+      let windowVal = "24h";
+      let query = "";
+      let debounceTimer = null;
+
+      $("#sort-tabs").addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-sort]");
+        if (!btn) return;
+        sort = btn.dataset.sort;
+        [...$("#sort-tabs").children].forEach((b) => b.classList.toggle("active", b === btn));
+        $("#window-tabs").style.display = sort === "gainers" || sort === "losers" ? "flex" : "none";
+        load();
+      });
+      $("#window-tabs").addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-window]");
+        if (!btn) return;
+        windowVal = btn.dataset.window;
+        [...$("#window-tabs").children].forEach((b) => b.classList.toggle("active", b === btn));
+        load();
+      });
+      $("#f-search").addEventListener("input", (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          query = e.target.value.trim();
+          load();
+        }, 200);
+      });
+
+      function renderBoard(rows) {
+        const el = $("#board-list");
+        if (!rows.length) {
+          el.innerHTML = `<p class="empty">nothing here yet.</p>`;
+          return;
+        }
+        el.innerHTML = rows
+          .map((t) => {
+            const scoreLine =
+              sort === "gainers" || sort === "losers"
+                ? `${fmtScore(t.windowDelta)} <span class="board-stat">(${fmtScore(t.score)} all-time)</span>`
+                : sort === "active"
+                  ? `<span class="board-stat">${t.votesReceived} votes</span> ${fmtScore(t.score)}`
+                  : fmtScore(t.score);
+            return `
+            <a class="board-row" href="/t/${encodeURIComponent(t.key)}">
+              <span class="board-rank">${t.rank ? "#" + t.rank : "—"}</span>
+              <span class="board-meta">
+                <div class="board-name">${esc(t.displayName)}</div>
+              </span>
+              <span class="board-score ${scoreClass(sort === "gainers" || sort === "losers" ? t.windowDelta : t.score)}">${scoreLine}</span>
+            </a>`;
+          })
+          .join("");
+      }
+
+      function renderFeed(votes) {
+        const el = $("#board-list");
+        if (!votes.length) {
+          el.innerHTML = `<p class="empty">no votes yet.</p>`;
+          return;
+        }
+        el.innerHTML = votes
+          .map(
+            (v) => `
+            <div class="feed-item">
+              <div class="feed-line">
+                <a href="https://bsky.app/profile/${encodeURIComponent(v.voterDid)}" target="_blank" rel="noopener">@${esc(v.voterHandle)}</a>
+                <span class="feed-delta ${v.delta > 0 ? "pos" : "neg"}">${v.delta > 0 ? "+1" : "−1"}</span>
+                <a href="/t/${encodeURIComponent(v.key)}">${esc(v.displayName)}</a>
+                ${v.postUrl ? `— <a href="${esc(v.postUrl)}" target="_blank" rel="noopener">context</a>` : ""}
+              </div>
+              <div class="feed-time">${timeAgo(v.createdAt)}</div>
+            </div>`,
+          )
+          .join("");
+      }
+
+      async function load() {
+        const el = $("#board-list");
+        el.innerHTML = `<p class="empty">loading…</p>`;
+        try {
+          if (sort === "recent") {
+            const r = await fetch(`/api/activity?limit=100`);
+            const data = await r.json();
+            let votes = data.votes || [];
+            if (query) {
+              const q = query.toLowerCase();
+              votes = votes.filter((v) => v.displayName.toLowerCase().includes(q));
+            }
+            renderFeed(votes);
+            return;
+          }
+          const params = new URLSearchParams({ sort, limit: "100" });
+          if (sort === "gainers" || sort === "losers") params.set("window", windowVal);
+          if (query) params.set("q", query);
+          const r = await fetch(`/api/leaderboard?${params}`);
+          const data = await r.json();
+          renderBoard(data.board || []);
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load the leaderboard right now.</p>`;
+        }
+      }
+
+      load();
+    </script>
+  </body>
+</html>

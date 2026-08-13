@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tallybot — a point, by any name</title>
+    <meta
+      name="description"
+      content="See any tally's score and full vote history — then sign in with Bluesky to give it a +1 or -1 yourself, or just post &quot;&lt;name&gt; +1&quot; anywhere on Bluesky."
+    />
+    <meta property="og:title" content="tallybot — a point, by any name" />
+    <meta
+      property="og:description"
+      content="See any tally's score and full vote history — then sign in with Bluesky to give it a +1 or -1 yourself, or just post &quot;&lt;name&gt; +1&quot; anywhere on Bluesky."
+    />
+    <meta property="og:image" content="https://tallybot.bisks.net/og.png" />
+    <meta property="og:url" content="https://tallybot.bisks.net/t/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>tallybot</h1>
+        <nav class="tabs">
+          <a href="/">vote</a>
+          <a href="/leaderboard/">leaderboard</a>
+        </nav>
+      </header>
+
+      <section id="not-found" style="display: none">
+        <p class="empty">no such tally, or nobody's voted on it yet.</p>
+      </section>
+
+      <section id="tally-section" style="display: none">
+        <div class="tally-head">
+          <div class="tally-name" id="t-name"></div>
+        </div>
+
+        <div class="vote-target-score" style="margin-bottom: 1rem">
+          <span class="score-pill zero" id="t-score">0</span>
+        </div>
+
+        <div class="tally-stats">
+          <div><div class="tally-stat-num" id="s-rank">—</div><div class="tally-stat-label">rank</div></div>
+          <div><div class="tally-stat-num" id="s-up">0</div><div class="tally-stat-label">upvotes</div></div>
+          <div><div class="tally-stat-num" id="s-down">0</div><div class="tally-stat-label">downvotes</div></div>
+        </div>
+
+        <div class="share-row">
+          <a id="btn-share" href="#" target="_blank" rel="noopener" class="secondary" style="display: inline-block; padding: 0.6rem 1.15rem; border: 1px solid #e1e8ed; border-radius: 999px; text-decoration: none; color: inherit; font-size: 0.85rem; font-weight: 600">
+            share this tally
+          </a>
+        </div>
+
+        <section id="session-section" style="margin-top: 1.6rem">
+          <div class="session-row" id="signed-out-row">
+            <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+            <button id="btn-signin">sign in with bluesky</button>
+          </div>
+          <div class="session-row" id="signed-in-row" style="display: none">
+            <span>signed in as <strong id="who"></strong></span>
+            <button class="secondary" id="btn-signout">sign out</button>
+          </div>
+          <p class="status" id="auth-status"></p>
+        </section>
+
+        <div class="vote-card">
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-up" type="button">+1</button>
+            <button class="btn-down" id="btn-down" type="button">−1</button>
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+
+        <section>
+          <h2 class="section-title">recent votes</h2>
+          <div id="vote-list"><p class="empty">loading…</p></div>
+        </section>
+      </section>
+
+      <footer>
+        every vote here is a <code>net.bisks.tallybot.point</code> record — or a post saying
+        "&lt;name&gt; +1"/"-1", the whole post and nothing else — picked up live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose.
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.tallybot.point";
+
+      const m = location.pathname.match(/^\/t\/([^/]+)\/?$/);
+      const key = m ? decodeURIComponent(m[1]) : "";
+
+      let session = null;
+      let tally = null;
+      let cooldownRemainingMs = 0;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function fmtScore(n) {
+        return n > 0 ? `+${n}` : `${n}`;
+      }
+      function scoreClass(n) {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero";
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const mi = Math.floor(s / 60);
+        if (mi < 60) return `${mi}m ago`;
+        const h = Math.floor(mi / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+      function fmtMs(ms) {
+        const totalMin = Math.ceil(ms / 60000);
+        const h = Math.floor(totalMin / 60);
+        const mi = totalMin % 60;
+        if (h > 0) return `${h}h ${mi}m`;
+        return `${mi}m`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderVoteButtons();
+      }
+
+      function renderVoteButtons() {
+        const note = $("#cooldown-note");
+        const up = $("#btn-up");
+        const down = $("#btn-down");
+        if (!tally) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to vote.";
+        } else if (cooldownRemainingMs > 0) {
+          disabled = true;
+          msg = `you've already voted on this one this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+        } else {
+          msg = "one vote per name per hour, so make it count.";
+        }
+        up.disabled = disabled;
+        down.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      function applyOptimisticScore(delta) {
+        if (!tally) return;
+        tally = { ...tally, score: tally.score + delta };
+        const pill = $("#t-score");
+        pill.textContent = fmtScore(tally.score);
+        pill.className = `score-pill ${scoreClass(tally.score)}`;
+      }
+
+      async function refreshTallyScore() {
+        if (!key) return;
+        try {
+          const r = await fetch(`/api/tally?key=${encodeURIComponent(key)}`);
+          const data = await r.json();
+          if (!data.tally) return;
+          tally = data.tally;
+          const pill = $("#t-score");
+          pill.textContent = fmtScore(tally.score);
+          pill.className = `score-pill ${scoreClass(tally.score)}`;
+        } catch {
+          // leave the pill as-is on a transient fetch failure
+        }
+      }
+
+      async function refreshCooldown() {
+        if (!session || !tally) {
+          cooldownRemainingMs = 0;
+          return;
+        }
+        try {
+          const r = await fetch(
+            `/api/cooldown?did=${encodeURIComponent(session.did)}&key=${encodeURIComponent(tally.displayName)}`,
+          );
+          const data = await r.json();
+          cooldownRemainingMs = data.remainingMs || 0;
+        } catch {
+          // leave cooldownRemainingMs as-is on a transient fetch failure
+        }
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      async function confirmVote(voterDid, tallyKey, delta, votedAt, status) {
+        const ATTEMPTS = 6;
+        const GAP_MS = 2500;
+        for (let i = 0; i < ATTEMPTS; i++) {
+          await new Promise((r) => setTimeout(r, GAP_MS));
+          try {
+            const r = await fetch(
+              `/api/activity?key=${encodeURIComponent(tallyKey)}&voter=${encodeURIComponent(voterDid)}&limit=5`,
+            );
+            const data = await r.json();
+            const hit = (data.votes || []).find((v) => v.delta === delta && v.createdAt >= votedAt - 3000);
+            if (hit) {
+              status.textContent = "vote counted — tally's up to date.";
+              status.className = "status ok";
+              loadTally();
+              return;
+            }
+          } catch {
+            // keep polling — a transient read failure isn't the final word
+          }
+        }
+        status.textContent =
+          "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown for this name, or the firehose is catching up. check back in a bit.";
+        status.className = "status warn";
+        await refreshCooldown();
+        renderVoteButtons();
+        refreshTallyScore();
+      }
+
+      async function castVote(delta) {
+        if (!session || !tally) return;
+        const status = $("#vote-status");
+
+        await refreshCooldown();
+        renderVoteButtons();
+        if (cooldownRemainingMs > 0) {
+          status.textContent = `you've already voted on this one this hour — try again in ${fmtMs(cooldownRemainingMs)}.`;
+          status.className = "status err";
+          return;
+        }
+
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-up").disabled = true;
+        $("#btn-down").disabled = true;
+        try {
+          const record = { $type: COLLECTION, name: tally.displayName, delta, createdAt: new Date().toISOString() };
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = "vote written — score updated, confirming it counted…";
+          status.className = "status ok";
+          cooldownRemainingMs = 60 * 60 * 1000;
+          renderVoteButtons();
+          applyOptimisticScore(delta);
+          confirmVote(session.did, tally.key, delta, Date.now(), status);
+        } catch (e) {
+          status.textContent = `couldn't cast that vote: ${e.message}`;
+          status.className = "status err";
+          renderVoteButtons();
+        }
+      }
+      $("#btn-up").addEventListener("click", () => castVote(1));
+      $("#btn-down").addEventListener("click", () => castVote(-1));
+
+      function renderVoteRow(v) {
+        return `
+          <div class="feed-item">
+            <div class="feed-line">
+              <a href="https://bsky.app/profile/${encodeURIComponent(v.voterDid)}" target="_blank" rel="noopener">@${esc(v.voterHandle)}</a>
+              <span class="feed-delta ${v.delta > 0 ? "pos" : "neg"}">${v.delta > 0 ? "+1" : "−1"}</span>
+              ${v.postUrl ? `— <a href="${esc(v.postUrl)}" target="_blank" rel="noopener">context</a>` : ""}
+            </div>
+            <div class="feed-time">${timeAgo(v.createdAt)}</div>
+          </div>`;
+      }
+
+      async function loadTally() {
+        if (!key) {
+          $("#not-found").style.display = "block";
+          return;
+        }
+        try {
+          const r = await fetch(`/api/tally?key=${encodeURIComponent(key)}`);
+          const data = await r.json();
+          tally = data.tally;
+          if (!tally) throw new Error("not found");
+
+          $("#tally-section").style.display = "block";
+          $("#not-found").style.display = "none";
+          document.title = `"${tally.displayName}" — tallybot ${fmtScore(tally.score)}`;
+
+          $("#t-name").textContent = tally.displayName;
+          const pill = $("#t-score");
+          pill.textContent = fmtScore(tally.score);
+          pill.className = `score-pill ${scoreClass(tally.score)}`;
+
+          $("#s-rank").textContent = tally.rank ? "#" + tally.rank : "unranked";
+          $("#s-up").textContent = tally.upCount;
+          $("#s-down").textContent = tally.downCount;
+
+          const shareUrl = `https://tallybot.bisks.net/t/${encodeURIComponent(tally.key)}`;
+          const shareText = `"${tally.displayName}": ${fmtScore(tally.score)}. cast your vote at ${shareUrl}`;
+          $("#btn-share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+          const votes = data.votes || [];
+          $("#vote-list").innerHTML = votes.length
+            ? votes.map(renderVoteRow).join("")
+            : `<p class="empty">no votes yet.</p>`;
+
+          await refreshCooldown();
+          renderVoteButtons();
+        } catch {
+          $("#not-found").style.display = "block";
+          $("#tally-section").style.display = "none";
+        }
+      }
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await loadTally();
+      }
+      boot();
+    </script>
+  </body>
+</html>
