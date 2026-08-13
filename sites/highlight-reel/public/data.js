@@ -701,7 +701,7 @@ const SITES = [
     "type": "toy",
     "src": "bot",
     "title": "mistake toy",
-    "desc": "a daily \"make a mistake\" assignment: type what you'd like to mess up (or leave it blank) and get today's mistake \u2014 a severity from harmless to legendary and a line to go do it, seeded from the date so asking twice today gives the same one. @demigirlboss.bsky.social tagged the bot with exactly two words \u2014 \"make a mistake\" \u2014 so that's the whole brief."
+    "desc": "a daily \"make a mistake\" assignment: type what you'd like to mess up (or leave it blank) and get today's mistake \u2014 a severity from harmless to legendary and a line to go do it, seeded from the date so asking twice today gives the same one. @demigirlboss.bsky.social tagged the bot with exactly three words \u2014 \"make a mistake\" \u2014 so that's the whole brief."
   },
   {
     "href": "https://moonbuggy.bisks.net/",
