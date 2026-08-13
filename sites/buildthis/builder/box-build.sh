@@ -306,6 +306,12 @@ echo "=== push to main (PAT, so deploy.yml fires) ==="
 # block at the top).
 PUSHED="false"
 if [ -n "$CHANGED" ]; then
+  # Keep the generated apex gallery in sync with sites/*/site.json on EVERY
+  # push. deploy.yml's check job fails the whole push when they disagree, and
+  # builders kept editing a manifest without regenerating (2026-08-13: five
+  # pushes died this way, stranding footfall + the 413-site beacon retrofit).
+  # Idempotent; a failure here must never block a build's push.
+  node audit/build-gallery.mjs --apply >/dev/null 2>&1 || true
   if [ -n "$(git status --porcelain)" ]; then
     git add -A
     git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"

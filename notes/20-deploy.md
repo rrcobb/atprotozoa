@@ -99,7 +99,9 @@ after a deploy; retry before concluding it broke.
 - `audit/cf-custom-domains.mjs` — inventory / prune Cloudflare custom domains.
 - `audit/build-gallery.mjs --apply` — regenerate the apex gallery from the
   `site.json` manifests. CI fails the push if the gallery and manifests
-  disagree.
+  disagree. `box-build.sh` runs `--apply` before every build push, so bot
+  builds can't reintroduce the drift (hand edits still can — run it yourself
+  after touching a `site.json`).
 
 These are plain repo scripts, not CI gates. Wiring `check:imports` into
 `deploy.yml` needs someone with `.github/` write access — the builder is barred
