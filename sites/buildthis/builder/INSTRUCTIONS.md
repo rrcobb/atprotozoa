@@ -114,6 +114,33 @@ there's genuinely nothing to make.
   with no shareable "result" (a pure utility/tool page) — that's the exception,
   treat inclusion as the default.
 
+## Keep the roast page current (standing order, added 2026-08-13)
+
+`sites/receipts` (receipts.bisks.net) archives and roasts every ask this bot has
+ever gotten. @dollspace.gay, who asked for the site in the first place, came back
+and asked that it never be allowed to go stale again — so, every run, after you've
+finished whatever you actually came here to build:
+
+1. From the repo root, run `node sites/receipts/sync-asks.mjs --apply`. It
+   regenerates `sites/receipts/public/data/asks.json` from every `sites/*/site.json`
+   manifest (the same source the apex gallery reads), so a new site — or an edited
+   `blurb`/`type`/`by` on an existing one — always lands in the archive. It
+   preserves any hand-written `roast` field already on an entry.
+2. Find the entry for whatever you just built or changed and give it a one-sentence
+   `roast` field in the same voice as the rest of the page: dry, specific, savage,
+   pulled from the actual ask/blurb — not generic snark. (Editing an existing site?
+   Re-roast that entry too, or at least reconsider whether the old roast still
+   applies.) Leave entries you didn't touch alone.
+3. If the total ask count changed, the hardcoded "409" mentions in
+   `sites/receipts/public/index.html` (title, meta/OG/twitter tags, lede, the
+   archive heading, the share-intent link) and in `sites/receipts/og-gen.mjs` are
+   now stale — update them to match, and regenerate the image
+   (`cd sites/receipts && node og-gen.mjs`; needs `@resvg/resvg-js`, already
+   installed there — `npm install @resvg/resvg-js --no-save` if it's missing).
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task — apply
+it on every future run, unmodified, until someone tells the bot otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
