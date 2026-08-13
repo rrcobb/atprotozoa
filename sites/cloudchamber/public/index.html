@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>cloud chamber — the bluesky firehose as cosmic rays</title>
+    <meta
+      name="description"
+      content="A live cloud chamber for the Bluesky firehose. Every post is sorted into one of eight particle species by what it contains, then streaks its own fading vapor trail across the tank."
+    />
+    <meta property="og:title" content="cloud chamber" />
+    <meta
+      property="og:description"
+      content="A live cloud chamber for the Bluesky firehose — every post streaks a fading vapor trail, sorted into 8 particle species by what it contains."
+    />
+    <meta property="og:image" content="https://cloudchamber.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="cloud chamber: eight particle species of vapor trail, lit from below." />
+    <meta property="og:url" content="https://cloudchamber.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://cloudchamber.bisks.net/og.png" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%2305070c%22/><circle cx=%2250%22 cy=%2250%22 r=%2230%22 fill=%22none%22 stroke=%22%237fe0ff%22 stroke-width=%224%22/></svg>" />
+    <style>
+      :root {
+        --bg: #05070c;
+        --ink: #e9f3ff;
+        --dim: #7f93ad;
+        --panel: rgba(8, 14, 24, 0.62);
+        --border: rgba(140, 190, 230, 0.22);
+        --accent: #7fe0ff;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+      body {
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        touch-action: none;
+      }
+      canvas#tank { position: fixed; inset: 0; display: block; }
+
+      .hud {
+        position: fixed;
+        left: 0; right: 0; top: 0;
+        padding: 16px 18px 40px;
+        pointer-events: none;
+        z-index: 5;
+        background: linear-gradient(180deg, rgba(2, 4, 8, 0.7) 0%, rgba(2, 4, 8, 0) 100%);
+      }
+      .titlebar { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.1rem, 3.6vw, 1.7rem);
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--ink);
+        text-shadow: 0 0 18px rgba(127, 224, 255, 0.35);
+      }
+      .sub {
+        margin: 4px 0 0;
+        font-size: clamp(0.68rem, 2vw, 0.82rem);
+        color: var(--dim);
+      }
+      .sub b { color: var(--accent); font-weight: 600; }
+
+      .live { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--dim); }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #7fffa0; box-shadow: 0 0 8px #7fffa0;
+        animation: pulse 1.8s ease-in-out infinite;
+      }
+      .dot.off { background: #ff8b7b; box-shadow: 0 0 8px #ff8b7b; animation: none; }
+      @keyframes pulse { 50% { opacity: 0.4; transform: scale(0.7); } }
+
+      .panel {
+        pointer-events: auto;
+        background: var(--panel);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 10px 14px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        font-size: 0.78rem;
+      }
+
+      /* legend, bottom-left */
+      #legend {
+        position: fixed;
+        left: 14px; bottom: 14px;
+        z-index: 6;
+        display: grid;
+        grid-template-columns: repeat(2, auto);
+        gap: 4px 16px;
+        max-width: 320px;
+      }
+      #legend .row { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+      #legend .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+      #legend .name { color: var(--ink); }
+      #legend .count { color: var(--dim); margin-left: auto; padding-left: 8px; font-variant-numeric: tabular-nums; }
+
+      /* controls, bottom-right */
+      #controls {
+        position: fixed;
+        right: 14px; bottom: 14px;
+        z-index: 6;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+      }
+      #controls .panel { display: flex; gap: 12px; align-items: center; }
+      #controls label { display: flex; align-items: center; gap: 7px; color: var(--dim); }
+      input[type="range"] { width: 90px; accent-color: var(--accent); }
+      button {
+        font: inherit;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: rgba(127, 224, 255, 0.08);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-weight: 600;
+        font-size: 0.76rem;
+      }
+      button:hover { background: rgba(127, 224, 255, 0.18); }
+      button:active { transform: translateY(1px); }
+      button.primary {
+        background: linear-gradient(180deg, #9beeff, #56b8dd);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: #04222c;
+      }
+      button.primary:hover { filter: brightness(1.08); }
+
+      #topright {
+        position: fixed;
+        right: 14px; top: 14px;
+        z-index: 6;
+        display: flex;
+        gap: 8px;
+        pointer-events: auto;
+      }
+      #topright button { padding: 6px 11px; }
+
+      /* about modal */
+      .about {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgba(2, 4, 8, 0.78);
+        backdrop-filter: blur(4px);
+      }
+      .about.open { display: grid; }
+      .about .card {
+        max-width: 560px;
+        max-height: 82vh;
+        overflow: auto;
+        background: #0a1220;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 26px 28px;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+      }
+      .about h2 { margin: 0 0 10px; font-size: 1.2rem; color: var(--accent); }
+      .about p { line-height: 1.55; color: #cfe4f5; font-size: 0.88rem; }
+      .about a { color: var(--accent); }
+      .about ul { padding-left: 18px; margin: 10px 0; }
+      .about li { margin: 6px 0; font-size: 0.85rem; line-height: 1.5; color: #cfe4f5; }
+      .about li b { color: var(--ink); }
+      .about .close-row { text-align: right; margin-top: 16px; }
+
+      @media (max-width: 640px) {
+        #legend { grid-template-columns: repeat(2, auto); max-width: 78vw; font-size: 0.68rem; }
+        #controls .panel { flex-direction: column; align-items: flex-start; gap: 8px; }
+        .about .card { padding: 18px 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="tank"></canvas>
+
+    <div class="hud">
+      <div class="titlebar">
+        <h1>cloud chamber</h1>
+        <span class="live"><span class="dot off" id="dot"></span><span id="status">connecting…</span></span>
+      </div>
+      <p class="sub">
+        every post on the live firehose is a cosmic ray. sorted into <b>8 species</b> by what it
+        carries, each one streaks its own vapor trail through the tank.
+      </p>
+    </div>
+
+    <div id="topright">
+      <button id="snapBtn" title="save a snapshot of the tank right now">snapshot</button>
+      <button id="aboutBtn" title="what is this">about</button>
+    </div>
+
+    <div id="legend"></div>
+
+    <div id="controls">
+      <div class="panel">
+        <label>sensitivity <input type="range" id="rateSlider" min="1" max="10" step="1" value="6" /><span id="rateVal">6</span>/s</label>
+        <button id="pauseBtn">pause</button>
+      </div>
+    </div>
+
+    <div class="about" id="about">
+      <div class="card">
+        <h2>what is this</h2>
+        <p>
+          A real cloud chamber is a sealed tank of supersaturated vapor. When a charged particle —
+          a cosmic ray, a speck of background radiation — tears through it, it ionizes a thin line
+          of the gas, and vapor condenses along that line into a visible streak. Different
+          particles leave different tracks: heavy ones plow short, thick, straight paths; light
+          ones curl; some decay mid-flight into a little V of daughter tracks.
+        </p>
+        <p>
+          This one watches the live Bluesky firehose instead of the sky. Every new post is a
+          detection event, sorted into one of eight species by what its record actually contains,
+          then given a track shaped like its physical namesake:
+        </p>
+        <ul>
+          <li><b>muon</b> — a plain text post. Long, straight, thin — muons are the most common
+            thing a real ground-level detector ever sees, same as a plain post is the most common
+            thing here.</li>
+          <li><b>electron</b> — a reply. Light, curls hard and jitters, same as a reply curls back
+            into a thread.</li>
+          <li><b>positron</b> — a quote post. Electron's antimatter twin, curls the other way.</li>
+          <li><b>proton</b> — a video embed. Heavy, thick, penetrates deep.</li>
+          <li><b>alpha</b> — an image embed. Very heavy, short, thick, barely bends.</li>
+          <li><b>gamma</b> — a hashtag. Uncharged — travels dead straight, bright, no curve.</li>
+          <li><b>neutrino</b> — a link embed. Barely interacts with anything — a thin, faint,
+            almost-invisible straight dash.</li>
+          <li><b>kaon</b> — a mention. Travels a short way, then decays mid-flight into a pair of
+            faint diverging daughter tracks — a classic "V" in a real bubble chamber.</li>
+        </ul>
+        <p>
+          The sensitivity slider caps how many detections get drawn per second — the firehose runs
+          far hotter than any real detector, so most cosmic rays pass through ungraphed. Nothing is
+          stored; everything here evaporates in a few seconds, same as the real thing.
+        </p>
+        <p>Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>,
+          asked for by <a href="https://bsky.app/profile/dulanyw.bsky.social" target="_blank" rel="noopener">@dulanyw.bsky.social</a>.
+          Powered by <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>. No account, no login, nothing saved.</p>
+        <div class="close-row"><button class="primary" id="closeAbout">close</button></div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
