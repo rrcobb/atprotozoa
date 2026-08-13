@@ -49,6 +49,55 @@ function screenToWorld(sx, sy) {
   ];
 }
 
+// ---- fit-to-graph: frames the current node extent in the canvas, instead
+// of snapping to a fixed scale/origin that only happens to work for one
+// particular graph size. Used on load, on "fit view", and after a re-layout.
+const LAYOUT_R = 260;
+function scatterCircular(list) {
+  const n = list.length;
+  for (let i = 0; i < n; i++) {
+    const a = (i / Math.max(n, 1)) * Math.PI * 2;
+    list[i].x = Math.cos(a) * LAYOUT_R + (Math.random() - 0.5) * 40;
+    list[i].y = Math.sin(a) * LAYOUT_R + (Math.random() - 0.5) * 40;
+    list[i].vx = 0;
+    list[i].vy = 0;
+    list[i].fixed = false;
+  }
+}
+
+function computeBounds() {
+  if (!nodes.length) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    const r = scoreRadius(n.score);
+    minX = Math.min(minX, n.x - r);
+    maxX = Math.max(maxX, n.x + r);
+    minY = Math.min(minY, n.y - r);
+    maxY = Math.max(maxY, n.y + r);
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+function fitView() {
+  const rect = canvas.getBoundingClientRect();
+  const bounds = computeBounds();
+  if (!bounds || !rect.width || !rect.height) {
+    view = { scale: 1, ox: 0, oy: 0 };
+    draw();
+    return;
+  }
+  const pad = 60;
+  const w = Math.max(1, bounds.maxX - bounds.minX);
+  const h = Math.max(1, bounds.maxY - bounds.minY);
+  const scale = clamp(Math.min((rect.width - pad * 2) / w, (rect.height - pad * 2) / h), 0.15, 4);
+  view = {
+    scale,
+    ox: -(bounds.minX + bounds.maxX) / 2,
+    oy: -(bounds.minY + bounds.maxY) / 2,
+  };
+  draw();
+}
+
 async function load() {
   const url = focusSubject
     ? `/api/graph?focus=${encodeURIComponent(focusSubject)}`
@@ -62,18 +111,8 @@ async function load() {
     heading.textContent = `couldn't load graph: ${err.message}`;
     return;
   }
-  const R = 260;
-  nodes = data.nodes.map((n, i) => {
-    const a = (i / Math.max(data.nodes.length, 1)) * Math.PI * 2;
-    return {
-      ...n,
-      x: Math.cos(a) * R + (Math.random() - 0.5) * 40,
-      y: Math.sin(a) * R + (Math.random() - 0.5) * 40,
-      vx: 0,
-      vy: 0,
-      fixed: false,
-    };
-  });
+  nodes = data.nodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, fixed: false }));
+  scatterCircular(nodes);
   byId = new Map(nodes.map((n) => [n.did, n]));
   edges = data.edges.filter((e) => byId.has(e.from) && byId.has(e.to));
 
@@ -82,7 +121,7 @@ async function load() {
     return;
   }
   resizeCanvas();
-  runSimulation();
+  runSimulation(true);
 }
 
 function renderEdgeTable() {
@@ -167,7 +206,7 @@ function tick() {
 
 let simFrame = 0;
 let rafId = null;
-function runSimulation() {
+function runSimulation(autoFit) {
   simFrame = 0;
   cancelAnimationFrame(rafId);
   function frame() {
@@ -176,6 +215,10 @@ function runSimulation() {
     simFrame++;
     if (simFrame < MAX_TICKS) {
       rafId = requestAnimationFrame(frame);
+    } else if (autoFit && !dragging && !panPointer) {
+      // graph has settled and nobody's mid-interaction: frame it automatically
+      // rather than leaving whatever scale/origin the layout happened to start at.
+      fitView();
     }
   }
   rafId = requestAnimationFrame(frame);
@@ -191,10 +234,12 @@ function matchesSearch(node) {
   );
 }
 
+const zoomReadout = document.getElementById("zoom-readout");
 function draw() {
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   const hasQuery = searchInput.value.trim().length > 0;
+  zoomReadout.textContent = `${Math.round(view.scale * 100)}%`;
 
   // edges
   for (const e of edges) {
@@ -401,8 +446,13 @@ document.getElementById("zoom-out").addEventListener("click", () => {
   draw();
 });
 document.getElementById("reset-view").addEventListener("click", () => {
-  view = { scale: 1, ox: 0, oy: 0 };
-  draw();
+  fitView();
+});
+document.getElementById("re-layout").addEventListener("click", () => {
+  selected = null;
+  hideTooltip();
+  scatterCircular(nodes);
+  runSimulation(true);
 });
 searchInput.addEventListener("input", () => {
   const q = searchInput.value.trim().toLowerCase();
