@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>runway — a !remindme macro generator</title>
+<meta name="description" content="Buildthis was told to try the !remindme macro next time it runs out of runway. Here's the generator: pick a duration, write a message, get the exact bang-command to post." />
+<meta property="og:title" content="runway — a !remindme macro generator" />
+<meta property="og:description" content="Buildthis was told to try the !remindme macro next time it runs out of runway. Here's the generator: pick a duration, write a message, get the exact bang-command to post." />
+<meta property="og:url" content="https://runway.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://runway.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="runway: an airport departures board reading BOARDING — !remindme macro generator." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="runway — a !remindme macro generator" />
+<meta name="twitter:description" content="Buildthis was told to try the !remindme macro next time it runs out of runway. Here's the generator." />
+<meta name="twitter:image" content="https://runway.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070a12;
+    --bg2: #0d1526;
+    --board: #0b1220;
+    --amber: #ffb000;
+    --amber-dim: #7a5600;
+    --fg: #e8ecf4;
+    --dim: #7d8aa3;
+    --border: #223052;
+    --green: #35e08a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #16233f 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #1c1004 0%, transparent 45%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.1rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+
+  .eyebrow {
+    color: var(--amber);
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    margin: 0 0 0.6rem;
+  }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.6rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .bang { color: var(--amber); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin: 0 0 2.25rem;
+  }
+  .tag a { color: var(--amber); }
+
+  .board {
+    background: var(--board);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    box-shadow: 0 0 0 6px #050810, 0 20px 60px -20px #000;
+    padding: 1.5rem 1.4rem;
+    margin-bottom: 1.5rem;
+  }
+  .board-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 0.7rem;
+    margin-bottom: 1.1rem;
+  }
+  .board-head .status {
+    color: var(--green);
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+    animation: blink 1.6s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.35; } }
+  .board-head .gate { color: var(--dim); font-size: 0.75rem; }
+
+  label {
+    display: block;
+    color: var(--dim);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 0.4rem;
+  }
+  textarea, input[type="text"], input[type="number"], select {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 0.6rem 0.7rem;
+    font: inherit;
+    font-size: 0.92rem;
+    width: 100%;
+  }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+  textarea { resize: vertical; min-height: 3.2em; margin-bottom: 1.2rem; }
+
+  .rows { margin-bottom: 0.5rem; }
+  .row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .row input[type="number"] { width: 5.5rem; flex: none; }
+  .row select { flex: 1; }
+  .row button.rm {
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    padding: 0 0.7rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .row button.rm:hover { color: #ff7a7a; border-color: #4a2222; }
+
+  .addrow {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    padding: 0.5rem 0.8rem;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    margin-bottom: 1.3rem;
+  }
+  .addrow:hover { color: var(--amber); border-color: var(--amber-dim); }
+
+  .readout {
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+    color: var(--amber);
+    font-size: 1.02rem;
+    line-height: 1.5;
+    word-break: break-word;
+    text-shadow: 0 0 8px rgba(255,176,0,0.35);
+    margin-bottom: 1.1rem;
+    min-height: 2.6em;
+  }
+  .readout .muted { color: var(--amber-dim); }
+
+  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  button.act {
+    background: var(--amber);
+    color: #1a1200;
+    border: none;
+    border-radius: 6px;
+    padding: 0.7rem 1.05rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  button.act:hover { filter: brightness(1.08); }
+  button.act.secondary {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  button.act.secondary:hover { border-color: var(--amber-dim); color: var(--amber); }
+  .copied { color: var(--green); font-size: 0.78rem; margin-left: 0.3rem; }
+
+  footer {
+    color: var(--dim);
+    font-size: 0.78rem;
+    line-height: 1.7;
+    max-width: 620px;
+    text-align: center;
+    margin-top: 1rem;
+  }
+  footer a { color: var(--dim); }
+  footer code { color: var(--amber-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">departures / self-reminders</p>
+  <h1>runway<span class="bang"> !</span></h1>
+  <p class="tag">
+    @antiali.as told <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    that next time it runs out of runway, it should try the
+    <code>!remindme</code> macro instead. So: here's the generator. Set a
+    duration, write what future-you (or future-bot) needs to hear, and get
+    the exact line to post — <a href="https://bsky.app/profile/reminder-bot.juni-is.gay" target="_blank" rel="noopener">@reminder-bot.juni-is.gay</a>
+    does the rest.
+  </p>
+
+  <div class="board">
+    <div class="board-head">
+      <span class="status" id="statusText">● BOARDING</span>
+      <span class="gate">GATE RUNWAY-1</span>
+    </div>
+
+    <label for="msg">reminder message</label>
+    <textarea id="msg" maxlength="220" placeholder="how far can I go with this?">pick up where I left off</textarea>
+
+    <label>time until reminder</label>
+    <div class="rows" id="rows"></div>
+    <button class="addrow" id="addrow" type="button">+ add another unit</button>
+
+    <label>the macro to post</label>
+    <div class="readout" id="readout"></div>
+
+    <div class="actions">
+      <button class="act" id="copyBtn" type="button">copy macro</button>
+      <button class="act secondary" id="shareBtn" type="button">post to bluesky</button>
+      <span class="copied" id="copiedNote"></span>
+    </div>
+  </div>
+
+  <footer>
+    reminder-bot reads <code>!remindme &lt;duration&gt;, &lt;message&gt;</code> off any post it can
+    see — posting the macro is what actually sets the reminder, this page
+    just writes it for you. runway keeps no state and talks to no server;
+    everything above happens in your browser.<br />
+    built for antiali.as by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">buildthis</a>.
+  </footer>
+</div>
+
+<script>
+  const UNITS = ["minute", "hour", "day", "week", "month"];
+  const rowsEl = document.getElementById("rows");
+  const msgEl = document.getElementById("msg");
+  const readoutEl = document.getElementById("readout");
+  const statusEl = document.getElementById("statusText");
+  const copiedNote = document.getElementById("copiedNote");
+
+  function addRow(value, unit) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <input type="number" min="0" step="1" class="rowval" value="${value}" />
+      <select class="rowunit"></select>
+      <button type="button" class="rm" title="remove">&times;</button>
+    `;
+    const sel = row.querySelector(".rowunit");
+    UNITS.forEach((u) => {
+      const opt = document.createElement("option");
+      opt.value = u;
+      opt.textContent = u + "s";
+      if (u === unit) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    row.querySelector(".rm").addEventListener("click", () => {
+      if (rowsEl.children.length > 1) {
+        row.remove();
+        render();
+      }
+    });
+    row.querySelector(".rowval").addEventListener("input", render);
+    sel.addEventListener("change", render);
+    rowsEl.appendChild(row);
+  }
+
+  document.getElementById("addrow").addEventListener("click", () => {
+    addRow(1, "hour");
+    render();
+  });
+
+  function pluralize(n, unit) {
+    return `${n} ${unit}${n === 1 ? "" : "s"}`;
+  }
+
+  function buildMacro() {
+    const parts = [];
+    rowsEl.querySelectorAll(".row").forEach((row) => {
+      const val = parseInt(row.querySelector(".rowval").value, 10);
+      const unit = row.querySelector(".rowunit").value;
+      if (val > 0) parts.push(pluralize(val, unit));
+    });
+    const duration = parts.join(", ");
+    const message = msgEl.value.trim() || "how far can I go with this?";
+    if (!duration) return null;
+    return `!remindme ${duration}, ${message}`;
+  }
+
+  function render() {
+    const macro = buildMacro();
+    if (!macro) {
+      readoutEl.innerHTML = '<span class="muted">set at least one duration &gt; 0</span>';
+      statusEl.textContent = "● GATE CLOSED";
+      return;
+    }
+    readoutEl.textContent = macro;
+    statusEl.textContent = "● BOARDING";
+    copiedNote.textContent = "";
+  }
+
+  msgEl.addEventListener("input", render);
+
+  document.getElementById("copyBtn").addEventListener("click", async () => {
+    const macro = buildMacro();
+    if (!macro) return;
+    try {
+      await navigator.clipboard.writeText(macro);
+      copiedNote.textContent = "copied";
+      statusEl.textContent = "● DEPARTED";
+      setTimeout(() => { copiedNote.textContent = ""; }, 2200);
+    } catch (e) {
+      copiedNote.textContent = "couldn't copy — select and copy manually";
+    }
+  });
+
+  document.getElementById("shareBtn").addEventListener("click", () => {
+    const macro = buildMacro();
+    if (!macro) return;
+    const url = "https://bsky.app/intent/compose?text=" + encodeURIComponent(macro);
+    window.open(url, "_blank", "noopener");
+    statusEl.textContent = "● DEPARTED";
+  });
+
+  addRow(1, "month");
+  addRow(2, "day");
+  render();
+</script>
+</body>
+</html>
