@@ -9,6 +9,13 @@ Push to `main` → every site that changed re-deploys to Cloudflare. No manual
 `github.event.before` against `github.sha` to find changed `sites/*` and `apex/`
 directories, and runs `wrangler deploy` in each.
 
+The deploy matrix is **chunked (~100 dirs per job, each job loops its chunk)**
+because GitHub caps a matrix at 256 jobs — a flat one-job-per-dir matrix made
+every `workflow_dispatch` `deploy_all` run fail at expansion (the run dies with
+no failed-job logs, just a red X; 2026-08-13, when the site count passed 256).
+`deploy_all` is the catch-up path for "a push's deploy was skipped and later
+pushes never covered those dirs" — e.g. the 2026-08-13 gallery-drift outage.
+
 The diff spans every commit in a push, not just the tip. But `gh run list` shows
 a run by its *tip commit's* message, so a push whose last commit only touches
 `notes/` looks like a notes-only deploy even when the same run is deploying a

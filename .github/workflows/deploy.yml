@@ -46,11 +46,13 @@ jobs:
         run: node audit/build-gallery.mjs
 
   # Work out which deployable dirs changed. Each is a top-level unit: "apex" or
-  # "sites/<name>". Outputs a JSON array for the matrix.
+  # "sites/<name>". Outputs chunk objects ({i, dirs}) for the matrix — one dir
+  # per matrix job would exceed GitHub's 256-job matrix cap on a deploy_all
+  # run (~417 dirs), failing the run at expansion with no failed-job logs.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      dirs: ${{ steps.detect.outputs.dirs }}
+      chunks: ${{ steps.detect.outputs.chunks }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,21 +110,25 @@ jobs:
 
           if [ -z "$selected" ]; then
             echo "No deployable dirs changed."
-            echo 'dirs=[]' >> "$GITHUB_OUTPUT"
+            echo 'chunks=[]' >> "$GITHUB_OUTPUT"
           else
-            json=$(printf '%s\n' "$selected" | jq -R . | jq -sc .)
+            # ~100 dirs per chunk keeps the matrix tiny; each deploy job loops
+            # its chunk sequentially.
+            json=$(printf '%s\n' "$selected" | jq -R . | jq -sc \
+              '[range(0; length; 100) as $i | {i: ($i / 100), dirs: .[$i:$i+100]}]')
             echo "Deploying: $json"
-            echo "dirs=$json" >> "$GITHUB_OUTPUT"
+            echo "chunks=$json" >> "$GITHUB_OUTPUT"
           fi
 
   deploy:
     needs: [check, changes]
-    if: needs.changes.outputs.dirs != '[]'
+    if: needs.changes.outputs.chunks != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        dir: ${{ fromJSON(needs.changes.outputs.dirs) }}
+        chunk: ${{ fromJSON(needs.changes.outputs.chunks) }}
+    name: deploy (chunk ${{ matrix.chunk.i }})
     steps:
       - uses: actions/checkout@v4
 
@@ -135,9 +141,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: deploy ${{ matrix.dir }}
-        working-directory: ${{ matrix.dir }}
-        run: pnpm dlx wrangler deploy
+      - name: deploy chunk ${{ matrix.chunk.i }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DIRS: ${{ toJson(matrix.chunk.dirs) }}
+        run: |
+          # Deploy every dir in the chunk, recording failures without stopping
+          # (the old per-dir matrix had fail-fast: false; same semantics here).
+          failed=0
+          for d in $(echo "$DIRS" | jq -r '.[]'); do
+            echo "=== deploy $d ==="
+            (cd "$d" && pnpm dlx wrangler deploy) || { failed=1; echo "DEPLOY FAILED: $d"; }
+          done
+          exit $failed
