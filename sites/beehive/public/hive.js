@@ -57,6 +57,42 @@ const Hive = (() => {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
+  const DEFAULT_BEE_TYPE = { id: "worker", body: "#f4a300", stripe: "#241a08" };
+
+  // A small vector bee (wings + striped body + head) so unlocked bee types
+  // read as distinct colors, not just a repeated emoji.
+  function drawBee(ctx, x, y, angle, type) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle || 0);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.beginPath();
+    ctx.ellipse(-2, -5, 5, 3, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(4, -5, 5, 3, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = type.body;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 7, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = type.stripe;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-3, -4);
+    ctx.lineTo(-3, 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(1, -4);
+    ctx.lineTo(1, 4);
+    ctx.stroke();
+    ctx.fillStyle = type.stripe;
+    ctx.beginPath();
+    ctx.arc(6, 0, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   class HiveScene {
     constructor(canvas) {
       this.canvas = canvas;
@@ -65,12 +101,31 @@ const Hive = (() => {
       this.cellSize = 30;
       this.filledCount = 0;
       this.cellPositions = []; // pixel positions for every laid-out cell, index 0 = queen/first
-      this.bees = []; // { x, y, wobbleSeed, speed, angle } idle wanderers
+      this.bees = []; // { x, y, wobbleSeed, speed, angle, type } idle wanderers
       this.flightBee = null; // active grow animation
+      this.beeTypes = [DEFAULT_BEE_TYPE]; // unlocked bee types, new idle bees sample from this pool
+      this.flowers = []; // unlocked flower defs, drawn in a ring around the hive
       this._raf = null;
       this._resize();
       window.addEventListener("resize", () => this._resize());
       this._ensureLoop();
+    }
+
+    // Update the pool unlocked bees/flowers sample from. Only reshuffles
+    // existing idle bees' types when the pool actually grew (a new bee type
+    // was just unlocked) so the colony diversifies at each milestone instead
+    // of jittering colors on every render.
+    setUnlocks(beeTypes, flowers) {
+      if (beeTypes && beeTypes.length) {
+        const grew = beeTypes.length !== this.beeTypes.length;
+        this.beeTypes = beeTypes;
+        if (grew) {
+          this.bees.forEach((b) => {
+            b.type = beeTypes[Math.floor(Math.random() * beeTypes.length)];
+          });
+        }
+      }
+      if (flowers) this.flowers = flowers;
     }
 
     _resize() {
@@ -100,11 +155,13 @@ const Hive = (() => {
       const n = Math.min(1 + Math.floor(this.filledCount / 6), 10);
       while (this.bees.length < n) {
         const c = this.cellPositions[Math.floor(Math.random() * Math.max(1, this.filledCount))] || this.cellPositions[0];
+        const pool = this.beeTypes.length ? this.beeTypes : [DEFAULT_BEE_TYPE];
         this.bees.push({
           x: c.x, y: c.y,
           angle: Math.random() * Math.PI * 2,
           wobbleSeed: Math.random() * 1000,
           speed: 0.4 + Math.random() * 0.5,
+          type: pool[Math.floor(Math.random() * pool.length)],
         });
       }
       this.bees.length = n;
@@ -186,6 +243,25 @@ const Hive = (() => {
         }
       });
 
+      // flowers, unlocked by total cells built, ringed just outside the comb
+      if (this.flowers.length) {
+        const xs = this.cellPositions.map((p) => p.x), ys = this.cellPositions.map((p) => p.y);
+        const midX = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const ringR = Math.max(...xs.map((x) => Math.abs(x - midX)), ...ys.map((y) => Math.abs(y - midY))) + 26;
+        const shown = this.flowers.slice(-8);
+        ctx.font = "16px serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        shown.forEach((f, i) => {
+          const angle = (i / shown.length) * Math.PI * 2 - Math.PI / 2;
+          const fx = midX + Math.cos(angle) * ringR;
+          const fy = midY + Math.sin(angle) * ringR * 0.72;
+          if (fx < 4 || fx > w - 4 || fy < 4 || fy > h - 4) return;
+          ctx.fillText(f.emoji, fx, fy);
+        });
+      }
+
       // idle bees, wandering near the built hive
       const now = performance.now();
       const centerCount = Math.max(1, this.filledCount);
@@ -195,16 +271,10 @@ const Hive = (() => {
         const orbit = this.cellSize * 1.4;
         bee.x = home.x + Math.cos(bee.angle + bee.wobbleSeed) * orbit;
         bee.y = home.y + Math.sin(bee.angle * 1.3 + bee.wobbleSeed) * orbit * 0.6;
-        ctx.save();
-        ctx.translate(bee.x, bee.y);
-        ctx.font = "13px serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🐝", 0, 0);
-        ctx.restore();
+        drawBee(ctx, bee.x, bee.y, bee.angle, bee.type || DEFAULT_BEE_TYPE);
       }
 
-      // flight bee (growing a new cell)
+      // flight bee (growing a new cell) — flies in as the newest unlocked type
       if (this.flightBee) {
         const b = this.flightBee;
         const t = Math.min(1, (now - b.start) / b.duration);
@@ -212,13 +282,8 @@ const Hive = (() => {
         const arc = Math.sin(t * Math.PI) * -30;
         const x = b.x0 + (b.x1 - b.x0) * e;
         const y = b.y0 + (b.y1 - b.y0) * e + arc;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.font = "22px serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("🐝", 0, 0);
-        ctx.restore();
+        const flightType = this.beeTypes[this.beeTypes.length - 1] || DEFAULT_BEE_TYPE;
+        drawBee(ctx, x, y, Math.atan2(b.y1 - b.y0, b.x1 - b.x0), flightType);
       }
 
       ctx.restore();

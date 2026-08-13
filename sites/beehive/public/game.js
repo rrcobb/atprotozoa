@@ -18,6 +18,41 @@ const Beehive = (() => {
     return LEVEL_LABELS[Math.min(level, LEVEL_LABELS.length - 1)];
   }
 
+  // Flowers unlock as the hive's total cell count (state.filled) crosses each
+  // threshold — a permanent record of the colony's whole life, so a flower
+  // once earned is never lost even after a reset-free plateau.
+  const FLOWER_TYPES = [
+    { at: 1, emoji: "🌱", name: "sprout" },
+    { at: 5, emoji: "🌼", name: "daisy" },
+    { at: 10, emoji: "🌻", name: "sunflower" },
+    { at: 20, emoji: "🌸", name: "blossom" },
+    { at: 35, emoji: "🌺", name: "hibiscus" },
+    { at: 50, emoji: "🌷", name: "tulip" },
+    { at: 75, emoji: "🪻", name: "hyacinth" },
+    { at: 100, emoji: "🌹", name: "rose" },
+    { at: 150, emoji: "🏵️", name: "rosette" },
+    { at: 200, emoji: "💮", name: "white flower" },
+  ];
+
+  // Bee types unlock as the best streak ever reached (state.best) crosses
+  // each threshold — a reward for accuracy, not just volume.
+  const BEE_TYPES = [
+    { at: 0, id: "worker", name: "worker bee", body: "#f4a300", stripe: "#241a08" },
+    { at: 3, id: "scout", name: "scout bee", body: "#5aa9e6", stripe: "#12314a" },
+    { at: 6, id: "guardian", name: "guardian bee", body: "#e65a5a", stripe: "#4a1212" },
+    { at: 10, id: "royal", name: "royal bee", body: "#b16be0", stripe: "#3a1a4a" },
+    { at: 15, id: "golden", name: "golden bee", body: "#ffe066", stripe: "#7a5a00" },
+    { at: 20, id: "frost", name: "frost bee", body: "#bfe9ff", stripe: "#2a5a6e" },
+  ];
+
+  function flowersFor(filled) {
+    return FLOWER_TYPES.filter((f) => f.at <= filled);
+  }
+
+  function beesFor(bestStreak) {
+    return BEE_TYPES.filter((b) => b.at <= bestStreak);
+  }
+
   // One difficulty level unlocks every 5 correct answers (filled cells).
   function levelFor(filled) {
     return Math.floor(filled / 5);
@@ -102,5 +137,5 @@ const Beehive = (() => {
     return { text: `(${a} + ${b}) × ${c}`, answer: (a + b) * c };
   }
 
-  return { labelFor, levelFor, generateProblem };
+  return { labelFor, levelFor, generateProblem, FLOWER_TYPES, BEE_TYPES, flowersFor, beesFor };
 })();

@@ -6,13 +6,13 @@
     <title>beehive — solve math, grow your bee colony</title>
     <meta
       name="description"
-      content="Answer a math problem, feed the hive, watch it grow one honeycomb cell at a time. Questions get harder as the colony expands — how big can you build it?"
+      content="Answer a math problem, feed the hive, watch it grow one honeycomb cell at a time. Milestones unlock new flowers for the garden and new bee types for the colony — how big can you build it?"
     />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="beehive — solve math, grow your bee colony" />
     <meta
       property="og:description"
-      content="Every right answer builds another honeycomb cell. Get it wrong and the bees just wait — but the problems only get harder as the hive expands."
+      content="Every right answer builds another honeycomb cell and every milestone unlocks a new flower or bee type. The problems only get harder as the hive expands."
     />
     <meta property="og:image" content="https://beehive.bisks.net/og.png" />
     <meta property="og:url" content="https://beehive.bisks.net/" />
@@ -20,7 +20,7 @@
     <meta name="twitter:title" content="beehive — solve math, grow your bee colony" />
     <meta
       name="twitter:description"
-      content="Every right answer builds another honeycomb cell. The problems only get harder as the hive expands."
+      content="Every right answer builds another honeycomb cell and unlocks new flowers and bee types. The problems only get harder as the hive expands."
     />
     <meta name="twitter:image" content="https://beehive.bisks.net/og.png" />
     <style>
@@ -102,6 +102,33 @@
       .status { text-align: center; min-height: 1.4em; margin: 0.8rem 0 1.2rem; font-size: 0.92rem; font-weight: 600; }
       .status.err { color: var(--err); }
       .status.ok { color: var(--ok); }
+      .status.unlock { color: var(--gold); }
+
+      .collections {
+        display: flex; gap: 0.8rem; flex-wrap: wrap; justify-content: center;
+        max-width: 560px; margin: 0 auto 1.3rem;
+      }
+      .collection {
+        flex: 1 1 240px; background: var(--card); border: 1px solid var(--border);
+        border-radius: 10px; padding: 0.7rem 0.8rem;
+      }
+      .collection h2 {
+        margin: 0 0 0.5rem; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.06em; color: var(--muted); font-weight: 700;
+      }
+      .badges { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .badge {
+        display: flex; align-items: center; gap: 0.35rem;
+        border: 1px solid var(--border); border-radius: 7px;
+        padding: 0.25rem 0.5rem; font-size: 0.78rem; color: var(--ink);
+        background: rgba(244,163,0,0.06);
+      }
+      .badge .swatch {
+        width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none;
+        display: inline-block;
+      }
+      .badge.locked { color: var(--muted); opacity: 0.55; background: transparent; }
+      .badge.locked .swatch { background: var(--border) !important; }
 
       .share {
         display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
@@ -133,8 +160,10 @@
         Solve the problem, feed the hive. Every right answer builds one more
         <b>honeycomb cell</b> and the colony grows — get five right and the
         questions level up, from simple sums to times tables, division, and
-        multi-step problems. Your hive is saved right here in the browser, so
-        it keeps growing every time you come back.
+        multi-step problems. Build up enough cells and a new <b>flower</b>
+        blooms in the garden; string together a longer <b>streak</b> and a new
+        <b>bee type</b> joins the colony. Your hive is saved right here in the
+        browser, so it keeps growing every time you come back.
       </p>
 
       <div class="stats">
@@ -145,6 +174,17 @@
       <div class="level-banner" id="levelBanner"></div>
 
       <canvas id="hiveCanvas"></canvas>
+
+      <div class="collections">
+        <div class="collection">
+          <h2>🌼 garden</h2>
+          <div class="badges" id="flowerBadges"></div>
+        </div>
+        <div class="collection">
+          <h2>🐝 colony roster</h2>
+          <div class="badges" id="beeBadges"></div>
+        </div>
+      </div>
 
       <div class="quiz">
         <div class="problem" id="problemText">–</div>
@@ -205,6 +245,8 @@
         status: document.getElementById("status"),
         skipBtn: document.getElementById("skipBtn"),
         resetBtn: document.getElementById("resetBtn"),
+        flowerBadges: document.getElementById("flowerBadges"),
+        beeBadges: document.getElementById("beeBadges"),
         share: document.getElementById("share"),
         shareBluesky: document.getElementById("shareBluesky"),
         shareDownload: document.getElementById("shareDownload"),
@@ -228,6 +270,43 @@
         }
       }
 
+      function unlockedFlowers() {
+        return Beehive.flowersFor(state.filled);
+      }
+      function unlockedBees() {
+        return Beehive.beesFor(state.best);
+      }
+
+      function renderBadges(container, allTypes, unlocked, labelKey, colorKey) {
+        const unlockedIds = new Set(unlocked.map((t) => t.id || t.name));
+        container.innerHTML = "";
+        allTypes.forEach((t) => {
+          const id = t.id || t.name;
+          const isUnlocked = unlockedIds.has(id);
+          const badge = document.createElement("span");
+          badge.className = "badge" + (isUnlocked ? "" : " locked");
+          const swatch = document.createElement("span");
+          swatch.className = "swatch";
+          swatch.style.background = colorKey ? t[colorKey] : "transparent";
+          swatch.textContent = colorKey ? "" : isUnlocked ? t.emoji : "🔒";
+          if (colorKey) {
+            badge.appendChild(swatch);
+            badge.appendChild(document.createTextNode(isUnlocked ? t[labelKey] : "?"));
+          } else {
+            badge.textContent = "";
+            badge.appendChild(swatch);
+            badge.appendChild(document.createTextNode(isUnlocked ? " " + t.name : " ?"));
+          }
+          container.appendChild(badge);
+        });
+      }
+
+      function renderCollections() {
+        renderBadges(els.flowerBadges, Beehive.FLOWER_TYPES, unlockedFlowers(), "name", null);
+        renderBadges(els.beeBadges, Beehive.BEE_TYPES, unlockedBees(), "name", "body");
+        scene.setUnlocks(unlockedBees(), unlockedFlowers());
+      }
+
       function render() {
         els.statFilled.textContent = state.filled;
         els.statStreak.textContent = state.streak;
@@ -235,6 +314,7 @@
         els.levelBanner.textContent = Beehive.labelFor(currentLevel());
         els.problemText.textContent = state.problem.text + " = ?";
         els.share.hidden = state.filled === 0;
+        renderCollections();
       }
 
       function setStatus(msg, kind) {
@@ -263,6 +343,8 @@
         }
         if (guess === state.problem.answer) {
           busy = true;
+          const prevFlowers = unlockedFlowers().length;
+          const prevBees = unlockedBees().length;
           state.streak++;
           state.best = Math.max(state.best, state.streak);
           const leveledUp = Beehive.levelFor(state.filled + 1) > currentLevel();
@@ -274,7 +356,13 @@
             saveState();
             ensureProblem();
             render();
-            if (leveledUp) {
+            const newFlowers = Beehive.flowersFor(state.filled).slice(prevFlowers);
+            const newBees = Beehive.beesFor(state.best).slice(prevBees);
+            if (newFlowers.length) {
+              setStatus(`🌼 new flower unlocked: ${newFlowers[newFlowers.length - 1].name}!`, "unlock");
+            } else if (newBees.length) {
+              setStatus(`🐝 new bee unlocked: ${newBees[newBees.length - 1].name}!`, "unlock");
+            } else if (leveledUp) {
               setStatus(`🍯 sweet! level up — ${Beehive.labelFor(currentLevel())}`, "ok");
             }
             buildShareCard();
@@ -318,7 +406,12 @@
       function buildShareText() {
         const url = "https://beehive.bisks.net/";
         const level = Beehive.labelFor(currentLevel());
-        let text = `My beehive has ${state.filled} cell${state.filled === 1 ? "" : "s"} (${level}), best streak ${state.best}. ${url}`;
+        const flowers = unlockedFlowers().length;
+        const bees = unlockedBees().length;
+        let text = `My beehive has ${state.filled} cell${state.filled === 1 ? "" : "s"} (${level}), ${flowers} flower${flowers === 1 ? "" : "s"} and ${bees} bee type${bees === 1 ? "" : "s"} unlocked, best streak ${state.best}. ${url}`;
+        if (text.length > 280) {
+          text = `My beehive: ${state.filled} cells, ${flowers} flowers, ${bees} bee types, best streak ${state.best}. ${url}`;
+        }
         if (text.length > 280) {
           text = `My beehive: ${state.filled} cells, best streak ${state.best}. ${url}`;
         }
@@ -369,6 +462,7 @@
 
         ctx.fillStyle = "#c9a96b";
         ctx.font = `22px ${mono}`;
+        ctx.fillText(`🌼 ${unlockedFlowers().length} flowers  ·  🐝 ${unlockedBees().length} bee types`, W / 2, 510);
         ctx.fillText("beehive.bisks.net", W / 2, 560);
 
         finalizeShareCard(canvas, buildShareText());
