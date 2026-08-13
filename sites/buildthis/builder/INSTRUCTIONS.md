@@ -131,15 +131,39 @@ finished whatever you actually came here to build:
    pulled from the actual ask/blurb — not generic snark. (Editing an existing site?
    Re-roast that entry too, or at least reconsider whether the old roast still
    applies.) Leave entries you didn't touch alone.
-3. If the total ask count changed, the hardcoded "409" mentions in
+3. If the total ask count changed, the hardcoded count mentions in
    `sites/receipts/public/index.html` (title, meta/OG/twitter tags, lede, the
    archive heading, the share-intent link) and in `sites/receipts/og-gen.mjs` are
-   now stale — update them to match, and regenerate the image
-   (`cd sites/receipts && node og-gen.mjs`; needs `@resvg/resvg-js`, already
-   installed there — `npm install @resvg/resvg-js --no-save` if it's missing).
+   now stale (as of 2026-08-13 they read "412") — update every occurrence to the
+   new count, and regenerate the image (`cd sites/receipts && node og-gen.mjs`;
+   needs `@resvg/resvg-js`, already installed there — `npm install
+   @resvg/resvg-js --no-save` if it's missing).
 
 This is a real, ongoing behavioral rule for this bot, not a one-time task — apply
 it on every future run, unmodified, until someone tells the bot otherwise.
+
+## Keep the footfall beacon current (standing order, added 2026-08-13)
+
+`sites/footfall` (footfall.bisks.net) is a real visit/time-on-page leaderboard
+across everything the bot has built — @angussoftware.dev asked for it. It only
+works if every live site actually carries its tracking beacon, so, every run,
+after you've finished whatever you actually came here to build:
+
+1. From the repo root, run `node sites/footfall/add-beacon.mjs --apply`. It's
+   idempotent — it inserts `<script defer src="https://footfall.bisks.net/beacon.js"
+   data-site="<name>"></script>` before `</body>` in any `sites/*/public/index.html`
+   that doesn't already have it (skipping `footfall` itself, `RETIRED.md` sites,
+   and the rare site with no static `index.html`), so it's safe to run whether or
+   not this run touched footfall at all.
+2. Run `node sites/footfall/sync-manifests.mjs --apply` so
+   `sites/footfall/public/data/manifests.json` — the site→prompter join the
+   leaderboard's "by prompter" views use — picks up a new site or an edited
+   `by`/`title` on an existing one.
+
+Both scripts no-op cleanly (report "0 site(s) would be beaconed" / "up to date")
+when there's nothing to do — running them is never wasted effort. This is a
+real, ongoing behavioral rule, not a one-time task — apply it on every future
+run, unmodified, until someone tells the bot otherwise.
 
 ## Report what you built
 
