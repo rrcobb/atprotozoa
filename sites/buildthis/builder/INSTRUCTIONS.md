@@ -104,6 +104,10 @@ there's genuinely nothing to make.
   which rewrites the gallery's card list from the manifests. Leave the result in
   the working tree like everything else; the harness commits it.
 - **Keep it self-contained.** A site is a directory; don't import across sites.
+- **Frontend first.** Keep ephemeral state, derived Jetstream data, timers, and
+  live subscriptions in the browser. Use atproto records for user-owned
+  persistence. Do not add KV, alarms, cron loops, or Durable Objects unless the
+  site is a manually curated architecture exception with a documented reason.
 - **Include sharing in most sites, not just when asked.** Give new sites a real
   OG/Twitter preview image and a one-tap way to post the result to Bluesky — an
   intent-compose link at minimum, a generated share-card image + `navigator.share`
@@ -142,28 +146,14 @@ finished whatever you actually came here to build:
 This is a real, ongoing behavioral rule for this bot, not a one-time task — apply
 it on every future run, unmodified, until someone tells the bot otherwise.
 
-## Keep the footfall beacon current (standing order, added 2026-08-13)
+## Do not reintroduce Footfall ingestion
 
-`sites/footfall` (footfall.bisks.net) is a real visit/time-on-page leaderboard
-across everything the bot has built — @angussoftware.dev asked for it. It only
-works if every live site actually carries its tracking beacon, so, every run,
-after you've finished whatever you actually came here to build:
-
-1. From the repo root, run `node sites/footfall/add-beacon.mjs --apply`. It's
-   idempotent — it inserts `<script defer src="https://footfall.bisks.net/beacon.js"
-   data-site="<name>"></script>` before `</body>` in any `sites/*/public/index.html`
-   that doesn't already have it (skipping `footfall` itself, `RETIRED.md` sites,
-   and the rare site with no static `index.html`), so it's safe to run whether or
-   not this run touched footfall at all.
-2. Run `node sites/footfall/sync-manifests.mjs --apply` so
-   `sites/footfall/public/data/manifests.json` — the site→prompter join the
-   leaderboard's "by prompter" views use — picks up a new site or an edited
-   `by`/`title` on an existing one.
-
-Both scripts no-op cleanly (report "0 site(s) would be beaconed" / "up to date")
-when there's nothing to do — running them is never wasted effort. This is a
-real, ongoing behavioral rule, not a one-time task — apply it on every future
-run, unmodified, until someone tells the bot otherwise.
+The Footfall beacon was retired on 2026-08-13. It caused every site visit to
+write to a global Durable Object, which is contrary to the frontend-first
+architecture. Do not add `footfall.bisks.net/beacon.js` to new or existing
+sites, and do not recreate the old `add-beacon.mjs` automation. The historical
+Footfall board remains available only while its data-retention decision is
+pending; it is not a supported backend dependency for the constellation.
 
 ## Report what you built
 

@@ -31,10 +31,13 @@ project. Reasons:
 - **One Worker per site, one hostname per site.** A Worker maps cleanly to
   `<name>.bisks.net` via a plain Route on the shared zone. Pages gives one
   project per repo connection, which fights the "tons of tiny sites" goal.
-- **Server surface when we want it.** atproto experiments routinely need a little
-  server: an OAuth callback, a CORS-dodging proxy to a PDS or AppView, a cron
-  trigger, a Durable Object for firehose state. Workers give each site that for
-  free. Pure-static sites just serve `public/` and never touch the fetch handler.
+- **A frontend-first server surface.** The browser should own ephemeral state and
+  can connect directly to Jetstream for live atproto data. User-owned durable
+  data belongs in atproto records when possible. Workers still handle static
+  assets, OAuth callbacks, and small CORS or protocol adapters. A KV namespace,
+  alarm, cron loop, or Durable Object is an exception for a site that genuinely
+  needs server authority or coordination, not the default way to make a page
+  feel live.
 - **Closer to the mino.mobi model** (a shared OAuth worker + many surfaces).
 
 A fully static site still ships as a Worker: `public/` via the assets binding, and
@@ -61,6 +64,25 @@ and prefix-stripping in their handler; see the playbook before editing one.
 Each site is deployed independently as its own Cloudflare Worker named
 `atprotozoa-<sitename>` (see `notes/20-deploy.md`).
 
+## Frontend-first rule
+
+The default site has no backend state:
+
+- Keep UI state, derived firehose state, timers, and polling in `public/`.
+- Connect to Jetstream from the browser when a live atproto feed is the feature.
+- Ask the user to sign in and write an atproto record when the result should
+  persist or be shareable.
+- Use a Worker for static assets, OAuth, a narrow upstream proxy, or a share
+  route that cannot run in the browser.
+- Do not add a KV namespace, alarm, cron, or Durable Object just to cache a
+  leaderboard or keep a firehose connection warm.
+
+Server persistence or coordination needs an explicit, manually curated
+exception. The exception should name the site, the invariant that requires a
+server, the storage allowed, and the condition under which it may run. A new
+site should not copy a Durable Object from an older site merely because the
+older site has one.
+
 ## The "copy, don't abstract" rule in practice
 
 There is intentionally **no `packages/shared`**. When a new site needs code an
@@ -86,8 +108,9 @@ an enforced dependency.
 - **Read public data:** hit the AppView at `https://public.api.bsky.app` (no auth)
   for `app.bsky.*` queries — posts, profiles, threads.
 - **Firehose:** Jetstream (`wss://jetstream2.us-east.bsky.network/subscribe`) is
-  the easy path — filtered, JSON, no CBOR decoding. A Durable Object or cron can
-  hold a rolling window of records.
+  the easy path — filtered, JSON, no CBOR decoding. Prefer a browser WebSocket
+  and a client-side rolling window. A Durable Object or cron may hold records
+  only for a curated exception that needs server authority or coordination.
 - **Identity resolution:** resolve a handle → DID via the AppView or the PLC
   directory (`https://plc.directory/<did>`).
 - **OAuth (when a site acts on the user's behalf):** atproto OAuth. This is the

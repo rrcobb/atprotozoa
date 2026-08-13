@@ -1,0 +1,16 @@
+# docmoot architecture
+
+`docmoot` is intentionally an assets-only Worker. The browser owns the current
+draft in `localStorage`; there is no shared relay, Durable Object, WebSocket,
+presence service, or server-side document state.
+
+Signed-in users can publish a durable `net.bisks.docmoot.snapshot` record to
+their own PDS. That is the sharing boundary: a revision can be exported,
+restored into a local draft, or shared as an atproto record. This is not
+keystroke-level multi-writer editing, and a browser that has never seen a
+draft cannot reconstruct it from the short document URL alone.
+
+The deliberate tradeoff is a simple static deployment over a live coordinator.
+If collaborative records are added later, they should remain user-owned,
+append-only revisions with client-side conflict handling rather than restoring
+a central authoritative document.

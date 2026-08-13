@@ -54,7 +54,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
   <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="68" fill="url(#title)">docmoot</text>
-  <text x="64" y="188" font-family="JetBrains Mono" font-size="22" fill="${DIM}">write together, <tspan fill="${ACCENT2}">live</tspan>, on atproto</text>
+  <text x="64" y="188" font-family="JetBrains Mono" font-size="22" fill="${DIM}">write together, <tspan fill="${ACCENT2}">async</tspan>, on atproto</text>
 
   <text x="64" y="280" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Anyone with the link can write, in real time.</text>
   <text x="64" y="306" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Sign in and snapshot it into your own PDS —</text>

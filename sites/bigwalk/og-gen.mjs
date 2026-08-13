@@ -57,7 +57,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#sun)"/>
 
   <text x="60" y="150" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="${INK}">big<tspan fill="${ACCENT}">walk</tspan></text>
-  <text x="62" y="192" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">race your moots, live</text>
+  <text x="62" y="192" font-family="JetBrains Mono" font-size="21" fill="${MUTED}">race your moot ghosts</text>
 
   <text x="62" y="252" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">Type a handle, race your mutuals down a real-time track —</text>
   <text x="62" y="278" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">alternate left/right to walk, or get picked off the pack.</text>

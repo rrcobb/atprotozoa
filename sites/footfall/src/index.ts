@@ -65,6 +65,13 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/api/hit" || url.pathname === "/api/dwell") {
+      return new Response(JSON.stringify({ error: "footfall ingestion is retired" }), {
+        status: 410,
+        headers: { "content-type": "application/json", ...CORS_HEADERS },
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });

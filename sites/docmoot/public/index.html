@@ -3,24 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>docmoot — write together, live, on atproto</title>
+    <title>docmoot — write together, async, on atproto</title>
     <meta
       name="description"
-      content="A shared document anyone with the link can edit in real time, no walled garden required. Sign in to snapshot it straight into your own PDS."
+      content="A shared document draft with durable revisions in your own PDS."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="docmoot — write together, live, on atproto" />
+    <meta property="og:title" content="docmoot — write together, async, on atproto" />
     <meta
       property="og:description"
-      content="A shared document anyone with the link can edit in real time, no walled garden required. Sign in to snapshot it straight into your own PDS."
+      content="A shared document draft with durable revisions in your own PDS."
     />
     <meta property="og:image" content="https://docmoot.bisks.net/og.png" />
     <meta property="og:url" content="https://docmoot.bisks.net/" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="docmoot — write together, live, on atproto" />
+    <meta name="twitter:title" content="docmoot — write together, async, on atproto" />
     <meta
       name="twitter:description"
-      content="A shared document anyone with the link can edit in real time, no walled garden required. Sign in to snapshot it straight into your own PDS."
+      content="A shared document draft with durable revisions in your own PDS."
     />
     <meta name="twitter:image" content="https://docmoot.bisks.net/og.png" />
     <style>
@@ -137,22 +137,19 @@
       <header class="top">
         <h1><a href="/docmoot/">docmoot</a></h1>
         <div style="display:flex; align-items:center; gap: 1rem;">
-          <span class="tag">write together, live, on atproto</span>
+          <span class="tag">write together, async, on atproto</span>
           <span class="who" id="who"></span>
         </div>
       </header>
 
       <section id="landing">
         <div class="hero">
-          <h2>A shared document, without the walled garden.</h2>
+          <h2>A document draft, without the walled garden.</h2>
           <p class="lede">
-            Anyone with the link can jump in and write, live, same as a Google Doc share
-            link — but the live sync happens over an ordinary WebSocket relay (this
-            Worker), because that's the part atproto genuinely doesn't solve on its own:
-            fast multi-writer text merging needs a coordinator, and a signed
-            per-writer repo commit isn't built for that. What <b>can</b> live outside a
-            corporate silo is the durable copy — sign in and snapshot the doc straight
-            into your own PDS whenever you want.
+            Write in a local draft, then sign in and snapshot durable revisions straight
+            into your own PDS. There is no live relay or shared server state, so the
+            short link identifies a draft on this device rather than pretending that a
+            browser-only app can coordinate simultaneous writers.
           </p>
           <div class="actions">
             <button id="new-doc">start a new document →</button>
@@ -160,14 +157,12 @@
         </div>
         <div id="snapshots-panel"></div>
         <div class="explainer">
-          <h3>so, "is there a way to do this on ATProto?"</h3>
+          <h3>so, "is there a way to do this without a backend?"</h3>
           <p>
-            Honestly: not the real-time part, not yet, not without a relay somewhere —
-            nobody's solved keystroke-level CRDT sync over the firehose. This is the
-            closest good version: a live pad for the collaboration, with atproto doing
-            what it's actually good at — being <i>your</i> copy of the thing, in
-            <i>your</i> repo, that no product can revoke, paywall, or quietly change the
-            terms on.
+            The easy version is local-first: your browser owns the draft, and atproto
+            gives you a durable, portable revision in <i>your</i> repo. That means
+            eventual sharing instead of live multi-writer merging, but it also means
+            there is no product server to keep running or trust.
           </p>
         </div>
       </section>
@@ -194,9 +189,8 @@
           <span class="save-msg" id="save-msg"></span>
         </div>
         <footer class="hint">
-          No login needed to write — this doc lives in this Worker's memory for as
-          long as people keep it open, same as pasting a link around. Sign in with
-          Bluesky to save a durable copy into your own PDS as a
+          No login needed to write — this draft lives in this browser's local storage.
+          Sign in with Bluesky to save a durable copy into your own PDS as a
           <code>net.bisks.docmoot.snapshot</code> record — yours to keep, export, or
           delete, independent of this site staying up.
         </footer>
@@ -212,12 +206,12 @@
       // never runs, and the page is stuck on the static landing markup (bug:
       // shared doc links "just take you to the home page"). Compute the real
       // lib/ base first and import dynamically instead. Duplicates the
-      // "/docmoot" prefix that also lives in src/index.ts's PREFIX and
-      // oauth.js's MOUNT — can't import MOUNT before this import runs.
+      // "/docmoot" prefix is only needed for the legacy path route; the
+      // canonical host serves this app at the root.
       const MOUNT_GUESS = "/docmoot";
       const LIB_BASE = (location.pathname.startsWith(MOUNT_GUESS) ? MOUNT_GUESS : "") + "/lib/";
-      const [{ login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT }, { attachCollab }] =
-        await Promise.all([import(LIB_BASE + "oauth.js"), import(LIB_BASE + "collab.js")]);
+      const [{ login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT }] =
+        await Promise.all([import(LIB_BASE + "oauth.js")]);
 
       const $ = (sel) => document.querySelector(sel);
       const esc = (s) =>
@@ -238,7 +232,9 @@
       // notes/40-new-site-playbook.md), so any pushState/replaceState URL
       // built for in-app navigation must use whichever prefix is actually
       // live, not assume MOUNT unconditionally.
-      const ACTIVE_MOUNT = location.pathname.startsWith(MOUNT) ? MOUNT : "";
+      const ACTIVE_MOUNT = location.pathname === MOUNT_GUESS || location.pathname.startsWith(MOUNT_GUESS + "/")
+        ? MOUNT_GUESS
+        : "";
 
       function currentRoute() {
         let path = location.pathname;
@@ -255,14 +251,35 @@
       // for in-app navigation (a shared link always needs the real mount
       // prefix, even if we're currently testing against localhost).
       function docUrl(id) {
-        return `${location.origin}${MOUNT}/d/${id}`;
+        return `${location.origin}${ACTIVE_MOUNT}/d/${id}`;
       }
 
       let session = null;
-      let collab = null;
       let docId = null;
       let docTitle = "";
-      let lastKeyAt = 0;
+      const LOCAL_PREFIX = "docmoot:draft:";
+
+      function localKey(id) {
+        return LOCAL_PREFIX + id;
+      }
+
+      function readDraft(id) {
+        try {
+          const value = JSON.parse(localStorage.getItem(localKey(id)) || "null");
+          return value && typeof value === "object" ? value : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function writeDraft() {
+        if (!docId) return;
+        localStorage.setItem(localKey(docId), JSON.stringify({
+          title: docTitle,
+          text: $("#doc-text").value,
+          updatedAt: new Date().toISOString(),
+        }));
+      }
 
       async function boot() {
         try {
@@ -290,56 +307,32 @@
         } else {
           $("#editor").classList.remove("active");
           $("#landing").style.display = "";
-          if (collab) { collab.close(); collab = null; }
           loadSnapshots();
         }
       }
 
       function openDoc(id) {
         if (docId === id) return; // already open
-        if (collab) collab.close();
         docId = id;
-        docTitle = "";
+        const draft = readDraft(id);
+        docTitle = draft?.title || "";
         const textEl = $("#doc-text");
-        textEl.value = "";
-        $("#title-input").value = "";
+        textEl.value = draft?.text || "";
+        $("#title-input").value = docTitle;
         renderSaveButtons();
 
-        collab = attachCollab(textEl, {
-          docId: id,
-          mount: MOUNT,
-          onInit: (msg) => {
-            docTitle = msg.title || "";
-            $("#title-input").value = docTitle;
-            updateWordCount();
-            if (session) collab.setName("@" + session.handle);
-          },
-          onStatus: (status) => {
-            const dot = $("#conn-dot");
-            dot.className = "conn-dot" + (status === "open" ? " open" : status === "reconnecting" ? " reconnecting" : "");
-            $("#conn-label").textContent =
-              status === "open" ? "live" : status === "reconnecting" ? "reconnecting…" : "connecting…";
-          },
-          onPresence: (users) => renderPresence(users),
-          onTitle: (value, isRemote) => {
-            docTitle = value;
-            if (isRemote && document.activeElement !== $("#title-input")) $("#title-input").value = value;
-          },
-        });
-
-        textEl.addEventListener("input", () => {
-          lastKeyAt = Date.now();
-          updateWordCount();
-        });
+        $("#conn-dot").className = "conn-dot open";
+        $("#conn-label").textContent = "local draft";
+        renderPresence([]);
+        textEl.oninput = () => { updateWordCount(); writeDraft(); };
+        updateWordCount();
 
         history.replaceState({}, "", navPath(id));
       }
 
-      let titleDebounce;
       $("#title-input").addEventListener("input", (e) => {
-        clearTimeout(titleDebounce);
-        const value = e.target.value;
-        titleDebounce = setTimeout(() => collab && collab.setTitle(value), 250);
+        docTitle = e.target.value;
+        writeDraft();
       });
 
       function updateWordCount() {
@@ -411,7 +404,7 @@
                 return `<div class="snap-row">
                   <span class="snap-title">${title}</span>
                   <span class="snap-meta">${esc(meta)}</span>
-                  <button class="ghost" data-restore="${i}">open live copy →</button>
+                  <button class="ghost" data-restore="${i}">open local copy →</button>
                 </div>`;
               })
               .join("");
@@ -423,21 +416,15 @@
         }
       }
 
-      // Mints a brand-new doc, seeds it with the snapshot's text server-side
-      // (so every future edit is on top of that baseline, no client-only
-      // "paste it in" step), then opens it live like any other doc.
+      // Restores a snapshot into a new local draft. Nothing is sent to a site
+      // backend; the user can publish the restored draft again from this tab.
       async function restoreSnapshot(snap) {
         const id = newDocId();
-        try {
-          const res = await fetch(`${ACTIVE_MOUNT}/api/doc/${encodeURIComponent(id)}/seed`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ title: snap.title || "", text: snap.text || "" }),
-          });
-          if (!res.ok) throw new Error(`${res.status}`);
-        } catch (e) {
-          console.error("seed failed", e);
-        }
+        localStorage.setItem(localKey(id), JSON.stringify({
+          title: snap.title || "",
+          text: snap.text || "",
+          updatedAt: new Date().toISOString(),
+        }));
         history.pushState({}, "", navPath(id));
         route();
       }
@@ -502,7 +489,7 @@
 
       function buildShareText() {
         const title = docTitle || "a document";
-        return `writing "${title}" together, live — no walled garden. join in on docmoot: ${docUrl(docId)}`;
+        return `drafting "${title}" on docmoot — save a revision to your PDS: ${docUrl(docId)}`;
       }
       $("#share-btn").addEventListener("click", () => {
         if (!docId) return;
@@ -522,6 +509,5 @@
 
       boot();
     </script>
-    <script defer src="https://footfall.bisks.net/beacon.js" data-site="docmoot"></script>
 </body>
 </html>

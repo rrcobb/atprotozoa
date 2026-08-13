@@ -160,7 +160,75 @@
 </div>
 
 <script>
-const POLL_MS = 4000;
+const TICK_MS = 15000;
+const MAX_TRACKED_TERMS = 25000;
+const MAX_STORED_SITUATIONS = 80;
+const MAX_SAMPLES_PER_SITUATION = 3;
+const RATE_HISTORY_LEN = 40;
+const MIN_TICKS_FOR_BASELINE = 4;
+const MIN_ABS_COUNT = 6;
+const SPIKE_RATIO = 4;
+const BASELINE_DECAY = 0.85;
+const MIN_BASELINE_FLOOR = 0.4;
+const INACTIVITY_TICKS = 3;
+const STALE_TERM_MS = 5 * 60 * 1000;
+const JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+
+const STOPWORDS = new Set([
+  "about", "after", "again", "against", "all", "also", "always", "am", "an", "and", "any", "are",
+  "as", "at", "back", "be", "because", "been", "before", "being", "below", "between", "both", "but",
+  "by", "can", "cant", "cannot", "could", "did", "didnt", "do", "does", "doing", "dont", "down",
+  "during", "each", "even", "ever", "every", "for", "from", "further", "get", "gets", "getting",
+  "going", "gonna", "had", "has", "have", "having", "here", "hers", "herself", "him", "himself",
+  "his", "how", "into", "isnt", "its", "itself", "just", "know", "like", "look", "many", "maybe",
+  "might", "more", "most", "much", "must", "myself", "never", "not", "now", "off", "once", "only",
+  "other", "our", "ours", "ourselves", "out", "over", "own", "really", "said", "same", "should",
+  "since", "some", "someone", "something", "still", "such", "than", "that", "thats", "the", "their",
+  "theirs", "them", "themselves", "then", "there", "theres", "these", "they", "thing", "things",
+  "think", "this", "those", "through", "thus", "time", "today", "too", "under", "until", "very",
+  "want", "wants", "was", "wasnt", "way", "were", "what", "whats", "when", "where", "which", "while",
+  "who", "whom", "why", "will", "with", "wont", "would", "wouldnt", "your", "yours", "yourself",
+  "youre", "youve",
+]);
+
+function extractTerms(text) {
+  const cleaned = text
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/@[a-zA-Z0-9.\-]+/g, " ")
+    .toLowerCase();
+  const hashtags = Array.from(cleaned.matchAll(/#([a-z][a-z0-9_]{1,29})/g)).map((m) => "#" + m[1]);
+  const words = cleaned
+    .replace(/#[a-z0-9_]+/g, " ")
+    .split(/[^a-z0-9']+/)
+    .filter((w) => w.length >= 4 && w.length <= 24 && !/^\d+$/.test(w) && !STOPWORDS.has(w.replace(/'/g, "")));
+  return Array.from(new Set([...hashtags, ...words])).slice(0, 12);
+}
+
+function truncate(s, max) {
+  return s.length <= max ? s : s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function shapeForClient(record) {
+  return {
+    term: record.term,
+    firstSeen: record.firstSeen,
+    lastSeen: record.lastSeen,
+    peakRatio: Math.round(record.peakRatio * 10) / 10,
+    lastRatio: Math.round(record.lastRatio * 10) / 10,
+    peakCount: record.peakCount,
+    active: record.active,
+    samples: record.samples.map((s) => ({
+      text: truncate(s.text, 180),
+      url: `https://bsky.app/profile/${s.did}/post/${s.rkey}`,
+    })),
+  };
+}
+
+function computeLevel(active) {
+  if (!active.length) return 0;
+  const score = active.reduce((sum, r) => sum + Math.min(15, r.lastRatio), 0);
+  return Math.max(0, Math.min(100, Math.round(score * 5)));
+}
 
 const els = {
   needle: document.getElementById("needle"),
@@ -221,7 +289,7 @@ function playClick() {
 function scheduleTicks(level) {
   if (!audioEnabled) return;
   const n = Math.round(2 + level / 6); // ~2 ticks quiet, ~18 near max
-  for (let i = 0; i < n; i++) setTimeout(playClick, Math.random() * POLL_MS);
+  for (let i = 0; i < n; i++) setTimeout(playClick, Math.random() * TICK_MS);
 }
 
 els.audioToggle.addEventListener("click", function () {
@@ -311,19 +379,166 @@ function renderLog(list) {
   }).join("");
 }
 
-async function poll() {
-  try {
-    const res = await fetch("/api/reading");
-    const data = await res.json();
-    renderReading(data);
-  } catch (_) {
-    els.watching.textContent = "couldn't reach the detector — retrying…";
+const terms = new Map();
+const situations = new Map();
+let totalThisTick = 0;
+let rateHistory = [];
+let active = [];
+let recent = [];
+let level = 0;
+let since = Date.now();
+let ws = null;
+let reconnectDelay = 1000;
+let reconnectTimer = null;
+let tickTimer = null;
+
+function handleMessage(raw) {
+  let evt;
+  try { evt = JSON.parse(raw); } catch { return; }
+  if (evt.kind !== "commit") return;
+  const commit = evt.commit;
+  if (!commit || commit.operation !== "create" || commit.collection !== "app.bsky.feed.post") return;
+  const record = commit.record;
+  if (!record || typeof record.text !== "string" || typeof evt.did !== "string" || typeof commit.rkey !== "string") return;
+
+  totalThisTick++;
+  const extracted = extractTerms(record.text);
+  if (!extracted.length) return;
+
+  for (const term of extracted) {
+    let state = terms.get(term);
+    if (!state) {
+      if (terms.size >= MAX_TRACKED_TERMS) continue;
+      state = { count: 0, baseline: 0, ticksObserved: 0, lastActiveTick: Date.now(), samples: [] };
+      terms.set(term, state);
+    }
+    state.count++;
+    state.lastActiveTick = Date.now();
+    if (state.samples.length < MAX_SAMPLES_PER_SITUATION) {
+      state.samples.push({ text: record.text, did: evt.did, rkey: commit.rkey });
+    }
   }
 }
 
-poll();
-setInterval(poll, POLL_MS);
+function tick() {
+  const now = Date.now();
+  const rate = totalThisTick / (TICK_MS / 1000);
+  totalThisTick = 0;
+  rateHistory.push({ t: now, rate });
+  if (rateHistory.length > RATE_HISTORY_LEN) rateHistory.shift();
+
+  const spikes = [];
+  for (const [term, state] of terms) {
+    const count = state.count;
+    const samples = state.samples;
+    state.count = 0;
+    state.samples = [];
+
+    if (count > 0 && state.ticksObserved >= MIN_TICKS_FOR_BASELINE) {
+      const ratio = count / Math.max(state.baseline, MIN_BASELINE_FLOOR);
+      if (count >= MIN_ABS_COUNT && ratio >= SPIKE_RATIO) spikes.push({ term, count, ratio, samples });
+    }
+
+    state.baseline = state.baseline * BASELINE_DECAY + count * (1 - BASELINE_DECAY);
+    state.ticksObserved++;
+  }
+
+  for (const [term, state] of terms) {
+    if (state.baseline < 0.05 && now - state.lastActiveTick > STALE_TERM_MS) terms.delete(term);
+  }
+
+  for (const spike of spikes) {
+    const existing = situations.get(spike.term);
+    situations.set(spike.term, {
+      term: spike.term,
+      firstSeen: existing ? existing.firstSeen : now,
+      lastSeen: now,
+      peakRatio: Math.max(existing ? existing.peakRatio : 0, spike.ratio),
+      lastRatio: spike.ratio,
+      peakCount: Math.max(existing ? existing.peakCount : 0, spike.count),
+      active: true,
+      samples: spike.samples.length ? spike.samples : existing ? existing.samples : [],
+    });
+  }
+
+  const activeTerms = new Set(spikes.map((s) => s.term));
+  for (const [term, record] of situations) {
+    if (record.active && !activeTerms.has(term) && now - record.lastSeen > INACTIVITY_TICKS * TICK_MS) {
+      record.active = false;
+    }
+  }
+
+  let stored = [...situations.values()].sort((a, b) => a.lastSeen - b.lastSeen);
+  if (stored.length > MAX_STORED_SITUATIONS) {
+    for (const record of stored.slice(0, stored.length - MAX_STORED_SITUATIONS)) situations.delete(record.term);
+    stored = stored.slice(-MAX_STORED_SITUATIONS);
+  }
+
+  const shaped = stored.map(shapeForClient).sort((a, b) => b.lastSeen - a.lastSeen);
+  active = shaped.filter((r) => r.active);
+  recent = shaped.slice(0, 20);
+  level = computeLevel(active);
+  renderReading({
+    cpm: Math.round(rate * 60),
+    level,
+    watching: terms.size,
+    since,
+    active,
+    recent,
+    history: rateHistory.map((h) => Math.round(h.rate * 60)),
+  });
+}
+
+function closeSocket() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  const current = ws;
+  ws = null;
+  try { current?.close(); } catch {}
+}
+
+function connect() {
+  if (document.hidden) return;
+  closeSocket();
+  els.watching.textContent = "connecting to the firehose…";
+  const current = new WebSocket(JETSTREAM_URL);
+  ws = current;
+
+  current.onopen = () => {
+    reconnectDelay = 1000;
+    els.watching.textContent = "live browser reading — building a local baseline…";
+  };
+  current.onmessage = (event) => handleMessage(event.data);
+  current.onclose = () => {
+    if (ws !== current || document.hidden) return;
+    els.watching.textContent = "firehose disconnected — reconnecting…";
+    reconnectTimer = setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+  };
+  current.onerror = () => {
+    try { current.close(); } catch {}
+  };
+}
+
+function startLive() {
+  if (document.hidden || tickTimer) return;
+  tickTimer = setInterval(tick, TICK_MS);
+  connect();
+}
+
+function stopLive() {
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = null;
+  closeSocket();
+  els.watching.textContent = "paused while this tab is hidden";
+}
+
+renderReading({ cpm: 0, level: 0, watching: 0, since, active: [], recent: [], history: [] });
+startLive();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopLive();
+  else startLive();
+});
 </script>
-  <script defer src="https://footfall.bisks.net/beacon.js" data-site="dosimeter"></script>
 </body>
 </html>

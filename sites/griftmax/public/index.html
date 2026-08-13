@@ -414,27 +414,92 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// --- live pulse (real: /api/pulse hits the AscensionEngine Durable Object,
-// which holds a real Jetstream socket) ---------------------------------------
+// --- live pulse (browser-owned Jetstream connection) --------------------------
 
-async function pollPulse() {
+const PULSE_URL = "wss://jetstream2.us-east.bsky.network/subscribe";
+const PULSE_TICK_MS = 3000;
+let pulseSocket = null;
+let pulseTimer = null;
+let pulseReconnectTimer = null;
+let pulseReconnectDelay = 1000;
+let pulseEvents = 0;
+let pulseTotal = 0;
+
+async function loadCount() {
   try {
-    const r = await fetch("/api/pulse");
-    if (!r.ok) throw new Error("pulse " + r.status);
+    const r = await fetch("/api/count", { cache: "no-store" });
+    if (!r.ok) throw new Error("count " + r.status);
     const d = await r.json();
-    els.price.textContent = "$" + d.eventsPerSec.toFixed(1);
     els.ascended.textContent = d.ascendedCount;
-    els.total.textContent = d.totalEventsSeen.toLocaleString();
-    els.pulseNote.textContent =
-      d.eventsPerSec > 0
-        ? "live: " + d.eventsPerSec.toFixed(1) + " commits/sec across the whole open firehose, right now"
-        : "firehose reconnecting…";
   } catch {
-    els.pulseNote.textContent = "pulse unreachable — the DO may be cold-starting, retrying…";
+    els.ascended.textContent = "—";
   }
 }
-pollPulse();
-setInterval(pollPulse, 3000);
+
+function updatePulse() {
+  const eventsPerSec = pulseEvents / (PULSE_TICK_MS / 1000);
+  pulseEvents = 0;
+  els.price.textContent = "$" + eventsPerSec.toFixed(1);
+  els.total.textContent = pulseTotal.toLocaleString();
+  els.pulseNote.textContent =
+    eventsPerSec > 0
+      ? "live in this tab: " + eventsPerSec.toFixed(1) + " commits/sec across the open firehose"
+      : "live in this tab: waiting for firehose commits…";
+}
+
+function closePulseSocket() {
+  if (pulseReconnectTimer) clearTimeout(pulseReconnectTimer);
+  pulseReconnectTimer = null;
+  const current = pulseSocket;
+  pulseSocket = null;
+  try { current?.close(); } catch {}
+}
+
+function connectPulse() {
+  if (document.visibilityState === "hidden") return;
+  closePulseSocket();
+  const current = new WebSocket(PULSE_URL);
+  pulseSocket = current;
+  current.onopen = () => {
+    pulseReconnectDelay = 1000;
+    els.pulseNote.textContent = "live in this tab: connected to the open firehose";
+  };
+  current.onmessage = (event) => {
+    let data;
+    try { data = JSON.parse(event.data); } catch { return; }
+    if (data.kind !== "commit") return;
+    pulseEvents++;
+    pulseTotal++;
+  };
+  current.onclose = () => {
+    if (pulseSocket !== current || document.visibilityState === "hidden") return;
+    pulseReconnectTimer = setTimeout(connectPulse, pulseReconnectDelay);
+    pulseReconnectDelay = Math.min(pulseReconnectDelay * 2, 15000);
+  };
+  current.onerror = () => {
+    try { current.close(); } catch {}
+  };
+}
+
+function startPulse() {
+  if (pulseTimer || document.visibilityState === "hidden") return;
+  loadCount();
+  connectPulse();
+  pulseTimer = setInterval(updatePulse, PULSE_TICK_MS);
+}
+
+function stopPulse() {
+  if (pulseTimer) clearInterval(pulseTimer);
+  pulseTimer = null;
+  closePulseSocket();
+  els.pulseNote.textContent = "paused while this tab is hidden";
+}
+
+startPulse();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") stopPulse();
+  else startPulse();
+});
 
 // --- whale leaderboard (real: /api/leaderboard re-fetches follower counts
 // from public.api.bsky.app on every load) ------------------------------------
@@ -551,7 +616,7 @@ els.ascendBtn.addEventListener("click", async () => {
 
     setStatus(`ascended — you are grift rank #${data.entry.rank}. to the moon.`, "ok");
     loadBoard();
-    pollPulse();
+    loadCount();
     lastAscendRank = data.entry.rank;
   } catch (e) {
     setStatus(e.message, "err");
@@ -611,6 +676,5 @@ els.shareBtn.addEventListener("click", () => {
 })();
 </script>
 
-  <script defer src="https://footfall.bisks.net/beacon.js" data-site="griftmax"></script>
 </body>
 </html>

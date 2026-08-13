@@ -1,16 +1,11 @@
-// thewall — client. An infinite pan/zoom corkboard backed by one Durable
-// Object per board id (see src/index.ts). This file owns: board-id routing,
-// the camera (pan/zoom), rendering cards + yarn from local state, drag /
-// connect-mode interactions, importing a skeet from the public AppView, and
-// a lightweight poll loop that keeps everyone looking at the same board a
-// "multiplayer, encouraged but not required" experience.
+// thewall — a static client. Board events live in localStorage and are replayed
+// in order, so every tab can deterministically reconstruct its local board.
 (function () {
   "use strict";
 
   var PUB = "https://public.api.bsky.app/xrpc";
   var WORLD_OFFSET = 20000; // #yarn's local origin sits at world (-20000,-20000)
   var MIN_ZOOM = 0.25, MAX_ZOOM = 3;
-  var POLL_MS = 3000;
 
   // ---- board id / routing ---------------------------------------------
   function boardIdFromPath() {
@@ -28,13 +23,13 @@
     BOARD_ID = randomBoardId();
     history.replaceState(null, "", "/b/" + BOARD_ID);
   }
-  var API = "/api/board/" + BOARD_ID;
+  var STORAGE_KEY = "thewall:events:" + BOARD_ID;
 
   function shareUrl() {
     return "https://thewall.bisks.net/b/" + BOARD_ID;
   }
 
-  // ---- tiny deterministic hash (mirrors src/index.ts's hash()) --------
+  // ---- tiny deterministic hash -----------------------------------------
   function hashStr(s) {
     var h = 1779033703 ^ s.length;
     for (var i = 0; i < s.length; i++) {
@@ -44,56 +39,13 @@
     return (h ^ (h >>> 16)) >>> 0;
   }
 
-  // ---- API client --------------------------------------------------------
-  function apiGet() {
-    return fetch(API).then(function (r) { return r.json(); });
-  }
-  function apiAddCard(payload) {
-    return fetch(API + "/cards", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    }).then(function (r) {
-      return r.json().then(function (data) {
-        if (!r.ok) throw new Error(data.error || "could not pin that");
-        return data;
-      });
-    });
-  }
-  function apiUpdateCard(id, payload) {
-    return fetch(API + "/cards/" + encodeURIComponent(id), {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(function () {});
-  }
-  function apiRemoveCard(id) {
-    return fetch(API + "/cards/" + encodeURIComponent(id), { method: "DELETE" }).catch(function () {});
-  }
-  function apiAddEdge(a, b) {
-    return fetch(API + "/edges", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ a: a, b: b }),
-    }).catch(function () {});
-  }
-  function apiRemoveEdge(a, b) {
-    return fetch(API + "/edges", {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ a: a, b: b }),
-    }).catch(function () {});
-  }
-
-  // ---- skeet import: parse a post link/uri, resolve + fetch via the
-  // public, unauthenticated AppView (no login needed — same pattern as
-  // sites/commonplace, sites/quotebucket) ---------------------------------
+  // ---- skeet import: resolve and fetch through the public AppView ---------
   function parsePostRef(raw) {
     raw = String(raw || "").trim();
     var m = /^at:\/\/(did:[^/]+)\/app\.bsky\.feed\.post\/([a-zA-Z0-9._~-]+)/.exec(raw);
-    if (m) return { did: m[1], rkey: m[2] };
+    if (m) return { did: m[1], rkey: m[2], sourceUrl: raw };
     m = /bsky\.app\/profile\/([^/]+)\/post\/([a-zA-Z0-9._~-]+)/.exec(raw);
-    if (m) return { handleOrDid: decodeURIComponent(m[1]), rkey: m[2] };
+    if (m) return { handleOrDid: decodeURIComponent(m[1]), rkey: m[2], sourceUrl: raw };
     return null;
   }
 
@@ -104,17 +56,11 @@
     });
   }
 
-  function fetchSkeet(ref) {
-    var didP;
-    if (ref.did) {
-      didP = Promise.resolve(ref.did);
-    } else if (/^did:/.test(ref.handleOrDid)) {
-      didP = Promise.resolve(ref.handleOrDid);
-    } else {
-      didP = jget(PUB + "/com.atproto.identity.resolveHandle?handle=" + encodeURIComponent(ref.handleOrDid))
-        .then(function (d) { return d.did; })
-        .catch(function () { throw new Error("couldn't resolve that handle"); });
-    }
+  function importSkeet(ref) {
+    var didP = ref.did
+      ? Promise.resolve(ref.did)
+      : jget(PUB + "/com.atproto.identity.resolveHandle?handle=" + encodeURIComponent(ref.handleOrDid))
+        .then(function (d) { return d.did; });
     return didP.then(function (did) {
       var uri = "at://" + did + "/app.bsky.feed.post/" + ref.rkey;
       var url = new URL(PUB + "/app.bsky.feed.getPosts");
@@ -124,6 +70,7 @@
         if (!post) throw new Error("post not found — deleted, or the account is private?");
         return {
           uri: post.uri,
+          sourceUrl: ref.sourceUrl,
           text: (post.record && post.record.text) || "",
           authorHandle: post.author.handle,
           authorDisplayName: post.author.displayName || post.author.handle,
@@ -136,10 +83,66 @@
 
   // ---- state ---------------------------------------------------------
   var state = { cards: new Map(), edges: new Set(), version: -1, full: false };
+  var events = [];
   var camera = { x: 0, y: 0, zoom: 1 };
   var draggingId = null;
   var connecting = false;
   var pickedForEdge = null;
+
+  var CARD_COLORS_LOCAL = ["#f2e8c9", "#f6f0df", "#ecd9a6", "#f3d9de", "#d7e6ee", "#e6ecd2"];
+  var PIN_COLORS_LOCAL = ["#d1263b", "#2560c4", "#e0a622", "#2a9d4f", "#7c3aed"];
+
+  function readEvents() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      events = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(events)) events = [];
+    } catch (e) { events = []; }
+  }
+  function writeEvent(type, payload) {
+    events.push({ type: type, payload: payload });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); }
+    catch (e) { events.pop(); throw new Error("this board could not be saved in local storage"); }
+    reconstruct();
+  }
+  function reconstruct() {
+    state.cards = new Map();
+    state.edges = new Set();
+    events.forEach(function (event) {
+      var p = event.payload;
+      if (event.type === "add_card") state.cards.set(p.id, Object.assign({}, p));
+      if (event.type === "update_card" && state.cards.has(p.id)) Object.assign(state.cards.get(p.id), p.changes);
+      if (event.type === "remove_card") {
+        state.cards.delete(p.id);
+        state.edges.forEach(function (key) { if (key.split("|").indexOf(p.id) !== -1) state.edges.delete(key); });
+      }
+      if (event.type === "edge") {
+        if (state.cards.has(p.a) && state.cards.has(p.b)) {
+          var key = p.a < p.b ? p.a + "|" + p.b : p.b + "|" + p.a;
+          if (p.add) state.edges.add(key); else state.edges.delete(key);
+        }
+      }
+    });
+    state.version = events.length;
+    state.full = state.cards.size >= 150;
+  }
+  function newCard(payload) {
+    var id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).slice(0, 8);
+    var h = hashStr(id);
+    var card = Object.assign({ id: id, rot: (h % 1700) / 100 - 8.5,
+      color: CARD_COLORS_LOCAL[h % CARD_COLORS_LOCAL.length],
+      pinColor: PIN_COLORS_LOCAL[Math.floor(h / CARD_COLORS_LOCAL.length) % PIN_COLORS_LOCAL.length],
+      addedAt: Date.now() }, payload);
+    if (card.kind === "note") card.text = String(card.text || "").slice(0, 220).trim();
+    if (!card.text) throw new Error("empty note");
+    writeEvent("add_card", card);
+    return { card: card, version: state.version };
+  }
+  function localAddCard(payload) { return Promise.resolve(newCard(payload)); }
+  function localUpdateCard(id, changes) { writeEvent("update_card", { id: id, changes: changes }); }
+  function localRemoveCard(id) { writeEvent("remove_card", { id: id }); }
+  function localAddEdge(a, b) { writeEvent("edge", { a: a, b: b, add: true }); }
+  function localRemoveEdge(a, b) { writeEvent("edge", { a: a, b: b, add: false }); }
 
   // ---- elements --------------------------------------------------------
   var els = {
@@ -390,7 +393,7 @@
 
       var link = document.createElement("a");
       link.className = "skeet-link";
-      link.href = "https://bsky.app/profile/" + (card.authorHandle || "") + "/post/" + String(card.uri).split("/").pop();
+       link.href = card.sourceUrl || ("https://bsky.app/profile/" + (card.authorHandle || "") + "/post/" + String(card.uri).split("/").pop());
       link.target = "_blank";
       link.rel = "noopener";
       link.textContent = "view on bluesky →";
@@ -442,7 +445,7 @@
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
       draggingId = null;
-      apiUpdateCard(card.id, { x: card.x, y: card.y });
+      localUpdateCard(card.id, { x: card.x, y: card.y });
     }
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
@@ -475,7 +478,7 @@
     var existed = state.edges.has(key);
     if (existed) state.edges.delete(key); else state.edges.add(key);
     renderAll();
-    if (existed) apiRemoveEdge(a, b); else apiAddEdge(a, b);
+    if (existed) localRemoveEdge(a, b); else localAddEdge(a, b);
   }
 
   function removeCardLocal(id) {
@@ -486,7 +489,7 @@
     });
     if (pickedForEdge === id) pickedForEdge = null;
     renderAll();
-    apiRemoveCard(id);
+    localRemoveCard(id);
   }
 
   function renderAll() {
@@ -550,7 +553,7 @@
     if (!text || state.full) return;
     els.noteBtn.disabled = true;
     var pos = jitteredCenter();
-    apiAddCard({ kind: "note", text: text, x: pos.x, y: pos.y })
+    localAddCard({ kind: "note", text: text, x: pos.x, y: pos.y })
       .then(function (res) {
         state.cards.set(res.card.id, res.card);
         state.version = res.version;
@@ -576,17 +579,17 @@
       return;
     }
     els.skeetBtn.disabled = true;
-    setSkeetHint("fetching…", false);
-    fetchSkeet(ref)
+     setSkeetHint("pinning locally…", false);
+    importSkeet(ref)
       .then(function (meta) {
         var pos = jitteredCenter();
-        return apiAddCard(Object.assign({ kind: "skeet", x: pos.x, y: pos.y }, meta));
+        return localAddCard(Object.assign({ kind: "skeet", x: pos.x, y: pos.y }, meta));
       })
       .then(function (res) {
         state.cards.set(res.card.id, res.card);
         state.version = res.version;
         els.skeetUrl.value = "";
-        setSkeetHint("works with any public post — paste the link from the share menu.", false);
+         setSkeetHint("saved locally — the post came from the public AppView.", false);
         renderAll();
       })
       .catch(function (e) { setSkeetHint(e.message || "could not load that post", true); })
@@ -599,31 +602,18 @@
     setTimeout(function () { els.status.textContent = ""; els.status.className = "msg"; }, 3000);
   }
 
-  // ---- server sync ---------------------------------------------------
-  function applyServerSnapshot(data) {
-    state.cards = new Map(data.cards.map(function (c) { return [c.id, c]; }));
-    state.edges = new Set(data.edges.map(function (e) { return e[0] < e[1] ? e[0] + "|" + e[1] : e[1] + "|" + e[0]; }));
-    state.full = !!data.full;
-    state.version = data.version;
-  }
-
   function loadBoard() {
-    return apiGet().then(function (data) {
-      applyServerSnapshot(data);
-      fitBoard();
-      renderAll();
-    });
+    readEvents();
+    reconstruct();
+    fitBoard();
+    renderAll();
   }
-
-  function pollBoard() {
-    if (draggingId) return;
-    apiGet().then(function (data) {
-      if (data.version === state.version) return;
-      applyServerSnapshot(data);
-      renderAll();
-    }).catch(function () {});
-  }
-  setInterval(pollBoard, POLL_MS);
+  window.addEventListener("storage", function (ev) {
+    if (ev.key !== STORAGE_KEY || draggingId) return;
+    readEvents();
+    reconstruct();
+    renderAll();
+  });
 
   // ---- share ---------------------------------------------------------
   function buildShareText() {

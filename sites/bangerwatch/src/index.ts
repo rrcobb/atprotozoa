@@ -31,6 +31,7 @@ interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put(entries: Record<string, unknown>): Promise<void>;
   setAlarm(time: number | Date): Promise<void>;
+  deleteAlarm(): Promise<void>;
 }
 interface DurableObjectState {
   storage: DurableObjectStorage;
@@ -80,6 +81,7 @@ const JETSTREAM_URL =
 const APPVIEW = "https://public.api.bsky.app/xrpc";
 
 const ALARM_MS = 20 * 1000; // heartbeat / reconnect cadence
+const DEMAND_LEASE_MS = 30 * 1000; // stop background work after the last visible poll
 const BANGER_LIKES = 10; // the line — at this count a post stops climbing and starts celebrating
 const MUTUALS_MAX_PAGES = 15; // caps follows/followers fetches at ~1500 each — plenty for a personal account
 const MUTUALS_REFRESH_MS = 6 * 60 * 60 * 1000; // recompute the mutuals list every 6h so it doesn't go stale
@@ -160,6 +162,7 @@ export class MutualTracker {
 
   private ws: any = null;
   private reconnectDelay = 1000;
+  private lastDemandAt = 0;
 
   constructor(state: DurableObjectState) {
     this.state = state;
@@ -201,8 +204,25 @@ export class MutualTracker {
       this.lastTick = lastTick ?? 0;
       this.preloaded = preloaded ?? false;
     });
-    this.connectSocket().catch(() => {});
-    this.state.storage.setAlarm(Date.now() + ALARM_MS).catch(() => {});
+  }
+
+  private hasDemand(): boolean {
+    return Date.now() - this.lastDemandAt < DEMAND_LEASE_MS;
+  }
+
+  private closeSocket(): void {
+    const ws = this.ws;
+    this.ws = null;
+    try {
+      ws?.close();
+    } catch {
+      // already closed
+    }
+  }
+
+  private async armAlarm(delay = ALARM_MS): Promise<void> {
+    const deadline = this.lastDemandAt + DEMAND_LEASE_MS;
+    await this.state.storage.setAlarm(Math.min(Date.now() + delay, deadline));
   }
 
   private async persist(): Promise<void> {
@@ -226,6 +246,7 @@ export class MutualTracker {
   // header (the documented Cloudflare pattern), not `new WebSocket(url)`.
   // Same recipe as sites/ratioed.
   private async connectSocket(): Promise<void> {
+    if (!this.hasDemand() || this.mutualsStatus !== "ready" || this.mutuals.size === 0) return;
     try {
       const resp: any = await fetch(JETSTREAM_URL, { headers: { Upgrade: "websocket" } });
       const ws = resp.webSocket;
@@ -258,9 +279,11 @@ export class MutualTracker {
   }
 
   private scheduleReconnect(): void {
+    if (!this.hasDemand()) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
     setTimeout(() => {
+      if (!this.hasDemand()) return;
       this.connectSocket().catch(() => {});
     }, delay);
   }
@@ -485,7 +508,11 @@ export class MutualTracker {
   // ---- alarm: the tracker's heartbeat -------------------------------------
   async alarm(): Promise<void> {
     await this.ready;
-    if (!this.wsOpen()) this.connectSocket().catch(() => {});
+    if (!this.hasDemand()) {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+      return;
+    }
     const now = Date.now();
 
     if (this.targetHandleInput) {
@@ -499,6 +526,10 @@ export class MutualTracker {
           this.preloaded = true;
         }
       }
+    }
+
+    if (this.mutualsStatus === "ready" && this.mutuals.size > 0 && !this.wsOpen()) {
+      this.connectSocket().catch(() => {});
     }
 
     if (this.climbing.length) {
@@ -527,23 +558,35 @@ export class MutualTracker {
 
     this.lastTick = now;
     await this.persist();
-    await this.state.storage.setAlarm(now + ALARM_MS);
+    if (this.hasDemand()) {
+      await this.armAlarm();
+    } else {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+    }
   }
 
   // ---- http ---------------------------------------------------------------
   async fetch(request: Request): Promise<Response> {
     await this.ready;
-    if (!this.wsOpen()) this.connectSocket().catch(() => {});
 
     const url = new URL(request.url);
     if (url.pathname !== "/api/state") return json({ error: "not found" }, 404);
+
+    this.lastDemandAt = Date.now();
 
     const handleParam = (url.searchParams.get("handle") || "").trim();
     if (!this.targetHandleInput && handleParam) {
       this.targetHandleInput = handleParam;
       this.mutualsStatus = "pending";
       await this.persist();
-      await this.state.storage.setAlarm(Date.now() + 200); // kick off the mutuals fetch almost immediately
+      await this.armAlarm(200); // kick off the mutuals fetch almost immediately
+    } else {
+      await this.armAlarm();
+    }
+
+    if (this.mutualsStatus === "ready" && this.mutuals.size > 0 && !this.wsOpen()) {
+      this.connectSocket().catch(() => {});
     }
 
     const climbing = this.climbing

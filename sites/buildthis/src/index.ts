@@ -175,42 +175,29 @@ export default {
       return handleMobiusPage(env);
     }
 
-    // Theme box: GET renders the page (open form, or closed status + countdown);
-    // POST sets today's theme. See the "Theme box" section for the cron half.
+    // Autonomous generation is intentionally disabled. Keep the old paths
+    // unavailable rather than accepting a theme that will never be processed.
     if (url.pathname === "/theme") {
-      if (request.method === "POST") return handleThemeSubmit(request, env);
-      return handleThemePage(env);
+      return new Response("theme box is paused", { status: 410 });
     }
     if (url.pathname === "/theme.json") {
-      return handleThemeState(env);
+      return new Response("theme box is paused", { status: 410 });
     }
 
-    // The prank PLAN log (see the "Prank tick" section for the cron half that
-    // writes to it). Every 12 hours the bot invents one escalating, never-
-    // executed prank idea and appends it here instead of actually building it.
     if (url.pathname === "/pranklog") {
-      return handlePrankLogPage(env);
+      return new Response("prank log is paused", { status: 410 });
     }
     if (url.pathname === "/pranklog.json") {
-      return handlePrankLogJson(env);
+      return new Response("prank log is paused", { status: 410 });
     }
 
     return env.ASSETS.fetch(request);
   },
 
-  // Cron entrypoint. Two distinct triggers land here (see wrangler.toml
-  // [triggers]): the 2-min mention watcher and the 3-hour theme-box tick.
+  // Cron entrypoint. The only active trigger is the mention watcher.
   // Wrapped so a thrown error is logged, not swallowed — a failed tick should
   // be visible in `wrangler tail`, and the next tick retries.
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (event.cron === THEME_TICK_CRON) {
-      ctx.waitUntil(runThemeTick(env));
-      return;
-    }
-    if (event.cron === PRANK_TICK_CRON) {
-      ctx.waitUntil(runPrankTick(env));
-      return;
-    }
     ctx.waitUntil(runWatcher(env));
     // Piggybacks on the same 2-min cron rather than adding a second trigger;
     // maybeRefreshDirectory no-ops unless the cached snapshot is >24h old.

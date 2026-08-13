@@ -54,6 +54,7 @@ interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put(entries: Record<string, unknown>): Promise<void>;
   setAlarm(time: number | Date): Promise<void>;
+  deleteAlarm(): Promise<void>;
 }
 interface DurableObjectState {
   storage: DurableObjectStorage;
@@ -224,6 +225,7 @@ async function readLeaderboard(env: Env): Promise<any> {
 
 const JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe";
 const ALARM_MS = 2000; // pulse tick
+const DEMAND_LEASE_MS = 30 * 1000; // stop the global pulse after the last visible poll
 const RATE_HISTORY = 30; // ~1 minute of 2s buckets, for a smoothed events/sec
 
 export class AscensionEngine {
@@ -238,6 +240,7 @@ export class AscensionEngine {
   private rateHistory: number[] = [];
   private totalEventsSeen = 0;
   private lastTick = 0;
+  private lastDemandAt = 0;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -250,8 +253,25 @@ export class AscensionEngine {
       this.count = count ?? 0;
       this.totalEventsSeen = totalEventsSeen ?? 0;
     });
-    this.connectSocket().catch(() => {});
-    this.state.storage.setAlarm(Date.now() + ALARM_MS).catch(() => {});
+  }
+
+  private hasDemand(): boolean {
+    return Date.now() - this.lastDemandAt < DEMAND_LEASE_MS;
+  }
+
+  private closeSocket(): void {
+    const ws = this.ws;
+    this.ws = null;
+    try {
+      ws?.close();
+    } catch {
+      // already closed
+    }
+  }
+
+  private async armAlarm(delay = ALARM_MS): Promise<void> {
+    const deadline = this.lastDemandAt + DEMAND_LEASE_MS;
+    await this.state.storage.setAlarm(Math.min(Date.now() + delay, deadline));
   }
 
   // Workers connect OUT via fetch() + an Upgrade header (the documented
@@ -260,6 +280,7 @@ export class AscensionEngine {
   // No wantedCollections filter: the whole unfiltered torrent is the point,
   // "$GRIFT price" is however fast the entire network is posting right now.
   private async connectSocket(): Promise<void> {
+    if (!this.hasDemand()) return;
     try {
       const resp: any = await fetch(JETSTREAM_URL.replace("wss://", "https://"), {
         headers: { Upgrade: "websocket" },
@@ -292,9 +313,11 @@ export class AscensionEngine {
   }
 
   private scheduleReconnect(): void {
+    if (!this.hasDemand()) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
     setTimeout(() => {
+      if (!this.hasDemand()) return;
       this.connectSocket().catch(() => {});
     }, delay);
   }
@@ -320,6 +343,11 @@ export class AscensionEngine {
 
   async alarm(): Promise<void> {
     await this.ready;
+    if (!this.hasDemand()) {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+      return;
+    }
     if (!this.wsOpen()) this.connectSocket().catch(() => {});
 
     const now = Date.now();
@@ -330,7 +358,12 @@ export class AscensionEngine {
     this.lastTick = now;
 
     await this.state.storage.put({ totalEventsSeen: this.totalEventsSeen });
-    await this.state.storage.setAlarm(Date.now() + ALARM_MS);
+    if (this.hasDemand()) {
+      await this.armAlarm();
+    } else {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+    }
   }
 
   private currentRate(): number {
@@ -340,15 +373,14 @@ export class AscensionEngine {
 
   async fetch(request: Request): Promise<Response> {
     await this.ready;
-    if (!this.wsOpen()) this.connectSocket().catch(() => {});
 
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/pulse" && request.method === "GET") {
+    if ((url.pathname === "/api/pulse" || url.pathname === "/api/count") && request.method === "GET") {
       return json({
         ascendedCount: this.count,
-        eventsPerSec: Math.round(this.currentRate() * 10) / 10,
-        totalEventsSeen: this.totalEventsSeen,
+        eventsPerSec: 0,
+        totalEventsSeen: 0,
       });
     }
 
@@ -409,7 +441,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/pulse" || url.pathname === "/api/ascend") {
+    if (url.pathname === "/api/pulse" || url.pathname === "/api/count" || url.pathname === "/api/ascend") {
       const id = env.ENGINE.idFromName("global");
       const stub = env.ENGINE.get(id);
       return stub.fetch(request);

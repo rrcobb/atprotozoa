@@ -5,7 +5,7 @@
 // semantically close cluster visibly together. They then asked buildthis for
 // "your own implementation" of the underlying idea, live: watch the open
 // firehose and surface whichever posts, right now, read as closest to their
-// own last 100 posts.
+// own last 50 posts.
 //
 // This Worker skips the PCA (that's for a 3D *picture*; we just want a
 // ranked list) but keeps the real ingredient — actual sentence embeddings
@@ -40,6 +40,7 @@ interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put(entries: Record<string, unknown>): Promise<void>;
   setAlarm(time: number | Date): Promise<void>;
+  deleteAlarm(): Promise<void>;
 }
 interface DurableObjectState {
   storage: DurableObjectStorage;
@@ -77,11 +78,12 @@ const TARGET_DID_FALLBACK = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
 const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
 const EMBED_BATCH_CHUNK = 20; // texts per Workers AI call when embedding the target's own posts
 
-const TARGET_REFRESH_MS = 20 * 60 * 1000; // re-embed the target's last 100 posts this often
-const ALARM_MS = 5 * 1000; // heartbeat: reconnect check + drain the candidate queue
-const CANDIDATE_BATCH = 12; // candidates embedded per alarm tick (one Workers AI call)
-const MAX_QUEUE = 80; // candidate backlog cap; oldest dropped past this so it stays "live"
-const AUTHOR_COOLDOWN_MS = 45 * 1000; // one candidate per author per cooldown window
+const TARGET_REFRESH_MS = 6 * 60 * 60 * 1000; // refresh the target centroid infrequently
+const ALARM_MS = 60 * 1000; // reconnect check + slow candidate draining
+const DEMAND_LEASE_MS = 2 * 60 * 1000; // stop the firehose and AI work when nobody is looking
+const CANDIDATE_BATCH = 6; // candidates embedded per alarm tick (one Workers AI call)
+const MAX_QUEUE = 20; // small backlog; drop old candidates rather than catch up
+const AUTHOR_COOLDOWN_MS = 5 * 60 * 1000; // one candidate per author per cooldown window
 const MATCH_WINDOW_MS = 6 * 60 * 60 * 1000; // matches older than this age out of the leaderboard
 const MATCH_FLOOR = 0.3; // cosine similarity below this isn't worth keeping at all
 const MAX_MATCHES = 40; // leaderboard size kept in storage / served to the client
@@ -174,16 +176,16 @@ async function resolveTargetDid(): Promise<string> {
   return TARGET_DID_FALLBACK;
 }
 
-// One page (limit=100) is "the last 100 posts" as asked; a couple of extra
+// One page (limit=50) is enough for the small centroid; a couple of extra
 // pages backfill when reposts/media-only posts eat into that count, capped
 // so a media-heavy stretch can't spiral into an unbounded fetch loop.
 async function fetchTargetPosts(did: string, handle: string): Promise<TargetPost[]> {
   const out: TargetPost[] = [];
   let cursor = "";
-  for (let page = 0; page < 4 && out.length < 100; page++) {
+  for (let page = 0; page < 3 && out.length < 50; page++) {
     const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
     u.searchParams.set("actor", did);
-    u.searchParams.set("limit", "100");
+    u.searchParams.set("limit", "50");
     if (cursor) u.searchParams.set("cursor", cursor);
     let d: any;
     try {
@@ -204,7 +206,7 @@ async function fetchTargetPosts(did: string, handle: string): Promise<TargetPost
         url: `https://bsky.app/profile/${handle}/post/${rkey}`,
         createdAt: rec.createdAt || it.post?.indexedAt || "",
       });
-      if (out.length >= 100) break;
+      if (out.length >= 50) break;
     }
     cursor = d.cursor;
     if (!cursor) break;
@@ -263,6 +265,7 @@ export class EchoTracker {
   private profileCache: Map<string, { handle: string; avatar: string }> = new Map();
   private tickCount = 0;
   private lastUpdated = 0;
+  private lastDemandAt = 0;
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -279,8 +282,25 @@ export class EchoTracker {
       this.stats = stats ?? { seen: 0, filtered: 0, embedded: 0 };
       this.lastUpdated = lastUpdated ?? 0;
     });
-    this.connectSocket().catch(() => {});
-    this.state.storage.setAlarm(Date.now() + ALARM_MS).catch(() => {});
+  }
+
+  private hasDemand(): boolean {
+    return Date.now() - this.lastDemandAt < DEMAND_LEASE_MS;
+  }
+
+  private closeSocket(): void {
+    const ws = this.ws;
+    this.ws = null;
+    try {
+      ws?.close();
+    } catch {
+      // already closed
+    }
+  }
+
+  private async armAlarm(delay = ALARM_MS): Promise<void> {
+    const deadline = this.lastDemandAt + DEMAND_LEASE_MS;
+    await this.state.storage.setAlarm(Math.min(Date.now() + delay, deadline));
   }
 
   // ---- target refresh ---------------------------------------------------------
@@ -317,6 +337,7 @@ export class EchoTracker {
   // Cloudflare pattern), not the browser `new WebSocket(url)` constructor —
   // same as sites/mootstream's ActivityTracker.
   private async connectSocket(): Promise<void> {
+    if (!this.hasDemand()) return;
     try {
       const resp: any = await fetch(JETSTREAM_URL, { headers: { Upgrade: "websocket" } });
       const ws = resp.webSocket;
@@ -349,9 +370,11 @@ export class EchoTracker {
   }
 
   private scheduleReconnect(): void {
+    if (!this.hasDemand()) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
     setTimeout(() => {
+      if (!this.hasDemand()) return;
       this.connectSocket().catch(() => {});
     }, delay);
   }
@@ -487,6 +510,11 @@ export class EchoTracker {
 
   async alarm(): Promise<void> {
     await this.ready;
+    if (!this.hasDemand()) {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+      return;
+    }
     if (!this.wsOpen()) this.connectSocket().catch(() => {});
     if (this.needsRefresh()) this.refreshTarget().catch(() => {});
 
@@ -501,32 +529,39 @@ export class EchoTracker {
         lastUpdated: this.lastUpdated,
       });
     }
-    await this.state.storage.setAlarm(Date.now() + ALARM_MS);
+    if (this.hasDemand()) {
+      await this.armAlarm();
+    } else {
+      this.closeSocket();
+      await this.state.storage.deleteAlarm();
+    }
   }
 
   // ---- http -------------------------------------------------------------------
 
   async fetch(request: Request): Promise<Response> {
     await this.ready;
+
+    const url = new URL(request.url);
+    if (url.pathname !== "/api/matches") return json({ error: "not found" }, 404);
+
+    this.lastDemandAt = Date.now();
+    await this.armAlarm();
     if (!this.wsOpen()) this.connectSocket().catch(() => {});
     if (this.needsRefresh()) this.refreshTarget().catch(() => {});
 
-    const url = new URL(request.url);
-    if (url.pathname === "/api/matches") {
-      return json({
-        updatedAt: this.lastUpdated || null,
-        target: this.target
-          ? {
-              handle: this.target.handle,
-              did: this.target.did,
-              postCount: this.target.posts.length,
-              refreshedAt: this.target.refreshedAt,
-            }
-          : null,
-        stats: { ...this.stats, queueLen: this.queue.length },
-        matches: this.matches,
-      });
-    }
-    return json({ error: "not found" }, 404);
+    return json({
+      updatedAt: this.lastUpdated || null,
+      target: this.target
+        ? {
+            handle: this.target.handle,
+            did: this.target.did,
+            postCount: this.target.posts.length,
+            refreshedAt: this.target.refreshedAt,
+          }
+        : null,
+      stats: { ...this.stats, queueLen: this.queue.length },
+      matches: this.matches,
+    });
   }
 }
