@@ -8,6 +8,7 @@
 //
 // Routes:
 //   /          -> the tags -> outcomes timeline (PRIMARY page)
+//   /milestones -> fiesta for every post-count milestone, past and future
 //   /stats     -> STUB: cross-microsite request/error stats (SECONDARY, separate)
 //   everything else -> static assets (public/), incl. a plain 404-ish index.
 
@@ -57,6 +58,13 @@ export default {
     const tagMatch = url.pathname.match(/^\/tag\/([a-z0-9]+)\/?$/i);
     if (tagMatch) {
       return renderTagPage(env, tagMatch[1]);
+    }
+
+    // @antiali.as's update to "celebrate being @'d 1001 times": pick a
+    // monotonic sequence and throw a fiesta for every milestone in it, in
+    // order, retroactively and going forward. See renderMilestones().
+    if (url.pathname === "/milestones") {
+      return renderMilestones(env);
     }
 
     // SECONDARY, deliberately separate from the tags timeline: a cross-microsite
@@ -249,12 +257,117 @@ function renderStats(): Response {
   return html(pageShell("stats — bisks.net", "stats", "cross-site request & error counts (stub)", body));
 }
 
+// Milestones — @antiali.as's follow-up to "celebrate being @'d 1001 times":
+// pick a monotonic integer sequence (any style) and throw a fiesta for each
+// milestone in order, retroactively as well as from now on.
+//
+// The sequence is powers of two. That's not arbitrary: the *reason* this
+// thread exists is that logs.bisks.net used to cap its own count at 1000
+// (KV's list() hands back one page at a time — see notes/ and this site's own
+// history), and 1024 is the binary number sitting right on top of that old
+// ceiling. So the fiesta sequence is the same shape as the bug that started
+// it: 1, 2, 4, 8, ... 1024, 2048, ...
+//
+// "Retroactively" means every power of two under the current total already
+// counts as celebrated — this page doesn't wait for a fresh crossing, it
+// shows the whole run of fiestas so far, most recent first, plus a live
+// countdown to the next one.
+function powersOfTwoUpTo(total: number): number[] {
+  const out: number[] = [];
+  for (let n = 1; n <= total; n *= 2) out.push(n);
+  return out;
+}
+
+async function renderMilestones(env: Env): Promise<Response> {
+  // Only the total is needed here, so ask for the smallest page.
+  const { total, error } = await loadEvents(env, { limit: 1 });
+  if (error !== null) {
+    return html(
+      pageShell("milestones — bisks.net", "milestones", "", `<p class="empty">${esc(error)}</p>`),
+      502,
+    );
+  }
+
+  const reached = powersOfTwoUpTo(total);
+  const latest = reached.length ? reached[reached.length - 1] : null;
+  const next = latest ? latest * 2 : 1;
+  const toGo = next - total;
+
+  const hero = latest
+    ? `<div class="fiesta-hero" id="fiesta-hero">
+        <div class="fiesta-emoji" aria-hidden="true">🎉🎊🎉</div>
+        <p class="fiesta-headline">fiesta #${reached.length} — tag ${latest} popped the confetti</p>
+        <p class="fiesta-sub">${total} tags so far · ${toGo} to go until the next fiesta at ${next}</p>
+      </div>`
+    : `<div class="fiesta-hero"><p class="fiesta-headline">no fiesta yet — tag <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> to start one.</p></div>`;
+
+  const shareLink = latest
+    ? `<p class="share"><a href="${shareIntentUrl(latest, reached.length, toGo, next)}">share this fiesta →</a></p>`
+    : "";
+
+  const upcoming = milestoneCard(next, total, false);
+  const cards = reached.slice().reverse().map((n) => milestoneCard(n, total, true)).join("\n");
+
+  const body = `${hero}
+  ${shareLink}
+  <h2 class="section">next up</h2>
+  <div class="fiesta-grid">${upcoming}</div>
+  <h2 class="section">every fiesta so far, most recent first</h2>
+  <div class="fiesta-grid">${cards || `<p class="empty">none yet.</p>`}</div>
+  <p class="note">the sequence is powers of two — every one under the current tag count already counts as thrown, retroactively; new ones fire as the count climbs. <a href="/">back to the timeline</a>.</p>
+  ${latest ? confettiScript() : ""}`;
+
+  return html(
+    pageShell(
+      "milestones — bisks.net",
+      "milestones",
+      "a fiesta for every power-of-two tag count, past and future",
+      body,
+    ),
+  );
+}
+
+function milestoneCard(n: number, total: number, reached: boolean): string {
+  const label = reached ? "🎉 reached" : `⏳ ${n - total} to go`;
+  return `<div class="milestone ${reached ? "hit" : "next"}">
+    <span class="milestone-num">${n}</span>
+    <span class="milestone-label">${label}</span>
+  </div>`;
+}
+
+function shareIntentUrl(latest: number, count: number, toGo: number, next: number): string {
+  const text = `buildthis just threw fiesta #${count} — tag ${latest} (powers of two, obviously). ${toGo} tags to go until ${next}. logs.bisks.net/milestones`;
+  return `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+}
+
+// A small confetti burst for the hero card, in the same self-contained-inline
+// style as the chicken-mode script already living in public/index.html — no
+// canvas, just a handful of absolutely-positioned spans with a CSS fall.
+function confettiScript(): string {
+  return `<script>
+  (function () {
+    var hero = document.getElementById("fiesta-hero");
+    if (!hero) return;
+    var colors = ["#1a5fd0", "#0a7d33", "#c02626", "#c8922e", "#8a3fc0"];
+    for (var i = 0; i < 24; i++) {
+      var p = document.createElement("span");
+      p.className = "confetti-piece";
+      p.style.left = (Math.random() * 100) + "%";
+      p.style.background = colors[i % colors.length];
+      p.style.animationDelay = (Math.random() * 0.6) + "s";
+      p.style.animationDuration = (1.6 + Math.random() * 1.2) + "s";
+      hero.appendChild(p);
+    }
+  })();
+  </script>`;
+}
+
 // --- rendering helpers -----------------------------------------------------
 
 function page(body: string, count: number): string {
   const sub =
     count > 0
-      ? `${count} tag${count === 1 ? "" : "s"} · newest first · every tag gets its own page`
+      ? `${count} tag${count === 1 ? "" : "s"} · newest first · every tag gets its own page · <a href="/milestones">milestones 🎉</a>`
       : "the build bot's tags and what became of them";
   return pageShell("logs — bisks.net", "logs", sub, body);
 }
@@ -308,6 +421,33 @@ function pageShell(title: string, h1: string, sub: string, body: string): string
 
   footer { margin-top:3rem; padding-top:.75rem; border-top:1px solid var(--faint);
     color:var(--muted); font-size:.78rem; }
+
+  /* --- milestones / fiesta ------------------------------------------------ */
+  .fiesta-hero { position:relative; overflow:hidden; text-align:center;
+    padding:2rem 1rem; border:1px solid var(--faint); border-radius:8px;
+    background:linear-gradient(180deg, rgba(26,95,208,.05), transparent); }
+  .fiesta-emoji { font-size:1.8rem; }
+  .fiesta-headline { font-size:1.15rem; font-weight:600; margin:.5rem 0 .25rem; }
+  .fiesta-sub { color:var(--muted); font-size:.85rem; margin:0; }
+  .share { text-align:center; margin:.9rem 0 0; font-size:.85rem; }
+  .section { font-size:.95rem; font-weight:600; margin:2rem 0 .75rem; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.04em; }
+  .fiesta-grid { display:flex; flex-wrap:wrap; gap:.6rem; }
+  .milestone { border:1px solid var(--faint); border-radius:6px; padding:.6rem .9rem;
+    min-width:6rem; text-align:center; }
+  .milestone.hit { border-color:var(--ok); }
+  .milestone.next { border-style:dashed; }
+  .milestone-num { display:block; font-size:1.1rem; font-weight:700; }
+  .milestone-label { display:block; font-size:.68rem; color:var(--muted); margin-top:.2rem; }
+  .milestone.hit .milestone-label { color:var(--ok); }
+
+  .confetti-piece { position:absolute; top:-1.2rem; width:.5rem; height:.9rem;
+    opacity:.9; border-radius:1px; animation-name:confetti-fall; animation-timing-function:ease-in;
+    animation-iteration-count:1; animation-fill-mode:forwards; pointer-events:none; }
+  @keyframes confetti-fall {
+    0% { transform:translateY(0) rotate(0deg); opacity:1; }
+    100% { transform:translateY(9rem) rotate(360deg); opacity:0; }
+  }
 </style>
 </head>
 <body>
@@ -322,6 +462,7 @@ ${body}
     <footer>
       part of <a href="https://bisks.net">bisks.net</a> ·
       the bot: <a href="https://buildthis.bisks.net">buildthis</a> ·
+      <a href="/milestones">milestones 🎉</a> ·
       <a href="/stats">site stats</a> (stub)
     </footer>
   </div>
