@@ -109,6 +109,24 @@
       .checkresult .hit { color:var(--bad); }
       .checkresult .clear { color:var(--ok); }
       .checkresult a { color:var(--accent); }
+      .checkresult .hitline { display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem; }
+
+      .drilldown { font:inherit; font-family:var(--mono); font-size:0.68rem; font-weight:700;
+        padding:0.22rem 0.5rem; border-radius:6px; border:1px solid var(--faint);
+        background:var(--panel); color:var(--muted); cursor:pointer; }
+      .drilldown:hover:not(:disabled) { color:var(--ink); border-color:var(--accent); }
+      .drilldown:disabled { opacity:0.6; cursor:default; }
+      .drillWrap { display:none; margin-top:0.55rem; padding-top:0.55rem; border-top:1px dashed var(--faint); }
+      .drillWrap.show { display:block; }
+      .drillcap { color:var(--muted); font-size:0.72rem; margin-bottom:0.4rem; }
+      .drillList { display:flex; flex-direction:column; gap:0.3rem; max-height:280px; overflow-y:auto; }
+      .drillrow { display:flex; align-items:center; gap:0.5rem; }
+      .drillrow img { width:22px; height:22px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .drillrow .dname { font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis;
+        white-space:nowrap; }
+      .drillrow .dhandle { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .drillrow a { flex:none; margin-left:auto; }
 
       .note { margin-top:2.2rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
       .note b { color:var(--ink); }
@@ -203,7 +221,12 @@
         computed in bulk) was built and then retired by its own requester as
         more useful for harassment than curiosity; this is the narrower shape
         that's left. Capped at 500 followers/following (5 pages) so a huge
-        account doesn't turn one browse into thousands of requests.
+        account doesn't turn one browse into thousands of requests. A check
+        is a <b>reachability</b> lookup, not a membership dump — it pages a
+        blocklist only until the one person you clicked turns up (or the
+        list runs out), so a hit against a 2,000-member list can cost one
+        page instead of twenty. If a check finds a hit, "browse this list"
+        lets you page the rest of that one list in on purpose, in-app.
       </p>
       <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/segyges.bsky.social">@segyges.bsky.social</a></p>
     </div>
@@ -238,7 +261,7 @@
     <script type="module">
       import { resolveDid, getProfile } from "./lib/identity.js";
       import { fetchConnections } from "./lib/graph.js";
-      import { checkBlockPair, listWebUrl } from "./lib/blocklists.js";
+      import { checkBlockPair, listWebUrl, getFullListMembers } from "./lib/blocklists.js";
 
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
 
@@ -353,21 +376,64 @@
         try {
           const { aBlocksB, bBlocksA } = await checkBlockPair(subject.did, personDid);
           const lines = [];
-          if (aBlocksB) {
-            const url = listWebUrl(aBlocksB.listUri);
-            lines.push(`<span class="hit">🚫 @${esc(subject.prof.handle)} blocks ${esc(rhandle)} via the list "${esc(aBlocksB.listName)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>`);
+          function hitLine(uri, name, text) {
+            const url = listWebUrl(uri);
+            lines.push(`
+              <div class="hitline">
+                <span class="hit">🚫 ${text} via the list "${esc(name)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>
+                <button class="drilldown" type="button" data-list="${esc(uri)}">browse this list ↓</button>
+              </div>
+              <div class="drillWrap" data-list="${esc(uri)}"></div>`);
           }
-          if (bBlocksA) {
-            const url = listWebUrl(bBlocksA.listUri);
-            lines.push(`<span class="hit">🚫 ${esc(rhandle)} blocks @${esc(subject.prof.handle)} via the list "${esc(bBlocksA.listName)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>`);
-          }
+          if (aBlocksB) hitLine(aBlocksB.listUri, aBlocksB.listName, `@${esc(subject.prof.handle)} blocks ${esc(rhandle)}`);
+          if (bBlocksA) hitLine(bBlocksA.listUri, bBlocksA.listName, `${esc(rhandle)} blocks @${esc(subject.prof.handle)}`);
           if (!lines.length) lines.push(`<span class="clear">no blocklist relationship found either direction.</span>`);
-          resultEl.innerHTML = lines.join("<br>");
+          resultEl.innerHTML = lines.join("");
         } catch (e) {
           resultEl.textContent = "couldn't check that: " + e.message;
         } finally {
           btn.disabled = false;
           btn.textContent = "check again";
+        }
+      });
+
+      // Drill-down: a check only ever confirms reachability (does the list
+      // contain this one DID?), so browsing the rest of a list a hit turned
+      // up is a separate, explicit step — never fetched unless asked for.
+      function drillRowHTML(p) {
+        return `
+          <div class="drillrow">
+            <img src="${esc(p.avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy" />
+            <div class="dname">${esc(p.displayName)}</div>
+            <div class="dhandle">@${esc(p.handle)}</div>
+            <a href="https://bsky.app/profile/${esc(p.handle)}" target="_blank" rel="noopener">↗</a>
+          </div>`;
+      }
+
+      wall.addEventListener("click", async (e) => {
+        const dbtn = e.target.closest(".drilldown");
+        if (!dbtn) return;
+        const listUri = dbtn.dataset.list;
+        const wrap = dbtn.closest(".checkresult").querySelector(`.drillWrap[data-list="${CSS.escape(listUri)}"]`);
+        if (wrap.classList.contains("show")) {
+          wrap.classList.remove("show");
+          dbtn.textContent = "browse this list ↓";
+          return;
+        }
+        dbtn.disabled = true;
+        dbtn.textContent = "loading…";
+        wrap.classList.add("show");
+        wrap.innerHTML = `<div class="drillcap">paging in the rest of this list…</div>`;
+        try {
+          const { name, members } = await getFullListMembers(listUri);
+          wrap.innerHTML =
+            `<div class="drillcap">"${esc(name)}" — ${members.length.toLocaleString()} member${members.length === 1 ? "" : "s"}</div>` +
+            `<div class="drillList">${members.map(drillRowHTML).join("")}</div>`;
+        } catch (err) {
+          wrap.innerHTML = `<div class="drillcap">couldn't load the rest of this list: ${esc(err.message)}</div>`;
+        } finally {
+          dbtn.disabled = false;
+          dbtn.textContent = "hide list";
         }
       });
 
