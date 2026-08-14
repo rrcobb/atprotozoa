@@ -5,7 +5,7 @@
 // own real lat/lng, not silently dropped or collapsed to a single point.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PLACES, placeById, searchPlaces, discoveredPlaces, project } from "../public/lib/places.js";
+import { PLACES, placeById, searchPlaces, discoveredPlaces, project, unproject } from "../public/lib/places.js";
 
 test("discoveredPlaces returns activity places absent from the curated list", () => {
   const curated = PLACES[0];
@@ -68,4 +68,18 @@ test("project keeps mapping every valid lat/lng — including a discovered place
 
 test("project accepts string lat/lng — the actual shape of an ingested record's place", () => {
   assert.deepEqual(project("12.3", "45.6"), project(12.3, 45.6));
+});
+
+test("unproject inverts project for every curated Place — a map tap on a pin recovers its real coordinates", () => {
+  for (const p of PLACES) {
+    const { xPct, yPct } = project(p.lat, p.lng);
+    const { lat, lng } = unproject(xPct, yPct);
+    assert.ok(Math.abs(lat - p.lat) < 1e-6, `${p.id} lat round-trip`);
+    assert.ok(Math.abs(lng - p.lng) < 1e-6, `${p.id} lng round-trip`);
+  }
+});
+
+test("unproject clamps a click on the map's exact edge to a valid coordinate", () => {
+  assert.deepEqual(unproject(0, 0), { lat: 90, lng: -180 });
+  assert.deepEqual(unproject(100, 100), { lat: -90, lng: 180 });
 });

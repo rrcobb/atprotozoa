@@ -47,6 +47,25 @@ to run a codegen step against. It's imported directly by both the browser
 pages and `tests/logic.test.mjs`, so the tests exercise the exact same code
 the app runs, not a mock of it.
 
+## Choosing a Place
+
+Every Place picker (compose's "from Place", onboarding/settings' default
+Place, and `/shout/`'s carry-to-a-new-Place destination) offers the curated
+`PLACES` grid plus a "📍 map" button (`public/lib/mappicker.js`) that opens
+the same coastline/graticule `/map/` draws and lets a member tap any real
+point on it — still no `navigator.geolocation` call anywhere, this is a tap
+on a static map image, not a location request. The tap's pixel position is
+run through `unproject()` (the exact inverse of the equirectangular
+`project()` every pin and route already uses), turned into a stable Place
+`id` with a 6-character geohash (`public/lib/geohash.js`, prefixed `geo:` so
+it can never collide with a curated id), and named via a live reverse-geocode
+call to a free, keyless, client-CORS-open public API
+(`public/lib/geocode.js`) — degrading to a plain coordinate string and a 📍
+if that lookup fails or times out, rather than blocking Place selection on a
+third party being up. The result is a real Place object — same shape as any
+`PLACES` entry — validated by the same `isValidPlace()` every other Place
+already goes through.
+
 ## Pages (`public/`)
 
 | path | what it does |
@@ -109,6 +128,16 @@ repo root) and the CI workflow redeploys it.
 ## What's still a stub
 
 Nothing currently — the last known gap is fixed, see below.
+
+Previously listed here: every Place picker (compose, onboarding, settings,
+and `/shout/`'s carry destination) only offered the curated `PLACES` list —
+a real Place a member wanted to shout from or carry to had to already be in
+that hardcoded list, or already have real activity from someone else's
+record (see the "found in the wild" fix below). Fixed — see "Choosing a
+Place" above: every picker now has a "📍 map" button that lets a member tap
+any real point on the world map, computes a stable geohash id and a real
+location name for it, and treats the result as a full Place, same as any
+curated one.
 
 Previously listed here: `/map/` plotted Places on a bare graticule with no
 coastline, because a hand-traced coastline asset risked being quietly wrong.

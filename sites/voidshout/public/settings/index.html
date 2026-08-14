@@ -25,7 +25,10 @@
   <div class="card" id="placeCard">
     <h2 style="margin-top:0">default Place</h2>
     <p class="muted" style="font-size:0.85rem">Where your Shouts start unless you pick somewhere else per-post.</p>
-    <input id="placeSearch" placeholder="search Places…" autocomplete="off" />
+    <div style="display:flex; gap:0.4rem; align-items:center">
+      <input id="placeSearch" placeholder="search Places…" autocomplete="off" style="flex:1" />
+      <button type="button" class="btn" id="mapPickBtn" title="pick any location on the map">📍 map</button>
+    </div>
     <div class="place-grid" id="placeGrid"></div>
     <button class="btn primary" id="saveBtn" disabled>save default Place</button>
     <p class="muted" id="saveStatus" style="font-size:0.8rem"></p>
@@ -56,6 +59,7 @@ import { mountChrome, requireSession } from "/lib/chrome.js";
 import { dpopFetch, clearSession } from "/lib/oauth.js";
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { OWNED_CONTENT_COLLECTIONS, placeForRecord } from "/lib/voidlogic.mjs";
+import { pickPlaceOnMap } from "/lib/mappicker.js";
 import * as store from "/lib/store.js";
 
 await mountChrome({ active: "/settings/" });
@@ -72,11 +76,16 @@ const saveBtn = document.getElementById("saveBtn");
 const saveStatus = document.getElementById("saveStatus");
 let selected = null;
 
+const customPlaces = [];
 try {
   const u = `${pds}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=net.bisks.void.participation&rkey=self`;
   const r = await fetch(u);
   if (r.ok) selected = (await r.json())?.value?.defaultPlace || null;
 } catch {}
+// The saved default might be a map-picked Place from a prior visit — not in
+// PLACES, so surface it in the grid the same way /place/ surfaces a
+// stranger-published Place outside the curated list.
+if (selected && !PLACES.some((p) => p.id === selected.id)) customPlaces.push(selected);
 
 function renderPlaces(list) {
   placeGrid.innerHTML = list
@@ -84,14 +93,24 @@ function renderPlaces(list) {
     .join("");
   for (const btn of placeGrid.querySelectorAll(".place-opt")) {
     btn.addEventListener("click", () => {
-      selected = PLACES.find((p) => p.id === btn.dataset.id);
+      selected = list.find((p) => p.id === btn.dataset.id);
       renderPlaces(list);
       saveBtn.disabled = false;
     });
   }
 }
-renderPlaces(PLACES);
-placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value)));
+renderPlaces(PLACES.concat(customPlaces));
+placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value, customPlaces)));
+
+document.getElementById("mapPickBtn").addEventListener("click", async () => {
+  const place = await pickPlaceOnMap();
+  if (!place) return;
+  customPlaces.unshift(place);
+  selected = place;
+  placeSearch.value = "";
+  renderPlaces(PLACES.concat(customPlaces));
+  saveBtn.disabled = false;
+});
 
 saveBtn.addEventListener("click", async () => {
   if (!selected) return;

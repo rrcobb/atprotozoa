@@ -18,6 +18,7 @@
   .carry-form { margin-top: 0.5rem; display: none; gap: 0.4rem; flex-wrap: wrap; }
   .carry-form.on { display: flex; }
   .carry-form input, .carry-form select { font-size: 0.8rem; }
+  .carry-map-pick { font-size: 0.74rem; padding: 0.3rem 0.55rem; }
   /* echo/murmur threads can go many levels deep; 2rem/level (margin+padding)
      eats a narrow phone's content width fast. Shrink the per-level indent
      below the point where six or seven levels would otherwise crush the
@@ -45,6 +46,7 @@ import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLengt
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { loadDemoRoots } from "/lib/demo.js";
 import { fetchCanonicalPosts } from "/lib/bskypost.js";
+import { pickPlaceOnMap } from "/lib/mappicker.js";
 
 document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
 const session = await mountChrome({ active: "" });
@@ -210,8 +212,16 @@ async function submitCarry(collection, parentUri, place, text) {
   return true;
 }
 
+// Destinations not in the curated list — filled in as members pick spots on
+// the map. Kept outside placePickerHtml so a place picked in one carry form
+// stays available (re-rendered as a real <option>) after the next rerender().
+const customPlaces = new Map();
+
 function placePickerHtml(idPrefix) {
-  return `<select class="carry-place" data-for="${idPrefix}">${PLACES.map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`).join("")}</select>`;
+  const options = PLACES.concat([...customPlaces.values()])
+    .map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`)
+    .join("");
+  return `<select class="carry-place" data-for="${idPrefix}">${options}</select><button type="button" class="btn carry-map-pick" data-for="${idPrefix}" title="pick any location on the map">📍 map</button>`;
 }
 
 let canonMap = new Map();
@@ -295,6 +305,23 @@ function wireActions() {
       }
     });
   });
+  rootEl.querySelectorAll(".carry-map-pick").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const place = await pickPlaceOnMap();
+      if (!place) return;
+      customPlaces.set(place.id, place);
+      const form = document.getElementById(`carry-${btn.dataset.for}`);
+      const select = form.querySelector(".carry-place");
+      let opt = [...select.options].find((o) => o.value === place.id);
+      if (!opt) {
+        opt = document.createElement("option");
+        opt.value = place.id;
+        select.appendChild(opt);
+      }
+      opt.textContent = `${place.emoji} ${place.name}`;
+      select.value = place.id;
+    });
+  });
   rootEl.querySelectorAll(".carry-cancel").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.getElementById(`carry-${btn.dataset.for}`).classList.remove("on");
@@ -305,7 +332,7 @@ function wireActions() {
       const form = document.getElementById(`carry-${btn.dataset.for}`);
       const kind = form.dataset.kind;
       const placeId = form.querySelector(".carry-place").value;
-      const place = PLACES.find((p) => p.id === placeId);
+      const place = PLACES.find((p) => p.id === placeId) || customPlaces.get(placeId);
       const text = form.querySelector(".carry-text").value.trim();
       if (kind === "murmur" && (!text || graphemeLength(text) > MURMUR_MAX_GRAPHEMES)) {
         return alert(`murmur needs a reaction, ≤${MURMUR_MAX_GRAPHEMES} characters`);

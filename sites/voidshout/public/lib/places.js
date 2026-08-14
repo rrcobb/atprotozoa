@@ -94,3 +94,15 @@ export function project(lat, lng) {
     yPct: ((90 - latNum) / 180) * 100,
   };
 }
+
+// Inverse of project() — turns a click position on the map (percentage of
+// the map's width/height, same frame project() outputs) back into lat/lng.
+// Used by mappicker.js so a tap anywhere on the map — not just on a
+// curated pin — resolves to a real coordinate, clamped to valid ranges so a
+// click right on the map's edge can't produce an out-of-range Place.
+export function unproject(xPct, yPct) {
+  return {
+    lat: Math.max(-90, Math.min(90, 90 - (yPct / 100) * 180)),
+    lng: Math.max(-180, Math.min(180, (xPct / 100) * 360 - 180)),
+  };
+}

@@ -34,8 +34,11 @@
 
   <div class="step card" id="stepPlace" style="display:none">
     <h2>3. pick a default Place</h2>
-    <p class="muted">No GPS request — search the curated list below. This becomes where your Shouts start unless you pick somewhere else per-post.</p>
-    <input id="placeSearch" placeholder="search by name or emoji…" autocomplete="off" />
+    <p class="muted">No GPS request — search the list below, or tap any real spot on the map. This becomes where your Shouts start unless you pick somewhere else per-post.</p>
+    <div style="display:flex; gap:0.4rem; align-items:center">
+      <input id="placeSearch" placeholder="search by name or emoji…" autocomplete="off" style="flex:1; margin-bottom:0" />
+      <button type="button" class="btn" id="mapPickBtn" title="pick any location on the map">📍 map</button>
+    </div>
     <div class="place-grid" id="placeGrid"></div>
     <button class="btn primary" id="joinBtn" disabled>join the Void →</button>
     <p class="muted" id="joinStatus" style="font-size:0.8rem"></p>
@@ -47,6 +50,7 @@ import { mountChrome } from "/lib/chrome.js";
 import { getSession, login, dpopFetch } from "/lib/oauth.js";
 import { homeFor, placeForRecord } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
+import { pickPlaceOnMap } from "/lib/mappicker.js";
 
 const session = await mountChrome({ active: "" });
 
@@ -70,13 +74,14 @@ signinBtn.addEventListener("click", async () => {
 });
 
 let selected = null;
+const customPlaces = [];
 function renderPlaces(list) {
   placeGrid.innerHTML = list
-    .map((p) => `<button type="button" class="btn place-opt" data-id="${p.id}">${p.emoji} ${p.name}</button>`)
+    .map((p) => `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${p.id}">${p.emoji} ${p.name}</button>`)
     .join("");
   for (const btn of placeGrid.querySelectorAll(".place-opt")) {
     btn.addEventListener("click", () => {
-      selected = PLACES.find((p) => p.id === btn.dataset.id);
+      selected = list.find((p) => p.id === btn.dataset.id);
       for (const b of placeGrid.querySelectorAll(".place-opt")) b.classList.remove("sel");
       btn.classList.add("sel");
       joinBtn.disabled = false;
@@ -84,7 +89,17 @@ function renderPlaces(list) {
   }
 }
 renderPlaces(PLACES);
-placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value)));
+placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value, customPlaces)));
+
+document.getElementById("mapPickBtn").addEventListener("click", async () => {
+  const place = await pickPlaceOnMap();
+  if (!place) return;
+  customPlaces.unshift(place);
+  selected = place;
+  placeSearch.value = "";
+  renderPlaces(PLACES.concat(customPlaces));
+  joinBtn.disabled = false;
+});
 
 async function checkExistingParticipation(s) {
   try {
