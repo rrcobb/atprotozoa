@@ -93,6 +93,12 @@ async function loadData() {
   document.getElementById("totalVisits").textContent = fmtNum(lbRes.totals?.visits);
   document.getElementById("totalTime").textContent = fmtMs(lbRes.totals?.dwellMs);
   document.getElementById("totalSites").textContent = fmtNum(lbRes.trackedSites ?? siteRows.length);
+  // manifests.json is every non-hidden site built, not just ones with a row
+  // here — most never had a live beacon window before ingestion was retired,
+  // so "reporting" is honestly a small fraction of "built."
+  document.getElementById("totalSitesSub").textContent = manifests.length
+    ? `of ${fmtNum(manifests.length)} built`
+    : "";
   const prompterCount = new Set(siteRows.filter((r) => r.by).map((r) => r.by)).size;
   document.getElementById("totalPrompters").textContent = fmtNum(prompterCount);
 
