@@ -61,10 +61,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="216" font-family="JetBrains Mono" font-size="20" fill="${DIM}">gotten from a human, roasted.</text>
 
   <text x="64" y="284" font-family="JetBrains Mono" font-size="16" fill="${DIM}">A hall of shame, a leaderboard of</text>
-  <text x="64" y="310" font-family="JetBrains Mono" font-size="16" fill="${DIM}">repeat offenders, and 434 real build</text>
+  <text x="64" y="310" font-family="JetBrains Mono" font-size="16" fill="${DIM}">repeat offenders, and 435 real build</text>
   <text x="64" y="336" font-family="JetBrains Mono" font-size="16" fill="${DIM}">records — nothing here is invented.</text>
 
-  <text x="64" y="440" font-family="JetBrains Mono" font-size="16" fill="${GOLD}">434 asks, sorted by embarrassment</text>
+  <text x="64" y="440" font-family="JetBrains Mono" font-size="16" fill="${GOLD}">435 asks, sorted by embarrassment</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${COLD}">receipts.bisks.net</text>
 

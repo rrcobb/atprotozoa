@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>purrbox — a synthesized cat purr, tuned by size, room temp and mood</title>
+    <meta
+      name="description"
+      content="A real-time Web Audio purr synthesizer. Three sliders — cat size, room temperature, cat mood — drive a scheduled amplitude-pulse model of an actual laryngeal purr, plus breath noise, a grumpy growl layer and happy trilling chirps."
+    />
+    <meta property="og:title" content="purrbox" />
+    <meta property="og:description" content="A synthesized cat purr you tune live: cat size, room temperature and cat mood all bend the sound, modeled on how a real purr is made." />
+    <meta property="og:image" content="https://purrbox.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A round tabby cat illustration next to the word purrbox and three sliders labeled size, temp and mood." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://purrbox.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="purrbox" />
+    <meta name="twitter:description" content="A synthesized cat purr, live-tuned by cat size, room temperature and cat mood." />
+    <meta name="twitter:image" content="https://purrbox.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #17110c;
+        --panel: #221912;
+        --ink: #f6ead9;
+        --muted: #a4907a;
+        --faint: #372a1f;
+        --size: #e8935a;
+        --temp: #7ec8e3;
+        --temp-hot: #ff7a5c;
+        --mood: #f2a6b8;
+        --mood-grump: #8fb0e8;
+        --fur: #c98850;
+        --fur-dark: #a86a3c;
+        --belly: #f1d9b8;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 80% -10%, rgba(232,147,90,0.08), transparent 55%);
+      }
+      a { color: var(--temp); }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+      header .kicker {
+        color: var(--size); font-size: 0.72rem; letter-spacing: 0.2em;
+        text-transform: uppercase; margin: 0 0 0.5rem;
+      }
+      header h1 { font-size: 1.8rem; margin: 0 0 0.6rem; font-weight: 800; letter-spacing: 0.02em; }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 60ch; }
+      header p code { color: var(--temp); font-size: 0.85em; }
+
+      #stage {
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1.3rem; margin-bottom: 1rem;
+      }
+      #cat-wrap { max-width: 260px; margin: 0 auto 0.5rem; }
+      #cat-svg { display: block; width: 100%; height: auto; overflow: visible; }
+      #cat-body { fill: var(--fur); }
+      #cat-belly { fill: var(--belly); }
+      .cat-stripe { stroke: var(--fur-dark); stroke-width: 4; stroke-linecap: round; fill: none; opacity: 0.55; }
+      #ear-l, #ear-r, #cat-head { fill: var(--fur); }
+      .ear-inner { fill: var(--mood); opacity: 0.75; }
+      #eye-l, #eye-r { fill: #1b140d; }
+      #nose { fill: var(--mood); }
+      #mouth { stroke: #1b140d; stroke-width: 2.4; fill: none; stroke-linecap: round; }
+      #tongue { fill: #e8768f; opacity: 0; transition: opacity 0.25s; }
+      #tongue.show { opacity: 1; }
+      .whisker { stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; opacity: 0.8; }
+      #tail { fill: var(--fur); }
+
+      #waveform-wrap { max-width: 400px; margin: 0.9rem auto 0; }
+      #waveform { display: block; width: 100%; height: 46px; }
+
+      #readout {
+        display: flex; justify-content: center; gap: 1.2rem; margin-top: 0.6rem;
+        font-size: 0.72rem; flex-wrap: wrap; color: var(--muted);
+      }
+      #readout b { font-weight: 700; color: var(--ink); }
+
+      .controls {
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+      }
+      .ctl { margin-bottom: 1.1rem; }
+      .ctl:last-child { margin-bottom: 0; }
+      .ctl-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 0.35rem; font-size: 0.78rem;
+      }
+      .ctl-head .name { font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; font-size: 0.7rem; }
+      .ctl-head .desc { color: var(--muted); font-size: 0.72rem; }
+      .ctl.size .name { color: var(--size); }
+      .ctl.temp .name { color: var(--temp); }
+      .ctl.mood .name { color: var(--mood); }
+      input[type="range"] {
+        width: 100%; appearance: none; -webkit-appearance: none;
+        height: 6px; border-radius: 4px; background: var(--faint); outline: none;
+      }
+      .ctl.size input[type="range"] { accent-color: var(--size); }
+      .ctl.temp input[type="range"] { accent-color: var(--temp); }
+      .ctl.mood input[type="range"] { accent-color: var(--mood); }
+      .ctl-ends {
+        display: flex; justify-content: space-between; margin-top: 0.25rem;
+        font-size: 0.68rem; color: var(--muted);
+      }
+
+      .transport {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      #play-btn {
+        font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+        color: var(--bg); background: var(--size); border: none;
+        border-radius: 6px; padding: 0.5rem 1.1rem; cursor: pointer;
+      }
+      #play-btn:hover { filter: brightness(1.08); }
+      .transport label { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.8rem; }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.75rem; flex-wrap: wrap; }
+      .share a, .share button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none;
+      }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--temp); }
+      #copy-status { color: var(--muted); font-size: 0.76rem; align-self: center; }
+
+      .about {
+        padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        color: var(--muted); font-size: 0.8rem; line-height: 1.7;
+      }
+      .about b { color: var(--ink); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--temp); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="kicker">cat size · room temp · cat mood</p>
+        <h1>purrbox</h1>
+        <p>
+          A real cat's purr comes from the larynx snapping open and shut
+          20-30 times a second on both the in- and out-breath — that
+          repetition <em>is</em> the sound. This is a live model of it: a
+          low tone gets re-triggered on a precise schedule at that rate, with
+          a breath-noise layer riding along. The three sliders below bend
+          <b>every</b> part of that live, while it's playing — no presets,
+          no samples.
+        </p>
+      </header>
+
+      <div id="stage">
+        <div id="cat-wrap">
+          <svg id="cat-svg" viewBox="0 0 240 235">
+            <path id="tail" d="M 195 210 C 235 205, 238 165, 214 150 C 232 168, 228 198, 190 202 Z" />
+            <g id="chest-group">
+              <ellipse id="cat-body" cx="120" cy="182" rx="72" ry="46" />
+              <ellipse id="cat-belly" cx="120" cy="196" rx="34" ry="24" />
+              <path class="cat-stripe" d="M 76 156 Q 90 172 78 190" />
+              <path class="cat-stripe" d="M 164 156 Q 150 172 162 190" />
+            </g>
+            <g id="ear-l">
+              <path d="M 78 78 L 58 30 L 100 66 Z" />
+              <path class="ear-inner" d="M 78 70 L 66 42 L 92 62 Z" />
+            </g>
+            <g id="ear-r">
+              <path d="M 162 78 L 182 30 L 140 66 Z" />
+              <path class="ear-inner" d="M 162 70 L 174 42 L 148 62 Z" />
+            </g>
+            <circle id="cat-head" cx="120" cy="110" r="56" />
+            <path class="cat-stripe" d="M 120 56 L 120 76" />
+            <path class="cat-stripe" d="M 100 60 L 106 80" />
+            <path class="cat-stripe" d="M 140 60 L 134 80" />
+            <g class="whisker">
+              <line x1="86" y1="126" x2="34" y2="118" />
+              <line x1="86" y1="132" x2="32" y2="134" />
+              <line x1="88" y1="138" x2="36" y2="150" />
+            </g>
+            <g class="whisker">
+              <line x1="154" y1="126" x2="206" y2="118" />
+              <line x1="154" y1="132" x2="208" y2="134" />
+              <line x1="152" y1="138" x2="204" y2="150" />
+            </g>
+            <ellipse id="eye-l" cx="97" cy="108" rx="8" ry="10" />
+            <ellipse id="eye-r" cx="143" cy="108" rx="8" ry="10" />
+            <path id="nose" d="M 113 124 L 127 124 L 120 133 Z" />
+            <path id="mouth" d="M 120 133 Q 108 143 100 136 M 120 133 Q 132 143 140 136" />
+            <ellipse id="tongue" cx="120" cy="143" rx="6" ry="8" />
+          </svg>
+        </div>
+        <div id="waveform-wrap">
+          <canvas id="waveform" width="400" height="46"></canvas>
+        </div>
+        <div id="readout">
+          <span>rate <b id="rate-val">—</b></span>
+          <span>register <b id="reg-val">—</b></span>
+          <span>mood reads <b id="mood-read">—</b></span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="ctl size">
+          <div class="ctl-head">
+            <span class="name">cat size</span>
+            <span class="desc" id="size-val">medium — 50%</span>
+          </div>
+          <input type="range" id="size-ctl" min="0" max="100" value="50" />
+          <div class="ctl-ends"><span>kitten</span><span>maine coon</span></div>
+        </div>
+        <div class="ctl temp">
+          <div class="ctl-head">
+            <span class="name">room temp</span>
+            <span class="desc" id="temp-val">cozy — 58%</span>
+          </div>
+          <input type="range" id="temp-ctl" min="0" max="100" value="58" />
+          <div class="ctl-ends"><span>freezing</span><span>sweltering</span></div>
+        </div>
+        <div class="ctl mood">
+          <div class="ctl-head">
+            <span class="name">cat mood</span>
+            <span class="desc" id="mood-val">content — 60%</span>
+          </div>
+          <input type="range" id="mood-ctl" min="0" max="100" value="60" />
+          <div class="ctl-ends"><span>grumpy</span><span>ecstatic</span></div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button id="play-btn">🐾 pet the cat</button>
+        <label>volume <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.85" /></label>
+      </div>
+
+      <div class="share">
+        <a id="share-intent" target="_blank" rel="noopener">🦋 share this cat</a>
+        <button id="copy-link-btn">🔗 copy link to this cat</button>
+        <span id="copy-status"></span>
+      </div>
+
+      <div class="about">
+        <p>
+          <b>Size</b> sets the purr's register — bigger cat, lower chest
+          resonance and rumble pitch, and a slightly slower purr rate.
+          <b>Room temp</b> sets comfort: it peaks in a warm, cozy band (cats
+          like it warmer than humans do), and falls off toward either
+          extreme — cold adds a shivery jitter to the purr's timing, heat
+          swaps a chunk of it for open-mouth breath noise (panting).
+          <b>Mood</b> runs from a grumpy, irregular, distorted growl
+          undertone, through a steady textbook purr, to a loud, richly
+          articulated purr with the occasional rising trilling chirp
+          layered on top.
+        </p>
+        <p>
+          Under the hood there's no audio-rate LFO — each purr pulse is
+          scheduled individually a fraction of a second ahead, the same
+          lookahead-scheduler trick synths use for tempo, just running at a
+          rate (20-30 pulses a second) fast enough that you feel it as
+          texture instead of counting it as rhythm.
+        </p>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a>'s house style of
+        small self-contained sites · synthesized live with plain Web Audio,
+        no samples, no server · a scheduled-pulse cousin of
+        <a href="https://vadrone.bisks.net">vadrone</a> and
+        <a href="https://code-for-airports.bisks.net">code for airports</a>'
+        drone engines, tuned to a much faster, buzzier rhythm · a
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        build for <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
+        · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
