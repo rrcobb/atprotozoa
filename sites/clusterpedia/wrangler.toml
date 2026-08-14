@@ -13,21 +13,24 @@ routes = [
   { pattern = "clusterpedia.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# The Worker runs first for everything: it forwards /api/* to the Wiki
-# Durable Object and server-renders per-article OG tags for GET /wiki/<slug>;
-# everything else falls through to the ASSETS binding.
+# The Worker runs first for everything: it forwards /api/* to a KV-backed
+# derived index and server-renders per-article OG tags for GET /wiki/<slug>;
+# everything else falls through to the ASSETS binding. The PDS records remain
+# authoritative; the index is intentionally best-effort.
 [assets]
 directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "WIKI"
-class_name = "Wiki"
+[[kv_namespaces]]
+binding = "WIKI_STATE"
 
-# new_sqlite_classes, not new_classes: legacy KV-backed DO storage needs
-# Workers Paid; SQLite-backed DOs work on the Free plan this account is on
-# (see sites/docmoot, sites/the-place, sites/ratioed wrangler.tomls).
+# Keep the old class migration history until the retired storage has been
+# explicitly deleted. The live site uses only the KV binding above.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Wiki"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Wiki"]

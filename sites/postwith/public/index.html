@@ -112,9 +112,9 @@
 
       <footer>
         matches are read live off the
-        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-        firehose for the <code>net.bisks.postwith.*</code> collections — nothing is
-        stored anywhere but your own PDS and this page's index of it. a
+        <code>net.bisks.postwith.*</code> records — nothing is stored in a
+        server-side source of truth besides this page's best-effort KV index;
+        your own PDS remains authoritative. a
         <a href="https://bisks.net">bisks.net</a> experiment.
       </footer>
     </div>
@@ -143,6 +143,23 @@
       ];
       const TOPIC_LABEL = Object.fromEntries(TOPICS.map((t) => [t.id, t.label]));
       const topicLabel = (id) => TOPIC_LABEL[id] || id;
+
+      async function notifyIndex(payload) {
+        try {
+          await fetch(`${MOUNT}/api/index`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } catch {
+          // The PDS write is authoritative; the shared index can catch up later.
+        }
+      }
+
+      function rkeyFromUri(uri) {
+        const parts = String(uri || "").split("/");
+        return parts[parts.length - 1] || "";
+      }
 
       const sel = $("#f-topic");
       TOPICS.forEach((t) => {
@@ -253,6 +270,7 @@
             body: JSON.stringify({ repo: session.did, collection: PROFILE_COLLECTION, rkey: "self", record }),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          await notifyIndex({ did: session.did, collection: PROFILE_COLLECTION, operation: "update", rkey: "self", record });
           me.profile = { did: session.did, handle: session.handle, topic: record.topic, goal: record.goal, note: record.note, location: record.location, updatedAt: Date.now() };
           status.textContent = "posted — matching may take a minute to catch up.";
           status.className = "status ok";
@@ -277,6 +295,7 @@
             body: JSON.stringify({ repo: session.did, collection: PROFILE_COLLECTION, rkey: "self" }),
           });
           if (!res.ok) throw new Error(`${res.status}`);
+          await notifyIndex({ did: session.did, collection: PROFILE_COLLECTION, operation: "delete", rkey: "self" });
           me.profile = null;
           $("#f-goal").value = "";
           $("#f-note").value = "";
@@ -375,6 +394,8 @@
             body: JSON.stringify({ repo: session.did, collection: MEETING_COLLECTION, record }),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          const result = await res.json();
+          await notifyIndex({ did: session.did, collection: MEETING_COLLECTION, operation: "create", rkey: rkeyFromUri(result.uri), record });
           const idx = me.candidates.findIndex((c) => c.did === toDid);
           if (idx >= 0) me.candidates[idx].existingMeetingUri = "pending-local";
           openProposeUri = null;
@@ -448,6 +469,8 @@
             body: JSON.stringify({ repo: session.did, collection: RESPONSE_COLLECTION, record }),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          const result = await res.json();
+          await notifyIndex({ did: session.did, collection: RESPONSE_COLLECTION, operation: "create", rkey: rkeyFromUri(result.uri), record });
           const m = me.inbox.find((x) => x.uri === meetingUri);
           if (m) m.status = status;
           el.textContent = `marked ${status}.`;
@@ -560,7 +583,9 @@
             body: JSON.stringify({ repo: session.did, collection: FEEDBACK_COLLECTION, record }),
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-          for (const m of [...me.sent, ...me.inbox]) {
+          const result = await res.json();
+          await notifyIndex({ did: session.did, collection: FEEDBACK_COLLECTION, operation: "create", rkey: rkeyFromUri(result.uri), record });
+           for (const m of [...me.sent, ...me.inbox]) {
             if (m.uri === meetingUri) {
               m.feedback = [...(m.feedback || []).filter((f) => f.byDid !== session.did), { byDid: session.did, byHandle: session.handle, outcome, note, rematch }];
             }

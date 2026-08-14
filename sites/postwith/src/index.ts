@@ -7,12 +7,10 @@
 //
 // Every write is a plain record the author signs and writes straight to their
 // OWN PDS from the browser (public-client OAuth, PKCE + DPoP — copied from
-// sites/padmoot). There is no server-side write endpoint anywhere in this
-// file. "Match people across everyone's repos" needs an index the AppView
-// doesn't provide, so one Durable Object (name "global") keeps a live
-// Jetstream subscription filtered to the four net.bisks.postwith.* collections
-// and maintains a running cross-user index — same shape as sites/quadrants'
-// QuadrantHub. The DO's HTTP surface below is entirely read-only (GET).
+// sites/padmoot). "Match people across everyone's repos" needs an index the
+// AppView doesn't provide, so a KV snapshot stores a best-effort cross-user
+// index. The browser notifies that index after it writes a record; the PDS is
+// still authoritative and the index may be stale, duplicated, or incomplete.
 //
 // Collections:
 //   net.bisks.postwith.profile   rkey "self" — {topic, goal, note?, location?, createdAt}
@@ -21,33 +19,16 @@
 //   net.bisks.postwith.feedback  rkey auto   — {meetingUri, outcome, note?, rematch, createdAt}
 //
 // Every request first gets its "/postwith" mount prefix stripped; what's left
-// is matched against /api/* (forwarded to the DO) and otherwise falls through
-// to ASSETS.
+// is matched against /api/* and otherwise falls through to ASSETS.
 
-export interface DurableObjectId {
-  toString(): string;
-}
-export interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-export interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-export interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  delete(key: string): Promise<boolean>;
-  setAlarm(time: number | Date): Promise<void>;
-}
-export interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+export interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  HUB: DurableObjectNamespace;
+  HUB_STATE: KVNamespace;
 }
 
 const PREFIX = "/postwith";
@@ -69,8 +50,7 @@ export default {
     const stripped = new Request(url, request);
 
     if (url.pathname.startsWith("/api/")) {
-      const stub = env.HUB.get(env.HUB.idFromName("global"));
-      return stub.fetch(stripped);
+      return new MatchStore(env.HUB_STATE).fetch(stripped);
     }
 
     return env.ASSETS.fetch(stripped);
@@ -78,8 +58,8 @@ export default {
 };
 
 // ---------------------------------------------------------------------------
-// MatchHub — the one global Durable Object. Firehose-fed index of profiles,
-// meeting proposals, responses (accept/decline), and feedback.
+// MatchStore — the one global KV-backed index of profiles, meeting proposals,
+// responses (accept/decline), and feedback.
 // ---------------------------------------------------------------------------
 
 const PROFILE_COLLECTION = "net.bisks.postwith.profile";
@@ -87,14 +67,7 @@ const MEETING_COLLECTION = "net.bisks.postwith.meeting";
 const RESPONSE_COLLECTION = "net.bisks.postwith.response";
 const FEEDBACK_COLLECTION = "net.bisks.postwith.feedback";
 
-const JETSTREAM_URL =
-  "https://jetstream2.us-east.bsky.network/subscribe?" +
-  [PROFILE_COLLECTION, MEETING_COLLECTION, RESPONSE_COLLECTION, FEEDBACK_COLLECTION]
-    .map((c) => "wantedCollections=" + encodeURIComponent(c))
-    .join("&");
-
 const APPVIEW = "https://public.api.bsky.app/xrpc";
-const ALARM_MS = 20 * 1000; // reconnect heartbeat, same cadence as sites/ratioed / sites/quadrants
 const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
 
 const MAX_TOPIC = 32;
@@ -169,98 +142,30 @@ function isDid(s: unknown): s is string {
   return typeof s === "string" && s.startsWith("did:") && s.length < 128;
 }
 
-export class MatchHub {
-  private state: DurableObjectState;
+export class MatchStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
   private profiles: Map<string, ProfileEntry> = new Map();
   private meetings: Map<string, MeetingEntry> = new Map();
   private responses: Map<string, ResponseEntry> = new Map();
   private feedback: Map<string, FeedbackEntry[]> = new Map();
   private profileCache: Map<string, CachedProfile> = new Map();
-  private ws: any = null;
-  private reconnectDelay = 1000;
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
-    this.ready = this.state.blockConcurrencyWhile(async () => {
+    const kv = state;
+    this.ready = (async () => {
       const [profiles, meetings, responses, feedback] = await Promise.all([
-        this.state.storage.get<Record<string, ProfileEntry>>("profiles"),
-        this.state.storage.get<Record<string, MeetingEntry>>("meetings"),
-        this.state.storage.get<Record<string, ResponseEntry>>("responses"),
-        this.state.storage.get<Record<string, FeedbackEntry[]>>("feedback"),
+        kv.get<Record<string, ProfileEntry>>("profiles", "json"),
+        kv.get<Record<string, MeetingEntry>>("meetings", "json"),
+        kv.get<Record<string, ResponseEntry>>("responses", "json"),
+        kv.get<Record<string, FeedbackEntry[]>>("feedback", "json"),
       ]);
       this.profiles = new Map(Object.entries(profiles ?? {}));
       this.meetings = new Map(Object.entries(meetings ?? {}));
       this.responses = new Map(Object.entries(responses ?? {}));
       this.feedback = new Map(Object.entries(feedback ?? {}));
-    });
-    this.connectSocket().catch(() => {});
-    this.state.storage.setAlarm(Date.now() + ALARM_MS).catch(() => {});
-  }
-
-  // ---- firehose ------------------------------------------------------------
-  // Workers connect OUT to a WebSocket server via fetch() + an Upgrade header,
-  // not the browser-style `new WebSocket(url)` constructor. Same shape as
-  // sites/quadrants, sites/ratioed, sites/mootstream.
-  private async connectSocket(): Promise<void> {
-    try {
-      const resp: any = await fetch(JETSTREAM_URL, { headers: { Upgrade: "websocket" } });
-      const ws = resp.webSocket;
-      if (!ws) throw new Error("jetstream didn't upgrade");
-      ws.accept();
-      this.ws = ws;
-      this.reconnectDelay = 1000;
-      ws.addEventListener("message", (ev: any) => {
-        this.handleMessage(String(ev.data)).catch(() => {
-          // one bad message shouldn't kill the stream
-        });
-      });
-      ws.addEventListener("close", () => {
-        if (this.ws === ws) this.ws = null;
-        this.scheduleReconnect();
-      });
-      ws.addEventListener("error", () => {
-        try {
-          ws.close();
-        } catch {
-          // already closing
-        }
-      });
-    } catch {
-      this.ws = null;
-      this.scheduleReconnect();
-    }
-  }
-
-  private scheduleReconnect(): void {
-    const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
-    setTimeout(() => {
-      this.connectSocket().catch(() => {});
-    }, delay);
-  }
-
-  private wsOpen(): boolean {
-    return !!this.ws && this.ws.readyState === 1; // WebSocket.OPEN
-  }
-
-  private async handleMessage(raw: string): Promise<void> {
-    let evt: any;
-    try {
-      evt = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (evt.kind !== "commit") return;
-    const commit = evt.commit;
-    const did = evt.did;
-    if (!commit || typeof did !== "string") return;
-    const { collection, operation, rkey } = commit;
-
-    if (collection === PROFILE_COLLECTION) return this.onProfile(did, operation, commit.record);
-    if (collection === MEETING_COLLECTION) return this.onMeeting(did, operation, rkey, commit.record);
-    if (collection === RESPONSE_COLLECTION) return this.onResponse(did, operation, commit.record);
-    if (collection === FEEDBACK_COLLECTION) return this.onFeedback(did, operation, commit.record);
+    })();
   }
 
   private async onProfile(did: string, op: string, rec: any): Promise<void> {
@@ -376,22 +281,39 @@ export class MatchHub {
   }
 
   private async persist(key: string, map: Map<string, unknown>): Promise<void> {
-    await this.state.storage.put({ [key]: Object.fromEntries(map) });
+    await this.state.put(key, JSON.stringify(Object.fromEntries(map)));
   }
 
-  // ---- alarm: reconnect heartbeat -------------------------------------------
-  async alarm(): Promise<void> {
-    await this.ready;
-    if (!this.wsOpen()) this.connectSocket().catch(() => {});
-    await this.state.storage.setAlarm(Date.now() + ALARM_MS);
+  private async indexRecord(body: any): Promise<void> {
+    const did = body?.did;
+    const collection = body?.collection;
+    const operation = body?.operation || "create";
+    const rkey = typeof body?.rkey === "string" ? body.rkey : "";
+    if (!isDid(did) || typeof collection !== "string") throw new Error("bad index record");
+    if (collection === PROFILE_COLLECTION) return this.onProfile(did, operation, body.record);
+    if (collection === MEETING_COLLECTION) {
+      if (!rkey) throw new Error("missing record key");
+      return this.onMeeting(did, operation, rkey, body.record);
+    }
+    if (collection === RESPONSE_COLLECTION) return this.onResponse(did, operation, body.record);
+    if (collection === FEEDBACK_COLLECTION) return this.onFeedback(did, operation, body.record);
+    throw new Error("unknown collection");
   }
 
-  // ---- http (read-only) ------------------------------------------------------
+  // ---- http ------------------------------------------------------------------
   async fetch(request: Request): Promise<Response> {
     await this.ready;
-    if (!this.wsOpen()) this.connectSocket().catch(() => {});
 
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/index" && request.method === "POST") {
+      try {
+        await this.indexRecord(await request.json());
+        return json({ ok: true });
+      } catch (error: any) {
+        return json({ error: error?.message || "could not index record" }, 400);
+      }
+    }
 
     if (url.pathname === "/api/topics" && request.method === "GET") {
       const counts: Record<string, number> = {};

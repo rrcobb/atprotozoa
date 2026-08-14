@@ -21,47 +21,27 @@
 // last 20s before the next hand deals. Drop by any time; nothing requires
 // showing up at a specific second except placing a bet before betting closes.
 //
-// One Durable Object ("table") holds the shared shoe, every player's hand
-// for the live round, persistent play-money balances, and lifetime net
-// winnings (the "top chicken" leaderboard) — same single-writer shape as
-// sites/guestbet's Market DO this was copied from, plus a storage alarm to
-// resolve hands on schedule and resolve-on-every-request as a backstop so a
-// missed/late alarm can't wedge a round. No login: the page mints an opaque
-// id into localStorage and sends it as X-Client-Id, same anonymous-identity
-// shape as guestbet — play chips only, not a security boundary.
+// One KV snapshot holds the shared shoe, every player's hand for the live
+// round, play-money balances, and lifetime net winnings. State is deliberately
+// eventual and non-authoritative: this is a toy table, not a financial ledger.
+// No login: the page mints an opaque id into localStorage and sends it as
+// X-Client-Id, so clearing storage gets a fresh play-money seat.
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  setAlarm(scheduledTime: number): Promise<void>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  TABLE: DurableObjectNamespace;
+  TABLE_STATE: KVNamespace;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      const id = env.TABLE.idFromName("global");
-      const stub = env.TABLE.get(id);
-      return stub.fetch(request);
+      return new TableStore(env.TABLE_STATE).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
@@ -246,8 +226,8 @@ function sanitizeNickname(raw: unknown, clientId: string): string {
   return s || defaultNickname(clientId);
 }
 
-export class Table {
-  private state: DurableObjectState;
+export class TableStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
   private balances: Map<string, number> = new Map();
   private nicknames: Map<string, string> = new Map();
@@ -256,51 +236,40 @@ export class Table {
   private history: HistoryEntry[] = [];
   private round: RoundState = freshRound(0, 0);
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
-    this.ready = this.state.blockConcurrencyWhile(async () => {
-      const balances = await this.state.storage.get<[string, number][]>("balances");
-      if (balances) this.balances = new Map(balances);
-      const nicknames = await this.state.storage.get<[string, string][]>("nicknames");
-      if (nicknames) this.nicknames = new Map(nicknames);
-      const lifetime = await this.state.storage.get<[string, LifetimeStats][]>("lifetime");
-      if (lifetime) this.lifetime = new Map(lifetime);
-      const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
-      if (lastStipend) this.lastStipend = new Map(lastStipend);
-      const history = await this.state.storage.get<HistoryEntry[]>("history");
-      if (history) this.history = history;
-      const round = await this.state.storage.get<RoundState>("round");
+    const kv = state;
+    this.ready = (async () => {
+      const snapshot = await kv.get<{
+        balances?: [string, number][];
+        nicknames?: [string, string][];
+        lifetime?: [string, LifetimeStats][];
+        lastStipend?: [string, number][];
+        history?: HistoryEntry[];
+        round?: RoundState;
+      }>("state", "json");
+      if (snapshot?.balances) this.balances = new Map(snapshot.balances);
+      if (snapshot?.nicknames) this.nicknames = new Map(snapshot.nicknames);
+      if (snapshot?.lifetime) this.lifetime = new Map(snapshot.lifetime);
+      if (snapshot?.lastStipend) this.lastStipend = new Map(snapshot.lastStipend);
+      if (snapshot?.history) this.history = snapshot.history;
       const now = Date.now();
       const currentId = Math.floor(now / ROUND_MS);
-      this.round = round ?? freshRound(currentId, currentId * ROUND_MS);
-      this.ensureCurrent(now);
-      await this.armAlarm();
-    });
+      this.round = snapshot?.round ?? freshRound(currentId, currentId * ROUND_MS);
+      const changed = this.ensureCurrent(now);
+      if (!snapshot || changed) await this.persist();
+    })();
   }
 
   private async persist(): Promise<void> {
-    await this.state.storage.put({
+    await this.state.put("state", JSON.stringify({
       balances: Array.from(this.balances.entries()),
       nicknames: Array.from(this.nicknames.entries()),
       lifetime: Array.from(this.lifetime.entries()),
       lastStipend: Array.from(this.lastStipend.entries()),
       history: this.history,
       round: this.round,
-    });
-  }
-
-  private async armAlarm(): Promise<void> {
-    const resolveAt = this.round.startedAt + RESOLVE_AT;
-    const rolloverAt = this.round.startedAt + ROUND_MS;
-    const next = this.round.resolved ? rolloverAt : resolveAt;
-    await this.state.storage.setAlarm(next);
-  }
-
-  async alarm(): Promise<void> {
-    await this.ready;
-    this.ensureCurrent(Date.now());
-    await this.persist();
-    await this.armAlarm();
+    }));
   }
 
   private getBalance(clientId: string): number {

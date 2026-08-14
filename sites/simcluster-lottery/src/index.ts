@@ -11,17 +11,14 @@
 // public/lib/oauth.js) to attribute a wallet to your DID instead of an
 // anonymous localStorage id, so the leaderboard means something.
 //
-// One Durable Object ("global") holds every wallet, all three draws'
-// ticket pools, resolution history, and the leaderboard — same
-// single-writer shape as sites/guestbet's Market DO, extended to three
-// independently-clocked draws instead of one. Each draw is a real lottery:
+// One KV snapshot holds every wallet, all three draws' ticket pools,
+// resolution history, and the leaderboard. State is deliberately eventual and
+// non-authoritative because this is play money, not a financial ledger. Each
+// draw is a real lottery within that relaxed toy model:
 // every ticket bought is one entry, a single winner is drawn weighted by
 // tickets held, and the winner takes the whole pot (ticket revenue for that
-// round — no house cut, since "the house" here is nobody). A storage alarm
-// resolves whichever draw is soonest due; every request also defensively
-// resolves any draw whose clock has already run out, so a missed/late
-// alarm (dev environment, cold start) can't wedge a round — same pattern
-// guestbet's Market.maybeResolve() uses.
+// round — no house cut, since "the house" here is nobody). Draws resolve
+// lazily on requests, so a quiet site does not need a background timer.
 //
 // No cookie, no server-side session lookup: identity is whatever DID the
 // client's completed OAuth login handed it, same trust level the rest of
@@ -29,37 +26,21 @@
 // this). Someone editing devtools to claim another DID could nudge that
 // wallet, but there's nothing real to steal — it resets every month.
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  setAlarm(scheduledTime: number): Promise<void>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  LOTTERY: DurableObjectNamespace;
+  LOTTERY_STATE: KVNamespace;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      const stub = env.LOTTERY.get(env.LOTTERY.idFromName("global"));
-      return stub.fetch(request);
+      return new LotteryStore(env.LOTTERY_STATE).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
@@ -197,10 +178,10 @@ function freshDraw(kind: DrawKind, id: number, now: number): Draw {
   };
 }
 
-// ---- the Lottery Durable Object ----------------------------------------------
+// ---- the KV-backed lottery store ---------------------------------------------
 
-export class Lottery {
-  private state: DurableObjectState;
+export class LotteryStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
 
   private balances: Map<string, number> = new Map();
@@ -212,8 +193,9 @@ export class Lottery {
   private monthlyChampions: MonthlyChampion[] = [];
   private lastResetMonth = "";
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
+    const kv = state;
     const now = Date.now();
     this.draws = {
       hourly: freshDraw("hourly", 1, now),
@@ -221,32 +203,33 @@ export class Lottery {
       weekly: freshDraw("weekly", 1, now),
     };
 
-    this.ready = this.state.blockConcurrencyWhile(async () => {
-      const balances = await this.state.storage.get<[string, number][]>("balances");
-      if (balances) this.balances = new Map(balances);
-      const profiles = await this.state.storage.get<[string, Profile][]>("profiles");
-      if (profiles) this.profiles = new Map(profiles);
-      const draws = await this.state.storage.get<Record<DrawKind, Draw>>("draws");
-      if (draws) this.draws = draws;
-      const history = await this.state.storage.get<HistoryEntry[]>("history");
-      if (history) this.history = history;
-      const lifetime = await this.state.storage.get<[string, LifetimeStats][]>("lifetime");
-      if (lifetime) this.lifetime = new Map(lifetime);
-      const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
-      if (lastStipend) this.lastStipend = new Map(lastStipend);
-      const monthlyChampions = await this.state.storage.get<MonthlyChampion[]>("monthlyChampions");
-      if (monthlyChampions) this.monthlyChampions = monthlyChampions;
-      const lastResetMonth = await this.state.storage.get<string>("lastResetMonth");
-      this.lastResetMonth = lastResetMonth || monthKey(Date.now());
+    this.ready = (async () => {
+      const snapshot = await kv.get<{
+        balances?: [string, number][];
+        profiles?: [string, Profile][];
+        draws?: Record<DrawKind, Draw>;
+        history?: HistoryEntry[];
+        lifetime?: [string, LifetimeStats][];
+        lastStipend?: [string, number][];
+        monthlyChampions?: MonthlyChampion[];
+        lastResetMonth?: string;
+      }>("state", "json");
+      if (snapshot?.balances) this.balances = new Map(snapshot.balances);
+      if (snapshot?.profiles) this.profiles = new Map(snapshot.profiles);
+      if (snapshot?.draws) this.draws = snapshot.draws;
+      if (snapshot?.history) this.history = snapshot.history;
+      if (snapshot?.lifetime) this.lifetime = new Map(snapshot.lifetime);
+      if (snapshot?.lastStipend) this.lastStipend = new Map(snapshot.lastStipend);
+      if (snapshot?.monthlyChampions) this.monthlyChampions = snapshot.monthlyChampions;
+      this.lastResetMonth = snapshot?.lastResetMonth || monthKey(Date.now());
 
       this.advance(Date.now());
       await this.persist();
-      await this.armAlarm();
-    });
+    })();
   }
 
   private async persist(): Promise<void> {
-    await this.state.storage.put({
+    await this.state.put("state", JSON.stringify({
       balances: Array.from(this.balances.entries()),
       profiles: Array.from(this.profiles.entries()),
       draws: this.draws,
@@ -255,12 +238,7 @@ export class Lottery {
       lastStipend: Array.from(this.lastStipend.entries()),
       monthlyChampions: this.monthlyChampions,
       lastResetMonth: this.lastResetMonth,
-    });
-  }
-
-  private async armAlarm(): Promise<void> {
-    const next = Math.min(this.draws.hourly.resolvesAt, this.draws.daily.resolvesAt, this.draws.weekly.resolvesAt);
-    await this.state.storage.setAlarm(next);
+    }));
   }
 
   private getBalance(did: string): number {
@@ -284,7 +262,7 @@ export class Lottery {
   }
 
   // First-of-the-month rollover: snapshots whoever was on top before wiping
-  // every balance back to START_BALANCE. Guarded so a brand-new DO (nothing
+  // every balance back to START_BALANCE. Guarded so a brand-new store (nothing
   // to snapshot yet) doesn't record a champion of nobody.
   private checkMonthlyReset(now: number): boolean {
     const ym = monthKey(now);
@@ -332,10 +310,8 @@ export class Lottery {
     return null;
   }
 
-  // Resolves a draw as many times as its clock has fallen behind (handles a
-  // long-asleep DO catching up on several missed rounds at once), then opens
-  // a fresh round each time. Called on every request AND from alarm() —
-  // whichever gets there first wins, the other is a no-op.
+  // Resolves a draw as many times as its clock has fallen behind, then opens a
+  // fresh round each time. Called on every request; a quiet site can wait.
   private resolveDrawIfDue(kind: DrawKind, now: number): boolean {
     let changed = false;
     while (now >= this.draws[kind].resolvesAt) {
@@ -368,20 +344,13 @@ export class Lottery {
     return changed;
   }
 
-  // Runs monthly reset + all three draws' due-check. Returns whether
-  // anything changed (worth a persist + alarm re-arm).
+  // Runs monthly reset + all three draws' due-check.
   private advance(now: number): boolean {
     let changed = this.checkMonthlyReset(now);
     for (const kind of KINDS) {
       if (this.resolveDrawIfDue(kind, now)) changed = true;
     }
     return changed;
-  }
-
-  async alarm(): Promise<void> {
-    await this.ready;
-    if (this.advance(Date.now())) await this.persist();
-    await this.armAlarm();
   }
 
   private drawView(kind: DrawKind, did: string | null) {
@@ -444,7 +413,6 @@ export class Lottery {
     const now = Date.now();
     if (this.advance(now)) {
       await this.persist();
-      await this.armAlarm();
     }
 
     if (url.pathname === "/api/state" && request.method === "GET") {

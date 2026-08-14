@@ -10,10 +10,11 @@
 // really did have write access to that DID's repo (you cannot forge a record
 // inside someone else's repo).
 //
-// The Wiki Durable Object is the live index: current article text, a
+// A KV snapshot is the best-effort derived index: current article text, a
 // numbered revision history, talk threads, and per-DID contribution lists —
 // all keyed off records whose authenticity was checked against the author's
-// PDS, not off anything the client merely claims.
+// PDS, not off anything the client merely claims. The PDS records remain the
+// durable source; this index may be stale or lose a conflicting update.
 //
 // Edit gating — "Shimmer Math Labs' Simcluster Checker" — restricts WRITES
 // (not reads, not talk posts) to two groups relative to @bisks.net (the
@@ -27,33 +28,19 @@
 // Talk pages need only a verified login, same as real wikis: discussion is
 // open, editing the mainspace is not.
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(key: string, value: unknown): Promise<void>;
-  delete(key: string): Promise<boolean>;
-  list<T = unknown>(options?: {
-    prefix?: string;
-    reverse?: boolean;
-    limit?: number;
-  }): Promise<Map<string, T>>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: string): Promise<void>;
+  list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  WIKI: DurableObjectNamespace;
+  WIKI_STATE: KVNamespace;
 }
 
 function json(obj: unknown, status = 200): Response {
@@ -86,8 +73,8 @@ async function renderArticleShell(env: Env, request: Request, slug: string): Pro
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
   let html = await base.text();
   try {
-    const stub = env.WIKI.get(env.WIKI.idFromName("singleton"));
-    const res = await stub.fetch(new Request(new URL(`/article/${encodeURIComponent(slug)}`, request.url)));
+    const store = new WikiStore(env.WIKI_STATE);
+    const res = await store.fetch(new Request(new URL(`/article/${encodeURIComponent(slug)}`, request.url)));
     const article = (await res.json()) as { exists: boolean; title?: string; summary?: string; content?: string };
     if (!article.exists) throw new Error("no article");
     const title = article.title?.trim() || slug;
@@ -120,10 +107,9 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
-      const stub = env.WIKI.get(env.WIKI.idFromName("singleton"));
       const inner = new URL(request.url);
       inner.pathname = url.pathname.slice(4) || "/";
-      return stub.fetch(new Request(inner, request));
+      return new WikiStore(env.WIKI_STATE).fetch(new Request(inner, request));
     }
 
     const articleMatch = url.pathname.match(ARTICLE_RE);
@@ -257,19 +243,19 @@ async function computeMoots(did: string): Promise<string[]> {
   return [...out];
 }
 
-async function getAnchorMoots(storage: DurableObjectStorage): Promise<Set<string>> {
-  const cached = await storage.get<{ dids: string[]; fetchedAt: number }>("checker:anchorMoots");
+async function getAnchorMoots(storage: KVNamespace): Promise<Set<string>> {
+  const cached = await storage.get<{ dids: string[]; fetchedAt: number }>("checker:anchorMoots", "json");
   if (cached && Date.now() - cached.fetchedAt < ANCHOR_TTL_MS) return new Set(cached.dids);
   const dids = await computeMoots(ANCHOR_DID);
-  await storage.put("checker:anchorMoots", { dids, fetchedAt: Date.now() });
+  await storage.put("checker:anchorMoots", JSON.stringify({ dids, fetchedAt: Date.now() }));
   return new Set(dids);
 }
-async function getEditorMoots(storage: DurableObjectStorage, did: string): Promise<string[]> {
+async function getEditorMoots(storage: KVNamespace, did: string): Promise<string[]> {
   const key = `checker:editorMoots:${did}`;
-  const cached = await storage.get<{ dids: string[]; fetchedAt: number }>(key);
+  const cached = await storage.get<{ dids: string[]; fetchedAt: number }>(key, "json");
   if (cached && Date.now() - cached.fetchedAt < EDITOR_TTL_MS) return cached.dids;
   const dids = await computeMoots(did);
-  await storage.put(key, { dids, fetchedAt: Date.now() });
+  await storage.put(key, JSON.stringify({ dids, fetchedAt: Date.now() }));
   return dids;
 }
 
@@ -280,7 +266,7 @@ interface CheckResult {
   allowed: boolean;
 }
 
-async function checkAccess(storage: DurableObjectStorage, did: string): Promise<CheckResult> {
+async function checkAccess(storage: KVNamespace, did: string): Promise<CheckResult> {
   if (did === ANCHOR_DID) return { did, member: true, adjacent: true, allowed: true };
   const anchorMoots = await getAnchorMoots(storage);
   if (anchorMoots.has(did)) return { did, member: true, adjacent: true, allowed: true };
@@ -289,7 +275,7 @@ async function checkAccess(storage: DurableObjectStorage, did: string): Promise<
   return { did, member: false, adjacent, allowed: adjacent };
 }
 
-// --- Wiki Durable Object ----------------------------------------------------
+// --- KV-backed wiki index ---------------------------------------------------
 //
 // One singleton instance holds the whole encyclopedia. Storage keys:
 //   article:<slug>            current title/content/summary + who/when
@@ -328,7 +314,7 @@ interface Article {
 // what clusterpedia is, who buildthis is, how this came to be, what a
 // simcluster is, what an LLM is. These aren't user edits: there's no PDS
 // record to verify, since nobody signed one. So they're written straight
-// into the Wiki's storage the first time the Durable Object wakes up,
+// into the Wiki's storage the first time the Worker handles a request,
 // attributed to buildthis's own (public, non-secret) DID, and — critically —
 // only when the slug doesn't already exist, so a real article never gets
 // clobbered by a reseed.
@@ -617,14 +603,25 @@ const SEED_ARTICLES: SeedArticle[] = [
   },
 ];
 
-export class Wiki {
-  private state: DurableObjectState;
-  private storage: DurableObjectStorage;
+export class WikiStore {
+  private storage: KVNamespace;
   private seedChecked = false;
 
-  constructor(state: DurableObjectState) {
-    this.state = state;
-    this.storage = state.storage;
+  constructor(storage: KVNamespace) {
+    this.storage = storage;
+  }
+
+  private async listValues<T>(prefix: string, reverse = false): Promise<T[]> {
+    const names: string[] = [];
+    let cursor = "";
+    do {
+      const page = await this.storage.list({ prefix, cursor: cursor || undefined, limit: 1000 });
+      names.push(...page.keys.map((key) => key.name));
+      cursor = page.list_complete ? "" : page.cursor || "";
+    } while (cursor);
+    names.sort((a, b) => (reverse ? b.localeCompare(a) : a.localeCompare(b)));
+    const values = await Promise.all(names.map((name) => this.storage.get<T>(name, "json")));
+    return values.filter((value) => value !== null) as T[];
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -675,10 +672,10 @@ export class Wiki {
     const now = Date.now();
     for (const seed of SEED_ARTICLES) {
       const artKey = `article:${seed.slug}`;
-      if (await this.storage.get(artKey)) continue;
+      if (await this.storage.get(artKey, "json")) continue;
       const createdAt = new Date(now).toISOString();
       const uri = `system:seed:${seed.slug}`;
-      await this.storage.put(`rev:${seed.slug}:${pad(1)}`, {
+      await this.storage.put(`rev:${seed.slug}:${pad(1)}`, JSON.stringify({
         idx: 1,
         did: SEED_DID,
         handle: SEED_HANDLE,
@@ -687,7 +684,7 @@ export class Wiki {
         summary: seed.summary,
         uri,
         createdAt,
-      });
+      }));
       const article: Article = {
         slug: seed.slug,
         title: seed.title,
@@ -698,22 +695,21 @@ export class Wiki {
         updatedAt: createdAt,
         updatedBy: { did: SEED_DID, handle: SEED_HANDLE },
       };
-      await this.storage.put(artKey, article);
-      await this.storage.put(`contrib:${SEED_DID}:${padTs(now)}:seed-${seed.slug}`, {
+      await this.storage.put(artKey, JSON.stringify(article));
+      await this.storage.put(`contrib:${SEED_DID}:${padTs(now)}:seed-${seed.slug}`, JSON.stringify({
         type: "edit",
         slug: seed.slug,
         title: seed.title,
         summary: seed.summary,
         uri,
         createdAt,
-      });
+      }));
     }
     this.seedChecked = true;
   }
 
   private async listArticles() {
-    const map = await this.storage.list<Article>({ prefix: "article:" });
-    const arr = [...map.values()];
+    const arr = await this.listValues<Article>("article:");
     arr.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return {
       articles: arr.map((a) => ({
@@ -728,16 +724,16 @@ export class Wiki {
   }
 
   private async getArticle(slug: string) {
-    const a = await this.storage.get<Article>(`article:${slug}`);
+    const a = await this.storage.get<Article>(`article:${slug}`, "json");
     if (!a) return { exists: false, slug };
     return { exists: true, ...a };
   }
 
   private async getHistory(slug: string) {
-    const map = await this.storage.list<any>({ prefix: `rev:${slug}:`, reverse: true });
+    const revisions = await this.listValues<any>(`rev:${slug}:`, true);
     return {
       slug,
-      revisions: [...map.values()].map((r) => ({
+      revisions: revisions.map((r) => ({
         idx: r.idx,
         did: r.did,
         handle: r.handle,
@@ -751,14 +747,13 @@ export class Wiki {
 
   private async getRevision(slug: string, idx: number) {
     if (!Number.isFinite(idx) || idx < 1) return { error: "bad revision index" };
-    const r = await this.storage.get<any>(`rev:${slug}:${pad(idx)}`);
+    const r = await this.storage.get<any>(`rev:${slug}:${pad(idx)}`, "json");
     if (!r) return { error: "no such revision" };
     return r;
   }
 
   private async getTalk(slug: string) {
-    const map = await this.storage.list<any>({ prefix: `talk:${slug}:` });
-    return { slug, posts: [...map.values()] };
+    return { slug, posts: await this.listValues<any>(`talk:${slug}:`) };
   }
 
   private async getUser(handleOrDid: string) {
@@ -782,7 +777,7 @@ export class Wiki {
     } catch {}
     if (profile?.handle) handle = profile.handle;
 
-    const map = await this.storage.list<any>({ prefix: `contrib:${did}:`, reverse: true });
+    const contributions = await this.listValues<any>(`contrib:${did}:`, true);
     const access = await checkAccess(this.storage, did);
     return {
       did,
@@ -790,7 +785,7 @@ export class Wiki {
       displayName: profile?.displayName || handle,
       avatar: profile?.avatar || "",
       access,
-      contributions: [...map.values()],
+      contributions,
     };
   }
 
@@ -798,7 +793,7 @@ export class Wiki {
     const body = (await request.json().catch(() => null)) as { uri?: string } | null;
     if (!body?.uri) return json({ error: "missing uri" }, 400);
 
-    if (await this.storage.get(`seen:${body.uri}`)) return json({ error: "already applied" }, 409);
+    if (await this.storage.get(`seen:${body.uri}`, "json")) return json({ error: "already applied" }, 409);
 
     const verified = await verifyOwnRecord(body.uri, REV_COLLECTION);
     if ("error" in verified) return json(verified, verified.status);
@@ -819,11 +814,11 @@ export class Wiki {
     if (!access.allowed) return json({ error: "not cleared by the Simcluster Checker", access }, 403);
 
     const artKey = `article:${slug}`;
-    const existing = await this.storage.get<Article>(artKey);
+    const existing = await this.storage.get<Article>(artKey, "json");
     const idx = (existing?.revCount || 0) + 1;
     const createdAt = new Date(validAt).toISOString();
 
-    await this.storage.put(`rev:${slug}:${pad(idx)}`, {
+    await this.storage.put(`rev:${slug}:${pad(idx)}`, JSON.stringify({
       idx,
       did,
       handle,
@@ -832,7 +827,7 @@ export class Wiki {
       summary,
       uri: body.uri,
       createdAt,
-    });
+    }));
     const article: Article = {
       slug,
       title,
@@ -843,16 +838,16 @@ export class Wiki {
       updatedAt: createdAt,
       updatedBy: { did, handle },
     };
-    await this.storage.put(artKey, article);
-    await this.storage.put(`seen:${body.uri}`, true);
-    await this.storage.put(`contrib:${did}:${padTs(validAt)}:${idx}`, {
+    await this.storage.put(artKey, JSON.stringify(article));
+    await this.storage.put(`seen:${body.uri}`, "true");
+    await this.storage.put(`contrib:${did}:${padTs(validAt)}:${idx}`, JSON.stringify({
       type: "edit",
       slug,
       title,
       summary,
       uri: body.uri,
       createdAt,
-    });
+    }));
 
     return json({ ok: true, slug, idx, access });
   }
@@ -861,7 +856,7 @@ export class Wiki {
     const body = (await request.json().catch(() => null)) as { uri?: string } | null;
     if (!body?.uri) return json({ error: "missing uri" }, 400);
 
-    if (await this.storage.get(`seen:${body.uri}`)) return json({ error: "already applied" }, 409);
+    if (await this.storage.get(`seen:${body.uri}`, "json")) return json({ error: "already applied" }, 409);
 
     const verified = await verifyOwnRecord(body.uri, TALK_COLLECTION);
     if ("error" in verified) return json(verified, verified.status);
@@ -876,19 +871,19 @@ export class Wiki {
     if (Date.now() - validAt > MAX_RECORD_AGE_MS)
       return json({ error: "that record is too old to apply — write a fresh one" }, 400);
 
-    const map = await this.storage.list<any>({ prefix: `talk:${slug}:` });
-    const idx = map.size + 1;
+    const posts = await this.listValues<any>(`talk:${slug}:`);
+    const idx = posts.length + 1;
     const createdAt = new Date(validAt).toISOString();
     const post = { idx, did, handle, body: text, uri: body.uri, createdAt };
-    await this.storage.put(`talk:${slug}:${pad(idx)}`, post);
-    await this.storage.put(`seen:${body.uri}`, true);
-    await this.storage.put(`contrib:${did}:${padTs(validAt)}:${idx}`, {
+    await this.storage.put(`talk:${slug}:${pad(idx)}`, JSON.stringify(post));
+    await this.storage.put(`seen:${body.uri}`, "true");
+    await this.storage.put(`contrib:${did}:${padTs(validAt)}:${idx}`, JSON.stringify({
       type: "talk",
       slug,
       summary: truncate(text, 120),
       uri: body.uri,
       createdAt,
-    });
+    }));
 
     return json({ ok: true, slug, idx });
   }
