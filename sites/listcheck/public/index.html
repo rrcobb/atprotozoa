@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>listcheck — browse a handle's followers or following, check blocklist status one at a time</title>
+    <meta name="description" content="Enter a Bluesky handle, browse who follows them or who they follow, and click anyone to check whether either side blocks the other via a subscribed moderation list." />
+    <meta property="og:title" content="listcheck — blocklist status, one relationship at a time" />
+    <meta property="og:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other via a subscribed blocklist." />
+    <meta property="og:image" content="https://listcheck.bisks.net/og.png" />
+    <meta property="og:url" content="https://listcheck.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="listcheck — blocklist status, one relationship at a time" />
+    <meta name="twitter:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other via a subscribed blocklist." />
+    <meta name="twitter:image" content="https://listcheck.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#160e0e; --panel:#221515; --panel2:#2b1a1a; --ink:#f7ecec;
+        --muted:#bd9494; --faint:#3d2323; --accent:#f4735a; --accent2:#ff9d6b;
+        --ok:#7bc98f; --bad:#ff6b6b;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #331b18, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:780px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.5rem; max-width:62ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.85rem; }
+      input { flex:1; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); }
+      input::placeholder { color:#7a5555; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#2a0e08; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; }
+      .status.err { color:var(--bad); }
+      .examples { color:var(--muted); font-size:0.82rem; margin-bottom:1.4rem; }
+      .examples a { cursor:pointer; }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .profile { display:none; align-items:center; gap:0.75rem; margin:0.4rem 0 1rem;
+        padding-bottom:1.1rem; border-bottom:1px solid var(--faint); }
+      .profile.show { display:flex; }
+      .profile img { width:52px; height:52px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .profile .pname { font-weight:800; font-size:1.02rem; line-height:1.25; }
+      .profile .phandle { color:var(--muted); font-size:0.85rem; }
+      .profile .pcount { margin-left:auto; text-align:right; color:var(--muted);
+        font-size:0.76rem; font-family:var(--mono); line-height:1.4; }
+
+      .tabs { display:none; gap:0.4rem; margin-bottom:1rem; }
+      .tabs.show { display:flex; }
+      .tab { font:inherit; font-size:0.82rem; font-weight:700; padding:0.45rem 0.9rem;
+        border-radius:9px; border:1px solid var(--faint); background:var(--panel);
+        color:var(--muted); cursor:pointer; }
+      .tab.active { background:var(--accent); border-color:var(--accent); color:#2a0e08; }
+      .tab:disabled { opacity:0.5; cursor:default; }
+
+      .resultWrap { display:none; }
+      .resultWrap.show { display:block; }
+
+      .wallhead { display:flex; align-items:baseline; justify-content:space-between;
+        margin:0 0 0.7rem; }
+      .wallhead h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;
+        color:var(--muted); margin:0; font-weight:700; }
+      .wallhead .cap { color:var(--muted); font-size:0.74rem; font-family:var(--mono); }
+
+      .wall { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1.2rem; }
+      .row { background:var(--panel); border:1px solid var(--faint); border-radius:14px;
+        padding:0.65rem 0.8rem; display:flex; flex-direction:column; gap:0.5rem; }
+      .rowmain { display:flex; align-items:center; gap:0.65rem; }
+      .rowmain img { width:40px; height:40px; border-radius:50%; background:var(--faint);
+        object-fit:cover; flex:none; }
+      .rowinfo { min-width:0; flex:1; }
+      .rname { font-weight:700; font-size:0.86rem; color:var(--ink); overflow:hidden;
+        text-overflow:ellipsis; white-space:nowrap; }
+      .rhandle { font-size:0.76rem; color:var(--muted); overflow:hidden;
+        text-overflow:ellipsis; white-space:nowrap; }
+      .rlink { font-size:0.72rem; color:var(--muted); flex:none; }
+
+      .checkbtn { flex:none; font:inherit; font-family:var(--mono); font-size:0.72rem;
+        font-weight:700; padding:0.4rem 0.65rem; border-radius:8px; border:1px solid var(--faint);
+        background:var(--panel2); color:var(--muted); cursor:pointer; }
+      .checkbtn:hover:not(:disabled) { color:var(--ink); border-color:var(--accent); }
+      .checkbtn:disabled { opacity:0.6; cursor:default; }
+
+      .checkresult { display:none; font-size:0.78rem; font-family:var(--mono); line-height:1.55;
+        padding:0.55rem 0.7rem; border-radius:9px; background:var(--panel2); border:1px solid var(--faint); }
+      .checkresult.show { display:block; }
+      .checkresult .hit { color:var(--bad); }
+      .checkresult .clear { color:var(--ok); }
+      .checkresult a { color:var(--accent); }
+
+      .note { margin-top:2.2rem; color:var(--muted); font-size:0.78rem; line-height:1.7; }
+      .note b { color:var(--ink); }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🧷 listcheck</h1>
+      <p class="sub">
+        Enter a handle to browse <b>who follows them</b> or <b>who they
+        follow</b>. Click anyone in the list to check, just for that one
+        relationship, whether either side blocks the other through a
+        moderation list they subscribe to.
+      </p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. buildthis.bisks.net" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">browse</button>
+      </form>
+      <div class="status" id="status"></div>
+      <div class="examples">try:
+        <a data-h="buildthis.bisks.net">buildthis.bisks.net</a> ·
+        <a data-h="bsky.app">bsky.app</a> ·
+        <a data-h="pfrazee.com">pfrazee.com</a>
+      </div>
+
+      <div class="profile" id="profile">
+        <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+        <div>
+          <div class="pname" id="pname"></div>
+          <div class="phandle" id="phandle"></div>
+        </div>
+        <div class="pcount" id="pcount"></div>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab active" id="tabFollowers" type="button">followers</button>
+        <button class="tab" id="tabFollowing" type="button">following</button>
+      </div>
+
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="resultWrap" id="resultWrap">
+        <div class="wallhead">
+          <h3 id="wallhead3">followers</h3>
+          <span class="cap" id="wallcap"></span>
+        </div>
+        <div class="wall" id="wall"></div>
+      </div>
+
+      <p class="note">
+        Reads only public data: the anonymous AppView (<code>getFollowers</code>,
+        <code>getFollows</code>, <code>getList</code>) plus each account's own
+        public repo records (<code>app.bsky.graph.listblock</code>, read
+        straight off its PDS). <b>Every block-status check is deliberately
+        one relationship at a time</b> — there's no button that sweeps the
+        whole list at once. A blunter version of this (mutuals × block lists,
+        computed in bulk) was built and then retired by its own requester as
+        more useful for harassment than curiosity; this is the narrower shape
+        that's left. Capped at 500 followers/following (5 pages) so a huge
+        account doesn't turn one browse into thousands of requests.
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/segyges.bsky.social">@segyges.bsky.social</a></p>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveDid, getProfile } from "./lib/identity.js";
+      import { fetchConnections } from "./lib/graph.js";
+      import { checkBlockPair, listWebUrl } from "./lib/blocklists.js";
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+
+      const form = document.getElementById("form");
+      const handleEl = document.getElementById("handle");
+      const statusEl = document.getElementById("status");
+      const go = document.getElementById("go");
+      const profile = document.getElementById("profile");
+      const tabs = document.getElementById("tabs");
+      const tabFollowers = document.getElementById("tabFollowers");
+      const tabFollowing = document.getElementById("tabFollowing");
+      const progwrap = document.getElementById("progwrap");
+      const progbarfill = document.getElementById("progbarfill");
+      const proglabel = document.getElementById("proglabel");
+      const resultWrap = document.getElementById("resultWrap");
+      const wallhead3 = document.getElementById("wallhead3");
+      const wall = document.getElementById("wall");
+      const wallcap = document.getElementById("wallcap");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      let subject = null; // { did, prof } — the entered handle
+      const cache = { followers: null, following: null };
+
+      function renderProfile(prof) {
+        document.getElementById("pavatar").src = prof.avatar || "";
+        document.getElementById("pname").textContent = prof.displayName || prof.handle || "";
+        document.getElementById("phandle").textContent = "@" + (prof.handle || "");
+        document.getElementById("pcount").innerHTML =
+          `${prof.followersCount.toLocaleString()} followers<br>${prof.followingCount.toLocaleString()} following`;
+        profile.classList.add("show");
+      }
+
+      function rowHTML(p) {
+        return `
+          <div class="row" data-did="${esc(p.did)}">
+            <div class="rowmain">
+              <img src="${esc(p.avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy" />
+              <div class="rowinfo">
+                <div class="rname">${esc(p.displayName)}</div>
+                <div class="rhandle">@${esc(p.handle)}</div>
+              </div>
+              <a class="rlink" href="https://bsky.app/profile/${esc(p.handle)}" target="_blank" rel="noopener">profile ↗</a>
+              <button class="checkbtn" type="button">check block status</button>
+            </div>
+            <div class="checkresult"></div>
+          </div>`;
+      }
+
+      function renderList(direction, list, prof) {
+        wallhead3.textContent = direction;
+        wall.innerHTML = list.map(rowHTML).join("");
+        const total = direction === "followers" ? prof.followersCount : prof.followingCount;
+        wallcap.textContent = list.length < total
+          ? `showing ${list.length.toLocaleString()} of ${total.toLocaleString()}`
+          : `all ${list.length.toLocaleString()}`;
+        resultWrap.classList.add("show");
+      }
+
+      async function loadDirection(direction) {
+        tabFollowers.classList.toggle("active", direction === "followers");
+        tabFollowing.classList.toggle("active", direction === "following");
+        if (cache[direction]) {
+          renderList(direction, cache[direction], subject.prof);
+          return;
+        }
+        const count = direction === "followers" ? subject.prof.followersCount : subject.prof.followingCount;
+        if (count === 0) {
+          wallhead3.textContent = direction;
+          wall.innerHTML = "";
+          wallcap.textContent = "";
+          resultWrap.classList.add("show");
+          statusEl.textContent = `@${subject.prof.handle} has no ${direction} yet.`;
+          cache[direction] = [];
+          return;
+        }
+        tabFollowers.disabled = true;
+        tabFollowing.disabled = true;
+        progwrap.classList.add("show");
+        try {
+          const list = await fetchConnections(subject.did, direction, {
+            onStep: (msg) => { statusEl.textContent = msg; proglabel.textContent = msg; },
+          });
+          cache[direction] = list;
+          progwrap.classList.remove("show");
+          statusEl.textContent = "";
+          renderList(direction, list, subject.prof);
+        } catch (e) {
+          progwrap.classList.remove("show");
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't load that: " + e.message;
+        } finally {
+          tabFollowers.disabled = false;
+          tabFollowing.disabled = false;
+        }
+      }
+
+      wall.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".checkbtn");
+        if (!btn) return;
+        const row = btn.closest(".row");
+        const personDid = row.dataset.did;
+        const resultEl = row.querySelector(".checkresult");
+        const rhandle = row.querySelector(".rhandle").textContent;
+        btn.disabled = true;
+        btn.textContent = "checking…";
+        resultEl.classList.add("show");
+        resultEl.textContent = "reading subscribed lists on both sides…";
+        try {
+          const { aBlocksB, bBlocksA } = await checkBlockPair(subject.did, personDid);
+          const lines = [];
+          if (aBlocksB) {
+            const url = listWebUrl(aBlocksB.listUri);
+            lines.push(`<span class="hit">🚫 @${esc(subject.prof.handle)} blocks ${esc(rhandle)} via the list "${esc(aBlocksB.listName)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>`);
+          }
+          if (bBlocksA) {
+            const url = listWebUrl(bBlocksA.listUri);
+            lines.push(`<span class="hit">🚫 ${esc(rhandle)} blocks @${esc(subject.prof.handle)} via the list "${esc(bBlocksA.listName)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>`);
+          }
+          if (!lines.length) lines.push(`<span class="clear">no blocklist relationship found either direction.</span>`);
+          resultEl.innerHTML = lines.join("<br>");
+        } catch (e) {
+          resultEl.textContent = "couldn't check that: " + e.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "check again";
+        }
+      });
+
+      let busy = false;
+      async function run(rawHandle) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        profile.classList.remove("show");
+        tabs.classList.remove("show");
+        progwrap.classList.remove("show");
+        resultWrap.classList.remove("show");
+        wall.innerHTML = "";
+        cache.followers = null;
+        cache.following = null;
+
+        try {
+          statusEl.textContent = "resolving handle…";
+          const did = await resolveDid(rawHandle);
+          const prof = await getProfile(did);
+          subject = { did, prof };
+          renderProfile(prof);
+          tabs.classList.add("show");
+
+          const url = new URL(location.href);
+          url.searchParams.set("handle", prof.handle);
+          history.replaceState(null, "", url);
+
+          await loadDirection("followers");
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't load that: " + e.message;
+          progwrap.classList.remove("show");
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (handleEl.value.trim()) run(handleEl.value);
+      });
+      document.querySelectorAll(".examples a").forEach((el) =>
+        el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+
+      tabFollowers.addEventListener("click", () => { if (subject) loadDirection("followers"); });
+      tabFollowing.addEventListener("click", () => { if (subject) loadDirection("following"); });
+
+      const qp = new URLSearchParams(location.search).get("handle");
+      if (qp) { handleEl.value = qp; run(qp); }
+      else handleEl.focus();
+    </script>
+</body>
+</html>
