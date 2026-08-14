@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>numbergrid — a bingo board for every number you've seen</title>
+    <meta name="description" content="Sign in with atproto, add every number you spot in the wild, and watch the board grow into the next perfect square. Shows the smallest number you haven't seen yet." />
+    <meta property="og:title" content="numbergrid — a bingo board for every number you've seen" />
+    <meta property="og:description" content="Sign in with atproto, add every number you spot in the wild, and watch the board grow into the next perfect square." />
+    <meta property="og:image" content="https://numbergrid.bisks.net/og.png" />
+    <meta property="og:url" content="https://numbergrid.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="numbergrid — a bingo board for every number you've seen" />
+    <meta name="twitter:description" content="Sign in with atproto, add every number you spot in the wild, and watch the board grow into the next perfect square." />
+    <meta name="twitter:image" content="https://numbergrid.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#151009; --card:#fbf1da; --card2:#f4e6c6; --line:#d9c491;
+        --ink:#2c2013; --muted:#8a7654; --accent:#c0392b; --accent2:#e0685a;
+        --ok:#2f8f5b; --gold:#c99a2e;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"JetBrains Mono","SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #2c1f10, var(--bg));
+        color:#f2e6cf; font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:760px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent2); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:#c9b891; }
+
+      h1 { font-size:2.05rem; font-weight:900; letter-spacing:-0.02em; margin:1.1rem 0 0.3rem; }
+      .sub { color:#c9b891; font-size:0.94rem; margin:0 0 1.4rem; max-width:60ch; }
+      .sub b { color:#f2e6cf; }
+
+      .banner { display:none; background:#241a10; border:1px solid #4a3a20; border-radius:12px;
+        padding:0.7rem 0.9rem; font-size:0.84rem; color:#e4d3a9; margin-bottom:1.2rem; }
+      .banner.show { display:block; }
+      .banner a { color:var(--gold); font-weight:700; }
+
+      .authbox { background:#211609; border:1px solid #4a3820; border-radius:14px;
+        padding:1rem 1.1rem; margin-bottom:1.4rem; }
+      .authbox .row { display:flex; gap:0.55rem; }
+      .authbox input { flex:1; font:inherit; padding:0.6rem 0.7rem; border:1px solid #4a3820;
+        border-radius:10px; background:#171008; color:#f2e6cf; }
+      .authbox input::placeholder { color:#7a6743; }
+      .authbox input:focus { outline:2px solid var(--accent2); outline-offset:-1px; }
+      .btn { padding:0.6rem 1.05rem; border:0; border-radius:10px; background:var(--accent);
+        color:#fff2ea; font:inherit; font-weight:800; cursor:pointer; }
+      .btn:hover:not(:disabled) { background:var(--accent2); }
+      .btn:disabled { opacity:0.5; cursor:default; }
+      .btn.ghost { background:transparent; border:1px solid #4a3820; color:#e4d3a9; }
+      .btn.ghost:hover:not(:disabled) { border-color:var(--accent2); color:var(--accent2); }
+      .authbox .note { font-size:0.78rem; color:#8a7654; margin-top:0.55rem; }
+      .who { display:flex; align-items:center; gap:0.6rem; }
+      .who img { width:34px; height:34px; border-radius:50%; background:#4a3820; object-fit:cover; }
+      .who .name { font-weight:800; font-size:0.9rem; }
+      .who .signout { margin-left:auto; }
+
+      .addrow { display:none; gap:0.55rem; margin-top:0.7rem; }
+      .addrow.show { display:flex; }
+      .addrow input { flex:1; font:inherit; font-family:var(--mono); padding:0.6rem 0.7rem;
+        border:1px solid #4a3820; border-radius:10px; background:#171008; color:#f2e6cf; }
+
+      .status { color:#c9b891; font-size:0.85rem; min-height:1.3rem; margin:0.5rem 0 0.2rem; }
+      .status.err { color:#ff8a7a; }
+      .status.ok { color:#8fd9ac; }
+
+      .statline { display:flex; flex-wrap:wrap; gap:0.5rem 1.4rem; margin:0.2rem 0 1.3rem;
+        font-family:var(--mono); font-size:0.82rem; color:#c9b891; }
+      .statline b { color:var(--gold); font-size:0.95rem; }
+      .mexline { background:#241a10; border:1px solid #4a3820; border-left:3px solid var(--gold);
+        border-radius:0 10px 10px 0; padding:0.65rem 0.9rem; font-size:0.86rem; color:#e4d3a9;
+        margin-bottom:1.3rem; }
+      .mexline b { color:var(--gold); font-family:var(--mono); }
+
+      .board { background:var(--card); border-radius:18px; padding:1rem;
+        box-shadow:0 18px 40px -18px rgba(0,0,0,0.6); }
+      .boardhead { display:flex; align-items:center; justify-content:space-between;
+        color:var(--muted); font-family:var(--mono); font-size:0.72rem; letter-spacing:0.08em;
+        text-transform:uppercase; padding:0 0.15rem 0.6rem; }
+      .grid { display:grid; gap:6px; }
+      .cell { aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+        background:var(--card2); border:1px solid var(--line); border-radius:8px;
+        font-family:var(--mono); font-weight:800; color:var(--ink);
+        overflow:hidden; }
+      .cell .n { font-size:clamp(0.55rem, 3.6vw, 1.05rem); line-height:1; padding:0.15rem; text-align:center;
+        word-break:break-all; }
+      .cell.empty { background:transparent; border:1px dashed var(--line); color:var(--line); }
+      .cell.empty .n { font-size:0.9rem; color:var(--line); }
+      .cell.fresh { animation:daub 0.5s ease; }
+      @keyframes daub {
+        0% { transform:scale(0.4); background:var(--accent); }
+        60% { transform:scale(1.15); background:var(--accent2); }
+        100% { transform:scale(1); background:var(--card2); }
+      }
+      .empty2 { text-align:center; color:var(--muted); font-family:var(--mono); font-size:0.8rem;
+        padding:1.6rem 0.5rem; }
+
+      .sharebar { display:none; gap:0.55rem; flex-wrap:wrap; margin-top:1.2rem; }
+      .sharebar.show { display:flex; }
+      .sharebar a, .sharebar button { font:inherit; font-size:0.82rem; font-weight:700;
+        padding:0.55rem 0.9rem; border-radius:10px; border:1px solid #4a3820; background:#211609;
+        color:#e4d3a9; cursor:pointer; text-decoration:none; }
+      .sharebar a:hover, .sharebar button:hover { border-color:var(--accent2); color:var(--accent2); }
+      canvas#cardCanvas { display:none; }
+
+      .note { margin-top:2.2rem; color:#8a7654; font-size:0.78rem; line-height:1.7; }
+      .note b { color:#c9b891; }
+      code { font-family:var(--mono); font-size:0.9em; }
+      .credit { margin-top:0.8rem; color:#8a7654; font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🔢 numbergrid</h1>
+      <p class="sub">
+        Every number you've ever spotted, kept as a bingo board that grows
+        into the next perfect square as you add to it. Numbers live in
+        <b>your own PDS</b> — sign in, add one, and the board is yours to
+        share.
+      </p>
+
+      <div class="banner" id="viewBanner"></div>
+
+      <div class="authbox" id="authbox">
+        <div class="row" id="loginRow">
+          <input id="handleInput" placeholder="your handle, e.g. you.bsky.social" autocomplete="off"
+            autocapitalize="off" spellcheck="false" />
+          <button class="btn" id="loginBtn" type="button">sign in</button>
+        </div>
+        <div class="who" id="whoRow" style="display:none">
+          <img id="whoAvatar" alt="" referrerpolicy="no-referrer" />
+          <div class="name" id="whoName"></div>
+          <button class="btn ghost signout" id="signoutBtn" type="button">sign out</button>
+        </div>
+        <div class="addrow" id="addRow">
+          <input id="numberInput" type="number" min="0" step="1" inputmode="numeric"
+            placeholder="a number you just saw…" />
+          <button class="btn" id="addBtn" type="button">add to board</button>
+        </div>
+        <div class="note">
+          OAuth, scoped to only create <code>net.bisks.numbergrid.number</code> records in your repo —
+          this site can't read your posts, follow anyone, or touch anything else in your account.
+        </div>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="statline" id="statline" style="display:none">
+        <span>numbers: <b id="statCount">0</b></span>
+        <span>board: <b id="statSide">0×0</b></span>
+      </div>
+      <div class="mexline" id="mexline" style="display:none"></div>
+
+      <div class="board" id="boardWrap" style="display:none">
+        <div class="boardhead"><span id="boardLabel">board</span><span id="boardCap"></span></div>
+        <div class="grid" id="grid"></div>
+      </div>
+      <div class="empty2" id="emptyMsg" style="display:none"></div>
+
+      <div class="sharebar" id="sharebar">
+        <a id="shareBluesky" target="_blank" rel="noopener">share on bluesky</a>
+        <button id="shareSystem" type="button" style="display:none">share card</button>
+        <button id="downloadCard" type="button">download card</button>
+        <button id="copyLink" type="button">copy link</button>
+      </div>
+      <canvas id="cardCanvas" width="1200" height="630"></canvas>
+
+      <p class="note">
+        Reads are public: anyone's board (<code>numbergrid.bisks.net/board/&lt;handle&gt;</code>) is
+        viewable by reading <code>net.bisks.numbergrid.number</code> records straight off their
+        PDS, same as any other atproto record. Only <b>adding</b> a number needs you signed in; it
+        writes one small record to your own repo, never anyone else's. The "smallest number you
+        haven't seen" is the
+        <a href="https://en.wikipedia.org/wiki/Mex_(mathematics)" target="_blank" rel="noopener">mex</a>
+        of your set — a nod to <a href="https://bsky.app/profile/ponder.ooo" target="_blank" rel="noopener">@ponder.ooo</a>'s
+        question that kicked this off.
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/mensmachina.com">@mensmachina.com</a></p>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
