@@ -7,7 +7,15 @@
 // hand-kept in lockstep with lexicons/*.json (there's no server to run a
 // codegen step against).
 //
-// @typedef {{id: string, name: string, emoji: string, lat: number, lng: number}} Place
+// @typedef {{id: string, name: string, emoji: string, lat: string, lng: string}} Place
+// Place.lat/lng are strings on the wire (see lexicons/net.bisks.void.shout.json#place):
+// atproto's record data model has no float type, so a JS number fails
+// putRecord/createRecord for any non-integer coordinate — every curated
+// Place in public/lib/places.js is fractional, so this hits on essentially
+// every write. places.js keeps PLACES as JS numbers for its own map math;
+// placeForRecord() below converts to the wire (string) shape right before
+// a record is built. project() (places.js) accepts either, so reads of
+// already-ingested records don't need a separate parse step.
 // @typedef {{$type: "net.bisks.void.shout", text: string, place: Place, sourcePostUri?: string, createdAt: string}} ShoutRecord
 // @typedef {{$type: "net.bisks.void.echo", rootUri: string, parentUri: string, place: Place, createdAt: string}} EchoRecord
 // @typedef {{$type: "net.bisks.void.murmur", rootUri: string, parentUri: string, place: Place, text: string, createdAt: string}} MurmurRecord
@@ -67,10 +75,21 @@ export function truncateGraphemes(s, max) {
 // echo-cooldown, orphan-parent, self-vote) live in ingest.js, which has the
 // rest of the ingested set to check against.
 
+// lat/lng arrive as strings on real records (see the Place typedef above)
+// but a caller building one in memory (PLACES entries, test fixtures) may
+// still hand in a JS number — accept either, reject anything that doesn't
+// parse to a finite in-range coordinate.
+function coord(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && v.trim() !== "") return Number(v);
+  return NaN;
+}
+
 export function isValidPlace(place) {
+  if (!place || typeof place !== "object") return false;
+  const lat = coord(place.lat);
+  const lng = coord(place.lng);
   return (
-    place &&
-    typeof place === "object" &&
     typeof place.id === "string" &&
     place.id.length > 0 &&
     place.id.length <= 64 &&
@@ -80,15 +99,20 @@ export function isValidPlace(place) {
     typeof place.emoji === "string" &&
     place.emoji.length > 0 &&
     place.emoji.length <= 16 &&
-    typeof place.lat === "number" &&
-    Number.isFinite(place.lat) &&
-    place.lat >= -90 &&
-    place.lat <= 90 &&
-    typeof place.lng === "number" &&
-    Number.isFinite(place.lng) &&
-    place.lng >= -180 &&
-    place.lng <= 180
+    Number.isFinite(lat) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    Number.isFinite(lng) &&
+    lng >= -180 &&
+    lng <= 180
   );
+}
+
+/** Convert a Place (possibly with numeric lat/lng, e.g. straight out of
+ * PLACES) into the wire shape a record actually accepts. Idempotent: safe
+ * to call on a Place that's already string-coordinate. */
+export function placeForRecord(place) {
+  return { id: place.id, name: place.name, emoji: place.emoji, lat: String(place.lat), lng: String(place.lng) };
 }
 
 function isAtUri(v) {

@@ -81,9 +81,16 @@ export function searchPlaces(query, extra = []) {
 // map div. worldmap-data.js's land silhouette is projected with this exact
 // same formula, so every pin and route lands on real coastline, not a
 // blank grid.
+//
+// Real records carry lat/lng as strings (atproto's record data model has no
+// float type — see lexicons/net.bisks.void.shout.json#place), while PLACES
+// above keeps them as JS numbers for local map math. Accept either so
+// callers don't need to know which they've got.
 export function project(lat, lng) {
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
   return {
-    xPct: ((lng + 180) / 360) * 100,
-    yPct: ((90 - lat) / 180) * 100,
+    xPct: ((lngNum + 180) / 360) * 100,
+    yPct: ((90 - latNum) / 180) * 100,
   };
 }

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   isValidPlace,
+  placeForRecord,
   validateRecord,
   graphemeLength,
   truncateGraphemes,
@@ -23,20 +24,41 @@ import {
   SHOUT_MAX_GRAPHEMES,
 } from "../public/lib/voidlogic.mjs";
 
+// Curated places (public/lib/places.js) carry lat/lng as JS numbers; real
+// records carry them as strings (atproto's record data model has no float
+// type — a non-integer JS number fails putRecord/createRecord entirely).
+// isValidPlace must accept both; PLACE_WIRE is what actually round-trips a
+// PDS.
 const PLACE = { id: "tokyo", name: "Tokyo", emoji: "🗼", lat: 35.6762, lng: 139.6503 };
+const PLACE_WIRE = { id: "tokyo", name: "Tokyo", emoji: "🗼", lat: "35.6762", lng: "139.6503" };
 
 // ---- place / grapheme helpers ------------------------------------------------
 
-test("isValidPlace accepts a real place", () => {
+test("isValidPlace accepts a real place with numeric lat/lng", () => {
   assert.equal(isValidPlace(PLACE), true);
+});
+test("isValidPlace accepts a real place with string lat/lng (the actual wire shape)", () => {
+  assert.equal(isValidPlace(PLACE_WIRE), true);
 });
 test("isValidPlace rejects out-of-range coordinates", () => {
   assert.equal(isValidPlace({ ...PLACE, lat: 200 }), false);
   assert.equal(isValidPlace({ ...PLACE, lng: -400 }), false);
+  assert.equal(isValidPlace({ ...PLACE_WIRE, lat: "200" }), false);
+});
+test("isValidPlace rejects non-numeric lat/lng strings", () => {
+  assert.equal(isValidPlace({ ...PLACE_WIRE, lat: "not-a-number" }), false);
 });
 test("isValidPlace rejects missing fields", () => {
   assert.equal(isValidPlace({ id: "x" }), false);
-  assert.ok(!isValidPlace(null)); // short-circuits to the falsy input itself, not strictly `false`
+  assert.ok(!isValidPlace(null));
+});
+
+test("placeForRecord converts numeric lat/lng to strings (the putRecord-safe shape)", () => {
+  const wire = placeForRecord(PLACE);
+  assert.deepEqual(wire, PLACE_WIRE);
+});
+test("placeForRecord is idempotent on an already-string-coordinate place", () => {
+  assert.deepEqual(placeForRecord(PLACE_WIRE), PLACE_WIRE);
 });
 
 test("graphemeLength counts emoji as one grapheme, not UTF-16 units", () => {

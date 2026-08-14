@@ -65,3 +65,7 @@ test("project keeps mapping every valid lat/lng — including a discovered place
   assert.ok(xPct >= 0 && xPct <= 100);
   assert.ok(yPct >= 0 && yPct <= 100);
 });
+
+test("project accepts string lat/lng — the actual shape of an ingested record's place", () => {
+  assert.deepEqual(project("12.3", "45.6"), project(12.3, 45.6));
+});
