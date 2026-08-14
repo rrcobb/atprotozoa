@@ -346,6 +346,14 @@ export async function refreshSession(session) {
     jwtExp(tokens.access_token) ||
     Math.floor(Date.now() / 1000) + (tokens.expires_in || 3600);
   session.dpopNonce = res.headers.get("DPoP-Nonce") || session.dpopNonce;
+  // A token refresh happens roughly once an hour of active use — piggyback a
+  // handle re-resolution here so a handle change eventually reaches the
+  // signed-in user's own header instead of staying stale until they
+  // manually re-login. Best-effort: never fail a refresh over this.
+  try {
+    const freshHandle = await resolveHandleForDid(session.did);
+    if (freshHandle) session.handle = freshHandle;
+  } catch {}
   await idbSet("current", session);
   return session;
 }

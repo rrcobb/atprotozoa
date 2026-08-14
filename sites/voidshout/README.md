@@ -118,3 +118,17 @@ carries its own real lat/lng) but was invisible in `/place/`'s search grid.
 Fixed — `discoveredPlaces()` in `public/lib/places.js` surfaces any place
 with real activity that isn't curated, tagged "found in the wild" in the
 grid, and `searchPlaces()` matches it by name/emoji/id like any other Place.
+
+Also previously listed: the Home feed (`/`) hardcoded every card's `hidden`
+flag to `false`, so a Shout voted to ≤ -5 kept showing on the front page
+with no hidden badge even though `/map/` and `/place/` correctly tagged it.
+Fixed — `/` now computes `isHidden(score)` per root like every other page.
+Echo/Murmur cooldown (60s) was enforced only inside `ingest.js`, so a rapid
+same-user re-carry wrote a real record to the PDS that got silently rejected
+after the fact, with the form closing as if it had worked. Fixed —
+`/shout/`'s carry form now pre-checks `cooldownOk` before writing, and
+surfaces a message if a race still gets rejected server-side. A signed-in
+user's own cached `handle` was resolved once at login and never refreshed,
+so it went stale forever after a handle change (profile pages for *other*
+DIDs already re-resolved correctly). Fixed — `refreshSession()` in
+`public/lib/oauth.js` now re-resolves the handle on every token refresh.

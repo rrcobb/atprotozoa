@@ -34,7 +34,7 @@ import { startIngest, ingestOne } from "/lib/ingest.js";
 import * as store from "/lib/store.js";
 import { deriveState, buildTree, flattenTree } from "/lib/feed.js";
 import { esc, timeAgo, canonPostHtml, CARD_STYLE } from "/lib/render.js";
-import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength } from "/lib/voidlogic.mjs";
+import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength, cooldownOk, ECHO_COOLDOWN_MS, COLLECTIONS } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { loadDemoRoots } from "/lib/demo.js";
 import { fetchCanonicalPosts } from "/lib/bskypost.js";
@@ -103,6 +103,19 @@ async function fullState() {
   return deriveState(await store.allRecords());
 }
 
+// Mirrors the echo-cooldown check ingest.js runs server-side (voidlogic's
+// cooldownOk over this author's other carries on the same root) so the UI
+// can refuse a same-user rapid re-echo BEFORE writing to the PDS, instead of
+// writing an orphaned record that ingest.js silently rejects afterward.
+async function lastCarryAtMsFor(did, rootUri) {
+  const mine = await store.recordsByDid(did);
+  const priorCarries = mine.filter(
+    (r) => (r.collection === COLLECTIONS.echo || r.collection === COLLECTIONS.murmur) && r.value.rootUri === rootUri,
+  );
+  if (!priorCarries.length) return undefined;
+  return Math.max(...priorCarries.map((r) => Date.parse(r.value.createdAt)));
+}
+
 let myVotes = new Map(); // subjectUri -> value, for the signed-in voter
 async function loadMyVotes() {
   if (!session) return;
@@ -151,6 +164,12 @@ async function castVote(subjectUri, value) {
 async function submitCarry(collection, parentUri, place, text) {
   const { pds, did } = await pdsAndDid();
   const now = Date.now();
+  const lastCarryAt = await lastCarryAtMsFor(did, rootUri);
+  if (!cooldownOk(lastCarryAt, now)) {
+    const waitS = Math.ceil((ECHO_COOLDOWN_MS - (now - lastCarryAt)) / 1000);
+    alert(`you already carried this thread recently — wait ${waitS}s before carrying it again.`);
+    return false;
+  }
   const rkey = await rkeyForCarry(collection, did, parentUri, place.id, now);
   const record = {
     $type: `net.bisks.void.${collection}`,
@@ -169,11 +188,19 @@ async function submitCarry(collection, parentUri, place, text) {
     const body = await res.text().catch(() => "");
     if (!(res.status === 400 && /already exists/i.test(body))) {
       alert("carry failed: " + body.slice(0, 200));
-      return;
+      return false;
     }
   }
-  await ingestOne(`net.bisks.void.${collection}`, did, rkey, record);
+  const committed = await ingestOne(`net.bisks.void.${collection}`, did, rkey, record);
+  if (!committed) {
+    // Wrote to the PDS but ingest.js's own cross-record check rejected it
+    // anyway (e.g. a concurrent carry from another tab beat the precheck
+    // above) — the record is real but excluded from the Void; say so rather
+    // than silently closing the form as if it landed.
+    alert("that carry was recorded on your PDS but rejected by the Void's rules — check /audit/ for why.");
+  }
   await rerender();
+  return true;
 }
 
 function placePickerHtml(idPrefix) {
@@ -277,7 +304,8 @@ function wireActions() {
         return alert(`murmur needs a reaction, ≤${MURMUR_MAX_GRAPHEMES} characters`);
       }
       btn.disabled = true;
-      await submitCarry(kind, btn.dataset.uri, place, text);
+      const rerendered = await submitCarry(kind, btn.dataset.uri, place, text);
+      if (!rerendered) btn.disabled = false; // rerender() would've replaced this button anyway; re-enable on early-return paths
     });
   });
 }
