@@ -7,22 +7,23 @@
 
 const pdsCache = new Map(); // did -> serviceEndpoint | null
 
-export async function resolvePds(did) {
+export async function resolvePds(did, signal) {
   if (pdsCache.has(did)) return pdsCache.get(did);
   let endpoint = null;
   try {
     let doc;
     if (did.startsWith("did:web:")) {
       const host = decodeURIComponent(did.slice("did:web:".length)).replace(/:/g, "/");
-      doc = await (await fetch(`https://${host}/.well-known/did.json`)).json();
+      doc = await (await fetch(`https://${host}/.well-known/did.json`, { signal })).json();
     } else {
-      doc = await (await fetch(`https://plc.directory/${encodeURIComponent(did)}`)).json();
+      doc = await (await fetch(`https://plc.directory/${encodeURIComponent(did)}`, { signal })).json();
     }
     const svc = (doc.service || []).find(
       (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer",
     );
     endpoint = (svc && svc.serviceEndpoint) || null;
   } catch (_) {
+    if (signal && signal.aborted) throw new DOMException("scan cancelled", "AbortError");
     endpoint = null;
   }
   pdsCache.set(did, endpoint);

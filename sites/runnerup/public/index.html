@@ -395,7 +395,7 @@ function setStatus(msg, kind) {
 }
 
 function shareUrlFor(handle) {
-  return "https://runnerup.bisks.net/s/" + encodeURIComponent(handle);
+  return "https://runnerup.bisks.net/?h=" + encodeURIComponent(handle);
 }
 
 function setShare(handle) {
@@ -446,11 +446,8 @@ let lastKnownDids = new Set();
 
 async function loadClimb(highlightDid) {
   try {
-    const res = await fetch("/api/podium");
-    if (!res.ok) throw new Error("podium fetch failed");
-    const data = await res.json();
-    const entries = data.entries || [];
-    els.climbCount.textContent = String(data.total || entries.length);
+    const entries = JSON.parse(localStorage.getItem("runnerup-climbers") || "[]");
+    els.climbCount.textContent = String(entries.length);
     els.climbList.innerHTML = "";
     if (!entries.length) {
       els.climbList.innerHTML = '<div class="climb-empty">nobody\'s climbing yet. be the first to fight for 3rd.</div>';
@@ -469,13 +466,13 @@ loadClimb();
 
 async function boost(did) {
   try {
-    const res = await fetch("/api/boost", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ did, voterId: getVoterId() }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't boost that one");
+    const entries = JSON.parse(localStorage.getItem("runnerup-climbers") || "[]");
+    const entry = entries.find((e) => e.did === did);
+    if (!entry) throw new Error("no such climber");
+    const voter = getVoterId() + ":" + did;
+    const voters = JSON.parse(localStorage.getItem("runnerup-votes") || "[]");
+    const data = { entry, boosted: !voters.includes(voter) };
+    if (data.boosted) { voters.push(voter); entry.votes++; localStorage.setItem("runnerup-votes", JSON.stringify(voters.slice(-5000))); localStorage.setItem("runnerup-climbers", JSON.stringify(entries)); }
     if (data.boosted === false) {
       setStatus("you've already boosted them.", "err");
     } else {
@@ -507,17 +504,17 @@ async function joinClimb(rawHandle, boast) {
       did = r.did;
     }
 
-    const res = await fetch("/api/join", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ did, boast }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't join the climb");
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    const entries = JSON.parse(localStorage.getItem("runnerup-climbers") || "[]");
+    let data = entries.find((e) => e.did === did);
+    if (!data) { data = { did, handle: profile.handle, displayName: profile.displayName || "", avatar: profile.avatar || "", boast: boast.trim().slice(0, 140), votes: 0, joinedAt: Date.now() }; entries.push(data); }
+    else if (boast.trim()) data.boast = boast.trim().slice(0, 140);
+    entries.sort((a, b) => b.votes - a.votes || a.joinedAt - b.joinedAt);
+    localStorage.setItem("runnerup-climbers", JSON.stringify(entries.slice(0, 200)));
 
-    setStatus(`@${data.entry.handle} is climbing.`, "ok");
-    setShare(data.entry.handle);
-    await loadClimb(data.entry.did);
+    setStatus(`@${data.handle} is climbing.`, "ok");
+    setShare(data.handle);
+    await loadClimb(data.did);
     els.input.value = "";
     els.boast.value = "";
   } catch (err) {
@@ -532,10 +529,10 @@ els.form.addEventListener("submit", (e) => {
   joinClimb(els.input.value, els.boast.value);
 });
 
-// /s/<handle> — jump straight to whoever this share link is about, if they're
+// ?h=<handle> — jump straight to whoever this share link is about, if they're
 // already climbing. It never joins on load; joining only ever happens from
 // this page's own form, so a shared link can't quietly enter someone on visit.
-const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const pathHandle = new URLSearchParams(location.search).get("h");
 if (pathHandle) {
   const target = decodeURIComponent(pathHandle).toLowerCase();
   setShare(target);

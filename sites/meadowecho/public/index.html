@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>meadowecho — a live echo of @fromthewestmeadow.com's last 100 posts</title>
+    <title>meadowecho — local echoes from the open firehose</title>
     <meta
       name="description"
-      content="Watches the open Bluesky firehose for posts that read as semantically close to @fromthewestmeadow.com's last 100 posts, right now — real sentence embeddings and cosine similarity, not keyword matching."
+      content="A browser-only Bluesky firehose experiment: local text vectors and cosine similarity find posts that echo @fromthewestmeadow.com's recent writing."
     />
     <meta property="og:title" content="meadowecho" />
     <meta
       property="og:description"
-      content="Real sentence embeddings, cosine similarity against the centroid of @fromthewestmeadow.com's last 100 posts — a live leaderboard of whatever on the open firehose reads closest to them right now."
+      content="Local text-vector similarity against a recent-post centroid, computed in your browser from a bounded sample of the open firehose."
     />
     <meta property="og:image" content="https://meadowecho.bisks.net/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -23,7 +23,7 @@
     <meta property="og:url" content="https://meadowecho.bisks.net/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="meadowecho — a live echo of @fromthewestmeadow.com's posts" />
+    <meta name="twitter:title" content="meadowecho — local echoes from the open firehose" />
     <meta
       name="twitter:description"
       content="Real embeddings + cosine similarity, live over the firehose: whatever currently reads closest to @fromthewestmeadow.com's last 100 posts."
@@ -155,19 +155,18 @@
         Inspired by <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>'s
         PCA-on-embeddings visualization of their own posts and their mutuals'
         — this is an independent, live implementation of the same underlying
-        idea, minus the 3D picture: a small server watches the open Bluesky
-        firehose, computes a real sentence embedding for a filtered trickle
-        of posts, and ranks them by <b>cosine similarity</b> against the
-        centroid of that account's last 100 posts (also real embeddings, not
-        a bag-of-words trick). No login, nothing stored beyond the ranked
-        list below — every post here was already public on the open firehose.
+        idea, minus the 3D picture. Your browser fetches a small recent-post
+        history, connects directly to <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>,
+        and ranks a filtered trickle using local hashed text vectors and
+        <b>cosine similarity</b>. Nothing is sent to a backend or stored by
+        this site; press stop any time to close the stream.
       </p>
 
-      <div class="statsbar" id="statsbar">gathering the target's last 100 posts…</div>
+        <div class="statsbar" id="statsbar">ready to start local firehose sampling</div>
 
       <section>
         <p class="sectitle">closest right now</p>
-        <main id="feed"><div class="empty">listening…</div></main>
+         <main id="feed"><div class="empty">press start to sample the open firehose in this tab.</div></main>
       </section>
 
       <div class="share">
@@ -175,22 +174,22 @@
       </div>
 
       <p class="about">
-        <b>How the scoring actually works:</b> the target's last ~100 posts
-        (via the public AppView, no login) are each embedded with Cloudflare
-        Workers AI (<code>bge-base-en-v1.5</code>) and averaged into one
-        centroid vector, refreshed every 20 minutes. The live firehose is
+        <b>How the scoring actually works:</b> the target's last ~50 posts
+        (via the public AppView, no login) become small hashed text vectors in
+        your browser and are averaged into one centroid vector. The live firehose is
         filtered down — English, long enough to carry meaning, not obvious
         spam, one candidate per author per 45 seconds — because the full
-        firehose is far more volume than any embeddings budget survives; that
-        filtered trickle is embedded in small batches on a timer and scored
-        against the centroid. The leaderboard keeps the highest-scoring posts
+        firehose is far too large to process exhaustively; that filtered trickle
+        is vectorized in bounded batches on a timer and scored against the centroid.
+        The leaderboard keeps the highest-scoring posts
         seen in roughly the last 6 hours, so it drifts as the firehose does —
-        this is a sample of the firehose, not exhaustive coverage of it.
+        this is a sample of the firehose, not exhaustive coverage of it. All
+        processing stops when you press stop or close the tab.
       </p>
 
       <footer>
         firehose via <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">jetstream</a>
-        · embeddings via <a href="https://developers.cloudflare.com/workers-ai/" target="_blank" rel="noopener">workers ai</a>
+        · local vectors, no backend
         · a <a href="https://bisks.net">bisks.net</a> experiment, built for @fromthewestmeadow.com
       </footer>
     </div>
@@ -201,9 +200,25 @@
       const statusText = document.getElementById("statusText");
       const statsbar = document.getElementById("statsbar");
       const shareLink = document.getElementById("shareLink");
-
-      const POLL_MS = 6000;
-      let pollTimer = null;
+      const TARGET = "fromthewestmeadow.com";
+      const DID = "did:plc:qttqvv4n3vqqu35qajhcuqlq";
+      const JETSTREAM = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const DIMENSIONS = 128;
+      const MAX_QUEUE = 24;
+      const MAX_MATCHES = 30;
+      const MAX_AGE = 6 * 60 * 60 * 1000;
+      const MIN_TEXT = 20;
+      let socket = null;
+      let controller = null;
+      let running = false;
+      let workTimer = null;
+      let target = null;
+      let queue = [];
+      let matches = [];
+      let seen = 0;
+      let filtered = 0;
+      let embedded = 0;
+      const authors = new Map();
 
       function esc(s) {
         return String(s).replace(
@@ -222,17 +237,11 @@
         return Math.floor(h / 24) + "d ago";
       }
 
-      function renderStats(data) {
-        const t = data.target;
-        if (!t) {
-          statsbar.innerHTML = "gathering the target's last 100 posts…";
-          return;
-        }
-        statsbar.innerHTML =
-          `target <span class="target">@${esc(t.handle)}</span> (${t.postCount} posts, refreshed ${timeAgo(t.refreshedAt)}) · ` +
-          `<b>${data.stats.seen.toLocaleString()}</b> posts seen on the firehose · ` +
-          `<b>${data.stats.embedded.toLocaleString()}</b> embedded and scored · ` +
-          `<b>${data.matches.length}</b> in the current leaderboard`;
+       function renderStats(message) {
+         if (!target) { statsbar.textContent = message || "loading recent posts..."; return; }
+         statsbar.innerHTML = `<span class="target">@${esc(TARGET)}</span> (${target.posts.length} posts) · ` +
+           `<b>${seen.toLocaleString()}</b> seen · <b>${filtered.toLocaleString()}</b> filtered · ` +
+           `<b>${embedded.toLocaleString()}</b> scored · <b>${matches.length}</b> matches`;
       }
 
       function buildShareText(top) {
@@ -251,13 +260,13 @@
         return text + url;
       }
 
-      function renderFeed(matches) {
-        if (!matches.length) {
-          feed.innerHTML = '<div class="empty">no echo above the floor yet — the leaderboard fills in as the firehose is sampled. check back in a minute.</div>';
+       function renderFeed(items) {
+         if (!items.length) {
+           feed.innerHTML = '<div class="empty">no local echo above the floor yet. Keep sampling for a little while.</div>';
           return;
         }
         feed.innerHTML = "";
-        for (const m of matches) {
+         for (const m of items) {
           const card = document.createElement("article");
           card.className = "card";
           const pct = Math.round(m.score * 100);
@@ -279,32 +288,83 @@
         }
       }
 
-      async function poll() {
-        try {
-          const r = await fetch("/api/matches", { cache: "no-store" });
-          if (!r.ok) throw new Error("bad response");
-          const data = await r.json();
-          dot.classList.add("live");
-          statusText.textContent = "live";
-          renderStats(data);
-          renderFeed(data.matches);
-          shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(data.matches[0] || null));
-        } catch {
-          dot.classList.remove("live");
-          statusText.textContent = "reconnecting…";
-        }
-      }
+       function vector(text) {
+         const out = new Float32Array(DIMENSIONS);
+         const words = text.toLowerCase().match(/[a-z][a-z']{2,}/g) || [];
+         for (const word of words) {
+           let hash = 2166136261;
+           for (let i = 0; i < word.length; i++) hash = Math.imul(hash ^ word.charCodeAt(i), 16777619);
+           out[(hash >>> 0) % DIMENSIONS] += 1;
+         }
+         let norm = 0;
+         for (const x of out) norm += x * x;
+         norm = Math.sqrt(norm) || 1;
+         for (let i = 0; i < out.length; i++) out[i] /= norm;
+         return out;
+       }
+       function cosine(a, b) { let score = 0; for (let i = 0; i < a.length; i++) score += a[i] * b[i]; return score; }
+       function spam(text) { return /#nowplaying|listen live|onelink\.to|shop now|buy now|prime members|amzn\.to/i.test(text) || (text.match(/#/g) || []).length >= 4; }
+       function english(langs) { return !Array.isArray(langs) || !langs.length || langs.some((l) => String(l).toLowerCase().startsWith("en")); }
 
-      poll();
-      pollTimer = setInterval(poll, POLL_MS);
-      document.addEventListener("visibilitychange", () => {
-        if (document.hidden) {
-          clearInterval(pollTimer);
-        } else {
-          poll();
-          pollTimer = setInterval(poll, POLL_MS);
-        }
-      });
+       async function loadTarget(signal) {
+         const posts = [];
+         let cursor = "";
+         for (let page = 0; page < 2 && posts.length < 50; page++) {
+           const url = new URL("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed");
+           url.searchParams.set("actor", DID); url.searchParams.set("limit", "50");
+           if (cursor) url.searchParams.set("cursor", cursor);
+           const response = await fetch(url, { signal });
+           if (!response.ok) throw new Error("history request failed");
+           const data = await response.json();
+           for (const item of data.feed || []) {
+             const text = typeof item.post?.record?.text === "string" ? item.post.record.text.trim() : "";
+             if (!item.reason && text.length >= MIN_TEXT) posts.push({ text, url: `https://bsky.app/profile/${TARGET}/post/${String(item.post.uri).split("/").pop()}` });
+             if (posts.length >= 50) break;
+           }
+           cursor = data.cursor || "";
+           if (!cursor) break;
+         }
+         if (!posts.length) throw new Error("no public posts found");
+         const vectors = posts.map((post) => vector(post.text));
+         const centroid = new Float32Array(DIMENSIONS);
+         for (const v of vectors) for (let i = 0; i < DIMENSIONS; i++) centroid[i] += v[i] / vectors.length;
+         target = { posts, vectors, centroid };
+         renderStats("ready; local vectors are computed in this tab");
+       }
+       function handleMessage(raw) {
+         let event; try { event = JSON.parse(raw); } catch { return; }
+         const commit = event.kind === "commit" && event.commit;
+         const record = commit && commit.operation === "create" && commit.collection === "app.bsky.feed.post" && commit.record;
+         if (!record || typeof record.text !== "string") return;
+         seen++;
+         const text = record.text.trim(); const did = String(event.did || ""); const now = Date.now();
+         if (!did || text.length < MIN_TEXT || !english(record.langs) || spam(text) || (authors.has(did) && now - authors.get(did) < 45000) || (target && did === DID)) return;
+         authors.set(did, now); filtered++;
+         queue.push({ text, did, rkey: commit.rkey, matchedAt: now });
+         if (queue.length > MAX_QUEUE) queue.splice(0, queue.length - MAX_QUEUE);
+         renderStats();
+       }
+       function processQueue() {
+         if (!running || !target || !queue.length) return;
+         const batch = queue.splice(0, 3);
+         for (const candidate of batch) {
+           const v = vector(candidate.text); const score = cosine(v, target.centroid); embedded++;
+           if (score < 0.25) continue;
+           let closest = 0; let best = -1;
+           for (let i = 0; i < target.vectors.length; i++) { const s = cosine(v, target.vectors[i]); if (s > best) { best = s; closest = i; } }
+           matches.push({ ...candidate, handle: candidate.did, avatar: "", url: `https://bsky.app/profile/${candidate.did}/post/${candidate.rkey}`, score, closest: target.posts[closest] });
+         }
+         matches = matches.filter((m) => Date.now() - m.matchedAt < MAX_AGE).sort((a, b) => b.score - a.score).slice(0, MAX_MATCHES);
+         renderStats(); renderFeed(matches); shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(matches[0] || null));
+       }
+       async function start() {
+         if (running) return; running = true; dot.classList.add("live"); statusText.textContent = "starting locally...";
+         controller = new AbortController();
+         try { await loadTarget(controller.signal); if (!running) return; socket = new WebSocket(JETSTREAM); socket.onopen = () => { statusText.textContent = "sampling in your browser"; }; socket.onmessage = (event) => handleMessage(event.data); socket.onerror = () => { statusText.textContent = "stream error; retry or stop"; }; socket.onclose = () => { if (running) { running = false; statusText.textContent = "stopped (stream closed)"; dot.classList.remove("live"); } }; workTimer = setInterval(processQueue, 750); } catch (error) { if (error.name !== "AbortError") statusText.textContent = error.message || "could not start"; running = false; dot.classList.remove("live"); }
+       }
+       function stop() { running = false; controller?.abort(); controller = null; clearInterval(workTimer); workTimer = null; queue = []; if (socket) socket.close(); socket = null; dot.classList.remove("live"); statusText.textContent = "stopped"; renderStats("stopped; no data is processed"); }
+       const control = document.createElement("button"); control.type = "button"; control.textContent = "start sampling"; control.style.cssText = "margin:0 0 1.5rem;padding:.45rem .8rem;background:var(--accent);border:0;border-radius:6px;font:inherit;cursor:pointer"; document.querySelector("header").append(control);
+       control.onclick = () => { if (running) { stop(); control.textContent = "start sampling"; } else { control.textContent = "stop sampling"; start(); } };
     </script>
 
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->

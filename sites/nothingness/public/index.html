@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>nothingness</title>
-<meta name="description" content="a website that really demonstrates the concept of nothingness. witness it, if you can hold your attention long enough.">
+<meta name="description" content="a browser-local witness of nothingness. hold your attention long enough to make the local leaderboard.">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="nothingness">
@@ -240,7 +240,7 @@
       <div class="result" id="result"></div>
 
       <div class="identity" id="identity">
-        <div id="idText">sign in with bluesky to put your witness on the leaderboard</div>
+        <div id="idText">sign in with bluesky to label your local witness</div>
         <div class="idBar" id="idBar">
           <input id="handleInput" type="text" placeholder="your bluesky handle" />
           <button id="signInBtn" class="tiny">sign in</button>
@@ -252,16 +252,16 @@
         <a class="lbToggle" id="lbToggle">leaderboard of nothing</a>
       </div>
       <div class="leaderboard" id="leaderboard">
-        <div class="lbTitle">longest witnessed, by whoever signed in for it</div>
+     <div class="lbTitle">longest witnessed in this browser</div>
         <ol id="lbList"></ol>
       </div>
     </div>
   </div>
 
   <footer>
-    the void is a Durable Object. every finished streak is a real write,
-    replicated and durable, that accomplishes precisely nothing — which is
-    the point. witnessing lapses if you look away for five seconds, because
+    the void is entirely in your browser. every finished streak is kept locally,
+    not uploaded or shared, and accomplishes precisely nothing — which is the
+    point. witnessing lapses if you look away for five seconds, because
     it turns out even nothing demands your attention. śūnyatā, the vacuum
     state, the number zero: absence has always needed real infrastructure —
     and real effort — to be taken seriously. <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
@@ -353,9 +353,9 @@ import { login, completeLoginIfCallback, getSession, clearSession } from './lib/
   async function loadLeaderboard() {
     if (!lbLoaded) lbList.innerHTML = '<li class="empty">tallying nothing…</li>';
     try {
-      var r = await fetch('/api/leaderboard');
-      var data = await r.json();
-      renderLeaderboard(data.leaders || []);
+      var rows = [];
+      try { rows = JSON.parse(localStorage.getItem('nothingness.localLeaders') || '[]'); } catch (_) {}
+      renderLeaderboard(rows);
       lbLoaded = true;
     } catch (e) {
       if (!lbLoaded) lbList.innerHTML = '<li class="empty">the leaderboard is, at the moment, also nothing.</li>';
@@ -453,27 +453,22 @@ import { login, completeLoginIfCallback, getSession, clearSession } from './lib/
   }
 
   function submitWitness(seconds) {
-    result.textContent = 'syncing to leaderboard…';
-    fetch('/api/witness', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ did: session.did, handle: session.handle, seconds: seconds }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (typeof data.personalBest !== 'number') {
-          result.textContent = 'could not sync to the leaderboard (which is, admittedly, on theme).';
-          return;
-        }
-        serverPersonalBest = data.personalBest;
+    result.textContent = 'saving in this browser…';
+    try {
+        var rows = JSON.parse(localStorage.getItem('nothingness.localLeaders') || '[]');
+        var handle = session ? session.handle : 'this browser';
+        var existing = rows.find(function (r) { return r.did === (session ? session.did : 'local'); });
+        var best = Math.max(existing ? existing.best : 0, seconds);
+        rows = rows.filter(function (r) { return r.did !== (session ? session.did : 'local'); });
+        rows.push({ did: session ? session.did : 'local', handle: handle, best: best });
+        rows.sort(function (a, b) { return b.best - a.best; });
+        localStorage.setItem('nothingness.localLeaders', JSON.stringify(rows.slice(0, 50)));
+        serverPersonalBest = best;
         result.innerHTML = seconds >= serverPersonalBest
           ? 'new personal best — <span class="n">' + serverPersonalBest + 's</span> on the leaderboard.'
           : 'synced. your leaderboard best stays <span class="n">' + serverPersonalBest + 's</span>.';
         if (leaderboard.classList.contains('open')) loadLeaderboard();
-      })
-      .catch(function () {
-        result.textContent = 'could not sync to the leaderboard (which is, admittedly, on theme).';
-      });
+    } catch (_) { result.textContent = 'could not save locally (which is, admittedly, on theme).'; }
   }
 
   function witnessTick() {

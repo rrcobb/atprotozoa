@@ -1,4 +1,4 @@
-// app.js — catspace editor: login, profile form, save, directory registration.
+// app.js — catspace editor: login, profile form, and save to the owner's PDS.
 
 import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
 import { uploadImage } from "./lib/blob.js";
@@ -148,20 +148,6 @@ function showSuccess() {
   show(els.successCard);
 }
 
-async function registerWithDirectory(uri) {
-  try {
-    await fetch("/api/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uri }),
-    });
-  } catch {
-    // directory registration is a nice-to-have; the profile record itself
-    // already saved successfully, so a registry hiccup shouldn't look like
-    // a failed save to the user.
-  }
-}
-
 els.loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   hide(els.loginError);
@@ -212,8 +198,7 @@ els.editorForm.addEventListener("submit", async (e) => {
       updatedAt: new Date().toISOString(),
     };
     if (pendingPhotoBlob) profile.photo = pendingPhotoBlob;
-    const uri = await saveProfile(session, profile);
-    await registerWithDirectory(uri);
+    await saveProfile(session, profile);
     els.saveStatus.textContent = "saved!";
     showSuccess();
   } catch (err) {

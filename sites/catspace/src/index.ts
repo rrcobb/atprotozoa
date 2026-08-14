@@ -21,41 +21,13 @@
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  REGISTRY: DurableObjectNamespace;
-}
-
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  list<T = unknown>(options?: { prefix?: string }): Promise<Map<string, T>>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
 }
 
 const PLC_DIR = "https://plc.directory";
 const BSKY_PUBLIC_API = "https://public.api.bsky.app";
 const PROFILE_COLLECTION = "net.bisks.catspace.profile";
 const COMMENT_COLLECTION = "net.bisks.catspace.comment";
-const MAX_RECORD_AGE_MS = 15 * 60 * 1000;
-const MAX_GUESTBOOK_ENTRIES = 50;
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
-  });
-}
 
 // --- identity + PDS record helpers (same shape as sites/commonplace) -------
 
@@ -174,137 +146,6 @@ async function verifyOwnRecord(
   return { did: parsed.did, handle, pdsUrl, value: rec.value };
 }
 
-// --- Registry Durable Object -------------------------------------------------
-
-interface CatEntry {
-  did: string;
-  handle: string;
-  catName: string;
-  mood?: string;
-  photoUrl?: string;
-  updatedAt: number;
-}
-
-interface GuestbookEntry {
-  handle: string;
-  text: string;
-  createdAt: number;
-}
-
-export class Registry {
-  private state: DurableObjectState;
-
-  constructor(state: DurableObjectState) {
-    this.state = state;
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/register" && request.method === "POST") {
-      let body: any;
-      try {
-        body = await request.json();
-      } catch {
-        return json({ error: "bad request body" }, 400);
-      }
-      const uri = typeof body?.uri === "string" ? body.uri : null;
-      if (!uri) return json({ error: "missing record uri" }, 400);
-
-      const verified = await verifyOwnRecord(uri, PROFILE_COLLECTION);
-      if ("error" in verified) return json(verified, verified.status);
-      const parsed = parseAtUri(uri)!;
-      if (parsed.rkey !== "self") return json({ error: "profile record must use rkey 'self'" }, 400);
-
-      const { did, handle, pdsUrl, value } = verified;
-      const validAt = freshAt(value.updatedAt || value.createdAt);
-      if (Date.now() - validAt > MAX_RECORD_AGE_MS) {
-        return json({ error: "that profile record is too old to register — save again" }, 400);
-      }
-
-      const entry: CatEntry = {
-        did,
-        handle,
-        catName: typeof value.catName === "string" ? value.catName.slice(0, 40) : "Unnamed Cat",
-        mood: typeof value.mood === "string" ? value.mood.slice(0, 60) : undefined,
-        photoUrl: value.photo ? blobUrl(pdsUrl, did, value.photo) || undefined : undefined,
-        updatedAt: Date.now(),
-      };
-      await this.state.storage.put({ [`cat:${did}`]: entry });
-      return json({ ok: true, entry });
-    }
-
-    if (url.pathname === "/directory" && request.method === "GET") {
-      const entries = await this.state.storage.list<CatEntry>({ prefix: "cat:" });
-      const all = [...entries.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-      return json({ cats: all, total: all.length });
-    }
-
-    const visitMatch = url.pathname.match(/^\/visit\/([^/]+)$/);
-    if (visitMatch && request.method === "POST") {
-      const did = decodeURIComponent(visitMatch[1]);
-      const key = `views:${did}`;
-      const current = (await this.state.storage.get<number>(key)) || 0;
-      const next = current + 1;
-      await this.state.storage.put({ [key]: next });
-      return json({ views: next });
-    }
-
-    if (url.pathname === "/guestbook" && request.method === "POST") {
-      let body: any;
-      try {
-        body = await request.json();
-      } catch {
-        return json({ error: "bad request body" }, 400);
-      }
-      const uri = typeof body?.uri === "string" ? body.uri : null;
-      if (!uri) return json({ error: "missing record uri" }, 400);
-      if (await this.state.storage.get(`seen:${uri}`)) {
-        return json({ error: "that note was already posted" }, 409);
-      }
-
-      const verified = await verifyOwnRecord(uri, COMMENT_COLLECTION);
-      if ("error" in verified) return json(verified, verified.status);
-      const { handle, value } = verified;
-
-      const subject = typeof value.subject === "string" && value.subject.startsWith("did:") ? value.subject : null;
-      const text = typeof value.text === "string" ? value.text.trim().slice(0, 280) : "";
-      if (!subject || !text) return json({ error: "comment record needs a subject did and text" }, 400);
-
-      const validAt = freshAt(value.createdAt);
-      if (Date.now() - validAt > MAX_RECORD_AGE_MS) {
-        return json({ error: "that note is too old to post — sign again" }, 400);
-      }
-
-      const key = `gb:${subject}`;
-      const existing = (await this.state.storage.get<GuestbookEntry[]>(key)) || [];
-      const entry: GuestbookEntry = { handle, text, createdAt: Date.now() };
-      const next = [entry, ...existing].slice(0, MAX_GUESTBOOK_ENTRIES);
-      await this.state.storage.put({ [key]: next, [`seen:${uri}`]: true });
-      return json({ ok: true, entry });
-    }
-
-    const gbMatch = url.pathname.match(/^\/guestbook\/([^/]+)$/);
-    if (gbMatch && request.method === "GET") {
-      const did = decodeURIComponent(gbMatch[1]);
-      const entries = (await this.state.storage.get<GuestbookEntry[]>(`gb:${did}`)) || [];
-      return json({ entries });
-    }
-
-    return json({ error: "not found" }, 404);
-  }
-}
-
-function registryStub(env: Env): DurableObjectStub {
-  const id = env.REGISTRY.idFromName("global");
-  return env.REGISTRY.get(id);
-}
-
-async function registryFetch(env: Env, path: string, init?: RequestInit): Promise<any> {
-  const res = await registryStub(env).fetch(new Request(`http://registry${path}`, init));
-  return res.json();
-}
-
 // --- page rendering -----------------------------------------------------
 
 const SITE_ORIGIN = "https://catspace.bisks.net";
@@ -327,18 +168,8 @@ async function renderCat(env: Env, request: Request, rawHandle: string): Promise
 
   const url = `${SITE_ORIGIN}/cat/${encodeURIComponent(displayHandle)}`;
 
-  // The directory/counter/guestbook DO is an enrichment, not load-bearing —
-  // a hiccup there shouldn't make a real, existing profile look unclaimed.
-  let views = 1;
-  let gbEntries: GuestbookEntry[] = [];
-  try {
-    const [visitRes, gbRes] = await Promise.all([
-      registryFetch(env, `/visit/${encodeURIComponent(did)}`, { method: "POST" }),
-      registryFetch(env, `/guestbook/${encodeURIComponent(did)}`),
-    ]);
-    views = visitRes?.views || 1;
-    gbEntries = gbRes?.entries || [];
-  } catch {}
+  const views = 0;
+  const gbEntries: Array<{ handle: string; text: string }> = [];
 
   const catName = value.catName || "Unnamed Cat";
   const mood = value.mood || "Vibing";
@@ -431,26 +262,10 @@ async function renderDirectory(env: Env, request: Request): Promise<Response> {
   const shellRes = await env.ASSETS.fetch(new Request(new URL("/directory.html", request.url), { method: "GET" }));
   const shell = await shellRes.text();
 
-  const dirRes = await registryFetch(env, "/directory");
-  const cats: CatEntry[] = dirRes?.cats || [];
-
-  const catsHtml = cats.length
-    ? cats
-        .map((c) => {
-          const photo = c.photoUrl
-            ? `<img class="dir-photo" src="${esc(c.photoUrl)}" alt="${esc(c.catName)}" />`
-            : `<div class="dir-photo-placeholder">🐈</div>`;
-          return `<a class="dir-card" href="/cat/${encodeURIComponent(c.handle)}">
-            ${photo}
-            <span class="dir-name">${esc(c.catName)}</span>
-            <span class="dir-handle">@${esc(c.handle)}</span>
-          </a>`;
-        })
-        .join("")
-    : `<p class="empty">no cats yet — <a href="/">be the first</a>.</p>`;
+  const catsHtml = `<p class="empty">the directory is currently local to your own records — <a href="/">make a cat page</a>.</p>`;
 
   const html = fillTemplate(shell, {
-    COUNT: String(cats.length),
+    COUNT: "",
     CATS_HTML: catsHtml,
   });
 
@@ -462,22 +277,6 @@ async function renderDirectory(env: Env, request: Request): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/api/register" || url.pathname === "/api/guestbook") {
-      const target = url.pathname.replace(/^\/api/, "");
-      const body = request.method === "POST" ? await request.text() : undefined;
-      const res = await registryStub(env).fetch(
-        new Request(`http://registry${target}`, {
-          method: request.method,
-          headers: { "content-type": "application/json" },
-          body,
-        }),
-      );
-      return new Response(res.body, {
-        status: res.status,
-        headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
-      });
-    }
 
     const catMatch = url.pathname.match(/^\/cat\/([^/]+)\/?$/);
     if (catMatch) return renderCat(env, request, catMatch[1]);

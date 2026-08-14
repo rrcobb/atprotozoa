@@ -229,7 +229,7 @@
 
     <div class="actions">
       <a id="shareBluesky" class="primary" target="_blank" rel="noopener">share to Bluesky</a>
-      <button id="hatchBtn">🐣 hatch it</button>
+       <button id="hatchBtn">🐣 save locally</button>
       <button id="shareImg">save share card</button>
       <button id="breedAgain">breed again</button>
       <a id="permalink" href="#">permalink</a>
@@ -390,26 +390,17 @@ async function runBreed(seed) {
 els.breedBtn.addEventListener("click", () => runBreed(randomSeed(activeCatalog())));
 els.breedAgain.addEventListener("click", () => runBreed(randomSeed(activeCatalog())));
 
-// Breeding is ephemeral by design (re-derived from the seed every visit) —
-// hatching is the real "build and deploy" step: it writes a permanent
-// record to the nursery Durable Object, then lands you on its own real
-// page instead of just swapping this one's card contents.
+// Breeding is deterministic. Saving keeps a snapshot in this browser; there
+// is no shared nursery or claim of a globally authoritative hatch.
 els.hatchBtn.addEventListener("click", async () => {
   if (!current) return;
   const prevText = els.hatchBtn.textContent;
   els.hatchBtn.disabled = true;
   els.hatchBtn.textContent = "hatching…";
   try {
-    const res = await fetch(`${PUBLIC_BASE}/api/hatch`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ seed: current.seed, hatchedBy: "anon" }),
-    });
-    const data = await res.json();
-    if (data.record) {
-      location.href = `${PUBLIC_BASE}/hatch/${encodeURIComponent(data.record.seed)}`;
-      return;
-    }
+    localStorage.setItem("crossbreed:saved:" + current.seed, JSON.stringify(current));
+    els.hatchBtn.textContent = "saved in this browser";
+    return;
   } catch (_) {
     // hatch failed — let them try again
   }

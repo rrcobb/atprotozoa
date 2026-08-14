@@ -69,7 +69,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="290" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Rapid-fire bursts, erratic rhythm,</text>
   <text x="64" y="316" font-family="JetBrains Mono" font-size="17" fill="${DIM}">reply-diving, quote-dunks, block</text>
   <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">rate — read off their entire repo,</text>
-  <text x="64" y="368" font-family="JetBrains Mono" font-size="17" fill="${DIM}">put on a shared leaderboard.</text>
+  <text x="64" y="368" font-family="JetBrains Mono" font-size="17" fill="${DIM}">computed privately in your browser.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">thrashmeter.bisks.net</text>
 

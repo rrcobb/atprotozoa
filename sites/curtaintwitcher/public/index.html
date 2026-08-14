@@ -356,10 +356,33 @@
   }
   var clientId = getClientId();
 
+  var localKey = "curtaintwitcher:feed";
+  var state = JSON.parse(localStorage.getItem(localKey) || "null") || { meter: 40, posts: [{
+    id: "seed-1", author: "Linda P.", text: "Anyone else notice the recycling gets picked up at a different time now? Just noting it.",
+    tier: 1, tierLabel: "Mildly Suspicious", createdAt: Date.now() - 3600000,
+    votes: { real: 14, unhinged: 1 }, yourVote: null,
+    replies: [{ name: "Kevin, just walking the dog", text: "Yeah, city changed the route last month. It's on their site." }]
+  }] };
+  function save() { localStorage.setItem(localKey, JSON.stringify(state)); }
   function api(path, opts) {
     opts = opts || {};
-    opts.headers = Object.assign({ "x-client-id": clientId, "content-type": "application/json" }, opts.headers || {});
-    return fetch(path, opts).then(function (r) { return r.json().then(function (data) { return { ok: r.ok, status: r.status, data: data }; }); });
+    if (path === "/api/feed") return Promise.resolve({ ok: true, status: 200, data: state });
+    var body = {};
+    try { body = JSON.parse(opts.body || "{}"); } catch (_) {}
+    if (path === "/api/post") {
+      var post = { id: "p" + Date.now(), author: body.author || "A Neighbor", text: body.text || "", tier: 3,
+        tierLabel: "Building A Timeline", createdAt: Date.now(), votes: { real: 0, unhinged: 0 }, yourVote: null,
+        replies: [{ name: "Kevin, just walking the dog", text: "Could just be nothing, honestly." }] };
+      state.posts.unshift(post); state.posts = state.posts.slice(0, 100); save();
+      return Promise.resolve({ ok: true, status: 200, data: state });
+    }
+    if (path === "/api/vote") {
+      var target = state.posts.find(function (p) { return p.id === body.postId; });
+      if (!target || target.yourVote) return Promise.resolve({ ok: false, status: 409, data: state });
+      target.yourVote = body.choice; target.votes[body.choice] += 1; state.meter = Math.max(0, Math.min(100, state.meter + (body.choice === "unhinged" ? 1 : -1))); save();
+      return Promise.resolve({ ok: true, status: 200, data: state });
+    }
+    return Promise.resolve({ ok: false, status: 404, data: {} });
   }
 
   var els = {

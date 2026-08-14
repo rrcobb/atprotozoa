@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ideahose — the firehose's own backlog for @buildthis — bisks.net</title>
+    <title>ideahose — a live browser-local Bluesky idea backlog — bisks.net</title>
     <meta
       name="description"
-      content="Watches the entire Bluesky firehose (not just tags) for website/app ideas, groups the ones different people separately keep having, and ranks the backlog by how many people wanted it, how the post did, and votes from this page. Tap 'tag @buildthis' on anything you want built."
+      content="Your browser samples Bluesky's live Jetstream for website and app ideas, groups repeats, and ranks them locally while this tab is open."
     />
 
     <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
@@ -142,11 +142,11 @@
       <header>
         <h1>ideahose <span class="slash">/ a crowdsourced backlog for @buildthis</span></h1>
         <p class="sub">
-          Watches the <b>whole live firehose</b> — not just posts tagging the
+          Your browser samples the <b>live Bluesky firehose</b> — not just posts tagging the
           bot — for anything that reads like a website/app/tool idea, groups
           the ones different people separately keep having, and ranks the
           backlog by how many people wanted it, how those posts actually did,
-          and upvotes from right here. See one worth building? Tap
+          and reactions fetched directly from Bluesky. See one worth building? Tap
           <b>tag @buildthis</b> and set it loose.
         </p>
       </header>
@@ -159,21 +159,21 @@
       </div>
 
       <div class="empty" id="empty" style="display:none">
-        Nothing's cleared the bar yet. The tracker only shows an idea once
-        its first spotted post has been checked for real reactions
+        Nothing's cleared the bar yet. This tab shows an idea once
+        its first spotted post has been checked directly with Bluesky for reactions
         (about six minutes after it goes up) — right after a deploy, or
         during a quiet stretch, this can sit empty for a bit. Check back
-        shortly.
+        shortly. Keep this tab open for a live sample; nothing is stored on a server.
       </div>
 
       <ol class="board" id="board"></ol>
 
       <div class="share">
-        <a id="shareLink" href="https://bsky.app/intent/compose?text=bisks.net/ideahose" target="_blank" rel="noopener">share this backlog</a>
+        <a id="shareLink" href="https://bsky.app/intent/compose?text=ideahose.bisks.net" target="_blank" rel="noopener">share this backlog</a>
       </div>
 
       <footer>
-        Sampled from the live firehose via
+        Processed in this browser from the live firehose via
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
         — root-level posts only, matched against a keyword/phrase heuristic
         ("someone should build…", "idea for a website…", "@buildthis…" and
@@ -183,149 +183,15 @@
         honest approximation: it can lump two different ideas that happen to
         share a distinctive word, and it can miss two phrasings of the same
         idea that share no words. Score = mentions × 30 + log2(reactions) × 8
-        + upvotes × 12, with a small bump for ideas already posted straight
-        at the bot. Upvotes are capped at one per browser/idea per hour.
+        + local upvotes × 12, with a small bump for ideas already posted straight
+        at the bot. The tab keeps only a bounded working set; closing it clears the live backlog.
         asked for by <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
       </footer>
     </div>
 
-    <script>
-      const dot = document.getElementById("dot");
-      const statusText = document.getElementById("statusText");
-      const trackingText = document.getElementById("trackingText");
-      const empty = document.getElementById("empty");
-      const board = document.getElementById("board");
-      const shareLink = document.getElementById("shareLink");
 
-      const VOTED_KEY = "ideahose-voted";
-      function votedSet() {
-        try { return new Set(JSON.parse(localStorage.getItem(VOTED_KEY) || "[]")); }
-        catch { return new Set(); }
-      }
-      function markVoted(key) {
-        try {
-          const s = votedSet();
-          s.add(key);
-          localStorage.setItem(VOTED_KEY, JSON.stringify(Array.from(s)));
-        } catch {}
-      }
-
-      function esc(s) {
-        return (s || "").replace(/[&<>"']/g, (c) =>
-          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-      }
-
-      function timeAgo(ms) {
-        if (!ms) return "";
-        const s = Math.max(1, Math.floor((Date.now() - ms) / 1000));
-        const units = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
-        for (const [u, secs] of units) {
-          const v = Math.floor(s / secs);
-          if (v >= 1) return v + u + " ago";
-        }
-        return "just now";
-      }
-
-      function postUrl(handle, rkey) {
-        return `https://bsky.app/profile/${handle}/post/${rkey}`;
-      }
-
-      function rowHTML(e, i, voted) {
-        const already = voted.has(e.key);
-        const reactions = (e.likeSum || 0) + (e.repostSum || 0) + (e.replySum || 0);
-        const buildText = "@buildthis.bisks.net build: " + e.text;
-        const buildHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildText);
-        return `
-          <li class="row">
-            <div class="rank">${i + 1}</div>
-            <div class="body">
-              <div class="badges">
-                <span class="badge mentions">mentioned ${e.mentionCount}×</span>
-                ${e.tagged ? '<span class="badge tagged">already tagged @buildthis</span>' : ""}
-              </div>
-              <p class="text">${esc(e.text) || "<em>(no text)</em>"}</p>
-              <div class="meta">
-                <span>${e.likeSum.toLocaleString()} likes</span>
-                <span>${e.repostSum.toLocaleString()} reposts</span>
-                <span>${e.replySum.toLocaleString()} replies</span>
-                <span>${timeAgo(e.lastSeen)}</span>
-                <a href="${postUrl(e.handle, e.rkey)}" target="_blank" rel="noopener">source ↗</a>
-              </div>
-              <div class="actions">
-                <a class="btn build" href="${buildHref}" target="_blank" rel="noopener">tag @buildthis ↗</a>
-                <button type="button" class="upvote${already ? " voted" : ""}" data-key="${esc(e.key)}" ${already ? "disabled" : ""}>
-                  ▲ ${e.upvotes || 0}
-                </button>
-              </div>
-            </div>
-          </li>`;
-      }
-
-      function render(data) {
-        const ideas = data.ideas || [];
-        trackingText.textContent =
-          `tracking ${data.tracking || 0} idea clusters · ${data.ideasSeen || 0} idea-shaped posts seen`;
-
-        if (!ideas.length) {
-          empty.style.display = "";
-          board.innerHTML = "";
-          return;
-        }
-        empty.style.display = "none";
-
-        const voted = votedSet();
-        board.innerHTML = ideas.map((e, i) => rowHTML(e, i, voted)).join("");
-
-        board.querySelectorAll(".upvote").forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            const key = btn.dataset.key;
-            btn.disabled = true;
-            try {
-              const r = await fetch("/ideahose/api/upvote", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ key }),
-              });
-              const out = await r.json();
-              if (out && typeof out.upvotes === "number") {
-                btn.textContent = "▲ " + out.upvotes;
-                btn.classList.add("voted");
-                markVoted(key);
-              }
-            } catch {
-              btn.disabled = false;
-            }
-          });
-        });
-
-        const top = ideas[0];
-        const shareText = `top idea in the ideahose backlog right now: "${top.text.slice(0, 140)}" — mentioned ${top.mentionCount}× so far. bisks.net/ideahose`;
-        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
-      }
-
-      let failCount = 0;
-      async function poll() {
-        try {
-          const r = await fetch("/ideahose/api/leaderboard", { cache: "no-store" });
-          if (!r.ok) throw new Error("http " + r.status);
-          const data = await r.json();
-          failCount = 0;
-          dot.classList.add("live");
-          statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
-          render(data);
-        } catch (e) {
-          failCount++;
-          if (failCount > 2) {
-            dot.classList.remove("live");
-            statusText.textContent = "having trouble reaching the tracker…";
-          }
-        }
-      }
-
-      poll();
-      setInterval(poll, 15000);
-    </script>
+    <script src="app.js"></script>
 
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
     <style>

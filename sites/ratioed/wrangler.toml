@@ -1,5 +1,4 @@
 name = "atprotozoa-ratioed"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
 # @goose.art asked for a dashboard of the most ratioed posts on Bluesky in the
@@ -9,7 +8,7 @@ compatibility_date = "2025-01-01"
 # The Worker watches the live firehose (Jetstream) for root-level posts, queues
 # each one for a stats check a few minutes later (via the public, unauthenticated
 # AppView — no login, no secret needed), and scores replyCount vs likeCount. All
-# of that lives in ONE Durable Object (name "global") holding the check queue +
+# of that lives in the browser's local check queue +
 # the rolling ~1 hour leaderboard, same shape as sites/the-place's Canvas DO.
 #
 # Path route on the shared bisks.net zone, not a dedicated custom domain —
@@ -28,16 +27,11 @@ routes = [
 
 # The Worker runs first for everything now: it must strip the /ratioed mount
 # prefix before the asset router (which has no idea it isn't at the domain root)
-# ever sees the request. (Was run_worker_first = ["/", "/api/*"] on the old
+# ever sees the request. (The old implementation used a Worker route here;
 # subdomain; those root-relative patterns don't match the mounted paths.)
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "TRACKER"
-class_name = "RatioTracker"
 
 # new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers Paid;
 # this account is on Free. See sites/the-place/wrangler.toml for the full story
@@ -45,3 +39,7 @@ class_name = "RatioTracker"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RatioTracker"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RatioTracker"]

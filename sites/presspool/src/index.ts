@@ -37,38 +37,21 @@
 // copied from — closest lineage (a DO pari-mutuel market with repeating
 // rounds and no login).
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  setAlarm(scheduledTime: number): Promise<void>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: unknown): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  MARKET: DurableObjectNamespace;
+  MARKET_STATE: KVNamespace;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      const id = env.MARKET.idFromName("global");
-      const stub = env.MARKET.get(id);
-      return stub.fetch(request);
+      return new MarketStore(env.MARKET_STATE).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
@@ -172,8 +155,8 @@ function freshStats(): LifetimeStats {
   return { wagered: 0, won: 0 };
 }
 
-export class Market {
-  private state: DurableObjectState;
+export class MarketStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
 
   // The dontpressit round this market is currently taking bets on.
@@ -198,30 +181,31 @@ export class Market {
     stale: true,
   };
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
-    this.ready = this.state.blockConcurrencyWhile(async () => {
-      const trackedRoundNumber = await this.state.storage.get<number>("trackedRoundNumber");
+    this.ready = (async () => {
+      const snapshot = await this.state.get<any>("state", "json");
+      const trackedRoundNumber = snapshot?.trackedRoundNumber;
       this.trackedRoundNumber = trackedRoundNumber ?? 0;
-      const trackedRoundStartedAt = await this.state.storage.get<number>("trackedRoundStartedAt");
+      const trackedRoundStartedAt = snapshot?.trackedRoundStartedAt;
       this.trackedRoundStartedAt = trackedRoundStartedAt ?? 0;
-      const trackedName = await this.state.storage.get<RoundName | null>("trackedName");
+      const trackedName = snapshot?.trackedName;
       this.trackedName = trackedName ?? null;
-      const balances = await this.state.storage.get<[string, number][]>("balances");
+      const balances = snapshot?.balances;
       if (balances) this.balances = new Map(balances);
-      const pools = await this.state.storage.get<Record<string, number>>("pools");
+      const pools = snapshot?.pools;
       if (pools) this.pools = pools;
-      const bets = await this.state.storage.get<Record<string, Record<string, number>>>("bets");
+      const bets = snapshot?.bets;
       if (bets) this.bets = bets;
-      const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
+      const lastStipend = snapshot?.lastStipend;
       if (lastStipend) this.lastStipend = new Map(lastStipend);
-      const lifetime = await this.state.storage.get<[string, LifetimeStats][]>("lifetime");
+      const lifetime = snapshot?.lifetime;
       if (lifetime) this.lifetime = new Map(lifetime);
-      const activity = await this.state.storage.get<ActivityEntry[]>("activity");
+      const activity = snapshot?.activity;
       if (activity) this.activity = activity;
-      const lastResult = await this.state.storage.get<RoundResult>("lastResult");
+      const lastResult = snapshot?.lastResult;
       this.lastResult = lastResult ?? null;
-      const resultsHistory = await this.state.storage.get<RoundResult[]>("resultsHistory");
+      const resultsHistory = snapshot?.resultsHistory;
       this.resultsHistory = resultsHistory ?? [];
 
       if (this.trackedRoundNumber === 0) {
@@ -238,12 +222,11 @@ export class Market {
         }
       }
 
-      await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
     });
   }
 
   private async persist(): Promise<void> {
-    await this.state.storage.put({
+    await this.state.put("state", {
       trackedRoundNumber: this.trackedRoundNumber,
       trackedRoundStartedAt: this.trackedRoundStartedAt,
       trackedName: this.trackedName,
@@ -371,13 +354,6 @@ export class Market {
     this.trackedRoundStartedAt = source.roundStartedAt;
     this.trackedName = source.currentName;
     return true;
-  }
-
-  async alarm(): Promise<void> {
-    await this.ready;
-    const changed = await this.maybeAdvance();
-    if (changed) await this.persist();
-    await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
   }
 
   private buildBuckets() {

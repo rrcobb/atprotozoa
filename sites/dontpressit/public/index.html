@@ -6,12 +6,12 @@
     <title>do not press this button</title>
     <meta
       name="description"
-      content="There is one button. It says do not press this button. Every round is named after one of @fromthewestmeadow.com's followers — press it and that name graduates, forever, and the next round starts."
+      content="There is one button. It says do not press this button. Each browser gets its own local round, named from @fromthewestmeadow.com's public followers."
     />
     <meta property="og:title" content="do not press this button" />
     <meta
       property="og:description"
-      content="One button, shared by every visitor. Each round belongs to a name — pressing it graduates that name forever and starts the next round. It never stops."
+        content="One button, with a browser-local round. Pressing it graduates that name in this browser and starts the next round."
     />
     <meta property="og:image" content="https://dontpressit.bisks.net/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -189,10 +189,29 @@
 
       function setRoundTag(roundNumber) {
         roundTagEl.hidden = false;
-        roundTagEl.innerHTML = `round <b>#${roundNumber}</b> — it never stops`;
+         roundTagEl.innerHTML = `round <b>#${roundNumber}</b> — local to this browser`;
       }
 
-      // The button never stops. Every round is named after one of
+       // The button is intentionally browser-local now. Every browser gets its
+       // own sequence; there is no shared round or server-side leaderboard.
+       const STATE_KEY = "dontpressit.state";
+       const PUB = "https://public.api.bsky.app/xrpc";
+       function readState() { try { return JSON.parse(localStorage.getItem(STATE_KEY)) || null; } catch (_) { return null; } }
+       function writeState(s) { try { localStorage.setItem(STATE_KEY, JSON.stringify(s)); } catch (_) {} }
+       async function initialState() {
+         let s = readState();
+         if (s) return s;
+         let currentName = { handle: "round-1", displayName: "round 1", avatar: "" };
+         try {
+           const r = await fetch(`${PUB}/com.atproto.identity.resolveHandle?handle=fromthewestmeadow.com`).then(x => x.json());
+           const f = await fetch(`${PUB}/app.bsky.graph.getFollowers?actor=${encodeURIComponent(r.did)}&limit=100`).then(x => x.json());
+           const candidates = (f.followers || []).filter(x => x.handle && !x.handle.endsWith(".invalid"));
+           if (candidates.length) { const p = candidates[Math.floor(Math.random() * candidates.length)]; currentName = { handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || "" }; }
+         } catch (_) {}
+         s = { roundNumber: 1, currentName, roundStartedAt: Date.now(), futileClicks: 0, visits: 0, graduated: [], totalGraduated: 0 };
+         writeState(s); return s;
+       }
+       // The button never stops. Every round is named after one of
       // @fromthewestmeadow.com's followers; pressing it "graduates" that
       // name (retired forever) and the next round starts immediately.
       function renderArmed(state) {
@@ -201,8 +220,7 @@
           ${nameChip(state.currentName)}
           <button class="btn" id="thebutton">DO NOT<br/>PRESS<br/>THIS BUTTON</button>
           <p class="note">this round belongs to <b>@${esc(state.currentName.displayName || state.currentName.handle)}</b>.
-          press it and their name graduates — retired forever, never comes up again — and the next round starts,
-          live, for everyone watching. it never stops.</p>`;
+           press it and their name graduates in this browser — then the next local round starts.</p>`;
         document.getElementById("thebutton").addEventListener("click", press);
         setShare(
           `round #${state.roundNumber} of the button that never stops is @${state.currentName.handle}'s. ` +
@@ -275,20 +293,25 @@
           .join("");
       }
 
-      // The presser's own tab updates instantly from the /api/press
+       // The presser's own tab updates instantly from local browser state
       // response. Every OTHER open tab only finds out via this poll — it's
       // what makes "starts, live, for everyone watching" actually true
       // instead of just a line of copy that needs a reload to catch up.
       let knownRound = 0;
       let transitioning = false;
 
-      async function press(e) {
+       async function press(e) {
         const btn = e.currentTarget;
         btn.disabled = true;
         btn.textContent = "…";
         try {
-          const res = await fetch("/api/press", { method: "POST" });
-          const data = await res.json();
+           const state = readState() || await initialState();
+           const graduated = { ...state.currentName, roundNumber: state.roundNumber, endedAt: Date.now(), visits: state.visits, futileClicks: state.futileClicks };
+           state.graduated = [...(state.graduated || []), graduated].slice(-200);
+           state.totalGraduated = (state.totalGraduated || 0) + 1;
+           state.roundNumber += 1; state.currentName = { handle: `round-${state.roundNumber}`, displayName: `round ${state.roundNumber}`, avatar: "" };
+           state.roundStartedAt = Date.now(); state.visits = 0; state.futileClicks = 0; writeState(state);
+           const data = { ...state, justGraduated: graduated };
           transitioning = true;
           knownRound = data.justGraduated.roundNumber;
           setRoundTag(data.justGraduated.roundNumber);
@@ -307,8 +330,7 @@
 
       async function load() {
         try {
-          const res = await fetch("/api/state");
-          const data = await res.json();
+           const data = await initialState(); data.visits++ ; writeState(data);
           knownRound = data.roundNumber;
           setRoundTag(data.roundNumber);
           renderArmed(data);
@@ -324,8 +346,7 @@
         setInterval(async () => {
           if (transitioning || document.hidden) return;
           try {
-            const res = await fetch("/api/state?poll=1");
-            const data = await res.json();
+             const data = readState() || await initialState();
             if (data.roundNumber !== knownRound) {
               // Someone else pressed it while this tab was open. Replay the
               // same transition locally, using the round that just

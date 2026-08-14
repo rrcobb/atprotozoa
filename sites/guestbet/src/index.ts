@@ -32,38 +32,21 @@
 // can clear localStorage and get a fresh 1000 coins; it's play money for a
 // fan community, not a security boundary).
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  setAlarm(scheduledTime: number): Promise<void>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: unknown): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  MARKET: DurableObjectNamespace;
+  MARKET_STATE: KVNamespace;
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      const id = env.MARKET.idFromName("global");
-      const stub = env.MARKET.get(id);
-      return stub.fetch(request);
+      return new MarketStore(env.MARKET_STATE).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
@@ -143,8 +126,8 @@ function freshRound(id: number, now: number): RoundState {
   return { id, startedAt: now, resolvesAt: now + ROUND_MS, pools: {}, names: {}, bets: {} };
 }
 
-export class Market {
-  private state: DurableObjectState;
+export class MarketStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
   private balances: Map<string, number> = new Map();
   private round: RoundState = freshRound(1, 0);
@@ -159,28 +142,28 @@ export class Market {
     stale: true,
   };
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
-    this.ready = this.state.blockConcurrencyWhile(async () => {
-      const balances = await this.state.storage.get<[string, number][]>("balances");
+    this.ready = (async () => {
+      const snapshot = await this.state.get<any>("state", "json");
+      const balances = snapshot?.balances;
       if (balances) this.balances = new Map(balances);
-      const round = await this.state.storage.get<RoundState>("round");
+      const round = snapshot?.round;
       const now = Date.now();
       this.round = round ?? freshRound(1, now);
-      const history = await this.state.storage.get<HistoryEntry[]>("history");
+      const history = snapshot?.history;
       if (history) this.history = history;
-      const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
+      const lastStipend = snapshot?.lastStipend;
       if (lastStipend) this.lastStipend = new Map(lastStipend);
-      const lifetime = await this.state.storage.get<[string, LifetimeStats][]>("lifetime");
+      const lifetime = snapshot?.lifetime;
       if (lifetime) this.lifetime = new Map(lifetime);
-      const activity = await this.state.storage.get<ActivityEntry[]>("activity");
+      const activity = snapshot?.activity;
       if (activity) this.activity = activity;
-      await this.state.storage.setAlarm(this.round.resolvesAt);
     });
   }
 
   private async persist(): Promise<void> {
-    await this.state.storage.put({
+    await this.state.put("state", {
       balances: Array.from(this.balances.entries()),
       round: this.round,
       history: this.history,
@@ -287,15 +270,7 @@ export class Market {
     if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
 
     this.round = freshRound(this.round.id + 1, now);
-    await this.state.storage.setAlarm(this.round.resolvesAt);
     return entry;
-  }
-
-  async alarm(): Promise<void> {
-    await this.ready;
-    const { data } = await this.fetchBoard();
-    await this.maybeResolve(data);
-    await this.persist();
   }
 
   private buildCandidates(board: BoardEntry[]) {

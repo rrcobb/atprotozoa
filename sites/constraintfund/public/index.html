@@ -174,8 +174,8 @@
           and it goes on the board. Someone already nominated who you were
           thinking of? Hit <b>▲ vote</b> instead — same person nominated twice
           just adds a vote, and near-identical entries (typos, spacing,
-          punctuation) get merged automatically so votes don't split. No
-          account needed.
+           punctuation) get merged automatically so votes don't split. This board
+           is saved only in this browser; there is no shared server.
         </p>
         <blockquote class="spark">
           "many people should be exploring the space of generative constraints
@@ -219,9 +219,8 @@
       </div>
 
       <footer>
-        Nominations are public and anyone can nominate or vote — light per-IP
-        rate limiting keeps it from being flooded, nothing fancier. Names and
-        messages aren't moderated in advance, so treat it as a fan-run
+         Nominations stay in this browser's local storage; there is no shared
+         server or account. Names and messages aren't moderated in advance, so treat it as a fan-run
         straw poll, not an actual grant committee. There's no real money
         behind this (yet) — it's a vibe check on who the crowd would fund.
         asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
@@ -230,6 +229,23 @@
     </div>
 
     <script>
+      // Anonymous shared writes cannot survive without a backend. Keep this
+      // board honest and useful as a browser-local sketch instead.
+      const realFetch = window.fetch.bind(window);
+      const LOCAL_KEY = "constraintfund-board-v2";
+      function localEntries() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]"); } catch { return []; } }
+      function saveEntries(v) { localStorage.setItem(LOCAL_KEY, JSON.stringify(v)); }
+      function localResponse(data) { return Promise.resolve(new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } })); }
+      window.fetch = (input, init) => {
+        const path = typeof input === "string" ? input : input.url;
+        if (!path.startsWith("/api/")) return realFetch(input, init);
+        const entries = localEntries();
+        if (path === "/api/board") return localResponse({ count: entries.length, entries: entries.sort((a, b) => b.votes - a.votes || b.lastActivity - a.lastActivity) });
+        let body = {}; try { body = JSON.parse(init?.body || "{}"); } catch {}
+        if (path === "/api/vote") { const e = entries.find((x) => x.id === body.id); if (!e) return localResponse({ error: "not found" }); e.votes++; e.lastActivity = Date.now(); saveEntries(entries); return localResponse({ votes: e.votes }); }
+        if (path === "/api/nominate") { const norm = String(body.nominee || "").trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, ""); let e = entries.find((x) => x.nomineeNorm === norm); const now = Date.now(); if (e) { e.votes++; e.lastActivity = now; if (body.message && !e.notes.includes(body.message)) e.notes.unshift(body.message); } else { e = { id: crypto.randomUUID(), nominee: body.nominee, nomineeNorm: norm, altSpellings: [], notes: body.message ? [body.message] : [], alsoNominatedBy: [], nominatedBy: String(body.nominatedBy || "").replace(/^@/, ""), votes: 1, createdAt: now, lastActivity: now }; entries.push(e); } saveEntries(entries); return localResponse({ ok: true, id: e.id, merged: e.votes > 1, votes: e.votes }); }
+        return localResponse({ error: "not found" });
+      };
       const board = document.getElementById("board");
       const empty = document.getElementById("empty");
       const statusText = document.getElementById("statusText");

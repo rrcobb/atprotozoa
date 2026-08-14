@@ -6,7 +6,7 @@
     <title>karmahose — points for anything, forever</title>
     <meta
       name="description"
-      content="Post anything ending in `<name> +1` or `<name> -1` and it joins a running global tally. No signup, no target — any name at all. Watched live off the Bluesky firehose, scores persist forever."
+      content="Browse a live browser-side sample of public Bluesky posts ending in `<name> +1` or `<name> -1`. No backend archive or complete global tally."
     />
     <meta property="og:title" content="karmahose — points for anything, forever" />
     <meta
@@ -218,7 +218,10 @@
       </footer>
     </div>
 
-    <script>
+    <script type="module">
+      import { publicData } from "/lib/public-tally.js";
+      const realFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => { const path = typeof input === "string" ? input : input.url; if (path === "/api/leaderboard") return new Response(JSON.stringify(await publicData()), { headers: { "content-type": "application/json" } }); if (path.startsWith("/api/name")) { const d = await publicData(), q = new URL(path, location.origin).searchParams.get("q") || "", e = d.names.get(q.trim().toLowerCase()); return new Response(JSON.stringify(e ? { found: true, entry: e } : { found: false, query: q }), { headers: { "content-type": "application/json" } }); } return realFetch(input, init); };
       const dot = document.getElementById("dot");
       const statusText = document.getElementById("statusText");
       const totalsText = document.getElementById("totalsText");

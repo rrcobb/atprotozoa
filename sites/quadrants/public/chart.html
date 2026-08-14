@@ -80,9 +80,9 @@
       </section>
 
       <footer>
-        <span id="count-line"></span> — positions are read live off the
-        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-        firehose for the <code>net.bisks.quadrants.position</code> collection, not stored here first.
+        <span id="count-line"></span> — this chart is a local browser draft. Your
+        position is written to your own PDS; other viewers do not get a global
+        index, so their charts may be empty or eventually consistent.
       </footer>
     </div>
 
@@ -184,15 +184,14 @@
 
       async function loadChart() {
         try {
-          const res = await fetch(`${MOUNT}/api/charts/${encodeURIComponent(chartId)}`);
-          if (res.status === 404) {
+           const charts = JSON.parse(localStorage.getItem("quadrants:charts") || "[]");
+           chart = charts.find((c) => c.id === chartId);
+           if (!chart) {
             $("#h-title").textContent = "chart not found";
             $("#h-meta").textContent = "it may have expired, or the link is wrong.";
             return;
           }
-          const data = await res.json();
-          chart = data.chart;
-          positions = data.positions || [];
+           positions = JSON.parse(localStorage.getItem(`quadrants:positions:${chartId}`) || "[]");
           renderHeader();
           render();
         } catch {
@@ -299,8 +298,9 @@
             y,
             updatedAt: Date.now(),
           };
-          if (idx >= 0) positions[idx] = entry;
-          else positions.push(entry);
+           if (idx >= 0) positions[idx] = entry;
+           else positions.push(entry);
+           localStorage.setItem(`quadrants:positions:${chartId}`, JSON.stringify(positions));
 
           pending = null;
           status.textContent = "plotted — it may take a minute to show up for everyone else.";
@@ -325,7 +325,8 @@
             body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: chartId }),
           });
           if (!res.ok) throw new Error(`${res.status}`);
-          positions = positions.filter((p) => p.did !== session.did);
+           positions = positions.filter((p) => p.did !== session.did);
+           localStorage.setItem(`quadrants:positions:${chartId}`, JSON.stringify(positions));
           status.textContent = "removed.";
           status.className = "status ok";
           render();

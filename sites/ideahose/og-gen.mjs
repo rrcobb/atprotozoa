@@ -95,7 +95,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="${ROW_X}" y="${H - 40}" font-family="JetBrains Mono" font-size="16"
     fill="${MUTED}">watches every idea-shaped post, groups repeats, ranks by mentions + reactions</text>
   <text x="${W - ROW_X}" y="${H - 40}" text-anchor="end" font-family="JetBrains Mono"
-    font-size="16" fill="${ACCENT}">bisks.net/ideahose</text>
+    font-size="16" fill="${ACCENT}">ideahose.bisks.net</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

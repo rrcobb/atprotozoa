@@ -69,7 +69,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="290" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Custom feeds and lists, alt text,</text>
   <text x="64" y="316" font-family="JetBrains Mono" font-size="17" fill="${DIM}">language and emoji range, thread-</text>
   <text x="64" y="342" font-family="JetBrains Mono" font-size="17" fill="${DIM}">building — scored and put on a</text>
-  <text x="64" y="368" font-family="JetBrains Mono" font-size="17" fill="${DIM}">shared leaderboard, no faking it.</text>
+  <text x="64" y="368" font-family="JetBrains Mono" font-size="17" fill="${DIM}">calculated locally in your browser.</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT2}">intrigue.bisks.net</text>
 

@@ -1,16 +1,11 @@
 name = "atprotozoa-peakposting"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
 # @isolyth.dev asked for a site that pulls in someone's ENTIRE account and
 # surfaces their all-time top posts by likes / reposts / replies, plus a
 # global leaderboard: everyone who's ever scanned their account has their
-# personal-best counts recorded and shown in a sorted list. The scan itself
-# runs client-side (public/index.html pages through app.bsky.feed.getAuthorFeed
-# via the public AppView). The leaderboard is real shared state in a Durable
-# Object (src/index.ts) — and submissions are re-verified server-side against
-# the AppView (by post URI, checking post.author.did matches) so a client can't
-# just POST made-up numbers into the leaderboard. See notes/40-new-site-playbook.md.
+# personal-best counts recorded and shown in a sorted list. The scan and
+# browser-local leaderboard run client-side against the public AppView.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.
@@ -21,17 +16,13 @@ routes = [
   { pattern = "peakposting.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* is dynamic (the leaderboard Durable Object), so the
-# Worker must run BEFORE the static-asset router.
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-
-[[durable_objects.bindings]]
-name = "BOARD"
-class_name = "Board"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Board"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Board"]

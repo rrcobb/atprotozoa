@@ -10,7 +10,9 @@
 // Copy, don't abstract: this is the same CAR/DAG-CBOR parser as
 // sites/cloutgraph/public/lib/car.js, copied in unmodified.
 
-const CAR_MAX_BYTES = 200 * 1024 * 1024; // bail (caller should fall back to getAuthorFeed) rather than parse a repo this big in-tab
+const CAR_MAX_BYTES = 100 * 1024 * 1024;
+const CAR_MAX_BLOCKS = 600000;
+const CAR_MAX_RECORDS = 12000;
 const DAG_CBOR_CODEC = 0x71;
 
 function readVarint(bytes, offset) {
@@ -112,10 +114,11 @@ function cborValue(st) {
 // dag-cbor block — no rkey, no CID, just the record body (all any caller
 // here has needed so far). Throws on network/oversize failure; caller should
 // catch and fall back to getAuthorFeed.
-export async function fetchRepoRecords(pds, did, types, onProgress) {
+export async function fetchRepoRecords(pds, did, types, onProgress, options = {}) {
   const wanted = new Set(Array.isArray(types) ? types : [types]);
   if (onProgress) onProgress(`downloading repo CAR from ${pds} ...`);
-  const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
+  const signal = options.signal;
+  const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did), { signal });
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).message || msg; } catch (_) {}
@@ -136,12 +139,14 @@ export async function fetchRepoRecords(pds, did, types, onProgress) {
   if (onProgress) onProgress(`parsing ${(buf.byteLength / 1048576).toFixed(1)} MB repo CAR ...`);
 
   for (const blockBytes of carBlocks(bytes)) {
-    scanned++;
+    if (signal && signal.aborted) throw new DOMException("scan cancelled", "AbortError");
+    if (++scanned > CAR_MAX_BLOCKS) throw new Error("repo CAR exceeded the browser scan cap");
     let obj;
     try { obj = cborDecode(blockBytes); } catch (_) { continue; }
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) continue;
     if (typeof obj.$type === "string" && /topchicken/i.test(obj.$type)) topchickenCount++;
     if (!wanted.has(obj.$type)) continue;
+    if (out.length >= CAR_MAX_RECORDS) throw new Error("repo CAR exceeded the record scan cap");
     out.push(obj);
     if (onProgress && scanned % 1000 === 0) onProgress(`scanning repo CAR... ${out.length} matching records so far`);
   }

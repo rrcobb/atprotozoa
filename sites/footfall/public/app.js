@@ -1,7 +1,5 @@
-// footfall leaderboard page — fetches live counts from /api/leaderboard and
-// the static site->prompter manifest snapshot, joins them client-side, and
-// renders whichever view is selected. No fabricated rows: a site or prompter
-// with zero reported visits simply doesn't appear until it has some.
+// The former shared tracker was retired. This page remains a static catalog;
+// it deliberately does not turn browser-local visits into a shared ranking.
 
 const boardHead = document.getElementById("boardHead");
 const boardBody = document.getElementById("boardBody");
@@ -19,7 +17,7 @@ const VALID_VIEWS = new Set(["sites-visits", "sites-time", "sites-avg", "prompte
 let view = "sites-visits";
 let query = "";
 let worstFirst = false;
-let siteRows = [];   // from /api/leaderboard, keyed by site
+let siteRows = [];   // static manifest rows, keyed by site
 let manifests = [];  // from data/manifests.json: {name, url, title, by, type}
 let manifestBySite = new Map();
 let lastRender = { kind: "sites", rows: [] };
@@ -75,30 +73,19 @@ function fmtDate(ms) {
 }
 
 async function loadData() {
-  const [lbRes, manRes] = await Promise.all([
-    fetch("/api/leaderboard").then((r) => r.json()).catch(() => ({ sites: [], totals: { visits: 0, dwellMs: 0 } })),
-    fetch("data/manifests.json").then((r) => r.json()).catch(() => []),
-  ]);
+  const manRes = await fetch("data/manifests.json").then((r) => r.json()).catch(() => []);
 
   manifests = Array.isArray(manRes) ? manRes : [];
   manifestBySite = new Map(manifests.map((m) => [m.name, m]));
 
-  siteRows = (lbRes.sites || []).map((s) => ({
-    ...s,
-    title: manifestBySite.get(s.site)?.title || s.site,
-    url: manifestBySite.get(s.site)?.url || `https://${s.site}.bisks.net/`,
-    by: manifestBySite.get(s.site)?.by || null,
+  siteRows = manifests.map((m) => ({
+    site: m.name, visits: 0, dwellMs: 0, dwellSamples: 0, avgDwellMs: 0,
+    title: m.title || m.name, url: m.url || `https://${m.name}.bisks.net/`, by: m.by || null,
   }));
 
-  document.getElementById("totalVisits").textContent = fmtNum(lbRes.totals?.visits);
-  document.getElementById("totalTime").textContent = fmtMs(lbRes.totals?.dwellMs);
-  document.getElementById("totalSites").textContent = fmtNum(lbRes.trackedSites ?? siteRows.length);
-  // manifests.json is every non-hidden site built, not just ones with a row
-  // here — most never had a live beacon window before ingestion was retired,
-  // so "reporting" is honestly a small fraction of "built."
-  document.getElementById("totalSitesSub").textContent = manifests.length
-    ? `of ${fmtNum(manifests.length)} built`
-    : "";
+  document.getElementById("totalVisits").textContent = "—";
+  document.getElementById("totalTime").textContent = "—";
+  document.getElementById("totalSites").textContent = fmtNum(siteRows.length);
   const prompterCount = new Set(siteRows.filter((r) => r.by).map((r) => r.by)).size;
   document.getElementById("totalPrompters").textContent = fmtNum(prompterCount);
 

@@ -1,9 +1,8 @@
 // SkeetIn Corvid — public/corvid/corvid.js
 //
 // The claim page for the limited-edition numbered SkeetIn Corvid accounts.
-// All the "is this number actually unique" work happens server-side (see
-// ../../src/index.ts's CorvidClaims Durable Object) — this file just calls
-// /api/corvid/status and /api/corvid/claim and renders what comes back.
+  // Claims are deliberately local to this browser. They are a visual toy, not
+  // globally unique or portable account state.
 (function () {
   "use strict";
 
@@ -48,16 +47,15 @@
     els.errorMsg.style.display = "none";
   }
 
+  function claims() {
+    return JSON.parse(localStorage.getItem("skeetin:corvid") || "[]");
+  }
+
   async function loadStatus() {
     try {
-      const res = await fetch("/api/corvid/status");
-      if (!res.ok) throw new Error("status " + res.status);
-      const data = await res.json();
-      renderStatus(data);
-    } catch (_) {
-      els.claimedLabel.textContent = "— claimed";
-      els.remainingLabel.textContent = "of " + TOTAL;
-    }
+      const rows = claims();
+      renderStatus({ total: TOTAL, claimed: rows.length, recent: rows.slice().reverse().slice(0, 12) });
+    } catch (_) { els.claimedLabel.textContent = "— claimed"; }
   }
 
   function renderStatus(data) {
@@ -93,7 +91,7 @@
 
   function shareTextFor(entry) {
     const url = "https://skeetin.bisks.net/corvid/";
-    return `I claimed SkeetIn Corvid #${String(entry.number).padStart(3, "0")} — a limited № edition of 500, first come first served. ${url}`;
+    return `I claimed a local SkeetIn Corvid #${String(entry.number).padStart(3, "0")} — visible only in my browser. ${url}`;
   }
 
   function renderResult(entry, note) {
@@ -117,22 +115,17 @@
     els.claimBtn.disabled = true;
     els.claimBtn.textContent = "Claiming…";
     try {
-      const res = await fetch("/api/corvid/claim", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ handle }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showError(data.error || "Couldn't claim that one.");
-        if (data.soldOut) {
-          els.claimBtn.textContent = "Sold out";
-        } else {
-          els.claimBtn.disabled = false;
-          els.claimBtn.textContent = "Claim";
-        }
-        return;
-      }
+      const res = await fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=" + encodeURIComponent(handle));
+      if (!res.ok) throw new Error("couldn't find that account");
+      const profile = await res.json();
+      const rows = claims();
+      let data = { entry: rows.find((row) => row.did === profile.did), alreadyClaimed: false };
+      if (!data.entry) {
+        if (rows.length >= TOTAL) { showError("all local numbers are used in this browser."); els.claimBtn.textContent = "Sold out"; return; }
+        data.entry = { number: rows.length + 1, did: profile.did, handle: profile.handle || handle, displayName: profile.displayName, avatar: profile.avatar, claimedAt: Date.now() };
+        rows.push(data.entry);
+        localStorage.setItem("skeetin:corvid", JSON.stringify(rows));
+      } else data.alreadyClaimed = true;
       renderResult(
         data.entry,
         data.alreadyClaimed

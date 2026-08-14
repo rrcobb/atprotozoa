@@ -88,7 +88,7 @@
       <footer>
         idea #16 off <a href="https://permadeath.com/3mrdi6mbsok2k" target="_blank" rel="noopener">permadeath.com's 50 ATProto project ideas</a> —
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
-        positions live in a custom <code>net.bisks.quadrants.position</code> record on your own PDS, not on this server.
+          positions live in a custom <code>net.bisks.quadrants.position</code> record on your own PDS, not on this server. Charts and the small index are local to this browser; a shared link does not imply a global directory.
       </footer>
     </div>
 
@@ -176,21 +176,20 @@
         status.className = "status";
         try {
           const l = labels();
-          const res = await fetch("/quadrants/api/charts", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              title,
+           const chart = {
+               title,
               xLeft: l.left,
               xRight: l.right,
               yBottom: l.bottom,
               yTop: l.top,
-              anchors,
-            }),
-          });
-          if (!res.ok) throw new Error(`${res.status}`);
-          const data = await res.json();
-          location.href = `/quadrants/c/${encodeURIComponent(data.id)}/`;
+               anchors,
+               id: crypto.randomUUID().replaceAll("-", "").slice(0, 12),
+               createdAt: Date.now(), positionCount: 0,
+             };
+           const charts = JSON.parse(localStorage.getItem("quadrants:charts") || "[]");
+           charts.unshift(chart);
+           localStorage.setItem("quadrants:charts", JSON.stringify(charts.slice(0, 50)));
+           location.href = `/quadrants/c/${encodeURIComponent(chart.id)}/`;
         } catch (e) {
           status.textContent = `couldn't create that: ${e.message}`;
           status.className = "status err";
@@ -202,9 +201,7 @@
       async function loadCharts() {
         const list = $("#chart-list");
         try {
-          const res = await fetch("/quadrants/api/charts");
-          const data = await res.json();
-          const charts = data.charts || [];
+           const charts = JSON.parse(localStorage.getItem("quadrants:charts") || "[]");
           if (!charts.length) {
             list.innerHTML = `<p class="empty">nothing yet — be the first.</p>`;
             return;

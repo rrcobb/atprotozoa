@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>intrigue → labeler? — a preview</title>
-<meta name="description" content="Could intrigue's interestingness score be a Bluesky labeler? Here's the honest answer: the label mapping and query endpoint are real and live — the network subscription isn't, because that needs a dedicated signing identity nobody has provisioned yet." />
+<meta name="description" content="Could intrigue's interestingness score be a Bluesky labeler? A static preview of the proposed tier mapping." />
 <meta property="og:title" content="intrigue → labeler? — a preview" />
-<meta property="og:description" content="Could intrigue's interestingness score be a Bluesky labeler? Here's the honest answer: the label mapping and query endpoint are real and live — the network subscription isn't, because that needs a dedicated signing identity nobody has provisioned yet." />
+<meta property="og:description" content="Could intrigue's interestingness score be a Bluesky labeler? A static preview of the proposed tier mapping." />
 <meta property="og:url" content="https://intrigue.bisks.net/labeler/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://intrigue.bisks.net/og.png" />
@@ -112,8 +112,8 @@
   <p class="tag"><a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> asked. Short answer below, then the actual working piece of it.</p>
 
   <div class="verdict">
-    <div class="yn"><span class="not-yet">not yet subscribable</span> — but the label mapping and query endpoint are real, live, and one identity away from it.</div>
-    <p class="dim" style="margin:0;">A Bluesky labeler is an account that publishes signed <code>(subject, label)</code> pairs the app trusts because they're cryptographically signed by that account's own key. Building the <em>logic</em> — mapping intrigue's score into a label — is a file edit, which is exactly what this build is. But making it a <em>real, subscribable</em> labeler needs a dedicated identity with its own signing key, declared in a DID document — that's an identity-provisioning step, not a code change, and it isn't something an automated build can do on its own (the same way it can't touch deploy credentials). So: no fake "subscribe" button here — that would just be a link that does nothing. What follows is the honest, working preview.</p>
+    <div class="yn"><span class="not-yet">not a labeler</span> — this page is only a static preview of a possible mapping.</div>
+    <p class="dim" style="margin:0;">A Bluesky labeler publishes signed <code>(subject, label)</code> pairs. Intrigue currently calculates scores locally in each visitor's browser and has no signing identity or network labeler endpoint, so there is nothing to subscribe to and no shared score data to publish.</p>
   </div>
 
   <h2>the mapping</h2>
@@ -130,23 +130,8 @@
     </tbody>
   </table>
 
-  <h2>try the live endpoint</h2>
-  <p class="dim">This scores a handle (or reuses its cached score) and asks intrigue's own <code>com.atproto.label.queryLabels</code> implementation what label it would carry. Real endpoint, real data — <a href="/xrpc/com.atproto.label.queryLabels?uriPatterns=did:plc:z72i7hdynmk6r22z27h6tvur" target="_blank" rel="noopener">try it raw</a> against any DID.</p>
-
-  <form id="previewForm">
-    <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
-    <button type="submit" id="previewBtn">preview label</button>
-  </form>
-  <p class="status" id="status"></p>
-
-  <div class="preview" id="previewCard">
-    <div class="who" id="pWho"></div>
-    <div class="label" id="pLabel"></div>
-    <pre id="pJson"></pre>
-  </div>
-
   <h2>what "done" looks like</h2>
-  <p class="dim">Once a labeler DID exists — Rob's call, since it means provisioning a new signed identity — the remaining work is small: publish an <code>app.bsky.labeler.service</code> record declaring this label set, point the DID document's <code>#atproto_labeler</code> service at this Worker, and sign what <code>queryLabels</code> already returns. At that point a real "subscribe to labeler" link (<code>bsky.app/profile/&lt;did&gt;</code>) becomes honest, and it'll go right here.</p>
+  <p class="dim">A future labeler would need a dedicated DID, signing key, service record, and a server that publishes labels. Until then this mapping remains documentation only.</p>
 
   <footer>
     part of <a href="/">intrigue</a>, built for <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a> by
@@ -155,87 +140,5 @@
   </footer>
 </div>
 
-<script type="module">
-function cleanHandle(raw) {
-  let h = (raw || "").trim();
-  h = h.replace(/^@/, "");
-  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
-  if (m) h = m[1];
-  return h;
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-// Kept in lockstep with src/index.ts's labelValFor — this only formats a
-// score the API already computed, never re-derives one.
-function labelValFor(score) {
-  if (score >= 90) return "main-character";
-  if (score >= 75) return "intriguing";
-  if (score >= 55) return "has-layers";
-  if (score >= 35) return "quietly-fine";
-  if (score >= 15) return "lurking";
-  return "npc";
-}
-
-function jsonHtml(obj) {
-  const lines = Object.entries(obj).map(function ([k, v]) {
-    const vs = typeof v === "string" ? '"' + escapeHtml(v) + '"' : escapeHtml(String(v));
-    return '  <span class="k">"' + k + '"</span>: <span class="v">' + vs + '</span>';
-  });
-  return "{\n" + lines.join(",\n") + "\n}";
-}
-
-const els = {
-  form: document.getElementById("previewForm"),
-  input: document.getElementById("handleInput"),
-  btn: document.getElementById("previewBtn"),
-  status: document.getElementById("status"),
-  card: document.getElementById("previewCard"),
-  who: document.getElementById("pWho"),
-  label: document.getElementById("pLabel"),
-  json: document.getElementById("pJson"),
-};
-
-els.form.addEventListener("submit", async function (e) {
-  e.preventDefault();
-  const raw = els.input.value.trim();
-  const handle = cleanHandle(raw);
-  if (!handle) return;
-
-  els.btn.disabled = true;
-  els.status.classList.remove("err");
-  els.status.textContent = "scoring " + handle + "… (reuses intrigue's own scorer)";
-  els.card.classList.remove("show");
-
-  try {
-    const res = await fetch("/api/submit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: handle }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't score that");
-
-    const val = labelValFor(data.score);
-    els.who.textContent = "@" + data.handle + " — " + data.score + "/100";
-    els.label.textContent = val;
-    els.json.innerHTML = jsonHtml({
-      src: "did:example:intrigue-preview",
-      uri: data.did,
-      val: val,
-      cts: new Date().toISOString(),
-    });
-    els.card.classList.add("show");
-    els.status.textContent = "this is what com.atproto.label.queryLabels returns for this DID right now.";
-  } catch (err) {
-    els.status.classList.add("err");
-    els.status.textContent = "couldn't preview that — " + (err && err.message ? err.message : "check the handle and try again");
-  } finally {
-    els.btn.disabled = false;
-  }
-});
-</script>
 </body>
 </html>

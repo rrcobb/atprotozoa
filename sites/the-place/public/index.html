@@ -6,12 +6,12 @@
     <title>the place — bisks.net</title>
     <meta
       name="description"
-      content="One shared pixel canvas for the whole internet. No login — place a pixel every few seconds, watch everyone else's pixels land, and at 00:00 UTC today's canvas freezes and a blank one begins."
+      content="A browser-owned pixel canvas. No login — place pixels in your local sketch, save daily canvases in this browser, and share the resulting image."
     />
     <meta property="og:title" content="the place — bisks.net" />
     <meta
       property="og:description"
-      content="One shared pixel canvas. Everyone draws the same grid; it resets every day at 00:00 UTC."
+      content="A local pixel canvas that resets daily in your browser."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://the-place.bisks.net/" />
@@ -114,10 +114,10 @@
         <h1><a href="/the-place/">the place<span class="slash"> / bisks.net</span></a></h1>
       </header>
       <p class="intro">
-        One shared pixel canvas. No account, no name — anyone who loads this
-        page can drop a pixel every few seconds. At <b>00:00 UTC</b> today's
-        grid freezes forever and a blank one begins. Everything before today
-        stays browsable below.
+        A pixel canvas in your browser. No account, no server coordinator —
+        your sketch is saved locally and can be shared as an image. At
+        <b>00:00 UTC</b> a new local day begins; this page does not pretend
+        separate visitors are editing one authoritative grid.
       </p>
       <p class="credit">
         an idea from <a href="https://bsky.app/profile/minormobius.bsky.social" target="_blank" rel="noopener">@minormobius.bsky.social</a>
@@ -225,14 +225,16 @@
           return arr;
         }
 
+        function localState(day) {
+          const key = "the-place:" + (day || new Date().toISOString().slice(0, 10));
+          let saved = null;
+          try { saved = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
+          return saved || { day: day || new Date().toISOString().slice(0, 10), width: 64, height: 40,
+            palette: ["#ffffff", "#e4e4e4", "#888888", "#222222", "#ffa7d1", "#e50000", "#e59500", "#a06a42", "#e5d900", "#94e044", "#02be01", "#00d3dd", "#0083c7", "#0000ea", "#cf6ee4", "#820080"],
+            grid: "0".repeat(64 * 40), version: 0, pixelsToday: 0, live: !day, resetAt: new Date(Date.now() + 86400000).toISOString() };
+        }
         async function fetchState(day) {
-          const q = day ? "?day=" + encodeURIComponent(day) : "";
-          const res = await fetch(MOUNT + "/api/state" + q);
-          if (!res.ok) {
-            dayLabel.textContent = "couldn't load that day";
-            return;
-          }
-          const data = await res.json();
+          const data = localState(day);
           width = data.width;
           height = data.height;
           palette = data.palette;
@@ -274,18 +276,11 @@
         async function placePixel(x, y) {
           pixelErr.hidden = true;
           try {
-            const res = await fetch(MOUNT + "/api/pixel", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ x, y, c: selectedColor }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-              if (data.retryMs) localCooldownUntil = Date.now() + data.retryMs;
-              pixelErr.textContent = data.error === "cooldown" ? "hang on, one pixel at a time." : "couldn't place that — " + (data.error || res.status);
-              pixelErr.hidden = false;
-              return;
-            }
+            const data = localState("");
+            data.grid = data.grid.slice(0, y * width + x) + selectedColor.toString(16) + data.grid.slice(y * width + x + 1);
+            data.pixelsToday = (data.pixelsToday || 0) + 1;
+            data.version = (data.version || 0) + 1;
+            try { localStorage.setItem("the-place:" + data.day, JSON.stringify(data)); } catch (e) {}
             grid[y * width + x] = selectedColor;
             version = data.version;
             draw();
@@ -336,9 +331,8 @@
 
         async function loadDays() {
           try {
-            const res = await fetch(MOUNT + "/api/days");
-            const data = await res.json();
-            data.days.forEach((d) => {
+             const data = { days: Object.keys(localStorage).filter((k) => k.startsWith("the-place:") && /^the-place:\d{4}-\d{2}-\d{2}$/.test(k)).map((k) => k.slice(10)).sort().reverse() };
+             data.days.forEach((d) => {
               const opt = document.createElement("option");
               opt.value = d;
               opt.textContent = d;

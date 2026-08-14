@@ -223,30 +223,15 @@
     }
   });
 
-  // ---------- SkeetIn Corvid (limited-edition numbered claim, server-backed) --
+  // ---------- SkeetIn Corvid (local browser-only demo) -------------------------
   async function refreshCorvidNavCount() {
-    try {
-      const res = await fetch("/api/corvid/status");
-      if (!res.ok) return;
-      const data = await res.json();
-      els.corvidNavCount.textContent =
-        data.remaining > 0 ? `${fmt(data.remaining)} left` : "sold out";
-    } catch (_) {
-      // nav chip just keeps its static "500 left" — not worth surfacing an error for
-    }
+    const rows = JSON.parse(localStorage.getItem("skeetin:corvid") || "[]");
+    els.corvidNavCount.textContent = `${fmt(Math.max(0, 500 - rows.length))} local left`;
   }
   async function renderCorvidBadge(did) {
     els.pfCorvidBadge.innerHTML = "";
-    try {
-      const res = await fetch("/api/corvid/lookup?did=" + encodeURIComponent(did));
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.entry) {
-        els.pfCorvidBadge.innerHTML = `<span class="corvid-badge" title="Claimed a SkeetIn Corvid — limited to 500, ever">🐦‍⬛ Corvid #${String(data.entry.number).padStart(3, "0")}</span>`;
-      }
-    } catch (_) {
-      // no badge is a fine fallback
-    }
+    const entry = JSON.parse(localStorage.getItem("skeetin:corvid") || "[]").find((row) => row.did === did);
+    if (entry) els.pfCorvidBadge.innerHTML = `<span class="corvid-badge" title="Local browser-only badge">🐦‍⬛ Corvid #${String(entry.number).padStart(3, "0")}</span>`;
   }
 
   // ---------- rich text (facets use UTF-8 byte offsets, not JS string indices) ----------

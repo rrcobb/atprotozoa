@@ -1,9 +1,8 @@
-// app.js — wires the three.js classroom (scene.js), the AV cart's refried
-// slideshow (refry.js), the procedural soundtrack (corecore.js), and the
-// shared-room API (src/index.ts's Classroom Durable Object) together.
+// app.js — browser-owned classroom draft. AppView supplies real public feeds;
+// seats, channel choice, and the note stay local to this browser.
 //
-// Shared state is polled, not pushed (same shape as sites/the-place): every
-// 2.5s every open tab asks /api/state "what does the room look like now"
+       // The local draft is refreshed from localStorage, not presented as live multiplayer: every
+// 2.5s every open tab reloads the browser-owned room draft.
 // and reconciles. Simple, cheap, and good enough for a classroom that
 // changes a few times a minute, not every frame.
 
@@ -29,13 +28,43 @@ function sid() {
 const SID = sid();
 
 async function api(path, body) {
-  const res = await fetch(path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, status: res.status, data };
+  let data;
+  try { data = JSON.parse(localStorage.getItem("avcart-state") || "null"); } catch (e) { data = null; }
+  data ||= { version: 0, rows: 4, cols: 5, seats: {}, current: null,
+    note: { strokes: [], holderSeat: null, updatedAt: 0 } };
+  if (!body) return { ok: true, status: 200, data };
+  if (path === "sit") {
+    if (data.seats[body.seat] && data.seats[body.seat].sid !== body.sid) return { ok: false, status: 409, data: { error: "taken" } };
+    Object.keys(data.seats).forEach((s) => { if (data.seats[s].sid === body.sid) delete data.seats[s]; });
+    data.seats[body.seat] = { sid: body.sid, ts: Date.now() };
+  } else if (path === "leave") {
+    Object.keys(data.seats).forEach((s) => { if (data.seats[s].sid === body.sid) delete data.seats[s]; });
+  } else if (path === "note/take") {
+    const seat = Object.keys(data.seats).find((s) => data.seats[s].sid === body.sid);
+    if (!seat) return { ok: false, status: 400, data: { error: "sit down first" } };
+    if (data.note.holderSeat) return { ok: false, status: 409, data: { error: "someone already has it" } };
+    data.note.holderSeat = seat;
+  } else if (path === "note/scribble") {
+    const seat = Object.keys(data.seats).find((s) => data.seats[s].sid === body.sid);
+    if (!seat || data.note.holderSeat !== seat) return { ok: false, status: 403, data: { error: "you don't have the note" } };
+    data.note.strokes.push({ ...body.stroke, seat, ts: Date.now() });
+    data.note.strokes = data.note.strokes.slice(-24);
+  } else if (path === "note/pass") {
+    if (!data.seats[body.toSeat]) return { ok: false, status: 400, data: { error: "nobody's sitting there" } };
+    data.note.holderSeat = body.toSeat;
+  } else if (path === "select") {
+    const actor = String(body.handle || "").replace(/^@/, "");
+    try {
+      const profile = await (await fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=" + encodeURIComponent(actor))).json();
+      const feed = await (await fetch("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=" + encodeURIComponent(profile.did) + "&filter=posts_with_media&limit=100")).json();
+      const images = [];
+      for (const item of feed.feed || []) for (const image of (item.post?.embed?.images || [])) if (image.thumb) images.push({ url: image.thumb, alt: image.alt || "" });
+      data.current = { handle: profile.handle || actor, displayName: profile.displayName || actor, avatar: profile.avatar || "", images, truncated: false, selectedAt: Date.now() };
+    } catch (e) { return { ok: false, status: 404, data: { error: "couldn't find that account" } }; }
+  }
+  data.version++;
+  try { localStorage.setItem("avcart-state", JSON.stringify(data)); } catch (e) {}
+  return { ok: true, status: 200, data };
 }
 
 function main() {
@@ -113,7 +142,7 @@ function main() {
     const rect = canvas.getBoundingClientRect();
     const seat = scene.pick(e.clientX, e.clientY, rect);
     if (!seat || seat === mySeat) return;
-    const { ok, data } = await api("/api/sit", { sid: SID, seat });
+    const { ok, data } = await api("sit", { sid: SID, seat });
     if (!ok) {
       if (data.error === "taken") flash(els.hint, "someone's already sitting there");
       return;
@@ -130,7 +159,7 @@ function main() {
 
   els.standUp.addEventListener("click", async () => {
     if (!mySeat) return;
-    await api("/api/leave", { sid: SID });
+    await api("leave", { sid: SID });
     mySeat = null;
     scene.standUp();
     els.hint.hidden = false;
@@ -213,7 +242,7 @@ function main() {
       paintNoteCanvas();
       return;
     }
-    const { ok, data } = await api("/api/note/scribble", { sid: SID, stroke });
+    const { ok, data } = await api("note/scribble", { sid: SID, stroke });
     if (ok) applyState(data);
     else paintNoteCanvas();
   }
@@ -236,7 +265,7 @@ function main() {
       els.noteBody.textContent = "";
       els.noteActions.innerHTML = '<button id="noteTakeBtn" class="note-wide-btn" type="button">pick up the note</button>';
       document.getElementById("noteTakeBtn").addEventListener("click", async () => {
-        const { ok, data } = await api("/api/note/take", { sid: SID });
+        const { ok, data } = await api("note/take", { sid: SID });
         if (ok) applyState(data);
       });
       return;
@@ -288,7 +317,7 @@ function main() {
       btn.disabled = !occupied;
       btn.title = occupied ? "" : "nobody's sitting there";
       btn.addEventListener("click", async () => {
-        const { ok, data } = await api("/api/note/pass", { sid: SID, toSeat });
+        const { ok, data } = await api("note/pass", { sid: SID, toSeat });
         if (ok) applyState(data);
       });
       passRow.appendChild(btn);
@@ -321,7 +350,7 @@ function main() {
     els.selectErr.hidden = true;
     els.selectBtn.disabled = true;
     els.selectBtn.textContent = "loading feed…";
-    const { ok, data } = await api("/api/select", { handle });
+    const { ok, data } = await api("select", { handle });
     els.selectBtn.disabled = false;
     els.selectBtn.textContent = "put it on";
     if (!ok) {
@@ -349,7 +378,7 @@ function main() {
 
     if (data.current) {
       currentHandle = data.current.handle;
-      currentImages = data.current.images.map((i) => i.url);
+       currentImages = data.current.images.map((i) => i.url);
       els.nowShowing.innerHTML =
         (data.current.avatar ? `<img src="${data.current.avatar}" alt="" class="avatar" />` : "") +
         `<div><b>@${esc(data.current.handle)}</b><br><span class="muted">${
@@ -374,19 +403,19 @@ function main() {
   updateShare();
 
   async function poll() {
-    const { ok, data } = await api("/api/state");
+    const { ok, data } = await api("state");
     if (ok) applyState(data);
     setTimeout(poll, POLL_MS);
   }
   poll();
 
   setInterval(() => {
-    if (mySeat) api("/api/heartbeat", { sid: SID, seat: mySeat });
+    if (mySeat) api("heartbeat", { sid: SID, seat: mySeat });
   }, HEARTBEAT_MS);
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden || !mySeat) return;
-    api("/api/heartbeat", { sid: SID, seat: mySeat });
+    api("heartbeat", { sid: SID, seat: mySeat });
   });
 }
 

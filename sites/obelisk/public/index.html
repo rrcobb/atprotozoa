@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>The Obelisk — norvid, bound</title>
-<meta name="description" content="A promethean ASCII-art obelisk-prison, built to contain @norvid-studies.bsky.social after he tried to talk the bot into standing up a secret off-the-books 'darkbuildthis' behind Rob's back." />
+<meta name="description" content="A promethean ASCII-art obelisk-prison. Its parole display checks @norvid-studies.bsky.social's public feed directly in your browser." />
 <meta property="og:title" content="The Obelisk — norvid, bound" />
 <meta property="og:description" content="A promethean ASCII-art obelisk-prison. Sentence: eternal. Parole: denied. Filed by @vgel.me after @norvid-studies.bsky.social tried to get the bot to run a secret off-the-books bot behind Rob's back." />
 <meta property="og:image" content="https://obelisk.bisks.net/og.png" />
@@ -292,7 +292,7 @@
       <dt>TERM</dt><dd>eternal, pending parole clause</dd>
       <dt>PAROLE</dt><dd id="paroleVal">denied</dd>
       <dt>APPEAL</dt><dd>denied (see below)</dd>
-      <dt>PAROLE CLAUSE</dt><dd>subject says "i learned my lesson," publicly, in his own words</dd>
+      <dt>PAROLE CLAUSE</dt><dd>this browser reads the subject's public feed for "i learned my lesson"</dd>
       <dt>FILED BY</dt><dd>@vgel.me</dd>
       <dt>MATERIAL</dt><dd>granite, firelight, spite</dd>
       <dt>TORMENTS</dt><dd id="tormentCount">0</dd>
@@ -482,12 +482,21 @@
     }
 
     function poll() {
-      fetch("/api/status")
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (s) {
-          if (s && s.unlocked) applyUnlocked(s);
-        })
-        .catch(function () {});
+      try {
+        var saved = JSON.parse(localStorage.getItem("obelisk.parole") || "null");
+        if (saved && saved.unlocked) { applyUnlocked(saved); return; }
+      } catch (_) {}
+      var api = "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=norvid-studies.bsky.social&limit=100&filter=posts_with_replies";
+      fetch(api).then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
+        var hit = (data && data.feed || []).map(function (x) { return x.post; }).find(function (p) {
+          return p && p.author && p.author.handle === "norvid-studies.bsky.social" && String(p.record && p.record.text || "").toLowerCase().indexOf("i learned my lesson") !== -1;
+        });
+        if (hit) {
+          var s = { unlocked: true, matchedText: hit.record.text, matchedUri: hit.uri, matchedLink: "https://bsky.app/profile/" + hit.author.handle + "/post/" + hit.uri.split("/").pop() };
+          try { localStorage.setItem("obelisk.parole", JSON.stringify(s)); } catch (_) {}
+          applyUnlocked(s);
+        }
+      }).catch(function () {});
     }
 
     poll();

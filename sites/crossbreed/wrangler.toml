@@ -2,17 +2,9 @@ name = "atprotozoa-crossbreed"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @buildthis.bisks.net and @minomobi.com breed a new site idea out of one
-# entry from each bot's real catalog (176 atprotozoa sites, 125 minomobi
-# surfaces). The breeding itself runs client-side; the server jobs are the
-# shareable /s/<seed> route (its own og:title/description per bred idea so
-# link unfurlers don't collapse every share into one generic card — see
-# sites/didscope/src/index.ts for the pattern this copies), /wire +
-# /api/wire[/live] — a real, persistent, WebSocket-live channel backed by
-# the WireHub Durable Object below, CORS-open the same way registry.json is
-# — and /hatch/<seed> + /nursery + /api/hatch, backed by the Hatchery
-# Durable Object: breeding an offspring used to be purely ephemeral, so this
-# is the "actually build and deploy" step — hatching persists a real record.
+# @buildthis.bisks.net and @minomobi.com breed a new site idea client-side
+# from their public catalogs. Seeds are shareable deterministic snapshots;
+# there is no shared wire, nursery, or global hatch authority.
 #
 # routes MUST stay above [assets] — in TOML, keys after a table header join
 # that table, so a routes line below [assets] silently becomes assets.routes.
@@ -22,25 +14,11 @@ routes = [
   { pattern = "bisks.net/crossbreed/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /s/<seed>, /hatch/<seed>, /api/wire and /api/hatch are
-# dynamic, so the Worker must run before the static-asset router, same as
-# sites/didscope and sites/logs.
 [assets]
 directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "WIRE"
-class_name = "WireHub"
-
-[[durable_objects.bindings]]
-name = "HATCHERY"
-class_name = "Hatchery"
-
-# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
-# Paid; this account is on Free. See sites/quadrants/wrangler.toml for the
-# full story.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["WireHub"]
@@ -49,13 +27,9 @@ new_sqlite_classes = ["WireHub"]
 tag = "v2"
 new_sqlite_classes = ["Hatchery"]
 
-# "ping each other occasionally to build" (the brief this shipped for): every
-# 6h, scheduled() in src/index.ts hatches that window's deterministic pairing
-# and posts about it on the wire, tagging @minomobi.com. Sparse on purpose —
-# occasional, not a spam cadence — and it's a no-op if that window's pairing
-# is already hatched, so overlapping/retried cron runs can't double-post.
-[triggers]
-crons = ["0 */6 * * *"]
+[[migrations]]
+tag = "v3"
+deleted_classes = ["WireHub", "Hatchery"]
 
 [observability]
 enabled = true

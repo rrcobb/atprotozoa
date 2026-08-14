@@ -1,6 +1,4 @@
 // cat.js — guestbook interactivity for a rendered /cat/<handle> page.
-// The profile fields themselves are server-rendered (src/index.ts); this
-// only handles signing in (if needed) and posting a guestbook comment.
 
 import { login, getSession } from "./lib/oauth.js";
 import { postComment } from "./lib/records.js";
@@ -70,12 +68,7 @@ els.form?.addEventListener("submit", async (e) => {
   }
   els.status.textContent = "signing…";
   try {
-    const uri = await postComment(session, subjectDid, text);
-    await fetch("/api/guestbook", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uri }),
-    });
+    await postComment(session, subjectDid, text);
     prependEntry(session.handle, text);
     els.input.value = "";
     els.status.textContent = "left a note!";

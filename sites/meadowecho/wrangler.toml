@@ -1,42 +1,17 @@
 name = "atprotozoa-meadowecho"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @fromthewestmeadow.com posted a PCA/embedding clustering visualization of
-# their own posts (and their mutuals'), then asked buildthis for "your own
-# implementation" of the same idea, live: find posts on the open firehose
-# that read as semantically close to their last 100 posts, right now. This
-# Worker is that, watching Jetstream and holding one Durable Object's worth
-# of rolling state — same "server-side WS connection in a DO" shape as
-# sites/mootstream's ActivityTracker, this site's lineage.
-#
-# Semantic similarity is real embeddings (Workers AI, [ai] binding below),
-# not a keyword/bag-of-words trick — cosine similarity between each
-# candidate post's embedding and the centroid of the target's own last-100
-# embeddings. Full firehose volume is far more than any embeddings budget
-# can keep up with, so candidates are filtered (English, long enough, not
-# obvious spam, one per author per cooldown) and embedded in small batches
-# on a timer, not one Workers AI call per firehose post.
-#
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table, so a routes line below [assets] silently becomes assets.routes
-# (same gotcha called out in sites/didscope's and sites/logs' wrangler.toml).
 routes = [{ pattern = "meadowecho.bisks.net/*", zone_name = "bisks.net" }]
-
-[ai]
-binding = "AI"
 
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-
-[[durable_objects.bindings]]
-name = "ECHO"
-class_name = "EchoTracker"
 
 # new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
 # Paid; this account is on Free. See notes/20-deploy.md.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["EchoTracker"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["EchoTracker"]

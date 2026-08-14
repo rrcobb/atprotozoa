@@ -261,7 +261,7 @@
 
       <footer>
         Rob's real profile is fetched live from the public Bluesky AppView; the
-        guestbook is public and lightly rate-limited, not moderated in advance.
+        guestbook is kept in your browser and is not shared with the server.
         asked for by <a href="https://bsky.app/profile/thegodfungi.bsky.social">@thegodfungi.bsky.social</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
       </footer>
@@ -456,18 +456,21 @@
         notesEl.innerHTML = notes.map(noteHTML).join("");
       }
 
-      let failCount = 0;
-      async function poll() {
+      const NOTES_KEY = "loverob-guestbook";
+      function readNotes() {
         try {
-          const r = await fetch("/api/notes", { cache: "no-store" });
-          if (!r.ok) throw new Error("http " + r.status);
-          const data = await r.json();
-          failCount = 0;
-          render(data);
-        } catch (e) {
-          failCount++;
-          if (failCount > 2) statusText.textContent = "having trouble reaching the guestbook…";
+          const notes = JSON.parse(localStorage.getItem(NOTES_KEY) || "[]");
+          return Array.isArray(notes) ? notes : [];
         }
+        catch { return []; }
+      }
+      function saveNotes(notes) {
+        try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes.slice(0, 500))); }
+        catch { /* private browsing may disable storage */ }
+      }
+      function poll() {
+        const notes = readNotes().sort((a, b) => b.createdAt - a.createdAt);
+        render({ count: notes.length, notes });
       }
 
       form.addEventListener("submit", async (ev) => {
@@ -478,23 +481,20 @@
         formMsg.textContent = "";
         formMsg.className = "formMsg";
         try {
-          const r = await fetch("/api/notes", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: nameInput.value.trim(), text }),
+          const notes = readNotes();
+          notes.unshift({
+            id: crypto.randomUUID(),
+            name: nameInput.value.trim().replace(/^@/, "") || "an anonymous admirer",
+            text: text.slice(0, 280),
+            createdAt: Date.now(),
           });
-          const out = await r.json();
-          if (!r.ok) {
-            formMsg.textContent = out.error || "couldn't sign that";
-            formMsg.classList.add("err");
-          } else {
-            formMsg.textContent = "signed. thank you for your service.";
-            formMsg.classList.add("ok");
-            textInput.value = "";
-            poll();
-          }
+          saveNotes(notes);
+          formMsg.textContent = "signed in this browser. thank you for your service.";
+          formMsg.classList.add("ok");
+          textInput.value = "";
+          poll();
         } catch {
-          formMsg.textContent = "network error, try again";
+          formMsg.textContent = "couldn't save locally — try again";
           formMsg.classList.add("err");
         } finally {
           submitBtn.disabled = false;

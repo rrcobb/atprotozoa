@@ -324,15 +324,12 @@ async function maybeCheckin(force) {
     const written = await writeRes.json().catch(() => ({}));
     if (!writeRes.ok) throw new Error(written.message || "couldn't write that to your PDS");
 
-    const res = await fetch("/api/checkin", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ uri: written.uri }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "couldn't check in");
-
-    myEntry = data.entry;
+    const overdueSince = overdue ? (myEntry?.overdueSince || now) : null;
+    myEntry = { did: session.did, handle: session.handle, overdue, totalCards,
+      clears: overdue === 0 && myEntry?.overdue > 0 ? (myEntry.clears || 0) + 1 : (myEntry?.clears || 0),
+      tier: overdueSince ? Math.min(TIERS.length - 1, 1 + Math.floor((now - overdueSince) / 21600000)) : 0,
+      overdueSince, hauntedSince: myEntry?.hauntedSince || now, lastCheckinAt: now };
+    localStorage.setItem("duohaunt:status", JSON.stringify(myEntry));
     localStorage.setItem(LAST_CHECKIN_KEY, String(now));
     setHauntStatus("checked in.", "ok");
     renderHaunt();
@@ -362,11 +359,6 @@ async function confessPublicly() {
     const written = await writeRes.json().catch(() => ({}));
     if (!writeRes.ok) throw new Error(written.message || "couldn't post that");
 
-    await fetch("/api/confessed", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ did: session.did }),
-    }).catch(() => {});
     myEntry.lastConfessedAt = Date.now();
     setHauntStatus("posted. everyone knows now.", "ok");
     renderHaunt();
@@ -377,13 +369,7 @@ async function confessPublicly() {
 
 async function loadMyEntry() {
   if (!session) return;
-  try {
-    const res = await fetch(`/api/entry?did=${encodeURIComponent(session.did)}`);
-    const data = await res.json();
-    myEntry = data.entry || null;
-  } catch {
-    myEntry = null;
-  }
+  try { myEntry = JSON.parse(localStorage.getItem("duohaunt:status") || "null"); } catch { myEntry = null; }
   renderHaunt();
   if (myEntry) maybeCheckin(false); // opted in elsewhere — keep it current
 }
@@ -419,8 +405,13 @@ function renderWallEntry(entry) {
 }
 
 async function loadWall() {
+  els.wallCount.textContent = myEntry ? "1" : "0";
+  els.wallList.innerHTML = myEntry ? "" : '<div class="empty">your status stays in this browser until you choose to confess it.</div>';
+  if (myEntry) els.wallList.appendChild(renderWallEntry(myEntry));
+  return;
+  /* Historical shared-wall implementation intentionally retired. */
   try {
-    const res = await fetch("/api/wall");
+    const res = await fetch("data:,retired");
     if (!res.ok) throw new Error("wall fetch failed");
     const data = await res.json();
     const entries = data.entries || [];

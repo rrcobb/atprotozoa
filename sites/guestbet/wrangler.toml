@@ -17,10 +17,9 @@ compatibility_date = "2025-01-01"
 # round. Odds are pari-mutuel (pool-for-guest / total-pool) seeded with a
 # small virtual stake proportional to live upvotes so a brand-new round
 # already reflects the real standings, then move for real as people bet.
-# One Durable Object ("global") holds it all — pools, bets, per-clientId
-# play-money balances, round history — same single-writer shape as
-# sites/simcluster-guests's GuestBoard DO this was copied from, plus a
-# storage alarm to resolve rounds. No login: clients carry an opaque id in
+# One KV snapshot holds pools, balances, and round history. State is eventual
+# and non-authoritative: KV is not a financial ledger or atomic settlement
+# boundary. Rounds reconcile lazily on requests. No login: clients carry an opaque id in
 # localStorage, sent as X-Client-Id, same anonymous-identity shape as the
 # "keep track of their money" ask needs and nothing heavier.
 routes = [
@@ -32,9 +31,8 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "MARKET"
-class_name = "Market"
+[[kv_namespaces]]
+binding = "MARKET_STATE"
 
 # new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
 # Paid; this account is on Free. See sites/the-place/wrangler.toml for the
@@ -42,3 +40,7 @@ class_name = "Market"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Market"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Market"]

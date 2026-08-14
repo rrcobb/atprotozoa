@@ -1,5 +1,4 @@
 name = "atprotozoa-ideahose"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
 # @words.bsky.social asked for a site that watches the ENTIRE Bluesky firehose
@@ -7,43 +6,25 @@ compatibility_date = "2025-01-01"
 # and ranks them — a crowdsourced backlog for @buildthis, not just the ideas
 # that happen to get a tag.
 #
-# Same shape as sites/ratioed: one Durable Object holds the live Jetstream
-# connection, a candidate queue, and the rolling leaderboard state. Instead of
-# scoring one post's replies-vs-likes, this DO runs every root post through a
-# "sounds like a website/app idea" heuristic, buckets matches into loose
-# clusters by shared keywords (so five people separately wishing for the same
-# kind of tool count as one bigger idea, not five small ones), and scores each
-# cluster by how many separate people raised it + the real like/repost/reply
-# counts of the posts that raised it (checked via the public, unauthenticated
-# AppView, same trick as ratioed) + site-visitor upvotes.
+# The page is static. Each visitor opens a direct Jetstream connection and does
+# bounded detection, grouping, and AppView checks in that browser tab.
 #
-# Path route on the shared bisks.net zone, not a dedicated custom domain — see
-# notes/20-deploy.md / notes/40-new-site-playbook.md ("Why paths, not
-# subdomains"). Mounted at bisks.net/ideahose.
-#
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table, so a routes line below [assets] silently becomes assets.routes
-# (the gotcha called out in sites/logs, sites/didscope, sites/the-place).
+# Static assets are served from the dedicated hostname. Keeping this route
+# hostname-only avoids requiring a Worker just to strip a path prefix.
 routes = [
   { pattern = "ideahose.bisks.net/*", zone_name = "bisks.net" },
-  { pattern = "bisks.net/ideahose", zone_name = "bisks.net" },
-  { pattern = "bisks.net/ideahose/*", zone_name = "bisks.net" },
 ]
 
-# The Worker runs first for everything: it must strip the /ideahose mount
-# prefix before the asset router (which has no idea it isn't at the domain
-# root) ever sees the request.
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-
-[[durable_objects.bindings]]
-name = "TRACKER"
-class_name = "IdeaTracker"
+run_worker_first = false
 
 # new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers Paid;
 # this account is on Free. See sites/the-place/wrangler.toml for the full story.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["IdeaTracker"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["IdeaTracker"]

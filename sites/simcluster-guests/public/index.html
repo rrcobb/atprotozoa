@@ -166,8 +166,8 @@
           Name a guest you want to hear, say why if you like, and it goes on
           the board. Someone already asked for who you were thinking of? Hit
           <b>▲ upvote</b> instead — same person suggested twice just adds a
-          vote, so the list naturally sorts into who the audience actually
-          wants. No account needed.
+           vote, so the list naturally sorts into who the audience actually
+           wants. This board is saved only in this browser; there is no shared server.
         </p>
       </header>
 
@@ -205,9 +205,8 @@
       </div>
 
       <footer>
-        Requests are public and anyone can submit or upvote — light per-IP
-        rate limiting keeps it from being flooded, nothing fancier. Names and
-        notes aren't moderated in advance, so treat it as a fan-run request
+         Requests stay in this browser's local storage; there is no shared
+         server or account. Names and notes aren't moderated in advance, so treat it as a fan-run request
         box, not an official inbox.
         asked for by <a href="https://bsky.app/profile/riziles.bsky.social">@riziles.bsky.social</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
@@ -215,6 +214,23 @@
     </div>
 
     <script>
+      // This anonymous board is intentionally local after the DO retirement:
+      // no fake shared persistence and no unowned write backend.
+      const realFetch = window.fetch.bind(window);
+      const LOCAL_KEY = "simcluster-guests-board-v2";
+      function localEntries() { try { return JSON.parse(localStorage.getItem(LOCAL_KEY) || "[]"); } catch { return []; } }
+      function saveEntries(v) { localStorage.setItem(LOCAL_KEY, JSON.stringify(v)); }
+      function localResponse(data) { return Promise.resolve(new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } })); }
+      window.fetch = (input, init) => {
+        const path = typeof input === "string" ? input : input.url;
+        if (!path.startsWith("/api/")) return realFetch(input, init);
+        const entries = localEntries();
+        if (path === "/api/board") return localResponse({ count: entries.length, entries: entries.sort((a, b) => b.upvotes - a.upvotes || b.lastActivity - a.lastActivity) });
+        let body = {}; try { body = JSON.parse(init?.body || "{}"); } catch {}
+        if (path === "/api/upvote") { const e = entries.find((x) => x.id === body.id); if (!e) return localResponse({ error: "not found" }); e.upvotes++; e.lastActivity = Date.now(); saveEntries(entries); return localResponse({ upvotes: e.upvotes }); }
+        if (path === "/api/submit") { const norm = String(body.guest || "").trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9]+/g, ""); let e = entries.find((x) => x.guestNorm === norm); const now = Date.now(); if (e) { e.upvotes++; e.lastActivity = now; if (body.reason && !e.notes.includes(body.reason)) e.notes.unshift(body.reason); } else { e = { id: crypto.randomUUID(), guest: body.guest, guestNorm: norm, altSpellings: [], notes: body.reason ? [body.reason] : [], alsoSuggestedBy: [], submittedBy: String(body.submittedBy || "").replace(/^@/, ""), upvotes: 1, createdAt: now, lastActivity: now }; entries.push(e); } saveEntries(entries); return localResponse({ ok: true, id: e.id, merged: e.upvotes > 1, upvotes: e.upvotes }); }
+        return localResponse({ error: "not found" });
+      };
       const board = document.getElementById("board");
       const empty = document.getElementById("empty");
       const statusText = document.getElementById("statusText");

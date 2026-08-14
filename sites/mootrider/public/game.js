@@ -198,10 +198,11 @@ function nextFileNum(did) {
   return n;
 }
 
-// ---- global leaderboard -------------------------------------------------
-// The tiny server surface: a single Durable Object (src/index.ts) holding
-// everyone's best run. localStorage best/file-count above stay per-browser
-// flavor text; this is the actual public board.
+// ---- local leaderboard ---------------------------------------------------
+// Scores are personal browser results; no server-side score store is needed.
+const BOARD_KEY = "mootrider-case-files";
+function readBoard() { try { return JSON.parse(localStorage.getItem(BOARD_KEY) || "[]"); } catch { return []; } }
+function writeBoard(list) { try { localStorage.setItem(BOARD_KEY, JSON.stringify(list.slice(0, 25))); } catch {} }
 function renderLeaderboard(list) {
   if (!list || !list.length) {
     leaderboardList.innerHTML = '<li class="empty">no case files yet — be the first name in the ledger.</li>';
@@ -229,39 +230,24 @@ function renderLeaderboard(list) {
 }
 
 async function loadLeaderboard() {
-  try {
-    const r = await fetch("/api/leaderboard");
-    if (!r.ok) return;
-    const data = await r.json();
-    renderLeaderboard(data.leaderboard);
-  } catch {
-    // no board yet / offline — leave whatever's already rendered
-  }
+  renderLeaderboard(readBoard());
 }
 
 async function submitScore({ score, meters, culprit }) {
   if (!cluster) return null;
-  try {
-    const r = await fetch("/api/score", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        did: cluster.did,
-        handle: cluster.handle,
-        displayName: (cluster.self && cluster.self.displayName) || cluster.handle,
-        avatar: (cluster.self && cluster.self.avatar) || "",
-        score,
-        meters,
-        culprit,
-      }),
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    renderLeaderboard(data.leaderboard);
-    return data;
-  } catch {
-    return null;
+  const list = readBoard();
+  const entry = { did: cluster.did, handle: cluster.handle, displayName: (cluster.self && cluster.self.displayName) || cluster.handle, avatar: (cluster.self && cluster.self.avatar) || "", score, meters, culprit, at: Date.now() };
+  const previous = list.findIndex((e) => e.did === entry.did);
+  if (previous >= 0 && list[previous].score >= score) {
+    list.sort((a, b) => b.score - a.score || b.meters - a.meters);
+    renderLeaderboard(list);
+    return { rank: list.findIndex((e) => e.did === entry.did) + 1, personalBest: false, leaderboard: list };
   }
+  if (previous >= 0) list[previous] = entry; else list.push(entry);
+  list.sort((a, b) => b.score - a.score || b.meters - a.meters);
+  writeBoard(list);
+  renderLeaderboard(list);
+  return { rank: list.findIndex((e) => e.did === entry.did) + 1, personalBest: true, leaderboard: list };
 }
 
 function pickMoot() {
@@ -364,9 +350,8 @@ function loadImgCORS(url) {
     img.onerror = () => resolve(null);
     // cdn.bsky.app sends no CORS headers, so a crossOrigin="anonymous" fetch
     // of it directly always fails — route it through our own same-origin
-    // proxy (src/index.ts /api/avatar) instead, so the share canvas isn't
-    // tainted and toBlob()/toDataURL() actually work.
-    img.src = "/api/avatar?u=" + encodeURIComponent(url);
+    // CDN avatars may omit CORS headers, so the draw helper falls back safely.
+    img.src = url;
   });
 }
 

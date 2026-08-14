@@ -4,9 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>thrashradar — the Bluesky thrash leaderboard that finds itself</title>
-<meta name="description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta name="description" content="A browser-only Bluesky thrash scanner. Watch a bounded live Jetstream window or score a handle locally from its profile and repo CAR." />
 <meta property="og:title" content="thrashradar — the Bluesky thrash leaderboard that finds itself" />
-<meta property="og:description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta property="og:description" content="A browser-only Bluesky thrash scanner with bounded Jetstream discovery and local CAR scoring." />
 <meta property="og:url" content="https://thrashradar.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://thrashradar.bisks.net/og.png" />
@@ -15,7 +15,7 @@
 <meta property="og:image:alt" content="thrashradar: a Bluesky handle with a thrashing score out of 100, spotted via the firehose." />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="thrashradar — the Bluesky thrash leaderboard that finds itself" />
-<meta name="twitter:description" content="Watches the live firehose for bursty, chaotic posting and quietly re-scores whoever it spots — full CAR download, same rules as thrashmeter: rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl. Search a handle too; either way the leaderboard is real, re-derived server-side." />
+<meta name="twitter:description" content="A browser-only Bluesky thrash scanner with bounded Jetstream discovery and local CAR scoring." />
 <meta name="twitter:image" content="https://thrashradar.bisks.net/og.png" />
 <style>
   :root {
@@ -76,6 +76,8 @@
     font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
   }
   button:disabled { opacity: 0.5; cursor: wait; }
+  .watch { display:flex; gap:.6rem; align-items:center; margin: .2rem 0 1.2rem; }
+  .watch .watchState { color:var(--dim); font-size:.76rem; flex:1; }
   button.ghost {
     background: transparent; color: var(--accent); border: 1px solid var(--border);
     font-weight: 600;
@@ -161,7 +163,9 @@
 <body>
 <div class="wrap">
   <h1>📡 thrashradar</h1>
-  <p class="tag">A <a href="https://thrashmeter.bisks.net/" target="_blank" rel="noopener">thrashmeter</a> fork that fills its own leaderboard: a quiet watcher sits on the live firehose, and once an account posts in a rapid-fire burst it gets the exact same treatment a manual search does — profile pull, <em>entire</em> repo download as one CAR straight off their own PDS, scored out of 100 on rapid-fire bursts, erratic rhythm, reply-diving, self-reply spirals, quote-dunking, block rate, protocol sprawl, and more. Or just search a handle yourself below — either way the number is re-derived server-side, so nobody can claim a fake 100.</p>
+  <p class="tag">A <a href="https://thrashmeter.bisks.net/" target="_blank" rel="noopener">thrashmeter</a> fork that runs entirely in this browser. Watch a bounded slice of the live Jetstream for rapid-fire posters, or search a handle and score its profile plus a direct repo CAR download. Results stay in this browser's session and never go to a server.</p>
+
+  <div class="watch"><button type="button" class="ghost" id="watchBtn">start live watch</button><button type="button" class="ghost" id="stopBtn" disabled>stop</button><span class="watchState" id="watchState">live watch is off</span></div>
 
   <form id="scanForm">
     <div class="inputWrap">
@@ -170,7 +174,7 @@
     </div>
     <button type="submit" id="scanBtn">thrash it</button>
   </form>
-  <p class="hint">no login needed — reads public data only.</p>
+  <p class="hint">no login needed — public data only. CAR scans cap at 100 MB, 600k blocks, and 12k records; stop cancels the active download.</p>
   <p class="status" id="status"></p>
 
   <div class="card" id="resultCard">
@@ -200,7 +204,7 @@
   </div>
 
   <h2>the leaderboard</h2>
-  <p class="boardhint">every handle examined so far, ranked by thrashing score — some searched by hand, some spotted live on the firehose (📡). re-derived from a fresh repo CAR server-side every time, so nobody can fake a number.</p>
+  <p class="boardhint">handles scored in this browser, ranked by score. Live candidates are only queued after 4 posts in 10 minutes; the list is local to this tab and clears on refresh.</p>
   <div class="board" id="boardList"></div>
   <p class="scanners" id="scannerCount"></p>
 
@@ -252,9 +256,7 @@ function isRealHandle(h) { return !!h && h !== "handle.invalid"; }
 function handleLabel(handle, did) { return isRealHandle(handle) ? "@" + handle : (did || "unresolved handle"); }
 function profileSlug(handle, did) { return isRealHandle(handle) ? handle : did; }
 
-// --- thrashing signals — kept in lockstep with src/index.ts's copy. This
-// runs client-side for instant feedback; the leaderboard never trusts it,
-// the Worker recomputes the same thing itself from the handle alone. ---
+// --- thrashing signals, kept in lockstep with thrashmeter ------------------
 
 const WANTED_TYPES = [
   "app.bsky.feed.post",
@@ -360,9 +362,8 @@ function computeThrash(did, profile, byType, topchickenCount) {
   if (typeof profile.createdAt === "string") {
     const ageDays = Math.max((Date.now() - Date.parse(profile.createdAt)) / 86400000, 1);
     // postsCount/followsCount are exact AppView aggregates — take the max of
-    // that and the sampled count (kept in lockstep with src/index.ts, where
-    // this guards against the server's CAR scan caps understating a
-    // prolific account; harmless here since the client reads the whole CAR).
+    // AppView aggregates prevent the bounded CAR sample from understating
+    // activity for prolific accounts.
     const totalRecords = Math.max(own, Number(profile.postsCount) || 0) + likes.length + reposts.length +
       Math.max(follows.length, Number(profile.followsCount) || 0) + blocks.length + listitems.length;
     const perDay = totalRecords / ageDays;
@@ -388,11 +389,11 @@ function tierFor(score) {
 // account's own PDS gets every record they've ever written, no page cap.
 // Falls back to a single page of app.bsky.feed.getAuthorFeed (posts only)
 // if the PDS can't be resolved or the CAR fetch/parse fails.
-async function fetchThrashData(did, onProgress) {
+async function fetchThrashData(did, onProgress, signal) {
   const pds = await resolvePds(did);
   if (pds) {
     try {
-      const { records, topchickenCount } = await fetchRepoRecords(pds, did, WANTED_TYPES, onProgress);
+      const { records, topchickenCount } = await fetchRepoRecords(pds, did, WANTED_TYPES, onProgress, { signal: signal });
       const byType = {};
       for (const r of records) {
         const t = r.$type;
@@ -400,6 +401,7 @@ async function fetchThrashData(did, onProgress) {
       }
       return { byType: byType, full: true, topchickenCount: topchickenCount || 0 };
     } catch (_) {
+      if (signal && signal.aborted) throw _;
       // fall through to the AppView sample below
     }
   }
@@ -411,7 +413,7 @@ async function fetchThrashData(did, onProgress) {
   return { byType: { "app.bsky.feed.post": posts }, full: false, topchickenCount: 0 };
 }
 
-async function analyzeAccount(handleRaw, onProgress) {
+async function analyzeAccount(handleRaw, onProgress, signal) {
   const handle = cleanHandle(handleRaw);
   if (!handle) throw new Error("enter a handle");
 
@@ -426,7 +428,7 @@ async function analyzeAccount(handleRaw, onProgress) {
     did = r.did;
   }
   const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-  const { byType, full, topchickenCount } = await fetchThrashData(did, onProgress);
+  const { byType, full, topchickenCount } = await fetchThrashData(did, onProgress, signal);
   const scored = computeThrash(did, profile, byType, topchickenCount);
 
   return {
@@ -463,6 +465,9 @@ const els = {
   shareNative: document.getElementById("shareNative"),
   boardList: document.getElementById("boardList"),
   scannerCount: document.getElementById("scannerCount"),
+  watchBtn: document.getElementById("watchBtn"),
+  stopBtn: document.getElementById("stopBtn"),
+  watchState: document.getElementById("watchState"),
 };
 
 function signalsHtml(signals) {
@@ -570,53 +575,45 @@ async function buildShareCard(result, tier) {
   });
 }
 
-// The card above renders the client's own scan the instant it finishes, for
-// speed — but the leaderboard only ever shows the server's independently
-// re-derived number (see src/index.ts's header comment). Those two can
-// legitimately disagree: a very large repo can trip the server's
-// CAR_MAX_BLOCKS_SCANNED/CAR_MAX_RECORDS_DECODED caps while the client's
-// browser-side scan has no such limit.
-// Once the server answers, reconcile the card to match it instead of leaving
-// two different scores on screen at once (same pattern sites/intrigue hit).
-async function submitToLeaderboard(result) {
-  try {
-    const res = await fetch("/api/submit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ handle: result.did }),
-    });
-    const data = await res.json();
-    if (data && typeof data.score === "number" && lastResult && lastResult.did === result.did) {
-      const verified = Object.assign({}, result, { score: data.score, signals: data.signals || result.signals, sampled: data.sampled });
-      renderResult(verified);
-      if (data.score !== result.score) {
-        els.status.textContent = "server independently re-verified this at " + data.score + "/100 (this browser's own scan said " + result.score + ") — the leaderboard number is the one that counts.";
-      }
-    }
-  } catch (_) {
-    // leaderboard submission is best-effort; the personal result still shows.
-  }
+const MAX_BOARD = 100;
+const boardEntries = new Map();
+let scanController = null;
+
+function addToBoard(result, source) {
+  boardEntries.set(result.did, Object.assign({}, result, { topSignals: result.signals.slice(0, 6), source: source || "search", updatedAt: Date.now() }));
   loadLeaderboard();
 }
 
 async function runScan(handleRaw) {
+  if (scanController) scanController.abort();
+  scanController = new AbortController();
+  const controller = scanController;
   els.btn.disabled = true;
+  els.stopBtn.disabled = false;
   els.status.classList.remove("err");
   els.status.textContent = "resolving " + handleRaw + "…";
   try {
-    const result = await analyzeAccount(handleRaw, function (msg) { els.status.textContent = msg; });
+    const result = await analyzeAccount(handleRaw, function (msg) { els.status.textContent = msg; }, controller.signal);
     els.status.textContent = result.full
       ? "scored from their entire repo (" + fmt(result.sampled) + " post" + (result.sampled === 1 ? "" : "s") + ") plus their profile"
       : "scored from " + fmt(result.sampled) + " recent post" + (result.sampled === 1 ? "" : "s") + " and their profile (couldn't reach their PDS for the full repo)";
     renderResult(result);
-    submitToLeaderboard(result);
+    addToBoard(result, "search");
   } catch (err) {
+    if (err && err.name === "AbortError") { els.status.textContent = "scan stopped"; return; }
     els.status.classList.add("err");
     els.status.textContent = "couldn't score that — " + (err && err.message ? err.message : "check the handle and try again");
   } finally {
     els.btn.disabled = false;
+    if (!watchSocket) els.stopBtn.disabled = true;
+    if (scanController === controller) scanController = null;
   }
 }
+
+els.stopBtn.addEventListener("click", function () {
+  if (scanController) scanController.abort();
+  if (watchSocket) stopWatch();
+});
 
 els.form.addEventListener("submit", function (e) {
   e.preventDefault();
@@ -718,13 +715,69 @@ els.input.addEventListener("blur", function () {
   setTimeout(hideSuggest, 150);
 });
 
+// --- browser-local live discovery -----------------------------------------
+const JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+const WATCH_WINDOW = 10 * 60 * 1000;
+const WATCH_DID_CAP = 500;
+const WATCH_QUEUE_CAP = 20;
+const WATCH_SCORE_CAP = 10;
+let watchSocket = null;
+let watchTimer = null;
+let watchScored = 0;
+const watchTimes = new Map();
+const watchQueue = [];
+
+function stopWatch() {
+  if (watchSocket) { watchSocket.close(); watchSocket = null; }
+  if (watchTimer) { clearTimeout(watchTimer); watchTimer = null; }
+  els.watchBtn.disabled = false; els.stopBtn.disabled = true;
+  els.watchState.textContent = "live watch is off";
+}
+function queueWatch(did) {
+  if (!watchQueue.includes(did) && watchQueue.length < WATCH_QUEUE_CAP && watchScored < WATCH_SCORE_CAP) watchQueue.push(did);
+  processWatchQueue();
+}
+async function processWatchQueue() {
+  if (scanController || !watchQueue.length || watchScored >= WATCH_SCORE_CAP) return;
+  const did = watchQueue.shift(); watchScored++;
+  els.watchState.textContent = "scoring live candidate " + watchScored + "/" + WATCH_SCORE_CAP + "…";
+  scanController = new AbortController();
+  try {
+    const result = await analyzeAccount(did, function (msg) { els.watchState.textContent = msg; }, scanController.signal);
+    addToBoard(result, "firehose");
+  } catch (_) { /* candidates can disappear or have an unavailable PDS */ }
+  scanController = null;
+  if (watchScored >= WATCH_SCORE_CAP && watchSocket) {
+    els.watchState.textContent = "watch cap reached (" + WATCH_SCORE_CAP + " CAR scans)";
+    stopWatch();
+  } else { processWatchQueue(); }
+}
+function startWatch() {
+  if (watchSocket) return;
+  watchScored = 0; watchTimes.clear(); watchQueue.length = 0;
+  watchSocket = new WebSocket(JETSTREAM_URL);
+  els.watchBtn.disabled = true; els.stopBtn.disabled = false;
+  els.watchState.textContent = "watching Jetstream… 0/" + WATCH_SCORE_CAP + " CAR scans";
+  watchSocket.onmessage = function (event) {
+    try {
+      const evt = JSON.parse(event.data);
+      if (evt.kind !== "commit" || evt.commit?.operation !== "create" || evt.commit.collection !== "app.bsky.feed.post") return;
+      const did = evt.did; if (typeof did !== "string") return;
+      const now = Date.now(); let times = watchTimes.get(did);
+      if (!times) { if (watchTimes.size >= WATCH_DID_CAP) return; times = []; watchTimes.set(did, times); }
+      times.push(now); while (times.length && now - times[0] > WATCH_WINDOW) times.shift();
+      if (times.length >= 4) queueWatch(did);
+      els.watchState.textContent = "watching Jetstream… " + watchTimes.size + " accounts, " + watchQueue.length + " queued";
+    } catch (_) {}
+  };
+  watchSocket.onclose = function () { if (watchSocket) stopWatch(); };
+  watchSocket.onerror = function () { els.watchState.textContent = "Jetstream disconnected"; };
+}
+els.watchBtn.addEventListener("click", startWatch);
+
 // --- leaderboard ---
 
-// Row-click score breakdowns use topSignals straight from /api/leaderboard's
-// response — that field's already on every board entry (see ThrashRadar.fetch
-// in src/index.ts), so expanding a row costs no extra request. topSignals is
-// capped at the top 6 by the server, so the breakdown is labeled accordingly
-// rather than implying it's the complete list.
+// Row-click breakdowns use the top six signals already held in this tab.
 function breakdownHtml(entry) {
   const signals = entry.topSignals || [];
   const body = signals.length
@@ -742,8 +795,8 @@ function breakdownHtml(entry) {
     : '<div class="bdNote">nothing stood out — a very calm account.</div>';
   // bsky.app/profile/<slug> needs a real handle or a DID — "handle.invalid"
   // (see isRealHandle above) is neither, so fall back to the DID, which
-  // /api/leaderboard always includes on every board entry. Don't
-  // encodeURIComponent the slug: bsky.app's own server-side profile route
+  // The DID is always present on local board entries. Don't
+  // encodeURIComponent the slug: bsky.app's profile route
   // doesn't decode the path segment before resolving the actor, so an
   // encoded "did:plc:xyz" (colons -> %3A) 404s where the literal DID
   // resolves fine — confirmed against the live site. Handles and DIDs are
@@ -823,26 +876,15 @@ els.boardList.addEventListener("click", function (e) {
   boardExpanded = i;
 });
 
-async function loadLeaderboard() {
-  try {
-    const data = await (await fetch("/api/leaderboard")).json();
-    const total = data.scored || 0;
-    const firehoseFound = data.firehoseFound || 0;
-    els.scannerCount.textContent = total
-      ? fmt(total) + " handle" + (total === 1 ? "" : "s") + " examined so far — " + fmt(firehoseFound) + " spotted live on the firehose (📡), " + fmt(data.searchFound || 0) + " by search"
-      : "";
-    renderBoard(data);
-  } catch (_) {
-    els.scannerCount.textContent = "";
-  }
+function loadLeaderboard() {
+  const entries = Array.from(boardEntries.values());
+  const live = entries.filter(function (e) { return e.source === "firehose"; }).length;
+  els.scannerCount.textContent = entries.length ? fmt(entries.length) + " local result" + (entries.length === 1 ? "" : "s") + " — " + fmt(live) + " spotted live in this session" : "";
+  renderBoard({ board: entries.sort(function (a, b) { return b.score - a.score || b.updatedAt - a.updatedAt; }).slice(0, MAX_BOARD) });
 }
-
 loadLeaderboard();
-setInterval(loadLeaderboard, 30000); // the board fills itself in the background — keep it live without a refresh
 
-// auto-run from a shared link: thrashradar.bisks.net/s/handle (the Worker's
-// per-result unfurl route, see src/index.ts renderShare) or the older
-// thrashradar.bisks.net/?h=handle query-string form.
+// Auto-run from the query-string form, or a static /s/handle path.
 (function () {
   const params = new URLSearchParams(location.search);
   let h = params.get("h");

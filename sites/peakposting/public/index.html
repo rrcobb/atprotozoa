@@ -141,7 +141,7 @@
 <body>
 <div class="wrap">
   <h1>peakposting</h1>
-  <p class="tag">Enter a Bluesky handle. We'll page through their <strong>entire</strong> post history against the public AppView and pull out the single most-liked, most-reposted, and most-replied post they've ever made. Your best-ever counts join the leaderboard below — for good, verified server-side.</p>
+<p class="tag">Enter a Bluesky handle. We'll page through their <strong>entire</strong> post history against the public AppView and pull out the single most-liked, most-reposted, and most-replied post they've ever made. Your results and leaderboard stay in this browser.</p>
 
   <form id="scanForm">
     <input type="text" id="handleInput" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -475,21 +475,16 @@ async function submitToLeaderboard(result) {
   if (result.best.replies) top.replies = result.best.replies.uri;
   if (!Object.keys(top).length) return;
 
-  try {
-    await fetch("/api/submit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        did: result.did,
-        handle: result.handle,
-        displayName: result.displayName,
-        avatar: result.avatar,
-        top: top,
-      }),
-    });
-  } catch (_) {
-    // leaderboard submission is best-effort; the personal result still shows.
+  let all = [];
+  try { all = JSON.parse(localStorage.getItem("peakposting-board") || "[]"); } catch (_) {}
+  const old = all.find((e) => e.did === result.did) || { did: result.did, handle: result.handle };
+  for (const metric of ["likes", "reposts", "replies"]) {
+    if (result.best[metric] && (!old[metric] || result.best[metric].count > old[metric].count)) old[metric] = result.best[metric];
   }
+  old.displayName = result.displayName; old.avatar = result.avatar;
+  const i = all.findIndex((e) => e.did === result.did);
+  if (i < 0) all.push(old); else all[i] = old;
+  try { localStorage.setItem("peakposting-board", JSON.stringify(all.slice(0, 200))); } catch (_) {}
   loadLeaderboard();
 }
 
@@ -589,9 +584,11 @@ function renderBoard() {
 
 async function loadLeaderboard() {
   try {
-    const data = await (await fetch("/api/leaderboard")).json();
-    boardData = data;
-    els.scannerCount.textContent = fmt(data.scanners || 0) + " account" + (data.scanners === 1 ? "" : "s") + " scanned so far";
+    const all = JSON.parse(localStorage.getItem("peakposting-board") || "[]");
+    boardData = { likes: [], reposts: [], replies: [], scanners: all.length };
+    for (const e of all) for (const metric of ["likes", "reposts", "replies"]) if (e[metric]) boardData[metric].push({ ...e, count: e[metric].count, uri: e[metric].uri, text: e[metric].text });
+    for (const metric of ["likes", "reposts", "replies"]) boardData[metric].sort((a, b) => b.count - a.count);
+    els.scannerCount.textContent = fmt(all.length) + " account" + (all.length === 1 ? "" : "s") + " scanned in this browser";
     renderBoard();
   } catch (_) {
     els.scannerCount.textContent = "";

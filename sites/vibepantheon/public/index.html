@@ -462,12 +462,37 @@
         shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText.slice(0, 300));
       }
 
+      const VIBE_KEY = "vibepantheon-state";
+      let vibeState = { deities: {}, recent: [], totalMatches: 0 };
+      try { vibeState = { ...vibeState, ...JSON.parse(localStorage.getItem(VIBE_KEY) || "{}")} } catch (_) {}
+      function saveVibes() { try { localStorage.setItem(VIBE_KEY, JSON.stringify(vibeState)); } catch (_) {} }
+      function browserVibeData() {
+        const top = Object.values(vibeState.deities).sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen).slice(0, 100);
+        return { top, recent: vibeState.recent, tracked: Object.keys(vibeState.deities).length, totalMatches: vibeState.totalMatches, updatedAt: Date.now(), timeline: [] };
+      }
+      function addBrowserPost(evt) {
+        const c = evt.commit, text = typeof c?.record?.text === "string" ? c.record.text : "";
+        if (c?.operation !== "create" || c.collection !== "app.bsky.feed.post" || !/the vibes are/i.test(text)) return;
+        const matches = text.match(/the vibes are([^.!?,;:\n\r]*)/gi) || [];
+        const now = Date.now(), uri = `at://${evt.did}/app.bsky.feed.post/${c.rkey}`;
+        for (const raw of matches) { const phrase = raw.replace(/^the vibes are\s*/i, "").trim(); if (!phrase) continue; const key = phrase.toLowerCase();
+          const d = vibeState.deities[key] || (vibeState.deities[key] = { phrase, count: 0, lastSeen: now, lastDid: evt.did, lastRkey: c.rkey, lastText: text });
+          d.count++; d.lastSeen = now; d.lastDid = evt.did; d.lastRkey = c.rkey; d.lastText = text;
+          vibeState.recent.unshift({ phrase: d.phrase, did: evt.did, rkey: c.rkey, createdAt: now });
+        }
+        vibeState.recent = vibeState.recent.slice(0, 60); vibeState.totalMatches += matches.length; saveVibes(); render(browserVibeData());
+      }
+      function startBrowserJetstream() {
+        const ws = new WebSocket("wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post");
+        ws.onopen = () => { dot.classList.add("live"); statusText.textContent = "listening in this browser"; render(browserVibeData()); };
+        ws.onmessage = (event) => { try { addBrowserPost(JSON.parse(event.data)); } catch (_) {} };
+        ws.onclose = () => { dot.classList.remove("live"); statusText.textContent = "reconnecting to the firehose…"; setTimeout(startBrowserJetstream, 3000); };
+        ws.onerror = () => ws.close();
+      }
       let failCount = 0;
       async function poll() {
         try {
-          const r = await fetch("/api/leaderboard", { cache: "no-store" });
-          if (!r.ok) throw new Error("http " + r.status);
-          const data = await r.json();
+          const data = browserVibeData();
           failCount = 0;
           dot.classList.add("live");
           statusText.textContent = data.updatedAt ? `updated ${timeAgo(data.updatedAt)}` : "warming up…";
@@ -481,7 +506,8 @@
         }
       }
 
-      poll();
+       poll();
+       startBrowserJetstream();
       setInterval(poll, 15000);
     </script>
 </body>

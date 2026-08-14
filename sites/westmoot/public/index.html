@@ -6,13 +6,13 @@
     <title>westmoot — the simcluster plans a west coast gathering — bisks.net</title>
     <meta
       name="description"
-      content="A sentient little planner: vote on a west-coast city and a weekend, RSVP with your handle, watch the log think out loud. No organizer, no login — once enough of the simcluster agrees, the site declares the plan itself."
+      content="A sentient local planner: choose a west-coast city and weekend, RSVP with your handle, and share the proposal. Public profile reads come from Bluesky AppView; there is no authoritative group vote."
     />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="westmoot — the simcluster plans a west coast gathering" />
     <meta
       property="og:description"
-      content="Vote on a city, vote on a weekend, RSVP with your handle. No organizer — once enough of you agree, the site decides for itself."
+      content="Choose a city and weekend, RSVP with your handle, and share a local meetup proposal."
     />
     <meta property="og:url" content="https://westmoot.bisks.net/" />
     <meta property="og:image" content="https://westmoot.bisks.net/og.png" />
@@ -21,7 +21,7 @@
     <meta property="og:image:alt" content="westmoot — a network of glowing nodes converging on the west coast at sunset." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="westmoot — the simcluster plans a west coast gathering" />
-    <meta name="twitter:description" content="Vote on a city and a weekend, RSVP with your handle. The site decides once enough of you agree." />
+  <meta name="twitter:description" content="Choose a city and weekend, RSVP with your handle, and share a local meetup proposal." />
     <meta name="twitter:image" content="https://westmoot.bisks.net/og.png" />
     <!-- House look, night-terminal: near-black, warm white ink, a terminal-teal
          accent for "the site talking," and a sunset amber for the moment it
@@ -224,8 +224,8 @@
           Something in this repo keeps orbiting the same friend group — the
           <b>simcluster</b>. This page exists to get them in one room. Vote on a
           <b>west-coast city</b> and a <b>weekend</b>, RSVP with your handle, and
-          watch the log below think out loud. There's no organizer. Once enough of
-          you agree, <b>the site decides for itself</b> and tells everyone.
+          watch the local draft think out loud. There's no organizer and no
+          server tally; share the proposal when it looks right.
         </p>
       </header>
 
@@ -284,8 +284,8 @@
         the simcluster is the mutuals-graph this repo's sites keep orbiting — see
         <a href="https://simcluster.bisks.net/">simcluster</a> and
         <a href="https://simcluster-atlas.bisks.net/">simcluster atlas</a>. reads
-        Bluesky's public AppView for your handle/avatar only; the vote tallies,
-        RSVPs, and log are shared state on this Worker. sibling of
+         Bluesky's public AppView for your handle/avatar. Votes and RSVPs are a
+         local draft in this browser, not a group decision. sibling of
         <a href="https://bisks.net">bisks.net</a>.
       </footer>
     </div>
@@ -328,25 +328,14 @@
         dateVote: localStorage.getItem("westmoot-datevote") || "",
       };
 
-      async function jpost(path, body) {
-        const r = await fetch(MOUNT + path, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          const e = new Error(data.error || ("HTTP " + r.status));
-          e.status = r.status; e.data = data;
-          throw e;
-        }
-        return data;
-      }
-      async function jget(path) {
-        const r = await fetch(MOUNT + path);
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      }
+       const localKey = "westmoot-draft";
+       const weekends = Array.from({ length: 6 }, (_, i) => { const d = new Date(Date.now() + (14 + i * 21) * 86400000); d.setUTCDate(d.getUTCDate() + ((5 - d.getUTCDay() + 7) % 7)); return { id: "w" + i, label: d.toISOString().slice(0, 10), start: d.toISOString().slice(0, 10) }; });
+       let localPlan;
+       try { localPlan = JSON.parse(localStorage.getItem(localKey) || "null"); } catch (e) {}
+       localPlan ||= { cities: [{id:"sf",label:"San Francisco"},{id:"oak",label:"Oakland"},{id:"la",label:"Los Angeles"},{id:"sd",label:"San Diego"},{id:"pdx",label:"Portland"},{id:"sea",label:"Seattle"}], weekends, votes:{}, rsvps:{}, version: 0 };
+       function localView() { const cityTally = {}, dateTally = {}; Object.values(localPlan.votes).forEach(v => { cityTally[v.city] = (cityTally[v.city] || 0) + 1; dateTally[v.date] = (dateTally[v.date] || 0) + 1; }); return { ...localPlan, cityTally, dateTally, cityVoters:Object.values(localPlan.votes).filter(v=>v.city).length, dateVoters:Object.values(localPlan.votes).filter(v=>v.date).length, rsvps:Object.values(localPlan.rsvps), log:[], declared:null, quorum:4, version:localPlan.version }; }
+       async function jpost(path, body) { if (path === "vote") { localPlan.votes[body.client] ||= {}; localPlan.votes[body.client][body.kind] = body.id; } else if (path === "city") { const id = body.label.toLowerCase().replace(/[^a-z0-9]+/g,"-"); if (!localPlan.cities.some(c=>c.label.toLowerCase()===body.label.toLowerCase())) localPlan.cities.push({id,label:body.label}); localPlan.votes[body.client] ||= {}; localPlan.votes[body.client].city = id; } else if (path === "rsvp") { localPlan.rsvps[body.client] = {handle:body.handle,displayName:body.displayName,avatar:body.avatar,note:body.note||"",ts:Date.now()}; } localPlan.version++; localStorage.setItem(localKey, JSON.stringify(localPlan)); return localView(); }
+       async function jget() { return localView(); }
 
       // ── boot monologue (flavor only, purely client-side) ─────────────────
       const BOOT_LINES = [
@@ -447,7 +436,7 @@
           localStorage.setItem("westmoot-handle", me.handle);
           localStorage.setItem("westmoot-dn", me.displayName);
           localStorage.setItem("westmoot-av", me.avatar);
-          const data = await jpost("/api/rsvp", {
+          const data = await jpost("rsvp", {
             client: CLIENT, handle: me.handle, displayName: me.displayName, avatar: me.avatar,
           });
           gate.classList.add("hidden");
@@ -471,7 +460,7 @@
       }
       async function poll() {
         try {
-          const data = await jget("/api/state");
+          const data = await jget("state");
           if (data.version !== lastVersion) render(data);
         } catch {}
       }
@@ -479,7 +468,7 @@
       // ── voting ────────────────────────────────────────────────────────────
       async function vote(kind, id) {
         try {
-          const data = await jpost("/api/vote", { client: CLIENT, kind, id });
+          const data = await jpost("vote", { client: CLIENT, kind, id });
           if (kind === "city") { me.cityVote = id; localStorage.setItem("westmoot-cityvote", id); }
           else { me.dateVote = id; localStorage.setItem("westmoot-datevote", id); }
           render(data);
@@ -494,7 +483,7 @@
         const label = addCityInput.value.trim();
         if (!label) return;
         try {
-          const data = await jpost("/api/city", { client: CLIENT, label });
+          const data = await jpost("city", { client: CLIENT, label });
           const added = data.cities.find((c) => c.label.toLowerCase() === label.toLowerCase());
           if (added) { me.cityVote = added.id; localStorage.setItem("westmoot-cityvote", added.id); }
           addCityInput.value = "";
@@ -506,7 +495,7 @@
         if (!me.handle) return;
         noteBtn.disabled = true;
         try {
-          const data = await jpost("/api/rsvp", {
+          const data = await jpost("rsvp", {
             client: CLIENT, handle: me.handle, displayName: me.displayName, avatar: me.avatar,
             note: noteInput.value.trim(),
           });

@@ -1,44 +1,20 @@
 name = "atprotozoa-intrigue"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @fromthewestmeadow.com asked for a site that takes a Bluesky handle and
-# scores how "interesting" the account is, plus a leaderboard of everyone
-# who's been scored so far. The scoring itself (public/index.html) reads a
-# profile + the account's *entire* repo — every post, downloaded as one CAR
-# straight off its own PDS (see public/lib/car.js) rather than a capped
-# recent-posts page, per a same-thread follow-up asking to "download the
-# whole car so you see all their posts" — and turns them into points across
-# a bunch of signals (custom domain handle, self-made feeds/lists/starter
-# packs, alt text usage, language/emoji variety, thread building, etc). The
-# score shown to the submitter is computed client-side for instant feedback,
-# but the leaderboard never trusts it — /api/submit takes only a handle/DID,
-# and the Durable Object (src/index.ts) re-resolves the PDS and re-downloads
-# the same CAR itself, recomputing the score from scratch before banking it
-# (capped to a bounded prefix of the repo server-side, to stay inside
-# Workers' CPU budget — see the CAR_MAX_BLOCKS comment in src/index.ts).
-# See notes/40-new-site-playbook.md.
-#
-# Brand-new site — served at the root of its own hostname, no
-# bisks.net/<name> path route and no prefix-stripping needed.
-#
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table, so a routes line below [assets] silently becomes assets.routes.
+# Brand-new site served at the root of its own hostname.
 routes = [
   { pattern = "intrigue.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* is dynamic (the leaderboard Durable Object), so the
-# Worker must run BEFORE the static-asset router.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "BOARD"
-class_name = "Board"
-
+# Preserve the deployed DO history, then remove its class from the namespace.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Board"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Board"]

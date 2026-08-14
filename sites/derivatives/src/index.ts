@@ -26,40 +26,23 @@
 // keeps growing as the zoo does. Most markets will probably just sit there
 // accumulating bets forever — that's the joke, and it's an honest one.
 //
-// One Durable Object ("global") holds it all: markets, bets, per-client
-// play-money balances. Same single-writer shape as sites/guestbet's Market
-// DO this was copied from, minus the repeating-round clock (nothing here
-// needs to force-resolve on a timer) — the alarm is repurposed to drive the
-// GitHub scan on a slow interval instead of closing a betting round.
+// One KV snapshot holds it all: markets, bets, per-client
+// play-money balances. Repo scans run lazily on API reads instead of on a
+// server-side timer.
 //
 // No login: the page mints an opaque id into localStorage and sends it as
 // X-Client-Id, same anonymous-identity shape as guestbet.
 
 import CANDIDATES from "./candidates.json";
 
-interface DurableObjectId {
-  toString(): string;
-}
-interface DurableObjectStub {
-  fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectNamespace {
-  idFromName(name: string): DurableObjectId;
-  get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(entries: Record<string, unknown>): Promise<void>;
-  setAlarm(scheduledTime: number): Promise<void>;
-}
-interface DurableObjectState {
-  storage: DurableObjectStorage;
-  blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
+interface KVNamespace {
+  get<T = unknown>(key: string, type: "json"): Promise<T | null>;
+  put(key: string, value: unknown): Promise<void>;
 }
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
-  MARKET: DurableObjectNamespace;
+  MARKET_STATE: KVNamespace;
 }
 
 // Mounted at both derivatives.bisks.net (root) and bisks.net/derivatives
@@ -75,9 +58,7 @@ export default {
       url.pathname = url.pathname.slice(PREFIX.length) || "/";
     }
     if (url.pathname.startsWith("/api/")) {
-      const id = env.MARKET.idFromName("global");
-      const stub = env.MARKET.get(id);
-      return stub.fetch(new Request(url, request));
+      return handleApi(new Request(url, request), env.MARKET_STATE);
     }
     return env.ASSETS.fetch(new Request(url, request));
   },
@@ -163,8 +144,8 @@ interface RemoteSiteJson {
   hidden?: boolean;
 }
 
-export class Market {
-  private state: DurableObjectState;
+export class MarketStore {
+  private state: KVNamespace;
   private ready: Promise<void>;
   private balances: Map<string, number> = new Map();
   private markets: Map<string, MarketEntry> = new Map();
@@ -173,13 +154,14 @@ export class Market {
   private lastBetAt: Map<string, number> = new Map();
   private lastScanAt = 0;
 
-  constructor(state: DurableObjectState) {
+  constructor(state: KVNamespace) {
     this.state = state;
-    this.ready = this.state.blockConcurrencyWhile(async () => {
-      const balances = await this.state.storage.get<[string, number][]>("balances");
+    this.ready = (async () => {
+      const snapshot = await this.state.get<any>("state", "json");
+      const balances = snapshot?.balances;
       if (balances) this.balances = new Map(balances);
 
-      const marketsArr = await this.state.storage.get<[string, MarketEntry][]>("markets");
+      const marketsArr = snapshot?.markets;
       if (marketsArr) {
         this.markets = new Map(marketsArr);
       } else {
@@ -206,23 +188,19 @@ export class Market {
         this.knownSiteDirs = new Set([...(CANDIDATES as Candidate[]).map((c) => c.site), SELF_SITE, "guestbet"]);
       }
 
-      const knownDirs = await this.state.storage.get<string[]>("knownSiteDirs");
+      const knownDirs = snapshot?.knownSiteDirs;
       if (knownDirs) this.knownSiteDirs = new Set(knownDirs);
 
-      const lastStipend = await this.state.storage.get<[string, number][]>("lastStipend");
+      const lastStipend = snapshot?.lastStipend;
       if (lastStipend) this.lastStipend = new Map(lastStipend);
 
-      this.lastScanAt = (await this.state.storage.get<number>("lastScanAt")) || 0;
+      this.lastScanAt = snapshot?.lastScanAt || 0;
       await this.persist();
-      // If an alarm was already pending (missed cold-start, dev reload)
-      // this just reschedules it a little sooner — harmless.
-      const nextAlarm = Math.max(Date.now() + 5_000, this.lastScanAt + SCAN_INTERVAL_MS);
-      await this.state.storage.setAlarm(nextAlarm);
     });
   }
 
   private async persist(): Promise<void> {
-    await this.state.storage.put({
+    await this.state.put("state", {
       balances: Array.from(this.balances.entries()),
       markets: Array.from(this.markets.entries()),
       knownSiteDirs: Array.from(this.knownSiteDirs),
@@ -333,14 +311,6 @@ export class Market {
     }
   }
 
-  async alarm(): Promise<void> {
-    await this.ready;
-    await this.scanForNewSites();
-    this.lastScanAt = Date.now();
-    await this.persist();
-    await this.state.storage.setAlarm(Date.now() + SCAN_INTERVAL_MS);
-  }
-
   private marketView(clientId: string) {
     const balance = this.getBalance(clientId);
     const open: any[] = [];
@@ -394,6 +364,11 @@ export class Market {
     const clientId = (request.headers.get("x-client-id") || "").trim().slice(0, 80);
 
     if (url.pathname === "/api/market" && request.method === "GET") {
+      if (Date.now() - this.lastScanAt >= SCAN_INTERVAL_MS) {
+        await this.scanForNewSites();
+        this.lastScanAt = Date.now();
+        await this.persist();
+      }
       if (!clientId) return json({ error: "missing client id" }, 400);
       return json(this.marketView(clientId));
     }
@@ -455,4 +430,8 @@ export class Market {
 
     return json({ error: "not found" }, 404);
   }
+}
+
+async function handleApi(request: Request, kv: KVNamespace): Promise<Response> {
+  return new MarketStore(kv).fetch(request);
 }

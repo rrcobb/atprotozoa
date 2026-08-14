@@ -1,37 +1,22 @@
 name = "atprotozoa-thrashmeter"
-main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# @fromthewestmeadow.com asked for a site that analyzes an entire profile's
-# repo (the CAR file) and assigns it a "thrashing score" — how chaotic and
-# frenetic the account's activity is — with a leaderboard of every handle
-# examined so far. Same shape as sites/intrigue (same requester): a full
-# com.atproto.sync.getRepo CAR download, scored twice independently
-# (public/index.html client-side for instant feedback, src/index.ts
-# server-side in a Durable Object for the number that actually goes on the
-# leaderboard), the exact "verify by re-fetching, not by trusting" pattern.
-# See notes/40-new-site-playbook.md.
+# Frontend-only site: the browser reads the account CAR and keeps results local.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.
 #
-# routes MUST stay above [assets] — in TOML, keys after a table header join
-# that table, so a routes line below [assets] silently becomes assets.routes.
 routes = [
   { pattern = "thrashmeter.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* is dynamic (the leaderboard Durable Object), so the
-# Worker must run BEFORE the static-asset router.
 [assets]
 directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
-
-[[durable_objects.bindings]]
-name = "BOARD"
-class_name = "Thrashboard"
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Thrashboard"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Thrashboard"]

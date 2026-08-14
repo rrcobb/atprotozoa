@@ -25,10 +25,10 @@ compatibility_date = "2025-01-01"
 # board as a fresh market too, so the board keeps growing as the zoo does.
 # Most markets will probably just sit there forever, which is the joke.
 #
-# One Durable Object ("global") holds it all — same single-writer shape as
-# sites/guestbet's Market DO this was copied from, minus the repeating-round
-# clock (nothing here needs to force-resolve on a timer) and with the alarm
-# repurposed to drive the GitHub scan instead of a round close.
+# A single KV snapshot holds the play-money board. Reads and writes are
+# eventual and not an authoritative or atomic settlement ledger; this is an
+# intentionally narrow, anonymous game backend. Repo scans happen lazily on
+# requests rather than through a server-side timer.
 #
 # No login: opaque per-browser client id in localStorage, same as guestbet.
 routes = [
@@ -42,9 +42,8 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "MARKET"
-class_name = "Market"
+[[kv_namespaces]]
+binding = "MARKET_STATE"
 
 # new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
 # Paid; this account is on Free. See sites/the-place/wrangler.toml for the
@@ -52,3 +51,7 @@ class_name = "Market"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Market"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Market"]
