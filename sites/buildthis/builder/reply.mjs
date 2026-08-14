@@ -6,10 +6,16 @@
 //   BOT_IDENTIFIER, BOT_APP_PASSWORD   -> bot login (createSession)
 //   REPLY_ROOT_URI, REPLY_ROOT_CID     -> thread root strongRef
 //   REPLY_PARENT_URI, REPLY_PARENT_CID -> the mention we're answering
-//   BUILD_OK       -> "true" if the build succeeded
-//   BUILD_RESULT   -> the built site name (or "<site>/<path>"), empty if nothing
-//   BUILD_NOTE     -> optional: the agent's own short line about what it built,
-//                     prepended to the SUCCESS reply and fit to 300 graphemes
+//   BUILD_OK       -> "true" if real work landed this run (box-build.sh's
+//                     REAL_CHANGED — excludes the mandatory receipts-archive
+//                     resync, which alone must never read as a build)
+//   BUILD_RESULT   -> a site name (or "<site>/<path>") to link, empty if none.
+//                     Set on a real build, AND on an explain-only ask (linking
+//                     the site being explained) even when BUILD_OK is false.
+//   BUILD_NOTE     -> optional: the agent's own short line — prepended to the
+//                     "built it" reply on a real build, or IS the reply body
+//                     (with BUILD_RESULT's url appended, if set) otherwise.
+//                     Always fit to 300 graphemes, tail preserved whole.
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
 //   OUTCOME_URL    -> buildthis worker's /outcome endpoint (optional)
 //   OUTCOME_SECRET -> shared secret for the /outcome POST (optional)
@@ -65,31 +71,35 @@ function mountPath(site) {
   }
 }
 
+// Turn a BUILD_RESULT name ("<site>" or "<site>/<path>") into the site's live URL.
+// Special case: "apex" IS bisks.net itself (the root domain, no subdomain — see
+// notes/00-vision.md / notes/30-identity-and-did.md). Every other site gets the
+// mechanical <name>.bisks.net; apex would otherwise produce "apex.bisks.net", a
+// hostname that was never provisioned and never resolves (caught 2026-07-26 after
+// a reply linked exactly that dead URL). Returns null for an empty result.
+function siteUrl(result) {
+  if (!result) return null;
+  if (result === "apex" || result.startsWith("apex/")) {
+    const rest = result.slice("apex".length);
+    return `https://bisks.net${rest}`;
+  }
+  const site = result.split("/")[0];
+  const rest = result.slice(site.length); // "" or "/sub/path..."
+  const mount = mountPath(site);
+  return mount
+    ? `https://bisks.net${mount}${rest}`
+    : `https://${site}.bisks.net${rest}`;
+}
+
 async function main() {
   const ok = process.env.BUILD_OK === "true";
   const result = (process.env.BUILD_RESULT || "").trim();
-
+  const note = (process.env.BUILD_NOTE || "").trim();
   const partial = (process.env.BUILD_ERROR || "").trim() === "partial";
 
   let text;
-  let url = null; // the built-site URL, if any, so we can link-facet it
+  const url = siteUrl(result); // the built-site URL, if any, so we can link-facet it
   if (ok && result) {
-    // Special case: "apex" IS bisks.net itself (the root domain, no subdomain —
-    // see notes/00-vision.md / notes/30-identity-and-did.md). Every other site
-    // gets the mechanical <name>.bisks.net; apex would otherwise produce
-    // "apex.bisks.net", a hostname that was never provisioned and never resolves
-    // (caught 2026-07-26 after a reply linked exactly that dead URL).
-    if (result === "apex" || result.startsWith("apex/")) {
-      const rest = result.slice("apex".length);
-      url = `https://bisks.net${rest}`;
-    } else {
-      const site = result.split("/")[0];
-      const rest = result.slice(site.length); // "" or "/sub/path..."
-      const mount = mountPath(site);
-      url = mount
-        ? `https://bisks.net${mount}${rest}`
-        : `https://${site}.bisks.net${rest}`;
-    }
     // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —
     // a build that got a real first pass live but ran out of turns before finishing.
     // The partial's whole point is that the work is preserved and CONTINUABLE: the
@@ -98,13 +108,11 @@ async function main() {
     const template = partial
       ? `got a first pass up 🚧 — ${url}\n\nran out of runway before it's fully done; tag me on this thread to keep building it.`
       : `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
-    // Optional: the agent's own short line about what it built (or its answer to
-    // an "explain <site>" ask), in its voice. Prepended to the template. The
-    // tagger is always one of Rob's mutuals, so we trust the phrasing — the only
-    // mechanical constraint is Bluesky's 300-grapheme post limit, applied below.
-    const note = (process.env.BUILD_NOTE || "").trim();
-    text = note ? `${note}\n\n${template}` : template;
-    text = fitToLimit(text, template, 300);
+    // Optional: the agent's own short line about what it built, in its voice.
+    // Prepended to the template. The tagger is always one of Rob's mutuals, so we
+    // trust the phrasing — the only mechanical constraint is Bluesky's 300-grapheme
+    // post limit, applied below.
+    text = fitToLimit(note, template, 300);
   } else if ((process.env.BUILD_ERROR || "").trim() === "usage_limit") {
     // Not "your idea flopped" — the bot is out of its monthly build budget. Say so
     // honestly instead of implying the request was the problem, so people know to
@@ -115,12 +123,18 @@ async function main() {
     // Honest + actionable (and not "it flopped"): the idea was good, just big. Nudge
     // toward a smaller first slice, which the bot CAN land, rather than a dead retry.
     text = `oof, that one's a big one — i ran out of runway before i could finish it in one pass 😅 got a smaller first slice in mind? i can build that and we grow it from there.`;
-  } else if ((process.env.BUILD_NOTE || "").trim()) {
-    // The agent deliberately didn't build (no BUILD_RESULT) but left a note — this
-    // is the "no real site to build here" path: the tag was banter, a question, or
-    // a post with nothing to make a site from, so the agent chose to just react in
-    // its own voice instead of forcing a bad build. Send that note as the reply.
-    text = graphemeSlice((process.env.BUILD_NOTE || "").trim(), 300);
+  } else if (note) {
+    // ok is false (or result is empty) but the agent left a note — this covers TWO
+    // cases, and they must not read the same:
+    //   - pure banter/no-build: no BUILD_RESULT, the note is a small reaction.
+    //   - explain-only: BUILD_RESULT IS set (per BUILD_PROMPT.md, "the note IS the
+    //     deliverable... set BUILD_RESULT to that site's name so the reply links
+    //     it"), but nothing was actually (re)built this run, so ok is deliberately
+    //     false — see box-build.sh's REAL_CHANGED. Getting here with `result` set
+    //     used to silently drop the link the agent asked for and fall back to a
+    //     raw character slice with no ellipsis; both are fixed by reusing
+    //     fitToLimit, which preserves the url whole and only trims the note.
+    text = fitToLimit(note, url || "", 300);
   } else {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }
@@ -176,23 +190,27 @@ function graphemeSlice(s, n) {
   return out;
 }
 
-// Fit `text` (note + "\n\n" + template) into `limit` graphemes. The template is
-// fixed and contains the built-site URL, so it's preserved whole; only the note
-// is truncated (with an ellipsis) to make room. If the template alone already
-// exceeds the limit, return it as-is — that shouldn't happen for our fixed
-// template, and dropping the URL to fit would defeat the reply.
-function fitToLimit(text, template, limit) {
-  if (graphemeLen(text) <= limit) return text;
-  const SEP = "\n\n";
-  const tmplLen = graphemeLen(template);
+// Fit `head` (arbitrary-length, e.g. the agent's own note) plus `tail` (fixed —
+// a template or a bare url, joined with a blank line when both are non-empty)
+// into `limit` graphemes. `tail` is preserved WHOLE — dropping a url to make room
+// would defeat the point of linking it — and only `head` is truncated, with an
+// ellipsis, to fit. `tail` may be "" (a plain note with nothing fixed to keep),
+// in which case `head` alone is trimmed to the limit. If `tail` alone doesn't
+// fit `limit`, `head` is dropped entirely and `tail` is returned as-is — that
+// shouldn't happen for our short fixed templates/urls, and truncating the url
+// itself would just produce a dead link.
+function fitToLimit(head, tail, limit) {
+  const SEP = head && tail ? "\n\n" : "";
+  const full = `${head}${SEP}${tail}`;
+  if (graphemeLen(full) <= limit) return full;
+  const tailLen = graphemeLen(tail);
   const sepLen = graphemeLen(SEP);
   const ELLIPSIS = "…";
-  // Budget left for the note itself, after the separator, template, and ellipsis.
-  const noteBudget = limit - tmplLen - sepLen - graphemeLen(ELLIPSIS);
-  if (noteBudget <= 0) return template; // no room for any note — send template alone
-  const note = text.slice(0, text.length - template.length - SEP.length);
-  const truncated = graphemeSlice(note, noteBudget).trimEnd() + ELLIPSIS;
-  return `${truncated}${SEP}${template}`;
+  // Budget left for head itself, after the separator, tail, and ellipsis.
+  const headBudget = limit - tailLen - sepLen - graphemeLen(ELLIPSIS);
+  if (headBudget <= 0) return tail; // no room for any head — send tail alone
+  const truncated = graphemeSlice(head, headBudget).trimEnd() + ELLIPSIS;
+  return `${truncated}${SEP}${tail}`;
 }
 
 // POST the build outcome to the buildthis worker's /outcome endpoint. No-op (with

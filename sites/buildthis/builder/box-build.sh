@@ -288,10 +288,29 @@ CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff
 DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
 BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
 
+# CHANGED is NOT "a real build happened" — INSTRUCTIONS.md's standing order runs
+# sites/receipts/sync-asks.mjs on every single run (even a note-only reaction or an
+# explain-only ask that touches nothing else), and that alone can leave the tree
+# dirty. If DISPOSITION/BUILD_OK were driven off raw CHANGED, an explain-only run
+# would non-deterministically read as a real "success" build (whenever the archive
+# happened to need a resync) and reply.mjs would slap "built it 🎉" on what was just
+# an explanation — the bug bisks.net flagged 2026-08-14 ("even in response-only
+# replies, it'll sometimes add the built it line"). REAL_CHANGED excludes that one
+# mandatory housekeeping path so disposition reflects whether the AGENT'S OWN work
+# changed anything, not whether bookkeeping happened to run this time.
+REAL_CHANGED=""
+if printf '%s\n' "$CHANGED_PATHS" | grep -v -E '^sites/receipts/' | grep -q .; then
+  REAL_CHANGED="1"
+fi
+
 # Provenance: stamp who-asked-what into the built site (durable origin — the KV log
 # has a 30-day TTL, git history doesn't). Written to the tree; committed by the push
-# block below (whether that's a fresh commit or amended onto the agent's own).
-if [ -n "$CHANGED" ] && [ -n "$BUILT_NAME" ]; then
+# block below (whether that's a fresh commit or amended onto the agent's own). Gated
+# on the SITE'S OWN directory actually changing, not just "something changed" —
+# otherwise an explain-only run (BUILD_RESULT set to the site being explained, but
+# nothing in it touched) would stamp a false "rebuilt by" record onto a site that
+# wasn't rebuilt.
+if [ -n "$BUILT_NAME" ] && printf '%s\n' "$CHANGED_PATHS" | grep -q "^sites/${BUILT_NAME%%/*}/"; then
   SITE_DIR="sites/${BUILT_NAME%%/*}"
   [ -d "$SITE_DIR" ] && write_provenance "$SITE_DIR/.buildthis.json"
 fi
@@ -331,34 +350,40 @@ else
 fi
 
 # Classify the outcome into a DISPOSITION the reply + queue act on. The key axis is
-# PUSHED (did real work land on main), because work is now always preserved:
-#   success    -> work landed AND the build finished cleanly. "built it 🎉".
-#   partial    -> work landed BUT the build ran out of turns mid-way. A real first
-#                 pass is live; it's just not done. Reply "first pass is up — tag me
-#                 to keep going", and retire (continuation is a fresh re-tag, not a
-#                 retry of this job). This is the preserve-WIP path — a big ask like
-#                 cee.wtf's EP lands a partial you can grow, instead of vanishing.
+# REAL_CHANGED (did the agent's OWN requested work land on main), not raw PUSHED —
+# PUSHED goes true on the mandatory receipts-archive resync alone, which must never
+# by itself read as "built it 🎉" (see the REAL_CHANGED comment above):
+#   success    -> real work landed AND the build finished cleanly. "built it 🎉".
+#   partial    -> real work landed BUT the build ran out of turns mid-way. A real
+#                 first pass is live; it's just not done. Reply "first pass is up —
+#                 tag me to keep going", and retire (continuation is a fresh re-tag,
+#                 not a retry of this job). This is the preserve-WIP path — a big ask
+#                 like cee.wtf's EP lands a partial you can grow, instead of vanishing.
 #   usage_limit-> out of budget, nothing landed. Honest reply, REQUEUE (budget resets).
-#   too_big    -> ran out of turns AND got nothing coherent onto disk. Terminal, no
+#   too_big    -> ran out of turns AND got nothing real onto disk. Terminal, no
 #                 retry (an identical run overruns identically); honest "too big" reply.
-#   no_build   -> clean exit, nothing changed (a note-only reaction). Reply the note.
+#   no_build   -> clean exit, nothing REAL changed (a note-only reaction, an
+#                 explain-only answer, or a receipts-only resync). Reply the note;
+#                 reply.mjs links BUILD_RESULT if the agent set one without the
+#                 "built it" framing, since nothing was actually (re)built.
 #   incomplete -> nothing landed for a TRANSIENT reason (crash/blip — not max-turns,
 #                 not usage-limit). REQUEUE up to MAX_ATTEMPTS; a retry might get through.
 ATTEMPT="${ATTEMPT:-1}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
-if [ "$PUSHED" = "true" ] && { [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; }; then
-  # Cut off mid-build with work on disk — by turns or by the clock. Same user-
+if [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ] && { [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; }; then
+  # Cut off mid-build with real work on disk — by turns or by the clock. Same user-
   # facing situation either way: a real first pass is live and isn't finished.
   DISPOSITION="partial"
-elif [ "$PUSHED" = "true" ]; then
+elif [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ]; then
   DISPOSITION="success"
 elif [ -n "$USAGE_LIMIT" ]; then
   DISPOSITION="usage_limit"
 elif [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; then
   DISPOSITION="too_big"
-elif [ "$BUILD_RC" -eq 0 ] && [ -z "$CHANGED" ]; then
-  # Clean exit, nothing changed: the agent looked and chose not to build. If it left
-  # a note that's the deliberate reaction; either way it's done, not retryable.
+elif [ "$BUILD_RC" -eq 0 ] && [ -z "$REAL_CHANGED" ]; then
+  # Clean exit, nothing REAL changed: the agent looked and chose not to build (or
+  # only the receipts housekeeping touched the tree). If it left a note that's the
+  # deliberate reaction; either way it's done, not retryable.
   DISPOSITION="no_build"
 else
   DISPOSITION="incomplete"

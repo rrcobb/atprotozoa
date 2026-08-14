@@ -200,10 +200,13 @@ but duplicate work is harmless here and one box means there is little contention
 The box classifies each build into a **disposition** (in `box-build.sh`) and the
 reply + queue act on it:
 
-- **success** — work actually landed on `origin/main` (HEAD moved past the pre-build
+- **success** — real work landed on `origin/main` (HEAD moved past the pre-build
   SHA). Reply "built it", retire the job. Success is measured by *the push*, not by
   "a `BUILD_RESULT` file exists" — that distinction is what stops a staged-but-
-  -uncommitted build from being announced live when it never shipped.
+  -uncommitted build from being announced live when it never shipped. "Real" work
+  specifically excludes a push that's *only* the mandatory receipts-archive resync
+  (`REAL_CHANGED` in `box-build.sh`) — that housekeeping runs every build and must
+  never by itself read as "built it 🎉" (fixed 2026-08-14, see `reply.mjs`).
 - **usage_limit** — out of subscription budget. Honest "out of budget, back soon"
   reply, and **requeue** (retry once budget resets — not the build's fault).
 - **incomplete** — the agent worked but nothing reached main (`rc != 0`, or it
@@ -218,8 +221,11 @@ reply + queue act on it:
   feature). ~20% of builds.
 - **too_big** — ran out of turns or clock and got *nothing* coherent onto disk.
   Terminal, no retry: an identical rerun overruns identically.
-- **no_build** — the agent cleanly chose not to build (a note-only reaction to
-  banter/a question). Post the note, retire — retrying would just re-react.
+- **no_build** — the agent cleanly chose not to build: a note-only reaction to
+  banter/a question, an explain-only answer (which still sets `BUILD_RESULT` to
+  link the site being explained, without the "built it" framing), or a run where
+  only the receipts-archive housekeeping touched the tree. Post the note (with
+  the link, if any), retire — retrying would just re-react.
 
 The box caps retries on the job's `attempts` field; the worker enforces the same
 ceiling as a backstop, so a buggy box can't loop a job forever.
