@@ -8,7 +8,6 @@ const canvas = document.getElementById("graph");
 const ctx = canvas.getContext("2d");
 const tooltip = document.getElementById("tooltip");
 const heading = document.getElementById("graph-heading");
-const wholeLink = document.getElementById("whole-network-link");
 const edgeTableBody = document.getElementById("edge-table-body");
 const mutualsCheckbox = document.getElementById("mutuals-only");
 
@@ -123,7 +122,6 @@ function fitView() {
 
 async function load() {
   heading.textContent = focusSubject ? "account-focused session graph" : "this-session graph";
-  if (focusSubject) wholeLink.hidden = false;
   const state = loadState(); scoreState(state);
   rawNodes = state.accounts;
   rawEdges = state.edges.map((e) => ({ from: e.from, to: e.to, weight: e.likeCount, reciprocal: state.edges.some((x) => x.from === e.to && x.to === e.from) }));
