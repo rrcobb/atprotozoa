@@ -78,10 +78,9 @@ export function searchPlaces(query, extra = []) {
 }
 
 // Equirectangular projection: lat/lng -> percentage position on the flat
-// map div. No coastline asset is bundled (see notes in map/index.html for
-// why), so this is what "map-forward" means here — real, accurate
-// placement of every Place and every route, on a graticule instead of a
-// hand-traced coastline that could quietly be wrong.
+// map div. worldmap-data.js's land silhouette is projected with this exact
+// same formula, so every pin and route lands on real coastline, not a
+// blank grid.
 export function project(lat, lng) {
   return {
     xPct: ((lng + 180) / 360) * 100,

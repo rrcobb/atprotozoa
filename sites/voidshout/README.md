@@ -108,9 +108,15 @@ repo root) and the CI workflow redeploys it.
 
 ## What's still a stub
 
-- No lat/lng coastline asset on `/map/` — Places are plotted on an
-  equirectangular graticule (`public/lib/places.js`'s `project()`), not a
-  traced coastline, so placement stays honest instead of hand-drawn-wrong.
+Nothing currently — the last known gap is fixed, see below.
+
+Previously listed here: `/map/` plotted Places on a bare graticule with no
+coastline, because a hand-traced coastline asset risked being quietly wrong.
+Fixed — `public/lib/worldmap-data.js` bakes in a real Natural Earth land
+silhouette (110m resolution, public domain), projected through the exact
+same equirectangular `project()` formula as every pin and route in
+`public/lib/places.js`, so land, pins, and routes all agree pixel-for-pixel
+on the map's 1000x500 viewBox.
 
 Previously also listed here: a stranger publishing a `place` object outside
 the curated `PLACES` list rendered correctly on `/map/` (every record
