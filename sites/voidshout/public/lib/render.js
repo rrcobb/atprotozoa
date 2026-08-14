@@ -102,16 +102,17 @@ export function cardHtml(n) {
 }
 
 export const CARD_STYLE = `
-  .void-card { background: var(--panel); border: 1px solid var(--faint); border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.7rem; }
+  .void-card { background: var(--panel); border: 1px solid var(--faint); border-radius: 0; border-width: 0 0 1px; padding: 0.9rem 0.1rem; margin-bottom: 0; transition: background-color 0.1s; }
+  .void-card:hover { background: var(--void-bg2); }
   .void-card-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.78rem; }
   .void-card-top .spacer { flex: 1 1 auto; }
   .void-card .body { margin: 0.2rem 0 0.55rem; line-height: 1.5; }
   .void-card-bottom { display: flex; align-items: center; gap: 0.75rem; font-size: 0.76rem; }
-  .void-card-bottom .score { padding: 0.1rem 0.4rem; border-radius: 6px; border: 1px solid var(--faint); }
+  .void-card-bottom .score { padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid var(--faint); }
   .void-card-bottom .score.up { color: var(--good); border-color: var(--good); }
   .void-card-bottom .score.down { color: var(--bad); border-color: var(--bad); }
-  .canon-post { display: block; text-decoration: none; color: inherit; background: var(--void-bg2); border: 1px solid var(--faint); border-radius: 8px; padding: 0.55rem 0.65rem; margin: 0.3rem 0 0.6rem; }
-  .canon-post:hover { border-color: var(--accent2); }
+  .canon-post { display: block; text-decoration: none; color: inherit; background: var(--void-bg); border: 1px solid var(--faint); border-radius: 12px; padding: 0.55rem 0.65rem; margin: 0.3rem 0 0.6rem; }
+  .canon-post:hover { border-color: var(--accent2); background: var(--void-bg); }
   .canon-post-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; margin-bottom: 0.3rem; }
   .canon-avatar { width: 18px; height: 18px; border-radius: 50%; }
   .canon-handle { color: var(--muted); }
