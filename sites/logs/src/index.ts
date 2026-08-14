@@ -278,6 +278,29 @@ function powersOfTwoUpTo(total: number): number[] {
   return out;
 }
 
+// @antiali.as, replying to this very page: "powers of two might grow too
+// quickly … wdyt". Fair complaint — the gap between fiestas doubles every
+// time, so the wait gets long fast. But the fiesta sequence itself is a
+// retroactive, forever promise (see above); quietly swapping it for
+// something slower-growing would break that. The compromise: a smaller
+// "sprinkle" ✨ at the halfway point of every gap — not a fiesta, just a
+// sign of life partway through the wait. Doesn't fix the exponential curve,
+// just halves how long any one silence feels.
+function sprinklesUpTo(total: number): { reached: number[]; next: number } {
+  const reached: number[] = [];
+  let next = 0;
+  for (let prev = 2; prev <= 1 << 30; prev *= 2) {
+    const mid = prev + Math.floor(prev / 2); // halfway between prev and prev*2
+    if (mid <= total) {
+      reached.push(mid);
+    } else {
+      next = mid;
+      break;
+    }
+  }
+  return { reached, next };
+}
+
 async function renderMilestones(env: Env): Promise<Response> {
   // Only the total is needed here, so ask for the smallest page.
   const { total, error } = await loadEvents(env, { limit: 1 });
@@ -292,6 +315,7 @@ async function renderMilestones(env: Env): Promise<Response> {
   const latest = reached.length ? reached[reached.length - 1] : null;
   const next = latest ? latest * 2 : 1;
   const toGo = next - total;
+  const sprinkles = sprinklesUpTo(total);
 
   const hero = latest
     ? `<div class="fiesta-hero" id="fiesta-hero">
@@ -308,12 +332,24 @@ async function renderMilestones(env: Env): Promise<Response> {
   const upcoming = milestoneCard(next, total, false);
   const cards = reached.slice().reverse().map((n) => milestoneCard(n, total, true)).join("\n");
 
+  const sprinkleUpcoming = sprinkleCard(sprinkles.next, total, false);
+  const sprinkleCards = sprinkles.reached.slice().reverse().map((n) => sprinkleCard(n, total, true)).join("\n");
+
   const body = `${hero}
   ${shareLink}
   <h2 class="section">next up</h2>
   <div class="fiesta-grid">${upcoming}</div>
   <h2 class="section">every fiesta so far, most recent first</h2>
   <div class="fiesta-grid">${cards || `<p class="empty">none yet.</p>`}</div>
+  <h2 class="section">sprinkles along the way</h2>
+  <p class="note" style="margin:0 0 .9rem 0">
+    @antiali.as wondered if the fiesta gaps grow too quickly — fair, the wait
+    doubles every time. can't shrink it without breaking the "retroactive
+    powers of two, forever" promise above, so here's the compromise: a
+    halfway-point sprinkle ✨ in every gap, just to prove the count's still
+    moving between fiestas.
+  </p>
+  <div class="fiesta-grid">${sprinkleUpcoming}${sprinkleCards ? "\n" + sprinkleCards : ""}</div>
   <p class="note">the sequence is powers of two — every one under the current tag count already counts as thrown, retroactively; new ones fire as the count climbs. <a href="/">back to the timeline</a>.</p>
   ${latest ? confettiScript() : ""}`;
 
@@ -330,6 +366,14 @@ async function renderMilestones(env: Env): Promise<Response> {
 function milestoneCard(n: number, total: number, reached: boolean): string {
   const label = reached ? "🎉 reached" : `⏳ ${n - total} to go`;
   return `<div class="milestone ${reached ? "hit" : "next"}">
+    <span class="milestone-num">${n}</span>
+    <span class="milestone-label">${label}</span>
+  </div>`;
+}
+
+function sprinkleCard(n: number, total: number, reached: boolean): string {
+  const label = reached ? "✨ sprinkled" : `✨ ${n - total} to go`;
+  return `<div class="milestone sprinkle ${reached ? "hit" : "next"}">
     <span class="milestone-num">${n}</span>
     <span class="milestone-label">${label}</span>
   </div>`;
@@ -440,6 +484,10 @@ function pageShell(title: string, h1: string, sub: string, body: string): string
   .milestone-num { display:block; font-size:1.1rem; font-weight:700; }
   .milestone-label { display:block; font-size:.68rem; color:var(--muted); margin-top:.2rem; }
   .milestone.hit .milestone-label { color:var(--ok); }
+  .milestone.sprinkle { min-width:4.5rem; padding:.4rem .6rem; opacity:.85; }
+  .milestone.sprinkle .milestone-num { font-size:.9rem; }
+  .milestone.sprinkle.hit { border-color:#c8922e; }
+  .milestone.sprinkle.hit .milestone-label { color:#c8922e; }
 
   .confetti-piece { position:absolute; top:-1.2rem; width:.5rem; height:.9rem;
     opacity:.9; border-radius:1px; animation-name:confetti-fall; animation-timing-function:ease-in;
