@@ -2,7 +2,26 @@ import { CONSTANTS, computeEdgeWeights, computePrestige, distinctDaysUTC, isVali
 import { boundedMap, getLikers, getProfile, getRecentPosts, resolveHandle } from "./bsky.mjs";
 const KEY = "likescore-session-v1";
 export function loadState() { try { return JSON.parse(sessionStorage.getItem(KEY)) || { accounts: [], edges: [] }; } catch { return { accounts: [], edges: [] }; } }
-export function saveState(state) { sessionStorage.setItem(KEY, JSON.stringify(state)); }
+function trySave(state) { try { sessionStorage.setItem(KEY, JSON.stringify(state)); return true; } catch { return false; } }
+// A popular scanned account can discover thousands of provisional likers; sessionStorage has a
+// hard per-origin quota (~5-10MB) and grows every scan, so a big scan can tip a session over it.
+// Degrade instead of losing the whole scan: strip the least-connected likers' avatar/displayName
+// first, then evict the least-connected provisional accounts (never the scanned accounts themselves).
+export function saveState(state) {
+  if (trySave(state)) return;
+  const edgeCount = new Map();
+  for (const e of state.edges) { edgeCount.set(e.from, (edgeCount.get(e.from) || 0) + 1); edgeCount.set(e.to, (edgeCount.get(e.to) || 0) + 1); }
+  const byConnectivity = (a, b) => (edgeCount.get(a.did) || 0) - (edgeCount.get(b.did) || 0);
+  for (const a of state.accounts) if (a.status === "provisional") { a.avatar = undefined; a.displayName = undefined; }
+  if (trySave(state)) return;
+  let weakest = state.accounts.filter((a) => a.status === "provisional").sort(byConnectivity);
+  while (weakest.length && !trySave(state)) {
+    const drop = new Set(weakest.splice(0, Math.max(1, Math.ceil(weakest.length / 4))).map((a) => a.did));
+    state.accounts = state.accounts.filter((a) => !drop.has(a.did));
+    state.edges = state.edges.filter((e) => !drop.has(e.from) && !drop.has(e.to));
+  }
+  trySave(state);
+}
 export function scoreState(state) { const weighted = computeEdgeWeights(state.edges), ids = state.accounts.map((a) => a.did), result = computePrestige(ids, weighted); const rank = [...ids].sort((a, b) => (result.scores.get(b) || 0) - (result.scores.get(a) || 0)); const ranks = new Map(rank.map((id, i) => [id, i + 1])); for (const a of state.accounts) { a.score = toPrestigeIndex(result.scores.get(a.did) || 0); a.rank = ranks.get(a.did); } return { ...result, weighted }; }
 export async function scan(subject, onStage) {
   subject = subject.trim(); if (!isValidSubject(subject)) throw new Error("give a valid handle (e.g. alice.bsky.social) or DID");
