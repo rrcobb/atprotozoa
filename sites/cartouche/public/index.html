@@ -179,7 +179,7 @@
       .rig {
         position: relative;
         width: 100%;
-        min-height: 900px;
+        min-height: 1360px;
         transform-style: preserve-3d;
         transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
         transition: transform 0.05s linear;
@@ -374,6 +374,111 @@
         margin: 4px 0 18px;
       }
 
+      /* recent-posts frieze */
+      #st-posts { left: 50%; top: 990px; width: min(94vw, 680px); margin-left: min(-47vw, -340px); }
+      .post-line {
+        padding: 10px 0;
+        border-top: 1px dashed var(--border);
+        cursor: pointer;
+      }
+      .post-line:first-of-type { border-top: none; padding-top: 4px; }
+      .post-line .glyphs { font-size: 15px; }
+      .post-line .translation {
+        border-top: none;
+        margin-top: 6px;
+        padding-top: 0;
+      }
+      .post-line:hover .translation,
+      .post-line.revealed .translation {
+        max-height: 200px;
+        opacity: 1;
+        margin-top: 6px;
+      }
+      .post-line[hidden] { display: none; }
+
+      /* header action row: cipher key + orbit toggle */
+      .action-row {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin: 12px 0 0;
+      }
+      .action-row button {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--sand-dim);
+        font-family: var(--ui);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .action-row button:hover, .action-row button.active {
+        border-color: var(--gold);
+        color: var(--gold-hi);
+      }
+
+      /* rosetta stone modal */
+      .rosetta-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: rgba(6,4,2,0.78);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        perspective: 1400px;
+      }
+      .rosetta-backdrop.open { display: flex; }
+      .rosetta-panel {
+        max-width: 640px;
+        max-height: 82vh;
+        overflow-y: auto;
+        background: linear-gradient(165deg, var(--stone-hi), var(--stone) 55%, var(--panel));
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 24px 26px 20px;
+        box-shadow: 0 40px 80px -20px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.06);
+        transform: rotateX(4deg) rotateY(-2deg);
+      }
+      .rosetta-panel h2 {
+        font-family: var(--serif);
+        color: var(--gold-hi);
+        font-size: 16px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin: 0 0 4px;
+      }
+      .rosetta-panel p {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+        margin: 0 0 16px;
+      }
+      .rosetta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+        gap: 10px 6px;
+      }
+      .rosetta-cell {
+        text-align: center;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 2px 6px;
+      }
+      .rosetta-cell .g { font-family: var(--glyph); font-size: 20px; color: var(--gold-hi); display: block; }
+      .rosetta-cell .c { font-family: var(--ui); font-size: 10px; color: var(--sand-dim); margin-top: 4px; display: block; }
+      .rosetta-close {
+        display: block;
+        margin: 18px auto 0;
+      }
+
       @media (max-width: 760px) {
         .rig { min-height: 0; transform: none !important; }
         .stele { position: static; width: 100% !important; margin: 0 0 18px !important; }
@@ -391,10 +496,11 @@
       <h1>CARTOUCHE</h1>
       <div class="glyph-title" id="g-tagline">…</div>
       <p class="lede">
-        Reads a real Bluesky profile and carves it, glyph for glyph, into a
-        floating stone shrine — real Unicode Egyptian hieroglyphs
-        (<code>U+13000–U+1342F</code>), a fixed 47-symbol substitution alphabet.
-        Hover or tap any stele for the translation. Built for
+        Reads a real Bluesky profile — including its three latest posts — and
+        carves it, glyph for glyph, into a floating stone shrine of real
+        Unicode Egyptian hieroglyphs (<code>U+13000–U+1342F</code>), a fixed
+        47-symbol substitution alphabet. Hover or tap any stele for the
+        translation, or reveal the full cipher below. Built for
         <code>@fromthewestmeadow.com</code>, who asked for exactly this.
       </p>
     </header>
@@ -404,6 +510,10 @@
       <button type="submit">translate</button>
     </form>
     <p class="status" id="status">consulting the priesthood…</p>
+    <div class="action-row">
+      <button type="button" id="rosetta-open">𓊪 reveal the cipher</button>
+      <button type="button" id="orbit-toggle">𓆓 let it turn</button>
+    </div>
 
     <div class="scene">
       <div class="rig" id="rig">
@@ -490,6 +600,27 @@
             </div>
           </div>
         </div>
+
+        <div class="stele" id="st-posts" style="--tilt: -0.7deg; --z: 10px;">
+          <div class="bob">
+            <div class="card">
+              <div class="label">the latest utterances</div>
+              <div class="post-line" id="post-0" hidden>
+                <div class="glyphs"></div>
+                <div class="translation"></div>
+              </div>
+              <div class="post-line" id="post-1" hidden>
+                <div class="glyphs"></div>
+                <div class="translation"></div>
+              </div>
+              <div class="post-line" id="post-2" hidden>
+                <div class="glyphs"></div>
+                <div class="translation"></div>
+              </div>
+              <div class="hint">hover a line to translate</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -501,6 +632,21 @@
       built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
       part of the <a href="https://bisks.net">bisks.net</a> constellation
     </footer>
+
+    <div class="rosetta-backdrop" id="rosetta-backdrop">
+      <div class="rosetta-panel">
+        <h2>the cipher</h2>
+        <p>
+          Every sign on this site is a fixed 1:1 substitution into real
+          Unicode Egyptian hieroglyphs (<code>U+13000–U+1342F</code>) — this
+          is the whole key. Any character not listed hashes deterministically
+          into the same block, so nothing ever falls back to a missing-glyph
+          box.
+        </p>
+        <div class="rosetta-grid" id="rosetta-grid"></div>
+        <button type="button" class="retry-btn rosetta-close" id="rosetta-close">seal the tablet</button>
+      </div>
+    </div>
 
     <script>
       // Fixed 47-symbol substitution alphabet into the real Unicode Egyptian
@@ -589,8 +735,38 @@
           setStatus("last consecrated " + new Date().toLocaleDateString());
           document.getElementById("handle-input").value = "";
           document.getElementById("handle-input").placeholder = "@" + p.handle;
+          loadPosts(p.did);
         } catch (err) {
           setStatus("the stele is cracked here — could not resolve @" + handle, true);
+        }
+      }
+
+      async function loadPosts(actor) {
+        const slots = [0, 1, 2].map((i) => document.getElementById("post-" + i));
+        slots.forEach((s) => { s.hidden = true; });
+        try {
+          const res = await fetch(
+            "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=" +
+              encodeURIComponent(actor) + "&limit=15&filter=posts_no_replies"
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          const texts = (data.feed || [])
+            .filter((item) => !item.reason && item.post && item.post.record && item.post.record.text)
+            .map((item) => item.post.record.text.trim())
+            .filter(Boolean)
+            .slice(0, 3);
+          texts.forEach((text, i) => {
+            const slot = slots[i];
+            const g = slot.querySelector(".glyphs");
+            const t = slot.querySelector(".translation");
+            const short = truncate(text, 160);
+            g.textContent = transliterate(short);
+            t.textContent = text;
+            slot.hidden = false;
+          });
+        } catch (err) {
+          // no posts stele is fine; the rest of the shrine still stands
         }
       }
 
@@ -632,12 +808,13 @@
       // toggle .revealed back off on the same click
       const rig = document.getElementById("rig");
       rig.addEventListener("click", (e) => {
-        const target = e.target.closest(".card, .bar-wrap");
+        const target = e.target.closest(".post-line, .card, .bar-wrap");
         if (target) target.classList.toggle("revealed");
       });
 
-      // gentle 3D parallax from pointer position, lerped toward target each frame
-      let tx = 0, ty = 0, cx = 0, cy = 0;
+      // gentle 3D parallax from pointer position, lerped toward target each frame,
+      // plus an optional slow auto-orbit layered on top when toggled on
+      let tx = 0, ty = 0, cx = 0, cy = 0, orbitAngle = 0, orbitOn = false;
       window.addEventListener("pointermove", (e) => {
         tx = (e.clientX / window.innerWidth - 0.5) * 2;
         ty = (e.clientY / window.innerHeight - 0.5) * 2;
@@ -645,15 +822,43 @@
       function raf() {
         cx += (tx - cx) * 0.04;
         cy += (ty - cy) * 0.04;
+        if (orbitOn) orbitAngle += 0.15;
         rig.style.setProperty("--rx", (-cy * 6).toFixed(2) + "deg");
-        rig.style.setProperty("--ry", (cx * 10).toFixed(2) + "deg");
+        rig.style.setProperty("--ry", (cx * 10 + orbitAngle).toFixed(2) + "deg");
         requestAnimationFrame(raf);
       }
       raf();
 
+      const orbitBtn = document.getElementById("orbit-toggle");
+      orbitBtn.addEventListener("click", () => {
+        orbitOn = !orbitOn;
+        orbitBtn.classList.toggle("active", orbitOn);
+        orbitBtn.textContent = orbitOn ? "𓆓 turning…" : "𓆓 let it turn";
+      });
+
       // stagger the idle bob animations so panels don't breathe in lockstep
       document.querySelectorAll(".stele .bob").forEach((el, i) => {
         el.style.animationDelay = (i * -1.3).toFixed(1) + "s";
+      });
+
+      // rosetta stone modal — built once from the same ALPHABET the shrine uses
+      const rosettaGrid = document.getElementById("rosetta-grid");
+      Object.keys(ALPHABET).forEach((ch) => {
+        const cell = document.createElement("div");
+        cell.className = "rosetta-cell";
+        const label = ch === " " ? "space" : ch;
+        cell.innerHTML =
+          '<span class="g">' + String.fromCodePoint(ALPHABET[ch]) + '</span><span class="c">' + label + "</span>";
+        rosettaGrid.appendChild(cell);
+      });
+      const rosettaBackdrop = document.getElementById("rosetta-backdrop");
+      document.getElementById("rosetta-open").addEventListener("click", () => rosettaBackdrop.classList.add("open"));
+      document.getElementById("rosetta-close").addEventListener("click", () => rosettaBackdrop.classList.remove("open"));
+      rosettaBackdrop.addEventListener("click", (e) => {
+        if (e.target === rosettaBackdrop) rosettaBackdrop.classList.remove("open");
+      });
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") rosettaBackdrop.classList.remove("open");
       });
 
       loadProfile(currentHandle());
