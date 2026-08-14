@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>onboarding — Shout Into the Void</title>
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .step { max-width: 46ch; }
+  .home-preview { font-size: 2.2rem; margin: 0.5rem 0; }
+  .place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; margin: 0.8rem 0 1.1rem; max-height: 280px; overflow-y: auto; }
+  .place-opt { text-align: left; padding: 0.5rem 0.6rem; }
+  .place-opt.sel { border-color: var(--accent); color: var(--accent); }
+  #placeSearch { width: 100%; margin-bottom: 0.6rem; }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <div class="step card" id="stepSignin">
+    <h2>1. sign in</h2>
+    <p class="muted">Real atproto OAuth — you'll land back here after your PDS confirms it's you.</p>
+    <button class="btn primary" id="signinBtn">sign in with your handle</button>
+  </div>
+
+  <div class="step card" id="stepHome" style="display:none">
+    <h2>2. your Home</h2>
+    <p class="muted">Generated from your DID, not your handle — stable forever, even across a rename.</p>
+    <div class="home-preview" id="homeName"></div>
+    <p class="muted" id="homeExplain"></p>
+  </div>
+
+  <div class="step card" id="stepPlace" style="display:none">
+    <h2>3. pick a default Place</h2>
+    <p class="muted">No GPS request — search the curated list below. This becomes where your Shouts start unless you pick somewhere else per-post.</p>
+    <input id="placeSearch" placeholder="search by name or emoji…" autocomplete="off" />
+    <div class="place-grid" id="placeGrid"></div>
+    <button class="btn primary" id="joinBtn" disabled>join the Void →</button>
+    <p class="muted" id="joinStatus" style="font-size:0.8rem"></p>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome } from "/lib/chrome.js";
+import { getSession, login, dpopFetch } from "/lib/oauth.js";
+import { homeFor } from "/lib/voidlogic.mjs";
+import { PLACES, searchPlaces } from "/lib/places.js";
+
+const session = await mountChrome({ active: "" });
+
+const stepSignin = document.getElementById("stepSignin");
+const stepHome = document.getElementById("stepHome");
+const stepPlace = document.getElementById("stepPlace");
+const signinBtn = document.getElementById("signinBtn");
+const placeGrid = document.getElementById("placeGrid");
+const placeSearch = document.getElementById("placeSearch");
+const joinBtn = document.getElementById("joinBtn");
+const joinStatus = document.getElementById("joinStatus");
+
+signinBtn.addEventListener("click", async () => {
+  const handle = prompt("Your Bluesky handle:");
+  if (!handle) return;
+  try {
+    await login(handle.trim());
+  } catch (e) {
+    alert("sign-in failed: " + e.message);
+  }
+});
+
+let selected = null;
+function renderPlaces(list) {
+  placeGrid.innerHTML = list
+    .map((p) => `<button type="button" class="btn place-opt" data-id="${p.id}">${p.emoji} ${p.name}</button>`)
+    .join("");
+  for (const btn of placeGrid.querySelectorAll(".place-opt")) {
+    btn.addEventListener("click", () => {
+      selected = PLACES.find((p) => p.id === btn.dataset.id);
+      for (const b of placeGrid.querySelectorAll(".place-opt")) b.classList.remove("sel");
+      btn.classList.add("sel");
+      joinBtn.disabled = false;
+    });
+  }
+}
+renderPlaces(PLACES);
+placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value)));
+
+async function checkExistingParticipation(s) {
+  try {
+    const u = `${s.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(s.did)}&collection=net.bisks.void.participation&rkey=self`;
+    const r = await fetch(u);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+joinBtn.addEventListener("click", async () => {
+  if (!selected) return;
+  joinBtn.disabled = true;
+  joinStatus.textContent = "writing your participation record…";
+  try {
+    const body = {
+      repo: session.did,
+      collection: "net.bisks.void.participation",
+      rkey: "self",
+      record: {
+        $type: "net.bisks.void.participation",
+        defaultPlace: selected,
+        createdAt: new Date().toISOString(),
+      },
+    };
+    const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      throw new Error(`putRecord failed (${res.status}): ${err.slice(0, 200)}`);
+    }
+    joinStatus.textContent = "done — redirecting…";
+    const next = new URLSearchParams(location.search).get("next") || "/profile/";
+    location.href = next;
+  } catch (e) {
+    joinStatus.textContent = "error: " + e.message;
+    joinBtn.disabled = false;
+  }
+});
+
+if (session) {
+  stepSignin.style.display = "none";
+  stepHome.style.display = "";
+  stepPlace.style.display = "";
+  const home = await homeFor(session.did);
+  document.getElementById("homeName").textContent = home.name;
+  document.getElementById("homeExplain").textContent = home.explanation;
+
+  const existing = await checkExistingParticipation(session);
+  if (existing?.value?.defaultPlace) {
+    selected = existing.value.defaultPlace;
+    joinStatus.textContent = `you're already in the Void — default Place is ${selected.emoji} ${selected.name}. pick a new one to change it, or just head to your profile.`;
+    joinBtn.textContent = "update default Place →";
+    joinBtn.disabled = false;
+  }
+}
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

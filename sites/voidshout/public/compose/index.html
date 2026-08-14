@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>shout — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  textarea#text { width: 100%; min-height: 7rem; resize: vertical; }
+  .counter { text-align: right; font-size: 0.78rem; color: var(--muted); }
+  .counter.over { color: var(--bad); }
+  .place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; margin: 0.6rem 0; max-height: 220px; overflow-y: auto; }
+  .place-opt.sel { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <h1>shout into the Void</h1>
+  <div class="card" id="composeCard">
+    <textarea id="text" placeholder="what did you come here to yell?" maxlength="1200"></textarea>
+    <div class="counter" id="counter">280</div>
+    <label class="muted" style="font-size:0.82rem">from Place</label>
+    <input id="placeSearch" placeholder="search Places…" autocomplete="off" />
+    <div class="place-grid" id="placeGrid"></div>
+    <button class="btn primary" id="shoutBtn" disabled>shout →</button>
+    <p id="status" class="muted" style="font-size:0.82rem"></p>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome, requireSession } from "/lib/chrome.js";
+import { dpopFetch, getSession } from "/lib/oauth.js";
+import { PLACES, searchPlaces } from "/lib/places.js";
+import { rkeyForShout, SHOUT_MAX_GRAPHEMES, graphemeLength, truncateGraphemes } from "/lib/voidlogic.mjs";
+
+await mountChrome({ active: "/compose/" });
+const session = await requireSession();
+if (!session) throw new Error("redirecting to onboarding");
+
+const textEl = document.getElementById("text");
+const counter = document.getElementById("counter");
+const placeGrid = document.getElementById("placeGrid");
+const placeSearch = document.getElementById("placeSearch");
+const shoutBtn = document.getElementById("shoutBtn");
+const statusEl = document.getElementById("status");
+
+let selected = null;
+try {
+  const u = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=net.bisks.void.participation&rkey=self`;
+  const r = await fetch(u);
+  if (r.ok) {
+    const j = await r.json();
+    selected = j?.value?.defaultPlace || null;
+  }
+} catch {}
+if (!selected) selected = PLACES[0];
+
+function updateCounter() {
+  const len = graphemeLength(textEl.value);
+  counter.textContent = `${len} / ${SHOUT_MAX_GRAPHEMES}`;
+  counter.classList.toggle("over", len > SHOUT_MAX_GRAPHEMES);
+  refreshEnabled();
+}
+function refreshEnabled() {
+  const len = graphemeLength(textEl.value.trim());
+  shoutBtn.disabled = !(len > 0 && len <= SHOUT_MAX_GRAPHEMES && selected);
+}
+textEl.addEventListener("input", updateCounter);
+updateCounter();
+
+function renderPlaces(list) {
+  placeGrid.innerHTML = list
+    .map(
+      (p) =>
+        `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${p.id}">${p.emoji} ${p.name}</button>`,
+    )
+    .join("");
+  for (const btn of placeGrid.querySelectorAll(".place-opt")) {
+    btn.addEventListener("click", () => {
+      selected = PLACES.find((p) => p.id === btn.dataset.id);
+      renderPlaces(list);
+      refreshEnabled();
+    });
+  }
+}
+renderPlaces(PLACES);
+placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value)));
+
+shoutBtn.addEventListener("click", async () => {
+  shoutBtn.disabled = true;
+  statusEl.textContent = "writing to your PDS…";
+  try {
+    const text = truncateGraphemes(textEl.value.trim(), SHOUT_MAX_GRAPHEMES);
+    const now = Date.now();
+    const rkey = await rkeyForShout(session.did, text, selected.id, now);
+    const record = {
+      $type: "net.bisks.void.shout",
+      text,
+      place: selected,
+      createdAt: new Date(now).toISOString(),
+    };
+    const pds = session.pdsUrl.replace(/\/$/, "");
+    let res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: "net.bisks.void.shout", rkey, record }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      // A retry of the exact same submit recomputes the SAME rkey (see
+      // rkeyForShout) — the PDS refusing to recreate it IS the success case.
+      if (res.status === 400 && /already exists/i.test(body)) {
+        statusEl.textContent = "already shouted (this was a retry) — taking you to it…";
+      } else {
+        throw new Error(`createRecord failed (${res.status}): ${body.slice(0, 200)}`);
+      }
+    } else {
+      statusEl.textContent = "shouted! taking you to it…";
+    }
+    const uri = `at://${session.did}/net.bisks.void.shout/${rkey}`;
+    location.href = `/shout/?uri=${encodeURIComponent(uri)}`;
+  } catch (e) {
+    statusEl.textContent = "error: " + e.message;
+    shoutBtn.disabled = false;
+  }
+});
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

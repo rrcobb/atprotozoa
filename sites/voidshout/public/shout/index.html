@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>a Shout — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .tree { margin-top: 1rem; }
+  .node-wrap { position: relative; margin-left: 0; }
+  .node-wrap .node-wrap { margin-left: 1.1rem; padding-left: 0.9rem; border-left: 1px dashed var(--faint); }
+  .actions { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
+  .actions button { font-size: 0.74rem; padding: 0.3rem 0.55rem; }
+  .actions button.active { border-color: var(--accent2); color: var(--accent2); }
+  .vote-up.active { border-color: var(--good) !important; color: var(--good) !important; }
+  .vote-down.active { border-color: var(--bad) !important; color: var(--bad) !important; }
+  .pruned-note { font-size: 0.76rem; color: var(--muted); font-style: italic; margin: 0.3rem 0; }
+  .carry-form { margin-top: 0.5rem; display: none; gap: 0.4rem; flex-wrap: wrap; }
+  .carry-form.on { display: flex; }
+  .carry-form input, .carry-form select { font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap wide">
+  <div id="root"></div>
+</div>
+
+<script type="module">
+import { mountChrome, demoModeOn } from "/lib/chrome.js";
+import { getSession, dpopFetch, resolveDidDoc, pdsFromDoc } from "/lib/oauth.js";
+import { startIngest, ingestOne } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { deriveState, buildTree } from "/lib/feed.js";
+import { esc, timeAgo, CARD_STYLE } from "/lib/render.js";
+import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength } from "/lib/voidlogic.mjs";
+import { PLACES, searchPlaces } from "/lib/places.js";
+import { loadDemoRoots } from "/lib/demo.js";
+
+document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
+const session = await mountChrome({ active: "" });
+const rootEl = document.getElementById("root");
+
+const params = new URLSearchParams(location.search);
+const rootUri = params.get("uri");
+
+const homeCache = new Map();
+async function homeNameFor(did) {
+  if (!homeCache.has(did)) homeCache.set(did, (await homeFor(did)).name);
+  return homeCache.get(did);
+}
+
+function parseAtUri(uri) {
+  const m = /^at:\/\/(did:[^/]+)\/([^/]+)\/([^/]+)$/.exec(uri);
+  if (!m) return null;
+  return { did: m[1], collection: m[2], rkey: m[3] };
+}
+
+async function renderDemoNode(node, isRoot) {
+  const home = node.homeName;
+  const children = await Promise.all(node.children.map((c) => renderDemoNode(c, false)));
+  return `
+    <div class="node-wrap">
+      <div class="void-card">
+        <div class="void-card-top">
+          <span class="who mono">${esc(home)} ${isRoot ? "shouted" : node.rec.collection.endsWith("echo") ? "echoed" : "murmured"} at ${esc(node.rec.value.place.emoji)} ${esc(node.rec.value.place.name)}</span>
+          <span class="spacer"></span>
+          <span class="badge demo">demo</span>
+          ${node.hidden ? '<span class="badge hidden">hidden</span>' : ""}
+        </div>
+        ${node.rec.value.text ? `<p class="body">${esc(node.rec.value.text)}</p>` : ""}
+        <div class="void-card-bottom">
+          <span class="score mono ${node.score > 0 ? "up" : node.score < 0 ? "down" : ""}">${node.score > 0 ? "+" : ""}${node.score}</span>
+          <span class="when muted mono">${esc(timeAgo(node.rec.value.createdAt))}</span>
+        </div>
+        ${node.hidden ? `<p class="pruned-note">${esc(node.hiddenNote || "score at/below -5 — hidden, restorable if it recovers")}</p>` : ""}
+      </div>
+      ${children.join("")}
+    </div>`;
+}
+
+// If we don't have it locally yet (fresh link, ingest hasn't caught up),
+// fetch it straight off the author's own PDS (public read) and validate it
+// through the same pipeline a firehose commit would take.
+async function ensureLoaded(uri) {
+  if (await store.getRecord(uri)) return;
+  const parsed = parseAtUri(uri);
+  if (!parsed) return;
+  const doc = await resolveDidDoc(parsed.did);
+  const pds = pdsFromDoc(doc);
+  if (!pds) return;
+  const r = await fetch(
+    `${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(parsed.did)}&collection=${encodeURIComponent(parsed.collection)}&rkey=${encodeURIComponent(parsed.rkey)}`,
+  );
+  if (!r.ok) return;
+  const j = await r.json();
+  await ingestOne(parsed.collection, parsed.did, parsed.rkey, j.value);
+}
+
+async function fullState() {
+  return deriveState(await store.allRecords());
+}
+
+let myVotes = new Map(); // subjectUri -> value, for the signed-in voter
+async function loadMyVotes() {
+  if (!session) return;
+  const mine = await store.recordsByDid(session.did);
+  myVotes = new Map(
+    mine.filter((r) => r.collection === "net.bisks.void.vote").map((r) => [r.value.subjectUri, r.value.value]),
+  );
+}
+
+async function pdsAndDid() {
+  return { pds: session.pdsUrl.replace(/\/$/, ""), did: session.did };
+}
+
+async function castVote(subjectUri, value) {
+  if (!session) return alert("sign in first");
+  const { pds, did } = await pdsAndDid();
+  const current = myVotes.get(subjectUri);
+  const rkey = await rkeyForVote(subjectUri);
+  if (current === value) {
+    // clicking the active vote again = unvote
+    const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: did, collection: "net.bisks.void.vote", rkey }),
+    });
+    if (res.ok) {
+      await store.deleteRecordByUri(`at://${did}/net.bisks.void.vote/${rkey}`);
+    }
+  } else {
+    const record = { $type: "net.bisks.void.vote", subjectUri, value, createdAt: new Date().toISOString() };
+    const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: did, collection: "net.bisks.void.vote", rkey, record }),
+    });
+    if (res.ok) {
+      await ingestOne("net.bisks.void.vote", did, rkey, record);
+    } else {
+      alert("vote failed: " + (await res.text().catch(() => res.status)));
+    }
+  }
+  await loadMyVotes();
+  await rerender();
+}
+
+async function submitCarry(collection, parentUri, place, text) {
+  const { pds, did } = await pdsAndDid();
+  const now = Date.now();
+  const rkey = await rkeyForCarry(collection, did, parentUri, place.id, now);
+  const record = {
+    $type: `net.bisks.void.${collection}`,
+    rootUri,
+    parentUri,
+    place,
+    createdAt: new Date(now).toISOString(),
+  };
+  if (collection === "murmur") record.text = text;
+  const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: did, collection: `net.bisks.void.${collection}`, rkey, record }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    if (!(res.status === 400 && /already exists/i.test(body))) {
+      alert("carry failed: " + body.slice(0, 200));
+      return;
+    }
+  }
+  await ingestOne(`net.bisks.void.${collection}`, did, rkey, record);
+  await rerender();
+}
+
+function placePickerHtml(idPrefix) {
+  return `<select class="carry-place" data-for="${idPrefix}">${PLACES.map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`).join("")}</select>`;
+}
+
+async function nodeHtml(node, isRoot) {
+  const home = await homeNameFor(node.rec.did);
+  const kind = node.rec.collection.endsWith("shout") ? "shouted" : node.rec.collection.endsWith("echo") ? "echoed" : "murmured";
+  const myVote = myVotes.get(node.uri);
+  const idBase = node.uri.replace(/[^a-zA-Z0-9]/g, "");
+  const childrenHtml = node.prunedByAncestor
+    ? ""
+    : (await Promise.all(node.children.map((c) => nodeHtml(c, false)))).join("");
+  const hiddenBadge = node.hidden ? `<span class="badge hidden">hidden · score ≤ -5</span>` : "";
+  return `
+    <div class="node-wrap">
+      <div class="void-card" data-uri="${esc(node.uri)}">
+        <div class="void-card-top">
+          <span class="who mono">${esc(home)} ${kind} at ${esc(node.rec.value.place?.emoji || "❔")} ${esc(node.rec.value.place?.name || "Elsewhere")}</span>
+          <span class="spacer"></span>
+          ${hiddenBadge}
+        </div>
+        ${node.rec.value.text ? `<p class="body">${esc(node.rec.value.text)}</p>` : ""}
+        <div class="void-card-bottom">
+          <span class="score mono ${node.score > 0 ? "up" : node.score < 0 ? "down" : ""}">${node.score > 0 ? "+" : ""}${node.score}</span>
+          <span class="when muted mono">${esc(timeAgo(node.rec.value.createdAt))}</span>
+        </div>
+        ${node.hidden ? `<p class="pruned-note">hidden — its whole branch is pruned from feeds until the score recovers above -5.</p>` : ""}
+        <div class="actions">
+          <button class="vote-up${myVote === 1 ? " active" : ""}" data-act="up" data-uri="${esc(node.uri)}">▲ up</button>
+          <button class="vote-down${myVote === -1 ? " active" : ""}" data-act="down" data-uri="${esc(node.uri)}">▼ down</button>
+          <button data-act="echo" data-uri="${esc(node.uri)}">🔁 echo</button>
+          <button data-act="murmur" data-uri="${esc(node.uri)}">💬 murmur</button>
+        </div>
+        <div class="carry-form" id="carry-${idBase}">
+          ${placePickerHtml(idBase)}
+          <input class="carry-text" data-for="${idBase}" placeholder="reaction (murmur only, ≤${MURMUR_MAX_GRAPHEMES})" style="display:none; flex:1 1 160px" />
+          <button class="carry-go" data-uri="${esc(node.uri)}" data-for="${idBase}">carry →</button>
+          <button class="carry-cancel" data-for="${idBase}">cancel</button>
+        </div>
+      </div>
+      ${childrenHtml}
+    </div>`;
+}
+
+async function rerender() {
+  const state = await fullState();
+  const tree = buildTree(rootUri, state);
+  if (!tree) {
+    rootEl.innerHTML = `<p class="muted">still loading this thread from the network… (${esc(rootUri)})</p>`;
+    return;
+  }
+  rootEl.innerHTML = `<div class="tree">${await nodeHtml(tree, true)}</div>`;
+  wireActions();
+}
+
+let pendingCarryKind = null; // {collection} tracked per-form via dataset instead
+
+function wireActions() {
+  rootEl.querySelectorAll("[data-act]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const act = btn.dataset.act;
+      const uri = btn.dataset.uri;
+      if (act === "up") return castVote(uri, 1);
+      if (act === "down") return castVote(uri, -1);
+      if (act === "echo" || act === "murmur") {
+        if (!session) return alert("sign in first");
+        const idBase = uri.replace(/[^a-zA-Z0-9]/g, "");
+        const form = document.getElementById(`carry-${idBase}`);
+        form.dataset.kind = act;
+        form.querySelector(".carry-text").style.display = act === "murmur" ? "" : "none";
+        form.classList.add("on");
+      }
+    });
+  });
+  rootEl.querySelectorAll(".carry-cancel").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById(`carry-${btn.dataset.for}`).classList.remove("on");
+    });
+  });
+  rootEl.querySelectorAll(".carry-go").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const form = document.getElementById(`carry-${btn.dataset.for}`);
+      const kind = form.dataset.kind;
+      const placeId = form.querySelector(".carry-place").value;
+      const place = PLACES.find((p) => p.id === placeId);
+      const text = form.querySelector(".carry-text").value.trim();
+      if (kind === "murmur" && (!text || graphemeLength(text) > MURMUR_MAX_GRAPHEMES)) {
+        return alert(`murmur needs a reaction, ≤${MURMUR_MAX_GRAPHEMES} characters`);
+      }
+      btn.disabled = true;
+      await submitCarry(kind, btn.dataset.uri, place, text);
+    });
+  });
+}
+
+function mountChicken() {
+  const s = document.createElement("script");
+  s.src = "/lib/chicken-mode.js";
+  document.body.appendChild(s);
+}
+
+async function main() {
+  if (!rootUri) {
+    rootEl.innerHTML = `<p class="muted">no ?uri= given. <a href="/">back to the Void</a>.</p>`;
+    return;
+  }
+  if (!parseAtUri(rootUri)) {
+    rootEl.innerHTML = `<p class="muted">that doesn't look like a valid at:// uri.</p>`;
+    return;
+  }
+
+  if (demoModeOn() && rootUri.includes("did:demo:")) {
+    const threads = await loadDemoRoots();
+    const thread = threads.find((t) => t.uri === rootUri);
+    rootEl.innerHTML = thread
+      ? await renderDemoNode(thread, true)
+      : `<p class="muted">demo thread not found.</p>`;
+    mountChicken();
+    return;
+  }
+
+  await ensureLoaded(rootUri);
+  await loadMyVotes();
+  await rerender();
+  mountChicken();
+
+  startIngest({
+    onRecord: () => rerender(),
+    onDelete: () => rerender(),
+  });
+}
+
+await main();
+</script>
+</body>
+</html>

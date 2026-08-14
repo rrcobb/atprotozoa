@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Places — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .place-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; margin: 0.8rem 0 1.3rem; }
+  .place-list a { text-decoration: none; }
+  .place-list .card { text-align: center; padding: 0.8rem 0.5rem; }
+  .place-list .em { font-size: 1.6rem; display: block; }
+  .place-list .ct { font-size: 0.72rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap wide">
+  <div id="search-view">
+    <h1>Places</h1>
+    <input id="q" placeholder="search Places by name or emoji…" style="width:100%; margin-bottom:0.5rem" />
+    <div class="place-list" id="placeList"></div>
+  </div>
+  <div id="feed-view" style="display:none">
+    <a href="/place/" class="muted mono" style="font-size:0.8rem">← all Places</a>
+    <h1 id="placeTitle"></h1>
+    <div id="feed"></div>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome, demoModeOn } from "/lib/chrome.js";
+import { startIngest } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { deriveState, allTrees, placeActivityFromTrees, nodesAtPlaceFromTrees } from "/lib/feed.js";
+import { PLACES, searchPlaces, placeById } from "/lib/places.js";
+import { esc, cardHtml, nodeToCard, CARD_STYLE } from "/lib/render.js";
+import { homeFor } from "/lib/voidlogic.mjs";
+import { loadDemoRoots } from "/lib/demo.js";
+
+document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
+await mountChrome({ active: "/place/" });
+
+const params = new URLSearchParams(location.search);
+const placeId = params.get("id");
+const searchView = document.getElementById("search-view");
+const feedView = document.getElementById("feed-view");
+const homeCache = new Map();
+async function homeNameFor(did) {
+  if (!homeCache.has(did)) homeCache.set(did, (await homeFor(did)).name);
+  return homeCache.get(did);
+}
+
+async function currentTrees() {
+  if (demoModeOn()) return loadDemoRoots();
+  return allTrees(deriveState(await store.allRecords()));
+}
+
+if (!placeId) {
+  searchView.style.display = "";
+  const listEl = document.getElementById("placeList");
+  const activity = placeActivityFromTrees(await currentTrees());
+  function render(list) {
+    listEl.innerHTML = list
+      .map((p) => {
+        const count = activity.get(p.id)?.count || 0;
+        return `<a href="?id=${encodeURIComponent(p.id)}"><div class="card"><span class="em">${esc(p.emoji)}</span>${esc(p.name)}<div class="ct">${count} active</div></div></a>`;
+      })
+      .join("");
+  }
+  render(PLACES);
+  document.getElementById("q").addEventListener("input", (e) => render(searchPlaces(e.target.value)));
+} else {
+  feedView.style.display = "";
+  const place = placeById(placeId) || { id: placeId, name: placeId, emoji: "❔" };
+  document.getElementById("placeTitle").textContent = `${place.emoji} ${place.name}`;
+  const feedEl = document.getElementById("feed");
+
+  async function renderFeed() {
+    const trees = await currentTrees();
+    const nodes = nodesAtPlaceFromTrees(trees, placeId);
+    if (!nodes.length) {
+      feedEl.innerHTML = `<p class="muted">nothing here yet. <a href="/compose/">shout the first thing</a>.</p>`;
+      return;
+    }
+    const cards = await Promise.all(
+      nodes.map(async (n) => {
+        const home = n.homeName || (await homeNameFor(n.rec.did));
+        const rootUri = n.rec.value.rootUri || n.uri;
+        return cardHtml(nodeToCard(n, rootUri, home));
+      }),
+    );
+    feedEl.innerHTML = cards.join("");
+  }
+  await renderFeed();
+
+  if (!demoModeOn()) {
+    let scheduled = false;
+    function schedule() {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(() => { scheduled = false; renderFeed(); }, 1000);
+    }
+    startIngest({ onRecord: schedule, onDelete: schedule });
+  }
+}
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

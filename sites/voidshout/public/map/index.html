@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>the map — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .map-wrap { position: relative; width: 100%; aspect-ratio: 2 / 1; background: linear-gradient(180deg, #0d0d1c, #100a1e 60%, #0a0a14); border: 1px solid var(--faint); border-radius: 14px; overflow: hidden; margin: 1rem 0; }
+  .map-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .graticule line { stroke: #ffffff14; stroke-width: 1; }
+  .graticule .eq { stroke: #ffffff26; }
+  .route { fill: none; stroke: var(--accent2); stroke-width: 1.4; stroke-dasharray: 4 5; opacity: 0.75; animation: dash 3.5s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -90; } }
+  .pin { position: absolute; transform: translate(-50%, -50%); text-align: center; cursor: pointer; }
+  .pin .dot { font-size: 1.1rem; filter: drop-shadow(0 0 6px #000); }
+  .pin .count { display: block; font-size: 0.62rem; color: var(--accent2); font-family: var(--mono); }
+  .pin:hover .dot { transform: scale(1.25); }
+  .legend { font-size: 0.76rem; color: var(--muted); margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap wide">
+  <h1>the world, as shouted at</h1>
+  <p class="muted legend">Pin size = current activity at that Place. Dashed lines = a carry (Echo/Murmur) in the last 6 hours,
+    respecting <code>prefers-reduced-motion</code>. No coastline asset is bundled here — pins and routes are placed by real
+    lat/lng on a graticule instead of a hand-traced coastline that could quietly be wrong. Click a pin for that Place's feed.</p>
+  <div class="map-wrap" id="mapWrap">
+    <svg viewBox="0 0 1000 500" class="graticule" id="graticule"></svg>
+    <svg viewBox="0 0 1000 500" id="routes"></svg>
+    <div id="pins"></div>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome, demoModeOn } from "/lib/chrome.js";
+import { startIngest } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { deriveState, allTrees, placeActivityFromTrees, routeSegmentsFromTrees } from "/lib/feed.js";
+import { project } from "/lib/places.js";
+import { esc } from "/lib/render.js";
+import { loadDemoRoots } from "/lib/demo.js";
+
+await mountChrome({ active: "/map/" });
+
+const gratSvg = document.getElementById("graticule");
+const routesSvg = document.getElementById("routes");
+const pinsEl = document.getElementById("pins");
+
+function buildGraticule() {
+  let s = "";
+  for (let lng = -180; lng <= 180; lng += 30) {
+    const x = ((lng + 180) / 360) * 1000;
+    s += `<line x1="${x}" y1="0" x2="${x}" y2="500" />`;
+  }
+  for (let lat = -90; lat <= 90; lat += 30) {
+    const y = ((90 - lat) / 180) * 500;
+    s += `<line class="${lat === 0 ? "eq" : ""}" x1="0" y1="${y}" x2="1000" y2="${y}" />`;
+  }
+  gratSvg.innerHTML = s;
+}
+buildGraticule();
+
+function drawPins(activity) {
+  const max = Math.max(1, ...[...activity.values()].map((e) => e.count));
+  pinsEl.innerHTML = [...activity.values()]
+    .map(({ place, count }) => {
+      const { xPct, yPct } = project(place.lat, place.lng);
+      const size = 1 + Math.min(1.6, (count / max) * 1.6);
+      return `<a class="pin" href="/place/?id=${encodeURIComponent(place.id)}" style="left:${xPct}%; top:${yPct}%" title="${esc(place.name)} — ${count} active">
+        <span class="dot" style="font-size:${size}rem">${esc(place.emoji)}</span>
+        <span class="count">${count}</span>
+      </a>`;
+    })
+    .join("");
+}
+
+function drawRoutes(segments) {
+  const cutoff = Date.now() - 6 * 3600 * 1000;
+  const recent = segments.filter((s) => s.atMs >= cutoff);
+  routesSvg.innerHTML = recent
+    .map((s) => {
+      const a = project(s.from.lat, s.from.lng);
+      const b = project(s.to.lat, s.to.lng);
+      return `<line class="route" x1="${(a.xPct / 100) * 1000}" y1="${(a.yPct / 100) * 500}" x2="${(b.xPct / 100) * 1000}" y2="${(b.yPct / 100) * 500}" />`;
+    })
+    .join("");
+}
+
+if (demoModeOn()) {
+  const trees = await loadDemoRoots();
+  drawPins(placeActivityFromTrees(trees));
+  drawRoutes(routeSegmentsFromTrees(trees));
+} else {
+  async function refresh() {
+    const state = deriveState(await store.allRecords());
+    const trees = allTrees(state);
+    drawPins(placeActivityFromTrees(trees));
+    drawRoutes(routeSegmentsFromTrees(trees));
+  }
+  await refresh();
+  let scheduled = false;
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => { scheduled = false; refresh(); }, 1000);
+  }
+  startIngest({ onRecord: schedule, onDelete: schedule });
+}
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

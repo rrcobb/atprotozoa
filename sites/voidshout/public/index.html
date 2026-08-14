@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Shout Into the Void — voidshout.bisks.net</title>
+<meta name="description" content="Put a joke somewhere on the map. Let strangers carry it. Watch how each place receives it." />
+<meta property="og:title" content="Shout Into the Void" />
+<meta property="og:description" content="Put a joke somewhere on the map, let strangers carry it across the world, watch it get voted into oblivion or immortality." />
+<meta property="og:image" content="https://voidshout.bisks.net/og.png" />
+<meta property="og:url" content="https://voidshout.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .hero { padding: 1.2rem 0 1.6rem; }
+  .hero h1 { font-size: 1.7rem; margin: 0 0 0.5rem; }
+  .hero p { color: var(--muted); max-width: 60ch; line-height: 1.6; }
+  .hero .ctas { display: flex; gap: 0.6rem; margin-top: 1rem; flex-wrap: wrap; }
+  .feed-status { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; }
+  .dot.live { background: var(--good); box-shadow: 0 0 6px var(--good); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <div class="hero">
+    <h1>Shout Into the <span style="color:var(--accent)">Void</span></h1>
+    <p>Put a joke somewhere on the map. Anyone can carry it to a new Place with an Echo, or carry it with a reaction
+      as a Murmur. Everything here is a real record on someone's own PDS — this page is just a live window onto
+      whoever's publishing <code class="mono">net.bisks.void.*</code> right now, built from
+      <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>'s
+      73-post spec.</p>
+    <div class="ctas">
+      <a class="btn primary" href="/onboarding/">get a Home →</a>
+      <a class="btn" href="/map/">see the map</a>
+      <a class="btn" href="/compose/">shout something</a>
+    </div>
+  </div>
+
+  <div class="feed-status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
+  <div id="feed"></div>
+</div>
+
+<script type="module">
+import { mountChrome, demoModeOn } from "/lib/chrome.js";
+import { startIngest } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { deriveState } from "/lib/feed.js";
+import { cardHtml, nodeToCard, CARD_STYLE } from "/lib/render.js";
+import { homeFor } from "/lib/voidlogic.mjs";
+import { loadDemoRoots } from "/lib/demo.js";
+
+document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
+await mountChrome({ active: "/" });
+
+const feedEl = document.getElementById("feed");
+const dot = document.getElementById("dot");
+const statusText = document.getElementById("statusText");
+const homeCache = new Map();
+async function homeNameFor(did) {
+  if (!homeCache.has(did)) homeCache.set(did, (await homeFor(did)).name);
+  return homeCache.get(did);
+}
+
+async function renderDemo() {
+  dot.classList.remove("live");
+  statusText.textContent = "demo mode — showing seeded sample data, not the live network";
+  const roots = await loadDemoRoots();
+  feedEl.innerHTML = roots.map((r) => cardHtml(nodeToCard(r, r.uri, r.homeName))).join("") ||
+    `<p class="muted">no demo threads.</p>`;
+}
+
+async function renderLive() {
+  const records = await store.allRecords();
+  const state = deriveState(records);
+  if (!state.roots.length) {
+    feedEl.innerHTML = `<p class="muted">the Void is quiet — no shouts ingested yet. Backfilling the last 24h of the
+      live network now; be the <a href="/compose/">first to shout</a> in the meantime.</p>`;
+    return;
+  }
+  const top = state.roots.slice(0, 40);
+  const cards = await Promise.all(
+    top.map(async (r) => {
+      const home = await homeNameFor(r.did);
+      const score = state.scoreByUri.get(r.uri) || 0;
+      return cardHtml(nodeToCard({ uri: r.uri, rec: r, score, hidden: false }, r.uri, home));
+    }),
+  );
+  feedEl.innerHTML = cards.join("");
+}
+
+if (demoModeOn()) {
+  await renderDemo();
+} else {
+  statusText.textContent = "connecting…";
+  let renderScheduled = false;
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    setTimeout(() => {
+      renderScheduled = false;
+      renderLive();
+    }, 800);
+  }
+  await renderLive();
+  startIngest({
+    onStatus: (s) => {
+      dot.classList.toggle("live", s === "live");
+      statusText.textContent = s === "live" ? "live — watching net.bisks.void.* across the network" : s + "…";
+    },
+    onRecord: scheduleRender,
+    onDelete: scheduleRender,
+  });
+}
+</script>
+
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>
