@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>settings — Shout Into the Void</title>
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; margin: 0.6rem 0; max-height: 240px; overflow-y: auto; }
+  .place-opt.sel { border-color: var(--accent); color: var(--accent); }
+  .danger-card { border-color: var(--bad); }
+  .danger-card h2 { color: var(--bad); }
+  .progress-bar { height: 8px; border-radius: 4px; background: var(--faint); overflow: hidden; margin: 0.6rem 0; }
+  .progress-bar .fill { height: 100%; background: var(--accent2); width: 0%; transition: width 0.2s; }
+  .log-line { font-size: 0.78rem; color: var(--muted); font-family: var(--mono); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <h1>settings</h1>
+
+  <div class="card" id="placeCard">
+    <h2 style="margin-top:0">default Place</h2>
+    <p class="muted" style="font-size:0.85rem">Where your Shouts start unless you pick somewhere else per-post.</p>
+    <input id="placeSearch" placeholder="search Places…" autocomplete="off" />
+    <div class="place-grid" id="placeGrid"></div>
+    <button class="btn primary" id="saveBtn" disabled>save default Place</button>
+    <p class="muted" id="saveStatus" style="font-size:0.8rem"></p>
+  </div>
+
+  <div class="card danger-card">
+    <h2>leave the Void</h2>
+    <p class="muted" style="font-size:0.85rem">
+      Deletes every <code class="mono">net.bisks.void.*</code> record you own from your own PDS, in batches —
+      shouts, echoes, murmurs and votes first, your participation record last — then purges this browser's local
+      derived cache of your activity. This does not touch any other record in your repo, and it cannot be undone
+      from here (your data is really gone from your PDS, not just hidden).
+    </p>
+    <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem">
+      <input type="checkbox" id="confirmCheck" /> I understand this permanently deletes my Void records.
+    </label>
+    <button class="btn" id="leaveBtn" disabled style="margin-top:0.6rem; border-color: var(--bad); color: var(--bad)">leave the Void</button>
+    <div id="progressWrap" style="display:none">
+      <div class="progress-bar"><div class="fill" id="fill"></div></div>
+      <div id="log"></div>
+      <button class="btn" id="retryBtn" style="display:none">retry failed batches</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome, requireSession } from "/lib/chrome.js";
+import { dpopFetch, clearSession } from "/lib/oauth.js";
+import { PLACES, searchPlaces } from "/lib/places.js";
+import { OWNED_CONTENT_COLLECTIONS } from "/lib/voidlogic.mjs";
+import * as store from "/lib/store.js";
+
+await mountChrome({ active: "/settings/" });
+const session = await requireSession();
+if (!session) throw new Error("redirecting to onboarding");
+
+const pds = session.pdsUrl.replace(/\/$/, "");
+
+// ---- default Place ----------------------------------------------------------
+
+const placeGrid = document.getElementById("placeGrid");
+const placeSearch = document.getElementById("placeSearch");
+const saveBtn = document.getElementById("saveBtn");
+const saveStatus = document.getElementById("saveStatus");
+let selected = null;
+
+try {
+  const u = `${pds}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=net.bisks.void.participation&rkey=self`;
+  const r = await fetch(u);
+  if (r.ok) selected = (await r.json())?.value?.defaultPlace || null;
+} catch {}
+
+function renderPlaces(list) {
+  placeGrid.innerHTML = list
+    .map((p) => `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${p.id}">${p.emoji} ${p.name}</button>`)
+    .join("");
+  for (const btn of placeGrid.querySelectorAll(".place-opt")) {
+    btn.addEventListener("click", () => {
+      selected = PLACES.find((p) => p.id === btn.dataset.id);
+      renderPlaces(list);
+      saveBtn.disabled = false;
+    });
+  }
+}
+renderPlaces(PLACES);
+placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value)));
+
+saveBtn.addEventListener("click", async () => {
+  if (!selected) return;
+  saveBtn.disabled = true;
+  saveStatus.textContent = "saving…";
+  try {
+    const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo: session.did,
+        collection: "net.bisks.void.participation",
+        rkey: "self",
+        record: { $type: "net.bisks.void.participation", defaultPlace: selected, createdAt: new Date().toISOString() },
+      }),
+    });
+    if (!res.ok) throw new Error(`putRecord failed (${res.status})`);
+    saveStatus.textContent = "saved.";
+  } catch (e) {
+    saveStatus.textContent = "error: " + e.message;
+    saveBtn.disabled = false;
+  }
+});
+
+// ---- leave the Void ----------------------------------------------------------
+
+const confirmCheck = document.getElementById("confirmCheck");
+const leaveBtn = document.getElementById("leaveBtn");
+const progressWrap = document.getElementById("progressWrap");
+const fillEl = document.getElementById("fill");
+const logEl = document.getElementById("log");
+const retryBtn = document.getElementById("retryBtn");
+
+confirmCheck.addEventListener("change", () => (leaveBtn.disabled = !confirmCheck.checked));
+
+const BATCH_SIZE = 50;
+const MAX_RETRIES = 3;
+
+async function listAllOwnRecords(collection) {
+  const out = [];
+  let cursor;
+  do {
+    const u = new URL(`${pds}/xrpc/com.atproto.repo.listRecords`);
+    u.searchParams.set("repo", session.did);
+    u.searchParams.set("collection", collection);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const r = await fetch(u);
+    if (!r.ok) break;
+    const j = await r.json();
+    out.push(...(j.records || []));
+    cursor = j.cursor;
+  } while (cursor);
+  return out;
+}
+
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function log(line) {
+  const el = document.createElement("div");
+  el.className = "log-line";
+  el.textContent = line;
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function applyWritesBatch(writes) {
+  const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.applyWrites`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: session.did, writes }),
+  });
+  return res.ok;
+}
+
+let failedBatches = [];
+
+async function runDeletion() {
+  leaveBtn.disabled = true;
+  confirmCheck.disabled = true;
+  progressWrap.style.display = "";
+  fillEl.style.width = "0%";
+  logEl.innerHTML = "";
+  retryBtn.style.display = "none";
+  failedBatches = [];
+
+  log("listing your Void records…");
+  const perCollection = await Promise.all(OWNED_CONTENT_COLLECTIONS.map((c) => listAllOwnRecords(c)));
+  const writes = [];
+  OWNED_CONTENT_COLLECTIONS.forEach((collection, i) => {
+    for (const rec of perCollection[i]) {
+      writes.push({ $type: "com.atproto.repo.applyWrites#delete", collection, rkey: rec.uri.split("/").pop() });
+    }
+  });
+  log(`${writes.length} record${writes.length === 1 ? "" : "s"} to delete, in batches of ${BATCH_SIZE}.`);
+
+  const batches = chunk(writes, BATCH_SIZE);
+  let done = 0;
+  for (const batch of batches) {
+    let ok = false;
+    for (let attempt = 1; attempt <= MAX_RETRIES && !ok; attempt++) {
+      ok = await applyWritesBatch(batch);
+      if (!ok && attempt < MAX_RETRIES) log(`batch failed, retrying (${attempt}/${MAX_RETRIES})…`);
+    }
+    if (ok) {
+      done += batch.length;
+      log(`deleted ${done}/${writes.length}.`);
+    } else {
+      failedBatches.push(batch);
+      log(`batch of ${batch.length} failed after ${MAX_RETRIES} attempts — will offer a retry.`);
+    }
+    fillEl.style.width = `${Math.round((100 * (done + failedBatches.flat().length)) / Math.max(writes.length, 1))}%`;
+  }
+
+  if (failedBatches.length) {
+    log(`${failedBatches.reduce((n, b) => n + b.length, 0)} record(s) failed to delete. Retry, or leave as-is and re-run later.`);
+    retryBtn.style.display = "";
+    return;
+  }
+
+  log("deleting your participation record (last)…");
+  const partRes = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: session.did, collection: "net.bisks.void.participation", rkey: "self" }),
+  });
+  if (!partRes.ok && partRes.status !== 400) {
+    log("participation record delete failed — you can retry from here again later.");
+    retryBtn.textContent = "retry participation delete";
+    retryBtn.style.display = "";
+    retryBtn.onclick = runDeletion;
+    return;
+  }
+
+  log("purging local derived data for this DID…");
+  await store.purgeDid(session.did);
+  await clearSession();
+  fillEl.style.width = "100%";
+  log("done — you've left the Void. Redirecting home…");
+  setTimeout(() => (location.href = "/"), 1800);
+}
+
+leaveBtn.addEventListener("click", runDeletion);
+retryBtn.addEventListener("click", async () => {
+  retryBtn.style.display = "none";
+  log("retrying failed batches…");
+  let stillFailed = [];
+  for (const batch of failedBatches) {
+    let ok = false;
+    for (let attempt = 1; attempt <= MAX_RETRIES && !ok; attempt++) ok = await applyWritesBatch(batch);
+    if (!ok) stillFailed.push(batch);
+    else log(`retried batch of ${batch.length} — ok.`);
+  }
+  failedBatches = stillFailed;
+  if (failedBatches.length) {
+    log(`${failedBatches.reduce((n, b) => n + b.length, 0)} still failing — try again shortly.`);
+    retryBtn.style.display = "";
+  } else {
+    runDeletion(); // re-run to proceed past the now-clear batch stage (records are gone, so re-listing is cheap)
+  }
+});
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

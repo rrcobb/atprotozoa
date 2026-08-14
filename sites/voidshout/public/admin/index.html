@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>admin — Shout Into the Void</title>
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.6rem; margin: 0.6rem 0; }
+  .stat { text-align: center; padding: 0.7rem 0.4rem; }
+  .stat .n { font-size: 1.5rem; font-weight: 700; }
+  .stat .l { font-size: 0.72rem; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  th, td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--faint); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <h1>tiny admin view</h1>
+  <p class="muted">There's no server here, no privileged role, and nothing this page can do that any other browser
+    couldn't also compute — it's a read-only mirror of THIS browser's local ingest state (records validated,
+    rejections, hidden subtrees), not a global operator console. That's the honest shape of a frontend-first,
+    no-Durable-Object app: "admin" just means "look at what's been derived so far."</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">records ingested (this browser)</h3>
+    <div class="stat-grid" id="recordStats"><p class="muted">loading…</p></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">audit rejections by reason</h3>
+    <table id="reasonTbl"><tbody><tr><td class="muted">loading…</td></tr></tbody></table>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">hidden (pruned) subtrees</h3>
+    <p id="hiddenCount" class="muted">computing…</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">ingest cursor</h3>
+    <p id="cursorInfo" class="muted">—</p>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome } from "/lib/chrome.js";
+import { startIngest } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { esc } from "/lib/render.js";
+import { COLLECTIONS, ALL_COLLECTIONS, scoreFromVotes, isHidden } from "/lib/voidlogic.mjs";
+import { deriveState, allTrees, flattenTree } from "/lib/feed.js";
+
+await mountChrome({ active: "" });
+
+async function render() {
+  const [records, audit, cursorUs] = await Promise.all([store.allRecords(), store.allAudit(), store.getMeta("cursorUs")]);
+
+  const byCollection = new Map(ALL_COLLECTIONS.map((c) => [c, 0]));
+  const dids = new Set();
+  for (const r of records) {
+    byCollection.set(r.collection, (byCollection.get(r.collection) || 0) + 1);
+    dids.add(r.did);
+  }
+  document.getElementById("recordStats").innerHTML = [
+    ...[...byCollection.entries()].map(
+      ([c, n]) => `<div class="stat card"><div class="n">${n}</div><div class="l">${esc(c.replace("net.bisks.void.", ""))}</div></div>`,
+    ),
+    `<div class="stat card"><div class="n">${dids.size}</div><div class="l">distinct DIDs seen</div></div>`,
+    `<div class="stat card"><div class="n">${audit.length}</div><div class="l">total rejections</div></div>`,
+  ].join("");
+
+  const byReason = new Map();
+  for (const e of audit) byReason.set(e.reason, (byReason.get(e.reason) || 0) + 1);
+  const reasonRows = [...byReason.entries()].sort((a, b) => b[1] - a[1]);
+  document.getElementById("reasonTbl").innerHTML = reasonRows.length
+    ? `<tbody>${reasonRows.map(([reason, n]) => `<tr><td class="mono">${esc(reason)}</td><td>${n}</td></tr>`).join("")}</tbody>`
+    : `<tbody><tr><td class="muted">no rejections seen yet.</td></tr></tbody>`;
+
+  const state = deriveState(records);
+  const trees = allTrees(state);
+  let hiddenCount = 0;
+  for (const tree of trees) for (const node of flattenTree(tree)) if (node.hidden) hiddenCount++;
+  document.getElementById("hiddenCount").textContent =
+    `${hiddenCount} node${hiddenCount === 1 ? "" : "s"} currently at or below the -5 hide threshold (restorable — recomputed on every render, nothing is deleted).`;
+
+  document.getElementById("cursorInfo").textContent =
+    cursorUs != null
+      ? `Jetstream cursor at ${new Date(cursorUs / 1000).toLocaleString()} (${Math.round((Date.now() - cursorUs / 1000) / 1000)}s behind live).`
+      : "no cursor saved yet — this browser hasn't connected before.";
+}
+
+await render();
+let scheduled = false;
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  setTimeout(() => { scheduled = false; render(); }, 1500);
+}
+startIngest({ onRecord: schedule, onAudit: schedule, onDelete: schedule });
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

@@ -51,6 +51,7 @@ import { deriveState } from "/lib/feed.js";
 import { cardHtml, nodeToCard, CARD_STYLE } from "/lib/render.js";
 import { homeFor } from "/lib/voidlogic.mjs";
 import { loadDemoRoots } from "/lib/demo.js";
+import { fetchCanonicalPosts } from "/lib/bskypost.js";
 
 document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
 await mountChrome({ active: "/" });
@@ -81,11 +82,13 @@ async function renderLive() {
     return;
   }
   const top = state.roots.slice(0, 40);
+  const canonMap = await fetchCanonicalPosts(top.map((r) => r.value.sourcePostUri).filter(Boolean));
   const cards = await Promise.all(
     top.map(async (r) => {
       const home = await homeNameFor(r.did);
       const score = state.scoreByUri.get(r.uri) || 0;
-      return cardHtml(nodeToCard({ uri: r.uri, rec: r, score, hidden: false }, r.uri, home));
+      const canonicalPost = r.value.sourcePostUri ? canonMap.get(r.value.sourcePostUri) : null;
+      return cardHtml(nodeToCard({ uri: r.uri, rec: r, score, hidden: false, canonicalPost }, r.uri, home));
     }),
   );
   feedEl.innerHTML = cards.join("");

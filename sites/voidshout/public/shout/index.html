@@ -32,11 +32,12 @@ import { mountChrome, demoModeOn } from "/lib/chrome.js";
 import { getSession, dpopFetch, resolveDidDoc, pdsFromDoc } from "/lib/oauth.js";
 import { startIngest, ingestOne } from "/lib/ingest.js";
 import * as store from "/lib/store.js";
-import { deriveState, buildTree } from "/lib/feed.js";
-import { esc, timeAgo, CARD_STYLE } from "/lib/render.js";
+import { deriveState, buildTree, flattenTree } from "/lib/feed.js";
+import { esc, timeAgo, canonPostHtml, CARD_STYLE } from "/lib/render.js";
 import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { loadDemoRoots } from "/lib/demo.js";
+import { fetchCanonicalPosts } from "/lib/bskypost.js";
 
 document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
 const session = await mountChrome({ active: "" });
@@ -179,6 +180,8 @@ function placePickerHtml(idPrefix) {
   return `<select class="carry-place" data-for="${idPrefix}">${PLACES.map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`).join("")}</select>`;
 }
 
+let canonMap = new Map();
+
 async function nodeHtml(node, isRoot) {
   const home = await homeNameFor(node.rec.did);
   const kind = node.rec.collection.endsWith("shout") ? "shouted" : node.rec.collection.endsWith("echo") ? "echoed" : "murmured";
@@ -188,6 +191,12 @@ async function nodeHtml(node, isRoot) {
     ? ""
     : (await Promise.all(node.children.map((c) => nodeHtml(c, false)))).join("");
   const hiddenBadge = node.hidden ? `<span class="badge hidden">hidden · score ≤ -5</span>` : "";
+  const sourcePostUri = node.rec.value.sourcePostUri;
+  const canon = sourcePostUri
+    ? canonMap.has(sourcePostUri) && canonMap.get(sourcePostUri)
+      ? canonPostHtml(canonMap.get(sourcePostUri))
+      : `<p class="muted mono" style="font-size:0.72rem">🔗 imported from a bsky post (unresolved)</p>`
+    : "";
   return `
     <div class="node-wrap">
       <div class="void-card" data-uri="${esc(node.uri)}">
@@ -197,6 +206,7 @@ async function nodeHtml(node, isRoot) {
           ${hiddenBadge}
         </div>
         ${node.rec.value.text ? `<p class="body">${esc(node.rec.value.text)}</p>` : ""}
+        ${canon}
         <div class="void-card-bottom">
           <span class="score mono ${node.score > 0 ? "up" : node.score < 0 ? "down" : ""}">${node.score > 0 ? "+" : ""}${node.score}</span>
           <span class="when muted mono">${esc(timeAgo(node.rec.value.createdAt))}</span>
@@ -226,6 +236,8 @@ async function rerender() {
     rootEl.innerHTML = `<p class="muted">still loading this thread from the network… (${esc(rootUri)})</p>`;
     return;
   }
+  const sourceUris = flattenTree(tree).map((n) => n.rec.value.sourcePostUri).filter(Boolean);
+  if (sourceUris.length) canonMap = await fetchCanonicalPosts(sourceUris);
   rootEl.innerHTML = `<div class="tree">${await nodeHtml(tree, true)}</div>`;
   wireActions();
 }

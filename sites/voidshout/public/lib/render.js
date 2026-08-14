@@ -34,7 +34,34 @@ export function nodeToCard(node, rootUri, homeName) {
     score: node.score,
     hidden: node.hidden,
     isDemo: !!node.isDemo,
+    sourcePostUri: node.rec.value.sourcePostUri || null,
+    canonicalPost: node.canonicalPost || null,
   };
+}
+
+/** Renders a hydrated app.bsky.feed.post (see lib/bskypost.js) inline under a
+ *  Shout that carries sourcePostUri — the CAR-import provenance link. `post`
+ *  is the raw getPosts() result; `null` means "carries sourcePostUri but the
+ *  canonical post wasn't resolved (deleted upstream, or not yet fetched)". */
+export function canonPostHtml(post) {
+  if (!post) return "";
+  const author = post.author || {};
+  const record = post.record || {};
+  const images = post.embed?.images || post.embed?.media?.images || [];
+  const imgsHtml = images
+    .slice(0, 4)
+    .map((im) => `<img src="${esc(im.thumb)}" alt="${esc(im.alt || "")}" loading="lazy" />`)
+    .join("");
+  return `
+    <a class="canon-post" href="https://bsky.app/profile/${esc(author.did || author.handle || "")}/post/${esc((post.uri || "").split("/").pop())}" target="_blank" rel="noopener">
+      <div class="canon-post-head">
+        ${author.avatar ? `<img class="canon-avatar" src="${esc(author.avatar)}" alt="" />` : ""}
+        <span class="canon-handle mono">@${esc(author.handle || "unknown")}</span>
+        <span class="badge">imported from bsky</span>
+      </div>
+      ${record.text ? `<p class="canon-text">${esc(record.text)}</p>` : ""}
+      ${imgsHtml ? `<div class="canon-imgs">${imgsHtml}</div>` : ""}
+    </a>`;
 }
 
 /**
@@ -52,6 +79,11 @@ export function cardHtml(n) {
   const hiddenTag = n.hidden ? `<span class="badge hidden">hidden · score ≤ -5</span>` : "";
   const demoTag = n.isDemo ? `<span class="badge demo">demo</span>` : "";
   const scoreClass = n.score > 0 ? "up" : n.score < 0 ? "down" : "";
+  const canon = n.sourcePostUri
+    ? n.canonicalPost
+      ? canonPostHtml(n.canonicalPost)
+      : `<p class="muted mono" style="font-size:0.72rem">🔗 imported from a bsky post (unresolved)</p>`
+    : "";
   return `
     <article class="void-card" data-uri="${esc(n.uri)}">
       <div class="void-card-top">
@@ -60,6 +92,7 @@ export function cardHtml(n) {
         ${hiddenTag}${demoTag}
       </div>
       ${body}
+      ${canon}
       <div class="void-card-bottom">
         <a class="perma mono" href="/shout/?uri=${encodeURIComponent(n.rootUri || n.uri)}${n.uri !== (n.rootUri || n.uri) ? "&node=" + encodeURIComponent(n.uri) : ""}">view thread →</a>
         <span class="score mono ${scoreClass}">${n.score > 0 ? "+" : ""}${n.score}</span>
@@ -77,4 +110,12 @@ export const CARD_STYLE = `
   .void-card-bottom .score { padding: 0.1rem 0.4rem; border-radius: 6px; border: 1px solid var(--faint); }
   .void-card-bottom .score.up { color: var(--good); border-color: var(--good); }
   .void-card-bottom .score.down { color: var(--bad); border-color: var(--bad); }
+  .canon-post { display: block; text-decoration: none; color: inherit; background: var(--void-bg2); border: 1px solid var(--faint); border-radius: 8px; padding: 0.55rem 0.65rem; margin: 0.3rem 0 0.6rem; }
+  .canon-post:hover { border-color: var(--accent2); }
+  .canon-post-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; margin-bottom: 0.3rem; }
+  .canon-avatar { width: 18px; height: 18px; border-radius: 50%; }
+  .canon-handle { color: var(--muted); }
+  .canon-text { margin: 0 0 0.4rem; font-size: 0.86rem; line-height: 1.45; }
+  .canon-imgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 0.3rem; }
+  .canon-imgs img { width: 100%; border-radius: 6px; display: block; }
 `;

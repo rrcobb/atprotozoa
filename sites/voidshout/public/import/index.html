@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CAR import — Shout Into the Void</title>
+<meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .cand-list { margin-top: 0.8rem; }
+  .cand { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.6rem 0.7rem; }
+  .cand input[type="checkbox"] { margin-top: 0.25rem; flex: 0 0 auto; }
+  .cand .txt { flex: 1 1 auto; font-size: 0.88rem; line-height: 1.45; }
+  .cand .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .cand.over .txt { color: var(--bad); }
+  .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin: 0.6rem 0; }
+  .toolbar select { min-width: 10rem; }
+  .progress-log { font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; white-space: pre-line; }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap wide">
+  <h1>CAR import</h1>
+  <p class="muted">Pulls your own repo's CAR straight off your PDS (<code class="mono">com.atproto.sync.getRepo</code>),
+    walks the real Merkle Search Tree to find your <code class="mono">app.bsky.feed.post</code> records, and lets you
+    turn any of them into a real Shout — with <code class="mono">sourcePostUri</code> kept as provenance so it renders
+    as the hydrated original post everywhere it shows up. Nothing here reads someone else's repo.</p>
+
+  <div class="card" id="statusCard">
+    <p id="statusText" class="muted">sign in to import.</p>
+  </div>
+
+  <div id="pickerCard" class="card" style="display:none">
+    <div class="toolbar">
+      <button class="btn" id="selectAll">select all</button>
+      <button class="btn" id="selectNone">select none</button>
+      <label class="muted" style="font-size:0.82rem">place for imports</label>
+      <select id="placeSel"></select>
+      <span class="spacer" style="flex:1 1 auto"></span>
+      <label class="muted" style="font-size:0.8rem"><input type="checkbox" id="includeReplies" /> include replies</label>
+    </div>
+    <div class="cand-list" id="candList"></div>
+    <button class="btn primary" id="importBtn" disabled style="margin-top:0.6rem">import selected →</button>
+    <div class="progress-log" id="log"></div>
+  </div>
+</div>
+
+<script type="module">
+import { mountChrome, requireSession } from "/lib/chrome.js";
+import { dpopFetch } from "/lib/oauth.js";
+import { fetchRepoRecordsWithKeys } from "/lib/car.js";
+import { carFilterCandidates, rkeyForShout, SHOUT_MAX_GRAPHEMES, graphemeLength, truncateGraphemes } from "/lib/voidlogic.mjs";
+import { PLACES, searchPlaces } from "/lib/places.js";
+
+await mountChrome({ active: "/import/" });
+const session = await requireSession();
+if (!session) throw new Error("redirecting to onboarding");
+
+const statusText = document.getElementById("statusText");
+const pickerCard = document.getElementById("pickerCard");
+const candList = document.getElementById("candList");
+const placeSel = document.getElementById("placeSel");
+const importBtn = document.getElementById("importBtn");
+const includeReplies = document.getElementById("includeReplies");
+const logEl = document.getElementById("log");
+
+placeSel.innerHTML = PLACES.map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`).join("");
+
+const pds = session.pdsUrl.replace(/\/$/, "");
+
+async function listAllOwnRecords(collection) {
+  const out = [];
+  let cursor;
+  do {
+    const u = new URL(`${pds}/xrpc/com.atproto.repo.listRecords`);
+    u.searchParams.set("repo", session.did);
+    u.searchParams.set("collection", collection);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const r = await fetch(u);
+    if (!r.ok) break;
+    const j = await r.json();
+    out.push(...(j.records || []));
+    cursor = j.cursor;
+  } while (cursor);
+  return out;
+}
+
+let candidates = [];
+
+async function loadCandidates() {
+  statusText.textContent = "fetching your repo CAR…";
+  let posts;
+  try {
+    const recs = await fetchRepoRecordsWithKeys(pds, session.did, "app.bsky.feed.post", (msg) => {
+      statusText.textContent = msg;
+    });
+    posts = recs.map((r) => ({ uri: r.uri, text: r.value.text, reply: r.value.reply, embed: r.value.embed, createdAt: r.value.createdAt }));
+  } catch (e) {
+    statusText.textContent = `CAR parse failed (${e.message}) — falling back to listRecords…`;
+    const recs = await listAllOwnRecords("app.bsky.feed.post");
+    posts = recs.map((r) => ({ uri: r.uri, text: r.value.text, reply: r.value.reply, embed: r.value.embed, createdAt: r.value.createdAt }));
+  }
+
+  statusText.textContent = "checking which posts are already imported…";
+  const ownShouts = await listAllOwnRecords("net.bisks.void.shout");
+  const alreadyImported = new Set(ownShouts.map((r) => r.value.sourcePostUri).filter(Boolean));
+
+  candidates = carFilterCandidates(posts, alreadyImported, { excludeReplies: !includeReplies.checked })
+    .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+
+  if (!candidates.length) {
+    statusText.textContent = posts.length
+      ? "no importable posts — everything's already imported, a reply, or too short."
+      : "no app.bsky.feed.post records found in your repo.";
+    pickerCard.style.display = "none";
+    return;
+  }
+  statusText.textContent = `${candidates.length} importable post${candidates.length === 1 ? "" : "s"} found.`;
+  pickerCard.style.display = "";
+  renderCandidates();
+}
+
+function renderCandidates() {
+  candList.innerHTML = candidates
+    .map((p, i) => {
+      const len = graphemeLength(p.text);
+      const over = len > SHOUT_MAX_GRAPHEMES;
+      return `
+        <label class="card cand${over ? " over" : ""}">
+          <input type="checkbox" class="cand-check" data-i="${i}" ${over ? "" : "checked"} />
+          <div>
+            <div class="txt">${escHtml(p.text)}</div>
+            <div class="meta">${p.reply ? "reply · " : ""}${len}/${SHOUT_MAX_GRAPHEMES} graphemes${over ? " — will be truncated" : ""}</div>
+          </div>
+        </label>`;
+    })
+    .join("");
+  refreshImportEnabled();
+  candList.querySelectorAll(".cand-check").forEach((cb) => cb.addEventListener("change", refreshImportEnabled));
+}
+
+function escHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function refreshImportEnabled() {
+  const any = [...candList.querySelectorAll(".cand-check")].some((cb) => cb.checked);
+  importBtn.disabled = !any;
+}
+
+document.getElementById("selectAll").addEventListener("click", () => {
+  candList.querySelectorAll(".cand-check").forEach((cb) => (cb.checked = true));
+  refreshImportEnabled();
+});
+document.getElementById("selectNone").addEventListener("click", () => {
+  candList.querySelectorAll(".cand-check").forEach((cb) => (cb.checked = false));
+  refreshImportEnabled();
+});
+includeReplies.addEventListener("change", loadCandidates);
+
+importBtn.addEventListener("click", async () => {
+  const place = PLACES.find((p) => p.id === placeSel.value);
+  const chosen = [...candList.querySelectorAll(".cand-check")]
+    .filter((cb) => cb.checked)
+    .map((cb) => candidates[Number(cb.dataset.i)]);
+  importBtn.disabled = true;
+  let ok = 0, failed = 0;
+  for (const p of chosen) {
+    logEl.textContent = `importing ${ok + failed + 1}/${chosen.length}…`;
+    try {
+      const text = truncateGraphemes(p.text, SHOUT_MAX_GRAPHEMES);
+      const now = Date.now();
+      const rkey = await rkeyForShout(session.did, text, place.id, now);
+      const record = {
+        $type: "net.bisks.void.shout",
+        text,
+        place,
+        sourcePostUri: p.uri,
+        createdAt: new Date(now).toISOString(),
+      };
+      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: session.did, collection: "net.bisks.void.shout", rkey, record }),
+      });
+      if (res.ok || (await res.clone().text().catch(() => "")).match(/already exists/i)) ok++;
+      else failed++;
+    } catch {
+      failed++;
+    }
+  }
+  logEl.textContent = `done — ${ok} imported${failed ? `, ${failed} failed (retry by re-selecting and importing again)` : ""}.`;
+  importBtn.disabled = false;
+  await loadCandidates();
+});
+
+await loadCandidates();
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

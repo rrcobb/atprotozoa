@@ -38,6 +38,7 @@ import { PLACES, searchPlaces, placeById } from "/lib/places.js";
 import { esc, cardHtml, nodeToCard, CARD_STYLE } from "/lib/render.js";
 import { homeFor } from "/lib/voidlogic.mjs";
 import { loadDemoRoots } from "/lib/demo.js";
+import { fetchCanonicalPosts } from "/lib/bskypost.js";
 
 document.head.insertAdjacentHTML("beforeend", `<style>${CARD_STYLE}</style>`);
 await mountChrome({ active: "/place/" });
@@ -84,11 +85,13 @@ if (!placeId) {
       feedEl.innerHTML = `<p class="muted">nothing here yet. <a href="/compose/">shout the first thing</a>.</p>`;
       return;
     }
+    const canonMap = await fetchCanonicalPosts(nodes.map((n) => n.rec.value.sourcePostUri).filter(Boolean));
     const cards = await Promise.all(
       nodes.map(async (n) => {
         const home = n.homeName || (await homeNameFor(n.rec.did));
         const rootUri = n.rec.value.rootUri || n.uri;
-        return cardHtml(nodeToCard(n, rootUri, home));
+        const canonicalPost = n.rec.value.sourcePostUri ? canonMap.get(n.rec.value.sourcePostUri) : null;
+        return cardHtml(nodeToCard({ ...n, canonicalPost }, rootUri, home));
       }),
     );
     feedEl.innerHTML = cards.join("");

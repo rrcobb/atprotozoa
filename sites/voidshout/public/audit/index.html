@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>audit — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--faint); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.uri { font-family: var(--mono); font-size: 0.74rem; word-break: break-all; }
+  .reason-key { font-family: var(--mono); font-size: 0.76rem; }
+  .legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.4rem; margin: 0.6rem 0 0.9rem; font-size: 0.78rem; }
+  .legend .k { color: var(--accent2); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap wide">
+  <h1>audit</h1>
+  <p class="muted">Anyone may publish <code class="mono">net.bisks.void.*</code> records outside this reference client.
+    Invalid ones stay public on their author's own PDS (nothing here can delete another repo's record) but are
+    excluded from feeds, scores, and the map. This is a live log of everything <em>this browser</em> has rejected
+    while watching the firehose, and why — rebuilt from scratch every time you reconnect.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">reason codes</h3>
+    <div class="legend">
+      <div><span class="k">invalid-schema</span> — didn't match the lexicon shape</div>
+      <div><span class="k">invalid-place</span> — place object failed validation</div>
+      <div><span class="k">duplicate-root</span> — same author, same text, within 5 minutes</div>
+      <div><span class="k">echo-cooldown</span> — same author carried this root &lt;60s ago</div>
+      <div><span class="k">self-vote</span> — voted on your own shout/echo/murmur</div>
+      <div><span class="k">orphan-parent</span> — parent/subject never arrived after 20 retries</div>
+    </div>
+  </div>
+
+  <div class="feed-status muted" id="statusText" style="font-size:0.8rem; margin-bottom:0.6rem;">connecting…</div>
+  <div class="card" style="overflow-x:auto">
+    <table id="tbl">
+      <thead><tr><th>when</th><th>reason</th><th>collection</th><th>author (Home)</th><th>uri</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="5" class="muted">no rejections seen yet.</td></tr></tbody>
+    </table>
+  </div>
+  <p class="muted" style="font-size:0.78rem">Looking for aggregate counts instead of a raw log? <a href="/admin/">tiny admin view →</a></p>
+</div>
+
+<script type="module">
+import { mountChrome } from "/lib/chrome.js";
+import { startIngest } from "/lib/ingest.js";
+import * as store from "/lib/store.js";
+import { esc, timeAgo } from "/lib/render.js";
+import { homeFor } from "/lib/voidlogic.mjs";
+
+await mountChrome({ active: "/audit/" });
+
+const rowsEl = document.getElementById("rows");
+const statusText = document.getElementById("statusText");
+const homeCache = new Map();
+async function homeNameFor(did) {
+  if (!homeCache.has(did)) homeCache.set(did, (await homeFor(did)).name);
+  return homeCache.get(did);
+}
+
+async function render() {
+  const entries = await store.allAudit();
+  if (!entries.length) {
+    rowsEl.innerHTML = `<tr><td colspan="5" class="muted">no rejections seen yet — either the Void's clean, or this browser hasn't watched long enough.</td></tr>`;
+    return;
+  }
+  const rows = await Promise.all(
+    entries.slice(0, 300).map(async (e) => {
+      const home = await homeNameFor(e.did);
+      return `
+        <tr>
+          <td class="mono">${esc(timeAgo(new Date(e.atMs).toISOString()))}</td>
+          <td><span class="badge reason">${esc(e.reason)}</span></td>
+          <td class="mono">${esc(e.collection.replace("net.bisks.void.", ""))}</td>
+          <td class="mono">${esc(home)}</td>
+          <td class="uri">${esc(e.uri)}</td>
+        </tr>`;
+    }),
+  );
+  rowsEl.innerHTML = rows.join("");
+}
+
+await render();
+
+let scheduled = false;
+function schedule() {
+  if (scheduled) return;
+  scheduled = true;
+  setTimeout(() => { scheduled = false; render(); }, 1000);
+}
+startIngest({
+  onStatus: (s) => (statusText.textContent = s === "live" ? "live — watching net.bisks.void.* across the network" : s + "…"),
+  onAudit: schedule,
+  onRecord: () => {},
+});
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>

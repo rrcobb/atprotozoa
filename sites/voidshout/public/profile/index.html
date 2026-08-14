@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>profile — Shout Into the Void</title>
+<link rel="stylesheet" href="/lib/chrome.css" />
+<style>
+  .p-head { display: flex; align-items: center; gap: 0.8rem; }
+  .p-head img { width: 56px; height: 56px; border-radius: 50%; }
+  .p-head h1 { margin: 0; font-size: 1.3rem; }
+  .did-line { font-size: 0.76rem; color: var(--muted); word-break: break-all; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.6rem; margin: 0.8rem 0; }
+  .stat { text-align: center; padding: 0.7rem 0.4rem; }
+  .stat .n { font-size: 1.4rem; font-weight: 700; }
+  .stat .l { font-size: 0.72rem; color: var(--muted); }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+  .chip { font-size: 0.8rem; padding: 0.25rem 0.55rem; border: 1px solid var(--faint); border-radius: 999px; background: var(--panel-solid); }
+</style>
+</head>
+<body>
+<header id="chrome-header"></header>
+<div id="demo-banner"></div>
+<div class="wrap">
+  <div id="root"><p class="muted">loading…</p></div>
+</div>
+
+<script type="module">
+import { mountChrome } from "/lib/chrome.js";
+import { resolveHandle, resolveDidDoc, pdsFromDoc, resolveHandleForDid } from "/lib/oauth.js";
+import { homeFor, prefixFor, COLLECTIONS, OWNED_CONTENT_COLLECTIONS } from "/lib/voidlogic.mjs";
+import { esc } from "/lib/render.js";
+import * as store from "/lib/store.js";
+import { startIngest } from "/lib/ingest.js";
+import { placesInTree } from "/lib/feed.js";
+
+const session = await mountChrome({ active: "/profile/" });
+const rootEl = document.getElementById("root");
+const params = new URLSearchParams(location.search);
+const did = params.get("did") || session?.did;
+
+if (!did) {
+  rootEl.innerHTML = `<p class="muted">sign in to see your own profile, or view someone else's with <code class="mono">?did=</code>. <a href="/onboarding/">sign in →</a></p>`;
+  throw new Error("no did");
+}
+
+const isSelf = session && did === session.did;
+
+async function listAllOwnRecords(pds, repoDid, collection) {
+  const out = [];
+  let cursor;
+  do {
+    const u = new URL(`${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords`);
+    u.searchParams.set("repo", repoDid);
+    u.searchParams.set("collection", collection);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const r = await fetch(u);
+    if (!r.ok) break;
+    const j = await r.json();
+    out.push(...(j.records || []));
+    cursor = j.cursor;
+  } while (cursor);
+  return out;
+}
+
+async function getProfile(actor) {
+  try {
+    const r = await fetch(`https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(actor)}`);
+    if (r.ok) return await r.json();
+  } catch {}
+  return null;
+}
+
+async function main() {
+  const [doc, home, prefix, profile] = await Promise.all([
+    resolveDidDoc(did),
+    homeFor(did),
+    prefixFor(did),
+    getProfile(did),
+  ]);
+  const pds = pdsFromDoc(doc);
+  const handle = profile?.handle || (await resolveHandleForDid(did));
+
+  let ownRecordsByCollection = {};
+  let participation = null;
+  if (pds) {
+    const lists = await Promise.all(
+      OWNED_CONTENT_COLLECTIONS.map((c) => listAllOwnRecords(pds, did, c)),
+    );
+    OWNED_CONTENT_COLLECTIONS.forEach((c, i) => (ownRecordsByCollection[c] = lists[i]));
+    try {
+      const u = `${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=net.bisks.void.participation&rkey=self`;
+      const r = await fetch(u);
+      if (r.ok) participation = (await r.json())?.value || null;
+    } catch {}
+  }
+
+  const shouts = ownRecordsByCollection[COLLECTIONS.shout] || [];
+  const echoes = ownRecordsByCollection[COLLECTIONS.echo] || [];
+  const murmurs = ownRecordsByCollection[COLLECTIONS.murmur] || [];
+  const votes = ownRecordsByCollection[COLLECTIONS.vote] || [];
+
+  const voidsDiscovered = new Map();
+  for (const r of [...shouts, ...echoes, ...murmurs]) {
+    const p = r.value.place;
+    if (p) voidsDiscovered.set(p.id, p);
+  }
+
+  const ownUriSet = new Set([...shouts, ...echoes, ...murmurs].map((r) => r.uri));
+
+  async function scoreAndGeography() {
+    const all = await store.allRecords();
+    const localVotes = all.filter((r) => r.collection === COLLECTIONS.vote);
+    let totalScore = 0;
+    for (const v of localVotes) {
+      if (ownUriSet.has(v.value.subjectUri)) totalScore += v.value.value === 1 ? 1 : v.value.value === -1 ? -1 : 0;
+    }
+    const votedPlaces = new Map(); // place id -> {place, count}
+    for (const v of votes.slice(0, 60)) {
+      const subj = await store.getRecord(v.value.subjectUri);
+      const p = subj?.value?.place;
+      if (!p) continue;
+      const entry = votedPlaces.get(p.id) || { place: p, count: 0 };
+      entry.count++;
+      votedPlaces.set(p.id, entry);
+    }
+    return { totalScore, votedPlaces };
+  }
+
+  const { totalScore, votedPlaces } = await scoreAndGeography();
+
+  rootEl.innerHTML = `
+    <div class="card p-head">
+      ${profile?.avatar ? `<img src="${esc(profile.avatar)}" alt="" />` : `<div style="font-size:2.4rem">${esc(home.emoji)}</div>`}
+      <div>
+        <h1>${esc(profile?.displayName || handle)}</h1>
+        <div class="muted mono">@${esc(handle)}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="did-line">${esc(did)}</div>
+      <div class="hr"></div>
+      <p><b>${esc(home.name)}</b> · prefix <span class="mono">${esc(prefix)}</span></p>
+      <p class="muted" style="font-size:0.85rem">${esc(home.explanation)}</p>
+      <p class="muted" style="font-size:0.85rem">default Place: ${
+        participation?.defaultPlace ? `${esc(participation.defaultPlace.emoji)} ${esc(participation.defaultPlace.name)}` : "not set yet"
+      }</p>
+    </div>
+    <div class="card" id="scoreCard"></div>
+    <div class="card">
+      <h3 style="margin-top:0">Voids discovered</h3>
+      ${voidsDiscovered.size
+        ? `<div class="chip-row">${[...voidsDiscovered.values()].map((p) => `<span class="chip">${esc(p.emoji)} ${esc(p.name)}</span>`).join("")}</div>`
+        : `<p class="muted">nothing shouted, echoed, or murmured yet.</p>`}
+    </div>
+    <div class="card" id="voteGeoCard"></div>
+    ${isSelf ? `<a class="btn primary" href="/settings/">settings →</a>` : ""}
+  `;
+
+  function paintScores({ totalScore, votedPlaces }) {
+    document.getElementById("scoreCard").innerHTML = `
+      <h3 style="margin-top:0">activity</h3>
+      <div class="stat-grid">
+        <div class="stat card"><div class="n">${shouts.length}</div><div class="l">shouts</div></div>
+        <div class="stat card"><div class="n">${echoes.length}</div><div class="l">echoes</div></div>
+        <div class="stat card"><div class="n">${murmurs.length}</div><div class="l">murmurs</div></div>
+        <div class="stat card"><div class="n">${votes.length}</div><div class="l">votes cast</div></div>
+        <div class="stat card"><div class="n">${totalScore > 0 ? "+" : ""}${totalScore}</div><div class="l">score (locally seen)</div></div>
+      </div>
+      <p class="muted" style="font-size:0.72rem">Score reflects votes this browser has ingested off the live network so far — not a global tally (there is no server keeping one; see <a href="/audit/">audit</a>).</p>`;
+    document.getElementById("voteGeoCard").innerHTML = `
+      <h3 style="margin-top:0">public vote geography</h3>
+      ${votedPlaces.size
+        ? `<div class="chip-row">${[...votedPlaces.values()].map((e) => `<span class="chip">${esc(e.place.emoji)} ${esc(e.place.name)} ×${e.count}</span>`).join("")}</div>`
+        : `<p class="muted">no votes resolved locally yet (only counts subjects this browser has already seen).</p>`}`;
+  }
+  paintScores({ totalScore, votedPlaces });
+
+  if (!isSelf) return;
+  let scheduled = false;
+  startIngest({
+    onRecord: () => {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(async () => {
+        scheduled = false;
+        paintScores(await scoreAndGeography());
+      }, 1500);
+    },
+  });
+}
+
+await main();
+</script>
+<script src="/lib/chicken-mode.js"></script>
+</body>
+</html>
