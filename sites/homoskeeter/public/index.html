@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>homoskeeter — post-quantum post-agi telepathic messaging over atproto</title>
+    <meta
+      name="description"
+      content="homoskeeter: a post-quantum, post-agi reimplementation in Gleam that lets you send messages telepathically over atproto. shipped 3 weeks ago. you open the repo and it's just a post."
+    />
+    <meta property="og:title" content="homoskeeter" />
+    <meta
+      property="og:description"
+      content="post-quantum. post-agi. written in Gleam. telepathic messaging over atproto. open the repo and it's just a post."
+    />
+    <meta property="og:image" content="https://homoskeeter.bisks.net/og.png" />
+    <meta property="og:url" content="https://homoskeeter.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=JetBrains+Mono:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --void: #0a0714;
+        --panel: #150f28;
+        --panel2: #1b1436;
+        --cyan: #4dfcff;
+        --magenta: #ff4de3;
+        --violet: #9b6bff;
+        --text: #eae6ff;
+        --muted: #948dbf;
+        --ok: #6ee7a0;
+        --err: #ff8a80;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --display: "Orbitron", var(--mono);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--void);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image:
+          radial-gradient(circle at 10% -5%, rgba(77, 252, 255, 0.14), transparent 42%),
+          radial-gradient(circle at 92% 5%, rgba(255, 77, 227, 0.12), transparent 42%),
+          radial-gradient(circle at 50% 100%, rgba(155, 107, 255, 0.1), transparent 55%);
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem 5rem; }
+
+      /* --- header --- */
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        justify-content: center;
+        margin-bottom: 1rem;
+      }
+      .badge {
+        border: 1px solid var(--cyan);
+        color: var(--cyan);
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        font-size: 0.65rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .badge.mg { border-color: var(--magenta); color: var(--magenta); }
+      .badge.vi { border-color: var(--violet); color: var(--violet); }
+
+      header.hero {
+        text-align: center;
+        padding: 0.5rem 0.5rem 1.5rem;
+        border-bottom: 1px dashed #332a5c;
+      }
+      h1.title {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: clamp(1.9rem, 9vw, 3rem);
+        margin: 0 0 0.5rem;
+        letter-spacing: 0.02em;
+        background: linear-gradient(90deg, var(--cyan), var(--violet) 55%, var(--magenta));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 0 28px rgba(155, 107, 255, 0.35);
+      }
+      .tagline { max-width: 46ch; margin: 0 auto; color: var(--text); font-size: 0.92rem; }
+      .subtagline { max-width: 46ch; margin: 0.5rem auto 0; color: var(--muted); font-size: 0.78rem; }
+
+      section { margin-top: 1.7rem; }
+      h2.st {
+        font-family: var(--display);
+        font-size: 0.9rem;
+        color: var(--cyan);
+        letter-spacing: 0.05em;
+        margin: 0 0 0.7rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      h2.st::before, h2.st::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: repeating-linear-gradient(90deg, var(--cyan) 0 6px, transparent 6px 12px);
+        opacity: 0.4;
+      }
+
+      /* --- stats --- */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.6rem;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid #332a5c;
+        border-radius: 10px;
+        padding: 0.8rem 0.7rem;
+        text-align: center;
+      }
+      .stat .num {
+        font-family: var(--display);
+        font-weight: 800;
+        font-size: 1.3rem;
+        color: var(--magenta);
+        display: block;
+      }
+      .stat .lbl {
+        font-size: 0.68rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 0.2rem;
+        display: block;
+      }
+
+      /* --- stack / gleam snippet --- */
+      .stack {
+        background: var(--panel);
+        border: 1px solid #332a5c;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      .stack p { margin: 0 0 0.7rem; font-size: 0.82rem; color: var(--muted); }
+      pre.code {
+        margin: 0;
+        background: #0c0820;
+        border: 1px solid #291f4d;
+        border-radius: 8px;
+        padding: 0.85rem 0.9rem;
+        overflow-x: auto;
+        font-size: 0.78rem;
+        color: #c9c2f0;
+      }
+      pre.code .kw { color: var(--cyan); }
+      pre.code .fn { color: var(--magenta); }
+      pre.code .cm { color: var(--muted); }
+
+      /* --- compose --- */
+      .compose {
+        background: var(--panel);
+        border: 1px solid #332a5c;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      label.field {
+        display: block;
+        font-size: 0.72rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 0.35rem;
+      }
+      textarea, input[type="text"] {
+        width: 100%;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        padding: 0.6rem 0.7rem;
+        border: 2px solid #332a5c;
+        background: #0c0820;
+        color: var(--text);
+        border-radius: 8px;
+      }
+      textarea { resize: vertical; min-height: 4.6em; }
+      textarea::placeholder, input::placeholder { color: #5c548c; }
+      .counter { text-align: right; font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
+      .counter.over { color: var(--err); }
+
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.8rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+      .toggle-row input { accent-color: var(--magenta); width: 1rem; height: 1rem; }
+      .toggle-row .status { color: var(--cyan); }
+      .toggle-row.off .status { color: var(--muted); }
+
+      .row { display: flex; gap: 0.55rem; flex-wrap: wrap; align-items: center; margin-top: 0.7rem; }
+      button {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        font-weight: 700;
+        padding: 0.6rem 1rem;
+        border: 2px solid var(--cyan);
+        background: transparent;
+        color: var(--cyan);
+        border-radius: 8px;
+        cursor: pointer;
+        letter-spacing: 0.01em;
+      }
+      button:hover { background: rgba(77, 252, 255, 0.1); }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.primary { background: var(--magenta); border-color: var(--magenta); color: #170a1e; }
+      button.primary:hover { background: #ff6fea; }
+      button.ghost { border-color: #4a4380; color: var(--text); }
+
+      .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.6rem; min-height: 1.2em; }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--ok); }
+      .status.ok a { color: var(--cyan); }
+
+      /* --- neural link (auth) --- */
+      .window {
+        background: var(--panel);
+        border: 1px solid #332a5c;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      .who { font-size: 0.85rem; margin-bottom: 0.6rem; }
+      .who .h { color: var(--cyan); }
+      .who a { color: var(--cyan); cursor: pointer; }
+      .signin { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .signin input { flex: 1; min-width: 12ch; }
+      .gate-note {
+        font-size: 0.74rem;
+        color: var(--muted);
+        margin-top: 0.7rem;
+        border-top: 1px dashed #332a5c;
+        padding-top: 0.6rem;
+      }
+
+      /* --- transmission log --- */
+      .log {
+        display: none;
+        background: var(--panel2);
+        border: 1px solid var(--violet);
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        font-size: 0.82rem;
+      }
+      .log h3 {
+        font-family: var(--display);
+        font-size: 0.9rem;
+        margin: 0 0 0.5rem;
+        color: var(--violet);
+        text-align: center;
+      }
+      .log .divider { border-top: 1px dashed #332a5c; margin: 0.5rem 0; }
+      .log .tx-id { text-align: center; font-size: 1.05rem; font-weight: 800; letter-spacing: 0.04em; color: var(--cyan); }
+      .log .line { white-space: pre-wrap; word-break: break-word; margin: 0.4rem 0; }
+      .log a { color: var(--magenta); }
+      .log .foot { text-align: center; font-size: 0.7rem; color: var(--muted); margin-top: 0.5rem; }
+
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.76rem; text-align: center; }
+      footer a { color: var(--cyan); }
+      .share-row { text-align: center; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hero">
+        <div class="badges">
+          <span class="badge">post-quantum</span>
+          <span class="badge mg">post-agi</span>
+          <span class="badge vi">written in gleam ⭐</span>
+          <span class="badge">zero-knowledge</span>
+          <span class="badge mg">edge-native</span>
+        </div>
+        <h1 class="title">🧠📡 homoskeeter</h1>
+        <p class="tagline">
+          a post-quantum, post-agi reimplementation, in Gleam, that lets you send
+          messages telepathically over atproto.
+        </p>
+        <p class="subtagline">
+          you open the repo and it was made like 3 weeks ago. it's just a post.
+        </p>
+      </header>
+
+      <section>
+        <h2 class="st">LIVE TELEMETRY</h2>
+        <div class="stats">
+          <div class="stat"><span class="num" id="statUsers">~2,000</span><span class="lbl">active telepaths</span></div>
+          <div class="stat"><span class="num">3 wks</span><span class="lbl">since inception</span></div>
+          <div class="stat"><span class="num" id="statGleam">2%</span><span class="lbl">actually gleam</span></div>
+          <div class="stat"><span class="num">99.999%</span><span class="lbl">quantum uptime*</span></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="st">THE STACK</h2>
+        <div class="stack">
+          <p>
+            under the hood, a "telepathic transmission" compiles down to
+            <code>com.atproto.repo.createRecord</code> on <code>app.bsky.feed.post</code>.
+            same write a normal bluesky client makes when you tap "post."
+          </p>
+          <pre class="code"><span class="cm">// src/telepathy.gleam (aspirational)</span>
+<span class="kw">pub fn</span> <span class="fn">transmit</span>(thought: Thought) -&gt; Result(Telepathy, MundaneError) {
+  thought
+  |&gt; quantum_entangle       <span class="cm">// todo: implement quantum</span>
+  |&gt; agi_align              <span class="cm">// todo: implement agi</span>
+  |&gt; post_to_atproto        <span class="cm">// this part is done</span>
+}</pre>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="st">BROADCAST A THOUGHT</h2>
+        <div class="compose">
+          <label class="field" for="thought">what's on your mind (telepathically)</label>
+          <textarea
+            id="thought"
+            maxlength="250"
+            placeholder="e.g. email is so 2004, i only communicate via quantum-entangled thoughtwaves now"
+          ></textarea>
+          <div class="counter" id="counter">0 / 250</div>
+          <div class="toggle-row" id="toggleRow">
+            <input type="checkbox" id="pqToggle" checked />
+            <label for="pqToggle">post-quantum lattice-based encryption</label>
+            <span class="status" id="pqStatus">ENGAGED</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="st">NEURAL LINK</h2>
+        <div class="window">
+          <div class="who" id="who"></div>
+          <div class="signin" id="signinRow">
+            <input id="handle" type="text" placeholder="your bluesky handle" autocomplete="off" />
+            <button type="button" id="signinBtn">link account</button>
+          </div>
+          <div class="row">
+            <button type="button" id="transmitBtn" class="primary" disabled>
+              📡 transmit telepathically
+            </button>
+            <button type="button" id="intentBtn" class="ghost">
+              compose on bsky.app instead
+            </button>
+          </div>
+          <div class="status" id="transmitStatus"></div>
+          <p class="gate-note">
+            linking your account just lets homoskeeter post the thought
+            <em>as you</em> (an <code>app.bsky.feed.post</code> straight to your
+            own PDS) — nothing is stored on our end, there is no quantum
+            channel, and you can always use "compose on bsky.app" instead if
+            you'd rather not grant that.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="log" id="log">
+          <h3>✦ TRANSMISSION LOG ✦</h3>
+          <div class="tx-id" id="logId"></div>
+          <div class="divider"></div>
+          <div class="line" id="logText"></div>
+          <div class="divider"></div>
+          <div class="line" id="logLink"></div>
+          <div class="foot">delivered via classical TCP/IP — the quantum channel was still compiling.</div>
+        </div>
+        <div class="share-row">
+          <button type="button" id="shareBtn" class="ghost" style="display:none">
+            share the transmission
+          </button>
+        </div>
+      </section>
+
+      <footer>
+        * uptime figure is simulated and not derived from any measurement.
+        no minds were read; nothing here is post-quantum. it is a post, to
+        bluesky, over atproto — the bit was too good not to build.
+        part of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { fireTransmission, buildTransmission } from "./lib/post.js";
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
+
+      // -----------------------------------------------------------------
+      // fake live telemetry — purely cosmetic, resets on reload, no
+      // backend, no persistence. the joke is the point, not the data.
+      // -----------------------------------------------------------------
+      let telepaths = 1998;
+      const statUsers = $("statUsers");
+      function tickTelemetry() {
+        if (telepaths < 2043 && Math.random() < 0.4) telepaths += 1;
+        statUsers.textContent = `~${telepaths.toLocaleString()}`;
+      }
+      setInterval(tickTelemetry, 3500 + Math.random() * 4000);
+
+      // -----------------------------------------------------------------
+      // post-quantum lattice-based encryption toggle (cosmetic)
+      // -----------------------------------------------------------------
+      const pqToggle = $("pqToggle");
+      const pqStatus = $("pqStatus");
+      const toggleRow = $("toggleRow");
+      function renderPq() {
+        pqStatus.textContent = pqToggle.checked ? "ENGAGED" : "DISENGAGED";
+        toggleRow.classList.toggle("off", !pqToggle.checked);
+      }
+      pqToggle.addEventListener("change", renderPq);
+      renderPq();
+
+      // -----------------------------------------------------------------
+      // compose counter
+      // -----------------------------------------------------------------
+      const thoughtEl = $("thought");
+      const counterEl = $("counter");
+      function updateCounter() {
+        const n = thoughtEl.value.length;
+        counterEl.textContent = `${n} / 250`;
+        counterEl.classList.toggle("over", n > 250);
+      }
+      thoughtEl.addEventListener("input", updateCounter);
+      updateCounter();
+
+      // -----------------------------------------------------------------
+      // auth
+      // -----------------------------------------------------------------
+      const transmitStatus = $("transmitStatus");
+      let session = null;
+
+      function renderWho() {
+        const who = $("who");
+        const signinRow = $("signinRow");
+        if (session) {
+          who.innerHTML = `linked as <span class="h">@${esc(session.handle)}</span> · <a id="signoutLink">not you? unlink</a>`;
+          signinRow.style.display = "none";
+          $("signoutLink").onclick = async () => {
+            await clearSession();
+            session = null;
+            renderWho();
+            updateTransmitBtn();
+          };
+        } else {
+          who.textContent = "no neural link established yet.";
+          signinRow.style.display = "flex";
+        }
+      }
+      function updateTransmitBtn() {
+        $("transmitBtn").disabled = !session || !thoughtEl.value.trim() || thoughtEl.value.length > 250;
+      }
+      thoughtEl.addEventListener("input", updateTransmitBtn);
+
+      $("signinBtn").addEventListener("click", async () => {
+        const h = $("handle").value.trim();
+        if (!h) return;
+        $("signinBtn").disabled = true;
+        try {
+          await login(h);
+        } catch (e) {
+          transmitStatus.textContent = e.message;
+          transmitStatus.className = "status err";
+          $("signinBtn").disabled = false;
+        }
+      });
+
+      $("intentBtn").addEventListener("click", () => {
+        const thought = thoughtEl.value.trim() || "email is so 2004, i only communicate via quantum-entangled thoughtwaves now";
+        const { text } = buildTransmission(thought);
+        const url = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+        window.open(url, "_blank", "noopener");
+      });
+
+      // -----------------------------------------------------------------
+      // fire the transmission
+      // -----------------------------------------------------------------
+      const log = $("log");
+      const shareBtn = $("shareBtn");
+
+      $("transmitBtn").addEventListener("click", async () => {
+        if (!session) return;
+        const thought = thoughtEl.value.trim();
+        if (!thought) return;
+        const btn = $("transmitBtn");
+        btn.disabled = true;
+        btn.textContent = "entangling…";
+        transmitStatus.textContent = "";
+        transmitStatus.className = "status";
+        try {
+          const res = await fireTransmission(session, thought);
+          const rkey = res.uri.split("/").pop();
+          const url = `https://bsky.app/profile/${session.did}/post/${rkey}`;
+          transmitStatus.innerHTML = `transmitted! <a href="${url}" target="_blank" rel="noopener">see it →</a>`;
+          transmitStatus.className = "status ok";
+
+          const txId = String(Math.abs(hashCode(res.uri)) % 9000 + 1000);
+          $("logId").textContent = `TX #${txId}`;
+          $("logText").textContent = `@${session.handle}\n"${thought}"`;
+          $("logLink").innerHTML = `<a href="${url}" target="_blank" rel="noopener">view the transmission on bluesky →</a>`;
+          log.style.display = "block";
+          shareBtn.style.display = "inline-block";
+          log.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (e) {
+          transmitStatus.textContent = e.message;
+          transmitStatus.className = "status err";
+        } finally {
+          btn.disabled = !session;
+          btn.textContent = "📡 transmit telepathically";
+          updateTransmitBtn();
+        }
+      });
+
+      function hashCode(s) {
+        let h = 0;
+        for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+        return h;
+      }
+
+      shareBtn.addEventListener("click", () => {
+        const text = "just sent a telepathic transmission via homoskeeter (post-quantum, post-agi, written in gleam) https://homoskeeter.bisks.net";
+        window.open(
+          `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`,
+          "_blank",
+          "noopener"
+        );
+      });
+
+      // -----------------------------------------------------------------
+      // boot
+      // -----------------------------------------------------------------
+      (async () => {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          transmitStatus.textContent = e.message;
+          transmitStatus.className = "status err";
+        }
+        renderWho();
+        updateTransmitBtn();
+      })();
+    </script>
+  </body>
+</html>
