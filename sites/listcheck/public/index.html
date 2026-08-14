@@ -114,6 +114,33 @@
       .note b { color:var(--ink); }
       code { font-family:var(--mono); font-size:0.9em; }
       .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+
+      .donateOverlay { display:none; position:fixed; inset:0; background:rgba(10,4,4,0.72);
+        z-index:999; align-items:center; justify-content:center; padding:1.2rem; backdrop-filter:blur(2px); }
+      .donateOverlay.show { display:flex; }
+      .donateCard { position:relative; width:100%; max-width:360px; background:var(--panel);
+        border:1px solid var(--faint); border-radius:16px; padding:1.6rem 1.4rem 1.4rem;
+        box-shadow:0 20px 60px rgba(0,0,0,0.5); animation:donatePop 0.35s cubic-bezier(.2,1.4,.4,1); }
+      @keyframes donatePop { from { transform:scale(0.85) translateY(10px); opacity:0; } to { transform:none; opacity:1; } }
+      .donateClose { position:absolute; top:0.6rem; right:0.7rem; background:none; border:0;
+        color:var(--muted); font-size:1.1rem; cursor:pointer; line-height:1; padding:0.3rem; }
+      .donateClose:hover { color:var(--ink); }
+      .donateCard h4 { margin:0 0 0.4rem; font-size:1.05rem; font-weight:900; }
+      .donateCard p { margin:0 0 1rem; color:var(--muted); font-size:0.85rem; line-height:1.55; }
+      .donateAmts { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; margin-bottom:0.7rem; }
+      .donateAmt { font:inherit; font-family:var(--mono); font-size:0.82rem; font-weight:700;
+        padding:0.55rem 0.3rem; border-radius:9px; border:1px solid var(--faint);
+        background:var(--panel2); color:var(--ink); cursor:pointer; }
+      .donateAmt:hover { border-color:var(--accent); }
+      .donateAmt.picked { background:var(--accent); border-color:var(--accent); color:#2a0e08; }
+      .donateGo { width:100%; font:inherit; font-weight:800; padding:0.65rem; border:0;
+        border-radius:11px; background:var(--accent); color:#2a0e08; cursor:pointer; margin-bottom:0.55rem; }
+      .donateNo { width:100%; background:none; border:0; color:var(--muted); font:inherit;
+        font-size:0.78rem; cursor:pointer; padding:0.2rem; }
+      .donateNo:hover { color:var(--ink); text-decoration:underline; }
+      .donateThanks { display:none; text-align:center; padding:0.4rem 0; }
+      .donateThanks.show { display:block; }
+      .donateThanks .big { font-size:2rem; margin-bottom:0.4rem; }
     </style>
   </head>
   <body>
@@ -179,6 +206,32 @@
         account doesn't turn one browse into thousands of requests.
       </p>
       <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/segyges.bsky.social">@segyges.bsky.social</a></p>
+    </div>
+
+    <div class="donateOverlay" id="donateOverlay">
+      <div class="donateCard" role="dialog" aria-label="unnecessary donation popup">
+        <button class="donateClose" id="donateClose" type="button" aria-label="close">✕</button>
+        <div id="donateAsk">
+          <h4>support listcheck 🧷</h4>
+          <p>
+            This tool is free, was never going to charge you, and this popup
+            serves no purpose whatsoever. It was requested exactly as-is, by
+            name, in a reply. We are honoring that request.
+          </p>
+          <div class="donateAmts" id="donateAmts">
+            <button class="donateAmt" data-amt="$3">$3</button>
+            <button class="donateAmt" data-amt="$11">$11</button>
+            <button class="donateAmt" data-amt="$1,000,000">$1,000,000</button>
+          </div>
+          <button class="donateGo" id="donateGo" type="button">donate nothing, dramatically</button>
+          <button class="donateNo" id="donateNo" type="button">no thanks, close this</button>
+        </div>
+        <div class="donateThanks" id="donateThanks">
+          <div class="big">🧷✨</div>
+          <p style="margin-bottom:1rem"><span id="donateThanksAmt"></span> received by absolutely no one. No payment processor exists here. Thank you for your completely fictional generosity.</p>
+          <button class="donateGo" id="donateDone" type="button">okay</button>
+        </div>
+      </div>
     </div>
 
     <script src="lib/handle-typeahead.js"></script>
@@ -368,6 +421,50 @@
       const qp = new URLSearchParams(location.search).get("handle");
       if (qp) { handleEl.value = qp; run(qp); }
       else handleEl.focus();
+
+      // Purely decorative donation popup — requested exactly as-is: unnecessary, on purpose.
+      // No payment processor, no backend, no state beyond this tab's sessionStorage.
+      (function () {
+        const overlay = document.getElementById("donateOverlay");
+        const amtsWrap = document.getElementById("donateAmts");
+        const goBtn = document.getElementById("donateGo");
+        const noBtn = document.getElementById("donateNo");
+        const closeBtn = document.getElementById("donateClose");
+        const doneBtn = document.getElementById("donateDone");
+        const askPane = document.getElementById("donateAsk");
+        const thanksPane = document.getElementById("donateThanks");
+        const thanksAmt = document.getElementById("donateThanksAmt");
+        let picked = "$11";
+
+        function open() {
+          askPane.style.display = "";
+          thanksPane.classList.remove("show");
+          overlay.classList.add("show");
+        }
+        function close() {
+          overlay.classList.remove("show");
+          try { sessionStorage.setItem("listcheck-donate-dismissed", "1"); } catch {}
+        }
+        amtsWrap.addEventListener("click", (e) => {
+          const btn = e.target.closest(".donateAmt");
+          if (!btn) return;
+          picked = btn.dataset.amt;
+          amtsWrap.querySelectorAll(".donateAmt").forEach((b) => b.classList.toggle("picked", b === btn));
+        });
+        goBtn.addEventListener("click", () => {
+          thanksAmt.textContent = picked;
+          askPane.style.display = "none";
+          thanksPane.classList.add("show");
+        });
+        doneBtn.addEventListener("click", close);
+        noBtn.addEventListener("click", close);
+        closeBtn.addEventListener("click", close);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+        let dismissed = false;
+        try { dismissed = sessionStorage.getItem("listcheck-donate-dismissed") === "1"; } catch {}
+        if (!dismissed) setTimeout(open, 4000);
+      })();
     </script>
 </body>
 </html>
