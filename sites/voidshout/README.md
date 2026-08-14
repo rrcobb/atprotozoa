@@ -132,3 +132,16 @@ user's own cached `handle` was resolved once at login and never refreshed,
 so it went stale forever after a handle change (profile pages for *other*
 DIDs already re-resolved correctly). Fixed — `refreshSession()` in
 `public/lib/oauth.js` now re-resolves the handle on every token refresh.
+
+Also previously listed: `/map/`'s dashed route lines ("a carry in the last 6
+hours") were computed against `public/data/demo.json`'s fixed, hand-written
+`createdAt` timestamps. Demo mode is on by default for a first-time visitor,
+so as real time passed those timestamps aged past the 6-hour window and the
+map's routes silently stopped rendering for good — pins only, no carries,
+looking broken rather than idle. Fixed — `loadDemoRoots()` in
+`public/lib/demo.js` now shifts every fixture timestamp by a constant offset
+that pins the newest demo record to "now" on each load, preserving the
+relative gaps between records (so some carries still correctly fall outside
+the 6h window and some still correctly fall inside it). This also keeps
+`timeAgo()` on every demo card fresh instead of creeping toward "N days ago"
+everywhere else demo data renders.
