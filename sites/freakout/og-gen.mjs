@@ -29,7 +29,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="80" y="200" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${DIM}" letter-spacing="4">WHAT EVERYONE WAS</text>
   <text x="80" y="290" font-family="JetBrains Mono" font-weight="800" font-size="88" fill="${FG}">freaking <tspan fill="${RED}">out</tspan></text>
-  <text x="80" y="350" font-family="JetBrains Mono" font-size="26" fill="${AMBER}">about — one month, one year, five years ago</text>
+  <text x="80" y="350" font-family="JetBrains Mono" font-size="24" fill="${AMBER}">about — 1mo, 6mo, 1yr, 5yr ago</text>
 
   <rect x="80" y="400" width="1040" height="1.5" fill="${RED_DIM}"/>
 
