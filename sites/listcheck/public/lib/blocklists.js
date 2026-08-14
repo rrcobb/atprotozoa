@@ -1,70 +1,39 @@
-// blocklists.js — check whether one account blocks another specifically
-// *via a subscribed moderation list* (as opposed to a direct block record).
+// blocklists.js — check whether one account blocks another, directly or
+// via a subscribed moderation list.
 //
-// There's no AppView endpoint that answers "who has this DID blocked" for an
-// arbitrary actor — app.bsky.graph.getBlocks is viewer-scoped and needs auth
-// as the account itself. What *is* public: an account's own
-// app.bsky.graph.listblock records (which lists it subscribes to block) live
-// in its repo, readable straight off its PDS with com.atproto.repo.listRecords
-// (same trick as sites/metamoots and sites/beefcheck's identity.js), and a
-// list's membership is public via app.bsky.graph.getList on the AppView.
+// This used to walk an account's own app.bsky.graph.listblock records (off
+// its PDS) and page app.bsky.graph.getList against the other DID looking
+// for reachability, because no AppView endpoint answered "does A block B"
+// for an arbitrary pair. @mary.my.id pointed out (2026-08-14) that
+// app.bsky.graph.getRelationships does: it's public, takes one `actor` and
+// up to 30 `others`, and returns a #relationship per other with `blocking`/
+// `blockedBy` (direct block records) *and* `blockingByList`/`blockedByList`
+// (which list, if either side blocks via one) — both directions of a
+// pair-check in one AppView round trip, and it catches direct blocks too,
+// which the old list-only walk never checked at all. Switched
+// checkBlockPair() to it below.
+//
+// blockingByList/blockedByList are the list's own AT-URI directly (verified
+// against live data 2026-08-14 — the lexicon's prose describes it as "the
+// listblock record" but the AppView actually resolves straight to the list).
+// A list hit still wants one page of that list (for its name) before the
+// "browse this list" drill-down becomes worth showing — cheap, one request,
+// not a reachability walk.
 //
 // Deliberately pairwise: this module only ever answers "does A block B (or
-// B block A) via a list" for two specific DIDs you already have. It does not
-// expose a "sweep this whole list of people and tell me who's blocked"
-// batch call — see sites/blockledger/RETIRED.md for why that shape of tool
-// got pulled by its own requester, and public/index.html here for how the
-// UI keeps every check a deliberate one-at-a-time click instead of an
-// automatic bulk table.
-//
-// Membership checks are *reachability* checks, not membership dumps: a list
-// is paged forward only until the one DID being asked about turns up (or the
-// list runs out), so a click against a 2,000-member list that hits early
-// costs one page, not twenty. segyges.bsky.social asked for exactly this
-// after the first pass — checking a pair shouldn't require pulling the
-// list's full membership either way. Pages already fetched stick around on
-// the list's cache entry, so later checks against the same list (a
-// different pair, or the "browse this list" drill-down below) resume from
-// wherever the last check left off instead of starting over.
+// B block A)" for two specific DIDs you already have. It does not expose a
+// "sweep this whole list of people and tell me who's blocked" batch call —
+// see sites/blockledger/RETIRED.md for why that shape of tool got pulled by
+// its own requester, and public/index.html here for how the UI keeps every
+// check a deliberate one-at-a-time click instead of an automatic bulk table.
+// getRelationships *could* batch up to 30 pairs per call, but that batching
+// stays unused here on purpose — one click, one pair, same as before.
 
-import { jget, resolvePds } from "./identity.js";
+import { jget } from "./identity.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-// Cap how many listblock records / list pages we'll walk per lookup — plenty
-// for a real account (subscribing to dozens of blocklists is already an
-// outlier), and keeps a single click bounded.
-const MAX_LISTBLOCK_PAGES = 5; // <= 500 subscribed lists
-const MAX_LIST_MEMBER_PAGES = 20; // <= 2000 members per list
-
-// The list URIs a `did` subscribes to as a blocklist (app.bsky.graph.listblock
-// records in their own repo).
-export async function getListBlockSubjects(did) {
-  const pds = await resolvePds(did);
-  if (!pds) return [];
-  const out = [];
-  let cursor = "";
-  for (let pg = 0; pg < MAX_LISTBLOCK_PAGES; pg++) {
-    const u = new URL(`${pds}/xrpc/com.atproto.repo.listRecords`);
-    u.searchParams.set("repo", did);
-    u.searchParams.set("collection", "app.bsky.graph.listblock");
-    u.searchParams.set("limit", "100");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    let d;
-    try {
-      d = await jget(u.toString());
-    } catch {
-      break;
-    }
-    for (const rec of d.records || []) {
-      const subject = rec.value && rec.value.subject;
-      if (subject) out.push(subject);
-    }
-    cursor = d.cursor;
-    if (!cursor || !(d.records || []).length) break;
-  }
-  return out; // array of list URIs (at://...)
-}
+const MAX_LIST_MEMBER_PAGES = 20; // <= 2000 members per list, for the drill-down
 
 // listUri -> { name, members: Map<did, profile>, cursor, exhausted, pages, queue }
 // `queue` serializes page-fetches for one list so two concurrent lookups
@@ -124,18 +93,11 @@ function advance(listUri, stopWhen) {
   return s.queue;
 }
 
-// Reachability: is `did` a member of this list? Pages forward only until
-// `did` turns up or the list is confirmed exhausted — never pulls the rest
-// of the membership just to answer a yes/no about one DID.
-async function listHasMember(listUri, did) {
-  const s = await advance(listUri, (st) => st.members.has(did));
-  return s.members.has(did);
-}
-
 // Drill-down: page the *rest* of one specific list in. Only called when the
 // user explicitly asks to browse a list a check surfaced — never as part of
-// the pair-check itself. Resumes from wherever `listHasMember` left off, and
-// returns the profiles getList already gave us — no per-member fetch.
+// the pair-check itself. Resumes from wherever the pair-check's one-page
+// name lookup left off, and returns the profiles getList already gave us —
+// no per-member fetch.
 export async function getFullListMembers(listUri) {
   const s = await advance(listUri, () => false);
   return { name: s.name || "an unnamed list", members: Array.from(s.members.values()) };
@@ -146,27 +108,30 @@ export function listWebUrl(listUri) {
   return m ? `https://bsky.app/profile/${m[1]}/lists/${m[2]}` : null;
 }
 
-// The one entry point the UI calls: does `aDid` block `bDid` via a list
-// they subscribe to, and/or does `bDid` block `aDid` via a list *they*
-// subscribe to? Checks both directions for exactly this one pair.
-export async function checkBlockPair(aDid, bDid) {
-  const [aSubjects, bSubjects] = await Promise.all([
-    getListBlockSubjects(aDid),
-    getListBlockSubjects(bDid),
-  ]);
+// One side of a pair-check: given getRelationships' direct-block URI and
+// list URI for this direction, say whether it's a hit and, if it's a list
+// hit, page one page of that list in — just enough for its name — before
+// the "browse this list" drill-down becomes worth showing.
+async function resolveHit(directUri, listUri) {
+  if (directUri) return { direct: true };
+  if (!listUri) return null;
+  const s = await advance(listUri, (st) => st.pages >= 1);
+  return { direct: false, listUri, listName: s.name || "an unnamed list" };
+}
 
-  async function findBlockOf(targetDid, subjectListUris) {
-    for (const uri of subjectListUris) {
-      if (await listHasMember(uri, targetDid)) {
-        return { listUri: uri, listName: stateFor(uri).name || "an unnamed list" };
-      }
-    }
-    return null;
-  }
+// The one entry point the UI calls: does `aDid` block `bDid`, and/or does
+// `bDid` block `aDid` — directly or via a list either side subscribes to?
+// One app.bsky.graph.getRelationships call answers both directions at once.
+export async function checkBlockPair(aDid, bDid) {
+  const u = new URL(`${PUB}/app.bsky.graph.getRelationships`);
+  u.searchParams.set("actor", aDid);
+  u.searchParams.append("others", bDid);
+  const d = await jget(u.toString());
+  const rel = (d.relationships || []).find((r) => r.did === bDid) || {};
 
   const [aBlocksB, bBlocksA] = await Promise.all([
-    findBlockOf(bDid, aSubjects),
-    findBlockOf(aDid, bSubjects),
+    resolveHit(rel.blocking, rel.blockingByList),
+    resolveHit(rel.blockedBy, rel.blockedByList),
   ]);
 
   return { aBlocksB, bBlocksA };

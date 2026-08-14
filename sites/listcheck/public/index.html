@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>listcheck — browse a handle's followers or following, check blocklist status one at a time</title>
-    <meta name="description" content="Enter a Bluesky handle, browse who follows them or who they follow, and click anyone to check whether either side blocks the other via a subscribed moderation list." />
-    <meta property="og:title" content="listcheck — blocklist status, one relationship at a time" />
-    <meta property="og:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other via a subscribed blocklist." />
+    <title>listcheck — browse a handle's followers or following, check block status one at a time</title>
+    <meta name="description" content="Enter a Bluesky handle, browse who follows them or who they follow, and click anyone to check whether either side blocks the other, directly or via a subscribed moderation list." />
+    <meta property="og:title" content="listcheck — block status, one relationship at a time" />
+    <meta property="og:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other, directly or via a subscribed blocklist." />
     <meta property="og:image" content="https://listcheck.bisks.net/og.png" />
     <meta property="og:url" content="https://listcheck.bisks.net/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="listcheck — blocklist status, one relationship at a time" />
-    <meta name="twitter:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other via a subscribed blocklist." />
+    <meta name="twitter:title" content="listcheck — block status, one relationship at a time" />
+    <meta name="twitter:description" content="Browse a handle's followers or following off the public AppView. Click anyone to check whether either side blocks the other, directly or via a subscribed blocklist." />
     <meta name="twitter:image" content="https://listcheck.bisks.net/og.png" />
     <style>
       :root {
@@ -168,8 +168,8 @@
       <p class="sub">
         Enter a handle to browse <b>who follows them</b> or <b>who they
         follow</b>. Click anyone in the list to check, just for that one
-        relationship, whether either side blocks the other through a
-        moderation list they subscribe to.
+        relationship, whether either side blocks the other — directly or
+        through a moderation list they subscribe to.
       </p>
 
       <form id="form">
@@ -213,20 +213,19 @@
 
       <p class="note">
         Reads only public data: the anonymous AppView (<code>getFollowers</code>,
-        <code>getFollows</code>, <code>getList</code>) plus each account's own
-        public repo records (<code>app.bsky.graph.listblock</code>, read
-        straight off its PDS). <b>Every block-status check is deliberately
-        one relationship at a time</b> — there's no button that sweeps the
-        whole list at once. A blunter version of this (mutuals × block lists,
-        computed in bulk) was built and then retired by its own requester as
-        more useful for harassment than curiosity; this is the narrower shape
-        that's left. Capped at 500 followers/following (5 pages) so a huge
-        account doesn't turn one browse into thousands of requests. A check
-        is a <b>reachability</b> lookup, not a membership dump — it pages a
-        blocklist only until the one person you clicked turns up (or the
-        list runs out), so a hit against a 2,000-member list can cost one
-        page instead of twenty. If a check finds a hit, "browse this list"
-        lets you page the rest of that one list in on purpose, in-app.
+        <code>getFollows</code>, <code>getRelationships</code>, <code>getList</code>).
+        A block-status check is one <code>getRelationships</code> call that answers
+        both directions at once — direct blocks and blocklist-mediated ones — no
+        crawl of either side's full subscribed-lists or list-membership needed.
+        <b>Every block-status check is deliberately one relationship at a time</b>
+        — there's no button that sweeps the whole list at once. A blunter version
+        of this (mutuals × block lists, computed in bulk) was built and then
+        retired by its own requester as more useful for harassment than
+        curiosity; this is the narrower shape that's left. Capped at 500
+        followers/following (5 pages) so a huge account doesn't turn one browse
+        into thousands of requests. If a check finds a list-block hit, "browse
+        this list" lets you page that one list's membership in on purpose,
+        in-app — nothing else fetches it.
       </p>
       <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/segyges.bsky.social">@segyges.bsky.social</a></p>
     </div>
@@ -372,22 +371,26 @@
         btn.disabled = true;
         btn.textContent = "checking…";
         resultEl.classList.add("show");
-        resultEl.textContent = "reading subscribed lists on both sides…";
+        resultEl.textContent = "checking relationship…";
         try {
           const { aBlocksB, bBlocksA } = await checkBlockPair(subject.did, personDid);
           const lines = [];
-          function hitLine(uri, name, text) {
-            const url = listWebUrl(uri);
+          function hitLine(hit, text) {
+            if (hit.direct) {
+              lines.push(`<div class="hitline"><span class="hit">🚫 ${text}, directly.</span></div>`);
+              return;
+            }
+            const url = listWebUrl(hit.listUri);
             lines.push(`
               <div class="hitline">
-                <span class="hit">🚫 ${text} via the list "${esc(name)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>
-                <button class="drilldown" type="button" data-list="${esc(uri)}">browse this list ↓</button>
+                <span class="hit">🚫 ${text} via the list "${esc(hit.listName)}"${url ? ` (<a href="${url}" target="_blank" rel="noopener">view list</a>)` : ""}</span>
+                ${hit.listUri ? `<button class="drilldown" type="button" data-list="${esc(hit.listUri)}">browse this list ↓</button>` : ""}
               </div>
-              <div class="drillWrap" data-list="${esc(uri)}"></div>`);
+              ${hit.listUri ? `<div class="drillWrap" data-list="${esc(hit.listUri)}"></div>` : ""}`);
           }
-          if (aBlocksB) hitLine(aBlocksB.listUri, aBlocksB.listName, `@${esc(subject.prof.handle)} blocks ${esc(rhandle)}`);
-          if (bBlocksA) hitLine(bBlocksA.listUri, bBlocksA.listName, `${esc(rhandle)} blocks @${esc(subject.prof.handle)}`);
-          if (!lines.length) lines.push(`<span class="clear">no blocklist relationship found either direction.</span>`);
+          if (aBlocksB) hitLine(aBlocksB, `@${esc(subject.prof.handle)} blocks ${esc(rhandle)}`);
+          if (bBlocksA) hitLine(bBlocksA, `${esc(rhandle)} blocks @${esc(subject.prof.handle)}`);
+          if (!lines.length) lines.push(`<span class="clear">no block relationship found either direction.</span>`);
           resultEl.innerHTML = lines.join("");
         } catch (e) {
           resultEl.textContent = "couldn't check that: " + e.message;
