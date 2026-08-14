@@ -11,6 +11,8 @@
   .place-list .card { text-align: center; padding: 0.8rem 0.5rem; }
   .place-list .em { font-size: 1.6rem; display: block; }
   .place-list .ct { font-size: 0.72rem; color: var(--muted); }
+  .place-list .card.wild { border-style: dashed; }
+  .place-list .wild-tag { display: block; font-size: 0.62rem; color: var(--accent2); margin-top: 0.1rem; }
 </style>
 </head>
 <body>
@@ -34,7 +36,7 @@ import { mountChrome, demoModeOn } from "/lib/chrome.js";
 import { startIngest } from "/lib/ingest.js";
 import * as store from "/lib/store.js";
 import { deriveState, allTrees, placeActivityFromTrees, nodesAtPlaceFromTrees } from "/lib/feed.js";
-import { PLACES, searchPlaces, placeById } from "/lib/places.js";
+import { PLACES, searchPlaces, placeById, discoveredPlaces } from "/lib/places.js";
 import { esc, cardHtml, nodeToCard, CARD_STYLE } from "/lib/render.js";
 import { homeFor } from "/lib/voidlogic.mjs";
 import { loadDemoRoots } from "/lib/demo.js";
@@ -62,16 +64,19 @@ if (!placeId) {
   searchView.style.display = "";
   const listEl = document.getElementById("placeList");
   const activity = placeActivityFromTrees(await currentTrees());
+  const wild = discoveredPlaces(activity);
+  const known = new Set(PLACES.map((p) => p.id));
   function render(list) {
     listEl.innerHTML = list
       .map((p) => {
         const count = activity.get(p.id)?.count || 0;
-        return `<a href="?id=${encodeURIComponent(p.id)}"><div class="card"><span class="em">${esc(p.emoji)}</span>${esc(p.name)}<div class="ct">${count} active</div></div></a>`;
+        const isWild = !known.has(p.id);
+        return `<a href="?id=${encodeURIComponent(p.id)}"><div class="card${isWild ? " wild" : ""}"><span class="em">${esc(p.emoji)}</span>${esc(p.name)}<div class="ct">${count} active${isWild ? '<span class="wild-tag">found in the wild — not curated</span>' : ""}</div></div></a>`;
       })
       .join("");
   }
-  render(PLACES);
-  document.getElementById("q").addEventListener("input", (e) => render(searchPlaces(e.target.value)));
+  render(PLACES.concat(wild));
+  document.getElementById("q").addEventListener("input", (e) => render(searchPlaces(e.target.value, wild)));
 } else {
   feedView.style.display = "";
   const place = placeById(placeId) || { id: placeId, name: placeId, emoji: "❔" };

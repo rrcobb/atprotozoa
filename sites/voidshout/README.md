@@ -111,6 +111,10 @@ repo root) and the CI workflow redeploys it.
 - No lat/lng coastline asset on `/map/` — Places are plotted on an
   equirectangular graticule (`public/lib/places.js`'s `project()`), not a
   traced coastline, so placement stays honest instead of hand-drawn-wrong.
-- Curated `PLACES` list is fixed; anyone can still publish a `place` object
-  outside it (the lexicon allows it) and it'll render as "elsewhere" in the
-  reference client's own picker while remaining fully valid on the network.
+
+Previously also listed here: a stranger publishing a `place` object outside
+the curated `PLACES` list rendered correctly on `/map/` (every record
+carries its own real lat/lng) but was invisible in `/place/`'s search grid.
+Fixed — `discoveredPlaces()` in `public/lib/places.js` surfaces any place
+with real activity that isn't curated, tagged "found in the wild" in the
+grid, and `searchPlaces()` matches it by name/emoji/id like any other Place.

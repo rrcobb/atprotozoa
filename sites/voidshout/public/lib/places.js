@@ -48,19 +48,31 @@ export const PLACES = [
   { id: "mcmurdo", name: "McMurdo Station", emoji: "🧊", lat: -77.8419, lng: 166.6863 },
 ];
 
-// Fallback used anywhere a place is looked up by id but not found (a place
-// id from a stranger-published record outside the curated list) — never
-// invented coordinates, just visibly "elsewhere."
-export const UNKNOWN_PLACE = { id: "elsewhere", name: "Elsewhere", emoji: "❔", lat: 0, lng: 0 };
-
 export function placeById(id) {
   return PLACES.find((p) => p.id === id) || null;
 }
 
-export function searchPlaces(query) {
+/** Any place id/name/emoji/lat/lng seen in real activity that isn't in the
+ * curated list — a stranger-published `net.bisks.void.shout.place` outside
+ * PLACES. The lexicon allows this (see notes/00 above), and every such
+ * record still carries its own real lat/lng, so rather than collapsing it
+ * to a single "elsewhere" point, surface it as its own discovered Place —
+ * search and the world map should agree on what's actually out there.
+ * `activity` is a Map<placeId, {place, count}> as produced by
+ * feed.js's placeActivityFromTrees(). */
+export function discoveredPlaces(activity) {
+  const known = new Set(PLACES.map((p) => p.id));
+  return [...activity.values()]
+    .map((e) => e.place)
+    .filter((p) => p && !known.has(p.id))
+    .sort((a, b) => (activity.get(b.id)?.count || 0) - (activity.get(a.id)?.count || 0));
+}
+
+export function searchPlaces(query, extra = []) {
+  const list = extra.length ? PLACES.concat(extra) : PLACES;
   const q = String(query || "").trim().toLowerCase();
-  if (!q) return PLACES;
-  return PLACES.filter(
+  if (!q) return list;
+  return list.filter(
     (p) => p.name.toLowerCase().includes(q) || p.emoji.includes(q) || p.id.includes(q),
   );
 }
