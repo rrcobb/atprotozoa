@@ -3,6 +3,7 @@
 
   var HE = window.HiveEngine;
   var STORAGE_KEY = "hivemind:bee:v1";
+  var LEDGER_KEY = "hivemind:ledger:v1";
   var SITE_URL = "https://hivemind.bisks.net/";
 
   var els = {
@@ -244,6 +245,7 @@
     }
 
     updateShareCard(level, mood);
+    renderLedger();
   }
 
   function esc(s) {
@@ -369,7 +371,7 @@
     render();
   });
 
-  // ---- leaderboard --------------------------------------------------------
+  // ---- local ledger --------------------------------------------------------
 
   var lastAutoSubmitLevel = 0;
 
@@ -377,22 +379,44 @@
     var level = HE.levelProgress(state.xp).level;
     if (level > lastAutoSubmitLevel) {
       lastAutoSubmitLevel = level;
-      submitScore(true);
+      saveSnapshot(true);
     }
   }
 
-  function renderLeaderboard(data) {
-    if (!data || !data.board) {
-      els.lbMeta.textContent = "couldn't reach the hive right now.";
-      return;
+  function currentSnapshot() {
+    return {
+      name: state.name,
+      level: HE.levelProgress(state.xp).level,
+      xp: state.xp,
+      wordsLearned: state.wordsLearned,
+      mathSolved: state.mathSolved,
+      streak: state.bestStreak,
+      savedAt: Date.now(),
+    };
+  }
+
+  function loadLedger() {
+    try {
+      var raw = localStorage.getItem(LEDGER_KEY);
+      var parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.slice(0, 24) : [];
+    } catch (e) {
+      return [];
     }
-    els.lbMeta.textContent = data.hiveSize + " bee" + (data.hiveSize === 1 ? "" : "s") + " in the swarm so far.";
-    els.lbList.innerHTML = data.board
-      .map(function (b, i) {
-        var mine = b.clientId === state.clientId;
+  }
+
+  function renderLedger(message) {
+    var saved = loadLedger();
+    var rows = [Object.assign(currentSnapshot(), { current: true })].concat(saved).slice(0, 12);
+    els.lbMeta.textContent = message || (saved.length
+      ? saved.length + " saved snapshot" + (saved.length === 1 ? "" : "s") + " in this browser."
+      : "this bee lives in this browser; save a snapshot as it grows.");
+    els.lbList.innerHTML = rows
+      .map(function (b) {
+        var label = b.current ? "now" : new Date(b.savedAt).toLocaleDateString();
         return (
-          '<li class="' + (mine ? "me" : "") + '">' +
-          '<span class="lb-rank">#' + (i + 1) + "</span>" +
+          '<li class="' + (b.current ? "me" : "") + '">' +
+          '<span class="lb-rank">' + esc(label) + "</span>" +
           '<span class="lb-name">' + esc(b.name) + "</span>" +
           '<span class="lb-level">Lv.' + b.level + " · " + b.xp + " xp</span>" +
           "</li>"
@@ -401,40 +425,22 @@
       .join("");
   }
 
-  function fetchLeaderboard() {
-    fetch("/api/leaderboard")
-      .then(function (r) { return r.json(); })
-      .then(renderLeaderboard)
-      .catch(function () { els.lbMeta.textContent = "couldn't reach the hive right now."; });
+  function saveSnapshot(silent) {
+    var snapshot = currentSnapshot();
+    var saved = loadLedger();
+    var previous = saved[0];
+    if (!previous || previous.xp !== snapshot.xp || previous.name !== snapshot.name) {
+      saved.unshift(snapshot);
+      try {
+        localStorage.setItem(LEDGER_KEY, JSON.stringify(saved.slice(0, 24)));
+      } catch (e) {
+        // The bee still works if localStorage is unavailable.
+      }
+    }
+    renderLedger(silent ? null : "snapshot saved in this browser.");
   }
 
-  function submitScore(silent) {
-    var level = HE.levelProgress(state.xp).level;
-    var body = {
-      clientId: state.clientId,
-      name: state.name,
-      level: level,
-      xp: state.xp,
-      wordsLearned: state.wordsLearned,
-      mathSolved: state.mathSolved,
-      streak: state.bestStreak,
-    };
-    fetch("/api/submit", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        renderLeaderboard(data);
-        if (!silent) els.lbMeta.textContent = "your bee ranks #" + (data.rank || "?") + " in the swarm.";
-      })
-      .catch(function () {
-        if (!silent) els.lbMeta.textContent = "couldn't submit right now — try again later.";
-      });
-  }
-
-  els.submitBtn.addEventListener("click", function () { submitScore(false); });
+  els.submitBtn.addEventListener("click", function () { saveSnapshot(false); });
 
   // ---- sharing --------------------------------------------------------
 
@@ -564,7 +570,7 @@
         words = [];
         render();
       });
-    fetchLeaderboard();
+    renderLedger();
     setInterval(render, 30000); // keep the hunger bar honest between feedings
   }
 

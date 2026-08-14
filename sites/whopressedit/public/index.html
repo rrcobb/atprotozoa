@@ -6,12 +6,12 @@
     <title>who pressed it</title>
     <meta
       name="description"
-      content="Another do-not-press-this-button button, but this one resets weekly. Press it and your state — or your country, if you're not in the US — gets logged and shown to everyone until the reset."
+      content="Another do-not-press-this-button button, but this one resets weekly. Press it and this browser's local press gets shown until the reset."
     />
     <meta property="og:title" content="who pressed it" />
     <meta
       property="og:description"
-      content="One button, shared by every visitor, resets weekly. Press it and your state (or country) goes up on the page until the next reset."
+      content="One button, local to this browser, resets weekly. Press it and the local press goes up on the page until the next reset."
     />
     <meta property="og:image" content="https://whopressedit.bisks.net/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -121,7 +121,7 @@
       <h1>there is (again) one button</h1>
       <p class="reset-tag" id="resetTag" hidden></p>
       <div class="stage" id="stage">
-        <p class="note">checking this week's state…</p>
+        <p class="note">checking this browser's state…</p>
       </div>
       <div class="share" id="share" hidden>
         <a id="shareLink" target="_blank" rel="noopener">tell people</a>
@@ -151,8 +151,11 @@
       const hofSummary = document.getElementById("hofSummary");
       const hofList = document.getElementById("hofList");
       const SITE_URL = "https://whopressedit.bisks.net/";
+      const STORAGE_KEY = "whopressedit:state:v1";
+      const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
       let countdownTimer = null;
+      let state;
 
       function esc(s) {
         return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -184,19 +187,72 @@
         countdownTimer = setInterval(tick, 30_000);
       }
 
-      // Button is armed once a week. Pressing it logs — and shows, right on
-      // the page, to everyone — the state (or country) it was pressed from,
-      // read off the request's Cloudflare geo. It stays up until the weekly
-      // reset, then the button rearms.
-      function renderArmed(state) {
+      function weekIndexAt(ms) {
+        return Math.floor(ms / WEEK_MS);
+      }
+
+      function defaultState() {
+        return {
+          weekIndex: weekIndexAt(Date.now()),
+          pressed: false,
+          pressedBy: null,
+          visits: 0,
+          totalPresses: 0,
+          history: [],
+        };
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          return Object.assign(defaultState(), parsed, { history: Array.isArray(parsed.history) ? parsed.history : [] });
+        } catch {
+          return defaultState();
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch {
+          // The button still works for this visit if storage is unavailable.
+        }
+      }
+
+      function rollWeekIfNeeded() {
+        const nextWeek = weekIndexAt(Date.now());
+        if (nextWeek === state.weekIndex) return false;
+        if (state.pressed && state.pressedBy) {
+          state.history.push({ ...state.pressedBy, weekIndex: state.weekIndex, visits: state.visits });
+          state.history = state.history.slice(-200);
+        }
+        state.weekIndex = nextWeek;
+        state.pressed = false;
+        state.pressedBy = null;
+        state.visits = 0;
+        return true;
+      }
+
+      function browserLabel() {
+        try {
+          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          return zone ? `this browser (${zone})` : "this browser";
+        } catch {
+          return "this browser";
+        }
+      }
+
+      // The button is armed once a week. The press is deliberately local: no
+      // shared first-writer state, visitor counter, IP lookup, or server log.
+      function renderArmed() {
         stageEl.classList.remove("over");
         stageEl.innerHTML = `
           <button class="btn" id="thebutton">DO NOT<br/>PRESS<br/>THIS BUTTON</button>
-          <p class="note">one button, shared by everyone who loads this page. press it and your
-          <b>state</b> (or your <b>country</b>, if you're not in the US) gets logged and shown
-          right here — for everyone — until the weekly reset.</p>`;
+          <p class="note">one button, local to this browser. press it and this browser's
+          weekly press stays right here until the reset.</p>`;
         document.getElementById("thebutton").addEventListener("click", press);
-        setShare(`nobody's pressed the button on whopressedit.bisks.net this week. will it be you?`);
+        setShare(`this browser has not pressed the local button on whopressedit.bisks.net this week. will it be you?`);
       }
 
       function renderPressed(pressedBy, resetsAt, isFresh) {
@@ -204,19 +260,19 @@
         const where = esc(pressedBy.display);
         stageEl.innerHTML = `
           <h2>pressed.</h2>
-          <p class="big">somebody in <b>${where}</b> did it.</p>
+          <p class="big"><b>${where}</b> did it.</p>
           <p class="stamp">at ${new Date(pressedBy.pressedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.
-          it's staying up here until the reset.</p>`;
+          it's staying in this browser until the reset.</p>`;
         setShare(
           isFresh
-            ? `I just pressed the button on whopressedit.bisks.net. everyone can see it was ${where}. it resets weekly — go look.`
-            : `someone in ${where} already pressed this week's button on whopressedit.bisks.net. it resets weekly.`,
+            ? `I just pressed the local button on whopressedit.bisks.net from ${where}. it resets weekly — go look.`
+            : `this browser already pressed its local button on whopressedit.bisks.net. it resets weekly.`,
         );
       }
 
       function renderCounter(visits) {
         counterEl.hidden = false;
-        counterEl.innerHTML = `<b id="counterNum">0</b> ${visits === 1 ? "person has" : "people have"} looked this week.`;
+        counterEl.innerHTML = `<b id="counterNum">0</b> page load${visits === 1 ? "" : "s"} in this browser this week.`;
         animateCount(visits);
       }
 
@@ -240,7 +296,7 @@
           return;
         }
         hofEl.hidden = false;
-        hofSummary.textContent = `${state.totalPresses.toLocaleString()} week${state.totalPresses === 1 ? "" : "s"} pressed, total`;
+        hofSummary.textContent = `${state.totalPresses.toLocaleString()} local press${state.totalPresses === 1 ? "" : "es"}, total`;
         hofList.innerHTML = state.history
           .map(
             (g) => `<div class="hof-row"><b>${esc(g.display)}</b><span class="n">${new Date(g.pressedAt).toLocaleDateString()}</span></div>`,
@@ -248,49 +304,48 @@
           .join("");
       }
 
-      function render(data) {
-        setResetTag(data.resetsAt);
+      function render(data, isFresh) {
+        const resetsAt = (data.weekIndex + 1) * WEEK_MS;
+        setResetTag(resetsAt);
         if (data.pressed && data.pressedBy) {
-          renderPressed(data.pressedBy, data.resetsAt, false);
+          renderPressed(data.pressedBy, resetsAt, Boolean(isFresh));
         } else {
-          renderArmed(data);
+          renderArmed();
         }
         renderCounter(data.visits);
         renderHof(data);
       }
 
-      async function press(e) {
+      function press(e) {
         const btn = e.currentTarget;
         btn.disabled = true;
         btn.textContent = "…";
-        try {
-          const res = await fetch("/api/press", { method: "POST" });
-          const data = await res.json();
-          setResetTag(data.resetsAt);
-          if (data.justPressed) {
-            renderPressed(data.justPressed, data.resetsAt, true);
-          } else if (data.pressedBy) {
-            renderPressed(data.pressedBy, data.resetsAt, false);
-          }
-          renderCounter(data.visits);
-          renderHof(data);
-        } catch {
-          btn.disabled = false;
-          btn.innerHTML = "DO NOT<br/>PRESS<br/>THIS BUTTON";
+        state = loadState();
+        rollWeekIfNeeded();
+        if (!state.pressed) {
+          state.pressed = true;
+          state.pressedBy = { display: browserLabel(), pressedAt: Date.now() };
+          state.totalPresses++;
+          saveState();
         }
+        render(state, true);
       }
 
-      async function load() {
-        try {
-          const res = await fetch("/api/state");
-          const data = await res.json();
-          render(data);
-        } catch {
-          stageEl.innerHTML = `<p class="note">couldn't reach the button. try reloading.</p>`;
-        }
+      function load() {
+        state = loadState();
+        rollWeekIfNeeded();
+        state.visits++;
+        saveState();
+        render(state);
       }
 
       load();
+      setInterval(() => {
+        if (rollWeekIfNeeded()) {
+          saveState();
+          render(state);
+        }
+      }, 30_000);
     </script>
 </body>
 </html>
