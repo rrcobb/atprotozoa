@@ -48,6 +48,36 @@ let currentPlanetKey = null;
 let focus = null; // {type:'moon', planetKey, moonKey} | {type:'earthTransit', planetKey}
 let hitBodies = []; // rebuilt every render(): [{key, name, x, y, r, kind}]
 
+// ---------- deep-linking ----------
+// "share on bluesky" / "copy link" should reopen the exact body + moment
+// being looked at, not just the bare homepage — encode it in the URL hash.
+
+function buildShareUrl() {
+  const p = new URLSearchParams();
+  p.set("t", String(Math.round(simMs)));
+  if (focus && focus.type === "moon") {
+    p.set("planet", focus.planetKey);
+    p.set("moon", focus.moonKey);
+  } else if (focus && focus.type === "earthTransit") {
+    p.set("transit", focus.planetKey);
+  } else if (view === "planet" && currentPlanetKey) {
+    p.set("planet", currentPlanetKey);
+  }
+  return "https://eclipsemap.bisks.net/#" + p.toString();
+}
+
+function parseStateFromHash() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const t = Number(p.get("t"));
+  return {
+    t: Number.isFinite(t) && t > 0 ? t : null,
+    moonKey: p.get("moon"),
+    planetKey: p.get("planet"),
+    transitKey: p.get("transit"),
+  };
+}
+
 // ---------- projection helpers ----------
 
 function mapRadius(value, minVal, maxVal, minPx, maxPx) {
@@ -465,7 +495,7 @@ els.recompute.addEventListener("click", computeAndRenderEvents);
 
 function buildShareText() {
   const s = computeNowStatus();
-  const url = "https://eclipsemap.bisks.net/";
+  const url = buildShareUrl();
   if (s.active) return `right now: ${s.text} — real orbital mechanics, not a stock photo. explore every eclipse in the solar system → ${url}`;
   return `an interactive map of every eclipse the solar system has — Jupiter's moons, Phobos, Pluto & Charon, all computed from real orbital data → ${url}`;
 }
@@ -476,7 +506,7 @@ function updateShareLink() {
 
 els.copyLink.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(buildShareUrl());
     const old = els.copyLink.textContent;
     els.copyLink.textContent = "copied!";
     setTimeout(() => (els.copyLink.textContent = old), 1400);
@@ -499,6 +529,21 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 
-syncDateInput();
-renderCrumbs();
-requestAnimationFrame(frame);
+(function init() {
+  const hashState = parseStateFromHash();
+  if (hashState) {
+    if (hashState.t) simMs = hashState.t;
+    const validMoon = hashState.moonKey && hashState.planetKey && moonsOf(hashState.planetKey).some((m) => m.key === hashState.moonKey);
+    if (validMoon) {
+      switchToPlanet(hashState.planetKey);
+      setMoonFocus(hashState.planetKey, hashState.moonKey);
+    } else if (hashState.transitKey && planetByKey(hashState.transitKey)) {
+      setEarthTransitFocus(hashState.transitKey);
+    } else if (hashState.planetKey && planetByKey(hashState.planetKey)) {
+      switchToPlanet(hashState.planetKey);
+    }
+  }
+  syncDateInput();
+  renderCrumbs();
+  requestAnimationFrame(frame);
+})();
