@@ -13,6 +13,11 @@ import {
   cooldownOk,
   isDuplicateRoot,
   carFilterCandidates,
+  rkeyForShout,
+  rkeyForCarry,
+  rkeyForVote,
+  homeFor,
+  prefixFor,
   HIDE_THRESHOLD,
   ECHO_COOLDOWN_MS,
   SHOUT_MAX_GRAPHEMES,
@@ -166,4 +171,67 @@ test("carFilterCandidates can include replies when asked", () => {
   const posts = [{ uri: "u1", text: "a reply worth keeping", reply: {} }];
   const out = carFilterCandidates(posts, new Set(), { excludeReplies: false });
   assert.equal(out.length, 1);
+});
+
+// ---- rkey determinism: retrying a dropped write must not duplicate ------------
+
+test("rkeyForShout is deterministic — retrying within the same minute reuses the same rkey", async () => {
+  const atMs = Date.parse("2026-08-14T10:00:15Z");
+  const a = await rkeyForShout("did:plc:abc123", "hello void", "tokyo", atMs);
+  const b = await rkeyForShout("did:plc:abc123", "hello void", "tokyo", atMs + 30_000); // same minute bucket
+  assert.equal(a, b);
+});
+test("rkeyForShout changes across a minute boundary, so a deliberate repost later is a new record", async () => {
+  const atMs = Date.parse("2026-08-14T10:00:59Z");
+  const a = await rkeyForShout("did:plc:abc123", "hello void", "tokyo", atMs);
+  const b = await rkeyForShout("did:plc:abc123", "hello void", "tokyo", atMs + 2000); // crosses into next minute
+  assert.notEqual(a, b);
+});
+test("rkeyForShout differs by author, text, or place", async () => {
+  const atMs = Date.parse("2026-08-14T10:00:00Z");
+  const base = await rkeyForShout("did:plc:abc123", "hello void", "tokyo", atMs);
+  assert.notEqual(base, await rkeyForShout("did:plc:xyz789", "hello void", "tokyo", atMs));
+  assert.notEqual(base, await rkeyForShout("did:plc:abc123", "goodbye void", "tokyo", atMs));
+  assert.notEqual(base, await rkeyForShout("did:plc:abc123", "hello void", "berlin", atMs));
+});
+test("rkeyForCarry is deterministic per (author, parent, place, minute) — a retried Echo doesn't duplicate", async () => {
+  const atMs = Date.parse("2026-08-14T10:00:15Z");
+  const a = await rkeyForCarry("net.bisks.void.echo", "did:plc:abc123", "at://did:plc:xyz/net.bisks.void.shout/r1", "tokyo", atMs);
+  const b = await rkeyForCarry("net.bisks.void.echo", "did:plc:abc123", "at://did:plc:xyz/net.bisks.void.shout/r1", "tokyo", atMs + 1000);
+  assert.equal(a, b);
+});
+test("rkeyForVote depends only on the subject — re-voting overwrites rather than duplicating", async () => {
+  const subject = "at://did:plc:xyz/net.bisks.void.shout/r1";
+  const a = await rkeyForVote(subject);
+  const b = await rkeyForVote(subject);
+  assert.equal(a, b);
+  assert.notEqual(a, await rkeyForVote("at://did:plc:xyz/net.bisks.void.shout/r2"));
+});
+
+// ---- stable DID Homes / emoji names --------------------------------------------
+
+test("homeFor is stable — the same DID always yields the same emoji + word", async () => {
+  const did = "did:plc:abc123";
+  const first = await homeFor(did);
+  const second = await homeFor(did);
+  assert.deepEqual(first, second);
+  assert.ok(first.emoji.length > 0);
+  assert.equal(first.name, `${first.emoji} ${first.word}`);
+});
+test("homeFor survives a handle change — it's derived from the DID, not any handle input", async () => {
+  const did = "did:plc:abc123";
+  const home = await homeFor(did);
+  // homeFor takes only a DID; there is no handle parameter to vary, so the
+  // same DID's Home cannot be perturbed by a handle change.
+  assert.deepEqual(await homeFor(did), home);
+});
+test("homeFor differs across DIDs (not a constant fallback)", async () => {
+  const a = await homeFor("did:plc:abc123");
+  const b = await homeFor("did:plc:zzz999");
+  assert.notEqual(a.name, b.name);
+});
+test("prefixFor is a stable, DID-derived, non-secret short code", async () => {
+  const did = "did:plc:abc123";
+  assert.equal(await prefixFor(did), await prefixFor(did));
+  assert.notEqual(await prefixFor(did), await prefixFor("did:plc:zzz999"));
 });

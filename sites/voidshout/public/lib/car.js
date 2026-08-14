@@ -95,6 +95,19 @@ function cborArg(st, info) {
   throw new Error("unsupported CBOR length encoding " + info);
 }
 
+// CBOR major type 7 info 25: IEEE 754 half-precision (binary16). Not used by
+// any real atproto record data (repo/commit/MST nodes only ever encode ints,
+// strings, bools, and CID links) but a correct decoder shouldn't silently
+// return NaN for a value type CBOR itself defines.
+function decodeFloat16(bits) {
+  const sign = bits & 0x8000 ? -1 : 1;
+  const exp = (bits >> 10) & 0x1f;
+  const frac = bits & 0x3ff;
+  if (exp === 0) return sign * frac * 2 ** -24; // subnormal (incl. zero)
+  if (exp === 0x1f) return frac ? NaN : sign * Infinity;
+  return sign * (1 + frac / 1024) * 2 ** (exp - 15);
+}
+
 function cborValue(st) {
   const bytes = st.bytes;
   const initial = bytes[st.pos++];
@@ -106,7 +119,7 @@ function cborValue(st) {
     if (info === 21) return true;
     if (info === 22) return null;
     if (info === 23) return undefined;
-    if (info === 25) { st.pos += 2; return NaN; }
+    if (info === 25) { const v = decodeFloat16(new DataView(bytes.buffer, bytes.byteOffset + st.pos, 2).getUint16(0, false)); st.pos += 2; return v; }
     if (info === 26) { const v = new DataView(bytes.buffer, bytes.byteOffset + st.pos, 4).getFloat32(0, false); st.pos += 4; return v; }
     if (info === 27) { const v = new DataView(bytes.buffer, bytes.byteOffset + st.pos, 8).getFloat64(0, false); st.pos += 8; return v; }
     return info;
