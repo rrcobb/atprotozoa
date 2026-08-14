@@ -244,7 +244,7 @@ function drawCard(canvas, handle, report) {
 }
 
 function buildShareText(handle, report) {
-  const url = `https://simcluster-levels.bisks.net/?h=${encodeURIComponent(handle)}`;
+  const url = `https://simcluster-levels.bisks.net/s/${encodeURIComponent(handle)}`;
   return `@${handle} is S${report.self.level} — ${TITLES[report.self.level]} — in the SimCluster. ${report.stats.docReviews} doc reviews logged, ${report.stats.coffeePotPanics} coffee pot panics pending. ${url}`;
 }
 
@@ -330,7 +330,10 @@ els.form.addEventListener("submit", (e) => {
   generate(els.input.value);
 });
 
-const sharedHandle = new URLSearchParams(location.search).get("h");
+// /s/<handle> (current share links) or the older ?h=<handle> — either way,
+// land on the same handle the personalized OG card was generated for.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
 if (sharedHandle) {
   els.input.value = sharedHandle;
   generate(sharedHandle);
