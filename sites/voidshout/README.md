@@ -51,20 +51,22 @@ the app runs, not a mock of it.
 
 Every Place picker (compose's "from Place", onboarding/settings' default
 Place, and `/shout/`'s carry-to-a-new-Place destination) offers the curated
-`PLACES` grid plus a "📍 map" button (`public/lib/mappicker.js`) that opens
-the same coastline/graticule `/map/` draws and lets a member tap any real
-point on it — still no `navigator.geolocation` call anywhere, this is a tap
-on a static map image, not a location request. The tap's pixel position is
-run through `unproject()` (the exact inverse of the equirectangular
-`project()` every pin and route already uses), turned into a stable Place
-`id` with a 6-character geohash (`public/lib/geohash.js`, prefixed `geo:` so
-it can never collide with a curated id), and named via a live reverse-geocode
-call to a free, keyless, client-CORS-open public API
-(`public/lib/geocode.js`) — degrading to a plain coordinate string and a 📍
-if that lookup fails or times out, rather than blocking Place selection on a
-third party being up. The result is a real Place object — same shape as any
-`PLACES` entry — validated by the same `isValidPlace()` every other Place
-already goes through.
+`PLACES` grid plus a "📍 map" button (`public/lib/mappicker.js`) that opens a
+real zoomable slippy map — Leaflet + OpenStreetMap-derived tiles (CARTO's
+Voyager basemap, same OSM data, served off Carto's CDN rather than
+hotlinking `tile.openstreetmap.org`), loaded from CDN only when the picker
+first opens. A search box (Nominatim, OSM's own free geocoder) jumps the map
+to a typed place name; from there a member can zoom all the way to street
+level before tapping the exact spot — still no `navigator.geolocation` call
+anywhere, this is a manual pick, not a location request. The pick's lat/lng
+is turned into a stable Place `id` with a 6-character geohash
+(`public/lib/geohash.js`, prefixed `geo:` so it can never collide with a
+curated id), and named via a live reverse-geocode call to a free, keyless,
+client-CORS-open public API (`public/lib/geocode.js`) — degrading to a plain
+coordinate string and a 📍 if that lookup fails or times out, rather than
+blocking Place selection on a third party being up. The result is a real
+Place object — same shape as any `PLACES` entry — validated by the same
+`isValidPlace()` every other Place already goes through.
 
 ## Pages (`public/`)
 
@@ -125,9 +127,29 @@ Workers assets binding) plus client-side atproto calls. `wrangler deploy`
 from this directory, or push to `main` (see `notes/20-deploy.md` at the
 repo root) and the CI workflow redeploys it.
 
+## Signing in
+
+The header's "sign in" button and `/onboarding/`'s sign-in step both open an
+inline handle field wired to `public/lib/handle-typeahead.js` — the same
+Bluesky actor-search dropdown every other handle field in this app (and most
+of the constellation's sites) uses, loaded lazily on first use rather than
+shipped on every page. Neither ever calls `window.prompt()` anymore.
+
 ## What's still a stub
 
 Nothing currently — the last known gap is fixed, see below.
+
+Previously listed here: the header's "sign in" button and `/onboarding/`'s
+sign-in step both used a bare `window.prompt()` for a handle — no
+confirmation you'd typed a real one, and no consistency with every other
+handle field in the app. Fixed — see "Signing in" above: both now use the
+same actor-search dropdown as everywhere else.
+
+Previously also listed here: the "📍 map" Place picker was a single static
+SVG world silhouette a member could tap once, at whatever precision the
+whole-world view allowed — no way to zoom in and pick a specific street or
+neighborhood. Fixed — see "Choosing a Place" above: it's now a real
+zoomable Leaflet/OpenStreetMap map with a place-name search box.
 
 Previously listed here: every Place picker (compose, onboarding, settings,
 and `/shout/`'s carry destination) only offered the curated `PLACES` list —

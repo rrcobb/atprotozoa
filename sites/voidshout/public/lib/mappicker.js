@@ -1,18 +1,58 @@
-// mappicker.js — a reusable "tap anywhere on the map" Place picker. Every
-// page that lets a member choose a Place (compose's "from Place",
-// onboarding/settings' default Place, shout/'s carry-to-a-new-Place
-// destination) used to offer only the curated PLACES grid. This opens a
-// modal with the same coastline/graticule the real /map/ page draws
-// (WORLD_LAND_PATH, project()'s exact equirectangular formula) so a tap
-// lands on real ground, turns the tap into a real Place via unproject() +
-// geohashPlaceId() + reverseGeocode(), and hands the caller back a plain
-// Place object — the same shape as any entry in PLACES — ready to pass to
-// searchPlaces()'s `extra` param or straight into placeForRecord().
+// mappicker.js — a reusable "pick a real spot" Place picker. Every page that
+// lets a member choose a Place (compose's "from Place", onboarding/settings'
+// default Place, shout/'s carry-to-a-new-Place destination) used to offer
+// only the curated PLACES grid, then a flat static world silhouette you
+// could tap once. This opens a real zoomable slippy map (Leaflet + OSM-
+// derived tiles, loaded from CDN on first open — nothing shipped in the
+// bundle) so a member can zoom all the way into a neighborhood before
+// dropping a pin, or type a place name to jump straight there. The tap (or
+// search result) still turns into a real Place via geohashPlaceId() +
+// reverseGeocode(), and the caller still gets back a plain Place object —
+// same shape as any entry in PLACES — ready for searchPlaces()'s `extra`
+// param or straight into placeForRecord(). Public API (pickPlaceOnMap)
+// unchanged, so every caller needed zero changes.
 
-import { WORLD_LAND_PATH } from "./worldmap-data.js";
-import { unproject } from "./places.js";
 import { geohashPlaceId } from "./geohash.js";
 import { reverseGeocode } from "./geocode.js";
+
+const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+// CARTO's Voyager tiles are OpenStreetMap data (the brief's "open street
+// map or some other provider"), served off Carto's CDN rather than
+// hotlinking osm.org's own tile servers directly — same call the
+// littleguys site already made for the exact same reason (OSM's tile
+// usage policy asks bulk consumers not to hit tile.openstreetmap.org
+// directly). Voyager carries street labels, which is what actually makes
+// zooming in useful for picking a granular spot.
+const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
+  '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const SEARCH_MIN_LEN = 3;
+const SEARCH_DEBOUNCE_MS = 400;
+
+let leafletPromise = null;
+/** Loads Leaflet's CSS + JS from CDN exactly once, however many times the
+ *  picker is opened across the page's lifetime. */
+function loadLeaflet() {
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    if (window.L) { resolve(window.L); return; }
+    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = LEAFLET_CSS;
+      document.head.appendChild(link);
+    }
+    const script = document.createElement("script");
+    script.src = LEAFLET_JS;
+    script.onload = () => resolve(window.L);
+    script.onerror = () => reject(new Error("couldn't load the map"));
+    document.head.appendChild(script);
+  });
+  return leafletPromise;
+}
 
 let stylesInjected = false;
 function injectStyles() {
@@ -21,13 +61,17 @@ function injectStyles() {
   const style = document.createElement("style");
   style.textContent = `
     .mp-overlay { position: fixed; inset: 0; background: #0f14198c; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 1rem; }
-    .mp-modal { background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 14px; padding: 1rem; max-width: 640px; width: 100%; }
+    .mp-modal { background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 14px; padding: 1rem; max-width: 680px; width: 100%; }
     .mp-title { margin: 0 0 0.5rem; font-size: 1.05rem; }
     .mp-hint { margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--muted); }
-    .mp-map { position: relative; width: 100%; aspect-ratio: 2 / 1; background: linear-gradient(180deg, #eaf5ff, #dcefff 60%, #eef7ff); border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; cursor: crosshair; }
-    .mp-map svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-    .mp-map .mp-land { fill: #cfe4d8; stroke: #9fc2ae; stroke-width: 1; }
-    .mp-pin { position: absolute; transform: translate(-50%, -100%); font-size: 1.6rem; filter: drop-shadow(var(--pin-glow)); pointer-events: none; }
+    .mp-search-row { position: relative; margin-bottom: 0.6rem; }
+    .mp-search-row input { width: 100%; box-sizing: border-box; }
+    .mp-search-drop { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 1200; background: var(--panel-solid); color: inherit; border: 1px solid var(--faint); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,0.25); overflow-y: auto; max-height: 220px; font-size: 0.85rem; }
+    .mp-search-item { padding: 0.5em 0.7em; cursor: pointer; }
+    .mp-search-item:hover, .mp-search-item.active { background: rgba(0,0,0,0.06); }
+    .mp-search-empty { padding: 0.5em 0.7em; opacity: 0.6; }
+    .mp-map { position: relative; width: 100%; aspect-ratio: 2 / 1.1; border: 1px solid var(--faint); border-radius: 10px; overflow: hidden; background: #dcefff; }
+    .mp-map .leaflet-container { width: 100%; height: 100%; font: inherit; cursor: crosshair; }
     .mp-panel { margin-top: 0.7rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .mp-panel .mp-name { font-size: 0.9rem; flex: 1 1 200px; }
     .mp-actions { margin-top: 0.7rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
@@ -37,7 +81,7 @@ function injectStyles() {
 
 /** Opens the map-picker modal. Resolves with `{id, name, emoji, lat, lng}`
  *  (numeric lat/lng, same shape as a PLACES entry) if the member confirms a
- *  tap, or `null` if they cancel. */
+ *  tap or search pick, or `null` if they cancel. */
 export function pickPlaceOnMap() {
   injectStyles();
   return new Promise((resolve) => {
@@ -46,11 +90,11 @@ export function pickPlaceOnMap() {
     overlay.innerHTML = `
       <div class="mp-modal">
         <h3 class="mp-title">pick a Place on the map</h3>
-        <p class="mp-hint">tap anywhere — this isn't limited to the curated list.</p>
-        <div class="mp-map" id="mpMap">
-          <svg viewBox="0 0 1000 500"><path class="mp-land" d="${WORLD_LAND_PATH}" /></svg>
-          <span class="mp-pin" id="mpPin" style="display:none">📍</span>
+        <p class="mp-hint">search a place to jump there, then zoom in and tap the exact spot — this isn't limited to the curated list.</p>
+        <div class="mp-search-row">
+          <input id="mpSearch" placeholder="search a place by name…" autocomplete="off" />
         </div>
+        <div class="mp-map" id="mpMap"></div>
         <div class="mp-panel" id="mpPanel" style="display:none">
           <span class="mp-name" id="mpName"></span>
         </div>
@@ -62,29 +106,30 @@ export function pickPlaceOnMap() {
     document.body.appendChild(overlay);
 
     const mapEl = overlay.querySelector("#mpMap");
-    const pinEl = overlay.querySelector("#mpPin");
+    const searchInput = overlay.querySelector("#mpSearch");
     const panelEl = overlay.querySelector("#mpPanel");
     const nameEl = overlay.querySelector("#mpName");
     const useBtn = overlay.querySelector("#mpUse");
     const cancelBtn = overlay.querySelector("#mpCancel");
 
-    let picked = null; // {lat, lng, name, emoji}
+    let picked = null; // {id, lat, lng, name, emoji}
     let requestId = 0;
+    let map = null;
+    let marker = null;
 
     function close(result) {
       overlay.remove();
       resolve(result);
     }
 
-    mapEl.addEventListener("click", async (e) => {
-      const rect = mapEl.getBoundingClientRect();
-      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-      const { lat, lng } = unproject(xPct, yPct);
-
-      pinEl.style.left = `${xPct}%`;
-      pinEl.style.top = `${yPct}%`;
-      pinEl.style.display = "";
+    async function onPick(lat, lng) {
+      lat = Math.max(-90, Math.min(90, lat));
+      lng = Math.max(-180, Math.min(180, lng));
+      if (window.L) {
+        const icon = window.L.divIcon({ html: "📍", className: "mp-pin-icon", iconSize: [28, 28], iconAnchor: [14, 26] });
+        if (marker) marker.setLatLng([lat, lng]);
+        else marker = window.L.marker([lat, lng], { icon }).addTo(map);
+      }
       panelEl.style.display = "";
       useBtn.disabled = true;
       nameEl.textContent = "looking up name…";
@@ -92,16 +137,98 @@ export function pickPlaceOnMap() {
 
       const myRequest = ++requestId;
       const geo = await reverseGeocode(lat, lng);
-      if (myRequest !== requestId) return; // a later tap superseded this lookup
+      if (myRequest !== requestId) return; // a later pick superseded this lookup
 
       picked = { id: geohashPlaceId(lat, lng), name: geo.name, emoji: geo.emoji, lat, lng };
-      pinEl.textContent = geo.emoji;
       nameEl.textContent = `${geo.emoji} ${geo.name}`;
       useBtn.disabled = false;
+    }
+
+    loadLeaflet()
+      .then((L) => {
+        map = L.map(mapEl, { attributionControl: true, zoomControl: true }).setView([20, 0], 2);
+        L.tileLayer(TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: TILE_ATTRIBUTION }).addTo(map);
+        map.on("click", (e) => onPick(e.latlng.lat, e.latlng.lng));
+        setTimeout(() => map.invalidateSize(), 0);
+      })
+      .catch((err) => {
+        mapEl.textContent = err.message;
+        mapEl.style.display = "flex";
+        mapEl.style.alignItems = "center";
+        mapEl.style.justifyContent = "center";
+      });
+
+    // --- search: jump the map to a typed place name (Nominatim, OSM's own
+    // free geocoder) — picking a result flies there and drops a pin, same
+    // as a direct tap, so it still goes through reverseGeocode() for a name
+    // consistent with the rest of the app. ---
+    let searchDebounce = null;
+    let searchAbort = null;
+    let searchDrop = null;
+
+    function closeSearchDrop() {
+      if (searchDrop) { searchDrop.remove(); searchDrop = null; }
+    }
+
+    function renderSearchDrop(results) {
+      closeSearchDrop();
+      searchDrop = document.createElement("div");
+      searchDrop.className = "mp-search-drop";
+      if (!results.length) {
+        searchDrop.innerHTML = `<div class="mp-search-empty">no matches</div>`;
+      } else {
+        searchDrop.innerHTML = results
+          .map((r, i) => `<div class="mp-search-item" data-i="${i}">${escapeHtml(r.display_name)}</div>`)
+          .join("");
+        [...searchDrop.querySelectorAll(".mp-search-item")].forEach((el) => {
+          el.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const r = results[Number(el.dataset.i)];
+            closeSearchDrop();
+            searchInput.value = r.display_name;
+            const lat = Number(r.lat);
+            const lng = Number(r.lon);
+            if (map) map.setView([lat, lng], 13);
+            onPick(lat, lng);
+          });
+        });
+      }
+      overlay.querySelector(".mp-search-row").appendChild(searchDrop);
+    }
+
+    async function runSearch(q) {
+      if (searchAbort) searchAbort.abort();
+      searchAbort = new AbortController();
+      try {
+        const url = `${NOMINATIM}?q=${encodeURIComponent(q)}&format=jsonv2&limit=6`;
+        const res = await fetch(url, { signal: searchAbort.signal });
+        if (!res.ok) throw new Error("search failed");
+        const results = await res.json();
+        renderSearchDrop(results);
+      } catch (e) {
+        if (e.name !== "AbortError") closeSearchDrop();
+      }
+    }
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(searchDebounce);
+      const q = searchInput.value.trim();
+      if (q.length < SEARCH_MIN_LEN) { closeSearchDrop(); return; }
+      searchDebounce = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE_MS);
+    });
+    searchInput.addEventListener("blur", () => setTimeout(closeSearchDrop, 150));
+    document.addEventListener("mousedown", (e) => {
+      if (searchDrop && e.target !== searchInput && !searchDrop.contains(e.target)) closeSearchDrop();
     });
 
     useBtn.addEventListener("click", () => picked && close(picked));
     cancelBtn.addEventListener("click", () => close(null));
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
   });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
 }

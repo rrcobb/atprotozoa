@@ -22,7 +22,11 @@
   <div class="step card" id="stepSignin">
     <h2>1. sign in</h2>
     <p class="muted">Real atproto OAuth — you'll land back here after your PDS confirms it's you.</p>
-    <button class="btn primary" id="signinBtn">sign in with your handle</button>
+    <div style="display:flex; gap:0.4rem; align-items:center">
+      <input id="signinHandle" placeholder="your handle (e.g. you.bsky.social)" autocomplete="off" style="flex:1; margin-bottom:0" />
+      <button class="btn primary" id="signinBtn">sign in</button>
+    </div>
+    <p class="muted" id="signinErr" style="font-size:0.8rem"></p>
   </div>
 
   <div class="step card" id="stepHome" style="display:none">
@@ -45,6 +49,7 @@
   </div>
 </div>
 
+<script src="/lib/handle-typeahead.js"></script>
 <script type="module">
 import { mountChrome } from "/lib/chrome.js";
 import { getSession, login, dpopFetch } from "/lib/oauth.js";
@@ -58,19 +63,33 @@ const stepSignin = document.getElementById("stepSignin");
 const stepHome = document.getElementById("stepHome");
 const stepPlace = document.getElementById("stepPlace");
 const signinBtn = document.getElementById("signinBtn");
+const signinHandle = document.getElementById("signinHandle");
+const signinErr = document.getElementById("signinErr");
 const placeGrid = document.getElementById("placeGrid");
 const placeSearch = document.getElementById("placeSearch");
 const joinBtn = document.getElementById("joinBtn");
 const joinStatus = document.getElementById("joinStatus");
 
-signinBtn.addEventListener("click", async () => {
-  const handle = prompt("Your Bluesky handle:");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(signinHandle);
+
+async function trySignin() {
+  const handle = signinHandle.value.trim();
   if (!handle) return;
+  signinBtn.disabled = true;
+  signinErr.textContent = "";
   try {
-    await login(handle.trim());
+    await login(handle);
   } catch (e) {
-    alert("sign-in failed: " + e.message);
+    signinErr.textContent = "sign-in failed: " + e.message;
+    signinBtn.disabled = false;
   }
+}
+signinBtn.addEventListener("click", trySignin);
+signinHandle.addEventListener("keydown", (e) => {
+  // let handle-typeahead.js own Enter while its dropdown is open (it
+  // resolves the highlighted suggestion) — only treat Enter as "submit"
+  // once there's no dropdown left to race.
+  if (e.key === "Enter" && !document.querySelector(".ht-dropdown")) { e.preventDefault(); trySignin(); }
 });
 
 let selected = null;
