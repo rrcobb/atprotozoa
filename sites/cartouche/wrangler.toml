@@ -1,19 +1,34 @@
 name = "atprotozoa-cartouche"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Pure static site — everything runs in the browser. Fetches
-# fromthewestmeadow.com's real public profile (app.bsky.actor.getProfile,
-# CORS *) and re-renders it as a floating 3D shrine: a cartouche (the actual
-# Egyptian device for writing a name) holding their handle transliterated
-# into real Unicode Egyptian hieroglyphs (U+13000-U+1342F, Noto Sans
-# Egyptian Hieroglyphs from Google Fonts), plus stat-steles for follower/
-# following/post counts and account age, and their bio run through the same
-# transliteration. Hover/tap any glyph line to reveal its "translation"
-# (the real text) — inscrutable until you ask. CSS 3D perspective + mouse
-# parallax for the "floating diagrams" half of the ask. Built from
-# @fromthewestmeadow.com's own request: "make a website about me entirely
-# out of inscrutable hieroglyphics and floating 3 dimensional diagrams."
-# ?handle= lets anyone else's profile through the same machine too.
-assets = { directory = "./public" }
-
+# Everything still runs client-side (see public/index.html): fetches a real
+# public profile (app.bsky.actor.getProfile, CORS *) and re-renders it as a
+# floating 3D shrine — a cartouche (the actual Egyptian device for writing a
+# name) holding a handle transliterated into real Unicode Egyptian
+# hieroglyphs (U+13000-U+1342F, Noto Sans Egyptian Hieroglyphs from Google
+# Fonts), plus stat-steles for follower/following/post counts, account age,
+# and the three latest posts, all run through the same transliteration.
+# Hover/tap any glyph line to reveal its "translation" (the real text) —
+# inscrutable until you ask. CSS 3D perspective + mouse parallax, with an
+# optional auto-orbit, for the "floating diagrams" half of the ask. Built
+# from @fromthewestmeadow.com's own request: "make a website about me
+# entirely out of inscrutable hieroglyphics and floating 3 dimensional
+# diagrams." ?handle= lets anyone else's profile through the same machine.
+#
+# The one server surface: src/index.ts renders /s/<handle>, a distinct
+# per-person URL with personalized og:title/og:description/og:url baked in
+# server-side, so sharing someone else's reading doesn't unfurl as
+# @fromthewestmeadow.com's static card. Falls through to ASSETS otherwise.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in buildthis/logs/wrangler.toml).
 routes = [{ pattern = "cartouche.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: /s/<handle> is dynamic (personalized OG tags per share),
+# so the Worker must run BEFORE the static-asset router, same as didscope.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
