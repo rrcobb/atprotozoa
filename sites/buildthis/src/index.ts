@@ -944,6 +944,26 @@ async function handleThemePage(env: Env): Promise<Response> {
 // newest first," which KV does fine.
 
 const EVENT_PREFIX = "event:";
+
+// KV's list() caps a single page at 1000 keys — fine while the event count sits
+// under that, but @antiali.as's "1001 times" bit made it obvious this was a real
+// ceiling, not a hypothetical one: past 1000 events, a single list() call would
+// silently drop the rest (in key order, not date order — so not even a clean
+// tail). Page through with the cursor until list_complete so the log's real size
+// isn't capped by KV's page size.
+async function listAllEventKeys(env: Env): Promise<{ name: string }[]> {
+  const keys: { name: string }[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await env.STATE.list({ prefix: EVENT_PREFIX, cursor });
+    keys.push(...page.keys);
+    if (page.list_complete) break;
+    cursor = page.cursor;
+    if (!cursor) break;
+  }
+  return keys;
+}
+
 // Events outlive the 7-day `handled:` dedup window so the timeline stays readable
 // after a tag stops being re-checkable. 30 days is plenty for a toy log.
 const EVENT_TTL = 60 * 60 * 24 * 30;
@@ -1026,16 +1046,16 @@ async function handleLogsRead(env: Env, url: URL): Promise<Response> {
     "cache-control": "no-cache",
   };
   try {
-    // A single list() page (1000 keys) still covers the event set well past the
-    // 30-day TTL, so we don't paginate.
-    const list = await env.STATE.list({ prefix: EVENT_PREFIX });
+    // Paginated past KV's 1000-key list() page (see listAllEventKeys) so the
+    // count and timeline stay accurate once the log outgrows a single page.
+    const keys = await listAllEventKeys(env);
 
     // Single-event lookup for /tag/<rkey>. The KV key is `event:<mentionUri>`
     // and the rkey is that uri's last segment, so this is a key filter — no
     // need to read every record and search their contents.
     const wantRkey = url.searchParams.get("rkey");
     if (wantRkey) {
-      const hit = list.keys.find((k) => k.name.endsWith(`/${wantRkey}`));
+      const hit = keys.find((k) => k.name.endsWith(`/${wantRkey}`));
       if (!hit) {
         return new Response(JSON.stringify({ events: [] }), {
           headers: { ...cors, "cache-control": "public, max-age=30" },
@@ -1054,7 +1074,7 @@ async function handleLogsRead(env: Env, url: URL): Promise<Response> {
     // (each get is tens of ms, and they added up), which made logs.bisks.net
     // look hung since it blocks on this fetch to render. Promise.all turns the
     // same reads into one wall-clock round trip.
-    const raws = await Promise.all(list.keys.map((k) => env.STATE.get(k.name)));
+    const raws = await Promise.all(keys.map((k) => env.STATE.get(k.name)));
 
     const events: LogEvent[] = [];
     for (const raw of raws) {
@@ -1177,8 +1197,8 @@ interface DirectorySnapshot {
 
 async function loadAllEvents(env: Env): Promise<LogEvent[]> {
   const events: LogEvent[] = [];
-  const list = await env.STATE.list({ prefix: EVENT_PREFIX });
-  for (const k of list.keys) {
+  const keys = await listAllEventKeys(env);
+  for (const k of keys) {
     const raw = await env.STATE.get(k.name);
     if (!raw) continue;
     try {
