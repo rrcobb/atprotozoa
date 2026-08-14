@@ -139,3 +139,40 @@ export function digits(n) {
 export function gridSide(count) {
   return Math.max(1, Math.ceil(Math.sqrt(count)));
 }
+
+// Lay out `total` grid cells (side*side) for a sorted, deduped value list:
+// every recorded number gets a cell, plus `total - count` blank cells
+// standing in for the numbers *between* them that haven't been seen yet.
+// Blanks are apportioned across the real gaps (the span below the smallest
+// value, and each run of skipped integers between consecutive values) in
+// proportion to how big that gap actually is — largest-remainder rounding so
+// a single leftover blank lands in the single biggest gap rather than always
+// trailing off the end. Whatever blanks don't fit inside real gaps (there are
+// usually far fewer slots than actual missing numbers) trail after the
+// largest value as plain room-to-grow.
+export function layoutCells(sortedValues, total) {
+  const count = sortedValues.length;
+  if (count === 0) return [];
+  const extra = Math.max(0, total - count);
+  const gaps = [sortedValues[0]]; // numbers below the smallest value seen
+  for (let i = 1; i < count; i++) gaps.push(Math.max(0, sortedValues[i] - sortedValues[i - 1] - 1));
+  const realMissing = gaps.reduce((a, b) => a + b, 0);
+  const capped = Math.min(extra, realMissing);
+
+  const shares = gaps.map((g) => (realMissing > 0 ? (g / realMissing) * capped : 0));
+  const allocated = shares.map(Math.floor);
+  let used = allocated.reduce((a, b) => a + b, 0);
+  const order = gaps
+    .map((g, i) => ({ i, frac: shares[i] - allocated[i], g }))
+    .sort((a, b) => b.frac - a.frac || b.g - a.g);
+  for (let k = 0; used < capped && k < order.length; k++, used++) allocated[order[k].i]++;
+  const trailing = extra - used;
+
+  const cells = [];
+  for (let i = 0; i < count; i++) {
+    for (let j = 0; j < allocated[i]; j++) cells.push({ empty: true });
+    cells.push({ value: sortedValues[i] });
+  }
+  for (let j = 0; j < trailing; j++) cells.push({ empty: true });
+  return cells;
+}

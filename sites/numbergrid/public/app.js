@@ -6,7 +6,7 @@
 // PDS — see lib/board.js. Only adding a number needs an OAuth session.
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
-import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, gridSide } from "./lib/board.js";
+import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, gridSide, layoutCells } from "./lib/board.js";
 
 const els = {
   banner: document.getElementById("viewBanner"),
@@ -29,6 +29,7 @@ const els = {
   boardWrap: document.getElementById("boardWrap"),
   boardLabel: document.getElementById("boardLabel"),
   boardCap: document.getElementById("boardCap"),
+  bingoRow: document.getElementById("bingoRow"),
   grid: document.getElementById("grid"),
   emptyMsg: document.getElementById("emptyMsg"),
   sharebar: document.getElementById("sharebar"),
@@ -170,16 +171,24 @@ function renderBoard() {
   els.boardWrap.style.display = "block";
   els.boardLabel.textContent = isOwn ? "your board" : `@${viewHandle}'s board`;
   els.boardCap.textContent = `${count} number${count === 1 ? "" : "s"}`;
+
+  if (side === 5) {
+    els.bingoRow.style.display = "grid";
+    els.bingoRow.style.gridTemplateColumns = `repeat(${side}, 1fr)`;
+    els.bingoRow.innerHTML = "BINGO".split("").map((l) => `<span>${l}</span>`).join("");
+  } else {
+    els.bingoRow.style.display = "none";
+  }
+
   els.grid.style.gridTemplateColumns = `repeat(${side}, 1fr)`;
   els.grid.innerHTML = "";
-  for (let i = 0; i < total; i++) {
+  for (const c of layoutCells(boardValues, total)) {
     const cell = document.createElement("div");
-    if (i < count) {
-      const v = boardValues[i];
-      cell.className = "cell" + (v === freshValue ? " fresh" : "");
-      cell.innerHTML = `<span class="n">${v.toLocaleString()}</span>`;
-    } else {
+    if (c.empty) {
       cell.className = "cell empty";
+    } else {
+      cell.className = "cell" + (c.value === freshValue ? " fresh" : "");
+      cell.innerHTML = `<span class="n">${c.value.toLocaleString()}</span>`;
     }
     els.grid.appendChild(cell);
   }
