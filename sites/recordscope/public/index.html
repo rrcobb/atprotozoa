@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>recordscope — read any atproto record straight off its PDS</title>
+<meta name="description" content="Paste an AT-URI (or a whtwnd.com link) and read the record rendered straight off the owner's own PDS. Share the link instead of pasting the document." />
+<meta property="og:title" content="recordscope — read any atproto record straight off its PDS" />
+<meta property="og:description" content="Paste an AT-URI (or a whtwnd.com link) and read the record rendered straight off the owner's own PDS. Share the link instead of pasting the document." />
+<meta property="og:url" content="https://recordscope.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://recordscope.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="recordscope: an AT-URI going in, a rendered document coming out." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="recordscope — read any atproto record straight off its PDS" />
+<meta name="twitter:description" content="Paste an AT-URI (or a whtwnd.com link) and read the record rendered straight off the owner's own PDS. Share the link instead of pasting the document." />
+<meta name="twitter:image" content="https://recordscope.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #12100c;
+    --bg2: #1b1712;
+    --fg: #f2ead9;
+    --dim: #a99d84;
+    --accent: #e8a33d;
+    --accent2: #7cb9a8;
+    --card: #1d1912;
+    --border: #37301f;
+    --danger: #ff8a7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a2a12 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #123028 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.1rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 680px; }
+  h1 {
+    font-size: 1.8rem;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; line-height: 1.55; margin: 0 0 1.6rem; max-width: 60ch; }
+  .tag code { color: var(--accent2); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 220px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.92rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #c97f1f);
+    color: #1a1206;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .hint { color: var(--dim); font-size: 0.76rem; line-height: 1.6; margin: 0 0 2rem; }
+  .hint code { color: var(--accent2); }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--danger); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -24px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .meta { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1.1rem; flex-wrap: wrap; }
+  .meta img { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); }
+  .meta .who { font-weight: 700; font-size: 0.92rem; }
+  .meta .sub { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+  .badge {
+    display: inline-block;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.68rem;
+    margin-left: auto;
+  }
+
+  h2.title { font-size: 1.35rem; margin: 0 0 0.3rem; line-height: 1.3; }
+  .createdAt { color: var(--dim); font-size: 0.74rem; margin-bottom: 1.3rem; }
+
+  .body { line-height: 1.7; font-size: 0.95rem; margin-bottom: 1.4rem; }
+  .body h1, .body h2, .body h3 { line-height: 1.35; margin: 1.3em 0 0.5em; }
+  .body h1:first-child, .body h2:first-child, .body h3:first-child { margin-top: 0; }
+  .body p { margin: 0 0 1em; white-space: pre-wrap; }
+  .body blockquote { border-left: 3px solid var(--accent); margin: 0 0 1em; padding-left: 0.9rem; color: var(--dim); }
+  .body ul, .body ol { margin: 0 0 1em; padding-left: 1.4rem; }
+  .body hr { border: none; border-top: 1px dashed var(--border); margin: 1.4em 0; }
+  .body code { background: var(--bg2); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.88em; }
+  .body pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .body .post-text { white-space: pre-wrap; font-size: 1.02rem; }
+  .body .muted { color: var(--dim); font-style: italic; }
+  .body .doc-note { color: var(--dim); font-size: 0.8rem; font-style: italic; margin-bottom: 1em; }
+
+  details.raw { border-top: 1px dashed var(--border); padding-top: 1rem; margin-bottom: 1.3rem; }
+  details.raw summary { cursor: pointer; color: var(--accent2); font-size: 0.8rem; font-weight: 700; }
+  details.raw pre { margin-top: 0.7rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; overflow-x: auto; font-size: 0.78rem; max-height: 340px; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    padding-top: 1.1rem;
+  }
+  .share .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent2); margin-bottom: 0.5rem; }
+  .permalink { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+  .permalink input {
+    flex: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    font: inherit;
+    font-size: 0.78rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-actions a, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    font: inherit;
+    font-size: 0.83rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #c97f1f);
+    color: #1a1206;
+    border: none;
+  }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>recordscope</h1>
+    <p class="tag">
+      Read any public atproto record straight off its own PDS — no AppView
+      cache, no copy-pasting a document into a thread. Paste an AT-URI, a
+      <code>whtwnd.com</code> link, or a Bluesky post link and get back a
+      rendered page with its own permanent, shareable URL.
+    </p>
+
+    <form id="f">
+      <input id="uri" type="text" placeholder="at://handle.or.did/collection/rkey, or a whtwnd.com link" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">view</button>
+    </form>
+    <p class="hint">
+      accepts: <code>at://did/collection/rkey</code> ·
+      <code>whtwnd.com/handle/rkey</code> ·
+      <code>bsky.app/profile/handle/post/rkey</code> ·
+      or bare <code>handle/collection/rkey</code>
+    </p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="meta">
+        <img id="avatar" alt="" style="display:none;" />
+        <div>
+          <div class="who" id="whoOut"></div>
+          <div class="sub" id="didOut"></div>
+        </div>
+        <span class="badge" id="collectionBadge"></span>
+      </div>
+
+      <h2 class="title" id="titleOut" style="display:none;"></h2>
+      <div class="createdAt" id="createdAtOut"></div>
+
+      <div class="body" id="bodyOut"></div>
+
+      <details class="raw">
+        <summary>raw record</summary>
+        <pre id="rawOut"></pre>
+      </details>
+
+      <div class="share">
+        <div class="label">share this instead of pasting it</div>
+        <div class="permalink">
+          <input id="permalink" type="text" readonly />
+          <button id="copyLink" class="ghost" type="button">copy</button>
+        </div>
+        <div class="share-actions">
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share on bsky</a>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/mini-md.js"></script>
+<script type="module">
+import { resolveDid, resolvePds, getProfile, getRecord, getBlob } from "./lib/atproto.js";
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("uri"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  whoOut: document.getElementById("whoOut"),
+  didOut: document.getElementById("didOut"),
+  collectionBadge: document.getElementById("collectionBadge"),
+  titleOut: document.getElementById("titleOut"),
+  createdAtOut: document.getElementById("createdAtOut"),
+  bodyOut: document.getElementById("bodyOut"),
+  rawOut: document.getElementById("rawOut"),
+  permalink: document.getElementById("permalink"),
+  copyLink: document.getElementById("copyLink"),
+  shareBluesky: document.getElementById("shareBluesky"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Forgiving parser: AT-URIs, whtwnd.com links, bsky.app post links, and bare
+// "actor/collection/rkey" (or "actor/rkey" shorthand, defaulting to whtwnd's
+// blog collection since that's the "I have a whole document" use case this
+// site was built for).
+function parseInput(raw) {
+  const s = (raw || "").trim();
+  if (!s) throw new Error("paste something first.");
+
+  let m = s.match(/^https?:\/\/(?:www\.)?whtwnd\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
+  if (m) return { actor: decodeURIComponent(m[1]), collection: "com.whtwnd.blog.entry", rkey: decodeURIComponent(m[2]) };
+
+  m = s.match(/^https?:\/\/(?:www\.)?bsky\.app\/profile\/([^\/\s?#]+)\/post\/([^\/\s?#]+)/i);
+  if (m) return { actor: decodeURIComponent(m[1]), collection: "app.bsky.feed.post", rkey: decodeURIComponent(m[2]) };
+
+  m = s.match(/^at:\/\/([^\/\s]+)\/([^\/\s]+)\/([^\/\s?#]+)/i);
+  if (m) return { actor: decodeURIComponent(m[1]), collection: decodeURIComponent(m[2]), rkey: decodeURIComponent(m[3]) };
+
+  const parts = s.replace(/^\/+/, "").split("/").filter(Boolean);
+  if (parts.length === 3) return { actor: decodeURIComponent(parts[0]), collection: decodeURIComponent(parts[1]), rkey: decodeURIComponent(parts[2]) };
+  if (parts.length === 2) return { actor: decodeURIComponent(parts[0]), collection: "com.whtwnd.blog.entry", rkey: decodeURIComponent(parts[1]) };
+
+  throw new Error("couldn't parse that — try an AT-URI (at://did/collection/rkey).");
+}
+
+function shareUrlFor(did, collection, rkey) {
+  return `https://recordscope.bisks.net/at/${encodeURIComponent(did)}/${encodeURIComponent(collection)}/${encodeURIComponent(rkey)}`;
+}
+
+function truncate(s, max) {
+  const arr = [...String(s)];
+  if (arr.length <= max) return s;
+  return arr.slice(0, max - 1).join("").trimEnd() + "…";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function snippetFromMarkdown(md, max) {
+  const plain = String(md || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_>`#-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return truncate(plain, max);
+}
+
+async function renderWhtwnd(value, ctx) {
+  const title = value.title || "(untitled)";
+  els.titleOut.textContent = title;
+  els.titleOut.style.display = "";
+
+  const content = value.content;
+  if (content && typeof content === "object" && content.$type === "blob") {
+    els.bodyOut.innerHTML = `<p class="doc-note">fetching the document body…</p>`;
+    const cid = content.ref?.$link || content.ref;
+    const resp = await getBlob(ctx.pds, ctx.did, cid);
+    const text = await resp.text();
+    const mime = content.mimeType || "";
+    els.bodyOut.innerHTML = mime.includes("markdown") || !mime
+      ? window.miniMarkdown(text)
+      : `<pre>${esc(text)}</pre>`;
+    return { snippet: snippetFromMarkdown(text, 180) };
+  }
+  if (typeof content === "string") {
+    els.bodyOut.innerHTML = window.miniMarkdown(content);
+    return { snippet: snippetFromMarkdown(content, 180) };
+  }
+  els.bodyOut.innerHTML = `<p class="muted">this record has no content field.</p>`;
+  return { snippet: "" };
+}
+
+function renderBskyPost(value) {
+  els.titleOut.style.display = "none";
+  els.bodyOut.innerHTML = `<p class="post-text">${esc(value.text || "")}</p>`;
+  return { snippet: truncate(value.text || "", 180) };
+}
+
+function renderGeneric(value) {
+  const title = value.title || value.name || value.displayName || null;
+  if (title) {
+    els.titleOut.textContent = title;
+    els.titleOut.style.display = "";
+  } else {
+    els.titleOut.style.display = "none";
+  }
+  const textish = ["description", "text", "content", "body"].map((k) => value[k]).find((v) => typeof v === "string");
+  els.bodyOut.innerHTML = textish
+    ? `<p>${esc(textish)}</p>`
+    : `<p class="muted">no rendering for this collection yet — see the raw record below.</p>`;
+  return { snippet: textish ? truncate(textish, 180) : "" };
+}
+
+async function load(rawInput, { pushState = true } = {}) {
+  let parsed;
+  try {
+    parsed = parseInput(rawInput);
+  } catch (err) {
+    setStatus(err.message, true);
+    return;
+  }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus(`resolving ${parsed.actor} ...`);
+
+  try {
+    const did = await resolveDid(parsed.actor);
+    setStatus(`finding ${did}'s PDS ...`);
+    const pds = await resolvePds(did);
+    if (!pds) throw new Error("couldn't find a PDS for that DID.");
+
+    setStatus("fetching record ...");
+    const rec = await getRecord(pds, did, parsed.collection, parsed.rkey);
+    const value = rec.value || {};
+
+    const profile = await getProfile(did);
+    els.avatar.src = profile?.avatar || "";
+    els.avatar.style.display = profile?.avatar ? "" : "none";
+    els.whoOut.textContent = profile?.handle ? "@" + profile.handle : did;
+    els.didOut.textContent = did;
+    els.collectionBadge.textContent = parsed.collection;
+    els.createdAtOut.textContent = fmtDate(value.createdAt) ? "recorded " + fmtDate(value.createdAt) : "";
+    els.rawOut.textContent = JSON.stringify(value, null, 2);
+
+    let result;
+    setStatus("rendering ...");
+    if (value.$type === "com.whtwnd.blog.entry") result = await renderWhtwnd(value, { did, pds });
+    else if (value.$type === "app.bsky.feed.post") result = renderBskyPost(value);
+    else result = renderGeneric(value);
+
+    const shareUrl = shareUrlFor(did, parsed.collection, parsed.rkey);
+    els.permalink.value = shareUrl;
+    const title = value.title || (profile?.handle ? "@" + profile.handle + "'s " + parsed.collection : parsed.collection);
+    const shareBody = result?.snippet ? `“${result.snippet}”\n\n` : "";
+    const shareText = truncate(`${title}\n\n${shareBody}${shareUrl}`, 300);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+    if (pushState) history.pushState(null, "", `/at/${encodeURIComponent(did)}/${encodeURIComponent(parsed.collection)}/${encodeURIComponent(parsed.rkey)}`);
+
+    setStatus("");
+    els.card.classList.add("show");
+  } catch (err) {
+    const msg = err?.status === 400 || err?.status === 404
+      ? "no record there — check the collection and rkey."
+      : "couldn't load that: " + (err?.message || err);
+    setStatus(msg, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  load(els.input.value);
+});
+
+els.copyLink.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(els.permalink.value);
+    const prev = els.copyLink.textContent;
+    els.copyLink.textContent = "copied!";
+    setTimeout(() => (els.copyLink.textContent = prev), 1200);
+  } catch {
+    els.permalink.select();
+  }
+});
+
+// /at/<actor>/<collection>/<rkey> (a shared permalink) or ?u=<raw input>
+// both auto-load on open.
+const pathMatch = location.pathname.match(/^\/at\/([^/]+)\/([^/]+)\/([^/]+)\/?$/);
+if (pathMatch) {
+  const raw = `at://${decodeURIComponent(pathMatch[1])}/${decodeURIComponent(pathMatch[2])}/${decodeURIComponent(pathMatch[3])}`;
+  els.input.value = raw;
+  load(raw, { pushState: false });
+} else {
+  const q = new URLSearchParams(location.search).get("u");
+  if (q) {
+    els.input.value = q;
+    load(q);
+  }
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
