@@ -395,3 +395,74 @@ export function createVoice(ctx, master, { did, handle, bio, activity = 0.15 }) 
     },
   };
 }
+
+// ---- binaural base tone -------------------------------------------------
+// An optional layer, independent of the account voices: two pure sine tones,
+// one per ear, offset by a brainwave-band frequency so the two ears'
+// difference is perceived as a slow pulsing "beat" (needs headphones/stereo
+// speakers). Ported from sites/vadrone/public/lib/synth.js, at
+// @antiali.as's request ("add vadrone options to mootdrone") — same board,
+// same ctx.suspend()/resume() transport, so the radio picks the band and the
+// board's own play/pause silences it along with everything else. Kept on its
+// own bus straight to ctx.destination rather than through the board's
+// convolution reverb, since the reverb would smear the strict left/right
+// separation the illusion depends on.
+export const TONE_BANDS = {
+  none: 0,
+  alpha: 10,
+  beta: 20,
+  delta: 2,
+  theta: 6,
+};
+const BINAURAL_CARRIER_HZ = 180;
+
+export function createBinaural(ctx) {
+  const merger = ctx.createChannelMerger(2);
+  const outGain = ctx.createGain();
+  outGain.gain.value = 0;
+
+  const leftOsc = ctx.createOscillator();
+  leftOsc.type = "sine";
+  leftOsc.frequency.value = BINAURAL_CARRIER_HZ;
+  const rightOsc = ctx.createOscillator();
+  rightOsc.type = "sine";
+  rightOsc.frequency.value = BINAURAL_CARRIER_HZ;
+
+  leftOsc.connect(merger, 0, 0);
+  rightOsc.connect(merger, 0, 1);
+  merger.connect(outGain);
+  outGain.connect(ctx.destination);
+  leftOsc.start();
+  rightOsc.start();
+
+  let band = "none";
+  let volScale = 0.8;
+
+  function apply() {
+    const t = ctx.currentTime + 0.15;
+    const beat = TONE_BANDS[band] || 0;
+    if (!beat) {
+      outGain.gain.linearRampToValueAtTime(0, t);
+      return;
+    }
+    rightOsc.frequency.linearRampToValueAtTime(BINAURAL_CARRIER_HZ + beat, t);
+    outGain.gain.linearRampToValueAtTime(0.16 * volScale, t);
+  }
+
+  return {
+    setBand(b) {
+      band = b;
+      apply();
+    },
+    setVolume(v) {
+      volScale = v;
+      apply();
+    },
+    stop() {
+      try {
+        leftOsc.stop();
+        rightOsc.stop();
+      } catch {}
+    },
+  };
+}

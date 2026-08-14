@@ -3,7 +3,7 @@
 // does DOM + orchestration.
 
 import { moots, getProfiles, postingActivity } from "./lib/cluster.js";
-import { createVoice, createMaster } from "./lib/synth.js";
+import { createVoice, createMaster, createBinaural } from "./lib/synth.js";
 import { createVisualizer, instrumentColor } from "./lib/visualizer.js";
 import { canRecord, recordClip } from "./lib/recorder.js";
 import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
@@ -23,6 +23,7 @@ const tracksEl = document.getElementById("tracks");
 const boardMeta = document.getElementById("board-meta");
 const playBtn = document.getElementById("play-btn");
 const masterVol = document.getElementById("master-vol");
+const toneRadios = document.querySelectorAll('input[name="basetone"]');
 const shareBtn = document.getElementById("share-btn");
 const reselectBtn = document.getElementById("reselect-btn");
 const whoEl = document.getElementById("who");
@@ -41,6 +42,7 @@ visualizer.start();
 
 let ctx = null;
 let master = null;
+let binaural = null;
 let voices = []; // [{ did, handle, muted, soloed, voice }]
 let playing = false;
 let session = null;
@@ -76,6 +78,10 @@ function ensureAudio() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = createMaster(ctx);
     master.setVolume(parseFloat(masterVol.value));
+    binaural = createBinaural(ctx);
+    binaural.setVolume(parseFloat(masterVol.value));
+    const checked = document.querySelector('input[name="basetone"]:checked');
+    if (checked) binaural.setBand(checked.value);
   }
   return ctx;
 }
@@ -422,6 +428,15 @@ playBtn.addEventListener("click", async () => {
 
 masterVol.addEventListener("input", () => {
   if (master) master.setVolume(parseFloat(masterVol.value));
+  if (binaural) binaural.setVolume(parseFloat(masterVol.value));
+});
+
+toneRadios.forEach((radio) => {
+  radio.addEventListener("change", () => {
+    if (!radio.checked) return;
+    ensureAudio();
+    binaural.setBand(radio.value);
+  });
 });
 
 // ---- share as video: record a clip of the board, then post it -------------
