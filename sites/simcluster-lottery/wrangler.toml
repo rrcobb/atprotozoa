@@ -13,12 +13,10 @@ compatibility_date = "2025-01-01"
 # or cashed out for anything real, and the whole point of the monthly reset
 # is that nobody's balance is meant to mean anything past a month anyway.
 #
-# One Durable Object ("global") holds wallets, all three draws' ticket
-# pools, resolution history, and the leaderboard — same single-writer shape
-# as sites/guestbet's Market DO, extended to three independent clocks
-# instead of one. A storage alarm resolves whichever draw is soonest due;
-# every request also defensively resolves any draw whose clock has run out,
-# so a missed/late alarm can't wedge a round (see src/index.ts).
+# One KV snapshot holds wallets, all three draws' ticket pools, resolution
+# history, and the leaderboard. Reads and writes are intentionally eventual and
+# non-authoritative because this is play money, not a financial ledger. Draws
+# resolve lazily on requests, with no background timer required.
 #
 # A brand-new site served at the root of its own hostname — no
 # bisks.net/<name> path route, no mount-prefix stripping.
@@ -31,12 +29,15 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "LOTTERY"
-class_name = "Lottery"
+[[kv_namespaces]]
+binding = "LOTTERY_STATE"
 
-# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers
-# Paid; this account is on Free. See sites/the-place/wrangler.toml.
+# Keep the old class migration history until the retired storage has been
+# explicitly deleted. The live site uses only the KV binding above.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Lottery"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["Lottery"]

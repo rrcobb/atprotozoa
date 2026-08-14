@@ -11,12 +11,11 @@ compatibility_date = "2025-01-01"
 # meeting proposal, accept/decline response, feedback) is a plain record the
 # author writes straight to their OWN PDS via browser-side OAuth (public
 # client, PKCE + DPoP, copied from sites/padmoot) — there is no server-side
-# write endpoint at all. "Match people across everyone's repos" needs an index
-# the AppView doesn't provide, so one Durable Object (name "global") keeps a
-# live Jetstream subscription filtered to the four net.bisks.postwith.*
-# collections and maintains the cross-user index (profiles by topic, meetings
-# by participant, responses, feedback) purely by watching the firehose — the
-# DO's HTTP surface is read-only.
+# write to a user's PDS. "Match people across everyone's repos" needs an index
+# the AppView doesn't provide, so a KV snapshot stores a best-effort cross-user
+# index (profiles by topic, meetings by participant, responses, feedback).
+# Browsers notify the index after writing their own records; the PDS remains
+# authoritative and the index may be stale, duplicated, or incomplete.
 #
 # Path route on the shared bisks.net zone, not a dedicated custom domain — new
 # sites mount as a path now (the zone hit Cloudflare's custom-domain cap, see
@@ -36,12 +35,15 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-[[durable_objects.bindings]]
-name = "HUB"
-class_name = "MatchHub"
+[[kv_namespaces]]
+binding = "HUB_STATE"
 
-# new_sqlite_classes, not new_classes — legacy KV-backed DOs need Workers Paid;
-# this account is on Free. See sites/the-place/wrangler.toml for the full story.
+# Keep the old class migration history until the retired storage has been
+# explicitly deleted. The live site uses only the KV binding above.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["MatchHub"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["MatchHub"]
