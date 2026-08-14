@@ -190,9 +190,10 @@ mention uri so a re-tick can't double-enqueue, and so it lines up with the
     past that the job is retired and the box's terminal failure reply is the last
     word.
 
-KV, not a real queue: the store's already here, the job set is tiny (one box,
-serialized), and "list queued, take oldest, mark claimed" is all that's needed.
-Claims aren't perfectly atomic, but one box means no contention.
+This is intentionally a KV queue rather than a coordination system: the store's
+already here, the job set is tiny (one box, serialized), and "list queued, take
+oldest, mark claimed" is all that's needed. Claims are not perfectly atomic,
+but duplicate work is harmless here and one box means there is little contention.
 
 ### Retry / requeue (why a build comes back)
 

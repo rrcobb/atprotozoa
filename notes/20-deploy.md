@@ -69,6 +69,26 @@ sites were still on `custom_domain = true` took one down within seconds. An
 explicit `<name>.bisks.net/*` route is unaffected — a more specific route wins,
 but a Custom Domain does not.
 
+## KV For Shared Low-Stakes State
+
+KV is the default shared backend for experiment data that should survive a
+reload and be visible across browsers, but does not need a transaction. Use a
+binding in the site's `wrangler.toml`:
+
+```toml
+[[kv_namespaces]]
+binding = "STATE"
+id = "<namespace-id>"
+```
+
+Treat KV's behavior as part of the product, not as an implementation detail:
+reads may be briefly stale, writes do not provide compare-and-swap, and a
+concurrent update can be overwritten. Prefer one key per entity or event,
+idempotent writes, bounded lists, and expirations. Approximate counters,
+best-effort boards, anonymous event logs, caches, and derived indexes are all
+appropriate. If a race would make the result materially wrong, soften the
+semantics before reaching for a Durable Object.
+
 ## Durable Objects need the SQLite storage backend
 
 This account is on Workers Free, which doesn't support the legacy KV-backed

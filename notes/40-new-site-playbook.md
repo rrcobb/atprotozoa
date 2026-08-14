@@ -29,8 +29,11 @@ named `atprotozoa-<name>`, served at `<name>.bisks.net`.
    OAuth redirect URIs) is `https://<newname>.bisks.net/...` with no path prefix.
    If the site needs OAuth, scope it to exactly what it does — see
    `notes/50-oauth-scopes.md`, not a blanket `atproto transition:generic`.
-   Adding KV, an alarm, a cron, or a Durable Object requires a manually curated
-   architecture exception; do not inherit one from the lineage site by default.
+   If shared persistence would make the site more useful than browser-local
+   state, use KV for best-effort counters, boards, event logs, snapshots, or
+   derived indexes. Document what may be stale or duplicated. An alarm, cron,
+   or Durable Object still needs a manually curated architecture exception;
+   do not inherit one from the lineage site by default.
 
 4. **Run it locally.** `cd sites/<newname> && pnpm dlx wrangler dev`, then open
    `localhost:8787`.

@@ -34,10 +34,11 @@ project. Reasons:
 - **A frontend-first server surface.** The browser should own ephemeral state and
   can connect directly to Jetstream for live atproto data. User-owned durable
   data belongs in atproto records when possible. Workers still handle static
-  assets, OAuth callbacks, and small CORS or protocol adapters. A KV namespace,
-  alarm, cron loop, or Durable Object is an exception for a site that genuinely
-  needs server authority or coordination, not the default way to make a page
-  feel live.
+  assets, OAuth callbacks, and small CORS or protocol adapters. When a toy needs
+  shared or global persistence, KV is the normal low-cost compromise: it is
+  intentionally best-effort and eventually consistent, which is fine for most
+  experiment state. Durable Objects, alarms, and cron loops are reserved for
+  invariants that really need exact coordination or server-side processing.
 - **Closer to the mino.mobi model** (a shared OAuth worker + many surfaces).
 
 A fully static site still ships as a Worker: `public/` via the assets binding, and
@@ -66,22 +67,29 @@ Each site is deployed independently as its own Cloudflare Worker named
 
 ## Frontend-first rule
 
-The default site has no backend state:
+The default site starts in the frontend, but frontend-first does not mean
+browser-local by default when shared persistence would make the site more useful:
 
 - Keep UI state, derived firehose state, timers, and polling in `public/`.
 - Connect to Jetstream from the browser when a live atproto feed is the feature.
 - Ask the user to sign in and write an atproto record when the result should
   persist or be shareable.
+- Use KV when a low-stakes result should be visible across browsers or visitors:
+  approximate counters, best-effort leaderboards, small event logs, snapshots,
+  and derived indexes are all reasonable uses.
 - Use a Worker for static assets, OAuth, a narrow upstream proxy, or a share
   route that cannot run in the browser.
-- Do not add a KV namespace, alarm, cron, or Durable Object just to cache a
-  leaderboard or keep a firehose connection warm.
+- Do not reach for a Durable Object merely because the state is global. Start
+  with KV unless the product truly needs atomic updates, a single authoritative
+  ordering, a first-writer claim, a live socket coordinator, or server-only
+  processing.
 
-Server persistence or coordination needs an explicit, manually curated
-exception. The exception should name the site, the invariant that requires a
-server, the storage allowed, and the condition under which it may run. A new
-site should not copy a Durable Object from an older site merely because the
-older site has one.
+KV-backed shared state is part of the normal frontend-first toolbox. A short
+note in the site or its config should say what may be stale, duplicated, or
+overwritten. A Durable Object still needs a manually curated exception naming
+the invariant that cannot be handled by the browser, atproto, or best-effort
+KV. A new site should not copy a Durable Object from an older site merely
+because the older site has one.
 
 ## The "copy, don't abstract" rule in practice
 
@@ -109,8 +117,9 @@ an enforced dependency.
   for `app.bsky.*` queries — posts, profiles, threads.
 - **Firehose:** Jetstream (`wss://jetstream2.us-east.bsky.network/subscribe`) is
   the easy path — filtered, JSON, no CBOR decoding. Prefer a browser WebSocket
-  and a client-side rolling window. A Durable Object or cron may hold records
-  only for a curated exception that needs server authority or coordination.
+  and a client-side rolling window. If the window should be shared across
+  visitors, a KV snapshot or event log is usually enough; a Durable Object or
+  cron is for the smaller set of features that needs exact server coordination.
 - **Identity resolution:** resolve a handle → DID via the AppView or the PLC
   directory (`https://plc.directory/<did>`).
 - **OAuth (when a site acts on the user's behalf):** atproto OAuth. This is the
