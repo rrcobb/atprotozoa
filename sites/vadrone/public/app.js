@@ -4,7 +4,14 @@
 // continuously while the point moves, not just when it's released.
 
 import { createTriangle } from "./lib/triangle.js";
-import { createMaster, createVoice, paramsFromVAD, ENSEMBLE, degreeFreq } from "./lib/synth.js";
+import {
+  createMaster,
+  createVoice,
+  paramsFromVAD,
+  ENSEMBLE,
+  degreeFreq,
+  createBinaural,
+} from "./lib/synth.js";
 
 const svg = document.getElementById("triangle");
 const dot = document.getElementById("dot");
@@ -17,10 +24,12 @@ const masterVol = document.getElementById("master-vol");
 const shareIntent = document.getElementById("share-intent");
 const copyLinkBtn = document.getElementById("copy-link-btn");
 const copyStatus = document.getElementById("copy-status");
+const toneRadios = document.querySelectorAll('input[name="basetone"]');
 
 let ctx = null;
 let master = null;
 let voices = [];
+let binaural = null;
 let playing = false;
 let current = { v: 1 / 3, a: 1 / 3, d: 1 / 3 };
 
@@ -111,9 +120,13 @@ function noteName(freq) {
     polySvg.appendChild(label);
 
     const row = document.createElement("tr");
-    row.innerHTML = `<td>${spec.label}</td><td>${spec.role}</td><td class="pitch"></td><td class="freq"></td>`;
+    row.innerHTML = `<td>${spec.label}</td><td>${spec.role}</td><td class="pitch"></td><td class="freq"></td><td class="loop"></td>`;
     ensembleTbody.appendChild(row);
-    voiceCells.push({ pitch: row.querySelector(".pitch"), freq: row.querySelector(".freq") });
+    voiceCells.push({
+      pitch: row.querySelector(".pitch"),
+      freq: row.querySelector(".freq"),
+      loop: row.querySelector(".loop"),
+    });
   });
   polyOutline.setAttribute("points", pts.join(" "));
 })();
@@ -127,6 +140,8 @@ function updateEnsembleViz(p) {
         : degreeFreq(p.rootFreq * Math.pow(2, spec.octave), spec.degreeIdx, p.tension);
     voiceCells[i].pitch.textContent = noteName(f);
     voiceCells[i].freq.textContent = f.toFixed(1) + " Hz";
+    const loopSec = Math.max(1.2, p.baseCycleSec * spec.cycleMul);
+    voiceCells[i].loop.textContent = loopSec.toFixed(1) + "s";
   });
 
   if (!voices.length) {
@@ -154,6 +169,10 @@ function ensureAudio() {
     master.setVolume(parseFloat(masterVol.value));
     voices = ENSEMBLE.map((spec) => createVoice(ctx, master, spec));
     for (const v of voices) v.start();
+    binaural = createBinaural(ctx);
+    binaural.setVolume(parseFloat(masterVol.value));
+    const checked = document.querySelector('input[name="basetone"]:checked');
+    if (checked) binaural.setBand(checked.value);
   }
   return ctx;
 }
@@ -188,6 +207,15 @@ centerBtn.addEventListener("click", () => {
 
 masterVol.addEventListener("input", () => {
   if (master) master.setVolume(parseFloat(masterVol.value));
+  if (binaural) binaural.setVolume(parseFloat(masterVol.value));
+});
+
+toneRadios.forEach((radio) => {
+  radio.addEventListener("change", () => {
+    if (!radio.checked) return;
+    ensureAudio();
+    binaural.setBand(radio.value);
+  });
 });
 
 copyLinkBtn.addEventListener("click", async () => {

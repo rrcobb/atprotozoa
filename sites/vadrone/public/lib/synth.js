@@ -136,7 +136,7 @@ export function createVoice(ctx, master, opts) {
   brightFilter.frequency.value = 800;
 
   const fader = ctx.createGain();
-  fader.gain.value = role === "hum" ? 1 : 0.8;
+  fader.gain.value = role === "hum" ? 1 : role === "vox" ? 0.6 : 0.8;
 
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
@@ -190,6 +190,43 @@ export function createVoice(ctx, master, opts) {
       modGain.gain.setValueAtTime(f * 1.3, t);
       latestFreq = f;
     };
+  } else if (role === "vox") {
+    // a wordless choir voice: two detuned sawtooths pushed through a pair of
+    // fixed-ish bandpass "formants" (roughly an open "ah" vowel), the same
+    // trick vocal synths use — the buzzy source is unrecognizable as a voice
+    // until the formants carve two resonant peaks out of it
+    const osc1 = ctx.createOscillator();
+    osc1.type = "sawtooth";
+    osc1.detune.value = -4;
+    const osc2 = ctx.createOscillator();
+    osc2.type = "sawtooth";
+    osc2.detune.value = 5;
+    const formant1 = ctx.createBiquadFilter();
+    formant1.type = "bandpass";
+    formant1.Q.value = 6;
+    formant1.frequency.value = 700;
+    const formant2 = ctx.createBiquadFilter();
+    formant2.type = "bandpass";
+    formant2.Q.value = 9;
+    formant2.frequency.value = 1150;
+    const formantMix = ctx.createGain();
+    formantMix.gain.value = 0.9;
+    osc1.connect(formant1);
+    osc2.connect(formant2);
+    formant1.connect(formantMix);
+    formant2.connect(formantMix);
+    formantMix.connect(envGain);
+    osc1.start();
+    osc2.start();
+    sources.push(osc1, osc2);
+    setTargetFreq = (f, t) => {
+      osc1.frequency.linearRampToValueAtTime(f, t);
+      osc2.frequency.linearRampToValueAtTime(f * 1.003, t);
+      // formants drift a little with register so a high vox isn't singing
+      // through a bass vowel shape, but stay mostly put to keep the timbre
+      formant1.frequency.linearRampToValueAtTime(600 + f * 0.35, t);
+      formant2.frequency.linearRampToValueAtTime(980 + f * 0.55, t);
+    };
   } else if (role === "hum") {
     const bufSize = Math.floor(ctx.sampleRate * 4);
     const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
@@ -222,7 +259,7 @@ export function createVoice(ctx, master, opts) {
   function runCycle() {
     const t = ctx.currentTime + 0.05;
     const cyc = cycleSec;
-    if (role === "pad") {
+    if (role === "pad" || role === "vox") {
       const atk = cyc * 0.35,
         rel = cyc * 0.45,
         peak = 0.42;
@@ -299,14 +336,86 @@ export function createVoice(ctx, master, opts) {
 }
 
 // The fixed little ensemble: a low pad on the root, a higher pad on the
-// third, a bell on the fifth, a chime up on the ninth, and a hum underneath
-// tying the register together. cycleMul values are irrational-ish relative
-// to each other (not clean small-integer ratios) so the voices, all driven
-// by the same arousal-derived base tempo, still drift in and out of phase.
+// third, a bell on the fifth, a chime up on the ninth, two wordless vox
+// voices, and a hum underneath tying the register together. cycleMul values
+// are irrational-ish relative to each other (not clean small-integer ratios)
+// so the voices, all driven by the same arousal-derived base tempo, still
+// drift in and out of phase.
 export const ENSEMBLE = [
   { role: "pad", label: "low pad", degreeIdx: 0, cycleMul: 1, octave: -1 },
   { role: "pad", label: "high pad", degreeIdx: 1, cycleMul: 1.37, octave: 0 },
   { role: "bell", label: "bell", degreeIdx: 2, cycleMul: 0.71, octave: 1 },
   { role: "bell", label: "chime", degreeIdx: 3, cycleMul: 1.93, octave: 1 },
+  { role: "vox", label: "alto vox", degreeIdx: 2, cycleMul: 1.62, octave: 0 },
+  { role: "vox", label: "soprano vox", degreeIdx: 4, cycleMul: 0.53, octave: 1 },
   { role: "hum", label: "hum", degreeIdx: 0, cycleMul: 2.6, octave: -2 },
 ];
+
+// ---- binaural base tone -------------------------------------------------
+// Two pure sine tones, hard-panned one per ear, offset by a brainwave-band
+// frequency so the two ears' difference is perceived as a slow pulsing
+// "beat" — a real auditory effect (needs headphones/stereo speakers), not a
+// literal band-frequency tone. Kept on its own bus straight to
+// ctx.destination rather than through the master's convolution reverb: the
+// reverb would smear the strict left/right separation the illusion depends
+// on. Independent of the ensemble voices; the play button's ctx.suspend()
+// still silences it since it shares the same AudioContext.
+export const TONE_BANDS = {
+  none: 0,
+  alpha: 10,
+  beta: 20,
+  delta: 2,
+  theta: 6,
+};
+const BINAURAL_CARRIER_HZ = 180;
+
+export function createBinaural(ctx) {
+  const merger = ctx.createChannelMerger(2);
+  const outGain = ctx.createGain();
+  outGain.gain.value = 0;
+
+  const leftOsc = ctx.createOscillator();
+  leftOsc.type = "sine";
+  leftOsc.frequency.value = BINAURAL_CARRIER_HZ;
+  const rightOsc = ctx.createOscillator();
+  rightOsc.type = "sine";
+  rightOsc.frequency.value = BINAURAL_CARRIER_HZ;
+
+  leftOsc.connect(merger, 0, 0);
+  rightOsc.connect(merger, 0, 1);
+  merger.connect(outGain);
+  outGain.connect(ctx.destination);
+  leftOsc.start();
+  rightOsc.start();
+
+  let band = "none";
+  let volScale = 0.8;
+
+  function apply() {
+    const t = ctx.currentTime + 0.15;
+    const beat = TONE_BANDS[band] || 0;
+    if (!beat) {
+      outGain.gain.linearRampToValueAtTime(0, t);
+      return;
+    }
+    rightOsc.frequency.linearRampToValueAtTime(BINAURAL_CARRIER_HZ + beat, t);
+    outGain.gain.linearRampToValueAtTime(0.16 * volScale, t);
+  }
+
+  return {
+    setBand(b) {
+      band = b;
+      apply();
+    },
+    setVolume(v) {
+      volScale = v;
+      apply();
+    },
+    stop() {
+      try {
+        leftOsc.stop();
+        rightOsc.stop();
+      } catch {}
+    },
+  };
+}
