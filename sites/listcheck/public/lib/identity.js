@@ -7,8 +7,25 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
+// segyges asked (after the reachability fix) that every call this page makes
+// stay fast — a check shouldn't be able to hang forever on one slow PDS or a
+// stalled AppView request. Every jget() is bounded: past this, it aborts and
+// the caller's existing try/catch treats it the same as any other failed
+// page (skip, don't block the rest of the lookup on one slow host).
+const FETCH_TIMEOUT_MS = 8000;
+
 export async function jget(url) {
-  const r = await fetch(url);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(url, { signal: ctrl.signal });
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("timed out");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) {
     const e = new Error(`HTTP ${r.status}`);
     e.status = r.status;
