@@ -138,6 +138,34 @@
   details.raw summary { cursor: pointer; color: var(--accent2); font-size: 0.8rem; font-weight: 700; }
   details.raw pre { margin-top: 0.7rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem; overflow-x: auto; font-size: 0.78rem; max-height: 340px; }
 
+  .spoiler-gate { position: relative; }
+  .spoiler-gate.gated .spoiler-gate-content { filter: blur(14px); user-select: none; pointer-events: none; }
+  .spoiler-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.6rem;
+    text-align: center;
+    padding: 1rem;
+    z-index: 2;
+  }
+  .spoiler-gate.gated .spoiler-overlay { display: flex; }
+  .spoiler-overlay .hint-text { color: var(--dim); font-size: 0.76rem; max-width: 32ch; line-height: 1.5; }
+  #revealBtn {
+    background: linear-gradient(90deg, var(--accent), #c97f1f);
+    color: #1a1206;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
   .share {
     border-top: 1px dashed var(--border);
     padding-top: 1.1rem;
@@ -184,7 +212,9 @@
       Read any public atproto record straight off its own PDS — no AppView
       cache, no copy-pasting a document into a thread. Paste an AT-URI, a
       <code>whtwnd.com</code> link, or a Bluesky post link and get back a
-      rendered page with its own permanent, shareable URL.
+      rendered page with its own permanent, shareable URL. Content's blurred
+      behind a click by default, so a shared link doesn't spoil itself the
+      moment it loads.
     </p>
 
     <form id="f">
@@ -213,12 +243,20 @@
       <h2 class="title" id="titleOut" style="display:none;"></h2>
       <div class="createdAt" id="createdAtOut"></div>
 
-      <div class="body" id="bodyOut"></div>
+      <div class="spoiler-gate gated" id="spoilerGate">
+        <div class="spoiler-gate-content">
+          <div class="body" id="bodyOut"></div>
 
-      <details class="raw">
-        <summary>raw record</summary>
-        <pre id="rawOut"></pre>
-      </details>
+          <details class="raw">
+            <summary>raw record</summary>
+            <pre id="rawOut"></pre>
+          </details>
+        </div>
+        <div class="spoiler-overlay">
+          <button id="revealBtn" type="button">👀 reveal</button>
+          <div class="hint-text">content's hidden till you ask for it — someone asked the bot to stop spoiling things.</div>
+        </div>
+      </div>
 
       <div class="share">
         <div class="label">share this instead of pasting it</div>
@@ -259,7 +297,13 @@ const els = {
   permalink: document.getElementById("permalink"),
   copyLink: document.getElementById("copyLink"),
   shareBluesky: document.getElementById("shareBluesky"),
+  spoilerGate: document.getElementById("spoilerGate"),
+  revealBtn: document.getElementById("revealBtn"),
 };
+
+els.revealBtn.addEventListener("click", () => {
+  els.spoilerGate.classList.remove("gated");
+});
 
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
@@ -378,6 +422,7 @@ async function load(rawInput, { pushState = true } = {}) {
 
   els.go.disabled = true;
   els.card.classList.remove("show");
+  els.spoilerGate.classList.add("gated");
   setStatus(`resolving ${parsed.actor} ...`);
 
   try {
