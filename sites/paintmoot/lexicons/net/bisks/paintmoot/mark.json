@@ -1,0 +1,91 @@
+{
+  "lexicon": 1,
+  "id": "net.bisks.paintmoot.mark",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One drawn stroke, shape, text, or sticker placed on a net.bisks.paintmoot.board by its owner or one of their moots. Append-only — there is no edit or delete of a mark once placed; erasing is just another `path` mark drawn in the board's background color. One record per mark, server-generated (TID) key. Written and read by paintmoot (https://paintmoot.bisks.net).\n\nNOTE: the client-side pointer-coordinate model (paint.js) represents a point as a bare 2-element array `[x, y]`, not an `{x, y}` object — the lexicon `array` type has no tuple/nested-array item form, so this schema instead models `points` as an array of `#point` objects. If this lexicon is ever enforced server-side, paintmoot's `points` construction needs to change to emit `{x, y}` objects to match.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["kind", "color", "size", "board", "createdAt"],
+        "properties": {
+          "board": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the net.bisks.paintmoot.board record this mark belongs to."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["path", "line", "rect", "ellipse", "text", "sticker"],
+            "description": "Which tool produced this mark. Determines which of the optional fields below are populated: path/line use `points`; rect/ellipse use `x`/`y`/`w`/`h` (+ `fill`); text uses `x`/`y`/`text`; sticker uses `x`/`y`/`emoji`."
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "Stroke/fill color as a CSS hex string (e.g. \"#111111\"), from the color picker. For eraser strokes (client-side only tool, stored as kind \"path\") this is set to the board's own background color."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 80,
+            "description": "Overloaded field: stroke width in pixels for path/line/rect/ellipse, and font size in pixels for text/sticker. Matches the single 1-80 range slider in the toolbar that drives both."
+          },
+          "fill": {
+            "type": "boolean",
+            "description": "Whether a rect/ellipse mark is filled (true) or outlined (false), from the \"fill\" checkbox. Only meaningful for kind \"rect\"/\"ellipse\", but is also present (and ignored) on path/line/sticker marks since the client builds all of those from one shared baseMark() helper; it is absent on \"text\" marks, which are built separately."
+          },
+          "points": {
+            "type": "array",
+            "maxLength": 4000,
+            "items": { "type": "ref", "ref": "#point" },
+            "description": "Ordered list of board-space points making up the stroke. Present for kind \"path\" (freehand pencil/eraser, one point per pointermove sample) and kind \"line\" (always exactly 2 points: start and end)."
+          },
+          "x": {
+            "type": "integer",
+            "description": "Board-space x coordinate, rounded to the nearest pixel client-side (atproto has no float type). Present for kind rect/ellipse (top-left corner), text (baseline-left placement), and sticker (placement)."
+          },
+          "y": {
+            "type": "integer",
+            "description": "Board-space y coordinate, rounded to the nearest pixel client-side. Present for kind rect/ellipse (top-left corner), text, and sticker — see `x`."
+          },
+          "w": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Width in board-space pixels, present for kind rect/ellipse. Always non-negative — the client normalizes the drag rectangle's corner and w/h before building the mark."
+          },
+          "h": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Height in board-space pixels, present for kind rect/ellipse. Always non-negative — see `w`."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "maxGraphemes": 500,
+            "description": "The typed text content, present for kind \"text\". The client's text input has no length limit of its own, so this is a generous guessed cap, not one enforced by the UI."
+          },
+          "emoji": {
+            "type": "string",
+            "maxLength": 40,
+            "maxGraphemes": 4,
+            "description": "The sticker's emoji, present for kind \"sticker\". Picked from a fixed in-UI palette (defaults to \"🙂\" if none picked); the field itself isn't restricted to that palette. maxGraphemes allows for multi-codepoint emoji (e.g. ZWJ sequences, skin-tone modifiers) even though the current palette is all single-codepoint."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this mark was drawn, as an ISO 8601 datetime."
+          }
+        }
+      }
+    },
+    "point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "integer", "description": "Board-space x coordinate, rounded to the nearest pixel." },
+        "y": { "type": "integer", "description": "Board-space y coordinate, rounded to the nearest pixel." }
+      }
+    }
+  }
+}
