@@ -125,7 +125,7 @@ export function degreeFreq(rootFreq, degreeIdx, tension) {
 // length relates to the shared base, an octave offset). Everything that
 // should react to VAD is pushed in continuously via update(params).
 export function createVoice(ctx, master, opts) {
-  const { role, degreeIdx = 0, cycleMul = 1, octave = 0 } = opts;
+  const { role, degreeIdx = 0, cycleMul = 1, octave = 0, formant1 = 700, formant2 = 1150 } = opts;
 
   const envGain = ctx.createGain();
   envGain.gain.value = 0.0001;
@@ -136,7 +136,7 @@ export function createVoice(ctx, master, opts) {
   brightFilter.frequency.value = 800;
 
   const fader = ctx.createGain();
-  fader.gain.value = role === "hum" ? 1 : role === "vox" || role === "horn" ? 0.6 : 0.8;
+  fader.gain.value = role === "hum" ? 1 : role === "vox" ? 0.6 : 0.8;
 
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
@@ -192,29 +192,31 @@ export function createVoice(ctx, master, opts) {
     };
   } else if (role === "vox") {
     // a wordless choir voice: two detuned sawtooths pushed through a pair of
-    // fixed-ish bandpass "formants" (roughly an open "ah" vowel), the same
-    // trick vocal synths use — the buzzy source is unrecognizable as a voice
-    // until the formants carve two resonant peaks out of it
+    // fixed-ish bandpass "formants", the same trick vocal synths use — the
+    // buzzy source is unrecognizable as a voice until the formants carve two
+    // resonant peaks out of it. `formant1`/`formant2` pick the vowel shape,
+    // so two vox voices in the same ensemble can sing different vowels
+    // instead of doubling up on the same timbre.
     const osc1 = ctx.createOscillator();
     osc1.type = "sawtooth";
     osc1.detune.value = -4;
     const osc2 = ctx.createOscillator();
     osc2.type = "sawtooth";
     osc2.detune.value = 5;
-    const formant1 = ctx.createBiquadFilter();
-    formant1.type = "bandpass";
-    formant1.Q.value = 6;
-    formant1.frequency.value = 700;
-    const formant2 = ctx.createBiquadFilter();
-    formant2.type = "bandpass";
-    formant2.Q.value = 9;
-    formant2.frequency.value = 1150;
+    const formantFilter1 = ctx.createBiquadFilter();
+    formantFilter1.type = "bandpass";
+    formantFilter1.Q.value = 6;
+    formantFilter1.frequency.value = formant1;
+    const formantFilter2 = ctx.createBiquadFilter();
+    formantFilter2.type = "bandpass";
+    formantFilter2.Q.value = 9;
+    formantFilter2.frequency.value = formant2;
     const formantMix = ctx.createGain();
     formantMix.gain.value = 0.9;
-    osc1.connect(formant1);
-    osc2.connect(formant2);
-    formant1.connect(formantMix);
-    formant2.connect(formantMix);
+    osc1.connect(formantFilter1);
+    osc2.connect(formantFilter2);
+    formantFilter1.connect(formantMix);
+    formantFilter2.connect(formantMix);
     formantMix.connect(envGain);
     osc1.start();
     osc2.start();
@@ -224,43 +226,8 @@ export function createVoice(ctx, master, opts) {
       osc2.frequency.linearRampToValueAtTime(f * 1.003, t);
       // formants drift a little with register so a high vox isn't singing
       // through a bass vowel shape, but stay mostly put to keep the timbre
-      formant1.frequency.linearRampToValueAtTime(600 + f * 0.35, t);
-      formant2.frequency.linearRampToValueAtTime(980 + f * 0.55, t);
-    };
-  } else if (role === "horn") {
-    // a sustained brass-horn drone: two detuned sawtooths carved by a
-    // resonant lowpass (a single "mouth" formant, unlike vox's twin
-    // bandpass pair) with a slow vibrato LFO on pitch for a breathy,
-    // held-brass character
-    const osc1 = ctx.createOscillator();
-    osc1.type = "sawtooth";
-    osc1.detune.value = -5;
-    const osc2 = ctx.createOscillator();
-    osc2.type = "sawtooth";
-    osc2.detune.value = 5;
-    const hornFilter = ctx.createBiquadFilter();
-    hornFilter.type = "lowpass";
-    hornFilter.Q.value = 4;
-    hornFilter.frequency.value = 900;
-    const vibrato = ctx.createOscillator();
-    vibrato.type = "sine";
-    vibrato.frequency.value = 4.4;
-    const vibratoGain = ctx.createGain();
-    vibratoGain.gain.value = 3;
-    vibrato.connect(vibratoGain);
-    vibratoGain.connect(osc1.detune);
-    vibratoGain.connect(osc2.detune);
-    osc1.connect(hornFilter);
-    osc2.connect(hornFilter);
-    hornFilter.connect(envGain);
-    osc1.start();
-    osc2.start();
-    vibrato.start();
-    sources.push(osc1, osc2, vibrato);
-    setTargetFreq = (f, t) => {
-      osc1.frequency.linearRampToValueAtTime(f, t);
-      osc2.frequency.linearRampToValueAtTime(f * 1.005, t);
-      hornFilter.frequency.linearRampToValueAtTime(f * 3.2, t);
+      formantFilter1.frequency.linearRampToValueAtTime(formant1 * 0.86 + f * 0.35, t);
+      formantFilter2.frequency.linearRampToValueAtTime(formant2 * 0.85 + f * 0.55, t);
     };
   } else if (role === "hum") {
     const bufSize = Math.floor(ctx.sampleRate * 4);
@@ -294,7 +261,7 @@ export function createVoice(ctx, master, opts) {
   function runCycle() {
     const t = ctx.currentTime + 0.05;
     const cyc = cycleSec;
-    if (role === "pad" || role === "vox" || role === "horn") {
+    if (role === "pad" || role === "vox") {
       const atk = cyc * 0.35,
         rel = cyc * 0.45,
         peak = 0.42;
@@ -371,18 +338,18 @@ export function createVoice(ctx, master, opts) {
 }
 
 // The fixed little ensemble: a low pad on the root, a higher pad on the
-// third, a bell on the fifth, a chime up on the ninth, a wordless vox voice,
-// a sustained horn, and a hum underneath tying the register together.
-// cycleMul values are irrational-ish relative to each other (not clean
-// small-integer ratios) so the voices, all driven by the same
-// arousal-derived base tempo, still drift in and out of phase.
+// third, a bell on the fifth, a chime up on the ninth, two wordless vox
+// voices singing different vowel shapes, and a hum underneath tying the
+// register together. cycleMul values are irrational-ish relative to each
+// other (not clean small-integer ratios) so the voices, all driven by the
+// same arousal-derived base tempo, still drift in and out of phase.
 export const ENSEMBLE = [
   { role: "pad", label: "low pad", degreeIdx: 0, cycleMul: 1, octave: -1 },
   { role: "pad", label: "high pad", degreeIdx: 1, cycleMul: 1.37, octave: 0 },
   { role: "bell", label: "bell", degreeIdx: 2, cycleMul: 0.71, octave: 1 },
   { role: "bell", label: "chime", degreeIdx: 3, cycleMul: 1.93, octave: 1 },
-  { role: "vox", label: "vox", degreeIdx: 2, cycleMul: 1.62, octave: 0 },
-  { role: "horn", label: "horn", degreeIdx: 4, cycleMul: 0.53, octave: -1 },
+  { role: "vox", label: "vox (ah)", degreeIdx: 2, cycleMul: 1.62, octave: 0, formant1: 700, formant2: 1150 },
+  { role: "vox", label: "vox (oo)", degreeIdx: 4, cycleMul: 0.53, octave: -1, formant1: 350, formant2: 850 },
   { role: "hum", label: "hum", degreeIdx: 0, cycleMul: 2.6, octave: -2 },
 ];
 
