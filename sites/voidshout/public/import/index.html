@@ -14,8 +14,9 @@
   .cand .meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
   .cand.over .txt { color: var(--bad); }
   .toolbar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin: 0.6rem 0; }
-  .toolbar select { min-width: 10rem; }
   .progress-log { font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; white-space: pre-line; }
+  .place-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; margin: 0.5rem 0 0.8rem; max-height: 180px; overflow-y: auto; }
+  .place-opt.sel { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -36,11 +37,15 @@
     <div class="toolbar">
       <button class="btn" id="selectAll">select all</button>
       <button class="btn" id="selectNone">select none</button>
-      <label class="muted" style="font-size:0.82rem">place for imports</label>
-      <select id="placeSel"></select>
       <span class="spacer" style="flex:1 1 auto"></span>
       <label class="muted" style="font-size:0.8rem"><input type="checkbox" id="includeReplies" /> include replies</label>
     </div>
+    <label class="muted" style="font-size:0.82rem">place for imports</label>
+    <div style="display:flex; gap:0.4rem; align-items:center">
+      <input id="placeSearch" placeholder="search Places…" autocomplete="off" style="flex:1" />
+      <button type="button" class="btn" id="mapPickBtn" title="pick any location on the map">📍 map</button>
+    </div>
+    <div class="place-grid" id="placeGrid"></div>
     <div class="cand-list" id="candList"></div>
     <button class="btn primary" id="importBtn" disabled style="margin-top:0.6rem">import selected →</button>
     <div class="progress-log" id="log"></div>
@@ -53,6 +58,8 @@ import { dpopFetch } from "/lib/oauth.js";
 import { fetchRepoRecordsWithKeys } from "/lib/car.js";
 import { carFilterCandidates, rkeyForShout, SHOUT_MAX_GRAPHEMES, graphemeLength, truncateGraphemes, placeForRecord } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
+import { pickPlaceOnMap, searchWorldPlaces, WORLD_SEARCH_MIN_LEN, WORLD_SEARCH_DEBOUNCE_MS } from "/lib/mappicker.js";
+import { esc } from "/lib/render.js";
 
 await mountChrome({ active: "/import/" });
 const session = await requireSession();
@@ -61,14 +68,84 @@ if (!session) throw new Error("redirecting to onboarding");
 const statusText = document.getElementById("statusText");
 const pickerCard = document.getElementById("pickerCard");
 const candList = document.getElementById("candList");
-const placeSel = document.getElementById("placeSel");
+const placeGrid = document.getElementById("placeGrid");
+const placeSearch = document.getElementById("placeSearch");
 const importBtn = document.getElementById("importBtn");
 const includeReplies = document.getElementById("includeReplies");
 const logEl = document.getElementById("log");
 
-placeSel.innerHTML = PLACES.map((p) => `<option value="${p.id}">${p.emoji} ${p.name}</option>`).join("");
-
 const pds = session.pdsUrl.replace(/\/$/, "");
+
+// Default to the member's own defaultPlace (net.bisks.void.participation),
+// same record onboarding/settings/compose already read — so "place for
+// imports" starts on home instead of always the first curated city.
+let selected = null;
+try {
+  const u = `${pds}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=net.bisks.void.participation&rkey=self`;
+  const r = await fetch(u);
+  if (r.ok) {
+    const j = await r.json();
+    selected = j?.value?.defaultPlace || null;
+  }
+} catch {}
+if (!selected) selected = PLACES[0];
+
+// Places picked on the map (or the member's own home, if it's not one of
+// the curated cities) — kept alongside PLACES rather than in it, same as
+// compose/settings do.
+const customPlaces = [];
+if (!PLACES.some((p) => p.id === selected.id)) customPlaces.push(selected);
+
+function renderPlaces(list) {
+  placeGrid.innerHTML = list
+    .map(
+      (p) =>
+        `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`,
+    )
+    .join("");
+  for (const btn of placeGrid.querySelectorAll(".place-opt")) {
+    btn.addEventListener("click", () => {
+      selected = list.find((p) => p.id === btn.dataset.id);
+      renderPlaces(list);
+    });
+  }
+}
+renderPlaces(PLACES.concat(customPlaces));
+
+let liveWorldResults = [];
+let worldRequestId = 0;
+let worldSearchDebounce = null;
+function renderCombinedPlaces() {
+  const curated = searchPlaces(placeSearch.value, customPlaces);
+  const seen = new Set(curated.map((p) => p.id));
+  renderPlaces(curated.concat(liveWorldResults.filter((p) => !seen.has(p.id))));
+}
+placeSearch.addEventListener("input", () => {
+  const q = placeSearch.value.trim();
+  clearTimeout(worldSearchDebounce);
+  if (q.length < WORLD_SEARCH_MIN_LEN) {
+    liveWorldResults = [];
+    renderCombinedPlaces();
+    return;
+  }
+  renderCombinedPlaces();
+  worldSearchDebounce = setTimeout(async () => {
+    const myRequest = ++worldRequestId;
+    const found = await searchWorldPlaces(q);
+    if (myRequest !== worldRequestId) return; // a later keystroke superseded this lookup
+    liveWorldResults = found;
+    renderCombinedPlaces();
+  }, WORLD_SEARCH_DEBOUNCE_MS);
+});
+
+document.getElementById("mapPickBtn").addEventListener("click", async () => {
+  const place = await pickPlaceOnMap();
+  if (!place) return;
+  customPlaces.unshift(place);
+  selected = place;
+  placeSearch.value = "";
+  renderPlaces(PLACES.concat(customPlaces));
+});
 
 async function listAllOwnRecords(collection) {
   const out = [];
@@ -162,7 +239,7 @@ document.getElementById("selectNone").addEventListener("click", () => {
 includeReplies.addEventListener("change", loadCandidates);
 
 importBtn.addEventListener("click", async () => {
-  const place = PLACES.find((p) => p.id === placeSel.value);
+  const place = selected;
   const chosen = [...candList.querySelectorAll(".cand-check")]
     .filter((cb) => cb.checked)
     .map((cb) => candidates[Number(cb.dataset.i)]);
