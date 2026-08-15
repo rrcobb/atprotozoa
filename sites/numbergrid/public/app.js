@@ -181,15 +181,24 @@ function renderBoard() {
     ? `${count} number${count === 1 ? "" : "s"} · true board is ${side}×${side}, too big to fill every blank here`
     : `${count} number${count === 1 ? "" : "s"}`;
 
+  // Cells render at a fixed size instead of shrinking to fit the card —
+  // widest label on the board (not the grid's column count) sets it, so a
+  // huge board just gets wider/taller than the card and scrolls, rather
+  // than squeezing every cell down to an unreadable dot.
+  const maxLabelLen = boardValues.length ? String(boardValues[boardValues.length - 1]).length : 1;
+  const cellRem = Math.min(4.4, 2.3 + Math.max(0, maxLabelLen - 2) * 0.38).toFixed(2) + "rem";
+  els.grid.style.setProperty("--cellrem", cellRem);
+  els.bingoRow.style.setProperty("--cellrem", cellRem);
+
   if (side === 5 && !sparse) {
     els.bingoRow.style.display = "grid";
-    els.bingoRow.style.gridTemplateColumns = `repeat(${side}, 1fr)`;
+    els.bingoRow.style.gridTemplateColumns = `repeat(${side}, var(--cellrem))`;
     els.bingoRow.innerHTML = "BINGO".split("").map((l) => `<span>${l}</span>`).join("");
   } else {
     els.bingoRow.style.display = "none";
   }
 
-  els.grid.style.gridTemplateColumns = `repeat(${displaySide}, 1fr)`;
+  els.grid.style.gridTemplateColumns = `repeat(${displaySide}, var(--cellrem))`;
   els.grid.innerHTML = "";
   for (const c of cells) {
     const cell = document.createElement("div");
