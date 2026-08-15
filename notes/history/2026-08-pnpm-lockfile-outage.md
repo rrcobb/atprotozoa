@@ -63,3 +63,41 @@ and expect a `sites/<name>: {}` entry to appear. If it doesn't, run
 failure that doesn't show up locally (nothing in a normal build session runs
 `--frozen-lockfile`) and won't have a red flag anywhere the bot looks — the only
 way to catch it early is to check for it on purpose.
+
+## Recurrence, 2026-08-14/15
+
+Same failure mode, different trigger. `dave.9000ish.uk` tagged the bot asking it
+to "fix the deployment of bestofcee" (in a thread where `cee.wtf` had asked for
+the site the day before). `bestofcee.bisks.net` 404'd — the site had never
+deployed.
+
+Root cause traced the same way as before: `sites/1001nights`'s build (commit
+`a08fb1e8`) added a `@resvg/resvg-js` devDependency to its `package.json`
+without regenerating `pnpm-lock.yaml`. `bestofcee`'s own lockfile entry was
+never the problem — it has no dependencies, and a zero-dependency workspace
+member doesn't trip `--frozen-lockfile`. The 1001nights drift did, and it broke
+`check` for **every push for the next 25 commits**, `bestofcee`'s among them —
+confirmed via `GET /repos/rrcobb/atprotozoa/commits/<sha>/check-runs` on each
+commit from `a08fb1e8` through `75d36f6d`, all `check: failure`. The next push
+(`493d6e40`, an unrelated `voidshout` edit) happened to run a non-frozen
+`pnpm install` and fixed the lockfile going forward, but its own diff only
+touched `sites/voidshout` — so `check` started passing again without
+redeploying any of the 21 directories backlogged behind it. Most of those got
+swept back into a deploy by a later, unrelated edit to the same site; **eight
+did not** and were still stuck as of 2026-08-15: `1001nights`, `bestofcee`,
+`freakout`, `likescore`, `logs`, `mootdrone`, `moottery`, `runway` (three —
+`1001nights`, `bestofcee`, `moottery` — had never deployed at all and 404'd;
+the other four were live but serving the pre-outage version, silently stale).
+
+Fix followed the 2026-08-07 precedent exactly: a one-line dated comment in each
+of the eight sites' `wrangler.toml` (config-only, no behavior change) to force
+them back into a push's changed-dirs diff.
+
+**What's still missing**: nothing watches `check` for failure, so this will
+recur a third time under a different trigger. The backlog is also only found by
+manually diffing "sites touched while `check` was red" against "sites touched
+since" — there's no standing script for it. A real fix would be either (a) a
+step in the build loop that checks `git diff --stat -- pnpm-lock.yaml` and
+fails loudly if a touched `package.json` has no matching lockfile change, before
+the harness ever commits, or (b) a scheduled job that polls recent run
+conclusions and flags a red `check` on `main`. Neither exists yet.

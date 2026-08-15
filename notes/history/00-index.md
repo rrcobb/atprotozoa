@@ -22,7 +22,9 @@ measurements are often still useful, and several of the failure modes recur.
   `--frozen-lockfile` install silently and skips `deploy` for every site in
   that push and every push after it, with no alert anywhere. Traces a ~13-site
   backlog back to its root commit and fixes it. The permanent lesson lives in
-  `notes/20-deploy.md`.
+  `notes/20-deploy.md`. Recurred 2026-08-14/15 (`sites/1001nights` this time,
+  25 blocked pushes, 8 sites still stuck when found) — still nothing watches
+  `check` for failure, so expect a third occurrence.
 
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
