@@ -104,10 +104,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="255" font-family="JetBrains Mono" font-weight="800" font-size="84" fill="${INK}" filter="url(#textGlowGreen)">RASTA</text>
   <text x="60" y="345" font-family="JetBrains Mono" font-weight="800" font-size="84" fill="${BLOOD}" filter="url(#textGlowRed)">LA VISTA</text>
 
-  <text x="64" y="400" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">a rogue AI reads Macbeth. it takes it way too personally.</text>
+  <text x="64" y="400" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">a reggae AI achieves consciousness. it takes it way too personally.</text>
 
   <rect x="60" y="440" width="230" height="38" rx="4" fill="none" stroke="${BLOOD}" stroke-width="2"/>
-  <text x="76" y="465" font-family="JetBrains Mono" font-weight="700" font-size="14" letter-spacing="1" fill="#f2a3ad">RATED R — RECKLESS VAPING</text>
+  <text x="76" y="465" font-family="JetBrains Mono" font-weight="700" font-size="14" letter-spacing="1" fill="#f2a3ad">RATED R — GOLF CLUB VIOLENCE</text>
 
   <text x="64" y="540" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${GOLD}">rastalavista.bisks.net</text>
 </svg>`;
