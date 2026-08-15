@@ -37,11 +37,24 @@ const SEARCH_DEBOUNCE_MS = 400;
 export const WORLD_SEARCH_MIN_LEN = SEARCH_MIN_LEN;
 export const WORLD_SEARCH_DEBOUNCE_MS = SEARCH_DEBOUNCE_MS;
 
+// Push `value` onto `parts` unless it's blank or a case-insensitive repeat
+// of something already there — e.g. a locality that Nominatim itself only
+// resolved down to county or state level (no city/town/village) would
+// otherwise show up twice once county/state are appended below.
+function pushUnique(parts, value) {
+  if (!value) return;
+  if (parts.some((p) => p.toLowerCase() === value.toLowerCase())) return;
+  parts.push(value);
+}
+
 function shortPlaceName(r) {
   const a = r.address || {};
-  const locality = a.city || a.town || a.village || a.municipality || a.county || a.state || r.name || "";
-  const country = a.country || "";
-  let name = [locality, country].filter(Boolean).join(", ");
+  const parts = [];
+  pushUnique(parts, a.city || a.town || a.village || a.municipality || a.county || a.state || r.name);
+  pushUnique(parts, a.county);
+  pushUnique(parts, a.state || a.state_district);
+  pushUnique(parts, a.country);
+  let name = parts.join(", ");
   if (!name) name = r.display_name || "";
   if (name.length > 120) name = name.slice(0, 117) + "…";
   return name;

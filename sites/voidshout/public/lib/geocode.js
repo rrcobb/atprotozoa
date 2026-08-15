@@ -22,6 +22,26 @@ function coordName(lat, lng) {
   return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(2)}°${lng >= 0 ? "E" : "W"}`;
 }
 
+// Push `value` onto `parts` unless it's blank or a case-insensitive repeat
+// of something already there — BigDataCloud's admin layers routinely collide
+// (a county named after its own state, a city whose name matches the state).
+function pushUnique(parts, value) {
+  if (!value) return;
+  if (parts.some((p) => p.toLowerCase() === value.toLowerCase())) return;
+  parts.push(value);
+}
+
+// BigDataCloud's `localityInfo.administrative` is a stack of admin layers
+// (country → state → county → city, roughly) with free-text `name`/
+// `description` fields rather than a fixed schema — county-equivalents show
+// up as "county", "parish" (Louisiana), or "borough" (Alaska) in either
+// field depending on locale, so match loosely instead of a fixed key.
+function findAdminLayer(localityInfo, pattern) {
+  const layers = (localityInfo && localityInfo.administrative) || [];
+  const hit = layers.find((a) => pattern.test(a.description || "") || pattern.test(a.name || ""));
+  return (hit && hit.name) || "";
+}
+
 /** @returns {Promise<{name: string, emoji: string}>} Always resolves —
  *  never throws — since a failed lookup shouldn't block picking a Place. */
 export async function reverseGeocode(lat, lng) {
@@ -33,9 +53,13 @@ export async function reverseGeocode(lat, lng) {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) return fallback;
     const j = await res.json();
-    const locality = j.city || j.locality || j.principalSubdivision || "";
-    const country = j.countryName || "";
-    let name = [locality, country].filter(Boolean).join(", ");
+    const county = findAdminLayer(j.localityInfo, /county|parish|borough/i);
+    const parts = [];
+    pushUnique(parts, j.city || j.locality);
+    pushUnique(parts, county);
+    pushUnique(parts, j.principalSubdivision);
+    pushUnique(parts, j.countryName);
+    let name = parts.join(", ");
     if (!name) name = fallback.name;
     if (name.length > 120) name = name.slice(0, 117) + "…"; // stay under the lexicon's 128-char cap with room to spare
     const emoji = flagEmoji(j.countryCode) || "📍";
