@@ -134,14 +134,14 @@ export function setDemoMode(on) {
 }
 
 const NAV = [
-  ["/", "Home"],
-  ["/map/", "Map"],
-  ["/place/", "Places"],
-  ["/compose/", "Shout"],
-  ["/import/", "Import"],
-  ["/profile/", "Profile"],
-  ["/settings/", "Settings"],
-  ["/audit/", "Audit"],
+  ["/", "home"],
+  ["/map/", "map"],
+  ["/place/", "places"],
+  ["/compose/", "shout"],
+  ["/import/", "import"],
+  ["/profile/", "profile"],
+  ["/settings/", "settings"],
+  ["/audit/", "audit"],
 ];
 
 function esc(s) {
@@ -177,7 +177,7 @@ export async function mountChrome(opts = {}) {
 
   if (header) {
     header.innerHTML = `
-      <a class="brand" href="/">Shout Into the <span class="void">Void</span></a>
+      <a class="brand" href="/">shout into the <span class="void">void</span></a>
       <nav>${NAV.map(([href, label]) => `<a href="${href}"${opts.active === href ? ' class="active"' : ""}>${label}</a>`).join("")}</nav>
       <span class="spacer"></span>
       <div id="chrome-session"></div>

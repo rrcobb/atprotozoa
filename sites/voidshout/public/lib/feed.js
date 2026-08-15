@@ -68,7 +68,7 @@ export function allTrees(state) {
   return state.roots.map((r) => buildTree(r.uri, state)).filter(Boolean);
 }
 
-/** Every place a subtree ever touched (for a profile's "Voids discovered"). */
+/** Every place a subtree ever touched (for a profile's "Places discovered"). */
 export function placesInTree(node, out = new Map()) {
   if (!node) return out;
   const p = node.rec.value.place;
