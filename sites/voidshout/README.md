@@ -135,9 +135,36 @@ Bluesky actor-search dropdown every other handle field in this app (and most
 of the constellation's sites) uses, loaded lazily on first use rather than
 shipped on every page. Neither ever calls `window.prompt()` anymore.
 
+## Deleting your own content
+
+Every node in `/shout/`'s tree — the root Shout, and every Echo/Murmur carrying
+it — gets a "🗑️ delete" action next to vote/echo/murmur whenever the
+signed-in member is that node's author (checked client-side; the real
+guarantee is that `com.atproto.repo.deleteRecord` only ever targets the
+signed-in session's own repo). Deleting a non-root node doesn't cascade to
+its descendants — same as any atproto app whose replies outlive a deleted
+parent — so an orphaned branch just drops out of this tree view (`buildTree`
+already treats a missing node as absent and stops recursing into it) without
+touching records that aren't the caller's own. Deleting the root removes the
+whole thread from view with a plain "deleted" message instead of the
+misleading "still loading" state a missing root used to show. This is
+separate from `/settings/`'s "leave the Void," which deletes *everything* a
+member owns at once; this is per-record.
+
 ## What's still a stub
 
 Nothing currently — the last known gap is fixed, see below.
+
+Previously listed here: voting on your own shout/echo/murmur wrote a real
+`net.bisks.void.vote` record to your PDS that `ingest.js`'s self-vote guard
+then silently rejected — the vote button just did nothing, with no
+explanation, unlike the echo/murmur carry flow which already precheck+alerts
+on its own cross-record rule (echo-cooldown). Fixed — `castVote` in
+`/shout/` now checks the subject's author against the signed-in session
+*before* writing and alerts instead of writing a doomed record. Also fixed
+in the same pass: there was no way to delete an individual shout/echo/murmur
+short of "leave the Void" nuking every record you own — see "Deleting your
+own content" above.
 
 Previously listed here: the header's "sign in" button and `/onboarding/`'s
 sign-in step both used a bare `window.prompt()` for a handle — no

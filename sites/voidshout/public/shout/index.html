@@ -14,6 +14,8 @@
   .actions button.active { border-color: var(--accent2); color: var(--accent2); }
   .vote-up.active { border-color: var(--good) !important; color: var(--good) !important; }
   .vote-down.active { border-color: var(--bad) !important; color: var(--bad) !important; }
+  .actions button[data-act="delete"] { color: var(--bad); border-color: var(--bad); }
+  .actions button[data-act="delete"]:hover { background: #fdeaf0; }
   .pruned-note { font-size: 0.76rem; color: var(--muted); font-style: italic; margin: 0.3rem 0; }
   .carry-form { margin-top: 0.5rem; display: none; gap: 0.4rem; flex-wrap: wrap; }
   .carry-form.on { display: flex; }
@@ -140,6 +142,15 @@ async function pdsAndDid() {
 
 async function castVote(subjectUri, value) {
   if (!session) return alert("sign in first");
+  // Precheck the self-vote rule ingest.js enforces cross-record (mirrors the
+  // echo-cooldown precheck below) — without this, a vote on your own
+  // shout/echo/murmur writes a real record to your PDS that ingest.js then
+  // silently drops, so the button just does nothing with no explanation.
+  const subject = await store.getRecord(subjectUri);
+  if (subject && subject.did === session.did) {
+    alert("can't vote on your own shout/echo/murmur");
+    return;
+  }
   const { pds, did } = await pdsAndDid();
   const current = myVotes.get(subjectUri);
   const rkey = await rkeyForVote(subjectUri);
@@ -212,6 +223,29 @@ async function submitCarry(collection, parentUri, place, text) {
   return true;
 }
 
+// Deletes one shout/echo/murmur the signed-in member owns. Doesn't cascade
+// to its descendants (an echo/murmur pointing at a now-missing parentUri) —
+// same as any atproto app whose replies outlive a deleted parent; buildTree
+// already treats a missing node as "not here" and simply stops recursing
+// into it, so an orphaned branch quietly drops out of this tree view rather
+// than erroring, without deleting records that aren't the caller's own.
+async function deleteOwnRecord(uri) {
+  const parsed = parseAtUri(uri);
+  if (!session || !parsed || parsed.did !== session.did) return false;
+  const { pds, did } = await pdsAndDid();
+  const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.deleteRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: did, collection: parsed.collection, rkey: parsed.rkey }),
+  });
+  if (!res.ok) {
+    alert("delete failed: " + (await res.text().catch(() => res.status)));
+    return false;
+  }
+  await store.deleteRecordByUri(uri);
+  return true;
+}
+
 // Destinations not in the curated list — filled in as members pick spots on
 // the map. Kept outside placePickerHtml so a place picked in one carry form
 // stays available (re-rendered as a real <option>) after the next rerender().
@@ -261,6 +295,7 @@ async function nodeHtml(node, isRoot) {
           <button class="vote-down${myVote === -1 ? " active" : ""}" data-act="down" data-uri="${esc(node.uri)}">▼ down</button>
           <button data-act="echo" data-uri="${esc(node.uri)}">🔁 echo</button>
           <button data-act="murmur" data-uri="${esc(node.uri)}">💬 murmur</button>
+          ${session && session.did === node.rec.did ? `<button data-act="delete" data-uri="${esc(node.uri)}" title="delete this ${esc(kind === "shouted" ? "shout" : kind === "echoed" ? "echo" : "murmur")} — it's yours">🗑️ delete</button>` : ""}
         </div>
         <div class="carry-form" id="carry-${idBase}">
           ${placePickerHtml(idBase)}
@@ -273,13 +308,18 @@ async function nodeHtml(node, isRoot) {
     </div>`;
 }
 
+let everHadRoot = false;
+
 async function rerender() {
   const state = await fullState();
   const tree = buildTree(rootUri, state);
   if (!tree) {
-    rootEl.innerHTML = `<p class="muted">still loading this thread from the network… (${esc(rootUri)})</p>`;
+    rootEl.innerHTML = everHadRoot
+      ? `<p class="muted">this shout was deleted. <a href="/">back to the Void</a>.</p>`
+      : `<p class="muted">still loading this thread from the network… (${esc(rootUri)})</p>`;
     return;
   }
+  everHadRoot = true;
   const sourceUris = flattenTree(tree).map((n) => n.rec.value.sourcePostUri).filter(Boolean);
   if (sourceUris.length) canonMap = await fetchCanonicalPosts(sourceUris);
   rootEl.innerHTML = `<div class="tree">${await nodeHtml(tree, true)}</div>`;
@@ -295,6 +335,21 @@ function wireActions() {
       const uri = btn.dataset.uri;
       if (act === "up") return castVote(uri, 1);
       if (act === "down") return castVote(uri, -1);
+      if (act === "delete") {
+        if (!session) return alert("sign in first");
+        const isWholeShout = uri === rootUri;
+        const prompt = isWholeShout
+          ? "delete this whole shout? any echoes/murmurs already carrying it stay on their authors' repos but will drop out of this thread view."
+          : "delete this? any echoes/murmurs carrying it stay on their authors' repos but will drop out of this thread view.";
+        if (!confirm(prompt)) return;
+        const ok = await deleteOwnRecord(uri);
+        if (!ok) return;
+        if (isWholeShout) {
+          rootEl.innerHTML = `<p class="muted">deleted. <a href="/">back to the Void</a>.</p>`;
+          return;
+        }
+        return rerender();
+      }
       if (act === "echo" || act === "murmur") {
         if (!session) return alert("sign in first");
         const idBase = uri.replace(/[^a-zA-Z0-9]/g, "");
