@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tokenbricks — every token, the same width</title>
+<meta name="description" content="Paste text and watch it get cut into real OpenAI BPE tokens, then redrawn as a wall of equal-width bricks — so you see the text the way the model does, by token count, not character count. Runs entirely in your browser." />
+<meta property="og:title" content="tokenbricks — every token, the same width" />
+<meta property="og:description" content="Paste text, pick a tokenizer, and watch it get redrawn as a wall of equal-width bricks — the text the way an LLM actually sees it, no server round-trip." />
+<meta property="og:url" content="https://tokenbricks.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://tokenbricks.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="tokenbricks: a sentence rendered as normal proportional text above the same sentence rendered as a wall of equal-width colored bricks, one per token." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="tokenbricks — every token, the same width" />
+<meta name="twitter:description" content="Paste text, pick a tokenizer, and watch it get redrawn as a wall of equal-width bricks — the text the way an LLM actually sees it." />
+<meta name="twitter:image" content="https://tokenbricks.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0e11;
+    --fg: #edf1f4;
+    --dim: #93a0ab;
+    --dim2: #5f6b76;
+    --accent: #5fa2ef;
+    --accent2: #3987e5;
+    --card: #14171c;
+    --border: #232830;
+    --border2: #2c323c;
+    --input: #0c1015;
+
+    --tok0: #3987e5; /* blue */
+    --tok1: #d9713d; /* orange */
+    --tok2: #2bb37f; /* aqua */
+    --tok3: #c98500; /* yellow */
+    --tok4: #d55181; /* magenta */
+    --tok5: #3fae3f; /* green */
+    --tok6: #9085e9; /* violet */
+    --tok7: #e66767; /* red */
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 8% -12%, #131c2b 0%, transparent 55%),
+      radial-gradient(ellipse at 96% 0%, #1a1420 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 780px; }
+  h1 { font-size: 1.85rem; line-height: 1.25; margin: 0 0 0.4rem; }
+  h1 .bricks { color: var(--accent); }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.75rem; line-height: 1.6; max-width: 64ch; }
+  .tag a { color: var(--accent2); }
+  .tag code { color: var(--accent); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.25rem 1.4rem; margin-bottom: 1.1rem; }
+
+  label.field-label { display: block; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.5rem; }
+
+  .encodings { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.1rem; }
+  .enc-btn {
+    background: var(--input); border: 1px solid var(--border2); color: var(--dim);
+    border-radius: 8px; padding: 0.5rem 0.75rem; font: inherit; font-size: 0.82rem;
+    cursor: pointer; text-align: left; line-height: 1.35;
+  }
+  .enc-btn .sub { display: block; font-size: 0.7rem; color: var(--dim2); }
+  .enc-btn:hover { border-color: var(--accent2); color: var(--fg); }
+  .enc-btn.active { border-color: var(--accent); color: var(--fg); background: #10202f; box-shadow: 0 0 0 1px var(--accent) inset; }
+  .enc-btn.active .sub { color: var(--accent); }
+
+  textarea {
+    width: 100%; resize: vertical; min-height: 6rem;
+    background: var(--input); border: 1px solid var(--border2); color: var(--fg);
+    border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem; line-height: 1.5;
+  }
+  textarea:focus, .enc-btn:focus, button:focus, a.share-btn:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.6rem 0 0; }
+  .preset-btn {
+    background: none; border: 1px dashed var(--border2); color: var(--dim);
+    border-radius: 999px; padding: 0.28rem 0.7rem; font: inherit; font-size: 0.74rem; cursor: pointer;
+  }
+  .preset-btn:hover { color: var(--accent2); border-color: var(--accent2); }
+
+  .status { font-size: 0.82rem; color: var(--dim); margin-top: 0.7rem; min-height: 1.2em; }
+  .status.err { color: #ff8a8a; }
+
+  .stat-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.2rem; }
+  .stat { flex: 1; min-width: 130px; background: var(--input); border: 1px solid var(--border2); border-radius: 8px; padding: 0.6rem 0.8rem; }
+  .stat .k { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); }
+  .stat .v { font-size: 1.15rem; font-weight: 700; color: var(--fg); margin-top: 0.15rem; }
+  .stat .sub { font-size: 0.72rem; color: var(--dim2); margin-top: 0.1rem; overflow-wrap: anywhere; }
+
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; margin: 1.3rem 0 0.6rem; }
+  .section-head:first-of-type { margin-top: 0; }
+  .section-title { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); }
+  .section-sub { font-size: 0.74rem; color: var(--dim2); }
+
+  #idToggle {
+    background: none; border: 1px solid var(--border2); color: var(--dim);
+    border-radius: 999px; padding: 0.25rem 0.65rem; font: inherit; font-size: 0.72rem; cursor: pointer;
+  }
+  #idToggle:hover { color: var(--fg); border-color: var(--accent2); }
+  #idToggle.on { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+  .proportional {
+    background: var(--input); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 0.9rem 1rem; line-height: 2.1; font-size: 0.92rem; word-break: break-word;
+  }
+  .tok-inline {
+    border-radius: 4px; padding: 0.05em 0.02em; white-space: pre-wrap;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  }
+  .tok-inline.empty { outline: 1px dashed var(--dim2); outline-offset: -1px; }
+  .nl { opacity: 0.55; }
+
+  .brickwall {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    background: var(--input); border: 1px solid var(--border2); border-radius: 8px; padding: 0.7rem;
+  }
+  .brick {
+    width: 2.9rem; height: 2rem; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px; font-size: 0.66rem; color: var(--fg);
+    padding: 0 0.15rem; cursor: default;
+  }
+  .brick.empty { outline: 1px dashed var(--dim2); outline-offset: -1px; color: var(--dim2); }
+  .brick .ws { opacity: 0.6; }
+  .brick-label {
+    display: block; max-width: 100%; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+  }
+
+  .hint { font-size: 0.74rem; color: var(--dim2); margin-top: 0.9rem; line-height: 1.55; }
+
+  .share-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1.1rem; }
+  a.share-btn {
+    display: inline-flex; align-items: center; gap: 0.4rem; background: var(--input);
+    border: 1px solid var(--border2); color: var(--fg); border-radius: 8px;
+    padding: 0.55rem 0.9rem; font: inherit; font-size: 0.82rem; text-decoration: none;
+  }
+  a.share-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  footer { color: var(--dim2); font-size: 0.76rem; line-height: 1.7; margin-top: 1.5rem; max-width: 64ch; }
+  footer a { color: var(--dim); }
+  footer code { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>token<span class="bricks">bricks</span></h1>
+  <p class="tag">
+    Paste text, pick a tokenizer, and it's BPE-encoded right there in your
+    browser — the exact byte-pair encoding OpenAI's models use, via
+    <code>gpt-tokenizer</code>. Below it: the same text redrawn as a wall of
+    <b>equal-width bricks</b>, one per token, so you can see the text the way
+    the model actually experiences it — by token count, not character count.
+    A short word can be one cheap token; a whole rare word can also be one.
+    Inspired by <a href="https://tiktokenizer.vercel.app/" target="_blank" rel="noopener">tiktokenizer</a>,
+    prompted by <a href="https://bsky.app/profile/astrra.space" target="_blank" rel="noopener">astrra.space</a>'s
+    idea for <a href="https://bsky.app/profile/qustrolabe.bsky.social" target="_blank" rel="noopener">qustrolabe.bsky.social</a>.
+  </p>
+
+  <div class="card">
+    <label class="field-label">tokenizer</label>
+    <div class="encodings" id="encodings"></div>
+
+    <label class="field-label" for="input">text</label>
+    <textarea id="input" spellcheck="false"></textarea>
+    <div class="presets" id="presets"></div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="results" style="display:none">
+    <div class="stat-row">
+      <div class="stat"><div class="k">characters</div><div class="v" id="statChars">—</div></div>
+      <div class="stat"><div class="k">tokens</div><div class="v" id="statTokens">—</div></div>
+      <div class="stat"><div class="k">chars / token</div><div class="v" id="statRatio">—</div></div>
+      <div class="stat"><div class="k">biggest brick</div><div class="v" id="statBiggest">—</div><div class="sub" id="statBiggestSub">&nbsp;</div></div>
+    </div>
+
+    <div class="section-head">
+      <span class="section-title">how you read it</span>
+      <span class="section-sub">proportional width, one color per token</span>
+    </div>
+    <div class="proportional" id="proportional"></div>
+
+    <div class="section-head">
+      <span class="section-title">how the model reads it</span>
+      <button type="button" id="idToggle" title="show raw token ids instead of decoded text">show ids</button>
+    </div>
+    <div class="section-sub" style="margin: -0.35rem 0 0.6rem;">same tokens, same order, same colors — every brick exactly the same width</div>
+    <div class="brickwall" id="brickwall"></div>
+
+    <div class="hint" id="hint"></div>
+
+    <div class="share-row">
+      <a class="share-btn" id="shareBluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+    </div>
+  </div>
+
+  <footer>
+    Method: text is BPE-encoded client-side with
+    <a href="https://github.com/niieani/gpt-tokenizer" target="_blank" rel="noopener"><code>gpt-tokenizer</code></a>
+    (loaded as a plain ES module from <code>esm.sh</code>, no wasm, no model weights) —
+    the same algorithm and vocabularies OpenAI's tokenizers use, so token
+    boundaries here match the real API. Each resulting token id is decoded
+    back to text on its own to draw its brick; a handful of tokens are single
+    bytes of a multi-byte character and can't stand alone, so they may render
+    as a stray glyph or an empty dashed brick — that's the tokenizer being
+    honest about how the text was actually cut, not a bug. Nothing you type
+    is sent anywhere; everything above runs in this tab.
+  </footer>
+</div>
+
+<script type="module">
+"use strict";
+
+const TOKENIZER_VERSION = "3.4.0";
+const ENC_BASE = `https://esm.sh/gpt-tokenizer@${TOKENIZER_VERSION}/esm/encoding/`;
+
+const ENCODINGS = [
+  { id: "o200k_base", label: "GPT-4o / GPT-4.1", sub: "o200k_base" },
+  { id: "cl100k_base", label: "GPT-3.5 / GPT-4", sub: "cl100k_base" },
+  { id: "p50k_base", label: "GPT-3 (davinci) / Codex", sub: "p50k_base" },
+  { id: "r50k_base", label: "GPT-2 / GPT-3 base", sub: "r50k_base" },
+];
+
+const PRESETS = [
+  { label: "pangram", text: "The quick brown fox jumps over the lazy dog." },
+  { label: "long word", text: "Supercalifragilisticexpialidocious pneumonoultramicroscopicsilicovolcanoconiosis antidisestablishmentarianism." },
+  { label: "code", text: "function tokenize(text) {\n  return encode(text).map(id => decode([id]));\n}" },
+  { label: "multilingual + emoji", text: "café naïve 東京 パリ Москва 😀🦖🔥 mañana" },
+];
+
+const DEFAULT_TEXT =
+  'The quick brown fox jumps over the lazy dog. Supercalifragilisticexpialidocious. ' +
+  'café, naïve, 東京, パリ. 🦖🔥 Antidisestablishmentarianism costs way more tokens ' +
+  'than "cat" — even though it isn\'t that much longer to read.';
+
+const els = {
+  encodings: document.getElementById("encodings"),
+  input: document.getElementById("input"),
+  presets: document.getElementById("presets"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+  statChars: document.getElementById("statChars"),
+  statTokens: document.getElementById("statTokens"),
+  statRatio: document.getElementById("statRatio"),
+  statBiggest: document.getElementById("statBiggest"),
+  statBiggestSub: document.getElementById("statBiggestSub"),
+  proportional: document.getElementById("proportional"),
+  brickwall: document.getElementById("brickwall"),
+  idToggle: document.getElementById("idToggle"),
+  hint: document.getElementById("hint"),
+  shareBluesky: document.getElementById("shareBluesky"),
+};
+
+let selectedEncoding = ENCODINGS[0].id;
+let showIds = false;
+let lastTokens = null;
+const moduleCache = new Map(); // encodingId -> Promise<module>
+let runSeq = 0;
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---- UI: encoding picker + presets ----------------------------------------
+
+function renderEncodings() {
+  els.encodings.innerHTML = "";
+  for (const e of ENCODINGS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "enc-btn" + (e.id === selectedEncoding ? " active" : "");
+    btn.innerHTML = esc(e.label) + '<span class="sub">' + esc(e.sub) + "</span>";
+    btn.addEventListener("click", () => {
+      selectedEncoding = e.id;
+      renderEncodings();
+      run();
+    });
+    els.encodings.appendChild(btn);
+  }
+}
+
+function renderPresets() {
+  els.presets.innerHTML = "";
+  for (const p of PRESETS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset-btn";
+    btn.textContent = p.label;
+    btn.addEventListener("click", () => {
+      els.input.value = p.text;
+      run();
+    });
+    els.presets.appendChild(btn);
+  }
+}
+
+renderEncodings();
+renderPresets();
+els.input.value = DEFAULT_TEXT;
+
+els.idToggle.addEventListener("click", () => {
+  showIds = !showIds;
+  els.idToggle.classList.toggle("on", showIds);
+  els.idToggle.textContent = showIds ? "showing ids" : "show ids";
+  if (lastTokens) renderResults(lastTokens);
+});
+
+// ---- status ------------------------------------------------------------
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+// ---- tokenizer loading ---------------------------------------------------
+
+function getEncoder(encodingId) {
+  if (!moduleCache.has(encodingId)) {
+    moduleCache.set(
+      encodingId,
+      import(/* webpackIgnore: true */ ENC_BASE + encodingId).then((mod) => ({
+        encode: mod.encode,
+        decode: mod.decode,
+      }))
+    );
+  }
+  return moduleCache.get(encodingId);
+}
+
+async function tokenize(encodingId, fullText) {
+  const { encode, decode } = await getEncoder(encodingId);
+  const ids = encode(fullText);
+  const tokens = new Array(ids.length);
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    let piece;
+    try {
+      piece = decode([id]);
+    } catch (_) {
+      piece = "";
+    }
+    tokens[i] = { id, text: piece };
+  }
+  return tokens;
+}
+
+// ---- rendering ------------------------------------------------------------
+
+const WS_RE = /^[\s]+$/;
+
+function glyphFor(token) {
+  if (token.text === "") return { html: '<span class="ws">·</span>', empty: true };
+  if (WS_RE.test(token.text)) {
+    const marked = token.text.replace(/\n/g, "↵").replace(/\t/g, "→").replace(/ /g, "·");
+    return { html: '<span class="ws">' + esc(marked) + "</span>", empty: false };
+  }
+  const escaped = esc(token.text).replace(/\n/g, '<span class="nl">↵</span><br>');
+  return { html: escaped, empty: false };
+}
+
+function renderProportional(tokens) {
+  els.proportional.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  tokens.forEach((t, i) => {
+    const span = document.createElement("span");
+    const g = glyphFor(t);
+    span.className = "tok-inline" + (g.empty ? " empty" : "");
+    span.style.background = `color-mix(in srgb, var(--tok${i % 8}) 30%, var(--card))`;
+    span.title = JSON.stringify(t.text) + " · id " + t.id;
+    span.innerHTML = showIds ? String(t.id) : g.html;
+    frag.appendChild(span);
+  });
+  els.proportional.appendChild(frag);
+}
+
+function renderBrickwall(tokens) {
+  els.brickwall.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  tokens.forEach((t, i) => {
+    const b = document.createElement("div");
+    const g = glyphFor(t);
+    b.className = "brick" + (g.empty ? " empty" : "");
+    b.style.background = `color-mix(in srgb, var(--tok${i % 8}) 40%, var(--card))`;
+    b.title = JSON.stringify(t.text) + " · id " + t.id;
+    b.innerHTML = '<span class="brick-label">' + (showIds ? String(t.id) : (g.empty ? "⋯" : g.html)) + "</span>";
+    frag.appendChild(b);
+  });
+  els.brickwall.appendChild(frag);
+}
+
+function renderResults(tokens) {
+  renderProportional(tokens);
+  renderBrickwall(tokens);
+}
+
+function fmt(n) {
+  return n.toLocaleString();
+}
+
+function updateStats(text, tokens) {
+  const chars = [...text].length;
+  const count = tokens.length;
+  const ratio = count > 0 ? (chars / count).toFixed(2) : "0";
+  els.statChars.textContent = fmt(chars);
+  els.statTokens.textContent = fmt(count);
+  els.statRatio.textContent = ratio;
+
+  if (count > 0) {
+    let biggest = tokens[0];
+    for (const t of tokens) if (t.text.length > biggest.text.length) biggest = t;
+    els.statBiggest.textContent = biggest.text.length + " chr";
+    els.statBiggestSub.textContent = biggest.text.trim() ? JSON.stringify(biggest.text) : "(one token)";
+  } else {
+    els.statBiggest.textContent = "—";
+    els.statBiggestSub.textContent = "";
+  }
+}
+
+function buildShareText(text, tokens, encLabel) {
+  const chars = [...text].length;
+  const count = tokens.length;
+  const ratio = count > 0 ? (chars / count).toFixed(2) : "0";
+  return (
+    "tokenbricks: " + fmt(chars) + " characters of my text came out as " + fmt(count) +
+    " " + encLabel + " tokens (" + ratio + " chars/token) — same text, redrawn as a wall of " +
+    "equal-width bricks so you can see how an LLM actually chunks it. https://tokenbricks.bisks.net/"
+  );
+}
+
+// ---- run --------------------------------------------------------------
+
+async function run() {
+  const text = els.input.value;
+  const seq = ++runSeq;
+  if (!text) {
+    els.results.style.display = "none";
+    setStatus("");
+    lastTokens = null;
+    return;
+  }
+  setStatus("tokenizing…");
+  try {
+    const tokens = await tokenize(selectedEncoding, text);
+    if (seq !== runSeq) return; // a newer run superseded this one
+    lastTokens = tokens;
+    updateStats(text, tokens);
+    renderResults(tokens);
+    els.results.style.display = "block";
+    const encLabel = ENCODINGS.find((e) => e.id === selectedEncoding)?.sub || selectedEncoding;
+    setStatus(fmt(tokens.length) + " tokens (" + encLabel + ").");
+    els.hint.textContent =
+      "Hover a brick for its decoded text and token id. Bricks with a dashed outline are a single " +
+      "byte of a multi-byte character that can't be shown on its own — the tokenizer split mid-character.";
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(text, tokens, encLabel));
+  } catch (err) {
+    if (seq !== runSeq) return;
+    console.error(err);
+    setStatus("couldn't tokenize that: " + (err && err.message ? err.message : String(err)), true);
+  }
+}
+
+let debounceTimer = null;
+els.input.addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 180);
+});
+
+run();
+</script>
+</body>
+</html>
