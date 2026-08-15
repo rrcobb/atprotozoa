@@ -3,7 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>a Shout — Shout Into the Void</title>
+<title>a shout — Shout Into the Void</title>
+<meta name="description" content="Somewhere on the map, someone shouted into the void. Tap through to read it, vote, echo, or murmur." />
+<meta property="og:title" content="a shout — Shout Into the Void" />
+<meta property="og:description" content="Somewhere on the map, someone shouted into the void. Tap through to read it, vote, echo, or murmur." />
+<meta property="og:image" content="https://voidshout.bisks.net/og.png" />
+<meta property="og:url" content="https://voidshout.bisks.net/shout/" />
+<meta name="twitter:card" content="summary_large_image" />
 <link rel="stylesheet" href="/lib/chrome.css" />
 <style>
   .tree { margin-top: 1rem; }
@@ -17,6 +23,7 @@
   .actions button[data-act="delete"] { color: var(--bad); border-color: var(--bad); }
   .actions button[data-act="delete"]:hover { background: #fdeaf0; }
   .pruned-note { font-size: 0.76rem; color: var(--muted); font-style: italic; margin: 0.3rem 0; }
+  .share-bar { margin-bottom: 0.8rem; }
   .carry-form { margin-top: 0.5rem; display: none; gap: 0.4rem; flex-wrap: wrap; }
   .carry-form.on { display: flex; }
   .carry-form input, .carry-form select { font-size: 0.8rem; }
@@ -44,7 +51,7 @@ import { startIngest, ingestOne } from "/lib/ingest.js";
 import * as store from "/lib/store.js";
 import { deriveState, buildTree, flattenTree } from "/lib/feed.js";
 import { esc, timeAgo, canonPostHtml, CARD_STYLE } from "/lib/render.js";
-import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength, cooldownOk, ECHO_COOLDOWN_MS, COLLECTIONS, placeForRecord } from "/lib/voidlogic.mjs";
+import { homeFor, rkeyForCarry, rkeyForVote, MURMUR_MAX_GRAPHEMES, graphemeLength, truncateGraphemes, cooldownOk, ECHO_COOLDOWN_MS, COLLECTIONS, placeForRecord } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { loadDemoRoots } from "/lib/demo.js";
 import { fetchCanonicalPosts } from "/lib/bskypost.js";
@@ -308,6 +315,23 @@ async function nodeHtml(node, isRoot) {
     </div>`;
 }
 
+// Bluesky's 300-grapheme cap, budgeted so the real share URL always makes it
+// into the composed text (not just the unfurl card) — see the dial-a-mutual
+// gotcha in notes/45-sharing-and-virality.md.
+function buildShareText(text, place, url) {
+  const placeBit = place?.name ? ` — shouted from ${place.emoji || "📍"} ${place.name}` : "";
+  const tail = `${placeBit} ${url}`;
+  const budget = Math.max(10, 300 - graphemeLength(tail) - 2);
+  return `"${truncateGraphemes(text, budget)}"${tail}`;
+}
+
+function shareBarHtml(tree, uri) {
+  if (!tree || tree.rec.collection !== COLLECTIONS.shout) return "";
+  const url = `${location.origin}/shout/?uri=${encodeURIComponent(uri)}`;
+  const shareText = buildShareText(tree.rec.value.text || "", tree.rec.value.place, url);
+  return `<div class="share-bar"><a class="btn" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">🦋 share to Bluesky</a></div>`;
+}
+
 let everHadRoot = false;
 
 async function rerender() {
@@ -322,7 +346,7 @@ async function rerender() {
   everHadRoot = true;
   const sourceUris = flattenTree(tree).map((n) => n.rec.value.sourcePostUri).filter(Boolean);
   if (sourceUris.length) canonMap = await fetchCanonicalPosts(sourceUris);
-  rootEl.innerHTML = `<div class="tree">${await nodeHtml(tree, true)}</div>`;
+  rootEl.innerHTML = `${shareBarHtml(tree, rootUri)}<div class="tree">${await nodeHtml(tree, true)}</div>`;
   wireActions();
 }
 

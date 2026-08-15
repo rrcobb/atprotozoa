@@ -90,6 +90,25 @@ fetched live from the public AppView (`public/lib/bskypost.js`) rather than
 copied at import time, so an edit or delete on the original bsky.app post
 is reflected everywhere the Shout appears.
 
+## Sharing
+
+`/shout/` has a "🦋 share to Bluesky" button — an intent-compose link with
+the Shout's own text, its Place, and a real URL back to the thread baked
+into the composed post text (not just the unfurl card), budgeted against
+Bluesky's 300-grapheme cap (`buildShareText` in `public/shout/index.html`).
+
+The one place this site needs a server for: `/shout/?uri=` is a static page
+in `public/`, so by default every share of it unfurls the same generic
+"a shout — Shout Into the Void" card no matter what the Shout actually says.
+`src/index.ts` intercepts that route, resolves the Shout record straight off
+its author's own PDS (DID → PDS via `plc.directory`/`did:web`, then a plain
+`com.atproto.repo.getRecord`), and stamps its real text/Place into the page's
+`<title>`/`og:title`/`og:description`/`og:url` before serving it — same
+"personalize the static shell" trick as `sites/didscope`'s `renderShare`.
+Falls back to the generic card if the uri is missing, malformed, or the
+record can't be resolved (deleted, PDS down) — the link still works, it just
+doesn't unfurl with the Shout's text.
+
 ## Leaving the Void
 
 `/settings/` → "leave the Void" deletes every record you own
@@ -154,6 +173,18 @@ member owns at once; this is per-record.
 ## What's still a stub
 
 Nothing currently — the last known gap is fixed, see below.
+
+Previously listed here: `/shout/` links had no real og:title/og:description
+at all (every share unfurled as a bare fallback), there was no one-tap way
+to share a Shout to Bluesky, the home page never explained what a
+Shout/Echo/Murmur/Place/Home actually are before dropping a first-time
+visitor into a live feed, and the exact same "shout into the void" phrase
+was Title Case in the home page's `<h1>` but fully lowercase on `/compose/`'s
+— no rule decided which. Fixed — see "Sharing" above for the share button
+and per-Shout dynamic OG cards, the "how it works" card on `/` for the
+explanation, and the home page `<h1>`/`/place/`'s `<h1>`+`<title>`/`/shout/`'s
+`<title>` are now lowercase, matching the page-header convention every other
+page already used.
 
 Previously listed here: voting on your own shout/echo/murmur wrote a real
 `net.bisks.void.vote` record to your PDS that `ingest.js`'s self-vote guard
