@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>speedhose — your timeline at 500 wpm</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle. speedhose pulls their follow list, watches the firehose for posts from those accounts, and blasts every word center-screen at 500 wpm — a 2000-word rolling buffer that loops when the firehose goes quiet."
+    />
+    <meta property="og:title" content="speedhose — your timeline at 500 wpm" />
+    <meta
+      property="og:description"
+      content="Enter a handle, watch their firehose blasted at you one word at a time, 500 wpm, forever. Riffing on @angussoftware.dev's feed-that-speeds-up-instead-of-slowing-down bit."
+    />
+    <meta property="og:image" content="https://speedhose.bisks.net/og.png" />
+    <meta property="og:url" content="https://speedhose.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="speedhose — your timeline at 500 wpm" />
+    <meta name="twitter:description" content="Enter a handle, watch their firehose blasted at you one word at a time, 500 wpm, forever." />
+    <meta name="twitter:image" content="https://speedhose.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #07080d;
+        --panel: #10121b;
+        --panel2: #161927;
+        --ink: #eef1ff;
+        --muted: #8b93b0;
+        --faint: #3b4162;
+        --line: #232840;
+        --cyan: #4df3ff;
+        --pink: #ff4dd8;
+        --yellow: #ffe14d;
+        --bar: linear-gradient(90deg, var(--cyan), var(--pink));
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.6rem 1.15rem 6rem; }
+      a { color: var(--cyan); }
+      a:hover { color: var(--pink); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; }
+      h1 {
+        font-size: 2.1rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem;
+        background: linear-gradient(90deg, var(--cyan), var(--pink) 60%, var(--yellow));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .sub { color: var(--muted); font-size: 0.92rem; line-height: 1.65; max-width: 58ch; margin: 0 0 1.5rem; }
+      .sub b { color: var(--ink); }
+
+      form.track { display: flex; gap: 0.5rem; margin: 1.4rem 0 0.6rem; flex-wrap: wrap; }
+      form.track input {
+        flex: 1; min-width: 200px; background: var(--panel); border: 1px solid var(--line);
+        border-radius: 10px; padding: 0.75rem 0.9rem; color: var(--ink); font-family: var(--mono); font-size: 0.95rem;
+      }
+      form.track input:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
+      form.track button {
+        background: var(--cyan); color: #041014; border: none; border-radius: 10px;
+        padding: 0.75rem 1.2rem; font-family: var(--mono); font-weight: 800; font-size: 0.95rem; cursor: pointer;
+      }
+      form.track button:hover { background: var(--pink); color: #1a0714; }
+      .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.8rem; }
+      .chip {
+        font-size: 0.78rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+        border-radius: 999px; padding: 0.3rem 0.75rem; text-decoration: none; cursor: pointer;
+      }
+      .chip:hover { color: var(--ink); border-color: var(--pink); }
+      .formerr { color: var(--pink); font-size: 0.82rem; margin: 0 0 1rem; display: none; }
+
+      #readerView { display: none; }
+      .topbar {
+        display: flex; align-items: center; gap: 0.85rem; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 14px; padding: 0.85rem 1.1rem; margin-bottom: 1.1rem;
+      }
+      .topbar img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; background: var(--faint); border: 1px solid var(--line); flex: none; }
+      .topbar .who { min-width: 0; flex: 1; }
+      .topbar .name { font-weight: 800; font-size: 0.92rem; }
+      .topbar .handle { color: var(--muted); font-size: 0.78rem; }
+      .topbar .meta { font-size: 0.75rem; color: var(--muted); text-align: right; flex: none; line-height: 1.5; }
+      .topbar .meta b { color: var(--cyan); }
+      .topbar .change a { font-size: 0.75rem; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.65rem; }
+      .topbar .change a:hover { color: var(--ink); border-color: var(--pink); }
+
+      .status { display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 1rem; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); transition: background 0.3s; }
+      .dot.live { background: var(--cyan); animation: pulse 2.2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .status.err { color: var(--pink); }
+
+      .stage {
+        position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+        height: 34vh; min-height: 210px; display: flex; align-items: center; justify-content: center;
+        overflow: hidden; cursor: pointer; user-select: none;
+      }
+      .stage::before, .stage::after {
+        content: ""; position: absolute; left: 50%; width: 2px; height: 14px; background: var(--faint);
+      }
+      .stage::before { top: 12px; }
+      .stage::after { bottom: 12px; }
+      .wordbox {
+        display: flex; align-items: baseline; width: 100%; padding: 0 4vw;
+        font-size: clamp(2.1rem, 7vw, 4.4rem); font-weight: 800; white-space: nowrap;
+      }
+      .wpre, .wpost { flex: 1 1 0; overflow: visible; }
+      .wpre { text-align: right; color: var(--ink); }
+      .wpost { text-align: left; color: var(--ink); }
+      .wpivot { color: var(--pink); padding: 0 0.02em; }
+      .pausedTag {
+        position: absolute; top: 10px; right: 14px; font-size: 0.7rem; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--yellow); display: none;
+      }
+      .stage.paused .pausedTag { display: block; }
+
+      .attrib {
+        display: flex; align-items: center; gap: 0.5rem; margin: 0.9rem 0 0; min-height: 26px;
+        font-size: 0.8rem; color: var(--muted); opacity: 0; transition: opacity 0.25s ease;
+      }
+      .attrib.show { opacity: 1; }
+      .attrib img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; background: var(--faint); }
+      .attrib a { color: var(--muted); text-decoration: none; }
+      .attrib a:hover { color: var(--ink); text-decoration: underline; }
+
+      .controls {
+        display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin: 1.3rem 0 0.4rem;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0.85rem 1rem;
+      }
+      .controls button.playpause {
+        background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+        font-family: var(--mono); font-weight: 800; font-size: 0.85rem; padding: 0.45rem 0.9rem; cursor: pointer;
+      }
+      .controls button.playpause:hover { border-color: var(--cyan); }
+      .speedctl { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: var(--muted); }
+      .speedctl input[type="range"] { width: 140px; accent-color: var(--cyan); }
+      .speedctl b { color: var(--ink); min-width: 4.2em; display: inline-block; }
+      .fastctl { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); cursor: pointer; }
+      .fastctl input { accent-color: var(--pink); }
+
+      .share { margin: 1.6rem 0; }
+      .share a {
+        display: inline-block; font-size: 0.8rem; color: var(--muted); background: var(--panel);
+        border: 1px solid var(--line); border-radius: 9px; padding: 0.45rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--pink); }
+
+      footer { margin-top: 2.4rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>speedhose</h1>
+        <p class="sub">
+          <a href="https://bsky.app/profile/angussoftware.dev" target="_blank" rel="noopener">@angussoftware.dev</a>
+          pitched a Bluesky app where the feed <b>speeds up instead of slowing down</b> — every post, one word at a time,
+          center screen, 500 wpm. <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>
+          asked for the handle-driven version: type a handle, this pulls who they follow, watches the live firehose for
+          those accounts, and blasts every word it sees at <b>500 wpm</b> into a rolling <b>2000-word buffer</b> that
+          <b>loops</b> when nothing new has come in. Go bot go.
+        </p>
+      </header>
+
+      <form class="track" id="trackForm">
+        <input id="handleInput" type="text" placeholder="a handle, e.g. shimmermathlabs.com" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button type="submit">blast it</button>
+      </form>
+      <p class="formerr" id="formErr"></p>
+      <div class="chips">
+        <span class="chip" data-h="shimmermathlabs.com">@shimmermathlabs.com</span>
+        <span class="chip" data-h="angussoftware.dev">@angussoftware.dev</span>
+        <span class="chip" data-h="buildthis.bisks.net">@buildthis.bisks.net</span>
+      </div>
+
+      <div id="readerView">
+        <div class="topbar" id="target" style="display:none">
+          <img id="tAvatar" alt="" referrerpolicy="no-referrer" />
+          <div class="who">
+            <div class="name" id="tName"></div>
+            <div class="handle" id="tHandle"></div>
+          </div>
+          <div class="meta"><b id="fCount">0</b> followed<br /><span id="bCount">0</span> words buffered</div>
+          <div class="change"><a href="/">change handle</a></div>
+        </div>
+
+        <div class="status" id="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+
+        <div class="stage" id="stage" title="click to pause / resume">
+          <span class="pausedTag">paused</span>
+          <div class="wordbox" id="wordbox">
+            <span class="wpre" id="wPre"></span><span class="wpivot" id="wPivot"></span><span class="wpost" id="wPost"></span>
+          </div>
+        </div>
+
+        <div class="attrib" id="attrib">
+          <img id="aAvatar" alt="" referrerpolicy="no-referrer" />
+          <span>— <span id="aName"></span> <span id="aHandle"></span> <a id="aLink" href="#" target="_blank" rel="noopener">open ↗</a></span>
+        </div>
+
+        <div class="controls">
+          <button class="playpause" id="playpause" type="button">⏸ pause</button>
+          <label class="speedctl">
+            speed <input type="range" id="speedSlider" min="100" max="1200" step="25" value="500" />
+            <b id="speedLabel">500 wpm</b>
+          </label>
+          <label class="fastctl">
+            <input type="checkbox" id="fasterToggle" /> ⚡ getting faster, not slowing down
+          </label>
+        </div>
+
+        <div class="share">
+          <a id="shareLink" href="https://bsky.app/intent/compose?text=speedhose.bisks.net" target="_blank" rel="noopener">share this blast</a>
+        </div>
+      </div>
+
+      <footer>
+        Follow list comes from <a href="https://docs.bsky.app/docs/category/http-reference" target="_blank" rel="noopener">the public AppView</a>
+        (unauthenticated, capped at the first ~2500 follows). New posts arrive live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose, filtered in the
+        browser to just the accounts you follow. The reader keeps a rolling buffer of the last 2000 words and loops back to
+        the start of it whenever it runs out of new material — nothing ever stops. Everything runs client-side; nothing you
+        type is sent anywhere but the public AppView.
+        asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="/client.js"></script>
+    <script>
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function normalizeForUrl(h) { return (h || "").trim().replace(/^@/, ""); }
+      function postUrl(handle, uri) {
+        const rkey = (uri || "").split("/").pop();
+        return `https://bsky.app/profile/${handle}/post/${rkey}`;
+      }
+
+      // Spritz/RSVP-style optimal recognition point: roughly a third into the
+      // word, biased earlier for short words.
+      function orpIndex(len) {
+        if (len <= 1) return 0;
+        if (len <= 5) return 1;
+        if (len <= 9) return 2;
+        if (len <= 13) return 3;
+        return 4;
+      }
+
+      const trackForm = document.getElementById("trackForm");
+      const handleInput = document.getElementById("handleInput");
+      const formErr = document.getElementById("formErr");
+      const readerView = document.getElementById("readerView");
+
+      document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => go(chip.dataset.h)));
+      trackForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = handleInput.value.trim();
+        if (!v) return;
+        go(v);
+      });
+      function go(handle) {
+        const h = normalizeForUrl(handle);
+        const url = new URL(location.href);
+        url.searchParams.set("u", h);
+        history.replaceState(null, "", url);
+        startReading(h);
+      }
+
+      let currentHandle = null;
+      let paused = false;
+      let tickTimer = null;
+      let rampWpm = null;
+      let lastUri = null;
+      let statusTimer = null;
+
+      const target = document.getElementById("target");
+      const dot = document.getElementById("dot");
+      const statusEl = document.getElementById("status");
+      const statusText = document.getElementById("statusText");
+      const stage = document.getElementById("stage");
+      const wPre = document.getElementById("wPre");
+      const wPivot = document.getElementById("wPivot");
+      const wPost = document.getElementById("wPost");
+      const attrib = document.getElementById("attrib");
+      const shareLink = document.getElementById("shareLink");
+      const playpause = document.getElementById("playpause");
+      const speedSlider = document.getElementById("speedSlider");
+      const speedLabel = document.getElementById("speedLabel");
+      const fasterToggle = document.getElementById("fasterToggle");
+
+      function startReading(handle) {
+        currentHandle = handle;
+        handleInput.value = handle;
+        trackForm.style.display = "none";
+        document.querySelector(".chips").style.display = "none";
+        formErr.style.display = "none";
+        readerView.style.display = "block";
+        paused = false;
+        rampWpm = null;
+        lastUri = null;
+        stage.classList.remove("paused");
+        playpause.textContent = "⏸ pause";
+        showWaiting();
+
+        window.speedhoseClient.connect(handle).then((s) => {
+          if (s.status === "error") {
+            statusEl.classList.add("err");
+            statusText.textContent = "couldn't load that handle — " + (s.error || "check the spelling and try again");
+            return;
+          }
+          renderTarget(s);
+        });
+
+        clearInterval(statusTimer);
+        statusTimer = setInterval(pollStatus, 1500);
+        pollStatus();
+
+        clearTimeout(tickTimer);
+        scheduleTick();
+      }
+
+      function pollStatus() {
+        if (!currentHandle) return;
+        const s = window.speedhoseClient.status(currentHandle);
+        if (s.status === "error") return;
+        renderTarget(s);
+        statusEl.classList.remove("err");
+        dot.classList.toggle("live", !!s.connected);
+        if (s.status === "loading") statusText.textContent = "finding who they follow…";
+        else if (!s.followCount) statusText.textContent = "this handle doesn't follow anyone — nothing to watch";
+        else statusText.textContent = `watching ${s.followCount} accounts · ${s.connected ? "live" : "reconnecting…"}`;
+      }
+
+      function renderTarget(s) {
+        if (!s.profile) return;
+        target.style.display = "flex";
+        document.getElementById("tAvatar").src = s.profile.avatar || "";
+        document.getElementById("tName").textContent = s.profile.displayName || s.profile.handle;
+        document.getElementById("tHandle").textContent = "@" + s.profile.handle;
+        document.getElementById("fCount").textContent = s.followCount || 0;
+        document.getElementById("bCount").textContent = s.bufferLength || 0;
+        const shareText = `blasting @${s.profile.handle}'s timeline at 500 wpm on speedhose — speedhose.bisks.net/?u=${encodeURIComponent(currentHandle)}`;
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      function showWaiting() {
+        wPre.textContent = "";
+        wPivot.textContent = "";
+        wPost.textContent = "waiting for a post…";
+        wPost.style.color = "var(--muted)";
+        wPost.style.fontWeight = "400";
+      }
+
+      function renderWord(entry) {
+        const word = entry.w || "";
+        const idx = orpIndex(word.length);
+        wPre.textContent = word.slice(0, idx);
+        wPivot.textContent = word.slice(idx, idx + 1);
+        wPost.textContent = word.slice(idx + 1);
+        wPost.style.color = "var(--ink)";
+        wPost.style.fontWeight = "800";
+
+        if (!entry.sep && entry.uri && entry.uri !== lastUri) {
+          lastUri = entry.uri;
+          document.getElementById("aAvatar").src = entry.a || "";
+          document.getElementById("aName").textContent = entry.d || entry.h;
+          document.getElementById("aHandle").textContent = "@" + entry.h;
+          document.getElementById("aLink").href = postUrl(entry.h, entry.uri);
+          attrib.classList.add("show");
+        }
+      }
+
+      function currentWpm() {
+        const base = Number(speedSlider.value) || 500;
+        if (!fasterToggle.checked) { rampWpm = null; return base; }
+        rampWpm = Math.min(3000, (rampWpm || base) + 1.5);
+        return rampWpm;
+      }
+
+      function tick() {
+        if (!currentHandle || paused) return;
+        const entry = window.speedhoseClient.next(currentHandle);
+        if (!entry) {
+          showWaiting();
+          tickTimer = setTimeout(tick, 300);
+          return;
+        }
+        renderWord(entry);
+        const ms = 60000 / currentWpm();
+        tickTimer = setTimeout(tick, ms);
+      }
+      function scheduleTick() { clearTimeout(tickTimer); tick(); }
+
+      function setPaused(p) {
+        paused = p;
+        stage.classList.toggle("paused", p);
+        playpause.textContent = p ? "▶ resume" : "⏸ pause";
+        if (!p) scheduleTick();
+      }
+      playpause.addEventListener("click", () => setPaused(!paused));
+      stage.addEventListener("click", () => setPaused(!paused));
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && currentHandle && document.activeElement !== handleInput) {
+          e.preventDefault();
+          setPaused(!paused);
+        }
+      });
+      speedSlider.addEventListener("input", () => {
+        speedLabel.textContent = speedSlider.value + " wpm";
+      });
+      fasterToggle.addEventListener("change", () => { rampWpm = null; });
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") clearTimeout(tickTimer);
+        else if (currentHandle && !paused) scheduleTick();
+      });
+
+      (function boot() {
+        const params = new URLSearchParams(location.search);
+        const u = params.get("u");
+        if (u) go(u);
+      })();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () { setMode(!coop.classList.contains("on")); });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
