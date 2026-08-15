@@ -34,7 +34,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
 
   <text x="64" y="118" font-family="JetBrains Mono" font-weight="800" font-size="66" fill="url(#title)">blipverts</text>
-  <text x="66" y="160" font-family="JetBrains Mono" font-size="21" fill="${DIM}">your timeline, one WHOLE POST at a time. same pace as speedhose.</text>
+  <text x="66" y="160" font-family="JetBrains Mono" font-size="21" fill="${DIM}">your timeline, one WHOLE POST at a time, flashed instantly.</text>
 
   <g>
     <rect x="64" y="216" width="1072" height="220" rx="18" fill="${CARD}" stroke="${BORDER}"/>
