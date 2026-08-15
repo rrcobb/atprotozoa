@@ -77,32 +77,3 @@ export function searchPlaces(query, extra = []) {
   );
 }
 
-// Equirectangular projection: lat/lng -> percentage position on the flat
-// map div. worldmap-data.js's land silhouette is projected with this exact
-// same formula, so every pin and route lands on real coastline, not a
-// blank grid.
-//
-// Real records carry lat/lng as strings (atproto's record data model has no
-// float type — see lexicons/net.bisks.void.shout.json#place), while PLACES
-// above keeps them as JS numbers for local map math. Accept either so
-// callers don't need to know which they've got.
-export function project(lat, lng) {
-  const latNum = Number(lat);
-  const lngNum = Number(lng);
-  return {
-    xPct: ((lngNum + 180) / 360) * 100,
-    yPct: ((90 - latNum) / 180) * 100,
-  };
-}
-
-// Inverse of project() — turns a click position on the map (percentage of
-// the map's width/height, same frame project() outputs) back into lat/lng.
-// Used by mappicker.js so a tap anywhere on the map — not just on a
-// curated pin — resolves to a real coordinate, clamped to valid ranges so a
-// click right on the map's edge can't produce an out-of-range Place.
-export function unproject(xPct, yPct) {
-  return {
-    lat: Math.max(-90, Math.min(90, 90 - (yPct / 100) * 180)),
-    lng: Math.max(-180, Math.min(180, (xPct / 100) * 360 - 180)),
-  };
-}

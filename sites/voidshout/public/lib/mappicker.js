@@ -24,8 +24,11 @@ const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
 // usage policy asks bulk consumers not to hit tile.openstreetmap.org
 // directly). Voyager carries street labels, which is what actually makes
 // zooming in useful for picking a granular spot.
-const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-const TILE_ATTRIBUTION =
+// Exported (with loadLeaflet) so every map in the app — not just this
+// picker — uses the same tiles and the same cached CDN load; map/'s world
+// view imports these too rather than re-fetching Leaflet a second time.
+export const TILE_URL = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+export const TILE_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors ' +
   '&copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
@@ -33,9 +36,10 @@ const SEARCH_MIN_LEN = 3;
 const SEARCH_DEBOUNCE_MS = 400;
 
 let leafletPromise = null;
-/** Loads Leaflet's CSS + JS from CDN exactly once, however many times the
- *  picker is opened across the page's lifetime. */
-function loadLeaflet() {
+/** Loads Leaflet's CSS + JS from CDN exactly once, however many times it's
+ *  requested across the page's lifetime — shared by the picker and by
+ *  map/'s world view. */
+export function loadLeaflet() {
   if (leafletPromise) return leafletPromise;
   leafletPromise = new Promise((resolve, reject) => {
     if (window.L) { resolve(window.L); return; }

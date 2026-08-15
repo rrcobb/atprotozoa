@@ -6,25 +6,19 @@
 <title>the map — Shout Into the Void</title>
 <link rel="stylesheet" href="/lib/chrome.css" />
 <style>
-  .map-wrap { position: relative; width: 100%; aspect-ratio: 2 / 1; background: linear-gradient(180deg, #eaf5ff, #dcefff 60%, #eef7ff); border: 1px solid var(--faint); border-radius: 14px; overflow: hidden; margin: 1rem 0; }
-  .map-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .land { fill: #cfe4d8; stroke: #9fc2ae; stroke-width: 1; }
-  .graticule line { stroke: #0f141914; stroke-width: 1; }
-  .graticule .eq { stroke: #0f141930; }
-  .route { fill: none; stroke: var(--accent2); stroke-width: 1.4; stroke-dasharray: 4 5; opacity: 0.75; animation: dash 3.5s linear infinite; }
-  @keyframes dash { to { stroke-dashoffset: -90; } }
-  .pin { position: absolute; transform: translate(-50%, -50%); text-align: center; cursor: pointer; padding: 0.4rem; }
-  .pin .dot { font-size: 1.1rem; filter: drop-shadow(var(--pin-glow)); }
-  .pin .count { display: block; font-size: 0.62rem; color: var(--accent2); font-family: var(--mono); }
-  .pin:hover .dot { transform: scale(1.25); }
+  .map-wrap { position: relative; width: 100%; aspect-ratio: 2 / 1; border: 1px solid var(--faint); border-radius: 14px; overflow: hidden; margin: 1rem 0; background: #dcefff; }
+  .map-wrap .leaflet-container { width: 100%; height: 100%; font: inherit; background: #dcefff; }
   .legend { font-size: 0.76rem; color: var(--muted); margin-bottom: 0.4rem; }
-  /* aspect-ratio:2/1 on a 375px-wide phone leaves ~187px of height for up to
-     36 curated Places worth of pins — badly cramped and hard to tap
-     individually. Go taller below the point where width stops being the
-     limiting factor. Whatever this ratio is, the land/graticule/routes SVGs
-     below must keep preserveAspectRatio="none" or they letterbox instead of
-     stretching to match, and pins (positioned by raw %, same as project())
-     drift off the coastline. */
+  .void-pin-icon { background: none; border: none; }
+  .void-pin { display: flex; flex-direction: column; align-items: center; text-decoration: none; color: inherit; cursor: pointer; }
+  .void-pin .dot { font-size: 1.1rem; line-height: 1; filter: drop-shadow(var(--pin-glow)); transition: transform 0.1s; }
+  .void-pin:hover .dot { transform: scale(1.25); }
+  .void-pin .count { display: block; font-size: 0.62rem; color: var(--accent2); font-family: var(--mono); background: #ffffffd0; border-radius: 4px; padding: 0 3px; margin-top: 1px; }
+  .void-route { animation: dash 3.5s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -90; } }
+  /* Same phone-cramping problem the old flat map had: aspect-ratio:2/1 on a
+     375px-wide viewport leaves too little height to tap pins individually.
+     Go taller below the point where width stops being the limiting factor. */
   @media (max-width: 640px) {
     .map-wrap { aspect-ratio: 1 / 1.15; }
   }
@@ -35,16 +29,12 @@
 <div id="demo-banner"></div>
 <div class="wrap wide">
   <h1>the world, as shouted at</h1>
-  <p class="muted legend">Pin size = current activity at that Place. Dashed lines = a carry (Echo/Murmur) in the last 6 hours,
-    respecting <code>prefers-reduced-motion</code>. The coastline below is real Natural Earth land data, projected with the
-    same equirectangular formula as every pin and route, so they land on actual coasts rather than floating over a blank
-    grid — coarse on purpose, a silhouette for orientation, not a navigational chart. Click a pin for that Place's feed.</p>
-  <div class="map-wrap" id="mapWrap">
-    <svg viewBox="0 0 1000 500" preserveAspectRatio="none" id="land"></svg>
-    <svg viewBox="0 0 1000 500" preserveAspectRatio="none" class="graticule" id="graticule"></svg>
-    <svg viewBox="0 0 1000 500" preserveAspectRatio="none" id="routes"></svg>
-    <div id="pins"></div>
-  </div>
+  <p class="muted legend">A real, zoomable OpenStreetMap — the same tiles and the same slippy-map library as the
+    "pick a Place on the map" picker everywhere else in the app, not a flat static silhouette. Pin size = current
+    activity at that Place. Dashed lines = a carry (Echo/Murmur) in the last 6 hours, respecting
+    <code>prefers-reduced-motion</code>. Scroll or pinch to zoom in on a cluster, drag to pan, click a pin for that
+    Place's feed.</p>
+  <div class="map-wrap" id="mapWrap"></div>
 </div>
 
 <script type="module">
@@ -52,59 +42,58 @@ import { mountChrome, demoModeOn } from "/lib/chrome.js";
 import { startIngest } from "/lib/ingest.js";
 import * as store from "/lib/store.js";
 import { deriveState, allTrees, placeActivityFromTrees, routeSegmentsFromTrees } from "/lib/feed.js";
-import { project } from "/lib/places.js";
 import { esc } from "/lib/render.js";
 import { loadDemoRoots } from "/lib/demo.js";
-import { WORLD_LAND_PATH } from "/lib/worldmap-data.js";
+import { loadLeaflet, TILE_URL, TILE_ATTRIBUTION } from "/lib/mappicker.js";
 
 await mountChrome({ active: "/map/" });
 
-const landSvg = document.getElementById("land");
-const gratSvg = document.getElementById("graticule");
-const routesSvg = document.getElementById("routes");
-const pinsEl = document.getElementById("pins");
+const mapEl = document.getElementById("mapWrap");
 
-landSvg.innerHTML = `<path class="land" d="${WORLD_LAND_PATH}" />`;
+let L, map, pinsLayer, routesLayer;
 
-function buildGraticule() {
-  let s = "";
-  for (let lng = -180; lng <= 180; lng += 30) {
-    const x = ((lng + 180) / 360) * 1000;
-    s += `<line x1="${x}" y1="0" x2="${x}" y2="500" />`;
-  }
-  for (let lat = -90; lat <= 90; lat += 30) {
-    const y = ((90 - lat) / 180) * 500;
-    s += `<line class="${lat === 0 ? "eq" : ""}" x1="0" y1="${y}" x2="1000" y2="${y}" />`;
-  }
-  gratSvg.innerHTML = s;
+async function initMap() {
+  L = await loadLeaflet();
+  map = L.map(mapEl, { attributionControl: true, worldCopyJump: true }).setView([20, 0], 2);
+  L.tileLayer(TILE_URL, { maxZoom: 19, subdomains: "abcd", attribution: TILE_ATTRIBUTION }).addTo(map);
+  pinsLayer = L.layerGroup().addTo(map);
+  routesLayer = L.layerGroup().addTo(map);
+  requestAnimationFrame(() => map.invalidateSize());
 }
-buildGraticule();
 
 function drawPins(activity) {
+  pinsLayer.clearLayers();
   const max = Math.max(1, ...[...activity.values()].map((e) => e.count));
-  pinsEl.innerHTML = [...activity.values()]
-    .map(({ place, count }) => {
-      const { xPct, yPct } = project(place.lat, place.lng);
-      const size = 1 + Math.min(1.6, (count / max) * 1.6);
-      return `<a class="pin" href="/place/?id=${encodeURIComponent(place.id)}" style="left:${xPct}%; top:${yPct}%" title="${esc(place.name)} — ${count} active">
+  for (const { place, count } of activity.values()) {
+    const size = 1 + Math.min(1.6, (count / max) * 1.6);
+    const icon = L.divIcon({
+      className: "void-pin-icon",
+      html: `<a class="void-pin" href="/place/?id=${encodeURIComponent(place.id)}">
         <span class="dot" style="font-size:${size}rem">${esc(place.emoji)}</span>
         <span class="count">${count}</span>
-      </a>`;
-    })
-    .join("");
+      </a>`,
+      iconSize: [40, 46],
+      iconAnchor: [20, 23],
+    });
+    L.marker([Number(place.lat), Number(place.lng)], { icon })
+      .bindTooltip(`${esc(place.name)} — ${count} active`, { direction: "top", offset: [0, -18] })
+      .addTo(pinsLayer);
+  }
 }
 
 function drawRoutes(segments) {
+  routesLayer.clearLayers();
   const cutoff = Date.now() - 6 * 3600 * 1000;
-  const recent = segments.filter((s) => s.atMs >= cutoff);
-  routesSvg.innerHTML = recent
-    .map((s) => {
-      const a = project(s.from.lat, s.from.lng);
-      const b = project(s.to.lat, s.to.lng);
-      return `<line class="route" x1="${(a.xPct / 100) * 1000}" y1="${(a.yPct / 100) * 500}" x2="${(b.xPct / 100) * 1000}" y2="${(b.yPct / 100) * 500}" />`;
-    })
-    .join("");
+  for (const s of segments) {
+    if (s.atMs < cutoff) continue;
+    L.polyline(
+      [[Number(s.from.lat), Number(s.from.lng)], [Number(s.to.lat), Number(s.to.lng)]],
+      { color: "#0a7aff", weight: 1.4, opacity: 0.75, dashArray: "4 5", className: "void-route", interactive: false },
+    ).addTo(routesLayer);
+  }
 }
+
+await initMap();
 
 if (demoModeOn()) {
   const trees = await loadDemoRoots();

@@ -202,3 +202,15 @@ relative gaps between records (so some carries still correctly fall outside
 the 6h window and some still correctly fall inside it). This also keeps
 `timeAgo()` on every demo card fresh instead of creeping toward "N days ago"
 everywhere else demo data renders.
+
+Also previously listed: once the Place picker (see above) became a real
+zoomable Leaflet/OpenStreetMap map, `/map/` — the "the world, as shouted at"
+view — was left behind on the older flat Natural Earth silhouette approach,
+so the app had two different-looking "maps." Fixed — `/map/` now uses the
+same Leaflet + CARTO Voyager tiles as the picker (`loadLeaflet`, `TILE_URL`,
+`TILE_ATTRIBUTION` are exported from `public/lib/mappicker.js` so both share
+one CDN load), with activity pins and route lines as real markers/polylines
+at each Place's actual lat/lng instead of hand-projected SVG. The old
+equirectangular `project()`/`unproject()` helpers in `public/lib/places.js`
+and the baked-in `public/lib/worldmap-data.js` coastline data are gone —
+Leaflet's own tiles are the coastline now.

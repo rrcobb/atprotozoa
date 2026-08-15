@@ -14,8 +14,9 @@
 // Place in public/lib/places.js is fractional, so this hits on essentially
 // every write. places.js keeps PLACES as JS numbers for its own map math;
 // placeForRecord() below converts to the wire (string) shape right before
-// a record is built. project() (places.js) accepts either, so reads of
-// already-ingested records don't need a separate parse step.
+// a record is built. Callers reading lat/lng back off an ingested record
+// (map/'s Leaflet markers, feed.js's route segments) coerce with Number()
+// rather than assuming either shape.
 // @typedef {{$type: "net.bisks.void.shout", text: string, place: Place, sourcePostUri?: string, createdAt: string}} ShoutRecord
 // @typedef {{$type: "net.bisks.void.echo", rootUri: string, parentUri: string, place: Place, createdAt: string}} EchoRecord
 // @typedef {{$type: "net.bisks.void.murmur", rootUri: string, parentUri: string, place: Place, text: string, createdAt: string}} MurmurRecord
