@@ -88,7 +88,7 @@ export function cardHtml(n) {
   return `
     <article class="void-card" data-uri="${esc(n.uri)}">
       <div class="void-card-top">
-        <span class="who mono">${n.did ? `<a class="who-link" href="/profile/?did=${encodeURIComponent(n.did)}">${esc(n.homeName)}</a>` : esc(n.homeName)} ${kindLabel} at ${esc(n.place?.emoji || "❔")} ${esc(n.place?.name || "Elsewhere")}</span>
+        <span class="who mono">${esc(n.place?.emoji || "❔")} ${esc(n.place?.name || "Elsewhere")} — ${n.did ? `<a class="who-link" href="/profile/?did=${encodeURIComponent(n.did)}">${esc(n.homeName)}</a>` : esc(n.homeName)} ${kindLabel}</span>
         <span class="spacer"></span>
         ${hiddenTag}${demoTag}
       </div>
