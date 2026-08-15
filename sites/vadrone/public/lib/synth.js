@@ -136,7 +136,7 @@ export function createVoice(ctx, master, opts) {
   brightFilter.frequency.value = 800;
 
   const fader = ctx.createGain();
-  fader.gain.value = role === "hum" ? 1 : role === "vox" ? 0.6 : 0.8;
+  fader.gain.value = role === "hum" ? 1 : role === "vox" || role === "horn" ? 0.6 : 0.8;
 
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
@@ -227,6 +227,41 @@ export function createVoice(ctx, master, opts) {
       formant1.frequency.linearRampToValueAtTime(600 + f * 0.35, t);
       formant2.frequency.linearRampToValueAtTime(980 + f * 0.55, t);
     };
+  } else if (role === "horn") {
+    // a sustained brass-horn drone: two detuned sawtooths carved by a
+    // resonant lowpass (a single "mouth" formant, unlike vox's twin
+    // bandpass pair) with a slow vibrato LFO on pitch for a breathy,
+    // held-brass character
+    const osc1 = ctx.createOscillator();
+    osc1.type = "sawtooth";
+    osc1.detune.value = -5;
+    const osc2 = ctx.createOscillator();
+    osc2.type = "sawtooth";
+    osc2.detune.value = 5;
+    const hornFilter = ctx.createBiquadFilter();
+    hornFilter.type = "lowpass";
+    hornFilter.Q.value = 4;
+    hornFilter.frequency.value = 900;
+    const vibrato = ctx.createOscillator();
+    vibrato.type = "sine";
+    vibrato.frequency.value = 4.4;
+    const vibratoGain = ctx.createGain();
+    vibratoGain.gain.value = 3;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc1.detune);
+    vibratoGain.connect(osc2.detune);
+    osc1.connect(hornFilter);
+    osc2.connect(hornFilter);
+    hornFilter.connect(envGain);
+    osc1.start();
+    osc2.start();
+    vibrato.start();
+    sources.push(osc1, osc2, vibrato);
+    setTargetFreq = (f, t) => {
+      osc1.frequency.linearRampToValueAtTime(f, t);
+      osc2.frequency.linearRampToValueAtTime(f * 1.005, t);
+      hornFilter.frequency.linearRampToValueAtTime(f * 3.2, t);
+    };
   } else if (role === "hum") {
     const bufSize = Math.floor(ctx.sampleRate * 4);
     const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
@@ -259,7 +294,7 @@ export function createVoice(ctx, master, opts) {
   function runCycle() {
     const t = ctx.currentTime + 0.05;
     const cyc = cycleSec;
-    if (role === "pad" || role === "vox") {
+    if (role === "pad" || role === "vox" || role === "horn") {
       const atk = cyc * 0.35,
         rel = cyc * 0.45,
         peak = 0.42;
@@ -336,18 +371,18 @@ export function createVoice(ctx, master, opts) {
 }
 
 // The fixed little ensemble: a low pad on the root, a higher pad on the
-// third, a bell on the fifth, a chime up on the ninth, two wordless vox
-// voices, and a hum underneath tying the register together. cycleMul values
-// are irrational-ish relative to each other (not clean small-integer ratios)
-// so the voices, all driven by the same arousal-derived base tempo, still
-// drift in and out of phase.
+// third, a bell on the fifth, a chime up on the ninth, a wordless vox voice,
+// a sustained horn, and a hum underneath tying the register together.
+// cycleMul values are irrational-ish relative to each other (not clean
+// small-integer ratios) so the voices, all driven by the same
+// arousal-derived base tempo, still drift in and out of phase.
 export const ENSEMBLE = [
   { role: "pad", label: "low pad", degreeIdx: 0, cycleMul: 1, octave: -1 },
   { role: "pad", label: "high pad", degreeIdx: 1, cycleMul: 1.37, octave: 0 },
   { role: "bell", label: "bell", degreeIdx: 2, cycleMul: 0.71, octave: 1 },
   { role: "bell", label: "chime", degreeIdx: 3, cycleMul: 1.93, octave: 1 },
-  { role: "vox", label: "alto vox", degreeIdx: 2, cycleMul: 1.62, octave: 0 },
-  { role: "vox", label: "soprano vox", degreeIdx: 4, cycleMul: 0.53, octave: 1 },
+  { role: "vox", label: "vox", degreeIdx: 2, cycleMul: 1.62, octave: 0 },
+  { role: "horn", label: "horn", degreeIdx: 4, cycleMul: 0.53, octave: -1 },
   { role: "hum", label: "hum", degreeIdx: 0, cycleMul: 2.6, octave: -2 },
 ];
 
