@@ -75,7 +75,7 @@ Place object — same shape as any `PLACES` entry — validated by the same
 | `/` | Home feed — live Jetstream-derived, or seeded demo data |
 | `/onboarding/` | Sign in, see your generated Home, pick a default Place |
 | `/compose/` | Shout composer (text-only) |
-| `/import/` | CAR import — downloads and walks your own repo's real MST (`public/lib/car.js`) to find `app.bsky.feed.post` records, lets you turn any into a Shout with `sourcePostUri` set |
+| `/import/` | Import your own posts as Shouts — either browse your whole repo (downloads and walks the real MST via `public/lib/car.js` to find `app.bsky.feed.post` records) or paste a single bsky.app post link/`at://` uri directly; either way `sourcePostUri` is set on the resulting Shout |
 | `/shout/?uri=` | Shout/tree detail — vote, Echo, Murmur |
 | `/place/` | Place search + per-Place feed |
 | `/map/` | World map, route lines between Places |
@@ -92,10 +92,18 @@ is reflected everywhere the Shout appears.
 
 ## Sharing
 
-`/shout/` has a "🦋 share to Bluesky" button — an intent-compose link with
-the Shout's own text, its Place, and a real URL back to the thread baked
-into the composed post text (not just the unfurl card), budgeted against
-Bluesky's 300-grapheme cap (`buildShareText` in `public/shout/index.html`).
+`/shout/` offers three ways to get a Shout onto Bluesky, side by side in its
+share bar: "🦋 open composer" (an intent-compose link with the Shout's text,
+Place, and a real URL back to the thread baked into the composed post text,
+budgeted against Bluesky's 300-grapheme cap — `buildShareText` in
+`public/shout/index.html`); "🦋 post directly" (signed-in members only — a
+real `app.bsky.feed.post` write to their own repo via `dpopFetch`, same
+budgeting minus the quote marks since it's their own words again, not a
+share-about link — `buildCrosspostText`); and, only on a Shout that carries
+`sourcePostUri` and whose canonical post resolved, "🔁 repost original" (a
+real `app.bsky.feed.repost` of that original bsky.app post, using its live
+`cid` off `canonMap`). The direct-post and repost buttons need the two
+`app.bsky.feed.*` create-only OAuth grants — see "OAuth scope" below.
 
 The one place this site needs a server for: `/shout/?uri=` is a static page
 in `public/`, so by default every share of it unfurls the same generic
@@ -122,8 +130,13 @@ delete — the records are really gone from your PDS.
 ## OAuth scope
 
 Public client (`token_endpoint_auth_method: none`), scoped to exactly the
-five `repo:` grants the app writes to — never the broad
-`atproto transition:generic`. `public/client-metadata.json`'s `scope` and
+`repo:` grants the app writes to — never the broad `atproto
+transition:generic`. Five grants are the `net.bisks.void.*` collections;
+two more (`repo:app.bsky.feed.post?action=create`,
+`repo:app.bsky.feed.repost?action=create`) are create-only and cover
+`/shout/`'s "post directly" and "repost original" buttons — real Bluesky
+writes, not Void records, so they get their own narrow grants rather than
+riding in on the void ones. `public/client-metadata.json`'s `scope` and
 `public/lib/oauth.js`'s `SCOPE` constant must stay byte-identical (see
 `notes/50-oauth-scopes.md` at the repo root) or the PDS rejects login.
 

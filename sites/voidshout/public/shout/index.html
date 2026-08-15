@@ -23,7 +23,7 @@
   .actions button[data-act="delete"] { color: var(--bad); border-color: var(--bad); }
   .actions button[data-act="delete"]:hover { background: #fdeaf0; }
   .pruned-note { font-size: 0.76rem; color: var(--muted); font-style: italic; margin: 0.3rem 0; }
-  .share-bar { margin-bottom: 0.8rem; }
+  .share-bar { margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
   .carry-form { margin-top: 0.5rem; display: none; gap: 0.4rem; flex-wrap: wrap; }
   .carry-form.on { display: flex; }
   .carry-form input, .carry-form select { font-size: 0.8rem; }
@@ -236,6 +236,36 @@ async function submitCarry(collection, parentUri, place, text) {
 // already treats a missing node as "not here" and simply stops recursing
 // into it, so an orphaned branch quietly drops out of this tree view rather
 // than erroring, without deleting records that aren't the caller's own.
+// Real Bluesky writes, not the Void's own records — used by /shout/'s
+// "post directly" and "repost original" buttons. Both are create-only, no
+// dedup rkey (unlike net.bisks.void.shout's content-hashed rkey): the PDS
+// assigns a normal random rkey, same as any other Bluesky client posting or
+// reposting, so the button disables itself after one successful write
+// rather than relying on retry-safety to guard against a duplicate.
+async function postToBluesky(text) {
+  const { pds, did } = await pdsAndDid();
+  const record = { $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString() };
+  return dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: did, collection: "app.bsky.feed.post", record }),
+  });
+}
+
+async function repostToBluesky(subjectUri, subjectCid) {
+  const { pds, did } = await pdsAndDid();
+  const record = {
+    $type: "app.bsky.feed.repost",
+    subject: { uri: subjectUri, cid: subjectCid },
+    createdAt: new Date().toISOString(),
+  };
+  return dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: did, collection: "app.bsky.feed.repost", record }),
+  });
+}
+
 async function deleteOwnRecord(uri) {
   const parsed = parseAtUri(uri);
   if (!session || !parsed || parsed.did !== session.did) return false;
@@ -325,11 +355,30 @@ function buildShareText(text, place, url) {
   return `"${truncateGraphemes(text, budget)}"${tail}`;
 }
 
+// Same 300-grapheme budgeting as buildShareText, but for a real crosspost
+// (the "post directly" button) — no surrounding quote marks, since this
+// isn't quoting someone else's post, it's the member posting their own
+// shout text again themselves.
+function buildCrosspostText(text, url) {
+  const tail = ` ${url}`;
+  const budget = Math.max(10, 300 - graphemeLength(tail));
+  return `${truncateGraphemes(text, budget)}${tail}`;
+}
+
 function shareBarHtml(tree, uri) {
   if (!tree || tree.rec.collection !== COLLECTIONS.shout) return "";
   const url = `${location.origin}/shout/?uri=${encodeURIComponent(uri)}`;
-  const shareText = buildShareText(tree.rec.value.text || "", tree.rec.value.place, url);
-  return `<div class="share-bar"><a class="btn" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">🦋 share to Bluesky</a></div>`;
+  const text = tree.rec.value.text || "";
+  const shareText = buildShareText(text, tree.rec.value.place, url);
+  const crosspostText = buildCrosspostText(text, url);
+  const sourcePostUri = tree.rec.value.sourcePostUri;
+  const canon = sourcePostUri ? canonMap.get(sourcePostUri) : null;
+  return `<div class="share-bar">
+      <a class="btn" href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">🦋 open composer</a>
+      ${session ? `<button class="btn" data-act="post-bsky" data-text="${esc(crosspostText)}">🦋 post directly</button>` : ""}
+      ${session && canon ? `<button class="btn" data-act="repost-bsky" data-uri="${esc(sourcePostUri)}" data-cid="${esc(canon.cid || "")}">🔁 repost original</button>` : ""}
+      <span class="muted mono" id="shareStatus" style="font-size:0.74rem"></span>
+    </div>`;
 }
 
 let everHadRoot = false;
@@ -359,6 +408,40 @@ function wireActions() {
       const uri = btn.dataset.uri;
       if (act === "up") return castVote(uri, 1);
       if (act === "down") return castVote(uri, -1);
+      if (act === "post-bsky") {
+        if (!session) return alert("sign in first");
+        const statusEl = rootEl.querySelector("#shareStatus");
+        if (!confirm("post this shout as a real Bluesky post, on your own account?")) return;
+        btn.disabled = true;
+        if (statusEl) statusEl.textContent = "posting…";
+        try {
+          const res = await postToBluesky(btn.dataset.text);
+          if (!res.ok) throw new Error((await res.text().catch(() => "")).slice(0, 200) || `HTTP ${res.status}`);
+          btn.textContent = "✅ posted";
+          if (statusEl) statusEl.textContent = "";
+        } catch (e) {
+          btn.disabled = false;
+          if (statusEl) statusEl.textContent = "post failed: " + e.message;
+        }
+        return;
+      }
+      if (act === "repost-bsky") {
+        if (!session) return alert("sign in first");
+        const statusEl = rootEl.querySelector("#shareStatus");
+        if (!confirm("repost the original Bluesky post this shout was imported from?")) return;
+        btn.disabled = true;
+        if (statusEl) statusEl.textContent = "reposting…";
+        try {
+          const res = await repostToBluesky(uri, btn.dataset.cid);
+          if (!res.ok) throw new Error((await res.text().catch(() => "")).slice(0, 200) || `HTTP ${res.status}`);
+          btn.textContent = "✅ reposted";
+          if (statusEl) statusEl.textContent = "";
+        } catch (e) {
+          btn.disabled = false;
+          if (statusEl) statusEl.textContent = "repost failed: " + e.message;
+        }
+        return;
+      }
       if (act === "delete") {
         if (!session) return alert("sign in first");
         const isWholeShout = uri === rootUri;

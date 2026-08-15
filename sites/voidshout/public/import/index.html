@@ -33,19 +33,38 @@
     <p id="statusText" class="muted">sign in to import.</p>
   </div>
 
-  <div id="pickerCard" class="card" style="display:none">
-    <div class="toolbar">
-      <button class="btn" id="selectAll">select all</button>
-      <button class="btn" id="selectNone">select none</button>
-      <span class="spacer" style="flex:1 1 auto"></span>
-      <label class="muted" style="font-size:0.8rem"><input type="checkbox" id="includeReplies" /> include replies</label>
-    </div>
+  <div id="placeCard" class="card" style="display:none">
     <label class="muted" style="font-size:0.82rem">place for imports</label>
     <div style="display:flex; gap:0.4rem; align-items:center">
       <input id="placeSearch" placeholder="search Places…" autocomplete="off" style="flex:1" />
       <button type="button" class="btn" id="mapPickBtn" title="pick any location on the map">📍 map</button>
     </div>
     <div class="place-grid" id="placeGrid"></div>
+    <p class="muted" style="font-size:0.74rem; margin: 0.3rem 0 0">used by both the browse-and-pick list below and the URL import above it.</p>
+  </div>
+
+  <div id="urlImportCard" class="card" style="display:none">
+    <h2 style="font-size:0.95rem; margin:0 0 0.4rem">import a single post by URL</h2>
+    <p class="muted" style="font-size:0.8rem; margin-top:0">Paste a link to one of <em>your own</em> bsky.app posts (or its <code class="mono">at://</code> uri) — this only works for posts you authored yourself.</p>
+    <div style="display:flex; gap:0.4rem">
+      <input id="urlInput" placeholder="https://bsky.app/profile/you.bsky.social/post/xxxxxxxxxxxxx" autocomplete="off" style="flex:1" />
+      <button class="btn" id="urlFetchBtn">fetch</button>
+    </div>
+    <p id="urlStatus" class="muted" style="font-size:0.8rem; margin: 0.4rem 0 0"></p>
+    <div id="urlPreview" style="display:none; margin-top:0.5rem">
+      <div class="cand" id="urlPreviewCard" style="padding:0"></div>
+      <button class="btn primary" id="urlImportBtn" style="margin-top:0.5rem">import this →</button>
+    </div>
+  </div>
+
+  <div id="pickerCard" class="card" style="display:none">
+    <h2 style="font-size:0.95rem; margin:0 0 0.4rem">or browse and pick from your repo</h2>
+    <div class="toolbar">
+      <button class="btn" id="selectAll">select all</button>
+      <button class="btn" id="selectNone">select none</button>
+      <span class="spacer" style="flex:1 1 auto"></span>
+      <label class="muted" style="font-size:0.8rem"><input type="checkbox" id="includeReplies" /> include replies</label>
+    </div>
     <div class="cand-list" id="candList"></div>
     <button class="btn primary" id="importBtn" disabled style="margin-top:0.6rem">import selected →</button>
     <div class="progress-log" id="log"></div>
@@ -54,7 +73,7 @@
 
 <script type="module">
 import { mountChrome, requireSession } from "/lib/chrome.js";
-import { dpopFetch } from "/lib/oauth.js";
+import { dpopFetch, resolveHandle } from "/lib/oauth.js";
 import { fetchRepoRecordsWithKeys } from "/lib/car.js";
 import { carFilterCandidates, rkeyForShout, SHOUT_MAX_GRAPHEMES, graphemeLength, truncateGraphemes, placeForRecord } from "/lib/voidlogic.mjs";
 import { PLACES, searchPlaces } from "/lib/places.js";
@@ -66,6 +85,8 @@ const session = await requireSession();
 if (!session) throw new Error("redirecting to onboarding");
 
 const statusText = document.getElementById("statusText");
+const placeCard = document.getElementById("placeCard");
+const urlImportCard = document.getElementById("urlImportCard");
 const pickerCard = document.getElementById("pickerCard");
 const candList = document.getElementById("candList");
 const placeGrid = document.getElementById("placeGrid");
@@ -73,6 +94,15 @@ const placeSearch = document.getElementById("placeSearch");
 const importBtn = document.getElementById("importBtn");
 const includeReplies = document.getElementById("includeReplies");
 const logEl = document.getElementById("log");
+const urlInput = document.getElementById("urlInput");
+const urlFetchBtn = document.getElementById("urlFetchBtn");
+const urlStatus = document.getElementById("urlStatus");
+const urlPreview = document.getElementById("urlPreview");
+const urlPreviewCard = document.getElementById("urlPreviewCard");
+const urlImportBtn = document.getElementById("urlImportBtn");
+
+placeCard.style.display = "";
+urlImportCard.style.display = "";
 
 const pds = session.pdsUrl.replace(/\/$/, "");
 
@@ -107,6 +137,7 @@ function renderPlaces(list) {
     btn.addEventListener("click", () => {
       selected = list.find((p) => p.id === btn.dataset.id);
       renderPlaces(list);
+      if (urlCandidate) renderUrlPreview();
     });
   }
 }
@@ -145,6 +176,7 @@ document.getElementById("mapPickBtn").addEventListener("click", async () => {
   selected = place;
   placeSearch.value = "";
   renderPlaces(PLACES.concat(customPlaces));
+  if (urlCandidate) renderUrlPreview();
 });
 
 async function listAllOwnRecords(collection) {
@@ -166,6 +198,10 @@ async function listAllOwnRecords(collection) {
 }
 
 let candidates = [];
+// Shared with the URL-import flow below, so pasting a link to a post
+// that's already been bulk-imported (or already URL-imported this
+// session) is caught before writing a duplicate Shout.
+let alreadyImported = new Set();
 
 async function loadCandidates() {
   statusText.textContent = "fetching your repo CAR…";
@@ -183,7 +219,7 @@ async function loadCandidates() {
 
   statusText.textContent = "checking which posts are already imported…";
   const ownShouts = await listAllOwnRecords("net.bisks.void.shout");
-  const alreadyImported = new Set(ownShouts.map((r) => r.value.sourcePostUri).filter(Boolean));
+  alreadyImported = new Set(ownShouts.map((r) => r.value.sourcePostUri).filter(Boolean));
 
   candidates = carFilterCandidates(posts, alreadyImported, { excludeReplies: !includeReplies.checked })
     .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
@@ -238,6 +274,27 @@ document.getElementById("selectNone").addEventListener("click", () => {
 });
 includeReplies.addEventListener("change", loadCandidates);
 
+// Shared by the bulk CAR-browse import (below) and the single-URL import
+// (further below) — same write, same rkey scheme, same shape.
+async function importOnePost(p, place) {
+  const text = truncateGraphemes(p.text, SHOUT_MAX_GRAPHEMES);
+  const now = Date.now();
+  const rkey = await rkeyForShout(session.did, text, place.id, now);
+  const record = {
+    $type: "net.bisks.void.shout",
+    text,
+    place: placeForRecord(place),
+    sourcePostUri: p.uri,
+    createdAt: new Date(now).toISOString(),
+  };
+  const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: session.did, collection: "net.bisks.void.shout", rkey, record }),
+  });
+  return res.ok || /already exists/i.test(await res.clone().text().catch(() => ""));
+}
+
 importBtn.addEventListener("click", async () => {
   const place = selected;
   const chosen = [...candList.querySelectorAll(".cand-check")]
@@ -247,31 +304,104 @@ importBtn.addEventListener("click", async () => {
   let ok = 0, failed = 0;
   for (const p of chosen) {
     logEl.textContent = `importing ${ok + failed + 1}/${chosen.length}…`;
-    try {
-      const text = truncateGraphemes(p.text, SHOUT_MAX_GRAPHEMES);
-      const now = Date.now();
-      const rkey = await rkeyForShout(session.did, text, place.id, now);
-      const record = {
-        $type: "net.bisks.void.shout",
-        text,
-        place: placeForRecord(place),
-        sourcePostUri: p.uri,
-        createdAt: new Date(now).toISOString(),
-      };
-      const res = await dpopFetch(session, `${pds}/xrpc/com.atproto.repo.createRecord`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: session.did, collection: "net.bisks.void.shout", rkey, record }),
-      });
-      if (res.ok || (await res.clone().text().catch(() => "")).match(/already exists/i)) ok++;
-      else failed++;
-    } catch {
-      failed++;
-    }
+    if (await importOnePost(p, place).catch(() => false)) ok++;
+    else failed++;
   }
   logEl.textContent = `done — ${ok} imported${failed ? `, ${failed} failed (retry by re-selecting and importing again)` : ""}.`;
   importBtn.disabled = false;
   await loadCandidates();
+});
+
+// --- import a single post by URL, without a full CAR browse -----------------
+// Accepts a bsky.app post link or a bare at:// uri. Only ever resolves the
+// signed-in member's OWN repo (com.atproto.repo.getRecord against
+// session.pdsUrl) — the DID-match check below is what enforces "your own
+// posts only," not anything about which repo the fetch hits.
+function parsePostUrl(input) {
+  const s = String(input || "").trim();
+  let m = /^at:\/\/(did:[a-zA-Z0-9:._%-]+)\/app\.bsky\.feed\.post\/([a-zA-Z0-9._:~-]+)$/.exec(s);
+  if (m) return { handleOrDid: m[1], rkey: m[2] };
+  m = /^(?:https?:\/\/)?(?:www\.)?bsky\.app\/profile\/([^\/]+)\/post\/([a-zA-Z0-9._:~-]+)/.exec(s);
+  if (m) return { handleOrDid: decodeURIComponent(m[1]), rkey: m[2] };
+  return null;
+}
+
+let urlCandidate = null;
+
+function renderUrlPreview() {
+  const len = graphemeLength(urlCandidate.text);
+  const over = len > SHOUT_MAX_GRAPHEMES;
+  urlPreviewCard.innerHTML = `
+    <div class="txt${over ? " over" : ""}">${escHtml(urlCandidate.text)}</div>
+    <div class="meta">${urlCandidate.reply ? "reply · " : ""}${len}/${SHOUT_MAX_GRAPHEMES} graphemes${over ? " — will be truncated" : ""} — will import to ${esc(selected.emoji)} ${esc(selected.name)}</div>`;
+  urlPreview.style.display = "";
+}
+
+urlFetchBtn.addEventListener("click", async () => {
+  urlPreview.style.display = "none";
+  urlCandidate = null;
+  const parsed = parsePostUrl(urlInput.value);
+  if (!parsed) {
+    urlStatus.textContent = "couldn't parse that as a bsky.app post link or an at:// uri.";
+    return;
+  }
+  urlStatus.textContent = "resolving…";
+  urlFetchBtn.disabled = true;
+  try {
+    let did = parsed.handleOrDid;
+    if (!did.startsWith("did:")) {
+      did = await resolveHandle(did);
+      if (!did) {
+        urlStatus.textContent = "couldn't resolve that handle.";
+        return;
+      }
+    }
+    if (did !== session.did) {
+      urlStatus.textContent = "that's not your post — only your own posts can be imported this way.";
+      return;
+    }
+    const uri = `at://${did}/app.bsky.feed.post/${parsed.rkey}`;
+    if (alreadyImported.has(uri)) {
+      urlStatus.textContent = "already imported.";
+      return;
+    }
+    const u = `${pds}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=app.bsky.feed.post&rkey=${encodeURIComponent(parsed.rkey)}`;
+    const r = await fetch(u);
+    if (!r.ok) {
+      urlStatus.textContent = r.status === 400 ? "post not found — check the link." : `couldn't fetch that post (HTTP ${r.status}).`;
+      return;
+    }
+    const j = await r.json();
+    if (typeof j?.value?.text !== "string") {
+      urlStatus.textContent = "that record isn't a post.";
+      return;
+    }
+    urlCandidate = { uri: j.uri || uri, text: j.value.text, reply: j.value.reply, createdAt: j.value.createdAt };
+    urlStatus.textContent = "";
+    renderUrlPreview();
+  } catch (e) {
+    urlStatus.textContent = "error: " + e.message;
+  } finally {
+    urlFetchBtn.disabled = false;
+  }
+});
+
+urlImportBtn.addEventListener("click", async () => {
+  if (!urlCandidate || !selected) return;
+  urlImportBtn.disabled = true;
+  urlStatus.textContent = "importing…";
+  const ok = await importOnePost(urlCandidate, selected).catch(() => false);
+  if (ok) {
+    alreadyImported.add(urlCandidate.uri);
+    urlStatus.textContent = "imported!";
+    urlPreview.style.display = "none";
+    urlInput.value = "";
+    urlCandidate = null;
+    if (candidates.length) await loadCandidates(); // drop it from the browse list too, if it was in there
+  } else {
+    urlStatus.textContent = "import failed — try again.";
+    urlImportBtn.disabled = false;
+  }
 });
 
 await loadCandidates();

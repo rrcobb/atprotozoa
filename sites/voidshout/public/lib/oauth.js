@@ -6,13 +6,17 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// Scope is five narrow `repo:` grants, one per net.bisks.void.* collection,
-// scoped to exactly the actions each collection actually needs (see
-// notes/50-oauth-scopes.md) — never the broad `transition:generic`. Reads
-// (listRecords/getRecord against a PDS) are public and unauthenticated, so
-// they don't need a scope grant at all; only writes go through dpopFetch.
-// This SCOPE string must stay byte-identical with client-metadata.json's
-// `scope` field or the PDS rejects the authorize request outright.
+// Scope is narrow `repo:` grants, one per collection this app actually
+// writes to (see notes/50-oauth-scopes.md) — never the broad
+// `transition:generic`. Reads (listRecords/getRecord against a PDS) are
+// public and unauthenticated, so they don't need a scope grant at all; only
+// writes go through dpopFetch. Alongside the five net.bisks.void.* grants,
+// two `app.bsky.feed.*` create-only grants let /shout/'s "post directly" and
+// "repost" buttons write a REAL Bluesky post/repost to the signed-in
+// member's own repo — create-only, since neither button ever edits or
+// deletes one. This SCOPE string must stay byte-identical with
+// client-metadata.json's `scope` field or the PDS rejects the authorize
+// request outright.
 
 import {
   generateDPoPKeyPair,
@@ -33,7 +37,8 @@ export const SCOPE =
   "atproto repo:net.bisks.void.shout?action=create&action=delete " +
   "repo:net.bisks.void.echo?action=create&action=delete " +
   "repo:net.bisks.void.murmur?action=create&action=delete " +
-  "repo:net.bisks.void.vote repo:net.bisks.void.participation";
+  "repo:net.bisks.void.vote repo:net.bisks.void.participation " +
+  "repo:app.bsky.feed.post?action=create repo:app.bsky.feed.repost?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
