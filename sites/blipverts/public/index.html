@@ -233,7 +233,7 @@
 
         <div class="controls">
           <button class="playpause" id="playpause" type="button">⏸ pause</button>
-          <label class="speedctl">
+          <label class="speedctl" title="the bright flash pulse turns off below 200ms — post text still swaps at the same pace, just without the strobe">
             flash <input type="range" id="speedSlider" min="20" max="500" step="10" value="90" />
             <b id="speedLabel">90ms</b>
           </label>
@@ -264,11 +264,15 @@
         for the same instant either way. It loops back to the start whenever it runs out of new material — nothing ever
         stops. Everything runs client-side; nothing you type is sent anywhere but the public AppView. The "unroll nested
         quotes" option makes one extra AppView call per quote post to fetch its already-hydrated quote chain, however
-        deep the AppView resolved it, and flashes each quoted post as its own entry.
+        deep the AppView resolved it, and flashes each quoted post as its own entry. The bright full-screen flash pulse
+        turns itself off once the hold time drops under 200ms — strobing a full-brightness flash that fast is a
+        photosensitive-seizure risk, and most of the slider's range sits under that mark. The post text still swaps
+        at the same pace regardless; only the white pulse is gated.
         speedhose asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a> and
         <a href="https://bsky.app/profile/astra.fail">@astra.fail</a>; this whole-post cut, and then the correction to
         make it a true instant flash instead of a reading-paced hold, both asked for by
-        <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a>
+        <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a>; the flash-safety cutoff asked for by
+        <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
       </footer>
     </div>
@@ -422,15 +426,24 @@
 
       // holds the WHOLE post on screen — this is blipverts' one real
       // departure from speedhose's per-word renderWord().
-      function renderPost(entry) {
+      // shimmermathlabs.com asked that the bright full-screen flash pop
+      // itself turn off once the hold time drops under 200ms — strobing a
+      // full-brightness flash that fast is a photosensitive-seizure risk,
+      // and most of the slider's range (down to 20ms) sits under that
+      // threshold. The post text still swaps at the same pace either way;
+      // only the white flash pulse is gated.
+      const FLASH_SAFE_MS = 200;
+      function renderPost(entry, ms) {
         postText.textContent = entry.text || "";
         postText.style.color = "var(--ink)";
         postText.style.fontWeight = "800";
         postbox.style.fontSize = postFontSize((entry.text || "").length);
 
         flash.classList.remove("pop");
-        void flash.offsetWidth; // restart the flash animation every post
-        flash.classList.add("pop");
+        if (ms >= FLASH_SAFE_MS) {
+          void flash.offsetWidth; // restart the flash animation every post
+          flash.classList.add("pop");
+        }
 
         if (entry.qd) {
           qDepthEl.textContent = "↳ quoted " + entry.qd + "× deep";
@@ -470,8 +483,9 @@
           tickTimer = setTimeout(tick, 300);
           return;
         }
-        renderPost(entry);
-        tickTimer = setTimeout(tick, currentFlashMs());
+        const ms = currentFlashMs();
+        renderPost(entry, ms);
+        tickTimer = setTimeout(tick, ms);
       }
       function scheduleTick() { clearTimeout(tickTimer); tick(); }
 
