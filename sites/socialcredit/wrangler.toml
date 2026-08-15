@@ -12,14 +12,22 @@ compatibility_date = "2025-01-01"
 # net.bisks.socialcredit.vote record (same OAuth-write shape as
 # sites/quadrants/sites/memex) — that's the part no one but the voter's own
 # PDS needs to authenticate. The score, cooldown enforcement and self-vote
-# check all live server-side in the CreditBoard Durable Object, which watches
-# Jetstream for that collection across the whole network (same
-# "one DO, one Jetstream subscription filtered to our own custom NSID" shape
-# as sites/quadrants' QuadrantHub / sites/memex's GlobalTracker). Because the
-# relay already verified each commit's signature before Jetstream re-emits
-# it, the `did` on every event is real — a vote's identity can't be spoofed
-# by a client that skips the DO's cooldown/self-vote checks; a rule-breaking
-# write still lands in the voter's own repo, but the DO just never counts it.
+# check used to live server-side in a CreditBoard Durable Object; that
+# binding was removed 2026-08-14 (repo-wide DO cleanup, notes/00 + notes/40)
+# and the frontend was never migrated off it, which broke voting and the
+# leaderboard entirely (every /api/* call 404ed). 2026-08-15: reimplemented
+# the same rules in public/lib/sc-client.js — every visitor's own browser
+# watches Jetstream for net.bisks.socialcredit.vote records and "socialcredit
+# +1"/"-1" replies, replays the cooldown/self-vote rules, and caches accepted
+# votes in IndexedDB (public/lib/sc-store.js) with a resumable cursor, same
+# shape as sites/voidshout's ingest.js + store.js. Because the relay already
+# verified each commit's signature before Jetstream re-emits it, the `did` on
+# every event is real — a vote's identity can't be spoofed by a client that
+# skips the cooldown/self-vote checks; a rule-breaking write still lands in
+# the voter's own repo, it's just never counted. The tradeoff of no backend:
+# a first-ever visit only backfills so far back (BACKFILL_MS in
+# sc-client.js), so the board is honestly incomplete/eventually-consistent,
+# not a fake global index.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.

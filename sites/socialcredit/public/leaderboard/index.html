@@ -35,6 +35,7 @@
         <div class="lb-controls">
           <input id="f-search" type="search" placeholder="search by handle or name…" />
         </div>
+        <p class="status" id="tracking-note"></p>
         <div class="sort-tabs" id="sort-tabs">
           <button data-sort="top" class="active">highest score</button>
           <button data-sort="bottom">lowest score</button>
@@ -55,13 +56,17 @@
 
       <footer>
         scores come from a live <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-        subscription on <code>net.bisks.socialcredit.vote</code> records and "socialcredit +1"/"-1" replies. There is no server-side global index now, so this view is informational and may be incomplete.
-        — recomputed server-side, not client-submitted.
+        subscription on <code>net.bisks.socialcredit.vote</code> records and "socialcredit +1"/"-1" replies, recomputed
+        in your browser (no server holds a global index anymore — see the note above the board). Self-votes and
+        repeat votes on the same person within an hour are still dropped the same way, just replayed locally instead
+        of by a central service.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
 
     <script type="module">
+      import { board, activity, meta } from "/lib/sc-client.js";
+
       const $ = (s) => document.querySelector(s);
 
       function esc(s) {
@@ -164,33 +169,36 @@
 
       async function load() {
         const el = $("#board-list");
-        el.innerHTML = `<p class="empty">loading…</p>`;
+        if (!el.children.length || el.querySelector(".empty")) el.innerHTML = `<p class="empty">loading…</p>`;
         try {
           if (sort === "recent") {
-            const r = await fetch(`/api/activity?limit=100`);
-            const data = await r.json();
-            let votes = data.votes || [];
-            if (query) {
-              const q = query.toLowerCase();
-              votes = votes.filter(
-                (v) => v.voterHandle.toLowerCase().includes(q) || v.targetHandle.toLowerCase().includes(q),
-              );
-            }
-            renderFeed(votes);
+            const rows = await activity({ limit: 100, query });
+            renderFeed(rows);
             return;
           }
-          const params = new URLSearchParams({ sort, limit: "100" });
-          if (sort === "gainers" || sort === "losers") params.set("window", windowVal);
-          if (query) params.set("q", query);
-          const r = await fetch(`/api/leaderboard?${params}`);
-          const data = await r.json();
-          renderBoard(data.board || []);
+          const rows = await board({ sort, window: windowVal, limit: 100, query });
+          renderBoard(rows);
         } catch {
           el.innerHTML = `<p class="empty">couldn't load the leaderboard right now.</p>`;
         }
       }
 
+      async function updateTrackingNote() {
+        const m = await meta();
+        const note = $("#tracking-note");
+        if (!note) return;
+        const since = m.backfilledFrom ? new Date(m.backfilledFrom) : new Date(m.trackingStartedAt);
+        note.textContent = `tracking live since ${since.toLocaleString()} — ${m.connected ? "connected" : "reconnecting…"} (${m.totalVotes} votes seen)`;
+      }
+
       load();
+      updateTrackingNote();
+      setInterval(() => {
+        if (document.visibilityState === "visible") {
+          load();
+          updateTrackingNote();
+        }
+      }, 5000);
     </script>
   </body>
 </html>

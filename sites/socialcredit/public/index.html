@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Social Credit — a local Bluesky reputation view</title>
+    <title>Social Credit — the Bluesky reputation leaderboard</title>
     <meta
       name="description"
-      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced server-side."
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores are tallied live off Jetstream, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced off the firehose, not the client."
     />
     <meta property="og:title" content="Social Credit — the Bluesky reputation leaderboard" />
     <meta
       property="og:description"
-      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores persist globally, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced server-side."
+      content="Sign in with Bluesky, paste a handle, give them +1 or -1. Scores are tallied live off Jetstream, tied to DIDs so handle changes don't lose history. One vote per person per hour, enforced off the firehose, not the client."
     />
     <meta property="og:image" content="https://socialcredit.bisks.net/og.png" />
     <meta property="og:url" content="https://socialcredit.bisks.net/" />
@@ -99,8 +99,10 @@
         votes are written as a <code>net.bisks.socialcredit.vote</code> record straight to your
         own PDS — or just posted as a reply saying "socialcredit +1"/"-1" — then picked up live off
         the <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-          firehose. This browser no longer maintains a global score index: public profile reads and your own PDS writes remain portable, while leaderboard views can be incomplete and eventually consistent.
-        are all enforced here, not trusted from the client.
+        firehose. The score, the one-vote-per-person-per-hour cooldown, and the no-self-voting rule are
+        all recomputed by your own browser off that live feed (no server holds a global index — see
+        <a href="/leaderboard/">the leaderboard</a> for the current tracking window), not trusted from
+        the client that's casting the vote.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
@@ -108,6 +110,7 @@
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, resolveHandle } from "/lib/oauth.js";
       import { getProfile } from "/lib/atproto.js";
+      import { board, activity, cooldownRemaining, scoreFor, waitForVote } from "/lib/sc-client.js";
       import "/lib/handle-typeahead.js";
 
       const $ = (s) => document.querySelector(s);
@@ -154,11 +157,7 @@
           return;
         }
         try {
-          const r = await fetch(
-            `/api/cooldown?did=${encodeURIComponent(session.did)}&target=${encodeURIComponent(target.did)}`,
-          );
-          const data = await r.json();
-          cooldownRemainingMs = data.remainingMs || 0;
+          cooldownRemainingMs = await cooldownRemaining(session.did, target.did);
         } catch {
           // leave cooldownRemainingMs as-is on a transient fetch failure —
           // resetting it to 0 would flip an active cooldown back to "clear
@@ -276,9 +275,7 @@
         $("#vote-status").textContent = "";
 
         try {
-          const r = await fetch(`/api/profile?actor=${encodeURIComponent(did)}`);
-          const data = await r.json();
-          targetBoard = data.profile;
+          targetBoard = { score: await scoreFor(did) };
         } catch {
           targetBoard = null;
         }
@@ -308,10 +305,8 @@
       async function refreshTargetScore() {
         if (!target) return;
         try {
-          const r = await fetch(`/api/profile?actor=${encodeURIComponent(target.did)}`);
-          const data = await r.json();
-          targetBoard = data.profile;
-          const score = targetBoard ? targetBoard.score : 0;
+          const score = await scoreFor(target.did);
+          targetBoard = { score };
           const pill = $("#t-score");
           pill.textContent = fmtScore(score);
           pill.className = `score-pill ${scoreClass(score)}`;
@@ -323,33 +318,20 @@
       // --- casting a vote --------------------------------------------------------
 
       // The write only proves the record landed on the voter's own PDS — it
-      // says nothing about whether the DO actually counted it (cooldown,
-      // self-vote, and malformed records are all silently dropped server-side,
-      // see src/index.ts handleMessage). So after writing, poll /api/activity
-      // for the matching vote and only report success once it's actually
-      // visible there; otherwise say so honestly instead of a false "done".
+      // says nothing about whether it actually counted (cooldown, self-vote,
+      // and malformed records are all silently dropped, see sc-client.js
+      // tryAccept). So after writing, wait for the same vote to show up in
+      // our own live Jetstream ingest and only report success once it's
+      // actually there; otherwise say so honestly instead of a false "done".
       async function confirmVote(voterDid, targetDid, delta, votedAt, status) {
-        const ATTEMPTS = 6;
-        const GAP_MS = 2500;
-        for (let i = 0; i < ATTEMPTS; i++) {
-          await new Promise((r) => setTimeout(r, GAP_MS));
-          try {
-            const r = await fetch(
-              `/api/activity?voter=${encodeURIComponent(voterDid)}&target=${encodeURIComponent(targetDid)}&limit=5`,
-            );
-            const data = await r.json();
-            const hit = (data.votes || []).find((v) => v.delta === delta && v.createdAt >= votedAt - 3000);
-            if (hit) {
-              status.textContent = "vote counted — leaderboard's up to date.";
-              status.className = "status ok";
-              lookupTarget(targetDid);
-              loadMiniBoard();
-              loadMiniFeed();
-              return;
-            }
-          } catch {
-            // keep polling — a transient read failure isn't the final word
-          }
+        const result = await waitForVote(voterDid, targetDid, delta, votedAt, 15000);
+        if (result.seen) {
+          status.textContent = "vote counted — leaderboard's up to date.";
+          status.className = "status ok";
+          lookupTarget(targetDid);
+          loadMiniBoard();
+          loadMiniFeed();
+          return;
         }
         status.textContent =
           "vote saved to your PDS, but we haven't seen it counted yet — you may already be on cooldown for this person, or the firehose is catching up. check back in a bit.";
@@ -363,11 +345,11 @@
         if (!session || !target) return;
         const status = $("#vote-status");
 
-        // Re-check the cooldown against the server right before writing —
-        // the buttons' enabled state reflects whatever was last fetched,
-        // which can be stale (page open a while, or a prior refreshCooldown()
-        // failed and left the old value). Catching a real cooldown here
-        // avoids writing a vote the DO is just going to drop.
+        // Re-check the cooldown right before writing — the buttons' enabled
+        // state reflects whatever was last computed, which can be stale
+        // (page open a while, or a prior refreshCooldown() failed and left
+        // the old value). Catching a real cooldown here avoids writing a
+        // vote that's just going to get silently dropped.
         await refreshCooldown();
         renderVoteButtons();
         if (cooldownRemainingMs > 0) {
@@ -426,14 +408,12 @@
       async function loadMiniBoard() {
         const el = $("#mini-board");
         try {
-          const r = await fetch("/api/leaderboard?sort=top&limit=5");
-          const data = await r.json();
-          const board = data.board || [];
-          if (!board.length) {
+          const rows = await board({ sort: "top", limit: 5 });
+          if (!rows.length) {
             el.innerHTML = `<p class="empty">no votes yet — be the first.</p>`;
             return;
           }
-          el.innerHTML = board
+          el.innerHTML = rows
             .map(
               (p) => `
               <a class="board-row" href="/p/${encodeURIComponent(p.handle)}">
@@ -455,9 +435,7 @@
       async function loadMiniFeed() {
         const el = $("#mini-feed");
         try {
-          const r = await fetch("/api/activity?limit=8");
-          const data = await r.json();
-          const votes = data.votes || [];
+          const votes = await activity({ limit: 8 });
           if (!votes.length) {
             el.innerHTML = `<p class="empty">nothing yet.</p>`;
             return;
