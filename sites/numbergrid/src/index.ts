@@ -117,7 +117,11 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const count = values.length;
     const m = mex(values);
     const mDigits = String(m).length;
-    const side = Math.max(1, Math.ceil(Math.sqrt(count)));
+    // Board side is the rounded-up square root of the largest number ever
+    // logged, not the count of numbers — mirrors boardSide() in
+    // public/lib/board.js. +1 avoids under-sizing by one row/column when
+    // the max itself is a perfect square (see that file for why).
+    const side = count ? Math.max(1, Math.ceil(Math.sqrt(values[count - 1] + 1))) : 1;
 
     const who = "@" + handle;
     const title = count

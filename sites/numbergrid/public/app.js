@@ -6,7 +6,7 @@
 // PDS — see lib/board.js. Only adding a number needs an OAuth session.
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
-import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, gridSide, missingBetween, layoutCells } from "./lib/board.js";
+import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, boardSide, layoutCells } from "./lib/board.js";
 
 const els = {
   banner: document.getElementById("viewBanner"),
@@ -48,13 +48,6 @@ function esc(s) {
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
   els.status.className = "status" + (isErr ? " err" : msg ? " ok" : "");
-}
-
-// The board's side needs a cell for every recorded number AND every real gap
-// between them (see missingBetween in lib/board.js), not just the count of
-// numbers logged — that's what makes every missing number get its own blank.
-function boardSide(values) {
-  return gridSide(values.length + missingBetween(values));
 }
 
 let session = null;
@@ -149,7 +142,6 @@ async function bootOtherBoard(rawHandle) {
 function renderBoard() {
   const count = boardValues.length;
   const side = boardSide(boardValues);
-  const total = side * side;
 
   els.statline.style.display = "flex";
   els.statCount.textContent = count.toLocaleString();
@@ -177,9 +169,19 @@ function renderBoard() {
   els.emptyMsg.style.display = "none";
   els.boardWrap.style.display = "block";
   els.boardLabel.textContent = isOwn ? "your board" : `@${viewHandle}'s board`;
-  els.boardCap.textContent = `${count} number${count === 1 ? "" : "s"}`;
 
-  if (side === 5) {
+  const cells = layoutCells(boardValues, side);
+  // layoutCells returns fewer than side*side cells only when the true board
+  // is too big to draw in full (see MAX_RENDER_CELLS in lib/board.js) — in
+  // that case it's a sparse "recorded numbers only" list, so lay it out on
+  // its own small square rather than stretching it across `side` columns.
+  const sparse = cells.length !== side * side;
+  const displaySide = sparse ? Math.max(1, Math.ceil(Math.sqrt(cells.length))) : side;
+  els.boardCap.textContent = sparse
+    ? `${count} number${count === 1 ? "" : "s"} · true board is ${side}×${side}, too big to fill every blank here`
+    : `${count} number${count === 1 ? "" : "s"}`;
+
+  if (side === 5 && !sparse) {
     els.bingoRow.style.display = "grid";
     els.bingoRow.style.gridTemplateColumns = `repeat(${side}, 1fr)`;
     els.bingoRow.innerHTML = "BINGO".split("").map((l) => `<span>${l}</span>`).join("");
@@ -187,9 +189,9 @@ function renderBoard() {
     els.bingoRow.style.display = "none";
   }
 
-  els.grid.style.gridTemplateColumns = `repeat(${side}, 1fr)`;
+  els.grid.style.gridTemplateColumns = `repeat(${displaySide}, 1fr)`;
   els.grid.innerHTML = "";
-  for (const c of layoutCells(boardValues, total)) {
+  for (const c of cells) {
     const cell = document.createElement("div");
     if (c.empty) {
       cell.className = "cell empty";
@@ -258,24 +260,26 @@ function drawCard() {
   roundRect(ctx, cardX, cardY, cardW, cardH, 20);
   ctx.fill();
 
+  // Top-left corner of the real board (cell i = number i), same positional
+  // layout as the live grid — not just the first few numbers recorded.
   const drawSide = Math.min(side, 9);
   const pad = 22;
   const gap = 8;
   const cell = (cardW - pad * 2 - gap * (drawSide - 1)) / drawSide;
-  const shown = boardValues.slice(0, drawSide * drawSide);
+  const present = new Set(boardValues);
   for (let i = 0; i < drawSide * drawSide; i++) {
     const r = Math.floor(i / drawSide), c = i % drawSide;
     const x = cardX + pad + c * (cell + gap);
     const y = cardY + pad + r * (cell + gap);
-    ctx.fillStyle = i < shown.length ? "#f4e6c6" : "rgba(0,0,0,0)";
-    if (i < shown.length) {
+    if (present.has(i)) {
+      ctx.fillStyle = "#f4e6c6";
       roundRect(ctx, x, y, cell, cell, 6);
       ctx.fill();
       ctx.fillStyle = "#2c2013";
       ctx.font = `800 ${Math.max(11, Math.min(22, 140 / drawSide))}px ui-monospace, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const label = String(shown[i]);
+      const label = String(i);
       ctx.fillText(label.length > 5 ? label.slice(0, 4) + "…" : label, x + cell / 2, y + cell / 2 + 1);
     } else {
       ctx.strokeStyle = "#d9c491";
