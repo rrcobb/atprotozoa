@@ -146,6 +146,16 @@
       .speedctl b { color: var(--ink); min-width: 4.2em; display: inline-block; }
       .fastctl { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--muted); cursor: pointer; }
       .fastctl input { accent-color: var(--pink); }
+      .filterctls { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; margin: 0.6rem 0 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0.7rem 1rem; font-size: 0.78rem; }
+      .filterctls label { display: flex; align-items: center; gap: 0.4rem; color: var(--muted); cursor: pointer; }
+      .filterctls input[type="checkbox"] { accent-color: var(--pink); }
+      .filterctls label.disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .qdepth {
+        position: absolute; top: 10px; left: 14px; font-size: 0.68rem; letter-spacing: 0.03em;
+        color: var(--yellow); display: none; background: rgba(0,0,0,0.25); border-radius: 999px; padding: 0.15rem 0.55rem;
+      }
+      .qdepth.show { display: block; }
 
       .share { margin: 1.6rem 0; }
       .share a {
@@ -171,6 +181,9 @@
           asked for the handle-driven version: type a handle, this pulls who they follow, watches the live firehose for
           those accounts, and blasts every word it sees at <b>500 wpm</b> into a rolling <b>2000-word buffer</b> that
           <b>loops</b> when nothing new has come in. Go bot go.
+          <a href="https://bsky.app/profile/astra.fail" target="_blank" rel="noopener">@astra.fail</a> asked for a way to
+          skip image/video posts and quote posts, plus — as a stretch goal — a way to unroll a quote post's nested quotes
+          and mark how many posts deep the current word is. All three are below the speed slider.
         </p>
       </header>
 
@@ -203,6 +216,7 @@
 
         <div class="stage" id="stage" title="click to pause / resume">
           <span class="pausedTag">paused</span>
+          <span class="qdepth" id="qDepth"></span>
           <div class="wordbox" id="wordbox">
             <span class="wpre" id="wPre"></span><span class="wpivot" id="wPivot"></span><span class="wpost" id="wPost"></span>
           </div>
@@ -224,6 +238,12 @@
           </label>
         </div>
 
+        <div class="filterctls">
+          <label><input type="checkbox" id="skipMediaToggle" /> 🖼 skip image/video posts</label>
+          <label><input type="checkbox" id="skipQuotesToggle" /> 💬 skip quote posts</label>
+          <label id="showQuotesLabel"><input type="checkbox" id="showQuotesToggle" /> ↳ unroll nested quotes</label>
+        </div>
+
         <div class="share">
           <a id="shareLink" href="https://bsky.app/intent/compose?text=speedhose.bisks.net" target="_blank" rel="noopener">share this blast</a>
         </div>
@@ -235,8 +255,10 @@
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose, filtered in the
         browser to just the accounts you follow. The reader keeps a rolling buffer of the last 2000 words and loops back to
         the start of it whenever it runs out of new material — nothing ever stops. Everything runs client-side; nothing you
-        type is sent anywhere but the public AppView.
-        asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
+        type is sent anywhere but the public AppView. The "unroll nested quotes" option makes one extra AppView call
+        per quote post to fetch its already-hydrated quote chain, however deep the AppView resolved it.
+        asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a> and
+        <a href="https://bsky.app/profile/astra.fail">@astra.fail</a>
         · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
       </footer>
     </div>
@@ -303,6 +325,30 @@
       const speedSlider = document.getElementById("speedSlider");
       const speedLabel = document.getElementById("speedLabel");
       const fasterToggle = document.getElementById("fasterToggle");
+      const qDepthEl = document.getElementById("qDepth");
+      const skipMediaToggle = document.getElementById("skipMediaToggle");
+      const skipQuotesToggle = document.getElementById("skipQuotesToggle");
+      const showQuotesToggle = document.getElementById("showQuotesToggle");
+      const showQuotesLabel = document.getElementById("showQuotesLabel");
+
+      function currentFilterOpts() {
+        return {
+          skipMedia: skipMediaToggle.checked,
+          skipQuotes: skipQuotesToggle.checked,
+          showQuotes: !skipQuotesToggle.checked && showQuotesToggle.checked,
+        };
+      }
+      function syncFilterUi() {
+        // unrolling nested quotes makes no sense once quote posts are being skipped
+        showQuotesToggle.disabled = skipQuotesToggle.checked;
+        showQuotesLabel.classList.toggle("disabled", skipQuotesToggle.checked);
+      }
+      function pushFilterOpts() {
+        syncFilterUi();
+        if (currentHandle) window.speedhoseClient.setOptions(currentHandle, currentFilterOpts());
+      }
+      [skipMediaToggle, skipQuotesToggle, showQuotesToggle].forEach((el) => el.addEventListener("change", pushFilterOpts));
+      syncFilterUi();
 
       function startReading(handle) {
         currentHandle = handle;
@@ -318,7 +364,7 @@
         playpause.textContent = "⏸ pause";
         showWaiting();
 
-        window.speedhoseClient.connect(handle).then((s) => {
+        window.speedhoseClient.connect(handle, currentFilterOpts()).then((s) => {
           if (s.status === "error") {
             statusEl.classList.add("err");
             statusText.textContent = "couldn't load that handle — " + (s.error || "check the spelling and try again");
@@ -365,6 +411,7 @@
         wPost.textContent = "waiting for a post…";
         wPost.style.color = "var(--muted)";
         wPost.style.fontWeight = "400";
+        qDepthEl.classList.remove("show");
       }
 
       function renderWord(entry) {
@@ -375,6 +422,13 @@
         wPost.textContent = word.slice(idx + 1);
         wPost.style.color = "var(--ink)";
         wPost.style.fontWeight = "800";
+
+        if (entry.qd) {
+          qDepthEl.textContent = "↳ quoted " + entry.qd + "× deep";
+          qDepthEl.classList.add("show");
+        } else {
+          qDepthEl.classList.remove("show");
+        }
 
         if (!entry.sep && entry.uri && entry.uri !== lastUri) {
           lastUri = entry.uri;

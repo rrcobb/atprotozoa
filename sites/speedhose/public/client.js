@@ -24,19 +24,74 @@
     return out;
   }
 
-  function pushWords(s, text, author, uri) {
+  function pushWords(s, text, author, uri, qd) {
     const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
     if (!words.length) return;
     // a separator beat between posts so the stream doesn't read as one run-on sentence
     if (s.buffer.length) s.buffer.push({ w: "·", sep: true });
     for (const w of words) {
-      s.buffer.push({ w, h: author.handle, d: author.displayName || author.handle, a: author.avatar || "", uri });
+      s.buffer.push({ w, h: author.handle, d: author.displayName || author.handle, a: author.avatar || "", uri, qd: qd || 0 });
     }
     s.wordsSeen += words.length;
     const overflow = s.buffer.length - MAX_BUFFER;
     if (overflow > 0) {
       s.buffer.splice(0, overflow);
       s.cursor = Math.max(0, s.cursor - overflow);
+    }
+  }
+
+  // astra.fail asked for a way to skip media/quote posts, and (as a stretch)
+  // to mark how many quote-levels deep a run of words came from. embed shape
+  // reference: app.bsky.embed.{images,video,record,recordWithMedia}.
+  function hasMedia(embed) {
+    if (!embed) return false;
+    if (embed.$type === "app.bsky.embed.images" || embed.$type === "app.bsky.embed.video") return true;
+    if (embed.$type === "app.bsky.embed.recordWithMedia") {
+      const mt = embed.media && embed.media.$type;
+      return mt === "app.bsky.embed.images" || mt === "app.bsky.embed.video";
+    }
+    return false;
+  }
+  function isQuote(embed) {
+    return !!embed && (embed.$type === "app.bsky.embed.record" || embed.$type === "app.bsky.embed.recordWithMedia");
+  }
+  function shouldSkip(s, rawEmbed) {
+    if (s.opts.skipMedia && hasMedia(rawEmbed)) return true;
+    if (s.opts.skipQuotes && isQuote(rawEmbed)) return true;
+    return false;
+  }
+
+  // fetch the hydrated PostView for a uri we just saw on the firehose — the
+  // raw commit record only carries a {uri,cid} ref for a quote, not its text.
+  // getPosts returns a fully hydrated, recursively-nested embed view, so one
+  // call is enough to walk an arbitrary quote-of-quote-of-quote chain.
+  async function fetchPostView(uri) {
+    const d = await get("app.bsky.feed.getPosts", { uris: uri });
+    return (d && d.posts && d.posts[0]) || null;
+  }
+
+  const MAX_QUOTE_DEPTH = 5;
+
+  // walk a hydrated embed view, collecting {depth, text, author, uri} for
+  // every quoted post nested inside it, however deep the AppView hydrated it.
+  function extractQuoteChain(embedView, depth, out) {
+    if (!embedView || depth > MAX_QUOTE_DEPTH) return;
+    let recordView = null;
+    if (embedView.$type === "app.bsky.embed.record#view") recordView = embedView.record;
+    else if (embedView.$type === "app.bsky.embed.recordWithMedia#view") recordView = embedView.record && embedView.record.record;
+    if (!recordView || recordView.$type !== "app.bsky.embed.record#viewRecord") return;
+    const text = recordView.value && recordView.value.text;
+    if (text) out.push({ depth, text, author: recordView.author, uri: recordView.uri });
+    (recordView.embeds || []).forEach((e) => extractQuoteChain(e, depth + 1, out));
+  }
+
+  function expandQuotes(s, embedView) {
+    if (!s.opts.showQuotes || !embedView) return;
+    const chain = [];
+    extractQuoteChain(embedView, 1, chain);
+    for (const item of chain) {
+      const a = item.author || {};
+      pushWords(s, item.text, { handle: a.handle || "unknown", displayName: a.displayName, avatar: a.avatar }, item.uri, item.depth);
     }
   }
 
@@ -51,18 +106,28 @@
         if (x.kind !== "commit" || !c || c.operation !== "create" || c.collection !== "app.bsky.feed.post" || !r) return;
         const who = s.follows.get(x.did);
         if (!who) return;
+        if (shouldSkip(s, r.embed)) return;
         const uri = `at://${x.did}/app.bsky.feed.post/${c.rkey}`;
         pushWords(s, r.text, who, uri);
+        if (s.opts.showQuotes && isQuote(r.embed)) {
+          fetchPostView(uri).then((pv) => expandQuotes(s, pv && pv.embed)).catch(() => {});
+        }
       } catch {}
     };
     s.socket.onclose = () => { s.connected = false; s.socket = null; setTimeout(() => connectSocket(s), 2000); };
     s.socket.onerror = () => {};
   }
 
-  async function connect(handle) {
+  async function connect(handle, opts) {
     let s = sessions.get(handle);
-    if (s) return status(handle);
-    s = { buffer: [], cursor: 0, follows: new Map(), wordsSeen: 0, connected: false, socket: null, status: "loading", profile: null };
+    if (s) {
+      if (opts) Object.assign(s.opts, opts);
+      return status(handle);
+    }
+    s = {
+      buffer: [], cursor: 0, follows: new Map(), wordsSeen: 0, connected: false, socket: null, status: "loading", profile: null,
+      opts: Object.assign({ skipMedia: false, skipQuotes: false, showQuotes: false }, opts || {}),
+    };
     sessions.set(handle, s);
     const p = await get("app.bsky.actor.getProfile", { actor: handle });
     if (!p || !p.did) {
@@ -90,7 +155,11 @@
       if (!post) continue;
       const who = s.follows.get(post.author.did);
       if (!who) continue;
+      const rawEmbed = post.record && post.record.embed;
+      if (shouldSkip(s, rawEmbed)) continue;
       pushWords(s, post.record && post.record.text, who, post.uri);
+      // getAuthorFeed already returns a hydrated view — no extra fetch needed here
+      if (isQuote(rawEmbed)) expandQuotes(s, post.embed);
     }
   }
 
@@ -124,5 +193,10 @@
     if (s) s.cursor = 0;
   }
 
-  window.speedhoseClient = { connect, status, next, reset };
+  function setOptions(handle, opts) {
+    const s = sessions.get(handle);
+    if (s) Object.assign(s.opts, opts);
+  }
+
+  window.speedhoseClient = { connect, status, next, reset, setOptions };
 })();
