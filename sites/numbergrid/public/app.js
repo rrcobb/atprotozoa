@@ -6,7 +6,7 @@
 // PDS — see lib/board.js. Only adding a number needs an OAuth session.
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
-import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, gridSide, layoutCells } from "./lib/board.js";
+import { resolveDid, getProfile, fetchBoard, addNumber, mex, digits, gridSide, missingBetween, layoutCells } from "./lib/board.js";
 
 const els = {
   banner: document.getElementById("viewBanner"),
@@ -48,6 +48,13 @@ function esc(s) {
 function setStatus(msg, isErr) {
   els.status.textContent = msg || "";
   els.status.className = "status" + (isErr ? " err" : msg ? " ok" : "");
+}
+
+// The board's side needs a cell for every recorded number AND every real gap
+// between them (see missingBetween in lib/board.js), not just the count of
+// numbers logged — that's what makes every missing number get its own blank.
+function boardSide(values) {
+  return gridSide(values.length + missingBetween(values));
 }
 
 let session = null;
@@ -141,7 +148,7 @@ async function bootOtherBoard(rawHandle) {
 
 function renderBoard() {
   const count = boardValues.length;
-  const side = gridSide(count);
+  const side = boardSide(boardValues);
   const total = side * side;
 
   els.statline.style.display = "flex";
@@ -188,7 +195,8 @@ function renderBoard() {
       cell.className = "cell empty";
     } else {
       cell.className = "cell" + (c.value === freshValue ? " fresh" : "");
-      cell.innerHTML = `<span class="n">${c.value.toLocaleString()}</span>`;
+      const label = c.value.toLocaleString();
+      cell.innerHTML = `<span class="n" style="--len:${label.length}">${label}</span>`;
     }
     els.grid.appendChild(cell);
   }
@@ -235,7 +243,7 @@ function drawCard() {
   ctx.fillText("🔢 numbergrid", 60, 100);
 
   const count = boardValues.length;
-  const side = gridSide(count);
+  const side = boardSide(boardValues);
   const mx = mex(boardValues);
   const d = digits(mx);
 
@@ -419,7 +427,7 @@ if (canShareFiles()) {
     const blob = await cardBlob();
     if (!blob) return;
     const count = boardValues.length;
-    const side = gridSide(count);
+    const side = boardSide(boardValues);
     const mx = mex(boardValues);
     const d = digits(mx);
     const file = new File([blob], "numbergrid.png", { type: "image/png" });

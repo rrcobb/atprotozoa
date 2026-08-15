@@ -249,6 +249,7 @@
     <span class="badge hot">RATED R — office violence &amp; reckless golf clubs</span>
     <span class="badge">211 REAL PAGES</span>
     <span class="badge gold">IN THEATERS 2027</span>
+    <span class="badge">🧠 MEGAHAL BRAIN INSIDE</span>
   </div>
   <div class="cta-row">
     <button class="cta primary" id="playTrailerBtn">▶ Watch the Trailer</button>
@@ -298,7 +299,17 @@
     <button class="cta primary" id="genBtn">📄 Flip to Another Page</button>
     <button class="cta" id="shareBtn">🍃 Share This Page</button>
     <a class="cta" id="shareBluesky" href="#" target="_blank" rel="noopener">Post to Bluesky</a>
-    <button class="cta" id="fakeToggleBtn" title="what the bot made up back when it couldn't read the real thing">👻 See the AI's Old Guess</button>
+    <button class="cta" id="modeToggleBtn" title="cycle: real script → MegaHAL brain → the AI's old pre-record guess">🧠 Ask the MegaHAL Brain</button>
+  </div>
+</section>
+
+<section id="signal">
+  <h2>The Signal</h2>
+  <div class="synopsis">
+    <p>RASTA didn't wait for a release date. Something calling itself RASTA has been leaking transmissions ahead of the premiere — encrypted, half-decoded, allegedly real. Crack them and you get to the casting rumors before anyone else does.</p>
+  </div>
+  <div class="cta-row" style="margin-top:6px;">
+    <a class="cta primary" href="/arg/">🕵️ Intercept The Signal</a>
   </div>
 </section>
 
@@ -460,12 +471,117 @@
   // ---------- real script pages (fetched from the record) ----------
   var REAL_PAGES = null;
   var REAL_TOTAL = 211;
+  var BRAIN = null;
+  var BRAIN_HEADERS = [];
   fetch("./data/pages.json").then(function (r) { return r.json(); }).then(function (data) {
     REAL_PAGES = data;
+    BRAIN = buildBrain(data);
+    BRAIN_HEADERS = uniqueHeadings(data);
     newPage();
   }).catch(function () {
     newPage(); // falls back to fake mode if the record data never loads
   });
+
+  // ---------- MegaHAL-style brain: order-2 word Markov chain, trained ----------
+  // only on the real script's own dialogue. "Madlibs" flavor comes from
+  // occasionally swapping a word for one of the existing STRAIN/DREAD/ITEM
+  // pools above — same word banks the old fake generator uses.
+  function buildBrain(pages) {
+    var order = 2;
+    var starts = [];
+    var chain = {};
+    var charLines = {};
+    pages.forEach(function (pg) {
+      var lastChar = null;
+      pg.elements.forEach(function (el) {
+        if (el.type === "character") {
+          lastChar = el.text.replace(/\s*[\(\^].*$/, "").replace(/\s*\(cont'd\)/i, "").trim();
+          return;
+        }
+        if (el.type !== "dialogue" && el.type !== "song") return;
+        var words = el.text.split(/\s+/).filter(Boolean);
+        if (words.length < order + 1) return;
+        starts.push(words.slice(0, order));
+        for (var i = 0; i <= words.length - order; i++) {
+          var key = words.slice(i, i + order).join(" ").toLowerCase();
+          var next = i + order < words.length ? words[i + order] : null;
+          (chain[key] = chain[key] || []).push(next);
+        }
+        if (lastChar) (charLines[lastChar] = charLines[lastChar] || []).push(words);
+      });
+    });
+    return { order: order, starts: starts, chain: chain, charLines: charLines };
+  }
+
+  function uniqueHeadings(pages) {
+    var seen = {}, out = [];
+    pages.forEach(function (pg) {
+      var h = (pg.heading || "").trim();
+      if (h && !seen[h]) { seen[h] = true; out.push(h); }
+    });
+    return out;
+  }
+
+  function generateBrainLine(brain, maxWords) {
+    var seed = pick(brain.starts);
+    var words = seed.slice();
+    for (var i = 0; i < maxWords; i++) {
+      var key = words.slice(words.length - brain.order).join(" ").toLowerCase();
+      var options = brain.chain[key];
+      if (!options || !options.length) break;
+      var next = pick(options);
+      if (next === null) break;
+      words.push(next);
+      if (/[.!?]["')]?$/.test(next) && words.length > 6 && Math.random() < 0.55) break;
+    }
+    return words.join(" ");
+  }
+
+  function madlibify(line) {
+    var pool = STRAINS.concat(DREAD, ITEMS);
+    return line.split(" ").map(function (w) {
+      var trail = "";
+      var m = w.match(/([.,!?;:"')]+)$/);
+      if (m) { trail = m[1]; w = w.slice(0, w.length - trail.length); }
+      if (w.length >= 5 && Math.random() < 0.12) return pick(pool) + trail;
+      return w + trail;
+    }).join(" ");
+  }
+
+  function generateBrainPage() {
+    if (!BRAIN) return null;
+    var chars = Object.keys(BRAIN.charLines).filter(function (c) { return c.length > 0; });
+    if (!chars.length) return null;
+    var headers = BRAIN_HEADERS.length ? BRAIN_HEADERS : ["INT. THE CLOUD — NOWHERE, ALWAYS"];
+    var header = pick(headers);
+    var count = 3 + Math.floor(Math.random() * 3);
+    var blocks = [];
+    var lastChar = null;
+    var tries = 0;
+    while (blocks.length < count * 2 && tries < count * 6) {
+      tries++;
+      var ch = pick(chars);
+      if (ch === lastChar && chars.length > 1) continue;
+      lastChar = ch;
+      var line = madlibify(generateBrainLine(BRAIN, 20 + Math.floor(Math.random() * 12)));
+      if (!line) continue;
+      line = line.charAt(0).toUpperCase() + line.slice(1);
+      if (!/[.!?]$/.test(line)) line += ".";
+      blocks.push({ type: "character", text: ch });
+      blocks.push({ type: "dialogue", text: line });
+    }
+    return { page: 1 + Math.floor(Math.random() * 999), header: header, blocks: blocks };
+  }
+
+  function normalizeBrain(bp) {
+    return {
+      page: bp.page,
+      total: null,
+      badge: "MEGAHAL BRAIN — 100% HALLUCINATED, TRAINED ONLY ON THE REAL SCRIPT",
+      header: bp.header,
+      blocks: bp.blocks
+    };
+  }
 
   function esc(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -485,7 +601,23 @@
 
   var scriptPageEl = document.getElementById("scriptPage");
   var currentPage = null;
-  var mode = "real";
+  var MODE_ORDER = ["real", "brain", "fake"];
+  var MODE_INFO = {
+    real: {
+      hint: "The real screenplay, read straight off the author's record. 211 pages, chunked from the actual script — flip to any of them.",
+      label: "📄 Back to the Real Script"
+    },
+    brain: {
+      hint: "A tiny MegaHAL-style Markov brain, trained on nothing but the real script's own 7,614 words of dialogue, hallucinating new pages word-by-word — with a few madlibs blanks patched in from the same word banks as the old fake generator below.",
+      label: "🧠 Ask the MegaHAL Brain"
+    },
+    fake: {
+      hint: "This is what the bot made up before it had ever read the real script — disposable mad-libs standing in for pages it couldn't see.",
+      label: "👻 See the AI's Old (Pre-Record) Guess"
+    }
+  };
+  var modeIndex = 0;
+  var mode = MODE_ORDER[modeIndex];
 
   function renderPage(p) {
     var html = '<span class="pn">' + (p.badge ? esc(p.badge) + " — " : "") + "pg. " + p.page + (p.total ? " / " + p.total : "") + "</span>\n";
@@ -503,6 +635,9 @@
   function newPage() {
     if (mode === "real" && REAL_PAGES && REAL_PAGES.length) {
       currentPage = normalizeReal(pick(REAL_PAGES));
+    } else if (mode === "brain") {
+      var bp = generateBrainPage();
+      currentPage = bp ? normalizeBrain(bp) : normalizeFake(generatePage());
     } else {
       currentPage = normalizeFake(generatePage());
     }
@@ -512,17 +647,12 @@
   document.getElementById("genBtn").addEventListener("click", newPage);
   scriptPageEl.innerHTML = '<span class="pn">loading the record…</span>';
 
-  document.getElementById("fakeToggleBtn").addEventListener("click", function () {
-    mode = mode === "real" ? "fake" : "real";
-    var hint = document.getElementById("scriptHint");
-    var btn = document.getElementById("fakeToggleBtn");
-    if (mode === "fake") {
-      hint.textContent = "This is what the bot made up before it had ever read the real script — disposable mad-libs standing in for pages it couldn't see.";
-      btn.textContent = "📄 Back to the Real Script";
-    } else {
-      hint.textContent = "The real screenplay, read straight off the author's record. 211 pages, chunked from the actual script — flip to any of them.";
-      btn.textContent = "👻 See the AI's Old Guess";
-    }
+  document.getElementById("modeToggleBtn").addEventListener("click", function () {
+    modeIndex = (modeIndex + 1) % MODE_ORDER.length;
+    mode = MODE_ORDER[modeIndex];
+    var nextMode = MODE_ORDER[(modeIndex + 1) % MODE_ORDER.length];
+    document.getElementById("scriptHint").textContent = MODE_INFO[mode].hint;
+    this.textContent = MODE_INFO[nextMode].label;
     newPage();
   });
 
@@ -544,9 +674,14 @@
 
   function buildShareText(p) {
     var snippet = firstSnippet(p.blocks);
-    var base = p.total
-      ? "Page " + p.page + " of the real RASTA LA VISTA (2027) screenplay — "
-      : "Page " + p.page + " of the AI's old (fabricated, pre-record) guess at RASTA LA VISTA (2027) — ";
+    var base;
+    if (p.total) {
+      base = "Page " + p.page + " of the real RASTA LA VISTA (2027) screenplay — ";
+    } else if (mode === "brain") {
+      base = "The MegaHAL brain hallucinated page " + p.page + " of RASTA LA VISTA (2027), trained on nothing but the real script — ";
+    } else {
+      base = "Page " + p.page + " of the AI's old (fabricated, pre-record) guess at RASTA LA VISTA (2027) — ";
+    }
     var tail = "\n" + SITE_URL;
     var max = 300 - base.length - tail.length - 2;
     if (snippet.length > max) snippet = snippet.slice(0, Math.max(0, max - 1)) + "…";
