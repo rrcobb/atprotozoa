@@ -11,7 +11,7 @@
 const ENDPOINT = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 const TIMEOUT_MS = 5000;
 
-function flagEmoji(countryCode) {
+export function flagEmoji(countryCode) {
   if (!countryCode || countryCode.length !== 2) return null;
   const cc = countryCode.toUpperCase();
   if (!/^[A-Z]{2}$/.test(cc)) return null;

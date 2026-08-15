@@ -13,7 +13,7 @@
 // unchanged, so every caller needed zero changes.
 
 import { geohashPlaceId } from "./geohash.js";
-import { reverseGeocode } from "./geocode.js";
+import { reverseGeocode, flagEmoji } from "./geocode.js";
 
 const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
 const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
@@ -34,6 +34,44 @@ export const TILE_ATTRIBUTION =
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const SEARCH_MIN_LEN = 3;
 const SEARCH_DEBOUNCE_MS = 400;
+export const WORLD_SEARCH_MIN_LEN = SEARCH_MIN_LEN;
+export const WORLD_SEARCH_DEBOUNCE_MS = SEARCH_DEBOUNCE_MS;
+
+function shortPlaceName(r) {
+  const a = r.address || {};
+  const locality = a.city || a.town || a.village || a.municipality || a.county || a.state || r.name || "";
+  const country = a.country || "";
+  let name = [locality, country].filter(Boolean).join(", ");
+  if (!name) name = r.display_name || "";
+  if (name.length > 120) name = name.slice(0, 117) + "…";
+  return name;
+}
+
+/** Searches real-world places by typed name (Nominatim, same free OSM
+ *  geocoder the in-modal search uses) and returns Place-shaped objects
+ *  `{id, name, emoji, lat, lng}` — the same shape as a PLACES entry or a
+ *  pickPlaceOnMap() result. Lets every plain "search Places…" box search
+ *  any real city directly, without a member having to open the 📍 map modal
+ *  first just to reach a place outside the curated list. Empty query or a
+ *  network failure both resolve to `[]` rather than throwing, so a caller
+ *  can always just merge this into whatever it's already rendering. */
+export async function searchWorldPlaces(query, { limit = 6 } = {}) {
+  const q = String(query || "").trim();
+  if (q.length < SEARCH_MIN_LEN) return [];
+  try {
+    const url = `${NOMINATIM}?q=${encodeURIComponent(q)}&format=jsonv2&limit=${limit}&addressdetails=1`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const results = await res.json();
+    return results.map((r) => {
+      const lat = Number(r.lat);
+      const lng = Number(r.lon);
+      return { id: geohashPlaceId(lat, lng), name: shortPlaceName(r), emoji: flagEmoji(r.address?.country_code) || "📍", lat, lng };
+    });
+  } catch {
+    return [];
+  }
+}
 
 let leafletPromise = null;
 /** Loads Leaflet's CSS + JS from CDN exactly once, however many times it's
@@ -65,7 +103,13 @@ function injectStyles() {
   const style = document.createElement("style");
   style.textContent = `
     .mp-overlay { position: fixed; inset: 0; background: #0f14198c; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 1rem; }
-    .mp-modal { background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 14px; padding: 1rem; max-width: 680px; width: 100%; }
+    /* max-height + overflow-y so a phone screen too short for title+hint+map+
+       actions all at once (especially with the keyboard up) scrolls instead
+       of silently pushing "use this Place" past the bottom of the viewport
+       where nothing can reach it — that dead button was the actual bug, not
+       the click handler. .mp-actions is sticky so it stays reachable without
+       having to scroll all the way down first. */
+    .mp-modal { background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 14px; padding: 1rem; max-width: 680px; width: 100%; max-height: 92vh; overflow-y: auto; }
     .mp-title { margin: 0 0 0.5rem; font-size: 1.05rem; }
     .mp-hint { margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--muted); }
     .mp-search-row { position: relative; margin-bottom: 0.6rem; }
@@ -78,7 +122,7 @@ function injectStyles() {
     .mp-map .leaflet-container { width: 100%; height: 100%; font: inherit; cursor: crosshair; }
     .mp-panel { margin-top: 0.7rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .mp-panel .mp-name { font-size: 0.9rem; flex: 1 1 200px; }
-    .mp-actions { margin-top: 0.7rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+    .mp-actions { position: sticky; bottom: 0; margin-top: 0.7rem; padding-top: 0.7rem; background: var(--panel-solid); border-top: 1px solid var(--faint); display: flex; gap: 0.5rem; justify-content: flex-end; }
   `;
   document.head.appendChild(style);
 }
@@ -122,6 +166,7 @@ export function pickPlaceOnMap() {
     let marker = null;
 
     function close(result) {
+      document.removeEventListener("mousedown", onDocMousedown);
       overlay.remove();
       resolve(result);
     }
@@ -221,9 +266,10 @@ export function pickPlaceOnMap() {
       searchDebounce = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE_MS);
     });
     searchInput.addEventListener("blur", () => setTimeout(closeSearchDrop, 150));
-    document.addEventListener("mousedown", (e) => {
+    function onDocMousedown(e) {
       if (searchDrop && e.target !== searchInput && !searchDrop.contains(e.target)) closeSearchDrop();
-    });
+    }
+    document.addEventListener("mousedown", onDocMousedown);
 
     useBtn.addEventListener("click", () => picked && close(picked));
     cancelBtn.addEventListener("click", () => close(null));

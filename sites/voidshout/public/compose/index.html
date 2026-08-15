@@ -37,7 +37,8 @@ import { mountChrome, requireSession } from "/lib/chrome.js";
 import { dpopFetch, getSession } from "/lib/oauth.js";
 import { PLACES, searchPlaces } from "/lib/places.js";
 import { rkeyForShout, SHOUT_MAX_GRAPHEMES, graphemeLength, truncateGraphemes, placeForRecord } from "/lib/voidlogic.mjs";
-import { pickPlaceOnMap } from "/lib/mappicker.js";
+import { pickPlaceOnMap, searchWorldPlaces, WORLD_SEARCH_MIN_LEN, WORLD_SEARCH_DEBOUNCE_MS } from "/lib/mappicker.js";
+import { esc } from "/lib/render.js";
 
 await mountChrome({ active: "/compose/" });
 const session = await requireSession();
@@ -85,7 +86,7 @@ function renderPlaces(list) {
   placeGrid.innerHTML = list
     .map(
       (p) =>
-        `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${p.id}">${p.emoji} ${p.name}</button>`,
+        `<button type="button" class="btn place-opt${selected?.id === p.id ? " sel" : ""}" data-id="${esc(p.id)}">${esc(p.emoji)} ${esc(p.name)}</button>`,
     )
     .join("");
   for (const btn of placeGrid.querySelectorAll(".place-opt")) {
@@ -97,7 +98,36 @@ function renderPlaces(list) {
   }
 }
 renderPlaces(PLACES.concat(customPlaces));
-placeSearch.addEventListener("input", () => renderPlaces(searchPlaces(placeSearch.value, customPlaces)));
+
+// Typing a city that isn't in the curated list used to be a dead end unless
+// you knew to open the separate 📍 map modal — now the plain search box
+// itself reaches any real place (debounced live Nominatim lookup, same
+// geocoder the map modal already used), merged in alongside curated matches.
+let liveWorldResults = [];
+let worldRequestId = 0;
+let worldSearchDebounce = null;
+function renderCombinedPlaces() {
+  const curated = searchPlaces(placeSearch.value, customPlaces);
+  const seen = new Set(curated.map((p) => p.id));
+  renderPlaces(curated.concat(liveWorldResults.filter((p) => !seen.has(p.id))));
+}
+placeSearch.addEventListener("input", () => {
+  const q = placeSearch.value.trim();
+  clearTimeout(worldSearchDebounce);
+  if (q.length < WORLD_SEARCH_MIN_LEN) {
+    liveWorldResults = [];
+    renderCombinedPlaces();
+    return;
+  }
+  renderCombinedPlaces();
+  worldSearchDebounce = setTimeout(async () => {
+    const myRequest = ++worldRequestId;
+    const found = await searchWorldPlaces(q);
+    if (myRequest !== worldRequestId) return; // a later keystroke superseded this lookup
+    liveWorldResults = found;
+    renderCombinedPlaces();
+  }, WORLD_SEARCH_DEBOUNCE_MS);
+});
 
 document.getElementById("mapPickBtn").addEventListener("click", async () => {
   const place = await pickPlaceOnMap();
