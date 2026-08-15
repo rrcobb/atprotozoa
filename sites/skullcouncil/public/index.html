@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>skullcouncil — you don't get to choose your words</title>
+    <meta
+      name="description"
+      content="A minimal Bluesky client with no text box. Pick one of eight voices in your head to answer a real post, then roll 2d6 against its skill before it goes out — fail the check and it says the worse version."
+    />
+    <meta property="og:title" content="skullcouncil" />
+    <meta
+      property="og:description"
+      content="Pick a voice. Pick what it wants to say. Roll the dice. If you fail the check, that's still what gets posted."
+    />
+    <meta property="og:image" content="https://skullcouncil.bisks.net/og.png" />
+    <meta property="og:url" content="https://skullcouncil.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Bitter:wght@600;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #14100f;
+        --bg2: #1c1614;
+        --panel: #221b19;
+        --border: #3a2f2a;
+        --ink: #ede2d4;
+        --dim: #a5978a;
+        --amber: #e8a33d;
+        --amber-dim: #8a6a30;
+        --pass: #6ee7a0;
+        --fail: #ff6b6b;
+        --gold: #ffd75e;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --serif: "Bitter", Georgia, serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        background-image:
+          radial-gradient(circle at 10% -10%, rgba(232, 163, 61, 0.08), transparent 40%),
+          radial-gradient(circle at 100% 0%, rgba(110, 231, 160, 0.05), transparent 35%);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 1.6rem 1rem 5rem; }
+
+      header { text-align: center; margin-bottom: 1.2rem; }
+      header h1 {
+        font-family: var(--serif);
+        font-size: clamp(1.8rem, 8vw, 2.5rem);
+        letter-spacing: 0.02em;
+        margin: 0 0 0.35rem;
+        color: var(--amber);
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+      }
+      header p {
+        color: var(--dim);
+        max-width: 48ch;
+        margin: 0 auto;
+        font-size: 0.88rem;
+      }
+
+      .disclaimer {
+        background: rgba(255, 107, 107, 0.08);
+        border: 1px solid rgba(255, 107, 107, 0.35);
+        border-radius: 10px;
+        padding: 0.75rem 0.9rem;
+        font-size: 0.76rem;
+        color: #ffb3b3;
+        margin: 1.1rem 0;
+        line-height: 1.5;
+      }
+      .disclaimer b { color: var(--fail); }
+
+      section { margin-top: 1.4rem; }
+      h2.stitle {
+        font-family: var(--serif);
+        font-size: 0.95rem;
+        color: var(--amber);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 0 0 0.6rem;
+      }
+
+      /* --- post card --- */
+      #post-card {
+        display: flex;
+        gap: 0.7rem;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.9rem;
+      }
+      .p-avatar { width: 42px; height: 42px; border-radius: 50%; flex: none; background: #333; object-fit: cover; }
+      .p-body { min-width: 0; flex: 1; }
+      .p-head { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: baseline; font-size: 0.82rem; }
+      .p-name { font-weight: 700; color: var(--ink); }
+      .p-handle, .p-time { color: var(--dim); }
+      .p-text { margin-top: 0.35rem; font-size: 0.92rem; white-space: pre-wrap; word-break: break-word; }
+      .p-link { display: inline-block; margin-top: 0.5rem; font-size: 0.74rem; color: var(--amber-dim); text-decoration: none; }
+      .p-link:hover { color: var(--amber); }
+      .feed-msg { color: var(--dim); text-align: center; padding: 1rem; }
+      .linklike { background: none; border: none; color: var(--amber); cursor: pointer; font-family: inherit; text-decoration: underline; padding: 0; font-size: inherit; }
+
+      .row-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
+      button.next {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        color: var(--dim);
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 0.35rem 0.7rem;
+        cursor: pointer;
+      }
+      button.next:hover { color: var(--ink); border-color: var(--amber-dim); }
+
+      /* --- voice grid --- */
+      #persona-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 0.55rem;
+      }
+      .voice {
+        --vc: #e8a33d;
+        text-align: left;
+        background: var(--panel);
+        border: 1.5px solid var(--border);
+        border-radius: 10px;
+        padding: 0.6rem 0.65rem;
+        cursor: pointer;
+        color: var(--ink);
+        font-family: var(--mono);
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        transition: border-color 0.15s, transform 0.1s;
+      }
+      .voice:hover { border-color: var(--vc); transform: translateY(-1px); }
+      .voice.picked { border-color: var(--vc); box-shadow: 0 0 0 1px var(--vc); }
+      .voice-name { font-weight: 800; font-size: 0.78rem; letter-spacing: 0.03em; color: var(--vc); }
+      .voice-school { font-size: 0.68rem; color: var(--dim); }
+      .voice-blurb { font-size: 0.72rem; color: var(--dim); margin-top: 0.1rem; }
+
+      /* --- intent + roll --- */
+      #intent-title { font-size: 0.82rem; color: var(--dim); margin-bottom: 0.5rem; }
+      #intent-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .intent {
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        background: var(--panel);
+        border: 1.5px solid var(--border);
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 0.5rem 0.8rem;
+        cursor: pointer;
+      }
+      .intent:hover { border-color: var(--amber); }
+      .dc-line { font-size: 0.78rem; color: var(--dim); margin: 0.7rem 0 0.5rem; }
+      .roll-btn {
+        font-family: var(--serif);
+        font-weight: 800;
+        font-size: 1rem;
+        background: var(--amber);
+        color: #1c1410;
+        border: none;
+        border-radius: 9px;
+        padding: 0.65rem 1.2rem;
+        cursor: pointer;
+        letter-spacing: 0.02em;
+      }
+      .roll-btn:hover { background: var(--gold); }
+
+      /* --- result --- */
+      #result-panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem;
+      }
+      .dice-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .die {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        background: var(--ink);
+        color: #1c1410;
+        border-radius: 6px;
+        font-weight: 800;
+        font-size: 1.05rem;
+      }
+      .roll-math { font-size: 0.8rem; color: var(--dim); }
+      .verdict {
+        font-family: var(--serif);
+        font-weight: 800;
+        font-size: 1.15rem;
+        letter-spacing: 0.03em;
+        margin: 0.6rem 0;
+      }
+      .verdict.pass { color: var(--pass); }
+      .verdict.fail { color: var(--fail); }
+      .verdict.crit-pass { color: var(--gold); }
+      .verdict.crit-fail { color: var(--fail); text-shadow: 0 0 8px rgba(255, 107, 107, 0.5); }
+      .reply-preview {
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px dashed var(--border);
+        border-radius: 9px;
+        padding: 0.7rem 0.8rem;
+        font-size: 0.92rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .result-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+      button.ghost {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--ink);
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        cursor: pointer;
+      }
+      button.ghost:hover { border-color: var(--amber-dim); }
+      button.primary {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 0.78rem;
+        background: var(--pass);
+        color: #10231a;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 0.9rem;
+        cursor: pointer;
+      }
+      button.primary:hover { filter: brightness(1.08); }
+      button.primary:disabled { opacity: 0.55; cursor: default; }
+      .intent-alt { margin-top: 0.6rem; font-size: 0.76rem; }
+      .intent-alt a { color: var(--amber-dim); }
+      .intent-alt a:hover { color: var(--amber); }
+
+      .status { font-size: 0.8rem; margin-top: 0.5rem; min-height: 1.1em; color: var(--dim); }
+      .status.ok { color: var(--pass); }
+      .status.ok a { color: var(--gold); }
+      .status.err { color: var(--fail); }
+
+      /* --- auth --- */
+      #auth-panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+      }
+      #auth-who { font-size: 0.82rem; margin-bottom: 0.5rem; }
+      #auth-who a { color: var(--amber); }
+      #auth-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      #auth-handle {
+        flex: 1;
+        min-width: 12ch;
+        font-family: var(--mono);
+        font-size: 0.88rem;
+        padding: 0.5rem 0.6rem;
+        background: #14100f;
+        border: 1px solid var(--border);
+        color: var(--ink);
+        border-radius: 7px;
+      }
+      #signin-btn {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        font-weight: 700;
+        background: none;
+        border: 1.5px solid var(--amber);
+        color: var(--amber);
+        border-radius: 7px;
+        padding: 0.5rem 0.9rem;
+        cursor: pointer;
+      }
+      #signin-btn:hover { background: rgba(232, 163, 61, 0.12); }
+
+      footer {
+        margin-top: 2.4rem;
+        text-align: center;
+        font-size: 0.74rem;
+        color: var(--dim);
+      }
+      footer a { color: var(--amber-dim); }
+      footer a:hover { color: var(--amber); }
+      #share-btn {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--dim);
+        border-radius: 7px;
+        padding: 0.45rem 0.8rem;
+        cursor: pointer;
+        margin-top: 0.9rem;
+      }
+      #share-btn:hover { color: var(--ink); border-color: var(--amber-dim); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>SKULLCOUNCIL</h1>
+        <p>there is no text box. eight voices live in here and only they get to answer.
+        pick one, pick what it wants to say, then roll — if it fails the check,
+        that's still what goes out.</p>
+      </header>
+
+      <div class="disclaimer">
+        <b>this is a real Bluesky client.</b> the reply you post goes out for real,
+        under your real account, as a reply to a real stranger's real post — including
+        the failed rolls, which are written to be weird and self-embarrassing, never
+        aimed at whoever you're replying to. preview everything before you post it.
+        no obligation to post at all — reroll, switch voices, or skip the post.
+      </div>
+
+      <section>
+        <h2 class="stitle">a post, from the wild</h2>
+        <div id="post-card"><div class="feed-msg">loading a post…</div></div>
+        <div class="row-actions"><button class="next" onclick="skullcouncil.nextPost()">↻ different post</button></div>
+      </section>
+
+      <section>
+        <h2 class="stitle">who answers?</h2>
+        <div id="persona-grid"></div>
+      </section>
+
+      <section id="intent-panel" hidden>
+        <h2 class="stitle" id="intent-title"></h2>
+        <div id="intent-grid"></div>
+        <div id="roll-row" hidden></div>
+      </section>
+
+      <section id="result-panel" hidden></section>
+
+      <section>
+        <h2 class="stitle">pull up to the window</h2>
+        <div id="auth-panel">
+          <div id="auth-who"></div>
+          <div id="auth-form">
+            <input id="auth-handle" type="text" placeholder="your bluesky handle" autocomplete="off" />
+            <button id="signin-btn">sign in with bluesky</button>
+          </div>
+          <div class="status" id="auth-status"></div>
+        </div>
+      </section>
+
+      <footer>
+        <button id="share-btn">share skullcouncil</button>
+        <p style="margin-top:0.9rem">
+          eight voices, one d6-pair, and a real reply to a real post. reads the
+          public feed with no login; signing in only grants the ability to
+          create <code>app.bsky.feed.post</code> replies, nothing else. built
+          for <a href="https://bsky.app/profile/tomvanantwerp.com" target="_blank" rel="noopener">@tomvanantwerp.com</a>
+          and <a href="https://bsky.app/profile/goose.art" target="_blank" rel="noopener">@goose.art</a>'s pitch.
+          part of <a href="https://bisks.net">bisks.net</a>.
+        </p>
+      </footer>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
