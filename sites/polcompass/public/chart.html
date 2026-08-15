@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>polcompass — plot yourself on any 2×2 chart</title>
+    <meta
+      name="description"
+      content="Someone made this compass. Tap the grid to see where you land, then share your spot."
+    />
+    <meta property="og:title" content="polcompass — plot yourself on any 2×2 chart" />
+    <meta
+      property="og:description"
+      content="Someone made this compass. Tap the grid to see where you land, then share your spot."
+    />
+    <meta property="og:image" content="https://polcompass.bisks.net/og.png" />
+    <meta property="og:url" content="https://polcompass.bisks.net/c/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="/">← polcompass</a>
+        <h1 id="h-title">loading…</h1>
+        <p class="tag" id="h-meta"></p>
+      </header>
+
+      <section>
+        <div class="plotbox">
+          <div class="axis-label top" id="lab-top"></div>
+          <div class="axis-label left" id="lab-left"></div>
+          <div class="plot-square" id="square"></div>
+          <div class="axis-label right" id="lab-right"></div>
+          <div class="axis-label bottom" id="lab-bottom"></div>
+        </div>
+        <p class="hint" id="place-hint">tap the grid to plot yourself.</p>
+
+        <div class="share-row" id="mine-row" style="display: none">
+          <button class="secondary" id="btn-move">move my spot</button>
+          <button class="secondary" id="btn-remove">remove my spot</button>
+        </div>
+        <p class="status" id="place-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">share</h2>
+        <div class="share-row">
+          <a class="secondary" id="btn-share-chart" href="#" target="_blank" rel="noopener" style="display: inline-block; padding: 0.55rem 1rem; border: 1px solid #e2ddd0; border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share this chart
+          </a>
+          <a class="secondary" id="btn-share-spot" href="#" target="_blank" rel="noopener" style="display: none; padding: 0.55rem 1rem; border: 1px solid #e2ddd0; border-radius: 6px; text-decoration: none; color: inherit; font-size: 0.85rem">
+            share my spot
+          </a>
+          <button class="secondary" id="btn-download-card" style="display: none">download my card</button>
+          <button class="secondary" id="btn-native-share" style="display: none">share…</button>
+        </div>
+        <canvas id="card-canvas" width="1000" height="1000" style="display: none"></canvas>
+      </section>
+
+      <footer>
+        this chart's title, axes, and reference points are decoded from the
+        URL itself — no server index, so this link renders the same for
+        anyone. your own spot is remembered only in this browser.
+        <a href="/">make your own →</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { makePlotSvg, clearMarkers, drawAnchor, drawPosition, eventToNorm } from "/lib/plot.js";
+      import { decodeCompass, chartFingerprint } from "/lib/compass.js";
+
+      const $ = (s) => document.querySelector(s);
+
+      const encoded = (location.pathname.match(/\/c\/([^/]+)\/?$/) || [])[1] || "";
+      let compass = null;
+      let fingerprint = null;
+      let mine = null; // [x,y] or null
+      const params = new URLSearchParams(location.search);
+      const theirSpot =
+        params.has("x") && params.has("y") && Number.isFinite(Number(params.get("x"))) && Number.isFinite(Number(params.get("y")))
+          ? [Math.max(-1, Math.min(1, Number(params.get("x")))), Math.max(-1, Math.min(1, Number(params.get("y"))))]
+          : null;
+
+      const svg = makePlotSvg();
+      $("#square").appendChild(svg);
+
+      function render() {
+        clearMarkers(svg);
+        if (!compass) return;
+        compass.anchors.forEach((a) => drawAnchor(svg, a));
+        if (theirSpot) drawPosition(svg, { x: theirSpot[0], y: theirSpot[1], displayName: "shared spot" }, { radius: 3.8 });
+        if (mine) drawPosition(svg, { x: mine[0], y: mine[1], displayName: "you" }, { mine: true, radius: 3.8 });
+        renderPlaceUI();
+      }
+
+      function sideDesc(x, y) {
+        const xSide = x >= 0 ? compass.right : compass.left;
+        const ySide = y >= 0 ? compass.top : compass.bottom;
+        return `${xSide}-${ySide}`.toLowerCase();
+      }
+
+      function renderPlaceUI() {
+        const hint = $("#place-hint");
+        const mineRow = $("#mine-row");
+        if (mine) {
+          hint.textContent = `you're plotted ${sideDesc(mine[0], mine[1])} (${mine[0].toFixed(2)}, ${mine[1].toFixed(2)}).`;
+          mineRow.style.display = "flex";
+        } else {
+          hint.textContent = theirSpot
+            ? "that's where the link's sender landed. tap the grid to plot your own spot."
+            : "tap the grid to plot yourself.";
+          mineRow.style.display = "none";
+        }
+        $("#btn-share-spot").style.display = mine ? "inline-block" : "none";
+        $("#btn-download-card").style.display = mine ? "inline-block" : "none";
+      }
+
+      function renderHeader() {
+        document.title = `polcompass: ${compass.title}`;
+        $("#h-title").textContent = compass.title;
+        $("#h-meta").textContent = `${compass.left} ↔ ${compass.right}  ·  ${compass.bottom} ↔ ${compass.top}`;
+        $("#lab-top").textContent = compass.top;
+        $("#lab-bottom").textContent = compass.bottom;
+        $("#lab-left").textContent = compass.left;
+        $("#lab-right").textContent = compass.right;
+
+        const url = `https://polcompass.bisks.net/c/${encoded}/`;
+        const shareText = `${compass.title} — plot yourself on this compass. ${url}`;
+        $("#btn-share-chart").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      async function loadMine() {
+        if (!fingerprint) return;
+        const raw = localStorage.getItem(`polcompass:spot:${fingerprint}`);
+        if (!raw) return;
+        try {
+          const p = JSON.parse(raw);
+          if (Number.isFinite(p.x) && Number.isFinite(p.y)) mine = [p.x, p.y];
+        } catch {}
+      }
+      function saveMine() {
+        if (!fingerprint || !mine) return;
+        localStorage.setItem(`polcompass:spot:${fingerprint}`, JSON.stringify({ x: mine[0], y: mine[1] }));
+      }
+      function clearMine() {
+        if (!fingerprint) return;
+        localStorage.removeItem(`polcompass:spot:${fingerprint}`);
+      }
+
+      async function boot() {
+        try {
+          compass = decodeCompass(encoded);
+        } catch (e) {
+          $("#h-title").textContent = "couldn't read that chart";
+          $("#h-meta").textContent = "the link looks malformed or got cut off somewhere.";
+          return;
+        }
+        fingerprint = await chartFingerprint(encoded);
+        renderHeader();
+        await loadMine();
+        render();
+      }
+
+      svg.addEventListener("click", (e) => {
+        if (!compass) return;
+        mine = eventToNorm(svg, e);
+        saveMine();
+        render();
+      });
+
+      $("#btn-move").addEventListener("click", () => {
+        $("#place-status").textContent = "tap the grid to move your spot.";
+        $("#place-status").className = "status";
+      });
+
+      $("#btn-remove").addEventListener("click", () => {
+        mine = null;
+        clearMine();
+        $("#place-status").textContent = "removed.";
+        $("#place-status").className = "status ok";
+        render();
+      });
+
+      // --- share-my-spot card -----------------------------------------------
+
+      function spotShareUrl() {
+        const u = new URL(`https://polcompass.bisks.net/c/${encoded}/`);
+        u.searchParams.set("x", mine[0].toFixed(2));
+        u.searchParams.set("y", mine[1].toFixed(2));
+        return u.toString();
+      }
+      function spotShareText() {
+        return `I landed ${sideDesc(mine[0], mine[1])} on "${compass.title}". plot yourself: ${spotShareUrl()}`;
+      }
+
+      async function buildCard() {
+        if (!mine) return false;
+        const canvas = $("#card-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.fillStyle = "#fffdf8";
+        ctx.fillRect(0, 0, W, H);
+
+        const pad = 70;
+        ctx.fillStyle = "#14171a";
+        ctx.font = `800 40px ${mono}`;
+        ctx.textAlign = "left";
+        wrapCanvasText(ctx, compass.title, pad, 90, W - pad * 2, 46);
+
+        const plotY = 160, plotSize = W - pad * 2;
+        ctx.strokeStyle = "#14171a";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(pad, plotY, plotSize, plotSize);
+        ctx.beginPath();
+        ctx.moveTo(pad + plotSize / 2, plotY);
+        ctx.lineTo(pad + plotSize / 2, plotY + plotSize);
+        ctx.moveTo(pad, plotY + plotSize / 2);
+        ctx.lineTo(pad + plotSize, plotY + plotSize / 2);
+        ctx.strokeStyle = "#e2ddd0";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `20px ${mono}`;
+        ctx.textAlign = "center";
+        ctx.fillText(compass.top, pad + plotSize / 2, plotY - 16);
+        ctx.fillText(compass.bottom, pad + plotSize / 2, plotY + plotSize + 34);
+        ctx.save();
+        ctx.translate(pad - 28, plotY + plotSize / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(compass.left, 0, 0);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(pad + plotSize + 28, plotY + plotSize / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillText(compass.right, 0, 0);
+        ctx.restore();
+
+        const toPx = (x, y) => [pad + ((x + 1) / 2) * plotSize, plotY + ((1 - y) / 2) * plotSize];
+
+        ctx.fillStyle = "#6b6b6b";
+        for (const a of compass.anchors) {
+          const [ax, ay] = toPx(a.x, a.y);
+          ctx.beginPath();
+          ctx.arc(ax, ay, 6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = `14px ${mono}`;
+          ctx.fillText(a.label, ax, ay - 12);
+        }
+
+        const [mx, my] = toPx(mine[0], mine[1]);
+        ctx.beginPath();
+        ctx.arc(mx, my, 16, 0, Math.PI * 2);
+        ctx.fillStyle = "#d0461a";
+        ctx.fill();
+        ctx.strokeStyle = "#d0461a";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(mx, my, 22, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `18px ${mono}`;
+        ctx.fillText(sideDesc(mine[0], mine[1]), pad, plotY + plotSize + 70);
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 18px ${mono}`;
+        ctx.fillText("polcompass.bisks.net", pad, plotY + plotSize + 96);
+
+        return true;
+      }
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+      }
+
+      $("#btn-share-spot").addEventListener("click", (e) => {
+        if (!mine) return;
+        e.currentTarget.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(spotShareText());
+      });
+
+      $("#btn-download-card").addEventListener("click", async () => {
+        const ok = await buildCard();
+        if (!ok) return;
+        const canvas = $("#card-canvas");
+        const link = document.createElement("a");
+        link.download = `polcompass-${fingerprint}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $("#btn-native-share").style.display = "inline-block";
+        $("#btn-native-share").addEventListener("click", async () => {
+          if (!mine) return;
+          await buildCard();
+          $("#card-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], `polcompass-${fingerprint}.png`, { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: spotShareText(), title: "polcompass" });
+            } catch {
+              // cancelled — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

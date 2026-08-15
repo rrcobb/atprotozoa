@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>polcompass — make a political compass, get a real shareable link</title>
+    <meta
+      name="description"
+      content="Lay out any 2×2 chart — a political compass, a vibes check, whatever — and get a link that actually works for whoever you send it to. No login, no server index; the chart lives entirely in its own URL."
+    />
+    <meta property="og:title" content="polcompass — make a political compass, get a real shareable link" />
+    <meta
+      property="og:description"
+      content="Lay out any 2×2 chart and get a link that actually works for whoever you send it to. No login, no server index; the chart lives entirely in its own URL."
+    />
+    <meta property="og:image" content="https://polcompass.bisks.net/og.png" />
+    <meta property="og:url" content="https://polcompass.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>polcompass</h1>
+        <p class="tag">
+          make any 2×2 chart — a political compass, an alignment chart,
+          whatever fits on two axes. no login. the whole chart lives in its
+          own link, so it renders the same for anyone you send it to.
+        </p>
+      </header>
+
+      <section id="featured">
+        <h2 class="section-title">the compass that started this</h2>
+        <a class="chart-card featured" id="featured-link" href="#">
+          <div class="chart-title" id="featured-title">loading…</div>
+          <div class="chart-meta" id="featured-meta"></div>
+        </a>
+        <p class="hint">
+          <a href="https://bsky.app/profile/without.boats.bsky.social" target="_blank" rel="noopener">@without.boats</a>'s
+          idea, forwarded by
+          <a href="https://bsky.app/profile/notrimskiy.bsky.social" target="_blank" rel="noopener">@notrimskiy.bsky.social</a>,
+          greenlit by <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a> — who
+          also asked for the maker below, so nobody has to tag the bot for
+          the next one.
+        </p>
+      </section>
+
+      <section>
+        <h2 class="section-title">new chart</h2>
+
+        <label for="f-title">title</label>
+        <input id="f-title" type="text" maxlength="80" placeholder="e.g. what kind of poster are you" />
+
+        <div class="field-grid axes" style="margin-top: 0.9rem">
+          <div>
+            <label for="f-top">top label</label>
+            <input id="f-top" type="text" maxlength="40" placeholder="coding is solved" />
+          </div>
+          <div>
+            <label for="f-bottom">bottom label</label>
+            <input id="f-bottom" type="text" maxlength="40" placeholder="we don't know how to program" />
+          </div>
+          <div>
+            <label for="f-left">left label</label>
+            <input id="f-left" type="text" maxlength="40" placeholder="LLMs are useless" />
+          </div>
+          <div>
+            <label for="f-right">right label</label>
+            <input id="f-right" type="text" maxlength="40" placeholder="LLMs are useful" />
+          </div>
+        </div>
+
+        <p class="hint">
+          click anywhere on the grid to drop a reference point (a plain
+          label — a take, a person, a meme — not tied to atproto). optional,
+          up to 16.
+        </p>
+
+        <div class="plotbox">
+          <div class="axis-label top" id="preview-top"></div>
+          <div class="axis-label left" id="preview-left"></div>
+          <div class="plot-square" id="preview-square"></div>
+          <div class="axis-label right" id="preview-right"></div>
+          <div class="axis-label bottom" id="preview-bottom"></div>
+        </div>
+
+        <div id="anchor-list"></div>
+
+        <div class="share-row">
+          <button id="btn-create">create chart</button>
+        </div>
+        <p class="status" id="create-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">your charts</h2>
+        <p class="hint">
+          just yours — remembered in this browser only, not a public index.
+          every link above still works for anyone; this list is only a
+          shortcut back to charts you made here.
+        </p>
+        <div class="chart-list" id="chart-list">
+          <p class="empty">loading…</p>
+        </div>
+      </section>
+
+      <footer>
+        political compass maker, built by
+        <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        — a rebuild of <a href="https://quadrants.bisks.net/" target="_blank" rel="noopener">quadrants</a>'
+        idea with one fix: a chart's title, axes, and reference points are
+        encoded straight into its <code>/c/&lt;…&gt;/</code> URL, so the link
+        itself is the whole chart, not a pointer into one browser's storage.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { makePlotSvg, drawAnchor, eventToNorm } from "/lib/plot.js";
+      import { encodeCompass } from "/lib/compass.js";
+
+      const $ = (s) => document.querySelector(s);
+      const svg = makePlotSvg();
+      $("#preview-square").appendChild(svg);
+
+      let anchors = [];
+
+      function labels() {
+        return {
+          top: $("#f-top").value.trim() || "top",
+          bottom: $("#f-bottom").value.trim() || "bottom",
+          left: $("#f-left").value.trim() || "left",
+          right: $("#f-right").value.trim() || "right",
+        };
+      }
+
+      function syncLabels() {
+        const l = labels();
+        $("#preview-top").textContent = l.top;
+        $("#preview-bottom").textContent = l.bottom;
+        $("#preview-left").textContent = l.left;
+        $("#preview-right").textContent = l.right;
+      }
+      ["f-top", "f-bottom", "f-left", "f-right"].forEach((id) =>
+        document.getElementById(id).addEventListener("input", syncLabels),
+      );
+      syncLabels();
+
+      function renderAnchors() {
+        svg.querySelector('[data-role="markers"]').replaceChildren();
+        anchors.forEach((a) => drawAnchor(svg, a));
+
+        const list = $("#anchor-list");
+        if (!anchors.length) {
+          list.innerHTML = `<p class="hint">no reference points yet — click the grid.</p>`;
+          return;
+        }
+        list.innerHTML = "";
+        anchors.forEach((a, i) => {
+          const row = document.createElement("div");
+          row.className = "anchor-row";
+          row.innerHTML = `
+            <input type="text" maxlength="40" value="${a.label.replace(/"/g, "&quot;")}" />
+            <span class="coords">${a.x.toFixed(2)}, ${a.y.toFixed(2)}</span>
+            <button class="secondary" type="button">remove</button>
+          `;
+          row.querySelector("input").addEventListener("input", (e) => {
+            anchors[i].label = e.target.value;
+            renderAnchors();
+          });
+          row.querySelector("button").addEventListener("click", () => {
+            anchors.splice(i, 1);
+            renderAnchors();
+          });
+          list.appendChild(row);
+        });
+      }
+
+      svg.addEventListener("click", (e) => {
+        if (anchors.length >= 16) return;
+        const [x, y] = eventToNorm(svg, e);
+        anchors.push({ label: `point ${anchors.length + 1}`, x, y });
+        renderAnchors();
+      });
+      renderAnchors();
+
+      function chartUrl(cfg) {
+        return `/c/${encodeCompass(cfg)}/`;
+      }
+
+      function rememberChart(cfg, url) {
+        const charts = JSON.parse(localStorage.getItem("polcompass:charts") || "[]");
+        charts.unshift({ title: cfg.title, left: cfg.left, right: cfg.right, bottom: cfg.bottom, top: cfg.top, url, createdAt: Date.now() });
+        localStorage.setItem("polcompass:charts", JSON.stringify(charts.slice(0, 50)));
+      }
+
+      $("#btn-create").addEventListener("click", () => {
+        const title = $("#f-title").value.trim();
+        const status = $("#create-status");
+        if (!title) {
+          status.textContent = "give it a title first.";
+          status.className = "status err";
+          return;
+        }
+        const l = labels();
+        const cfg = { title, top: l.top, bottom: l.bottom, left: l.left, right: l.right, anchors };
+        const url = chartUrl(cfg);
+        rememberChart(cfg, url);
+        location.href = url;
+      });
+
+      function loadCharts() {
+        const list = $("#chart-list");
+        const charts = JSON.parse(localStorage.getItem("polcompass:charts") || "[]");
+        if (!charts.length) {
+          list.innerHTML = `<p class="empty">nothing yet — be the first.</p>`;
+          return;
+        }
+        list.innerHTML = charts
+          .map(
+            (c) => `
+            <a class="chart-card" href="${c.url}">
+              <div class="chart-title">${esc(c.title)}</div>
+              <div class="chart-meta">${esc(c.left)} ↔ ${esc(c.right)} · ${esc(c.bottom)} ↔ ${esc(c.top)}</div>
+            </a>`,
+          )
+          .join("");
+      }
+      function esc(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+      loadCharts();
+
+      // the compass that kicked this whole thing off — generated the same
+      // way any other chart is, just linked from the homepage.
+      const FEATURED = {
+        title: "are LLMs useful, and is coding solved?",
+        left: "LLMs are useless",
+        right: "LLMs are useful",
+        bottom: "we don't know how to program",
+        top: "coding is largely solved",
+        anchors: [],
+      };
+      const featuredUrl = chartUrl(FEATURED);
+      $("#featured-link").href = featuredUrl;
+      $("#featured-title").textContent = FEATURED.title;
+      $("#featured-meta").textContent = `${FEATURED.left} ↔ ${FEATURED.right}  ·  ${FEATURED.bottom} ↔ ${FEATURED.top}`;
+    </script>
+  </body>
+</html>
