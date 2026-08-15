@@ -30,7 +30,7 @@
     // a separator beat between posts so the stream doesn't read as one run-on sentence
     if (s.buffer.length) s.buffer.push({ w: "·", sep: true });
     for (const w of words) {
-      s.buffer.push({ w, h: author.handle, d: author.displayName || author.handle, a: author.avatar || "", uri, qd: qd || 0 });
+      s.buffer.push({ w, h: author.handle, d: author.displayName || author.handle, a: author.avatar || "", did: author.did || "", uri, qd: qd || 0 });
     }
     s.wordsSeen += words.length;
     const overflow = s.buffer.length - MAX_BUFFER;
@@ -91,7 +91,7 @@
     extractQuoteChain(embedView, 1, chain);
     for (const item of chain) {
       const a = item.author || {};
-      pushWords(s, item.text, { handle: a.handle || "unknown", displayName: a.displayName, avatar: a.avatar }, item.uri, item.depth);
+      pushWords(s, item.text, { handle: a.handle || "unknown", displayName: a.displayName, avatar: a.avatar, did: a.did }, item.uri, item.depth);
     }
   }
 
@@ -137,7 +137,7 @@
     }
     s.profile = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || "" };
     const follows = await allFollows(p.did);
-    follows.forEach((f) => s.follows.set(f.did, { handle: f.handle, displayName: f.displayName || f.handle, avatar: f.avatar || "" }));
+    follows.forEach((f) => s.follows.set(f.did, { did: f.did, handle: f.handle, displayName: f.displayName || f.handle, avatar: f.avatar || "" }));
     s.status = s.follows.size ? "ready" : "empty";
     connectSocket(s);
     preload(s, follows.slice(0, 15));

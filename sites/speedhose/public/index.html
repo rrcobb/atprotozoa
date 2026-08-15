@@ -274,6 +274,22 @@
         return `https://bsky.app/profile/${handle}/post/${rkey}`;
       }
 
+      // per-poster pivot color: hash the DID to a hue, hold saturation/lightness
+      // fixed so every hue stays high-contrast against the near-black stage bg
+      // (robmurrish's ask, relayed by shimmermathlabs.com — a stronger cue for
+      // where one post ends and the next begins).
+      const pivotColorCache = new Map();
+      function pivotColorForDid(did) {
+        if (!did) return null;
+        let c = pivotColorCache.get(did);
+        if (c) return c;
+        let h = 5381;
+        for (let i = 0; i < did.length; i++) h = ((h << 5) + h + did.charCodeAt(i)) >>> 0;
+        c = `hsl(${h % 360}, 75%, 62%)`;
+        pivotColorCache.set(did, c);
+        return c;
+      }
+
       // Spritz/RSVP-style optimal recognition point: roughly a third into the
       // word, biased earlier for short words.
       function orpIndex(len) {
@@ -422,6 +438,7 @@
         wPost.textContent = word.slice(idx + 1);
         wPost.style.color = "var(--ink)";
         wPost.style.fontWeight = "800";
+        wPivot.style.color = pivotColorForDid(entry.did) || "var(--pink)";
 
         if (entry.qd) {
           qDepthEl.textContent = "↳ quoted " + entry.qd + "× deep";
