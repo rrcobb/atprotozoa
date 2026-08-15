@@ -78,7 +78,12 @@ function openSigninPopover(anchor) {
     document.removeEventListener("mousedown", onOutside);
   }
   function onOutside(e) {
-    if (!pop.contains(e.target) && e.target !== anchor) close();
+    // handle-typeahead.js appends its .ht-dropdown straight to document.body
+    // (a sibling of .signin-pop, not a child of it) so a click on a
+    // suggestion isn't contained by `pop` — without this check that click's
+    // mousedown bubbles here and closes the whole sign-in popover out from
+    // under the user right as they pick their handle.
+    if (!pop.contains(e.target) && e.target !== anchor && !e.target.closest(".ht-dropdown")) close();
   }
   // deferred so the click that opened the popover doesn't immediately close it
   setTimeout(() => document.addEventListener("mousedown", onOutside), 0);
