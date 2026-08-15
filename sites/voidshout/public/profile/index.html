@@ -28,18 +28,28 @@
 </div>
 
 <script type="module">
-import { mountChrome } from "/lib/chrome.js";
+import { mountChrome, demoModeOn } from "/lib/chrome.js";
 import { resolveHandle, resolveDidDoc, pdsFromDoc, resolveHandleForDid } from "/lib/oauth.js";
 import { homeFor, prefixFor, COLLECTIONS, OWNED_CONTENT_COLLECTIONS } from "/lib/voidlogic.mjs";
 import { esc } from "/lib/render.js";
 import * as store from "/lib/store.js";
 import { startIngest } from "/lib/ingest.js";
-import { placesInTree } from "/lib/feed.js";
+import { flattenTree } from "/lib/feed.js";
+import { loadDemoRoots } from "/lib/demo.js";
 
 const session = await mountChrome({ active: "/profile/" });
 const rootEl = document.getElementById("root");
 const params = new URLSearchParams(location.search);
-const did = params.get("did") || session?.did;
+let did = params.get("did") || session?.did;
+
+// Home/Map/Places/Shout all render seeded demo content when demo mode is on
+// (the default for a fresh, signed-out visitor — see chrome.js), so a shout
+// card's place shows up right away. Profile used to be the one page that
+// never learned that trick: it went straight to network calls keyed on a
+// real DID, so a signed-out visitor clicking "Profile" hit a bare "sign in"
+// wall even though every place they'd just seen elsewhere was demo data.
+// Fall back to the sample dataset's first author instead of dead-ending.
+if (!did && demoModeOn()) did = "did:demo:1";
 
 if (!did) {
   rootEl.innerHTML = `<p class="muted">sign in to see your own profile, or view someone else's with <code class="mono">?did=</code>. <a href="/onboarding/">sign in →</a></p>`;
@@ -47,6 +57,60 @@ if (!did) {
 }
 
 const isSelf = session && did === session.did;
+
+// The seeded dataset (see /lib/demo.js) never touches a real PDS, so a demo
+// profile is built straight from it instead of the network calls below.
+async function mainDemo(demoDid) {
+  const roots = await loadDemoRoots();
+  const nodes = roots.flatMap((r) => flattenTree(r)).filter((n) => n.rec.did === demoDid);
+  if (!nodes.length) {
+    rootEl.innerHTML = `<p class="muted">no seeded activity for <span class="mono">${esc(demoDid)}</span>. <a href="/profile/?did=did:demo:1">try the sample profile →</a></p>`;
+    return;
+  }
+  const handle = nodes[0].handle || demoDid;
+  const homeName = nodes[0].homeName || demoDid;
+  const homeEmoji = homeName.split(" ")[0];
+  const shouts = nodes.filter((n) => n.rec.collection === COLLECTIONS.shout);
+  const echoes = nodes.filter((n) => n.rec.collection === COLLECTIONS.echo);
+  const murmurs = nodes.filter((n) => n.rec.collection === COLLECTIONS.murmur);
+  const totalScore = nodes.reduce((sum, n) => sum + (n.score || 0), 0);
+
+  const voidsDiscovered = new Map();
+  for (const n of nodes) {
+    const p = n.rec.value.place;
+    if (p) voidsDiscovered.set(p.id, p);
+  }
+
+  rootEl.innerHTML = `
+    <div class="card p-head">
+      <div style="font-size:2.4rem">${esc(homeEmoji)}</div>
+      <div>
+        <h1>${esc(homeName)}</h1>
+        <div class="muted mono">@${esc(handle)}</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="did-line">${esc(demoDid)}</div>
+      <div class="hr"></div>
+      <p class="muted" style="font-size:0.85rem"><span class="badge demo">demo</span> a seeded sample profile, not a real member — see the banner above to switch to the live network, or <a href="/onboarding/">sign in</a> for your own.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">activity</h3>
+      <div class="stat-grid">
+        <div class="stat card"><div class="n">${shouts.length}</div><div class="l">shouts</div></div>
+        <div class="stat card"><div class="n">${echoes.length}</div><div class="l">echoes</div></div>
+        <div class="stat card"><div class="n">${murmurs.length}</div><div class="l">murmurs</div></div>
+        <div class="stat card"><div class="n">${totalScore > 0 ? "+" : ""}${totalScore}</div><div class="l">score (demo)</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Voids discovered</h3>
+      ${voidsDiscovered.size
+        ? `<div class="chip-row">${[...voidsDiscovered.values()].map((p) => `<a class="chip" href="/place/?id=${encodeURIComponent(p.id)}">${esc(p.emoji)} ${esc(p.name)}</a>`).join("")}</div>`
+        : `<p class="muted">nothing shouted, echoed, or murmured yet.</p>`}
+    </div>
+  `;
+}
 
 async function listAllOwnRecords(pds, repoDid, collection) {
   const out = [];
@@ -193,7 +257,11 @@ async function main() {
   });
 }
 
-await main();
+if (did.startsWith("did:demo:")) {
+  await mainDemo(did);
+} else {
+  await main();
+}
 </script>
 <script src="/lib/chicken-mode.js"></script>
 </body>

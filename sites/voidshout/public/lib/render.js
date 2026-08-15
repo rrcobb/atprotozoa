@@ -27,6 +27,7 @@ export function nodeToCard(node, rootUri, homeName) {
     uri: node.uri,
     rootUri,
     collection: node.rec.collection,
+    did: node.rec.did,
     homeName: homeName ?? node.homeName ?? node.rec.did,
     place: node.rec.value.place,
     text: node.rec.value.text,
@@ -65,7 +66,7 @@ export function canonPostHtml(post) {
 }
 
 /**
- * @param {{uri:string, collection:string, homeName:string, place:object, text?:string, createdAt:string, score:number, hidden:boolean, isDemo?:boolean}} n
+ * @param {{uri:string, collection:string, did:string, homeName:string, place:object, text?:string, createdAt:string, score:number, hidden:boolean, isDemo?:boolean}} n
  */
 export function cardHtml(n) {
   const kindLabel =
@@ -87,7 +88,7 @@ export function cardHtml(n) {
   return `
     <article class="void-card" data-uri="${esc(n.uri)}">
       <div class="void-card-top">
-        <span class="who mono">${esc(n.homeName)} ${kindLabel} at ${esc(n.place?.emoji || "❔")} ${esc(n.place?.name || "Elsewhere")}</span>
+        <span class="who mono">${n.did ? `<a class="who-link" href="/profile/?did=${encodeURIComponent(n.did)}">${esc(n.homeName)}</a>` : esc(n.homeName)} ${kindLabel} at ${esc(n.place?.emoji || "❔")} ${esc(n.place?.name || "Elsewhere")}</span>
         <span class="spacer"></span>
         ${hiddenTag}${demoTag}
       </div>
@@ -106,6 +107,8 @@ export const CARD_STYLE = `
   .void-card:hover { background: var(--void-bg2); }
   .void-card-top { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-size: 0.78rem; }
   .void-card-top .spacer { flex: 1 1 auto; }
+  .who-link { color: inherit; text-decoration: none; }
+  .who-link:hover { text-decoration: underline; }
   .void-card .body { margin: 0.2rem 0 0.55rem; line-height: 1.5; }
   .void-card-bottom { display: flex; align-items: center; gap: 0.75rem; font-size: 0.76rem; }
   .void-card-bottom .score { padding: 0.1rem 0.4rem; border-radius: 999px; border: 1px solid var(--faint); }
