@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>feedwalk — walk through who you follow</title>
+<meta name="description" content="Type a Bluesky handle. Get an infinite, procedurally-generated museum you can walk through in first-person, where every framed exhibit on the wall is a real recent post from someone that account follows." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://feedwalk.bisks.net/" />
+<meta property="og:title" content="feedwalk — walk through who you follow" />
+<meta property="og:description" content="An endless first-person museum, real WebGL 3D. Every corridor forks and every frame on the wall is a real post from someone you follow. No login — just a handle." />
+<meta property="og:image" content="https://feedwalk.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="feedwalk" />
+<meta name="twitter:description" content="An endless first-person gallery built from the people you follow. Every frame on the wall is a real post." />
+<meta name="twitter:image" content="https://feedwalk.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #120e18;
+    --panel: #1c1622;
+    --ink: #f0e9df;
+    --muted: #9186a0;
+    --faint: #2c2436;
+    --accent: #e8b34c;
+    --accent-dim: #7a5a1a;
+    --cyan: #5fd6d1;
+    --warn: #ff6f5e;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--mono); font-size: 14px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header h1 { font-size: 1.55rem; margin: 0 0 0.35rem; font-weight: 700; letter-spacing: -0.01em; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--muted); margin: 0 0 1rem; font-size: 0.87rem; max-width: 64ch; }
+  header p.brag { color: var(--cyan); font-size: 0.76rem; margin: 0 0 1.5rem; }
+
+  form#load-form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  #handle-input {
+    flex: 1; font-family: var(--mono); font-size: 0.9rem; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+    padding: 0.55rem 0.7rem;
+  }
+  #handle-input:focus { outline: none; border-color: var(--accent-dim); }
+  form#load-form button {
+    font-family: var(--mono); font-size: 0.85rem; color: #241804;
+    background: var(--accent); border: none; border-radius: 6px;
+    padding: 0 1rem; cursor: pointer; font-weight: 700;
+  }
+  form#load-form button:hover { filter: brightness(1.1); }
+  form#load-form button:disabled { opacity: 0.5; cursor: default; }
+
+  #status { min-height: 1.2rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 1rem; }
+  #status.error { color: var(--warn); }
+
+  #game[hidden] { display: none; }
+
+  #hud {
+    display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+    padding: 0.6rem 0.8rem; margin-bottom: 0.6rem;
+    background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+    font-size: 0.8rem; color: var(--muted);
+  }
+  #hud b { color: var(--ink); }
+  #hud .spacer { flex: 1; }
+  #hud button {
+    font-family: var(--mono); font-size: 0.75rem; color: var(--ink);
+    background: transparent; border: 1px solid var(--faint); border-radius: 6px;
+    padding: 0.3rem 0.6rem; cursor: pointer;
+  }
+  #hud button:hover { border-color: var(--accent-dim); }
+
+  #stage {
+    position: relative; width: 100%;
+    border-radius: 8px; overflow: hidden;
+    background: #000;
+    box-shadow: 0 0 0 1px var(--faint);
+  }
+  #board { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; touch-action: none; }
+  .no-webgl #stage::after {
+    content: "your browser can't do WebGL — feedwalk needs it to render the gallery.";
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 2rem; text-align: center; color: var(--muted); font-size: 0.85rem; background: var(--panel);
+  }
+
+  #crosshair {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 8px; height: 8px; border-radius: 50%; pointer-events: none; z-index: 4;
+    background: rgba(240, 233, 223, 0.65);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+  }
+
+  #caption {
+    position: absolute; left: 0.6rem; right: 0.6rem; bottom: 0.6rem; z-index: 5;
+    background: rgba(18, 14, 24, 0.88); border: 1px solid var(--faint); border-radius: 10px;
+    padding: 0.6rem 0.75rem; opacity: 0; transform: translateY(6px);
+    transition: opacity 0.15s ease, transform 0.15s ease; pointer-events: none;
+  }
+  #caption.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  #caption .row { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+  #cap-name { font-weight: 700; color: var(--accent); font-size: 0.85rem; }
+  #cap-meta { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+  #cap-text { margin: 0.25rem 0 0.5rem; font-size: 0.82rem; color: var(--ink); max-height: 3.2em; overflow: hidden; }
+  #caption .actions { display: flex; gap: 0.5rem; }
+  #caption .actions a {
+    font-size: 0.72rem; text-decoration: none; color: var(--bg);
+    background: var(--cyan); border-radius: 999px; padding: 0.3rem 0.7rem; font-weight: 700;
+  }
+  #caption .actions a.ghost { background: transparent; color: var(--cyan); border: 1px solid var(--cyan); }
+
+  #lock-hint {
+    position: absolute; top: 0.6rem; left: 50%; transform: translateX(-50%);
+    font-size: 0.68rem; color: var(--muted); background: rgba(11, 9, 6, 0.6);
+    padding: 0.2rem 0.6rem; border-radius: 999px; z-index: 4;
+    pointer-events: none; opacity: 0; transition: opacity 0.2s ease;
+  }
+  #lock-hint.show { opacity: 1; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.9rem; text-align: center; padding: 1.5rem;
+    background: rgba(18, 14, 24, 0.92); backdrop-filter: blur(2px);
+    z-index: 6;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h2 { margin: 0; font-size: 1.25rem; color: var(--accent); }
+  .overlay p { margin: 0; color: var(--muted); max-width: 46ch; font-size: 0.85rem; }
+  .overlay button {
+    font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+    color: #241804; background: var(--accent); border: none;
+    border-radius: 999px; padding: 0.6rem 1.4rem; cursor: pointer;
+  }
+  .overlay button:hover { filter: brightness(1.1); }
+  .overlay .keys { color: var(--muted); font-size: 0.75rem; }
+  .overlay .keys b { color: var(--ink); }
+
+  #touch {
+    display: none; justify-content: center; margin-top: 0.6rem;
+  }
+  #touch .pad { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(2, 46px); gap: 5px; }
+  #touch button {
+    font-family: var(--mono); font-size: 1rem; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+  }
+  #touch button:active { background: var(--faint); }
+  #t-fwd { grid-column: 2; grid-row: 1; }
+  #t-left { grid-column: 1; grid-row: 2; }
+  #t-back { grid-column: 2; grid-row: 2; }
+  #t-right { grid-column: 3; grid-row: 2; }
+  @media (pointer: coarse) { #touch { display: flex; } }
+
+  footer { margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint); color: var(--muted); font-size: 0.75rem; }
+  footer a { color: var(--cyan); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>feed<span>walk</span></h1>
+      <p>
+        type a Bluesky handle. get an endless, procedurally-generated
+        museum you can walk through in first-person — every framed exhibit
+        on the wall is a real recent post from someone that account
+        follows, corridors fork and widen into rooms forever, and once
+        you've seen every post it starts a new lap.
+      </p>
+      <p class="brag">
+        real WebGL 3D · no login, no OAuth — public reads only, nothing
+        written · walk until you've seen it all
+      </p>
+    </header>
+
+    <form id="load-form">
+      <input id="handle-input" placeholder="handle.bsky.social" value="me.jamespicone.name" autocomplete="off" />
+      <button id="load-btn" type="submit">build the gallery</button>
+    </form>
+    <div id="status"></div>
+
+    <div id="game" hidden>
+      <div id="hud">
+        <span>viewing <b id="hud-who">—</b></span>
+        <span id="hud-count"></span>
+        <span id="hud-lap" style="color: var(--accent);"></span>
+        <span class="spacer"></span>
+        <button id="change-btn" type="button">change handle</button>
+      </div>
+
+      <div id="stage">
+        <canvas id="board"></canvas>
+        <div id="crosshair"></div>
+        <div id="lock-hint">click to look around · Esc to release</div>
+
+        <div id="caption">
+          <div class="row">
+            <span id="cap-name">—</span>
+            <span id="cap-meta"></span>
+          </div>
+          <p id="cap-text"></p>
+          <div class="actions">
+            <a id="open-btn" href="#" target="_blank" rel="noopener">open on bluesky ↗</a>
+            <a id="share-btn" class="ghost" href="#" target="_blank" rel="noopener">share this find ▸</a>
+          </div>
+        </div>
+
+        <div class="overlay" id="start-overlay">
+          <h2>the gallery is hung</h2>
+          <p id="start-copy">the exhibits are ready.</p>
+          <button id="start-btn">▶ walk in</button>
+          <p class="keys">
+            <b>WASD</b>/arrows to walk · <b>shift</b> to jog ·
+            <b>mouse</b> to look (click the gallery first) · touch controls on mobile ·
+            look at a frame to see what it is
+          </p>
+        </div>
+      </div>
+
+      <div id="touch">
+        <div class="pad">
+          <span></span><button id="t-fwd">▲</button><span></span>
+          <button id="t-left">◀</button><button id="t-back">▼</button><button id="t-right">▶</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      built on <a href="https://atproto.com">atproto</a> · public AppView
+      reads only (getFollows + getAuthorFeed), nothing written, no account
+      needed · handle-graph pattern copied from
+      <a href="https://mootcraft.bisks.net/">mootcraft</a> · real WebGL
+      (three.js), a procedurally-generated corridor streamed in and out as
+      you walk, real posts hung as canvas-textured frames.
+    </footer>
+  </div>
+
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script src="lib/handle-typeahead.js"></script>
+  <script type="module" src="gallery-scene.js"></script>
+  <script type="module" src="app.js"></script>
+
+  <!-- chicken mode (added across projects by @buildthis.bisky.net) -->
+  <style>
+    #cm-toggle {
+      position: fixed;
+      right: 0.85rem;
+      bottom: 0.85rem;
+      z-index: 2147483000;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.7rem;
+      line-height: 1;
+      background: rgba(20, 20, 20, 0.72);
+      color: #ddd;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      padding: 0.45rem 0.6rem;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+    #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+    #cm-coop {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2.2rem;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 2147483000;
+      display: none;
+    }
+    #cm-coop.on { display: block; }
+    .cm-chicken {
+      position: absolute;
+      bottom: 0.1rem;
+      font-size: 1.5rem;
+      transform: scaleX(-1);
+      animation-name: cm-strut;
+      animation-timing-function: linear;
+      animation-iteration-count: infinite;
+      filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+    }
+    @keyframes cm-strut {
+      0% { transform: translateX(-3rem) scaleX(-1); }
+      48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+      50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+      98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+      100% { transform: translateX(-3rem) scaleX(-1); }
+    }
+  </style>
+  <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+  <div id="cm-coop"></div>
+  <script>
+    (function () {
+      var coop = document.getElementById("cm-coop");
+      var toggle = document.getElementById("cm-toggle");
+      if (!coop || !toggle) return;
+      var KEY = "chicken-mode";
+      var spawner = null;
+
+      function spawn() {
+        var c = document.createElement("div");
+        c.className = "cm-chicken";
+        c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+        var duration = 14 + Math.random() * 10;
+        c.style.animationDuration = duration + "s";
+        c.style.animationDelay = -Math.random() * duration + "s";
+        c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+        coop.appendChild(c);
+      }
+      function start() {
+        if (spawner) return;
+        coop.innerHTML = "";
+        for (var i = 0; i < 5; i++) spawn();
+        spawner = setInterval(function () {
+          if (coop.children.length < 8) spawn();
+        }, 4000);
+      }
+      function stop() {
+        if (spawner) clearInterval(spawner);
+        spawner = null;
+        coop.innerHTML = "";
+      }
+      function setMode(on) {
+        coop.classList.toggle("on", on);
+        toggle.classList.toggle("on", on);
+        if (on) start(); else stop();
+        try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+      }
+      toggle.addEventListener("click", function () {
+        setMode(!coop.classList.contains("on"));
+      });
+      var startedOn = false;
+      try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+      if (startedOn) setMode(true);
+    })();
+  </script>
+  <!-- /chicken mode -->
+</body>
+</html>
