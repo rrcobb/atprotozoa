@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>poster's psychosis clinic — get diagnosed, get a prescription</title>
+<meta name="description" content="Enter a Bluesky handle for a clinical diagnosis of Poster's Psychosis, built from your real posting stats, and a printable prescription for the only known cure." />
+<meta property="og:title" content="poster's psychosis clinic — get diagnosed, get a prescription" />
+<meta property="og:description" content="Enter a Bluesky handle for a clinical diagnosis of Poster's Psychosis, built from your real posting stats, and a printable prescription for the only known cure." />
+<meta property="og:url" content="https://posterspsychosis.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://posterspsychosis.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A mock prescription pad from the Poster's Psychosis Clinic, Rx: post more." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="poster's psychosis clinic — get diagnosed, get a prescription" />
+<meta name="twitter:description" content="Enter a Bluesky handle for a clinical diagnosis of Poster's Psychosis, built from your real posting stats, and a printable prescription for the only known cure." />
+<meta name="twitter:image" content="https://posterspsychosis.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #10141a;
+    --bg2: #161c24;
+    --fg: #eef1f5;
+    --dim: #8b96a5;
+    --accent: #ff5c5c;
+    --accent2: #6ec9ff;
+    --card: #f4f1e9;
+    --card-fg: #1a1a1a;
+    --card-dim: #5a554a;
+    --border: #2a323d;
+    --paper-border: #b9b195;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #241a2e 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #1a2a34 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  .clinic-mark {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    margin-bottom: 0.5rem;
+  }
+  h1 {
+    font-size: 1.85rem;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
+    color: var(--fg);
+  }
+  h1 .rx { color: var(--accent); }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2.25rem;
+    line-height: 1.55;
+  }
+  .tag code { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: #1c232c;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #ff8a5c);
+    color: #1a0700;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none;
+    background: #171e27;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -20px var(--accent2);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .stage-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent2);
+    margin-bottom: 0.4rem;
+  }
+  .stage-name {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: 0.15rem;
+    line-height: 1.25;
+  }
+  .stage-code {
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-bottom: 0.9rem;
+  }
+  .meter {
+    height: 10px;
+    border-radius: 999px;
+    background: #232c37;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: 1.4rem;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    width: 0%;
+    transition: width 0.6s ease;
+  }
+
+  .impression {
+    font-size: 0.98rem;
+    line-height: 1.55;
+    margin-bottom: 1.5rem;
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--accent2);
+  }
+
+  .symptoms { margin: 0 0 1.6rem; }
+  .symptoms .label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent2);
+    margin-bottom: 0.6rem;
+  }
+  .symptoms ul { list-style: none; margin: 0; padding: 0; }
+  .symptoms li {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--fg);
+    padding: 0.35rem 0 0.35rem 1.5rem;
+    position: relative;
+  }
+  .symptoms li::before {
+    content: "\2611";
+    position: absolute;
+    left: 0;
+    color: var(--accent2);
+  }
+
+  /* the printable Rx pad, styled like actual paper even on-screen */
+  .rx-pad {
+    background: var(--card);
+    color: var(--card-fg);
+    border: 1px solid var(--paper-border);
+    border-radius: 6px;
+    padding: 1.5rem 1.5rem 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .rx-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 2px solid var(--card-fg);
+    padding-bottom: 0.6rem;
+    margin-bottom: 0.9rem;
+  }
+  .rx-clinic { font-weight: 800; font-size: 1rem; letter-spacing: 0.02em; }
+  .rx-clinic small { display: block; font-weight: 400; font-size: 0.65rem; color: var(--card-dim); margin-top: 0.15rem; }
+  .rx-num { font-size: 0.68rem; color: var(--card-dim); text-align: right; }
+  .rx-fields {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .rx-fields span b { font-weight: 700; }
+  .rx-body { display: flex; gap: 0.9rem; align-items: flex-start; margin-bottom: 1rem; }
+  .rx-symbol { font-size: 2.6rem; font-weight: 800; line-height: 1; color: var(--card-fg); }
+  .rx-med { font-weight: 800; font-size: 1.05rem; margin-bottom: 0.3rem; }
+  .rx-sig { font-size: 0.86rem; line-height: 1.5; margin-bottom: 0.4rem; }
+  .rx-refills { font-size: 0.78rem; color: var(--card-dim); }
+  .rx-warn {
+    font-size: 0.68rem;
+    color: var(--card-dim);
+    border-top: 1px dashed var(--paper-border);
+    padding-top: 0.7rem;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+  .rx-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: 0.8rem;
+  }
+  .rx-doctor { font-style: italic; }
+  .rx-doctor small { display: block; font-style: normal; font-size: 0.65rem; color: var(--card-dim); }
+  .rx-date { color: var(--card-dim); font-size: 0.72rem; }
+
+  .actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.4rem;
+  }
+  .actions button, .actions a {
+    flex: 1;
+    min-width: 130px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  #printBtn {
+    background: var(--card);
+    color: var(--card-fg);
+    border: 1px solid var(--paper-border);
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent2), #4ea8e0);
+    color: #04121c;
+    border: none;
+  }
+  .actions button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  #shareCanvas { display: none; }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+
+  @media print {
+    html, body { background: #fff; padding: 0; }
+    body * { visibility: hidden; }
+    .rx-pad, .rx-pad * { visibility: visible; }
+    .rx-pad {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      border: none;
+      border-radius: 0;
+      padding: 2rem 2.5rem;
+    }
+    .rx-symbol { font-size: 3.2rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="clinic-mark">🩺 Bisks General — Dept. of Extremely Online Medicine</div>
+    <h1>the <span class="rx">poster's psychosis</span> clinic</h1>
+    <p class="tag">
+      Enter a Bluesky handle for a full clinical workup: real posting stats
+      pulled from the AppView, a diagnosis, a symptom checklist, and a
+      prescription you can actually print. The cure is well established —
+      <code>@cee.wtf</code> said it first: post more.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">diagnose me</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, a rival poster's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="stage-label">clinical diagnosis</div>
+      <div class="stage-name" id="stageName"></div>
+      <div class="stage-code" id="stageCode"></div>
+      <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+
+      <p class="impression" id="impression"></p>
+
+      <div class="symptoms">
+        <div class="label">observed symptoms</div>
+        <ul id="symptomList"></ul>
+      </div>
+
+      <div class="rx-pad" id="rxPad">
+        <div class="rx-head">
+          <div class="rx-clinic">BISKS GENERAL HOSPITAL
+            <small>Dept. of Extremely Online Medicine · posterspsychosis.bisks.net</small>
+          </div>
+          <div class="rx-num" id="rxNum"></div>
+        </div>
+        <div class="rx-fields">
+          <span>Patient: <b id="rxPatient"></b></span>
+          <span>Diagnosis: <b id="rxDiagnosis"></b></span>
+        </div>
+        <div class="rx-body">
+          <div class="rx-symbol">℞</div>
+          <div>
+            <div class="rx-med">POST MORE <span style="font-weight:400;">(postum maximus, 1 skeet)</span></div>
+            <div class="rx-sig" id="rxSig">Take one (1) post immediately upon reading. Repeat every time the urge occurs. Do not withhold doses out of shame — shame is a symptom, not a contraindication.</div>
+            <div class="rx-refills" id="rxRefills">Refills: ∞ (see warnings)</div>
+          </div>
+        </div>
+        <div class="rx-warn" id="rxWarn">Warnings: may cause main character syndrome, reply-guy relapse, quote-posting your own posts, checking analytics at 3am. Do not operate a group chat while symptomatic.</div>
+        <div class="rx-foot">
+          <div class="rx-doctor" id="rxDoctor">
+            <small>Attending Physician</small>
+          </div>
+          <div class="rx-date" id="rxDate"></div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="printBtn" type="button">🖨️ print prescription</button>
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share diagnosis</a>
+        <button id="shareNative" class="secondary" type="button" style="display:none;">📤 share card</button>
+        <button id="shareDownload" class="secondary" type="button">⬇ download card</button>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+// Stable per-DID pseudo-randomness, same trick as sites/didscope: sum char
+// codes into a seed so a handle always gets the same flavor symptoms and
+// the same attending doctor on every visit, like a real chart would.
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+function pick(list, seed, offset) {
+  return list[(seed + (offset || 0)) % list.length];
+}
+function pickN(list, seed, n) {
+  const idx = list.map((_, i) => i);
+  const out = [];
+  let s = seed;
+  for (let i = 0; i < n && idx.length; i++) {
+    s = (s * 2654435761 + 1) >>> 0;
+    const j = s % idx.length;
+    out.push(list[idx[j]]);
+    idx.splice(j, 1);
+  }
+  return out;
+}
+
+const STAGES = [
+  { max: 20, name: "Stage 0 — Prodromal Lurking", code: "DSM-BSKY 000.LURK" },
+  { max: 40, name: "Stage I — Incipient Doomscroll", code: "DSM-BSKY 100.SCRL" },
+  { max: 60, name: "Stage II — Compulsive Threading", code: "DSM-BSKY 200.THRD" },
+  { max: 80, name: "Stage III — Main Character Syndrome", code: "DSM-BSKY 300.MAIN" },
+  { max: 101, name: "Stage IV — Terminal Posting (Post-Independent State)", code: "DSM-BSKY 400.TERM" },
+];
+
+const FLAVOR_SYMPTOMS = [
+  "Compulsive screenshotting of other people's posts before replying to them.",
+  "Marked increase in reply-guy activity between 11pm and 3am.",
+  "Composes several posts, deletes them, thinks about them for hours anyway.",
+  "Refreshes the timeline reflexively, sometimes mid-sentence.",
+  "Early signs of Quote-Post Rebuttal Reflex.",
+  "Has screenshotted their own post to see how it looks to strangers.",
+  "Persistent belief that the algorithm is personally targeting them today.",
+  "Checks own post's like count within 90 seconds of posting, repeatedly.",
+  "Subtweets with plausible deniability; deniability increasingly implausible.",
+  "Strong, unsolicited opinions on font choices in other people's screenshots.",
+  "Composes posts in the notes app first, 'to be safe.'",
+  "Recurrent urge to reply 'this' to a post that says nothing new.",
+  "Has threatened, credibly, to 'get off this app.' Has not gotten off this app.",
+  "Dissociative episodes triggered specifically by checking analytics.",
+  "Opens the app to check one notification, resurfaces forty minutes later.",
+  "Composes a reply, reads it back, and posts it anyway.",
+];
+
+const DOCTORS = [
+  "Dr. S. Keet, MD", "Dr. F. Eed, MD", "Dr. A. Lgorithm, DO",
+  "Dr. Q. Post, MD", "Dr. R. Eply, MD", "Dr. N. Otification, MD",
+  "Dr. B. Lock, MD", "Dr. M. Ute, MD", "Dr. T. Imeline, MD",
+  "Dr. C. Ache, MD", "Dr. L. Urker, MD", "Dr. V. Iral, MD",
+];
+
+function stageFor(score) {
+  for (const s of STAGES) if (score < s.max) return s;
+  return STAGES[STAGES.length - 1];
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  stageName: document.getElementById("stageName"),
+  stageCode: document.getElementById("stageCode"),
+  meterFill: document.getElementById("meterFill"),
+  impression: document.getElementById("impression"),
+  symptomList: document.getElementById("symptomList"),
+  rxPad: document.getElementById("rxPad"),
+  rxNum: document.getElementById("rxNum"),
+  rxPatient: document.getElementById("rxPatient"),
+  rxDiagnosis: document.getElementById("rxDiagnosis"),
+  rxDoctor: document.getElementById("rxDoctor"),
+  rxDate: document.getElementById("rxDate"),
+  printBtn: document.getElementById("printBtn"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function shareUrlFor(handle) {
+  return "https://posterspsychosis.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(handle, stageName) {
+  return (
+    `Diagnosed @${handle} with ${stageName}. ` +
+    `Rx: post more.\n\n` +
+    `get your own diagnosis → ${shareUrlFor(handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, stageName, doctor, rxNum, dateStr }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.fillStyle = "#f4f1e9";
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#b9b195";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(24, 24, W - 48, H - 48);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = `800 30px ${mono}`;
+  ctx.fillText("BISKS GENERAL HOSPITAL", 64, 96);
+  ctx.fillStyle = "#5a554a";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText("Dept. of Extremely Online Medicine · posterspsychosis.bisks.net", 64, 122);
+
+  ctx.strokeStyle = "#1a1a1a";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(64, 142);
+  ctx.lineTo(W - 64, 142);
+  ctx.stroke();
+
+  let who = "@" + profile.handle;
+  let textX = 64;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(92, 196, 32, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 164, 64, 64);
+    ctx.restore();
+    textX = 140;
+  }
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText("Patient: " + who, textX, 190);
+  ctx.fillStyle = "#5a554a";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText("Date: " + dateStr, textX, 214);
+
+  ctx.fillStyle = "#ff5c5c";
+  ctx.font = `800 26px ${mono}`;
+  ctx.fillText("Diagnosis: " + stageName, 64, 270);
+
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = `800 90px ${mono}`;
+  ctx.fillText("℞", 64, 400);
+
+  ctx.font = `800 40px ${mono}`;
+  ctx.fillText("POST MORE", 190, 370);
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillStyle = "#5a554a";
+  ctx.fillText("(postum maximus, 1 skeet)", 190, 398);
+
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = `400 18px ${mono}`;
+  wrapCanvasText(
+    ctx,
+    "Take one (1) post immediately upon reading. Repeat every time the urge occurs.",
+    190, 432, W - 254, 26
+  );
+
+  ctx.strokeStyle = "#b9b195";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 5]);
+  ctx.beginPath();
+  ctx.moveTo(64, H - 130);
+  ctx.lineTo(W - 64, H - 130);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#5a554a";
+  ctx.font = `italic 20px ${mono}`;
+  ctx.fillText(doctor, 64, H - 90);
+  ctx.font = `400 14px ${mono}`;
+  ctx.fillText("Attending Physician", 64, H - 70);
+
+  ctx.textAlign = "right";
+  ctx.font = `400 14px ${mono}`;
+  ctx.fillText(rxNum, W - 64, H - 90);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff5c5c";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("posterspsychosis.bisks.net", 64, H - 44);
+}
+
+async function diagnose(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("pulling chart for " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const posts = profile.postsCount || 0;
+    const followers = profile.followersCount || 0;
+    const follows = profile.followsCount || 0;
+    const bio = profile.description || "";
+    const seed = hashStr(did);
+
+    // severity is a log curve over lifetime posts — a handful of posts barely
+    // registers, a five-figure post count maxes out the meter.
+    const score = Math.max(0, Math.min(100, Math.round(Math.log2(posts + 1) * 9)));
+    const stage = stageFor(score);
+
+    const statSymptoms = [];
+    if (posts > 10000) {
+      statSymptoms.push(`Posting velocity exceeds clinical safe range — ${posts.toLocaleString()} lifetime posts on file.`);
+    } else if (posts < 20) {
+      statSymptoms.push(`Prodromal phase — only ${posts} post${posts === 1 ? "" : "s"} on file. Early intervention recommended before it's too late.`);
+    }
+    if (followers > 0 && follows > followers * 3) {
+      statSymptoms.push(`Reciprocity Deficit — follows outnumber followers ${(follows / followers).toFixed(1)}:1, consistent with compulsive following behavior.`);
+    } else if (follows > 0 && followers > follows * 5) {
+      statSymptoms.push(`Main Character Immunity — followers outnumber follows ${(followers / follows).toFixed(1)}:1; patient has stopped listening to the room.`);
+    }
+    if (bio.length > 120) {
+      statSymptoms.push(`Bio Overshare Syndrome — a ${bio.length}-character self-diagnosis detected in the bio field.`);
+    } else if (!bio.trim()) {
+      statSymptoms.push("Undocumented Patient — no bio on file. Refuses to explain himself. Suspicious.");
+    }
+
+    const need = Math.max(0, 6 - statSymptoms.length);
+    const flavorPicks = pickN(FLAVOR_SYMPTOMS, seed, need);
+    const symptoms = statSymptoms.concat(flavorPicks);
+
+    const doctor = pick(DOCTORS, seed);
+    const rxNum = "Rx# BSKY-" + (seed % 9000 + 1000) + "-PSY";
+    const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.stageName.textContent = stage.name;
+    els.stageCode.textContent = stage.code + " · severity " + score + "/100";
+    els.meterFill.style.width = score + "%";
+    els.impression.textContent =
+      `Working diagnosis: full-spectrum Poster's Psychosis. Per established clinical consensus ` +
+      `(@cee.wtf, this thread), the only known cure is to post more. Prescribed below.`;
+
+    els.symptomList.innerHTML = "";
+    symptoms.forEach((s) => {
+      const li = document.createElement("li");
+      li.textContent = s;
+      els.symptomList.appendChild(li);
+    });
+
+    els.rxNum.textContent = rxNum;
+    els.rxPatient.textContent = "@" + profile.handle;
+    els.rxDiagnosis.textContent = stage.name.replace(/^Stage [0IV]+ — /, "");
+    els.rxDoctor.innerHTML = doctor + "<small>Attending Physician</small>";
+    els.rxDate.textContent = "Date: " + dateStr;
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    lastShareText = shareText(profile.handle, stage.name);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    buildShareCard({ profile, stageName: stage.name, doctor, rxNum, dateStr });
+  } catch (err) {
+    setStatus("couldn't pull that chart: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  diagnose(els.input.value);
+});
+
+els.printBtn.addEventListener("click", () => window.print());
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "posterspsychosis-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "posterspsychosis-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "poster's psychosis clinic" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  diagnose(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
